@@ -154,15 +154,22 @@ export class DashboardControl {
     if (attachment.closed) return;
     const next = prepareDelivery(attachment.delivery, response), outputRevision = attachment.outputRevision + 1;
     const userId = attachment.claims.authority.userId;
-    unwrap(await this.services.user(userId).setOutput(userId, attachment.sessionId, outputRevision, next.bytes, next.messages));
-    if (this.load(ws).closed) return;
+    // Authority and freshness are checked with nothing awaited in between, so
+    // no event can land between the last check and the send. Error replies skip
+    // the liveness check because an expired session still has to be told why it
+    // is being closed.
     if (response.schemaId !== "error.v1") this.assertLive(attachment.claims);
     if (response.schemaId === "dashboard.directory.v1"
       && this.services.broker(attachment.claims.authority.teamId).dependencies.store.readRevision() !== response.directory.revision) {
       throw new OperationError("resync_required", 409, true);
     }
-    this.save(ws, { ...attachment, delivery: next.state, outputRevision });
     ws.send(next.text);
+    // The frame is out, so the accounting has to follow it. Charging first would
+    // leave a rejected frame paid for, and the next frame's revision would then
+    // be refused as a conflict, wedging this socket's output path for good.
+    unwrap(await this.services.user(userId).setOutput(userId, attachment.sessionId, outputRevision, next.bytes, next.messages));
+    if (this.load(ws).closed) return;
+    this.save(ws, { ...attachment, delivery: next.state, outputRevision });
   }
 
   private assertLive(claims: DashboardClaims): void {

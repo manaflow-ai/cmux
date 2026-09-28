@@ -256,10 +256,9 @@ export class TeamControl extends DurableObject<Environment> {
     if (attachment.closed) return;
     const next = prepareDelivery(attachment.delivery, response);
     const outputRevision = attachment.outputRevision + 1;
-    await this.setOutput(attachment.session, outputRevision, next.bytes, next.messages);
-    if (this.load(ws).closed) return;
-    this.save(ws, { ...attachment, delivery: next.state, outputRevision });
-    // The budget RPC yields. Re-check authority before private data leaves us.
+    // Authority is checked with nothing awaited in between, so no event can land
+    // between the last check and the send, and private data cannot leave us
+    // under authority that was revoked while this reply was being built.
     if (response.schemaId === "session.ready.v1") {
       const broker = this.broker(attachment.session.identity.teamId);
       broker.validateSetup(attachment.session, response.challenge !== undefined);
@@ -272,6 +271,12 @@ export class TeamControl extends DurableObject<Environment> {
       if (response.schemaId === "directory.result.v1" && broker.dependencies.store.readRevision() !== response.directory.revision) throw new OperationError("resync_required", 409, true);
     }
     ws.send(next.text);
+    // The frame is out, so the accounting has to follow it. Committing first
+    // would spend a sequence number on a frame the client never sees, and at a
+    // checkpoint boundary would mint a receipt token it can never return.
+    await this.setOutput(attachment.session, outputRevision, next.bytes, next.messages);
+    if (this.load(ws).closed) return;
+    this.save(ws, { ...attachment, delivery: next.state, outputRevision });
   }
 
   private scheduleChanges(result: BrokerResult, teamId: string) {
