@@ -93,6 +93,11 @@ public protocol CloudTerminalSession: AnyObject, Sendable {
     func createWorkspace(name: String?) async throws -> String
     /// The daemon's terminals.
     func listTerminals() async throws -> [CloudTerminalSummary]
+    /// The daemon's workspaces and terminals together, each terminal filed
+    /// under the workspace that shows it. The default reads the two lists,
+    /// which cannot place a terminal; a session that can read the whole
+    /// session tree does better.
+    func loadCatalog() async throws -> (workspaces: [CloudWorkspaceSummary], terminals: [CloudTerminalSummary])
     /// Creates a workspace holding one terminal and returns the terminal id.
     func createTerminal(name: String?) async throws -> String
     /// Streams output for `terminalID` into `handler` until ``detach()``.
@@ -109,6 +114,12 @@ public protocol CloudTerminalSession: AnyObject, Sendable {
 }
 
 public extension CloudTerminalSession {
+    func loadCatalog() async throws -> (workspaces: [CloudWorkspaceSummary], terminals: [CloudTerminalSummary]) {
+        async let workspaces = listWorkspaces()
+        async let terminals = listTerminals()
+        return try await (workspaces, terminals)
+    }
+
     func listWorkspaces() async throws -> [CloudWorkspaceSummary] { [] }
     func createWorkspace(name: String?) async throws -> String {
         throw CloudAPIError.malformedResponse("remote workspace creation is unavailable")

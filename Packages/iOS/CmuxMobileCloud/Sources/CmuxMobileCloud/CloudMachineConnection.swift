@@ -139,9 +139,7 @@ public final class CloudMachineConnection {
     ) {
         do {
             let session = try await connectedSession()
-            async let workspaceRows = session.listWorkspaces()
-            async let terminalRows = session.listTerminals()
-            let catalog = try await (workspaceRows, terminalRows)
+            let catalog = try await session.loadCatalog()
             lastError = nil
             return catalog
         } catch {
