@@ -202,4 +202,26 @@ struct TerminalSessionStatusOSCTests {
 
         #expect(parsed == [TerminalSessionStatusUpdate(status: "After")])
     }
+
+    @Test("Emoji sequences survive while bidi controls are stripped")
+    func emojiSurviveBidiStripped() {
+        let coder = "\u{1F468}\u{200D}\u{1F4BB} Working"
+        let scotland = "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}"
+        let canada = "\u{1F1E8}\u{1F1E6}"
+        let heart = "\u{2764}\u{FE0F}"
+        let status = resolvedStatus([
+            "\u{1B}]21337;status=\(coder);detail=\(scotland)\(canada)\(heart)\u{07}",
+        ])
+
+        #expect(status.status == coder)
+        #expect(status.detail == scotland + canada + heart)
+        #expect(status.status?.unicodeScalars.elementsEqual(coder.unicodeScalars) == true)
+        #expect(status.detail?.unicodeScalars.elementsEqual((scotland + canada + heart).unicodeScalars) == true)
+
+        let bidi = [0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069, 0x200E, 0x200F, 0x061C]
+        for value in bidi {
+            let control = String(Character(Unicode.Scalar(UInt32(value))!))
+            #expect(resolvedStatus(["\u{1B}]21337;status=a\(control)b\u{07}"]).status == "ab")
+        }
+    }
 }

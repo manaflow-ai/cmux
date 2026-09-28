@@ -54,11 +54,23 @@ public struct TerminalSessionStatusUpdate: Equatable, Sendable {
         .control, .format, .lineSeparator, .paragraphSeparator,
     ]
 
+    private static func isKept(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x200D, 0xE0020...0xE007F:
+            // Zero width joiner (👨‍💻) and the tag characters of subdivision
+            // flags. Variation selectors are marks, not format characters.
+            true
+        default:
+            !strippedCategories.contains(scalar.properties.generalCategory)
+        }
+    }
+
     private static func sanitizedText(_ value: Substring, limit: Int) -> String {
         var scalars = String.UnicodeScalarView()
         // Controls, and format characters such as bidi overrides that could
         // make the row read differently than its bytes, never reach the row.
-        for scalar in value.unicodeScalars where !strippedCategories.contains(scalar.properties.generalCategory) {
+        // Emoji sequences keep the format characters they are built from.
+        for scalar in value.unicodeScalars where isKept(scalar) {
             scalars.append(scalar)
         }
         let trimmed = String(scalars).trimmingWhitespace()
