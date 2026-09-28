@@ -45,10 +45,14 @@ extension ContentView {
 
     /// Whether this process is allowed to open the chooser by itself.
     ///
-    /// Every XCUITest launches with HOME pointed at a throwaway directory, so
-    /// each one looks like a fresh install, and a modal sheet over the main
-    /// window swallows the keystrokes those tests send. Suppressed there by
-    /// default, and a test that wants the sheet asks for it by name.
+    /// A modal sheet over the main window swallows the keystrokes a UI test
+    /// sends, and whether it would appear is not something a test controls:
+    /// four of the UI tests point HOME at a throwaway directory, which reads as
+    /// a fresh install, while the rest run against the CI machine's own HOME,
+    /// where a config file may or may not already exist. So the sheet would
+    /// appear for some lanes and not others depending on machine state, which
+    /// is worse than either answer. Suppressed by default, and a test that
+    /// wants the sheet asks for it by name.
     ///
     /// Settings and the command palette do not go through here, so they reach
     /// the chooser under test either way.

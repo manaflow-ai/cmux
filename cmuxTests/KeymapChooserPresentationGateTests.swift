@@ -20,7 +20,7 @@ struct KeymapChooserPresentationGateTests {
     }
 
     @Test(
-        "A test harness launch does not, since every one looks like a fresh install",
+        "A test harness launch does not, since whether it would ask is machine state",
         arguments: [
             "CMUX_UI_TEST_MODE",
             "CMUX_TEST_PROCESS",

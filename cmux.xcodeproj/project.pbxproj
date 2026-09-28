@@ -2121,6 +2121,7 @@
 		A17110000000000000000001 /* KeyboardShortcutSpaceKeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */; };
 		C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */; };
 		95CDD42E8DA1B3AFBC9D76BD /* KeymapChooserPresentationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95DF57306DED1F74DC4BF161 /* KeymapChooserPresentationGateTests.swift */; };
+		9BDD1E1BE64536535213E1AD /* KeymapChooserUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F3EDA73B73EF95A4B337931 /* KeymapChooserUITests.swift */; };
 		C1175700000000000000003E /* KimiHookConfigLocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000025 /* KimiHookConfigLocationTests.swift */; };
 		858200000000000000000002 /* KimiRestorableAgentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858200000000000000000001 /* KimiRestorableAgentTests.swift */; };
 		8582A1000000000000000002 /* KimiResumeReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8582A1000000000000000001 /* KimiResumeReviewRegressionTests.swift */; };
@@ -6172,6 +6173,7 @@
 		A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSpaceKeyTests.swift; sourceTree = "<group>"; };
 		C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutTestSettingsIsolation.swift; sourceTree = "<group>"; };
 		95DF57306DED1F74DC4BF161 /* KeymapChooserPresentationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeymapChooserPresentationGateTests.swift"; sourceTree = "<group>"; };
+		5F3EDA73B73EF95A4B337931 /* KeymapChooserUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeymapChooserUITests.swift; sourceTree = "<group>"; };
 		C11757000000000000000025 /* KimiHookConfigLocationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiHookConfigLocationTests.swift; sourceTree = "<group>"; };
 		858200000000000000000001 /* KimiRestorableAgentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiRestorableAgentTests.swift; sourceTree = "<group>"; };
 		8582A1000000000000000001 /* KimiResumeReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiResumeReviewRegressionTests.swift; sourceTree = "<group>"; };
@@ -8516,6 +8518,7 @@
 				AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */,
 				340AACC8DD8772A000EA1971 /* VaultRefreshUITests.swift */,
 				83418958EF0A36762FBB8A36 /* SettingsComputersBehaviorUITests.swift */,
+				5F3EDA73B73EF95A4B337931 /* KeymapChooserUITests.swift */,
 			);
 			path = cmuxUITests;
 			sourceTree = "<group>";
@@ -15814,6 +15817,7 @@
 				C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */,
 				140240000000000000000002 /* HookPromptLengthUITests.swift in Sources */,
 				B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */,
+				9BDD1E1BE64536535213E1AD /* KeymapChooserUITests.swift in Sources */,
 				E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */,
 				B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */,
 				D77690000000000000000005 /* MultiWindowNotificationsWorkspaceHeadlineUITests.swift in Sources */,
