@@ -82,6 +82,28 @@ struct MobileTerminalFramePacerTests {
         #expect(!flushed, "flush re-emitted a frame the bypass already serviced")
     }
 
+    /// A flood update that lands just after the period elapses emits at once,
+    /// while the flush scheduled for that boundary is still pending. The next
+    /// update is held, and the stale flush must not emit it a millisecond
+    /// after the last frame: that doubled frames at every boundary (~16fps
+    /// instead of the ~11fps floor) and spent relay bandwidth the echo needs.
+    @Test func aFlushThatFiresAfterAPeriodEmitWaitsForTheNextPeriod() {
+        var pacer = MobileTerminalFramePacer()
+        let period = MobileTerminalFramePacer.floorPeriod
+        _ = pacer.updateArrived(now: t0, acceptedInputSequence: nil)
+        _ = pacer.updateArrived(now: t0 + .milliseconds(10), acceptedInputSequence: nil)
+        let boundaryEmit = t0 + period + .milliseconds(1)
+        #expect(pacer.updateArrived(now: boundaryEmit, acceptedInputSequence: nil) == .emit)
+        #expect(pacer.updateArrived(now: boundaryEmit + .milliseconds(1), acceptedInputSequence: nil) == .coalesce)
+
+        _ = pacer.flushFired(now: boundaryEmit + .milliseconds(2))
+        #expect(pacer.lastEmitAt == boundaryEmit, "the stale flush emitted inside the period")
+        #expect(pacer.flushScheduled, "the held frame lost its flush")
+
+        _ = pacer.flushFired(now: boundaryEmit + period)
+        #expect(pacer.lastEmitAt == boundaryEmit + period, "the held frame was never emitted")
+    }
+
     @Test func transportShedWidensThePeriodAndQuietRecoversIt() {
         var pacer = MobileTerminalFramePacer()
         _ = pacer.updateArrived(now: t0, acceptedInputSequence: nil)
