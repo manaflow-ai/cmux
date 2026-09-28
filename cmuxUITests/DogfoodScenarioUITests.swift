@@ -177,7 +177,7 @@ final class DogfoodScenarioUITests: XCTestCase {
         case .record(let name, let params, let steps):
             runRecording(name: name, params: params, steps: steps, label: label, app: app)
         case .note(let text):
-            _ = try callSocket(method: "window.record.note", params: ["text": text], label: label)
+            try note(text, label: label)
         case .socketLine(let line):
             let resolved = substituteInline(line)
             guard let reply = socketLine(resolved, path: socketPath, timeout: 15) else {
@@ -209,6 +209,28 @@ final class DogfoodScenarioUITests: XCTestCase {
             throw DogfoodError("\(method) failed: \(prettyJSON(response["error"] ?? response))")
         }
         return response["result"] as? [String: Any] ?? [:]
+    }
+
+    /// Captions the running clip.
+    ///
+    /// A recording stops itself at `max_seconds`, so a long-running nested step
+    /// can outlive the clip it was being recorded into. A caption with no clip
+    /// left to write on is then the recording's own limit talking, not a broken
+    /// tour, and a recording never gates what it observes: `not_found` is logged
+    /// and the step passes. Every other failure still stops the step.
+    private func note(_ text: String, label: String) throws {
+        let method = "window.record.note"
+        guard let response = socketRequest(method: method, params: substitute(["text": text])) else {
+            throw DogfoodError("no reply from \(method): \(lastSocketError)")
+        }
+        attachText(prettyJSON(response), name: "\(label)-\(method).json")
+        if response["ok"] as? Bool == true { return }
+        let code = (response["error"] as? [String: Any])?["code"] as? String ?? ""
+        guard code == "not_found" else {
+            throw DogfoodError("\(method) failed: \(prettyJSON(response["error"] ?? response))")
+        }
+        log.append("\(label) note not written: no recording is running, so the clip had already "
+                   + "reached its max_seconds")
     }
 
     // MARK: Recording
@@ -263,7 +285,12 @@ final class DogfoodScenarioUITests: XCTestCase {
             let stopped = try callSocket(method: "window.record.stop",
                                          params: id.map { ["id": $0] } ?? [:],
                                          label: label, suffix: "-stop")
-            attachClip(named: clipName, format: format, fallback: clip, status: stopped)
+            // An id-less stop with nothing active answers with the last
+            // recording the app finished, which belongs to an earlier `record`
+            // step. Its path and frame count would describe someone else's clip,
+            // so only a stop we addressed by id is allowed to name the file.
+            attachClip(named: clipName, format: format, fallback: clip,
+                       status: id == nil ? [:] : stopped)
         } catch {
             guard started else {
                 // Nothing was running, so `not_found` here is the right answer
@@ -712,8 +739,13 @@ enum DogfoodStep {
             guard let name = value as? String, !name.isEmpty else {
                 throw DogfoodError("record takes a name for the clip")
             }
-            let nested = try (object["steps"] as? [Any] ?? [])
-                .map { try DogfoodStep(json: $0, insideRecord: true) }
+            // The guard refuses these too, but it only reads the tours in the
+            // repository; an ad-hoc file passed to `run-e2e.sh --scenario` gets
+            // here first, and silently recording nothing is the worst answer.
+            guard let rawNested = object["steps"] as? [Any], !rawNested.isEmpty else {
+                throw DogfoodError("record takes a steps array with at least one step to record")
+            }
+            let nested = try rawNested.map { try DogfoodStep(json: $0, insideRecord: true) }
             guard !nested.contains(where: { $0.isRecord }) else {
                 throw DogfoodError("record cannot contain another record: the app records one window at a time")
             }

@@ -76,7 +76,8 @@ loading. It is a dry run unless dispatched with `-f apply=true` or
 Give a new tour a `paths` list of `fnmatch` globs (`*` crosses directories),
 for example `"paths": ["Sources/*Browser*", "Packages/macOS/CmuxBrowser/*"]`.
 Without one, only a `Dogfood-tours:` line or an edit to the tour file picks it.
-The test reads only `steps` and `launch`, so `paths` changes nothing about a run.
+The test checks that `paths` is a list of non-empty strings and otherwise
+ignores it, so `paths` changes nothing about a run.
 
 ## Write a tour
 
@@ -147,14 +148,23 @@ them:
   of the failure survives. Nested steps are numbered `03.1`, `03.2` in `steps.log`.
 - A `record` needs at least one nested step and may not contain another `record`,
   since the app records one window at a time. Both are refused by
-  `tests/test_dogfood_scenarios.py` before CI runs anything.
+  `tests/test_dogfood_scenarios.py` before CI runs anything, and again by the
+  step decoder, which is what an ad-hoc file handed to `run-e2e.sh --scenario`
+  meets first. Recording nothing is the one outcome worth failing over.
 - A recording never gates what it records: on a machine that cannot capture at
   all, the start failure is recorded and the nested steps still run, unrecorded.
 - `note` draws a caption into the clip. It is worth one before each thing you
   want a reviewer to notice, because a clip has no step list beside it. It only
   means anything among a record's own steps, so it is refused anywhere else.
+  A `note` that arrives after the clip stopped itself at `maxSeconds` is logged
+  as "note not written" and passes, since that is the limit talking and a
+  recording never gates what it observes. Every other `note` failure fails the
+  step.
 - The clip lands in `attachments/` next to the trees and socket replies, named
-  after the step and the tour's name for it.
+  after the step and the tour's name for it. `scripts/ci/e2e-frames.py` samples
+  a `.gif` the same way it samples an `.mp4`, one frame a second, so either
+  format reaches the pull request through the frame strip; the clip itself is
+  uploaded whole as well.
 - The app records only its own windows, one at a time, and stops by itself at
   `maxSeconds` (default 15, max 120). Keep `maxSeconds` above the time the nested
   steps take, or the clip ends early.

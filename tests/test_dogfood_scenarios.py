@@ -97,9 +97,14 @@ def check_scenario(tour: object) -> None:
     if not isinstance(steps, list) or not steps:
         raise AssertionError("a tour is a steps array or an object with a steps array")
     if isinstance(tour, dict):
-        unknown = set(tour) - {"steps", "launch"}
+        unknown = set(tour) - {"steps", "launch", "paths"}
         if unknown:
             raise AssertionError(f"unknown top level keys: {sorted(unknown)}")
+        paths = tour.get("paths", [])
+        if not isinstance(paths, list) or not all(
+            isinstance(pattern, str) and pattern.strip() for pattern in paths
+        ):
+            raise AssertionError("paths is a list of non-empty path patterns")
     check_steps(steps, inside_record=False)
 
 

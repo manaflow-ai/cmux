@@ -1,4 +1,14 @@
 {
+  "paths": [
+    "Sources/WindowRecording*",
+    "Sources/TerminalController+WindowRecording.swift",
+    "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/WindowRecording/*",
+    "CLI/CMUXCLI+Record.swift",
+    "Sources/*Split*",
+    "Sources/*CommandPalette*",
+    "Packages/macOS/CmuxCommandPalette/*",
+    "cmuxUITests/DogfoodScenarioUITests.swift"
+  ],
   "steps": [
     {"socket": "workspace.create", "params": {"title": "Record", "initial_input": "echo recording\n", "focus": true}, "save": "record"},
     {"wait": 1},

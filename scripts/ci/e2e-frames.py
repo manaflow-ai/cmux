@@ -38,7 +38,11 @@ REPO = "manaflow-ai/cmux"
 FRAMES_ARTIFACT = "ui-frames"
 RESULTS_ARTIFACT = "test-results"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".heic"}
-VIDEO_SUFFIXES = {".mp4", ".mov"}
+# A gif counts: `record` tours default to mp4 but a tour that asks for a gif
+# still has to reach the pull request, and pr_media.py builds its tour.gif out
+# of sampled frames. Sampling a gif needs ffmpeg; the AVFoundation fallback
+# below cannot read one and says so instead of sampling.
+VIDEO_SUFFIXES = {".mp4", ".mov", ".gif"}
 FRAME_WIDTH = 960
 SHEET_COLUMNS, SHEET_ROWS = 3, 4
 TILE_WIDTH, TILE_HEIGHT = 640, 360
