@@ -291,9 +291,17 @@ public final class NotificationDeliveryCoordinator {
             feedReplying.deliverReply(requestId: requestId, decision: .question(selections: [text]))
         case "feed.question.open":
             applicationActivation.activateApplication()
-        case UNNotificationDismissActionIdentifier,
-             UNNotificationDefaultActionIdentifier:
+        case UNNotificationDefaultActionIdentifier:
+            // Clicking the banner body opens the agent that asked, the way a
+            // terminal notification click opens its tab and surface.
             applicationActivation.activateApplication()
+            if let workstreamId = response.userInfo["workstreamId"] as? String,
+               !workstreamId.isEmpty {
+                feedReplying.openWorkstream(workstreamId: workstreamId)
+            }
+        case UNNotificationDismissActionIdentifier:
+            // Dismissing a banner is not a request to bring cmux forward.
+            break
         default:
             if categoryId.hasPrefix("CMUXFeedQuestion.") {
                 applicationActivation.activateApplication()

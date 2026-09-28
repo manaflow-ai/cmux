@@ -80,7 +80,7 @@ function Probe({ userId }: { userId: string | null }) {
         : ""}
     </pre>
   );
-} 
+}
 
 // Read the probe through a function so control flow analysis keeps the
 // declared type. Assigning `undefined` below narrows `probedScope` for the

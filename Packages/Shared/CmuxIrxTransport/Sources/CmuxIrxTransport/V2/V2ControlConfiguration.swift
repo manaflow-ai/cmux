@@ -23,7 +23,8 @@ public struct V2ControlConfiguration: Sendable {
         guard baseURL.scheme == "https" || (baseURL.scheme == "http" && loopback),
               baseURL.user == nil, baseURL.password == nil, baseURL.query == nil, baseURL.fragment == nil,
               device.metadata.platform != .mac || device.metadata.pairingEnabled
-                || device.metadata.capabilities.contains("cmux.mac-devices.v1") else {
+                || device.metadata.capabilities.contains("cmux.mac-devices.v1")
+                || device.metadata.capabilities.contains("cmux.mac-host.v1") else {
             throw V2ControlFailure.scopeMismatch
         }
         self.baseURL = baseURL

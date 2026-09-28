@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -94,7 +95,7 @@ extension CmuxTuiSurfaceProvider {
             return false
         }
         guard let address = info.privateAddress,
-              let privateURL = CloudPortRoutePlan.privateURL(url.absoluteString, address: address) else {
+              let privateURL = CloudPortRoutePolicy().privateURL(url.absoluteString, address: address, allowLoopback: machine.isSSH) else {
             browser.cloudAccess.showUnavailable(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
             return false
         }
@@ -112,15 +113,13 @@ extension CmuxTuiSurfaceProvider {
         let model = accessModel(port: port, address: address, scheme: privateURL.scheme ?? "http")
         browser.retainTransferredSurfaceMachine(machine)
         if preserveCurrentNavigation {
+            browser.prepareCloudBrowserStore(machineID: machineID)
+            browser.bindCloudBrowserNavigation()
             browser.cloudAccess.adoptCommittedRoute(model: model, url: privateURL, resourceID: resourceID)
+            model.connect()
         } else {
-            browser.webView.stopLoading()
-            browser.cloudAccess.configure(model: model, url: privateURL, resourceID: resourceID)
+            browser.configureCloudBrowser(model: model, url: privateURL, resourceID: resourceID)
         }
-        browser.prepareCloudBrowserStore(machineID: machineID)
-        if !preserveCurrentNavigation { browser.showCloudAddress(privateURL) }
-        model.connect()
-        if !preserveCurrentNavigation { browser.cloudAccess.routeDidConfigure() }
         materializedPanels.insert(browser.id)
         return true
     }

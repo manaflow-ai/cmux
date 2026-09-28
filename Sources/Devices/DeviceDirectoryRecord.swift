@@ -1,3 +1,4 @@
+import CmuxCloud
 import CMUXMobileCore
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -34,7 +35,7 @@ struct DeviceDirectoryRecord: Equatable, Sendable, Identifiable {
     let platform: String
     let bundleID: String?
     let presenceState: DeviceDirectoryPresence
-    /// Whether the person paired this Mac in Settings › Computers. Only a
+    /// Whether the person paired this Mac in Settings › Devices. Only a
     /// paired Mac has a dial grant, and a paired Mac dials regardless of what
     /// presence says: saved routes must work when presence and the registry are
     /// unavailable.

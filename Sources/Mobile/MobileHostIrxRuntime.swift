@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CMUXMobileCore
 import CmuxAuthRuntime
@@ -137,11 +138,34 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         self.pairingEnabled = pairingEnabled
     }
 
-    private var deviceCapabilities: [String] {
-        guard DevicesFeature.isEnabled || MobileRemoteControlPolicy.allowsIncomingAccess() else { return [] }
-        var result = ["cmux.mac-devices.v1"]
-        if MobileRemoteControlPolicy.allowsIncomingAccess() { result.append("cmux.mac-host.v1") }
+    /// Projects the two Mac-only capabilities independently. Incoming access
+    /// must never implicitly advertise outbound Mac discovery: iOS pairing and
+    /// Mac hosting share this endpoint but are separate authorization routes.
+    nonisolated static func macDeviceCapabilities(
+        discoveryEnabled: Bool,
+        incomingAccessEnabled: Bool
+    ) -> [String] {
+        var result: [String] = []
+        if discoveryEnabled { result.append("cmux.mac-devices.v1") }
+        if incomingAccessEnabled { result.append("cmux.mac-host.v1") }
         return result
+    }
+
+    /// Selects the independent admission policy after the peer has been
+    /// authenticated by the IROH grant and TLS endpoint identity.
+    nonisolated static func allowsInboundPeer(
+        isMac: Bool,
+        pairingEnabled: Bool,
+        incomingAccessEnabled: Bool
+    ) -> Bool {
+        isMac ? incomingAccessEnabled : pairingEnabled
+    }
+
+    private var deviceCapabilities: [String] {
+        Self.macDeviceCapabilities(
+            discoveryEnabled: DevicesFeature.isEnabled,
+            incomingAccessEnabled: MobileRemoteControlPolicy.allowsIncomingAccess()
+        )
     }
 
     /// ALPNs the single v2 endpoint serves beside irx. Shipped iOS builds dial
@@ -158,7 +182,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     }
 
     var isNetworkingAllowed: Bool {
-        (pairingEnabled() || DevicesFeature.isEnabled)
+        (pairingEnabled() || DevicesFeature.isEnabled || MobileRemoteControlPolicy.allowsIncomingAccess())
             && !managedDevicePolicy.isEnforced(.disableIrohNetworking)
             && !managedDevicePolicy.isEnforced(.disableRemoteControl)
     }
@@ -348,7 +372,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
         await outgoingDeviceClient?.enforce(nil)
         if let oldControl, let metadata = await oldControl.snapshot().cache.device?.descriptor.metadata,
-           metadata.pairingEnabled, scope == nil || !pairingEnabled() {
+           metadata.pairingEnabled || metadata.capabilities.contains("cmux.mac-host.v1"), scope == nil || !pairingEnabled() {
             let withdrawn = V2DeviceMetadata(appVersion: metadata.appVersion,
                 capabilities: metadata.capabilities.filter { $0 != "cmux.mac-host.v1" },
                 displayName: metadata.displayName, pairingEnabled: false, platform: .mac, relayURLs: [])
@@ -506,6 +530,18 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         return token
     }
 
+    enum RevocationAction { case none, restart, awaitRecovery, stop }
+
+    nonisolated static func revocationAction(previous: V2CachedState?, current: V2CachedState,
+                                             status: V2ControlSnapshot.Status) -> RevocationAction {
+        guard current.authorityRevoked else { return .none }
+        guard current.authorityRevocationRecoverable == true else { return .stop }
+        if previous?.authorityRevoked != true { return .restart }
+        // A newly provisioned service restores the revoked cache before its
+        // first setup. Let it enroll instead of restarting on every snapshot.
+        return status == .stopped ? .stop : .awaitRecovery
+    }
+
     private func apply(_ snapshot: V2ControlSnapshot, token: UUID) async {
         guard isCurrent(token), let admission else { return }
         let status = String(describing: snapshot.status)
@@ -520,6 +556,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         // The service publishes an empty initial observation before loading disk.
         guard snapshot.cache.device != nil || cachedState?.device == nil || snapshot.cache.authorityRevoked else { return }
         let previousCredentials = cachedState?.relayCredentials
+        let revocation = Self.revocationAction(previous: cachedState, current: snapshot.cache, status: snapshot.status)
         cachedState = snapshot.cache
         _ = admission.apply(snapshot)
         await outgoingDeviceClient?.enforce(snapshot.cache)
@@ -532,6 +569,20 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             guard isCurrent(token), !Task.isCancelled else { return }
         }
         if snapshot.cache.authorityRevoked {
+            if snapshot.cache.authorityRevocationRecoverable == true,
+               wantsHost, isNetworkingAllowed,
+               let scope = auth?.authenticatedTeamScope,
+               signingOutScope != scope {
+                // The Durable Object delivered the owner's Forget event while
+                // this Mac was connected. Rebuild the complete host now so
+                // the replacement control service enrolls with fresh Stack
+                // authentication instead of waiting for foreground().
+                if revocation == .restart {
+                    await transition(to: scope)
+                    return
+                }
+                if revocation == .awaitRecovery { return }
+            }
             admission.invalidate()
             let oldLegacy = legacyService
             legacyService = nil
@@ -979,11 +1030,6 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         onAdmissionSettled: (@Sendable () -> Void)? = nil
     ) async {
         let journal = Self.journal
-        guard pairingEnabled() else {
-            await irx.close(code: .hostShutdown, origin: .local)
-            onAdmissionSettled?()
-            return
-        }
         let admissionOutcome = await IrxAdmission().performServer(
             connection: irx,
             judgment: judgment,
@@ -994,8 +1040,16 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         onAdmissionSettled?()
         guard let (peer, control, sessionID) = admissionOutcome else { return }
         let isMac = cachedState?.directory?.inboundPeers?.first {
-            $0.device.descriptor.endpointID == peer.endpointIDHex
+            $0.device.descriptor.endpointID.caseInsensitiveCompare(peer.endpointIDHex) == .orderedSame
         }?.device.descriptor.metadata.platform == .mac
+        guard Self.allowsInboundPeer(
+            isMac: isMac,
+            pairingEnabled: pairingEnabled(),
+            incomingAccessEnabled: MobileRemoteControlPolicy.allowsIncomingAccess()
+        ) else {
+            await irx.close(code: .revoked, origin: .local)
+            return
+        }
         let stillAuthorized: @Sendable (String) -> Bool = { endpoint in
             guard isMac ? MobileRemoteControlPolicy.allowsIncomingAccess()
                 : MobileHostService.isListeningEnabled else { return false }
@@ -1044,13 +1098,19 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
 
         let artifactRegistry = MobileHostIrohArtifactTransferRegistry()
         let eventWriter = MobileHostIrxEventWriter(connection: irx, journal: journal)
+        let controlTransport = IrxControlByteTransport(
+            connection: irx, control: control, closeCode: .hostShutdown)
         let laneLoop = Task {
             await Self.runLaneLoop(
                 irx, admittedPeer: admittedPeer, artifactRegistry: artifactRegistry,
-                journal: journal)
+                controlTransport: controlTransport,
+                journal: journal,
+                onInteractiveSurface: { surfaceID in
+                    // Fire-and-forget: input delivery never waits on the
+                    // output side. Keystrokes arrive at human rate.
+                    Task { await eventWriter.noteInteractiveSurface(surfaceID.uuidString) }
+                })
         }
-        let controlTransport = IrxControlByteTransport(
-            connection: irx, control: control, closeCode: .hostShutdown)
         let peerRequestHandler: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)?
         if isMac {
             let layouts = deviceWorkspaceLayouts
@@ -1099,7 +1159,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         _ irx: IrxConnection,
         admittedPeer: CmxIrohAdmittedPeer,
         artifactRegistry: MobileHostIrohArtifactTransferRegistry,
-        journal: IrxJournal
+        controlTransport: IrxControlByteTransport,
+        journal: IrxJournal,
+        onInteractiveSurface: @escaping MobileHostIrxTerminalLaneServer.InteractiveSurfaceObserver
     ) async {
         let terminalLaneQuota = MobileHostIrxTerminalLaneQuota()
         while !Task.isCancelled {
@@ -1127,7 +1189,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                         resourceID: resource,
                         cursor: cursor,
                         stream: lane.bidirectional(),
-                        journal: journal
+                        journal: journal,
+                        onInteractiveSurface: onInteractiveSurface
                     )
                     await terminalLaneQuota.release()
                 }
@@ -1142,7 +1205,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     await MobileHostIrxTerminalLaneServer.serveInputOnly(
                         resourceID: resource,
                         stream: lane.bidirectional(),
-                        journal: journal
+                        journal: journal,
+                        onInteractiveSurface: onInteractiveSurface
                     )
                     await terminalLaneQuota.release()
                 }
@@ -1185,6 +1249,15 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                         await stream.sendStream.reset(errorCode: 2)
                         await stream.receiveStream.stop(errorCode: 2)
                     }
+                }
+            case .controlRepair:
+                // The phone replaces a silent control stream without closing
+                // the connection its terminal lanes share. Off the accept
+                // loop: the acknowledgement write must not delay other lanes.
+                Task {
+                    let replaced = await controlTransport.acceptControlLaneReplacement(lane)
+                    journal.record(
+                        "host-lanes", replaced ? "control-replaced" : "control-replace-refused")
                 }
             case .control, .events:
                 // control arrives only pre-admission; events is server-opened.

@@ -5,7 +5,7 @@
 # unit-test shards and compile admission's changed-suites run.
 set -euo pipefail
 PHYSICAL_SHARD="${CMUX_APP_HOST_SHARD:?CMUX_APP_HOST_SHARD is required}"
-PHYSICAL_SHARD_TOTAL=6
+PHYSICAL_SHARD_TOTAL=7
 LOGICAL_BATCHES_PER_WORKER=2
 LOGICAL_SHARD_TOTAL=$((PHYSICAL_SHARD_TOTAL * LOGICAL_BATCHES_PER_WORKER))
 LOGICAL_SHARDS=("$PHYSICAL_SHARD" "$((PHYSICAL_SHARD + PHYSICAL_SHARD_TOTAL))")
@@ -235,13 +235,17 @@ collect_unit_test_output() {
   # shellcheck disable=SC2206
   local output_paths=("$RUNNER_TEMP"/cmux-unit-output-*-of-${LOGICAL_SHARD_TOTAL}-run-*.txt)
   shopt -u nullglob
-  for output_path in "${output_paths[@]}"; do
-    {
-      echo "===== $(basename "$output_path") ====="
-      cat "$output_path"
-      echo
-    } >>"$TEST_OUTPUT"
-  done
+  # Bash with `set -u` treats an empty array expansion as an unset variable.
+  # A changed-suites run can legitimately produce no shared-batch output.
+  if [[ -n ${output_paths[0]+x} ]]; then
+    for output_path in "${output_paths[@]}"; do
+      {
+        echo "===== $(basename "$output_path") ====="
+        cat "$output_path"
+        echo
+      } >>"$TEST_OUTPUT"
+    done
+  fi
 }
 
 set +e

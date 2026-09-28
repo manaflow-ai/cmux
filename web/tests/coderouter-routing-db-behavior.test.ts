@@ -4,12 +4,17 @@ import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
 import { listAccounts } from "../services/coderouter/repository";
 import { authenticateCoderouterCredential } from "../services/coderouter/routeTokenAuth";
+import { refreshCompletionRegistry } from "../services/coderouter/refreshSignal";
 import {
   authenticateApiKey,
   authenticateRouteToken,
   bindRouteTokenToVm,
   bindSessionAccount,
   claimAccountForPlacement,
+  claimRefreshLease,
+  failRefreshLease,
+  refreshLeaseActive,
+  releaseRefreshLease,
   findSessionAccount,
   issueRouteToken,
   createApiKey,
@@ -222,6 +227,39 @@ describe("coderouter routing db behavior", () => {
     });
     expect(during?.id).toBe(first?.id ?? "");
     expect(during?.sticky).toBe(true);
+  });
+
+  dbTest("clearing a refresh lease is visible to lease re-reads and wakes in-process waiters", async () => {
+    const [accountId = ""] = await insertAccounts(1);
+    const waiter = new AbortController();
+    expect(await refreshLeaseActive(accountId)).toBe(false);
+
+    const leaseId = await claimRefreshLease(accountId);
+    expect(leaseId).not.toBeNull();
+    expect(await refreshLeaseActive(accountId)).toBe(true);
+    const released = refreshCompletionRegistry.next(accountId, waiter.signal);
+    await releaseRefreshLease(accountId, leaseId ?? "");
+    await released;
+    expect(await refreshLeaseActive(accountId)).toBe(false);
+
+    const failedLease = await claimRefreshLease(accountId);
+    const failed = refreshCompletionRegistry.next(accountId, waiter.signal);
+    await failRefreshLease(accountId, failedLease ?? "", false, "refresh_unavailable");
+    await failed;
+    expect(await refreshLeaseActive(accountId)).toBe(false);
+  });
+
+  dbTest("an expired refresh lease no longer counts as in flight", async () => {
+    if (!sql) throw new Error("no sql client");
+    const [accountId = ""] = await insertAccounts(1);
+    await sql`
+      update coderouter_accounts
+      set state = 'refreshing',
+          refresh_lease_id = ${randomUUID()},
+          refresh_lease_expires_at = now() - interval '1 second'
+      where id = ${accountId}
+    `;
+    expect(await refreshLeaseActive(accountId)).toBe(false);
   });
 
   dbTest("account listing reports active session counts and cooldowns", async () => {

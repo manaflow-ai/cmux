@@ -59,7 +59,10 @@ struct GhosttyDECCKMArrowKeyTests {
         )
         let window = hostedTerminal.window
         let surfaceView = hostedTerminal.surfaceView
-        defer { window.orderOut(nil) }
+        defer {
+            hostedTerminal.surface.releaseHostedSurfaceForTesting()
+            window.orderOut(nil)
+        }
 
         // Headless CI runners can fail to initialize a Metal-backed Ghostty
         // surface. In that environment the predicate tests below still cover
