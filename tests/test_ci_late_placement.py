@@ -104,6 +104,107 @@ class Decide(unittest.TestCase):
         self.assertEqual(late.decide(env, roots(idle=4))[0], {})
 
 
+GUI = "glaeda-gui-std-xcode-26.6"
+SLOTS = '{"std": 40, "root-std": 19, "gui-std": 10}'
+RETRY = "blacksmith-12vcpu-macos-26"
+# An owned full suite: the picker gave admission, the shards, lag and cli-product the minis.
+OWNED = dict(FULL, OWNED_SLOTS=SLOTS, RETRY_RUNNER=RETRY, ADMISSION_RUNNER="glaeda-root-std-xcode-26.6",
+             OWNED_JOBS=" admission " + " ".join(f"shard-{i}" for i in range(1, 8)) + " lag cli-product ")
+
+
+def guis(idle: int, busy: int) -> list[dict]:
+    return ([runner(f"gui-{i}", "self-hosted", GUI) for i in range(idle)]
+            + [runner(f"gui-busy-{i}", GUI, busy=True) for i in range(busy)])
+
+
+class GuiOverflow(unittest.TestCase):
+    def backlog(self, queued: int):
+        calls = []
+
+        def count(label: str, enough: int) -> int:
+            calls.append((label, enough))
+            return queued
+        return count, calls
+
+    def test_a_full_gui_pool_sends_the_jobs_past_one_round_to_blacksmith(self):
+        count, calls = self.backlog(queued=6)
+        placed, why = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], count)
+        # Ten online gui runners and six jobs queued ahead: four more places within one round.
+        self.assertEqual(placed, {"shard-5": RETRY, "shard-6": RETRY, "shard-7": RETRY,
+                                  "lag": RETRY, "cli-product": RETRY})
+        self.assertEqual(calls, [(GUI, 10 + 9)])
+        self.assertIn("6 gui job(s) queued ahead on 10 online", why)
+
+    def test_a_backlog_past_a_round_moves_every_owned_gui_job(self):
+        count, _ = self.backlog(queued=25)
+        placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], count)
+        self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"})
+        self.assertEqual(set(placed.values()), {RETRY})
+
+    def test_enough_idle_gui_runners_look_up_nothing_and_move_nothing(self):
+        count, calls = self.backlog(queued=99)
+        self.assertEqual(late.decide(OWNED, [*roots(idle=2), *guis(idle=9, busy=1)], count)[0], {})
+        self.assertEqual(calls, [])
+
+    def test_the_idle_gui_runners_start_the_first_jobs_and_the_rest_queue_within_a_round(self):
+        count, _ = self.backlog(queued=0)
+        # Three idle now, and a round of the ten online: all nine stay on the gui label.
+        self.assertEqual(late.decide(OWNED, [*roots(idle=2), *guis(idle=3, busy=7)], count)[0], {})
+
+    def test_an_unreadable_backlog_moves_nothing(self):
+        def broken(label: str, enough: int) -> int:
+            raise RuntimeError("HTTP 403")
+        placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], broken)
+        self.assertEqual(placed, {})
+
+    def test_the_kill_switch_queues_nothing_on_purpose(self):
+        count, _ = self.backlog(queued=0)
+        placed, _ = late.decide(dict(OWNED, POOL_QUEUE_ROUNDS="0"), [*roots(idle=2), *guis(idle=2, busy=8)], count)
+        self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(3, 8)), "lag", "cli-product"})
+
+    def test_no_blacksmith_retry_pool_keeps_the_jobs(self):
+        count, _ = self.backlog(queued=40)
+        for retry in ("", "glaeda-std-xcode-26.6"):
+            with self.subTest(retry=retry):
+                env = dict(OWNED, RETRY_RUNNER=retry)
+                self.assertEqual(late.decide(env, [*roots(idle=2), *guis(idle=0, busy=10)], count)[0], {})
+
+    def test_gui_off_or_no_gui_label_moves_no_owned_job(self):
+        count, _ = self.backlog(queued=40)
+        busy = [*roots(idle=0, busy=16), *guis(idle=0, busy=10)]
+        self.assertEqual(late.decide(dict(OWNED, POOL_OWNED_GUI="0"), busy, count)[0], {})
+        self.assertEqual(late.decide(dict(OWNED, OWNED_SLOTS='{"std": 40, "root-std": 19}'), busy, count)[0], {})
+
+    def test_owned_jobs_that_stay_take_the_idle_gui_runners_before_unowned_ones(self):
+        count, _ = self.backlog(queued=0)
+        env = dict(OWNED, OWNED_JOBS=" admission shard-1 shard-2 shard-3 ")
+        # Three owned shards and two idle gui runners: the owned ones keep both, so none is free
+        # for shard-4 and up, which stay on Blacksmith where the picker put them.
+        self.assertEqual(late.decide(env, [*roots(idle=0, busy=16), *guis(idle=2, busy=8)], count)[0], {})
+
+    def test_backlog_counts_queued_gui_jobs_newest_runs_first_and_stops_when_enough(self):
+        import datetime as dt
+
+        class API:
+            def __init__(self):
+                self.jobs_read = []
+
+            def runs_since(self, workflow, since, **filters):
+                self.filters = (workflow, filters)
+                return [{"id": 9}, {"id": 8}, {"id": 7}, {"id": 6}]
+
+            def get(self, path):
+                run = int(path.split("/")[3])
+                self.jobs_read.append(run)
+                return {"jobs": [{"status": "queued", "labels": [GUI]}, {"status": "queued", "labels": [ROOT_STD]},
+                                 {"status": "in_progress", "labels": [GUI]}, {"status": "queued", "labels": [GUI]}]}
+        api = API()
+        now = dt.datetime(2026, 9, 28, 1, 0, tzinfo=dt.timezone.utc)
+        self.assertEqual(late.gui_backlog(api, GUI, exclude_run_id=9, enough=3, now=now), 4)
+        self.assertEqual(api.jobs_read, [8, 7])
+        self.assertEqual(api.filters, ("ci.yml", {"status": "in_progress"}))
+
+
 class Output(unittest.TestCase):
     def test_main_writes_an_empty_object_without_a_token(self):
         import tempfile
@@ -160,6 +261,15 @@ class Workflow(unittest.TestCase):
         steps = {step.get("id"): step for step in spec["steps"]}
         for marker in ("late-marker", "late-watch-marker"):
             self.assertEqual(steps[marker]["with"]["if-no-files-found"], "error", marker)
+
+    def test_late_placement_runs_after_an_owned_admission_to_overflow_the_gui_jobs(self):
+        spec = self.jobs["late-placement"]
+        self.assertNotIn("startsWith(needs.macos-compile-admission.outputs.runner, 'glaeda-')", spec["if"])
+        steps = {step.get("id"): step for step in spec["steps"]}
+        self.assertEqual(steps["place"]["env"]["RETRY_RUNNER"], "${{ inputs.pr_retry_runner }}")
+        self.assertEqual(steps["place"]["env"]["POOL_QUEUE_ROUNDS"], "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}")
+        for mint in ("route-token", "route-token-repo"):
+            self.assertEqual(steps[mint]["with"]["permission-actions"], "read", mint)
 
     def test_moved_jobs_leave_the_marker_the_rescue_watch_looks_for(self):
         steps = {step["name"]: step for step in self.jobs["late-placement"]["steps"]}

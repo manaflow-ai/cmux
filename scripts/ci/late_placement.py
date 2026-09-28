@@ -22,17 +22,35 @@ gui token (pr_runner_pool.gui_token_job(): the shards, tests-build-and-lag,
 cli-product-tests) take that label instead, one per idle gui runner, and the other jobs the root
 label, one per idle root runner: each mini runs one GUI job at a time.
 
+Overflow off a full gui pool: each mini has one gui runner, so the gui label
+has about ten machines, and the picker charges a run's gui-token jobs to the
+std pool's forty-odd. On 2026-09-27 from 22:00 to 02:00Z the gui runners were
+busy 80% of the time and their queue reached a p90 of 15 to 37 minutes
+(max 42), against 6 s over the week before. A shard on a mini only runs
+test-without-building on admission's uploaded product, as it does on
+Blacksmith (about 350 s against 240 to 400 s), so waiting for a mini buys
+nothing. When the picker owned some of this run's gui-token jobs and the gui
+runners idle now cannot take them all, this counts the gui-label jobs already
+queued (gui_backlog(): the jobs of in-flight CI runs, newest runs first,
+stopping once the answer cannot change). The run keeps on the gui label only
+the jobs that start within GUI_QUEUE_ROUNDS gui job lengths (the idle runners
+plus that many rounds of the online ones, less the backlog), and gives the
+rest RETRY_RUNNER, the Blacksmith pool the picker named for this run. With
+CI_PR_POOL_QUEUE_ROUNDS at 0 (the kill switch) no job queues on purpose. An
+unreadable backlog moves nothing.
+
 Output `runners` is a JSON object from job key (shard-N, lag, cli-product)
 to label. Any failure prints a warning and outputs {} (no change).
 """
 from __future__ import annotations
 
+import datetime as dt
 import importlib.util
 import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 
 def _picker():
@@ -45,6 +63,13 @@ def _picker():
 
 
 pool = _picker()
+
+# Rounds of gui jobs an owned gui-token job may queue behind (at most the picker's CI_PR_POOL_QUEUE_ROUNDS).
+# One: a gui job waits for about one shard on a busy mini, never longer, since Blacksmith runs it as fast.
+GUI_QUEUE_ROUNDS = 1
+# In-flight CI runs gui_backlog() reads jobs from, newest first, and how far back it looks.
+BACKLOG_LOOKUPS = 30
+BACKLOG_WINDOW_MINUTES = 180
 
 
 def late_jobs(*, macos: str | None, cli: str | None, full_suite: str | None, unit_suite: str | None,
@@ -79,7 +104,41 @@ def place(jobs: Sequence[str], *, owned_jobs: str, idle: int, root: str, gui: bo
     return {**{key: gui_label for key in on_gui}, **{key: root for key in on_root}}
 
 
-def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[dict[str, str], str]:
+def gui_backlog(github: Any, label: str, *, exclude_run_id: int | None, enough: int, now: dt.datetime) -> int:
+    """Jobs queued on `label` in the CI runs still in flight, stopping at `enough` (one request per run).
+
+    Newest runs first, at most BACKLOG_LOOKUPS of them from the last
+    BACKLOG_WINDOW_MINUTES: a queued gui job belongs to a run whose admission
+    finished, so an older run holds none. Raises when a read fails.
+    """
+    since = (now - dt.timedelta(minutes=BACKLOG_WINDOW_MINUTES)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    runs = github.runs_since(pool.CI_WORKFLOW, since, status="in_progress")
+    queued = 0
+    for run in runs[:BACKLOG_LOOKUPS]:
+        if run.get("id") == exclude_run_id:
+            continue
+        jobs = github.get(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page={pool.PAGE_SIZE}").get("jobs") or []
+        queued += sum(1 for job in jobs if isinstance(job, Mapping) and job.get("status") == "queued"
+                      and label in (job.get("labels") or []))
+        if queued >= enough:
+            break
+    return queued
+
+
+def overflow(jobs: Sequence[str], *, owned_jobs: str, gui_idle: int, gui_online: int, backlog: int,
+             rounds: int) -> tuple[str, ...]:
+    """The owned gui-token jobs that would wait more than `rounds` gui job lengths; the highest priority stay.
+
+    The first gui_idle of them start now; after those, a job at queue place q (behind
+    `backlog`) waits about q / gui_online rounds, so rounds x gui_online places are allowed."""
+    owned = f" {owned_jobs.strip()} "
+    mine = sorted((key for key in jobs if f" {key} " in owned and pool.gui_token_job(key)), key=pool.priority)
+    keep = max(0, gui_idle) + max(0, rounds * max(0, gui_online) - max(0, backlog))
+    return tuple(mine[keep:])
+
+
+def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
+           backlog: Callable[[str, int], int] | None = None) -> tuple[dict[str, str], str]:
     jobs = late_jobs(macos=env.get("MACOS"), cli=env.get("CLI"), full_suite=env.get("FULL_SUITE"),
                      unit_suite=env.get("UNIT_SUITE"), unit_in_admission=env.get("UNIT_IN_ADMISSION"),
                      unit_selectors=env.get("UNIT_SELECTORS"))
@@ -97,9 +156,31 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) 
         gui_label = ""
     free = pool.live_owned_free(runners, [root, *([gui_label] if gui_label else [])])
     idle, gui_idle = free[root], free.get(gui_label, 0)
-    placed = place(jobs, owned_jobs=env.get("OWNED_JOBS", ""), idle=idle, root=root,
-                   gui=env.get("POOL_OWNED_GUI", "").strip() != "0", gui_label=gui_label, gui_idle=gui_idle)
+    owned_jobs = env.get("OWNED_JOBS", "")
+    gui_on = env.get("POOL_OWNED_GUI", "").strip() != "0"
     seen = f"{idle} idle `{root}` runner(s)" + (f" and {gui_idle} idle `{gui_label}`" if gui_label else "")
+    # Owned gui-token jobs the idle gui runners cannot take now: past the allowed queue, Blacksmith.
+    moved_off: tuple[str, ...] = ()
+    retry = (env.get("RETRY_RUNNER") or "").strip()
+    rounds = pool.parse_queue_rounds(env.get("POOL_QUEUE_ROUNDS"))
+    rounds = min(GUI_QUEUE_ROUNDS, 1 if rounds is None else rounds)
+    owned_gui = [key for key in jobs if f" {key} " in f" {owned_jobs.strip()} " and pool.gui_token_job(key)]
+    if gui_label and gui_on and retry and not pool.persistent(retry) and backlog is not None \
+            and len(owned_gui) > gui_idle:
+        online = pool.live_online(runners, [gui_label])[gui_label]
+        try:
+            queued = backlog(gui_label, rounds * online + len(owned_gui))
+        except Exception as error:  # noqa: BLE001 - an unread backlog moves nothing
+            print(f"::warning title=late placement::could not count the gui backlog ({error})")
+            queued = None
+        if queued is not None:
+            moved_off = overflow(jobs, owned_jobs=owned_jobs, gui_idle=gui_idle, gui_online=online,
+                                 backlog=queued, rounds=rounds)
+            seen += f", {queued} gui job(s) queued ahead on {online} online"
+    # Moved off the gui label, a job frees its place there for the not-yet-owned ones only while idle.
+    placed = place(jobs, owned_jobs=owned_jobs, idle=idle, root=root, gui=gui_on, gui_label=gui_label,
+                   gui_idle=max(0, gui_idle - (len(owned_gui) - len(moved_off))))
+    placed.update({key: retry for key in moved_off})
     if not placed:
         return {}, f"{seen}; nothing to move"
     return placed, (f"{seen} now; moved {', '.join(f'{key} to `{label}`' for key, label in placed.items())} "
@@ -108,13 +189,20 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) 
 
 def main(env: Mapping[str, str] = os.environ) -> int:
     runners = None
+    backlog = None
     token, repo = env.get("ROUTE_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
     if token and repo:
+        github = pool.GitHub(token, repo)
+        run_id = env.get("GITHUB_RUN_ID", "")
+
+        def backlog(label: str, enough: int) -> int:
+            return gui_backlog(github, label, exclude_run_id=int(run_id) if run_id.isdigit() else None,
+                               enough=enough, now=dt.datetime.now(dt.timezone.utc))
         try:
-            runners = pool.GitHub(token, repo).runners()
+            runners = github.runners()
         except Exception as error:  # noqa: BLE001 - fail open: keep the run-start placement
             print(f"::warning title=late placement::could not list runners ({error})")
-    placed, why = decide(env, runners)
+    placed, why = decide(env, runners, backlog)
     print(f"late placement: {why}")
     output = env.get("GITHUB_OUTPUT")
     if output:
