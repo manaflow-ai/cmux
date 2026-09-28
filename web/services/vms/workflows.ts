@@ -336,6 +336,8 @@ export function getVm(input: {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  /** Revokes coderouter tokens when this read is what finds the machine gone. */
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -355,10 +357,11 @@ export function getVm(input: {
     if (providerStatus !== "creating") {
       const dbStatus = observedDbStatus(vm, providerStatus);
       if (dbStatus !== vm.status) {
-        const didUpdate = yield* repo.markProviderObservedStatus({
-          id: vm.id,
+        const didUpdate = yield* applyObservedProviderStatus(repo, vm, {
           providerVmId,
           status: dbStatus,
+          usageEventSource: "provider_status_read",
+          modelPlane: input.modelPlane,
         });
         if (didUpdate) return vmEntryFromRow({ ...vm, status: dbStatus, updatedAt: new Date() });
       }
@@ -2673,6 +2676,48 @@ function observedDbStatus(
   return dbStatusFromProviderStatus(providerStatus);
 }
 
+/**
+ * The one place an observed provider status becomes the row's status. A write
+ * that lands on `destroyed` is the last chance to do the work `destroyVm` owns:
+ * once the row is terminal, `findUserVm` hides it from every destroy request
+ * and `reconciliationCandidates` drops it from the cron, so a revoke deferred
+ * to either of them never happens. Callers that win the transition therefore
+ * revoke the model plane and record `vm.destroyed` here, whichever entrypoint
+ * they are.
+ */
+function applyObservedProviderStatus(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+  input: {
+    readonly providerVmId: string;
+    readonly status: CloudVmStatus;
+    readonly usageEventSource: string;
+    readonly modelPlane?: VmModelPlaneRevoker;
+  },
+): Effect.Effect<boolean, VmDatabaseError> {
+  return Effect.gen(function* () {
+    const didUpdate = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId: input.providerVmId,
+      status: input.status,
+    });
+    if (!didUpdate || input.status !== "destroyed") return didUpdate;
+    yield* revokeModelPlane(input.modelPlane, vm.id);
+    yield* repo.recordUsageEvent({
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.destroyed",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      vmCreatedAt: vm.createdAt,
+      metadata: { source: input.usageEventSource },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return true;
+  });
+}
+
 type ProviderStatusReconcileOutcome = "updated" | "destroyed" | "unchanged" | "skipped";
 
 function reconcileObservedProviderStatus(
@@ -2695,28 +2740,14 @@ function reconcileObservedProviderStatus(
     if (!providerStatus || providerStatus === "creating") return "skipped" as const;
     const dbStatus = observedDbStatus(vm, providerStatus);
     if (dbStatus === vm.status) return "unchanged" as const;
-    const didUpdate = yield* repo.markProviderObservedStatus({
-      id: vm.id,
+    const didUpdate = yield* applyObservedProviderStatus(repo, vm, {
       providerVmId,
       status: dbStatus,
+      usageEventSource,
+      modelPlane,
     }).pipe(Effect.catchAll(() => Effect.succeed(false)));
     if (!didUpdate) return "skipped" as const;
-    if (dbStatus === "destroyed") {
-      yield* revokeModelPlane(modelPlane, vm.id);
-      yield* repo.recordUsageEvent({
-        userId: vm.userId,
-        billingTeamId: vm.billingTeamId,
-        billingPlanId: vm.billingPlanId,
-        vmId: vm.id,
-        eventType: "vm.destroyed",
-        provider: vm.provider,
-        imageId: vm.imageId,
-        vmCreatedAt: vm.createdAt,
-        metadata: { source: usageEventSource },
-      }).pipe(Effect.catchAll(() => Effect.void));
-      return "destroyed" as const;
-    }
-    return "updated" as const;
+    return dbStatus === "destroyed" ? "destroyed" as const : "updated" as const;
   });
 }
 
@@ -2942,10 +2973,10 @@ function preflightResumeIfSuspended(
       // mint an endpoint (or start a fork) against an id that Freestyle has
       // already removed; mark the row so the next fleet refresh drops it and
       // return the same not-found contract as ownership checks.
-      yield* repo.markProviderObservedStatus({
-        id: vm.id,
+      yield* applyObservedProviderStatus(repo, vm, {
         providerVmId,
         status: "destroyed",
+        usageEventSource: "provider_status_access",
       }).pipe(Effect.catchAll(() => Effect.succeed(false)));
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
     }
@@ -3390,10 +3421,10 @@ export function getVmStats(input: {
       Effect.catchAll((error) => {
         if (!isProviderNotFoundError(error)) return Effect.fail(error);
         return Effect.gen(function* () {
-          yield* repo.markProviderObservedStatus({
-            id: vm.id,
+          yield* applyObservedProviderStatus(repo, vm, {
             providerVmId: input.providerVmId,
             status: "destroyed",
+            usageEventSource: "provider_status_stats",
           }).pipe(Effect.catchAll(() => Effect.succeed(false)));
           return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
         });
