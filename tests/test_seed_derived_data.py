@@ -133,6 +133,30 @@ class SeedDerivedData(unittest.TestCase):
         self.assertIn("hit=false", output.read_text())
         self.assertTrue((self.derived / "from-resolve").exists())
 
+    def test_a_clone_replaces_a_symlinked_destination_instead_of_writing_through_it(self):
+        source = self.root / "clone-source"
+        (source / "sub").mkdir(parents=True)
+        (source / "sub" / "file").write_text("new")
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        destination = self.root / "clone-destination"
+        destination.symlink_to(elsewhere)
+        seed.clone_tree(source, destination)
+        self.assertFalse(destination.is_symlink())
+        self.assertEqual((destination / "sub" / "file").read_text(), "new")
+        self.assertEqual(list(elsewhere.iterdir()), [])
+        # A leftover directory is replaced, never nested into.
+        seed.clone_tree(source, destination)
+        self.assertFalse((destination / source.name).exists())
+        self.assertEqual(sorted(p.name for p in destination.iterdir()), ["sub"])
+
+    def test_a_clone_fails_when_the_destination_cannot_be_cleared(self):
+        destination = self.root / "stuck"
+        destination.mkdir()
+        with mock.patch.object(seed.shutil, "rmtree"):
+            with self.assertRaises(OSError):
+                seed.clone_tree(self.root, destination)
+
     def test_an_owned_mac_keeps_the_seed_and_clones_it_next_time(self):
         """Minis download a seed at about a third of Blacksmith's speed, so an
         owned Mac keeps the seeds it adopted and clones an exact key instead."""

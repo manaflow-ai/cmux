@@ -295,6 +295,48 @@ class TerminalController {
             defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
         )
     }
+    /// The command that shows, and so wakes, a hibernated terminal.
+    nonisolated static func terminalWakeCommand(workspaceID: UUID, surfaceID: UUID) -> String {
+        "cmux focus-panel --workspace \(workspaceID.uuidString) --panel \(surfaceID.uuidString)"
+    }
+
+    /// Explains why a terminal has no running runtime and how to get one.
+    nonisolated static func terminalNotRunningMessage(
+        reason: TerminalSurfaceRuntimeUnavailableReason,
+        wakeCommand: String?
+    ) -> String {
+        switch reason {
+        case .hibernated:
+            if let wakeCommand {
+                return String.localizedStringWithFormat(
+                    String(
+                        localized: "socket.terminal.notRunning.hibernated",
+                        defaultValue: "The terminal is hibernated: cmux suspended its idle agent to save memory. Wake it by showing it (this brings its window to the front), then retry: %@"
+                    ),
+                    wakeCommand
+                )
+            }
+            return String(
+                localized: "socket.terminal.notRunning.hibernatedNoCommand",
+                defaultValue: "The terminal is hibernated: cmux suspended its idle agent to save memory. Show the terminal in cmux to wake it, then retry."
+            )
+        case .awaitingRestore:
+            return String(
+                localized: "socket.terminal.notRunning.awaitingRestore",
+                defaultValue: "cmux is still restoring the terminal after it reopened and is checking which agent session to resume. Retry in a few seconds."
+            )
+        case .starting:
+            return String(
+                localized: "socket.terminal.notRunning.starting",
+                defaultValue: "The terminal has not started yet. Retry in a few seconds."
+            )
+        case .closing:
+            return String(
+                localized: "socket.terminal.notRunning.closing",
+                defaultValue: "The terminal is closing and cannot be read."
+            )
+        }
+    }
     private nonisolated static var terminalProcessExitedSocketError: String {
         "ERROR: \(terminalProcessExitedMessage)"
     }
@@ -3072,8 +3114,9 @@ class TerminalController {
         case "surface.sync_codex_native_title":
             return v2Result(id: id, self.v2SurfaceSyncCodexNativeTitle(params: params))
 
-        // Settings/session/feedback: session.restore_previous, settings.open, and
-        // feedback.open handled by ControlCommandCoordinator.
+        // Settings/session/feedback: session.restore_previous, session.import,
+        // session.export, settings.open, and feedback.open handled by
+        // ControlCommandCoordinator.
 
         // Feed (workstream): feed.jump/feed.list handled by ControlCommandCoordinator.
         case "sidebar.custom.open":
@@ -3696,6 +3739,10 @@ class TerminalController {
                 if let teamID = coordinator.resolvedTeamID {
                     status["selected_team_id"] = teamID
                 }
+                // A signed-in session without a team scope keeps the pairing
+                // host and Cloud down; report it so the state is diagnosable.
+                status["team_scope_ready"] = coordinator.authenticatedTeamScope != nil
+                status["team_scope_recovering"] = coordinator.hasPendingTeamScopeRecovery
                 if !coordinator.availableTeams.isEmpty {
                     status["teams"] = coordinator.availableTeams.map { team -> [String: Any] in
                         var dict: [String: Any] = [
@@ -5630,8 +5677,12 @@ class TerminalController {
         guard surface.liveSurfaceForGhosttyAccess(reason: "socket.readTerminalText.start") == nil else {
             return false
         }
-        // Hibernated agents and restores awaiting admission cannot start now;
-        // report them right away instead of waiting out the deadline.
+        // A restore awaiting admission starts by itself once cmux knows which
+        // agent session to resume, so wait for it. Hibernated and closing
+        // terminals never start without outside action; report them now.
+        if surface.runtimeUnavailableReason == .awaitingRestore {
+            return Date() < deadline
+        }
         guard surface.canCreateRuntimeSurface else { return false }
         // A read waits on the result, so it is input demand like socket
         // send_text, not restore-paced background priming.
@@ -5655,6 +5706,32 @@ class TerminalController {
             guard isStarting(outcome) else { return outcome }
             Thread.sleep(forTimeInterval: 0.05)
         }
+    }
+
+    /// The `surface.read_text` reply for a resolved terminal with no live
+    /// runtime surface to read from. `data.reason` names the cause, and
+    /// `data.wake_command` is present when a command can make it readable.
+    nonisolated static func readTextTerminalNotRunningResult(
+        workspaceID: UUID?,
+        surfaceID: UUID?,
+        reason: TerminalSurfaceRuntimeUnavailableReason
+    ) -> V2CallResult {
+        let wakeCommand: String? = if reason == .hibernated,
+            let workspaceID,
+            let surfaceID {
+            terminalWakeCommand(workspaceID: workspaceID, surfaceID: surfaceID)
+        } else {
+            nil
+        }
+        var data: [String: Any] = ["reason": reason.rawValue]
+        if let workspaceID { data["workspace_id"] = workspaceID.uuidString }
+        if let surfaceID { data["surface_id"] = surfaceID.uuidString }
+        if let wakeCommand { data["wake_command"] = wakeCommand }
+        return .err(
+            code: "surface_unavailable",
+            message: terminalNotRunningMessage(reason: reason, wakeCommand: wakeCommand),
+            data: data
+        )
     }
 
     /// `surface.read_text` worker body (issue #5757). The former
@@ -5831,7 +5908,14 @@ class TerminalController {
                 terminalSurface: terminalSurface,
                 includeScrollback: includeScrollback
             ) else {
-                return .finished(.err(code: "internal_error", message: "Failed to read terminal text", data: nil))
+                // No live runtime: the terminal is hibernated, awaiting
+                // restore admission, or did not start before the deadline.
+                // That is surface state, not a server failure.
+                return .finished(Self.readTextTerminalNotRunningResult(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceId,
+                    reason: terminalSurface.runtimeUnavailableReason
+                ))
             }
             // `terminalTextPayload`'s only failure predicate is snapshot shape
             // (O(1)), so reject here and mint refs only when a success reply is
@@ -5868,7 +5952,11 @@ class TerminalController {
             return result
         case .surfaceStarting:
             // v2MainSyncAwaitingSurfaceStart never returns this case.
-            return .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
+            return Self.readTextTerminalNotRunningResult(
+                workspaceID: nil,
+                surfaceID: nil,
+                reason: .starting
+            )
         case let .captured(capture):
             // The full-scrollback formatting stays off the main actor.
             switch Self.terminalTextPayload(
@@ -11693,7 +11781,11 @@ class TerminalController {
                 return .surfaceStarting
             }
             guard target.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
-                return .finished("ERROR: Terminal surface not found")
+                let reason = target.surface.runtimeUnavailableReason
+                let wakeCommand = reason == .hibernated
+                    ? Self.terminalWakeCommand(workspaceID: tab.id, surfaceID: target.surfaceID)
+                    : nil
+                return .finished("ERROR: \(Self.terminalNotRunningMessage(reason: reason, wakeCommand: wakeCommand))")
             }
             guard let snapshot = self.readTerminalTextRawSnapshot(
                 terminalSurface: target.surface,
@@ -11710,7 +11802,7 @@ class TerminalController {
             return reply
         case .surfaceStarting:
             // v2MainSyncAwaitingSurfaceStart never returns this case.
-            return "ERROR: Terminal surface not found"
+            return "ERROR: \(Self.terminalNotRunningMessage(reason: .starting, wakeCommand: nil))"
         case .captured(let captured):
             snapshot = captured
         }
@@ -15329,6 +15421,10 @@ class TerminalController {
         if hasViewportReportFields, v2String(params, "client_id") == nil || v2Int(params, "viewport_columns") == nil || v2Int(params, "viewport_rows") == nil {
             return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
         }
+        // A hibernated agent has no runtime, so this replay would be empty and
+        // no output would follow: the viewer would stay blank. Once resumed,
+        // the runtime's output streams to the viewer like any live terminal.
+        terminalTarget.resumeAgentHibernationForRemoteAttach()
         let expectedViewport = applyMobileViewportReport(
             params: params,
             terminalTarget: terminalTarget,

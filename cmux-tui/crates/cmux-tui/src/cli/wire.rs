@@ -64,14 +64,14 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let request_id =
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
 
-    let socket = match resolve_socket(&global) {
-        Ok(socket) => socket,
+    let (socket, socket_is_derived) = match resolve_socket_with_origin(&global) {
+        Ok(resolved) => resolved,
         Err(_) => {
             eprintln!("cmux: {}", crate::localization::catalog().startup.invalid_session_name);
             return 2;
         }
     };
-    let stream = match transport::connect(&socket) {
+    let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
             eprintln!("cannot connect to session socket {}: {error}", socket.display());
@@ -744,10 +744,6 @@ fn human_key_rank(key: &str) -> usize {
         "running" => 8,
         _ => 9,
     }
-}
-
-pub(super) fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
-    Ok(resolve_socket_with_origin(global)?.0)
 }
 
 /// Resolve a socket and report whether it belongs to cmux's private runtime
