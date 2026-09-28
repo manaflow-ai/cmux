@@ -293,12 +293,13 @@ class PublishTests(StubbedTest):
     def comment(self, body: str) -> list[list[dict]]:
         return [[{"id": 5, "user": {"login": "github-actions[bot]"}, "body": body}]]
 
-    def publish(self, tmp: Path, head: str, comments) -> GitHubStub:
+    def publish(self, tmp: Path, head: str, comments, **extra) -> GitHubStub:
         folder = tmp / "sidebar-and-chrome-tour"
         folder.mkdir()
         (folder / "tour.gif").write_bytes(b"GIF89a")
         (folder / "manifest.json").write_text(json.dumps(
-            {"tour": "sidebar-and-chrome-tour", "result": "not run", "note": "skipped", "gif": "tour.gif", "shots": []}))
+            {"tour": "sidebar-and-chrome-tour", "result": "not run", "note": "skipped", "gif": "tour.gif", "shots": [],
+             **extra}))
         stub = self.stub({"repos/o/r/pulls/1": {"head": {"sha": head}}, "repos/o/r/issues/1/comments": comments})
         stub.uploads = []
 
@@ -318,11 +319,18 @@ class PublishTests(StubbedTest):
     def test_a_tour_that_did_not_run_uploads_no_manifest_but_still_shows_its_note(self) -> None:
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
-            stub = self.publish(Path(tmp), HEAD, self.comment(f"{media.DOGFOOD_MARKER}\nof `{HEAD}`"))
+            stub = self.publish(Path(tmp), HEAD, self.comment(f"{media.DOGFOOD_MARKER}\nof `{HEAD}`"),
+                                log_url="https://x/runs/1")
         uploaded = [path for _, _, path, _ in stub.uploads]
         self.assertEqual(uploaded, [f"1/{HEAD[:8]}/sidebar-and-chrome-tour/tour.gif"])
         self.assertEqual({branch for _, branch, _, _ in stub.uploads}, {"pr-media"})
         self.assertTrue(any(w[:4] == ["gh", "api", "-X", "PATCH"] for w in stub.writes))
+
+    def test_a_tour_that_never_dispatched_stays_out_of_the_comment(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = self.publish(Path(tmp), HEAD, self.comment(f"{media.DOGFOOD_MARKER}\nof `{HEAD}`"))
+        self.assertFalse(any(w[:4] == ["gh", "api", "-X", "PATCH"] for w in stub.writes))
 
     def test_a_moved_head_or_a_comment_for_another_head_is_left_alone(self) -> None:
         import tempfile

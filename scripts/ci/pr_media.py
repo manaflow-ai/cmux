@@ -205,9 +205,10 @@ def app_build_gate(repository: str, run_id: str, attempt: str, pr: int,
                    sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> bool:
     """Whether the CI attempt is an app pull request's that compiles the app.
 
-    Its dogfood build job runs only for app pull requests (docs or web only
-    changes skip it), and a CLI-only one runs no macOS compile admission, so
-    no tour could load its build.
+    Its dogfood build job runs only for app and CLI pull requests (docs or web
+    only changes skip it). A CLI-only push still runs compile admission but
+    leaves no app product; its tours exit without dispatching, and publish
+    leaves such tours out of the comment.
     """
     deadline = clock() + GATE_WAIT_SECONDS
     name = f"{DOGFOOD_JOB_PREFIX}{pr}"
@@ -221,8 +222,8 @@ def app_build_gate(repository: str, run_id: str, attempt: str, pr: int,
             return False
         admission = next((job for job in jobs if str(job.get("name", "")).endswith(ADMISSION_JOB_SUFFIX)), None)
         # A skipped `macos` caller lists no admission job: this push changed
-        # nothing the app is built from (or only the CLI), so there is no build
-        # of it to load (dispatch-focused-test.py skips_macos).
+        # nothing the app is built from, so there is no build of it to load
+        # (dispatch-focused-test.py skips_macos).
         if any(job.get("name") == "macos" and job.get("conclusion") == "skipped" for job in jobs):
             return False
         if dogfood and dogfood.get("status") == "completed" and admission:
@@ -359,7 +360,11 @@ class Dispatch:
         deadline = time.monotonic() + RUN_WAIT_SECONDS
         while True:
             run = gh_json([f"repos/{self.repository}/actions/runs/{self.run_id}"]) or {}
-            if run.get("status") == "completed" or time.monotonic() > deadline:
+            if run.get("status") == "completed":
+                return run
+            if time.monotonic() > deadline:
+                # Uncached, so the next attempt dispatches again: stop this one.
+                subprocess.run(["gh", "run", "cancel", str(self.run_id), "--repo", self.repository], check=False)
                 return run
             sleep(RUN_POLL_SECONDS)
 
@@ -614,7 +619,9 @@ def publish(repository: str, pr: int, head_sha: str, tours: list[str], media: Pa
                        f"PR #{pr} media: {tour_name} at {head_sha[:8]}")
         else:
             manifest = published(repository, pr, head_sha, tour_name)
-        if manifest:
+        # A tour that never dispatched (no CI build a UI run can load, as on
+        # a CLI-only push) is noise in the comment.
+        if manifest and (manifest.get("run_url") or manifest.get("log_url")):
             manifests.append(manifest)
     if not manifests:
         print("No tour left media.", flush=True)

@@ -40,9 +40,10 @@ its verdict:
    or `Dogfood-tours: none` to turn it off.
 2. Each tour runs on the app and UI test bundle the PR's own CI compiled
    (`run-e2e.sh --adopt-only`); the tour run fails rather than compiling the
-   app a second time. When CI left no product a UI run can load, the comment
-   says the tour was skipped, and the next CI attempt of that head tries
-   again; `gh workflow run pr-media.yml --repo manaflow-ai/cmux -f pr=<n> -f allow_compile=true`
+   app a second time. When CI left no product a UI run can load (a CLI-only
+   push, say), no tour runs and the comment gets no media; a tour run that
+   could not load it is listed as not run, and the next CI attempt of that
+   head tries again; `gh workflow run pr-media.yml --repo manaflow-ai/cmux -f pr=<n> -f allow_compile=true`
    runs it now with a full build.
 3. The frames become a few key PNGs and a captioned GIF, uploaded to the
    `pr-media` branch at `<pr>/<sha8>/<tour>/` and shown in a media section of
