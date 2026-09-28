@@ -18,13 +18,20 @@ import XCTest
 final class BrowserDiscardPageStateRestoreTests: XCTestCase {
     private var fixtureDirectory: URL!
     private var hostWindow: NSWindow!
+    /// The stored `browser.autoRestoreUnloadedPages` key, spelled out so a
+    /// rename that would drop users' saved choice fails here.
+    private static let autoRestoreKey = "browserAutoRestoreUnloadedPages"
+
     private var previousDiscardEnabled: Any?
+    private var previousAutoRestore: Any?
 
     override func setUp() {
         super.setUp()
         let defaults = UserDefaults.standard
         previousDiscardEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        previousAutoRestore = defaults.object(forKey: Self.autoRestoreKey)
         defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.removeObject(forKey: Self.autoRestoreKey)
         fixtureDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-discard-state-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
@@ -48,6 +55,11 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
             defaults.set(previousDiscardEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
         } else {
             defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        }
+        if let previousAutoRestore {
+            defaults.set(previousAutoRestore, forKey: Self.autoRestoreKey)
+        } else {
+            defaults.removeObject(forKey: Self.autoRestoreKey)
         }
         super.tearDown()
     }
@@ -104,6 +116,47 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         panel.noteWebViewVisibility(true, reason: "test.visible")
         XCTAssertFalse(panel.hasRecoverableWebContentTermination)
         host(panel.webView)
+        assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
+    }
+
+    /// With automatic restore off (https://github.com/manaflow-ai/cmux/issues/9561),
+    /// showing a discarded pane must not load anything until the user asks,
+    /// and that restore still brings back the page state.
+    func testManualRestoreModeWaitsForUserBeforeRestoringPageState() throws {
+        UserDefaults.standard.set(false, forKey: Self.autoRestoreKey)
+        let (panel, pageA, pageB) = try loadScrolledFormPage()
+        defer { panel.close() }
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden")
+        let discardedWebView = panel.webView
+        XCTAssertTrue(panel.discardHiddenWebViewForSystemMemoryPressure())
+        discardedWebView.removeFromSuperview()
+
+        host(panel.webView)
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+        assertWaitsForManualRestore(panel, instead: pageB)
+
+        panel.restoreDiscardedWebViewIfNeeded(reason: "test.manual_restore")
+        assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
+    }
+
+    /// A page whose WebContent process died while hidden waits the same way.
+    func testManualRestoreModeHoldsPageTerminatedWhileHidden() throws {
+        UserDefaults.standard.set(false, forKey: Self.autoRestoreKey)
+        let (panel, pageA, pageB) = try loadScrolledFormPage()
+        defer { panel.close() }
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden")
+        let terminatedWebView = try terminateWebContent(of: panel)
+        terminatedWebView.removeFromSuperview()
+
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+        XCTAssertFalse(panel.hasRecoverableWebContentTermination)
+        XCTAssertFalse(panel.webView === terminatedWebView)
+        host(panel.webView)
+        assertWaitsForManualRestore(panel, instead: pageB)
+
+        panel.restoreDiscardedWebViewIfNeeded(reason: "test.manual_restore")
         assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
     }
 
@@ -190,6 +243,20 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
                 in: panel.webView
             ) as? String) == "typed name|typed notes"
         }
+    }
+
+    private func assertWaitsForManualRestore(
+        _ panel: BrowserPanel,
+        instead page: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        // Give a restore that should not have started time to show up.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(panel.webViewLifecycleState, .discarded, file: file, line: line)
+        XCTAssertFalse(panel.shouldRenderWebView, file: file, line: line)
+        XCTAssertFalse(panel.webView.isLoading, file: file, line: line)
+        XCTAssertNotEqual(panel.webView.url?.standardizedFileURL, page.standardizedFileURL, file: file, line: line)
     }
 
     private func host(_ webView: WKWebView) {
