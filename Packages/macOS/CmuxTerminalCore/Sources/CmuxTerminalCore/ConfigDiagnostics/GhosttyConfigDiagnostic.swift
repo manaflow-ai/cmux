@@ -17,6 +17,9 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
     public let filePath: String?
     /// The 1-based line in ``filePath``, when present.
     public let line: Int?
+    /// The config key the diagnostic is about, when it has a file location
+    /// and a key.
+    public let key: String?
 
     /// Parses a Ghostty diagnostic message.
     ///
@@ -27,6 +30,7 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
         let location = Self.parseFileLocation(trimmed)
         self.filePath = location.path
         self.line = location.line
+        self.key = location.key
     }
 
     /// Whether the diagnostic comes from a cmux-generated inline fragment
@@ -36,8 +40,15 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
             || message.hasPrefix(Self.cmuxInlineConfigPathPrefix)
     }
 
-    private static func parseFileLocation(_ message: String) -> (path: String?, line: Int?) {
-        guard message.hasPrefix("/") || message.hasPrefix("~") else { return (nil, nil) }
+    /// Whether the diagnostic is about a key cmux reads itself
+    /// (``GhosttyConfig/cmuxOwnedKeys``). Ghostty rejects those as unknown
+    /// fields, which is expected.
+    public var isForCmuxOwnedKey: Bool {
+        key.map(GhosttyConfig.cmuxOwnedKeys.contains) ?? false
+    }
+
+    private static func parseFileLocation(_ message: String) -> (path: String?, line: Int?, key: String?) {
+        guard message.hasPrefix("/") || message.hasPrefix("~") else { return (nil, nil, nil) }
         // Find the first ":<digits>:" after the path.
         var searchStart = message.startIndex
         while let colon = message[searchStart...].firstIndex(of: ":") {
@@ -48,11 +59,21 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
                afterDigits < message.endIndex,
                message[afterDigits] == ":",
                let line = Int(digits) {
-                return (String(message[..<colon]), line)
+                let rest = message[message.index(after: afterDigits)...]
+                return (String(message[..<colon]), line, parseKey(rest))
             }
             searchStart = digitsStart
         }
-        return (nil, nil)
+        return (nil, nil, nil)
+    }
+
+    /// Ghostty writes `<key>: <message>` after the location, or
+    /// ` <message>` when the diagnostic has no key.
+    private static func parseKey(_ rest: Substring) -> String? {
+        guard let colon = rest.firstIndex(of: ":") else { return nil }
+        let key = rest[..<colon]
+        guard !key.isEmpty, !key.contains(where: \.isWhitespace) else { return nil }
+        return String(key)
     }
 }
 
