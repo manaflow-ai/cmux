@@ -1,8 +1,9 @@
 # ios/ agent instructions
 
 iOS app-target work in this directory follows `Packages/iOS/AGENTS.md`,
-including its Apple Human Interface Guidelines rule. Read it before changing
-UI.
+including its Apple Human Interface Guidelines rule and its
+expose-every-capability-to-voice-mode rule. Read it before changing UI or
+adding a feature.
 
 For connectivity, auth, lifecycle, workspace or terminal changes, follow
 `docs/ios-connectivity-soak.md`. Keep the deterministic workload's actions and

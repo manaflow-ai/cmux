@@ -185,85 +185,85 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Audio aufnehmen, um Sprache in das Nachrichtenfeld zu transkribieren."
+            "value": "Audio aufnehmen für Diktat und Live-Sprachgespräche mit Ihren Agenten."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Record audio to transcribe your voice into the message box."
+            "value": "Record audio for voice dictation and live voice conversations with your agents."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grabar audio para transcribir tu voz en el cuadro de mensaje."
+            "value": "Grabar audio para dictar por voz y mantener conversaciones de voz en vivo con tus agentes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enregistrez de l'audio pour transcrire votre voix dans la zone de message."
+            "value": "Enregistrer de l'audio pour la dictée vocale et les conversations vocales en direct avec vos agents."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Registra audio per trascrivere la tua voce nella casella dei messaggi."
+            "value": "Registra audio per la dettatura vocale e le conversazioni vocali in tempo reale con i tuoi agenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "音声をメッセージ欄に文字起こしするため、音声を録音します。"
+            "value": "音声入力と、エージェントとのライブ音声会話のために音声を録音します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "음성을 녹음하여 메시지 박스에 텍스트로 변환합니다."
+            "value": "음성 받아쓰기 및 에이전트와의 실시간 음성 대화를 위해 오디오를 녹음합니다."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Audio opnemen om je stem te transcriberen in het berichtvak."
+            "value": "Audio opnemen voor spraakdictaat en live spraakgesprekken met je agents."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nagraj dźwięk, aby transkrybować głos do pola wiadomości."
+            "value": "Nagrywanie dźwięku do dyktowania głosowego i rozmów głosowych na żywo z agentami."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gravar áudio para transcrever sua voz na caixa de mensagem."
+            "value": "Gravar áudio para ditado por voz e conversas de voz ao vivo com seus agentes."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Запись аудио для транскрибации голоса в поле сообщения."
+            "value": "Запись звука для голосового ввода и живых голосовых разговоров с вашими агентами."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sesinizi mesaj kutusuna dönüştürmek için ses kaydedin."
+            "value": "Sesli dikte ve aracılarınızla canlı sesli konuşmalar için ses kaydeder."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "录制音频以将语音转录到消息框中。"
+            "value": "录制音频，用于语音听写以及与您的代理进行实时语音对话。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "錄製音訊以將語音轉錄至訊息輸入框。"
+            "value": "錄製音訊，用於語音聽寫以及與您的代理進行即時語音對話。"
           }
         }
       }

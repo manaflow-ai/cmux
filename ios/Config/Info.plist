@@ -72,7 +72,7 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your Mac on the local network for cmux mobile pairing and terminal sync.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Record audio to transcribe your voice into the message box.</string>
+	<string>Record audio for voice dictation and live voice conversations with your agents.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Attach photos to send to your terminal agent.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

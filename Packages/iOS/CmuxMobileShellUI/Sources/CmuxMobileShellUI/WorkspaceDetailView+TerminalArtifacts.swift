@@ -6,6 +6,13 @@ import CmuxMobileTerminal
 import SwiftUI
 
 extension WorkspaceDetailView {
+    /// Typed outside the representable's huge initializer expression so the
+    /// optional MainActor closure never participates in that inference.
+    var openVoiceModeAction: (@MainActor () -> Void)? {
+        guard voiceModeIsAvailable else { return nil }
+        return { voiceModePresented = true }
+    }
+
     var terminalArtifactFilesPresentation: MobileChildSheetPresentation {
         resolvedPresentation(
             for: .workspaceDetail(.terminalArtifactFiles),
@@ -77,7 +84,10 @@ extension WorkspaceDetailView {
             if artifactGalleryRefreshSignal != signal {
                 artifactGalleryRefreshSignal = signal
             }
-        }
+        },
+        // The composer's mic slot becomes the voice-mode entrypoint when
+        // voice is available; nil keeps plain dictation there.
+        onOpenVoiceMode: openVoiceModeAction
     )
     .popover(
         isPresented: terminalArtifactFilesPresentation.isPresented,

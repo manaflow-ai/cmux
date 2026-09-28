@@ -54,6 +54,13 @@ struct TerminalComposerView: View {
     let photoPickerWillPresent: () -> Void
     let photoPickerDidPresent: () -> Void
     let photoPickerDidDismiss: () -> Void
+    /// Live provider for the voice-mode entrypoint. Non-nil result replaces
+    /// the dictation mic with the voice-mode button (voice supersedes
+    /// transcribe-into-the-field); nil keeps dictation. A provider rather
+    /// than a captured closure because the composer's hosting controller is
+    /// built once per mount while voice availability (Settings toggle) can
+    /// change under it.
+    var voiceModeAction: @MainActor () -> (@MainActor () -> Void)? = { nil }
     /// Mirror of the UIKit editor's first-responder state, written by the
     /// editor's coordinator on begin/end editing. Replaces the `@FocusState`
     /// the SwiftUI `TextField` used; programmatic focus goes through
@@ -99,7 +106,8 @@ struct TerminalComposerView: View {
         inputFocusChanged: @escaping (Bool) -> Void,
         photoPickerWillPresent: @escaping () -> Void,
         photoPickerDidPresent: @escaping () -> Void,
-        photoPickerDidDismiss: @escaping () -> Void
+        photoPickerDidDismiss: @escaping () -> Void,
+        voiceModeAction: @escaping @MainActor () -> (@MainActor () -> Void)? = { nil }
     ) {
         self.store = store
         self.terminalID = terminalID
@@ -109,6 +117,7 @@ struct TerminalComposerView: View {
         self.photoPickerWillPresent = photoPickerWillPresent
         self.photoPickerDidPresent = photoPickerDidPresent
         self.photoPickerDidDismiss = photoPickerDidDismiss
+        self.voiceModeAction = voiceModeAction
         _dictation = State(initialValue: ComposerDictationController { event in
             Self.recordDictationDiagnostic(event, terminalID: terminalID, store: store)
         })
@@ -346,7 +355,11 @@ struct TerminalComposerView: View {
             HStack(alignment: .bottom, spacing: 8) {
                 attachMenuButton
 
-                micButton
+                if let openVoiceMode = voiceModeAction() {
+                    voiceModeButton(openVoiceMode)
+                } else {
+                    micButton
+                }
 
                 // The field and its send button share ONE rounded glass container,
                 // rendered through the same support component as GUI chat. `.bottom`
@@ -547,10 +560,36 @@ struct TerminalComposerView: View {
         }
     }
 
+    /// Voice-mode button in the mic slot when voice mode is available: it
+    /// opens the live GPT-Live conversation with the workspace's agent,
+    /// replacing dictation-into-the-field (speech reaches the agent directly,
+    /// so transcribing into the text box first is redundant).
+    private func voiceModeButton(_ openVoiceMode: @escaping @MainActor () -> Void) -> some View {
+        MobileComposerIconButton(
+            systemImage: "waveform",
+            activeSystemImage: "waveform",
+            isActive: false,
+            foregroundStyle: AnyShapeStyle(
+                store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
+            ),
+            size: controlHeight,
+            pulsesWhenActive: false,
+            isDisabled: false,
+            accessibilityIdentifier: "MobileComposerVoiceMode",
+            accessibilityLabel: L10n.string("mobile.voice.button", defaultValue: "Voice Mode")
+        ) {
+            // Voice owns the audio session; a live dictation capture would
+            // fight it for the mic.
+            dictation.cancel()
+            openVoiceMode()
+        }
+    }
+
     /// Mic button for on-device voice dictation, beside the attach button on the
     /// leading side. Tapping toggles dictation; while listening it shows a filled,
     /// tinted mic. Disabled when the recognizer is unavailable or permission was
-    /// denied so the user is never left tapping a dead control.
+    /// denied so the user is never left tapping a dead control. Shown only when
+    /// voice mode is unavailable; the voice-mode button owns this slot otherwise.
     private var micButton: some View {
         let listening = dictation.state.isListening
         return MobileComposerIconButton(
