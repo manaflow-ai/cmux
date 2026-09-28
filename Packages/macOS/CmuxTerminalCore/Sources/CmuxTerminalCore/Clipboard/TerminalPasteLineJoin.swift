@@ -16,37 +16,35 @@
 ///
 /// Text that is several commands on purpose, such as a heredoc, is not
 /// something to join; that is the ordinary Paste.
-public enum TerminalPasteLineJoin {
-    /// Whether `text` holds a line break other than trailing ones, the case
-    /// where "Paste as One Line" differs from Paste.
+public struct TerminalPasteLineJoin: Equatable, Sendable {
+    /// The non-blank lines of the pasted text, trimmed, with continuation
+    /// backslashes removed.
+    public let lines: [String]
+
+    /// Splits `text` into the lines a one-line paste joins.
     ///
     /// - Parameter text: The clipboard text.
-    /// - Returns: `true` when joining would change which lines the shell
-    ///   receives.
-    public static func spansMultipleLines(_ text: String) -> Bool {
-        lines(of: text).count > 1
-    }
-
-    /// Returns `text` joined into one line.
-    ///
-    /// - Parameter text: The clipboard text.
-    /// - Returns: The joined text, with no line breaks. Empty when `text`
-    ///   holds only whitespace.
-    public static func joined(_ text: String) -> String {
-        lines(of: text).joined(separator: " ")
-    }
-
-    /// The non-blank lines of `text`, trimmed, with continuation backslashes
-    /// removed.
-    private static func lines(of text: String) -> [String] {
-        text.split(whereSeparator: \.isNewline).compactMap { rawLine in
-            var line = trimmingHorizontalWhitespace(rawLine)
-            if endsWithContinuation(line) {
+    public init(_ text: String) {
+        lines = text.split(whereSeparator: \.isNewline).compactMap { rawLine in
+            var line = Self.trimmingHorizontalWhitespace(rawLine)
+            if Self.endsWithContinuation(line) {
                 line.removeLast()
-                line = trimmingHorizontalWhitespace(line)
+                line = Self.trimmingHorizontalWhitespace(line)
             }
             return line.isEmpty ? nil : String(line)
         }
+    }
+
+    /// Whether the text holds a line break other than trailing ones, the case
+    /// where "Paste as One Line" differs from Paste.
+    public var spansMultipleLines: Bool {
+        lines.count > 1
+    }
+
+    /// The text joined into one line, with no line breaks. Empty when the
+    /// text holds only whitespace.
+    public var joined: String {
+        lines.joined(separator: " ")
     }
 
     /// Whether `line` ends in an odd run of backslashes, so the last one

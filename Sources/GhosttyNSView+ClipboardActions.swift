@@ -40,7 +40,7 @@ extension GhosttyNSView {
     var multiLineClipboardPlainText: String? {
         guard let pasteboard = GhosttyApp.terminalPasteboard.pasteboard(for: GHOSTTY_CLIPBOARD_STANDARD),
               let text = GhosttyApp.terminalPasteboard.fallbackPlainTextContents(from: pasteboard),
-              TerminalPasteLineJoin.spansMultipleLines(text) else {
+              TerminalPasteLineJoin(text).spansMultipleLines else {
             return nil
         }
         return text
@@ -52,7 +52,7 @@ extension GhosttyNSView {
     /// `cmux paste` and never presses Return.
     @IBAction func pasteAsOneLine(_ sender: Any?) {
         guard let text = multiLineClipboardPlainText else { return }
-        let joined = TerminalPasteLineJoin.joined(text)
+        let joined = TerminalPasteLineJoin(text).joined
         guard !joined.isEmpty else { return }
         _ = terminalSurface?.sendTextResult(joined)
     }
