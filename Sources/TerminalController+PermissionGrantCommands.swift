@@ -72,7 +72,8 @@ extension TerminalController {
             )
         }
         do {
-            return .ok(["revoked": try Self.permissionGrantStore.revoke(id: id)])
+            let revoked = try Self.permissionGrantStore.revoke(id: id)
+            return .ok(["revoked": revoked])
         } catch {
             return .err(
                 code: "internal_error",
