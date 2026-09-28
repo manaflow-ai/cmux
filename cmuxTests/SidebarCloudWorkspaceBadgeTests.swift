@@ -80,6 +80,27 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(snapshot.remoteWorkspaceBadgeLabel?.contains(machine.rawValue) == true)
     }
 
+    @Test("Pending machine provenance survives removing one of two panels")
+    func pendingMachineIndexRetainsDuplicateMachine() {
+        let workspaceID = UUID()
+        let firstPanelID = UUID()
+        let secondPanelID = UUID()
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "restore"))
+        var store = SurfaceProjectionRestoreStore()
+        store.stage(SurfaceProjectionRecord(
+            panelID: firstPanelID,
+            resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "first")
+        ), workspaceID: workspaceID)
+        store.stage(SurfaceProjectionRecord(
+            panelID: secondPanelID,
+            resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "second")
+        ), workspaceID: workspaceID)
+
+        #expect(store.machineIDs(forWorkspace: workspaceID) == [machine])
+        #expect(store.remove(panelID: firstPanelID))
+        #expect(store.machineIDs(forWorkspace: workspaceID) == [machine])
+    }
+
     /// Ensures Cloud identity changes alter only the immutable row projection.
     @Test func cloudBindingChangesSidebarSnapshotWithoutTitleOrPathChanges() {
         let workspace = Workspace(title: "vm:vivid-newt", workingDirectory: "/tmp", initialSurface: .cloudVMLoading)
