@@ -33,8 +33,12 @@ extension CloudTreeNodeBuilder {
         if children.isEmpty {
             children.append(CloudMachineSurfacePresentation.emptyPorts(info: info))
         }
+        // Ports show one status row at a time. Setup guidance joins only a finished scan's
+        // rows, since loopback, loading and failure rows already explain what VPN can reach.
         // SSH ports ride the SSH link's loopback forward; the Cloud VPN never reaches them.
-        if showsCloudVPNWarning, !machine.isSSH, info.linkState == .connected || info.linkState == .notApplicable {
+        let hasPortRows = children.contains { if case .port = $0.kind { true } else { false } }
+        if showsCloudVPNWarning, hasPortRows, info.portDiscoveryState == .available, !machine.isSSH,
+           info.linkState == .connected || info.linkState == .notApplicable {
             children.append(CloudTreeNode(
                 id: "machine:\(machine.rawValue)/ports/vpn-guidance",
                 kind: .placeholder(
