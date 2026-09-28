@@ -4,12 +4,13 @@ import CmuxSettingsUI
 /// Builds the Cloud header's team pull-down from one snapshot of account state.
 ///
 /// Rows are native menu items, so team names are never clipped to a fixed
-/// width and the active team carries the standard checkmark. While a switch is
-/// pending, a status row says so and every action is disabled, so a second
-/// switch cannot race the first.
+/// width and the active team carries the standard checkmark. While a switch or
+/// a team create is pending, a status row says so and every action is
+/// disabled, so a second request cannot race the first.
 @MainActor
 enum CloudTeamPickerMenu {
     static let switchingStatusIdentifier = "CloudTeamPickerSwitchingStatus"
+    static let creatingStatusIdentifier = "CloudTeamPickerCreatingStatus"
     static let loadingTeamsIdentifier = "CloudTeamPickerLoadingTeams"
     static let createTeamIdentifier = "CloudTeamPickerCreateTeamButton"
 
@@ -21,6 +22,7 @@ enum CloudTeamPickerMenu {
         teams: [AccountTeamSummary],
         selectedTeamID: String?,
         isSwitching: Bool,
+        isCreatingTeam: Bool,
         onSelect: @escaping (AccountTeamSummary) -> Void,
         onCreate: @escaping () -> Void
     ) -> NSMenu {
@@ -31,6 +33,15 @@ enum CloudTeamPickerMenu {
                 String(localized: "cloud.teamPicker.switching", defaultValue: "Switching teams…"),
                 identifier: switchingStatusIdentifier
             ))
+        }
+        if isCreatingTeam {
+            menu.addItem(statusItem(
+                String(localized: "cloud.teamPicker.creating", defaultValue: "Creating team…"),
+                identifier: creatingStatusIdentifier
+            ))
+        }
+        let isBusy = isSwitching || isCreatingTeam
+        if isBusy {
             menu.addItem(.separator())
         }
         if teams.isEmpty {
@@ -43,7 +54,7 @@ enum CloudTeamPickerMenu {
             let item = SidebarRowClosureMenuItem(title: team.displayName) { onSelect(team) }
             item.identifier = NSUserInterfaceItemIdentifier(teamIdentifier(team.id))
             item.state = team.id == selectedTeamID ? .on : .off
-            item.isEnabled = !isSwitching
+            item.isEnabled = !isBusy
             menu.addItem(item)
         }
         menu.addItem(.separator())
@@ -52,7 +63,7 @@ enum CloudTeamPickerMenu {
             handler: onCreate
         )
         create.identifier = NSUserInterfaceItemIdentifier(createTeamIdentifier)
-        create.isEnabled = !isSwitching
+        create.isEnabled = !isBusy
         menu.addItem(create)
         return menu
     }

@@ -4,7 +4,8 @@ import SwiftUI
 /// Names a new Cloud team. A sheet rather than an alert so a rejected name
 /// keeps the dialog open with its error beside the field. Create makes the new
 /// team active; Cancel waits for an in-flight request, since the server may
-/// still create the team.
+/// still create the team. Create waits for a pending team switch, which would
+/// otherwise fail the create.
 struct CloudCreateTeamSheet: View {
     let accountFlow: HostAccountFlow
     let onFinish: () -> Void
@@ -51,7 +52,7 @@ struct CloudCreateTeamSheet: View {
                 Button(String(localized: "cloud.teamPicker.createSheet.create", defaultValue: "Create"), action: submit)
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
-                    .disabled(trimmedName.isEmpty || isSubmitting)
+                    .disabled(trimmedName.isEmpty || isSubmitting || accountFlow.isSelectingTeam)
                     .accessibilityIdentifier("CloudCreateTeamSheet.create")
             }
         }
@@ -63,7 +64,7 @@ struct CloudCreateTeamSheet: View {
 
     private func submit() {
         let displayName = trimmedName
-        guard !displayName.isEmpty, !isSubmitting else { return }
+        guard !displayName.isEmpty, !isSubmitting, !accountFlow.isSelectingTeam else { return }
         isSubmitting = true
         errorMessage = nil
         Task { @MainActor in

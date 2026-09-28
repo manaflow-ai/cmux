@@ -10,10 +10,12 @@ final class CloudTeamPickerPresentation {
     /// menu opens again.
     var switchError: String?
 
-    /// Switches the active team. A pending switch blocks another one, so two
+    /// Switches the active team. A pending switch or create blocks it, so two
     /// requests cannot race for the confirmed scope.
     func selectTeam(_ teamID: String, accountFlow: HostAccountFlow) {
-        guard teamID != accountFlow.selectedTeamID, !accountFlow.isSelectingTeam else { return }
+        guard teamID != accountFlow.selectedTeamID,
+              !accountFlow.isSelectingTeam,
+              !accountFlow.isCreatingTeam else { return }
         switchError = nil
         Task { @MainActor in
             do {

@@ -42,7 +42,7 @@ struct CloudTeamPickerMenuTests {
 
     @Test func checksTheActiveTeamAndKeepsFullNames() throws {
         let menu = CloudTeamPickerMenu.make(
-            teams: teams, selectedTeamID: "team-long", isSwitching: false,
+            teams: teams, selectedTeamID: "team-long", isSwitching: false, isCreatingTeam: false,
             onSelect: { _ in }, onCreate: {}
         )
         let long = try #require(item(menu, CloudTeamPickerMenu.teamIdentifier("team-long")))
@@ -58,7 +58,7 @@ struct CloudTeamPickerMenuTests {
 
     @Test func pendingSwitchShowsStatusAndDisablesEveryAction() throws {
         let menu = CloudTeamPickerMenu.make(
-            teams: teams, selectedTeamID: "team-alpha", isSwitching: true,
+            teams: teams, selectedTeamID: "team-alpha", isSwitching: true, isCreatingTeam: false,
             onSelect: { _ in }, onCreate: {}
         )
         let status = try #require(menu.items.first)
@@ -68,9 +68,22 @@ struct CloudTeamPickerMenuTests {
         #expect(menu.items.filter(\.isEnabled).isEmpty)
     }
 
+    @Test func pendingCreateShowsStatusAndDisablesEveryAction() throws {
+        let menu = CloudTeamPickerMenu.make(
+            teams: teams, selectedTeamID: "team-long", isSwitching: false, isCreatingTeam: true,
+            onSelect: { _ in }, onCreate: {}
+        )
+        let status = try #require(menu.items.first)
+        #expect(status.identifier?.rawValue == CloudTeamPickerMenu.creatingStatusIdentifier)
+        #expect(!status.isEnabled)
+        #expect(item(menu, CloudTeamPickerMenu.switchingStatusIdentifier) == nil)
+        #expect(item(menu, CloudTeamPickerMenu.teamIdentifier("team-long"))?.state == .on)
+        #expect(menu.items.filter(\.isEnabled).isEmpty)
+    }
+
     @Test func noMembershipShowsLoadingAndStillOffersCreate() {
         let menu = CloudTeamPickerMenu.make(
-            teams: [], selectedTeamID: nil, isSwitching: false,
+            teams: [], selectedTeamID: nil, isSwitching: false, isCreatingTeam: false,
             onSelect: { _ in }, onCreate: {}
         )
         #expect(item(menu, CloudTeamPickerMenu.loadingTeamsIdentifier)?.isEnabled == false)
@@ -81,7 +94,7 @@ struct CloudTeamPickerMenuTests {
         var selected: [String] = []
         var createCount = 0
         let menu = CloudTeamPickerMenu.make(
-            teams: teams, selectedTeamID: "team-long", isSwitching: false,
+            teams: teams, selectedTeamID: "team-long", isSwitching: false, isCreatingTeam: false,
             onSelect: { selected.append($0.id) }, onCreate: { createCount += 1 }
         )
         let alpha = try #require(item(menu, CloudTeamPickerMenu.teamIdentifier("team-alpha")))

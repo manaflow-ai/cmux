@@ -77,6 +77,7 @@ struct CloudTeamPickerRow: View {
             teams: accountFlow.availableTeams,
             selectedTeamID: accountFlow.selectedTeamID,
             isSwitching: accountFlow.isSelectingTeam,
+            isCreatingTeam: accountFlow.isCreatingTeam,
             onSelect: { [presentation, accountFlow] team in
                 presentation.selectTeam(team.id, accountFlow: accountFlow)
             },

@@ -42,6 +42,8 @@ extension HostAccountFlow {
 
     /// Creates a team through Stack Auth and makes it the active team.
     func createTeam(displayName: String) async throws -> AccountTeamSummary {
+        pendingTeamCreations += 1
+        defer { pendingTeamCreations -= 1 }
         let team = try await coordinator.createTeam(displayName: displayName)
         return AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
     }
