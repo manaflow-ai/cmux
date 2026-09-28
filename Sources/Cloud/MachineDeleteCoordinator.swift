@@ -83,10 +83,22 @@ final class MachineDeleteCoordinator {
         return true
     }
 
-    /// Hides the machine a cancelled create announced, for that create's cleanup.
+    /// Hides the machine a cancelled create announced, for that create's cleanup,
+    /// and detaches its local presentations on a later main-actor turn.
+    ///
+    /// The create coordinator requests cleanup while it applies the cancel: before
+    /// the create's card closes, and for Cmd+W inside the close of the card's
+    /// workspace. Closing the card first unbinds any pane the person added, so the
+    /// later detach keeps that workspace instead of closing it whole or again.
     /// - Parameter machineID: The exact provider machine identifier.
     func beginCleanup(_ machineID: String) {
-        begin(machineID)
+        guard deletions.begin(machineID) else { return }
+        runLater { [weak self] in
+            // A delete that failed first, or an ended account, lists the machine
+            // again with its presentations.
+            guard let self, self.hiddenMachineIDs.contains(machineID) else { return }
+            self.didHide(machineID)
+        }
     }
 
     /// Stops the machine's creates, then closes its local workspaces and

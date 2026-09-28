@@ -106,6 +106,29 @@ struct MachineDeleteCoordinatorTests {
         #expect(steps == ["clean up m2", "detach m1", "detach m2"])
     }
 
+    @Test func createCleanupDetachesNothingOnceTheMachineIsListedAgain() {
+        var detached: [String] = []
+        var later: [@MainActor () -> Void] = []
+        let accountEvents = NotificationCenter()
+        let deletions = MachineDeleteCoordinator(
+            notificationCenter: accountEvents,
+            destroyMachine: { _ in },
+            didHide: { detached.append($0) },
+            didRetire: { _ in },
+            didRestore: { _ in },
+            runLater: { later.append($0) }
+        )
+        deletions.beginCleanup("m1")
+        deletions.beginCleanup("m1")
+        #expect(later.count == 1, "A repeated cleanup is a no-op")
+        deletions.launchEnded("m1")
+        deletions.beginCleanup("m2")
+        accountEvents.post(name: .cmuxCloudVMAccessDidEnd, object: nil)
+
+        later.forEach { $0() }
+        #expect(detached.isEmpty, "A CLI that exited early, or an ended account, keeps the presentations")
+    }
+
     @Test func notFoundRetiresTheMachineAndOtherFailuresRestoreIt() async throws {
         let fixture = MachineDeleteFixture()
         let coordinator = fixture.makeCoordinator()

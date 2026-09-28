@@ -232,8 +232,8 @@ final class CloudVMActionLauncher {
 
     /// Best-effort cleanup for a machine that was announced by a cancelled
     /// create. Delete is idempotent at the socket boundary, so a race with the
-    /// create finalizer is safe; the local workspace/catalog cleanup is handled
-    /// by the same destroy path as a user-initiated delete. The auth-transition
+    /// create finalizer is safe. The machine hides at once and detaches its local
+    /// workspaces and panes after the cancel closes its card. The auth-transition
     /// override keeps a late tombstone from opening a sign-in sheet; the socket
     /// still enforces the account's server-side authorization.
     func destroyMachineBestEffort(_ machineID: String) {
