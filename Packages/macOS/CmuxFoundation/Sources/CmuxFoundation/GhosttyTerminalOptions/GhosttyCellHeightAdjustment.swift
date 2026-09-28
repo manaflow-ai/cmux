@@ -29,7 +29,9 @@ public enum GhosttyCellHeightAdjustment: Equatable, Sendable {
     public func stepped(by steps: Int) -> GhosttyCellHeightAdjustment {
         switch self {
         case .percent(let percent): return .percent((percent / 2).rounded() * 2 + Double(steps * 2))
-        case .pixels(let pixels): return .pixels(pixels + steps)
+        case .pixels(let pixels):
+            let (sum, overflow) = pixels.addingReportingOverflow(steps)
+            return .pixels(overflow ? (steps > 0 ? .max : .min) : sum)
         }
     }
 
