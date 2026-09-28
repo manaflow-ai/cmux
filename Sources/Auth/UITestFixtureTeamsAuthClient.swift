@@ -24,13 +24,15 @@ actor UITestFixtureTeamsAuthClient: AuthClient {
     private let switchDelay: Duration
 
     /// Returns `base` unchanged unless the launch opted in to fixture teams.
+    /// A malformed team list serves no teams rather than the live ones, since
+    /// session priming refreshes teams whenever the key is set.
     static func wrapping(_ base: any AuthClient, environment: [String: String]) -> any AuthClient {
         guard environment["CMUX_UITEST_AUTH_FIXTURE"] == "1",
               environment["CMUX_UITEST_CLEAR_AUTH"] != "1",
-              let json = environment["CMUX_UITEST_AUTH_FIXTURE_TEAMS"]?.data(using: .utf8),
-              let teams = try? JSONDecoder().decode([CMUXAuthTeam].self, from: json) else {
+              let json = environment["CMUX_UITEST_AUTH_FIXTURE_TEAMS"] else {
             return base
         }
+        let teams = (try? JSONDecoder().decode([CMUXAuthTeam].self, from: Data(json.utf8))) ?? []
         let delay = environment["CMUX_UITEST_AUTH_FIXTURE_TEAM_SWITCH_DELAY_MS"].flatMap(Int.init) ?? 0
         return UITestFixtureTeamsAuthClient(
             base: base,
