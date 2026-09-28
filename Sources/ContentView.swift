@@ -9443,6 +9443,13 @@ struct ContentView: View {
 #endif
             }
         }
+        registry.register(commandId: "palette.toggleTilingMode") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            workspace.toggleTilingMode()
+        }
         registerPaneResizeHandlers(&registry) { observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow }
         registerShortcutParityCommandHandlers(
             &registry,

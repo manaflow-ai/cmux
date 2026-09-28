@@ -1716,6 +1716,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var layout: SessionWorkspaceLayoutSnapshot
     /// `WorkspaceLayoutMode` raw value; absent in pre-canvas snapshots (treated as splits).
     var layoutMode: String? = nil
+    /// Whether the workspace automatically equalizes split geometry after pane changes.
+    var tilingModeEnabled: Bool? = nil
     /// Canvas pane frames in z-order; persisted whenever any exist so
     /// positions survive toggling back to splits across restarts.
     var canvasPanes: [SessionCanvasPaneSnapshot]? = nil

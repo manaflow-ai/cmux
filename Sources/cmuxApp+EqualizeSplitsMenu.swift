@@ -2,6 +2,15 @@ import AppKit
 import SwiftUI
 
 extension cmuxApp {
+    func tilingModeCommandButton() -> some View {
+        splitCommandButton(
+            title: String(localized: "command.toggleTilingMode.title", defaultValue: "Toggle Tiling Mode"),
+            shortcut: .unbound
+        ) {
+            activeTabManager.selectedWorkspace?.toggleTilingMode()
+        }
+    }
+
     func equalizeSplitsCommandButton() -> some View {
         splitCommandButton(title: String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits"), shortcut: menuShortcut(for: .equalizeSplits)) {
             if let dock = AppDelegate.shared?.focusedDockStoreForShortcut(
@@ -24,6 +33,7 @@ extension cmuxApp {
 
     @ViewBuilder
     func paneSizingCommandButtons() -> some View {
+            tilingModeCommandButton()
             equalizeSplitsCommandButton()
             splitCommandButton(
                 title: KeyboardShortcutSettings.Action.resizePaneLeft.label,
