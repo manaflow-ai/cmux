@@ -257,6 +257,15 @@ extension MobileShellComposite {
             ordered.removeAll { $0.kind == .debugLoopback }
         }
         if let tailscaleRequirement {
+            // A pairing that knows the Mac's device key dials Direct QUIC on
+            // the Iroh route, pinned to the authorized Tailscale endpoints
+            // (see `irohMethodPinnedDialCandidates`). Without a grant there is
+            // nothing to dial until the user enters a pairing code.
+            let identityRoutes = ordered.filter { $0.kind == .iroh }
+            if !identityRoutes.isEmpty {
+                return tailscaleDirectQuicCandidates(from: tailscaleRequirement.grantRoutes).isEmpty
+                    ? [] : identityRoutes
+            }
             let authorizedTailscale = ordered.filter { route in
                 legacyTailscaleAuthorizationEvidence(
                     for: route,
@@ -314,10 +323,10 @@ extension MobileShellComposite {
                 )
                 : nil
         )
-        // Direct rides the Iroh lane EXCLUSIVELY: the transport dials only the
-        // method's allowlisted addresses, and no dev-loopback or host/port lane
-        // may substitute when they are unreachable. Tailscale routes remain
-        // Tailscale routes, with Iroh excluded by the requirement above.
+        // Direct rides the identity route EXCLUSIVELY: Direct QUIC dials only
+        // the method's allowlisted addresses, and no dev-loopback or host/port
+        // lane may substitute when they are unreachable. Tailscale is already
+        // reduced to its identity route or legacy grant routes above.
         return method == .direct
             ? routes.filter { $0.kind == .iroh }
             : routes

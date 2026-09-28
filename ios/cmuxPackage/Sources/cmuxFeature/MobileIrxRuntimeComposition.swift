@@ -38,8 +38,11 @@ public actor MobileIrxRuntimeComposition {
     var endpointWarmupTask: Task<Void, Never>?
     var control: V2ControlService?
     var endpointSupervisor: IrxEndpointSupervisor?
-    var directEndpointSupervisor: IrxEndpointSupervisor?
     var identity: IrxIdentity?
+    /// Serves pre-Direct QUIC pinned candidates (entries saved against the
+    /// Mac's Iroh port). Relay policy is endpoint-wide, so the pinned lane
+    /// needs its own direct-only endpoint.
+    var directEndpointSupervisor: IrxEndpointSupervisor?
     var cache: V2CachedState?
     var lastFailure: String?
     var lastLoggedControlState: String?

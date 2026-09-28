@@ -651,7 +651,9 @@ import Testing
         return store
     }
 
-    @Test func tailscaleMethodUsesOnlyGrantedTailscaleRoute() throws {
+    /// A pairing that knows the Mac's device key dials Direct QUIC on its
+    /// identity route; the grant becomes the pinned address, never raw TCP.
+    @Test func tailscaleMethodDialsDirectQuicOnTheIdentityRoute() throws {
         let tailscale = try tailscale()
         let routes = MobileShellComposite.storedReconnectRoutes(
             [tailscale, try iroh()],
@@ -663,7 +665,33 @@ import Testing
             )
         )
 
+        #expect(routes.map(\.kind) == [.iroh])
+        #expect(MobileShellComposite.tailscaleDirectQuicCandidates(from: [tailscale]) == [CmxIrohDirectDialCandidate(address: "100.82.214.112", port: 50906)])
+    }
+
+    /// A pre-Iroh pairing has no device key to verify, so it keeps the exact
+    /// granted raw Tailscale route.
+    @Test func tailscaleMethodWithoutDeviceKeyUsesOnlyGrantedTailscaleRoute() throws {
+        let tailscale = try tailscale()
+        let routes = MobileShellComposite.storedReconnectRoutes(
+            [tailscale],
+            supportedKinds: [.iroh, .tailscale],
+            preferNonLoopback: true,
+            tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
+                macDeviceID: "test-mac",
+                grantRoutes: [tailscale]
+            )
+        )
+
         #expect(routes.map(\.kind) == [.tailscale])
+    }
+
+    /// Only numeric Tailscale endpoints become Direct QUIC pins.
+    @Test func tailscalePinsRejectNonTailscaleAddresses() throws {
+        let lan = try CmxAttachRoute(
+            id: "tailscale-lan", kind: .tailscale,
+            endpoint: .hostPort(host: "192.168.1.20", port: 58465), priority: 10)
+        #expect(MobileShellComposite.tailscaleDirectQuicCandidates(from: [lan]).isEmpty)
     }
 
     @Test func tailscaleMethodWithoutGrantRejectsEveryRoute() throws {
@@ -683,7 +711,7 @@ import Testing
     @Test func tailscaleMethodRejectsMismatchedGrantWithoutIrohFallback() throws {
         let otherDestination = try tailscale(50907)
         let routes = MobileShellComposite.storedReconnectRoutes(
-            [try tailscale(), try iroh()],
+            [try tailscale()],
             supportedKinds: [.iroh, .tailscale],
             preferNonLoopback: true,
             tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
@@ -817,7 +845,8 @@ import Testing
     }
 
     /// Switching an Iroh-identified pairing to Tailscale Only replaces the
-    /// live session and dials the actual authorized Tailscale route.
+    /// live session with a Direct QUIC dial pinned to the authorized
+    /// Tailscale endpoint.
     @Test func changingToTailscaleReplacesLiveIrohWithTailscaleDial() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -887,17 +916,118 @@ import Testing
         let applied = try await pollUntil {
             let originalTransportClosed =
                 await originalTransport?.isClosedForTesting() == true
-            return factory.attemptedKinds().filter { $0 == .iroh }.count == 1
+            return factory.attemptedKinds().filter { $0 == .iroh }.count == 2
                 && store.connectionState == .connected
                 && originalTransportClosed
         }
         #expect(applied)
-        #expect(store.activeRoute?.kind == .tailscale)
-        #expect(factory.attemptedKinds().filter { $0 == .tailscale }.count == 1)
+        #expect(store.activeRoute?.kind == .iroh)
+        #expect(factory.attemptedKinds().contains(.tailscale) == false)
+        #expect(factory.attemptedPins() == [nil, [CmxIrohDirectDialCandidate(address: "100.82.214.112", port: 50906)]])
     }
 
-    /// A selected Tailscale route is strict. If its dial fails, the old Iroh
-    /// session stays closed and no Iroh retry is allowed to mask the failure.
+    /// Entries saved before Direct QUIC carry no transport marker and stay
+    /// on the pinned Iroh dial; marked entries route to Direct QUIC.
+    @Test func directCandidatesCarryTheirSavedTransport() async throws {
+        let clock = TestClock()
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac", displayName: "Test Mac", routes: [try iroh()],
+            instanceTag: "default", markActive: true,
+            stackUserID: "user-1", teamID: nil, now: clock.now
+        )
+        try await pairedStore.setConnectionMethod(
+            macDeviceID: "test-mac", instanceTag: "default",
+            rawValue: MobileConnectionMethod.direct.rawValue, stackUserID: "user-1"
+        )
+        try await pairedStore.setDirectAddresses(
+            macDeviceID: "test-mac", instanceTag: "default",
+            rawJSON: MobilePairedMac.encodeDirectAddresses([
+                MobilePairedMacDirectAddress(address: "192.168.1.10", port: 58465),
+                MobilePairedMacDirectAddress(
+                    address: "100.64.0.9", port: 58466,
+                    transport: MobilePairedMacDirectAddress.directQuicTransport),
+            ]),
+            stackUserID: "user-1"
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: KindRecordingTransportFactory(
+                    router: LivenessHostRouter(), box: TransportBox()),
+                now: { clock.now }, supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(suiteName: "transport-map-\(UUID().uuidString)")!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+
+        let candidates = store.irohMethodPinnedDialCandidates(
+            forMacDeviceID: "test-mac", instanceTag: "default"
+        )
+        #expect(candidates == [
+            CmxIrohDirectDialCandidate(address: "192.168.1.10", port: 58465, transport: .iroh),
+            CmxIrohDirectDialCandidate(address: "100.64.0.9", port: 58466, transport: .directQuic),
+        ])
+    }
+
+    /// An account-wide automatic-Iroh backoff (armed by a failed Automatic
+    /// attempt) must not strip a Tailscale pairing's pinned identity route:
+    /// the exact user-selected dial is attempted, not failed unseen.
+    @Test func automaticIrohBackoffDoesNotBlockPinnedTailscaleReconnect() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "test-mac", instanceTag: "default", displayName: "Test Mac"
+        )
+        let factory = KindRecordingTransportFactory(router: router, box: TransportBox())
+        let tailscale = try tailscale()
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac", displayName: "Test Mac",
+            routes: [tailscale, try iroh()], instanceTag: "default", markActive: true,
+            stackUserID: "user-1", teamID: nil, now: clock.now
+        )
+        try await pairedStore.authorizeUserTailscaleRoutes(
+            macDeviceID: "test-mac", instanceTag: "default",
+            stackUserID: "user-1", teamID: nil, routes: [tailscale]
+        )
+        try await pairedStore.setConnectionMethod(
+            macDeviceID: "test-mac", instanceTag: "default",
+            rawValue: MobileConnectionMethod.tailscale.rawValue, stackUserID: "user-1"
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory, now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(suiteName: "backoff-pin-\(UUID().uuidString)")!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        store.recordTransientAutomaticReconnectBackoff(accountID: "user-1")
+        #expect(store.automaticIrohReconnectIsBlocked(accountID: "user-1"))
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(store.connectionState == .connected)
+        #expect(factory.attemptedKinds() == [.iroh])
+        #expect(factory.attemptedPins() == [
+            [CmxIrohDirectDialCandidate(address: "100.82.214.112", port: 50906)],
+        ])
+    }
+
+    /// A selected Tailscale route is strict. If its pinned dial fails, the
+    /// old Iroh session stays closed and no unpinned Iroh retry is allowed to
+    /// mask the failure.
     @Test func failingTailscaleAfterMethodChangeDoesNotFallbackToIroh() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -905,7 +1035,7 @@ import Testing
         let factory = KindRecordingTransportFactory(
             router: router,
             box: liveTransportBox,
-            failingKinds: [.tailscale]
+            failsPinnedDials: true
         )
         let tailscale = try tailscale()
         let iroh = try iroh()
@@ -965,7 +1095,7 @@ import Testing
         #expect(failed)
         #expect(store.activeRoute == nil)
         #expect(store.connectionError != nil)
-        #expect(factory.attemptedKinds() == [.iroh, .tailscale])
+        #expect(factory.attemptedPins() == [nil, [CmxIrohDirectDialCandidate(address: "100.82.214.112", port: 50906)]])
     }
 
     /// A strict Tailscale foreground selection must not be hidden by reconnect
@@ -979,7 +1109,7 @@ import Testing
         let factory = KindRecordingTransportFactory(
             router: router,
             box: liveTransportBox,
-            failingKinds: [.tailscale]
+            failsPinnedDials: true
         )
         let tailscale = try tailscale()
         let iroh = try iroh()
@@ -1069,6 +1199,6 @@ import Testing
             ) == .tailscale
         )
         #expect(store.foregroundMacDeviceID == nil)
-        #expect(factory.attemptedKinds() == [.tailscale])
+        #expect(factory.attemptedPins() == [[CmxIrohDirectDialCandidate(address: "100.82.214.112", port: 50906)]])
     }
 }

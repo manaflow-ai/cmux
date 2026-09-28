@@ -132,6 +132,14 @@ public struct CmxPairingQRCode: Sendable {
                 }
                 return "r=\(hostPortString(host: host, port: port))"
             })
+            // The Mac's device key lets the phone verify the Mac it reaches
+            // at those addresses (Direct QUIC). Older decoders ignore both.
+            if let identity = encodableIrohIdentity(of: ticket) {
+                compatibilityItems.append("i=\(identity.endpointID)")
+                if let macDeviceID = normalizedNonEmpty(ticket.macDeviceID) {
+                    compatibilityItems.append("d=\(percentEncodeQueryValue(macDeviceID))")
+                }
+            }
             items = compatibilityItems
         }
         // The scheme is channel-specific (see ``CmxPairingURLScheme``): a dev
@@ -173,7 +181,14 @@ public struct CmxPairingQRCode: Sendable {
               ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
             return nil
         }
-        guard ticket.routes.allSatisfy({ $0.kind == .tailscale || CmxLoopbackHost().matches($0) }) else {
+        // An Iroh route is expressible only as its bare identity (`i=`);
+        // path hints would be silently dropped, so they keep the ticket out.
+        guard ticket.routes.allSatisfy({ route in
+            if case let .peer(_, pathHints) = route.endpoint, route.kind == .iroh {
+                return pathHints.isEmpty
+            }
+            return route.kind == .tailscale || CmxLoopbackHost().matches(route)
+        }) else {
             return nil
         }
         let routes = ticket.routes.filter { $0.kind == .tailscale }
@@ -296,17 +311,33 @@ private extension CmxPairingQRCode {
                 priority: synthesizedRoutePriority(index: index)
             )
         }
+        // Optional since the Direct QUIC transport: the Mac's device key and
+        // id, so the phone verifies the Mac it reaches at those addresses.
+        var identityRoutes: [CmxAttachRoute] = []
+        var macDeviceID = ""
+        if let endpointID = queryValue(named: "i", in: components) {
+            guard let identity = try? CmxIrohPeerIdentity(endpointID: endpointID) else {
+                throw MobileSyncPairingPayloadError.invalidURL
+            }
+            identityRoutes = [try CmxAttachRoute(
+                id: CmxAttachTransportKind.iroh.rawValue,
+                kind: .iroh,
+                endpoint: .peer(identity: identity, pathHints: []),
+                priority: 0
+            )]
+            macDeviceID = queryValue(named: "d", in: components) ?? ""
+        }
         let ticket = try CmxAttachTicket(
             workspaceID: "",
             terminalID: nil,
-            macDeviceID: "",
+            macDeviceID: macDeviceID,
             macDisplayName: nil,
             macUserEmail: queryValue(named: "e", in: components),
             macUserID: queryValue(named: "ub", in: components),
             macPairingCompatibilityVersion: queryInt(named: "pc", in: components) ?? 0,
             macAppVersion: queryValue(named: "av", in: components),
             macAppBuild: queryValue(named: "ab", in: components),
-            routes: routes,
+            routes: identityRoutes + routes,
             expiresAt: nil,
             authToken: nil
         )

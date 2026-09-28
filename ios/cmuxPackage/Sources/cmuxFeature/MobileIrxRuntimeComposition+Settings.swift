@@ -11,7 +11,13 @@ extension MobileIrxRuntimeComposition {
         let currentRelay = await endpointSupervisor?.homeRelayURL()
         let paths = await localPathSnapshot()
         let selectedPath = await selectedTransportPath()
+        // Direct QUIC holds no endpoint, so an admitted pinned session
+        // counts; legacy pinned entries still bind a direct-only endpoint.
         let directIsBound = await directEndpointSupervisor?.boundEndpoint() != nil
+            || activeDialIntentByPeer.values.contains { intent in
+                if case .direct = intent { return true }
+                return false
+            }
         let status: CmxIrohSettingsSnapshot.RuntimeStatus
         if activeScope == nil { status = .inactive }
         else if await endpointSupervisor?.boundEndpoint() != nil || directIsBound { status = .active }
@@ -47,7 +53,9 @@ extension MobileIrxRuntimeComposition {
             if description.hasPrefix("relay:") {
                 return .managedRelay(provider: "cmux", region: "")
             }
-            if description.hasPrefix("direct:") {
+            // The Iroh carrier reports "direct:<addr>"; the Direct QUIC
+            // carrier reports "direct-quic:<endpoint>". Both are direct paths.
+            if description.hasPrefix("direct:") || description.hasPrefix("direct-quic:") {
                 return .direct
             }
         }

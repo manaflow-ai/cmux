@@ -89,7 +89,7 @@ struct IrxControlStreamRepairTests {
         try await phone.connect()
         try await host.connect()
         let lanes = serveControlReplacements(on: pair.serverConnection, host: host)
-        let stableID = pair.clientConnection.underlying.stableId()
+        let stableID = pair.clientConnection.carrier.stableID
 
         // Both ends are already parked reading the stream being replaced,
         // which is where a silent stream leaves them.
@@ -113,7 +113,7 @@ struct IrxControlStreamRepairTests {
 
         #expect(await !pair.clientConnection.isConnectionClosed())
         #expect(await !pair.serverConnection.isConnectionClosed())
-        #expect(pair.clientConnection.underlying.stableId() == stableID)
+        #expect(pair.clientConnection.carrier.stableID == stableID)
         #expect(await phone.isTransportClosed() == false)
 
         lanes.cancel()
@@ -159,9 +159,9 @@ struct IrxControlStreamRepairTests {
         try await phone.connect()
         // An older host cannot decode the descriptor and resets the stream.
         let lanes = Task {
-            while let stream = try? await pair.serverConnection.underlying.acceptBi() {
-                try? await stream.send().reset(errorCode: 2)
-                try? await stream.recv().stop(errorCode: 2)
+            while let stream = try? await pair.serverConnection.carrier.acceptBi() {
+                try? await stream.send.reset(errorCode: 2)
+                try? await stream.recv.stop(errorCode: 2)
             }
         }
 
@@ -215,7 +215,7 @@ struct IrxControlStreamRepairTests {
         )
         try await phone.connect()
         await pair.serverConnection.close(code: .hostShutdown, origin: .local)
-        _ = await pair.clientConnection.underlying.closed()
+        _ = await pair.clientConnection.carrier.closed()
 
         #expect(await phone.repairControlStream(silentSince: .now) == .connectionSilent)
 

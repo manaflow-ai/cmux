@@ -6,6 +6,8 @@ struct MobileHostListenerState: Equatable, Sendable {
     var phase: Phase = .stopped
     var boundPort: Int?
     var preferredPort: Int?
+    /// UDP port of the Direct QUIC pairing listener, when it is serving.
+    var directQuicPort: Int?
     var localSocketAddresses: [String] = []
     var failureDescription: String?
     /// Current runtime completed authenticated v2 setup; local relay binding alone is insufficient.

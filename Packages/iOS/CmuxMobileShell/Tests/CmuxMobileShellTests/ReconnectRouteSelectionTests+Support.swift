@@ -171,8 +171,10 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
     private let router: LivenessHostRouter
     private let box: TransportBox
     private let failingKinds: Set<CmxAttachTransportKind>
+    private let failsPinnedDials: Bool
     private let lock = NSLock()
     private var kinds: [CmxAttachTransportKind] = []
+    private var pinnedCandidates: [[CmxIrohDirectDialCandidate]?] = []
     private var authorizationModes: [CmxTransportAuthorizationMode] = []
     private var hangingKinds: Set<CmxAttachTransportKind> = []
     private var hangingTransports: [HangingConnectTransport] = []
@@ -197,11 +199,13 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
     init(
         router: LivenessHostRouter,
         box: TransportBox,
-        failingKinds: Set<CmxAttachTransportKind> = []
+        failingKinds: Set<CmxAttachTransportKind> = [],
+        failsPinnedDials: Bool = false
     ) {
         self.router = router
         self.box = box
         self.failingKinds = failingKinds
+        self.failsPinnedDials = failsPinnedDials
     }
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
@@ -215,8 +219,17 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
         lock.withLock {
             kinds.append(request.route.kind)
             authorizationModes.append(request.authorizationMode)
+            pinnedCandidates.append(request.irohDirectOnlyDialCandidates)
+        }
+        if failsPinnedDials, request.irohDirectOnlyDialCandidates != nil {
+            throw RouteRecordingTransportError.routeFailed
         }
         return try makeRecordedTransport(for: request.route)
+    }
+
+    /// The Direct QUIC allowlist each request carried (`nil` = unpinned).
+    func attemptedPins() -> [[CmxIrohDirectDialCandidate]?] {
+        lock.withLock { pinnedCandidates }
     }
 
     private func makeRecordedTransport(
