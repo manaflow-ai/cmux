@@ -781,6 +781,95 @@ final class TerminalCmdClickUITests: XCTestCase {
         return output
     }
 
+    func testCmdHoverOverASlugQualifiedReferenceShowsTheAffordance() throws {
+        // This form names its own repository, so the answer needs no lookup and
+        // the very first hover has to show the affordance.
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .githubReference,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false,
+            referenceToken: "manaflow-ai/cmux#847"
+        )
+        defer { app.terminate() }
+
+        _ = try waitForReadySetup()
+        let result = try runCommand(action: "hover_token")
+
+        XCTAssertEqual(
+            gitHubHoverActive(in: result),
+            "1",
+            "Expected cmd-hover over manaflow-ai/cmux#847 to light the affordance immediately. result=\(result)"
+        )
+    }
+
+    func testCmdHoverOverABareReferenceShowsTheAffordanceOnceTheRepositoryIsKnown() throws {
+        try makeFixtureAGitRepository(remote: "https://github.com/manaflow-ai/cmux.git")
+
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .githubReference,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false,
+            referenceToken: "#847"
+        )
+        defer { app.terminate() }
+
+        _ = try waitForReadySetup()
+
+        // The bare form cannot answer before the pane's remote is read, and
+        // that read is what the first hover starts. Hovering again is what a
+        // pointer resting on the token does anyway.
+        var lastResult: [String: Any] = [:]
+        var active = false
+        for _ in 0..<12 {
+            lastResult = try runCommand(action: "hover_token")
+            if gitHubHoverActive(in: lastResult) == "1" {
+                active = true
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+
+        XCTAssertTrue(
+            active,
+            "Expected cmd-hover over #847 to light the affordance once the remote resolved. result=\(lastResult)"
+        )
+    }
+
+    func testCmdHoverOverAnOrdinaryWordShowsNoAffordance() throws {
+        try makeFixtureAGitRepository(remote: "https://github.com/manaflow-ai/cmux.git")
+
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .githubReference,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false,
+            referenceToken: "nothing-at-all"
+        )
+        defer { app.terminate() }
+
+        _ = try waitForReadySetup()
+
+        // Hover several times over the same word: a late lookup must not turn
+        // an ordinary word into a link after the fact.
+        for attempt in 0..<6 {
+            let result = try runCommand(action: "hover_token")
+            XCTAssertEqual(
+                gitHubHoverActive(in: result),
+                "0",
+                "Expected no affordance over an ordinary word on hover \(attempt + 1). result=\(result)"
+            )
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+    }
+
+    /// The GitHub half of a hover answer, as the debug harness reports it.
+    private func gitHubHoverActive(in commandResult: [String: Any]) -> String? {
+        guard let hoverResult = commandResult["lastCommandResult"] as? [String: Any] else { return nil }
+        return hoverResult["gitHubHoverActive"] as? String
+    }
+
     private func assertCommandHoverResolves(
         fileName: String,
         lineFormat: LineFormat,
