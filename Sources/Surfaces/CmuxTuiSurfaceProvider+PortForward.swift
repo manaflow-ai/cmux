@@ -253,4 +253,88 @@ extension CmuxTuiSurfaceProvider {
         guard let url = URL(string: endpoint.openUrl), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { throw ProviderError.invalidPreviewURL }
         return url
     }
+
+    /// Show a retryable failure page owned by this provider and pane.
+    private func showFailure(
+        resource: SurfaceResource,
+        label: String,
+        error: any Error,
+        pane: (workspaceID: UUID, panelID: UUID)
+    ) {
+        let text = CloudMachineLink.errorText(error)
+        releaseRetryToken(panelID: pane.panelID)
+        let port = resource.id.forwardedPort ?? resource.port
+        let proxyAvailable = resource.kind == .browser && port != nil && machine.cloudMachineID != nil
+        let token = SurfaceBrowserPlaceholderBridge.shared.register { [weak self] action in
+            self?.handlePlaceholderAction(action, resource: resource, label: label, pane: pane)
+        }
+        browserPaneRetryTokens[pane.panelID] = token
+        SurfacePaneFactory.showPlaceholder(
+            SurfaceBrowserPlaceholder.failed(
+                label,
+                error: text,
+                token: token,
+                proxyAvailable: proxyAvailable
+            ),
+            panelID: pane.panelID,
+            in: pane.workspaceID
+        )
+        #if DEBUG
+        cmuxDebugLog("cloud.provider.endpointFailed label=\(label) error=\(String(reflecting: error))")
+        #endif
+    }
+
+    private func handlePlaceholderAction(
+        _ action: SurfaceBrowserPlaceholderAction,
+        resource: SurfaceResource,
+        label: String,
+        pane: (workspaceID: UUID, panelID: UUID)
+    ) {
+        guard let paneID = SurfacePaneFactory.paneID(ofPanel: pane.panelID, in: pane.workspaceID) else { return }
+        switch action {
+        case .retry:
+            browserPaneTasks[pane.panelID]?.cancel()
+            browserPaneTasks[pane.panelID] = Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    _ = try await self.materializeBrowserPane(
+                        resource,
+                        at: .tab(workspaceID: pane.workspaceID, paneID: paneID, index: nil),
+                        focus: false,
+                        reusing: pane
+                    )
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    self.showFailure(resource: resource, label: label, error: error, pane: pane)
+                }
+            }
+        case .openProxy:
+            guard let vmID = machine.cloudMachineID,
+                  let port = resource.id.forwardedPort ?? resource.port else { return }
+            browserPaneTasks[pane.panelID]?.cancel()
+            browserPaneTasks[pane.panelID] = Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { self.browserPaneTasks[pane.panelID] = nil }
+                do {
+                    let url = try await CloudPortProxy.url(vmID: vmID, port: port)
+                    SurfacePaneFactory.showPlaceholder(
+                        SurfaceBrowserPlaceholder.connecting(url.host ?? label),
+                        panelID: pane.panelID,
+                        in: pane.workspaceID
+                    )
+                    self.releaseRetryToken(panelID: pane.panelID)
+                    _ = try await CloudPortProxy.open(url, replacing: pane)
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    self.showFailure(resource: resource, label: label, error: error, pane: pane)
+                }
+            }
+        }
+    }
+
+    func releaseRetryToken(panelID: UUID) {
+        if let token = browserPaneRetryTokens.removeValue(forKey: panelID) {
+            SurfaceBrowserPlaceholderBridge.shared.unregister(token)
+        }
+    }
 }

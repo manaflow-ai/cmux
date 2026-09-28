@@ -1863,6 +1863,20 @@ describe("Cloud VM publication REST adapters", () => {
     }
   });
 
+  test("an explicit forward-auth URL wins over the browser origin, https only", () => {
+    const secret = "a-secret-long-enough-for-the-provider";
+    expect(publicationForwardAuthConfig({
+      CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET: secret,
+      CMUX_VM_PUBLICATION_AUTH_ORIGIN: "https://cmux-dev-backend-1.tail137216.ts.net:4127",
+      CMUX_VM_PUBLICATION_FORWARD_AUTH_URL: " https://tunnel.example/api/freestyle/forward-auth ",
+    })).toEqual({ url: "https://tunnel.example/api/freestyle/forward-auth", serviceToken: secret });
+    expect(publicationForwardAuthConfig({
+      CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET: secret,
+      CMUX_VM_PUBLICATION_AUTH_ORIGIN: "https://cmux.com",
+      CMUX_VM_PUBLICATION_FORWARD_AUTH_URL: "http://tunnel.example/api/freestyle/forward-auth",
+    })).toEqual({ url: "https://cmux.com/api/freestyle/forward-auth", serviceToken: secret });
+  });
+
   test("resolves the requested team before authenticating a publication mutation", async () => {
     const verified: unknown[] = [];
     const verify: Parameters<typeof withAuthedPublicationApiRoute>[3] = async (_request, options) => {

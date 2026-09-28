@@ -72,8 +72,24 @@ final class BrowserAppSessionController {
         )
     }
 
+    /// The cmux web origin's root, the handoff destination used when the page
+    /// to open lives elsewhere (see ``request(externalDestinationURL:)``).
+    var webOriginRootURL: URL { handoff.webOrigin }
+
+    /// Prepare a navigation to a page OUTSIDE the cmux origin that will bounce
+    /// through cmux for sign-in (a `cmux.sh` port publication redirects to
+    /// `/cloud/access`). The cookie exchange targets the cmux origin as usual;
+    /// only the navigation itself goes to `externalDestinationURL`, in the same
+    /// isolated store, so the bounce finds the account already signed in.
     func request(
-        destinationURL: URL
+        externalDestinationURL: URL
+    ) async -> BrowserAppSessionRequestOutcome {
+        await request(destinationURL: webOriginRootURL, navigationURL: externalDestinationURL)
+    }
+
+    func request(
+        destinationURL: URL,
+        navigationURL: URL? = nil
     ) async -> BrowserAppSessionRequestOutcome {
         let snapshot: AuthenticatedSessionSnapshot
         do {
@@ -106,6 +122,7 @@ final class BrowserAppSessionController {
             guard let self else { return BrowserAppSessionRequestOutcome.cancelled }
             return await performHandoff(
                 destinationURL: destinationURL,
+                navigationURL: navigationURL ?? destinationURL,
                 websiteDataStore: websiteDataStore,
                 requestGeneration: requestGeneration,
                 snapshot: snapshot
@@ -257,6 +274,7 @@ final class BrowserAppSessionController {
 
     private func performHandoff(
         destinationURL: URL,
+        navigationURL: URL,
         websiteDataStore: WKWebsiteDataStore,
         requestGeneration: UInt64,
         snapshot: AuthenticatedSessionSnapshot
@@ -322,7 +340,7 @@ final class BrowserAppSessionController {
         }
 
         return .navigation(BrowserAppSessionNavigation(
-            request: URLRequest(url: destinationURL),
+            request: URLRequest(url: navigationURL),
             websiteDataStore: websiteDataStore,
             generation: requestGeneration,
             authSessionGeneration: snapshot.generation
