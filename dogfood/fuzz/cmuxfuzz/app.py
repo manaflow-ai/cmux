@@ -44,6 +44,7 @@ class AppSession:
         self.sandbox = self._make_sandbox()
         self.pid: int | None = None
         self._proc: subprocess.Popen | None = None
+        self._last_returncode: int | None = None
         self.started_at = 0.0
         self._log_offset = 0
 
@@ -129,6 +130,10 @@ class AppSession:
     def alive(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
+    def returncode(self) -> int | None:
+        """The app's exit status once it is gone (negative: the signal that ended it), else None."""
+        return self._proc.poll() if self._proc is not None else self._last_returncode
+
     def stop(self) -> None:
         if self._proc is not None and self._proc.poll() is None:
             with _suppress():
@@ -140,13 +145,21 @@ class AppSession:
                     self._proc.kill()
                 with _suppress_all():
                     self._proc.wait(timeout=5)
+        if self._proc is not None:
+            self._last_returncode = self._proc.returncode
         self._proc = None
         self.pid = None
         self.dismiss_reporters()
 
     def stop_all(self) -> None:
-        """Every instance of this executable, including ones a previous session left."""
-        subprocess.run(["/usr/bin/pkill", "-9", "-f", str(self.executable)], capture_output=True)
+        """Instances of this very executable a previous session left (a fuzzer killed with SIGKILL). The build
+        is the fuzzer's own copy, so nothing else runs this path; matched exactly, never as a pattern."""
+        out = subprocess.run(["/bin/ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True).stdout
+        for line in out.splitlines():
+            pid, _, command = line.strip().partition(" ")
+            if command == str(self.executable) and pid.isdigit() and int(pid) != os.getpid():
+                with _suppress():
+                    os.kill(int(pid), signal.SIGKILL)
         self.dismiss_reporters()
 
     @staticmethod

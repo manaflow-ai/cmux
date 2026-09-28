@@ -9,8 +9,10 @@ no fleet paths, only the build's commit, the steps and frames the fuzzer took of
 from __future__ import annotations
 
 import base64
+import getpass
 import json
 import re
+import socket
 import subprocess
 from pathlib import Path
 
@@ -20,6 +22,8 @@ REPO = "manaflow-ai/cmux"
 MEDIA_BRANCH = "pr-media"
 MARKER = "cmux-fuzz-signature"
 MAX_FRAMES = 10
+MAX_LISTED_STEPS = 40
+BODY_LIMIT = 60000  # GitHub refuses bodies over 65536 characters
 # Paths and names that say which machine ran it. Frames come from an app whose shell and file explorer sit in
 # a neutral sandbox; text is scrubbed here.
 _PRIVATE = [
@@ -27,13 +31,35 @@ _PRIVATE = [
     (re.compile(r"/(?:private/)?tmp/cmux-fuzz[^\s\"']*"), "<sandbox>"),
     (re.compile(r"/Users/[^/\s\"']+"), "~"),
     (re.compile(r"\b[\w-]*mac-mini[\w.-]*\b", re.I), "<host>"),
+    (re.compile(r"\bcmux(?:\d+s?|-[\w-]*(?:mini|lawrence)[\w.-]*)\b", re.I), "<host>"),
     (re.compile(r"\b[\w-]*\.local\b"), "<host>"),
 ]
 
 
-def scrub(text: str) -> str:
+def _local_names() -> list[str]:
+    """This machine's host and user names and home, which may sit in a copied finding's text."""
+    names = {str(Path.home())}
+    with _quiet():
+        host = socket.gethostname()
+        names.update({host, host.split(".")[0]})
+    with _quiet():
+        names.add(getpass.getuser())
+    return sorted((n for n in names if n and len(n) >= 3), key=len, reverse=True)
+
+
+class _quiet:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return exc[0] is not None and issubclass(exc[0], Exception)
+
+
+def scrub(text: str, extra: list[str] | None = None) -> str:
     for pattern, repl in _PRIVATE:
         text = pattern.sub(repl, text)
+    for name in [*(extra or []), *_local_names()]:
+        text = re.sub(rf"(?<![\w-]){re.escape(name)}(?![\w-])", "<redacted>", text)
     return text
 
 
@@ -42,10 +68,21 @@ def _gh(args: list[str], *, stdin: str | None = None) -> str:
 
 
 def find_existing(digest: str, repo: str = REPO) -> dict | None:
-    out = _gh(["issue", "list", "--repo", repo, "--state", "all", "--limit", "5", "--search",
-               f'"{MARKER}: {digest}" in:body', "--json", "number,state,url,title"])
-    hits = json.loads(out or "[]")
-    return hits[0] if hits else None
+    """The issue whose body carries this digest's marker (search is fuzzy, so the body is checked)."""
+    out = _gh(["issue", "list", "--repo", repo, "--state", "all", "--limit", "10", "--search",
+               f'"{MARKER}: {digest}" in:body', "--json", "number,state,stateReason,url,title,body"])
+    for hit in json.loads(out or "[]"):
+        if f"{MARKER}: {digest}" in (hit.get("body") or ""):
+            return hit
+    return None
+
+
+def already_reported(number: int, sha: str, repo: str = REPO) -> bool:
+    """Whether the issue (body or a comment) already names this build, so another mini's copy adds nothing."""
+    out = _gh(["issue", "view", str(number), "--repo", repo, "--json", "body,comments"])
+    data = json.loads(out or "{}")
+    texts = [data.get("body") or "", *((c.get("body") or "") for c in data.get("comments") or [])]
+    return bool(sha) and any(sha[:12] in text for text in texts)
 
 
 def related(title: str, repo: str = REPO) -> list[dict]:
@@ -69,27 +106,35 @@ def frames_for(finding_dir: Path) -> list[Path]:
     return frames
 
 
-def upload(frames: list[Path], digest: str, repo: str = REPO) -> list[str]:
-    """Put the frames on the media branch (fuzz/<digest>/...) and return their raw URLs."""
+def upload(frames: list[Path], folder: str, repo: str = REPO) -> list[str]:
+    """Put the frames on the media branch under fuzz/<folder>/ (one folder per finding, so frames of two
+    repros never mix) and return their raw URLs. A frame already there (an earlier, interrupted filing of this
+    same finding) is reused; a concurrent commit to the branch (409) is retried."""
     urls = []
     for frame in frames:
-        path = f"fuzz/{digest}/{frame.name}"
-        payload = json.dumps({"message": f"fuzz {digest}: {frame.name}", "branch": MEDIA_BRANCH,
+        path = f"fuzz/{folder}/{frame.name}"
+        payload = json.dumps({"message": f"fuzz {folder}: {frame.name}", "branch": MEDIA_BRANCH,
                               "content": base64.b64encode(frame.read_bytes()).decode()})
-        try:
-            _gh(["api", "-X", "PUT", f"repos/{repo}/contents/{path}", "--input", "-"], stdin=payload)
-        except subprocess.CalledProcessError as error:
-            if "sha" not in (error.stderr or ""):  # already there from an earlier run: reuse it
-                raise
+        for attempt in range(3):
+            try:
+                _gh(["api", "-X", "PUT", f"repos/{repo}/contents/{path}", "--input", "-"], stdin=payload)
+                break
+            except subprocess.CalledProcessError as error:
+                text = (error.stderr or "") + (error.stdout or "")
+                if "HTTP 422" in text and "sha" in text:  # the same path exists: this finding's own frame
+                    break
+                if "HTTP 409" not in text or attempt == 2:
+                    raise
         urls.append(f"https://raw.githubusercontent.com/{repo}/{MEDIA_BRANCH}/{path}")
     return urls
 
 
-def issue_title(finding: dict) -> str:
-    return scrub(f"[fuzz] {finding['signature']['title']}")[:120]
+def issue_title(finding: dict, redact: list[str] | None = None) -> str:
+    return scrub(f"[fuzz] {finding['signature']['title']}", redact)[:120]
 
 
-def issue_body(finding: dict, frame_urls: list[str], maybe_related: list[dict]) -> str:
+def issue_body(finding: dict, frame_urls: list[str], maybe_related: list[dict],
+               redact: list[str] | None = None) -> str:
     sig = finding["signature"]
     steps = finding.get("repro_steps") or []
     sha = finding.get("sha") or ""
@@ -103,7 +148,13 @@ def issue_body(finding: dict, frame_urls: list[str], maybe_related: list[dict]) 
         "## Steps",
         "",
     ]
-    lines += [f"{n}. {scrub(describe(step))}" for n, step in enumerate(steps, start=1)]
+    listed = list(enumerate(steps, start=1))
+    if len(listed) > MAX_LISTED_STEPS:
+        head, tail = listed[: MAX_LISTED_STEPS // 2], listed[-MAX_LISTED_STEPS // 2:]
+        lines += [f"{n}. {describe(step)}" for n, step in head]
+        lines += [f"{len(steps) - len(head) - len(tail)} more steps (in repro.json)"]
+        listed = tail
+    lines += [f"{n}. {describe(step)}" for n, step in listed]
     lines += ["", f"The fresh app starts with one workspace, one terminal and a {1440}x{900} window."]
     replayed = finding.get("repro_replayed")
     lines += ["", "The minimized steps " + ("failed the same way again on a clean replay." if replayed
@@ -116,34 +167,46 @@ def issue_body(finding: dict, frame_urls: list[str], maybe_related: list[dict]) 
     lines += ["", "## Replay", "", "```bash",
               "scripts/fuzz replay repro.json --app \"<path to a cmux DEV build>.app\"", "```", "",
               "<details><summary>repro.json</summary>", "", "```json",
-              json.dumps({"kind": "cmux-fuzz-repro", "version": 1, "signature": sig, "steps": steps}, indent=1),
+              json.dumps({"kind": "cmux-fuzz-repro", "version": 1, "signature": sig, "steps": steps}),
               "```", "", "</details>"]
     if maybe_related:
         lines += ["", "Possibly related: " + ", ".join(f"{i['url']}" for i in maybe_related)]
-    lines += ["", f"Signature `{scrub(sig['key'])[:200]}` (seed {finding.get('seed')}, session "
+    lines += ["", f"Signature `{sig['key'][:200]}` (seed {finding.get('seed')}, session "
                   f"{finding.get('session_seed')}).", "", f"<!-- {MARKER}: {sig['digest']} -->"]
-    return "\n".join(lines)
+    body = scrub("\n".join(lines), redact)  # one pass over everything, the repro JSON and signature included
+    if len(body) > BODY_LIMIT:
+        body = body[: BODY_LIMIT - 200] + f"\n\n(truncated)\n\n<!-- {MARKER}: {sig['digest']} -->"
+    return body
 
 
-def file_or_comment(finding_dir: Path, *, file: bool, repo: str = REPO) -> dict:
+def file_or_comment(finding_dir: Path, *, file: bool, repo: str = REPO, redact: list[str] | None = None) -> dict:
+    """File the finding in FINDING_DIR, or comment on its issue. REDACT: more names to keep out (the host the
+    finding came from, when the collector knows it)."""
     finding = json.loads((finding_dir / "finding.json").read_text())
     digest = finding["signature"]["digest"]
+    sha = finding.get("sha") or ""
     existing = find_existing(digest, repo)
     if existing:
-        note = ("Seen again" if existing["state"] == "OPEN"
-                else "This came back after the issue was closed")
-        comment = scrub(f"{note} on `main` at {finding.get('sha', '')[:12]} (seed {finding.get('seed')}, "
-                        f"{len(finding.get('repro_steps') or [])} step repro).")
+        if already_reported(existing["number"], sha, repo):
+            return {"action": "already reported", "url": existing["url"]}
+        closed = existing["state"] != "OPEN"
+        wont_fix = closed and existing.get("stateReason") == "NOT_PLANNED"
+        note = ("Seen again" if not closed else
+                "Seen again after the issue was closed as not planned" if wont_fix else
+                "This came back after the issue was closed")
+        comment = scrub(f"{note} on `main` at {sha[:12]} (seed {finding.get('seed')}, "
+                        f"{len(finding.get('repro_steps') or [])} step repro).", redact)
         if file:
             _gh(["issue", "comment", str(existing["number"]), "--repo", repo, "--body-file", "-"], stdin=comment)
-            if existing["state"] != "OPEN":
+            if closed and not wont_fix:
                 _gh(["issue", "reopen", str(existing["number"]), "--repo", repo])
         return {"action": "commented" if file else "would comment", "url": existing["url"], "body": comment}
-    title = issue_title(finding)
+    title = issue_title(finding, redact)
     maybe = related(finding["signature"]["title"], repo)
     frames = frames_for(finding_dir)
-    urls = upload(frames, digest, repo) if file else [f"<{f.name}>" for f in frames]
-    body = issue_body(finding, urls, maybe)
+    folder = f"{digest}/{finding.get('session_seed') or finding.get('seed')}"
+    urls = upload(frames, folder, repo) if file else [f"<{f.name}>" for f in frames]
+    body = issue_body(finding, urls, maybe, redact)
     if not file:
         return {"action": "would file", "title": title, "related": maybe, "body": body}
     url = _gh(["issue", "create", "--repo", repo, "--title", title, "--body-file", "-"], stdin=body).strip()

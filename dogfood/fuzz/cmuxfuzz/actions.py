@@ -68,6 +68,15 @@ _SHORTCUTS = [
     "cmd+shift+p", "escape", "cmd+n", "cmd+shift+w", "cmd+k", "cmd+plus", "cmd+minus", "cmd+0",
 ]
 
+_PALETTE_RUNNABLE = ["split", "new tab", "new workspace", "toggle sidebar"]
+
+
+def _palette(r: random.Random) -> dict:
+    query = r.choice(["", "split", "new", "zz", "work", "ä", "close", *_PALETTE_RUNNABLE])
+    then = r.choice(["escape", "down", "none"] + (["enter"] if query in _PALETTE_RUNNABLE else []))
+    return {"query": query, "then": then}
+
+
 _WORKSPACE_ACTIONS = ["pin", "unpin", "move_up", "move_down", "move_top", "mark_read", "mark_unread", "clear_name"]
 
 KINDS: list[Kind] = [
@@ -107,8 +116,8 @@ KINDS: list[Kind] = [
     # sidebar
     Kind("sidebar_toggle", "sidebar", 2, lambda r: {}),
     # command palette
-    Kind("palette", "palette", 2, lambda r: {"query": r.choice(["", "split", "new", "zz", "work", "ä", "close"]),
-                                             "then": r.choice(["escape", "enter", "down", "none"])}),
+    # Enter runs whatever command matched; only for queries whose matches are safe to run (never close or quit).
+    Kind("palette", "palette", 2, lambda r: _palette(r)),
     # terminal input
     Kind("send_text", "terminal", 4, lambda r: {"text": r.choice(_TEXTS)}),
     Kind("type_burst", "terminal", 2, lambda r: {"n": r.choice([10, 200, 3000]), "seed": r.randrange(1 << 30)}),
@@ -418,8 +427,11 @@ class Executor:
 
     def do_shortcut(self, s: dict) -> str:
         combo = s["combo"]
-        if combo in ("cmd+w", "cmd+shift+w") and self.total_surfaces(self.tree()) <= 1:
+        tree = self.tree()
+        if combo == "cmd+w" and self.total_surfaces(tree) <= 1:
             raise Skip("last surface")
+        if combo == "cmd+shift+w" and len(tree.get("windows") or []) <= 1:
+            raise Skip("last window")
         self.shortcut(combo)
         return ""
 

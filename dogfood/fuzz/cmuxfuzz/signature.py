@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _NOISE = [
+    # Paths differ per machine and job workspace: keep the file name only, so one bug has one digest.
+    (re.compile(r"(?:~|/)[^\s\"'():]*/([^/\s\"'():]+)"), r"\1"),
     (re.compile(r"0x[0-9a-fA-F]+"), "0x_"),
     (re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"), "<uuid>"),
     (re.compile(r"\b\d+(\.\d+)?\b"), "N"),

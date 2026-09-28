@@ -22,9 +22,10 @@ class Failure:
 LOG_PATTERNS = [
     re.compile(r"(?i)\b(fatal error|assertion failed|precondition failed|invariant violated)\b"),
     re.compile(r"(?i)\bbonsplit\b.*\bunderflow\b"),
-    re.compile(r"runloop\.stall gapMs=(\d{4,})"),  # a main-thread stall of at least a second
+    re.compile(r"runloop\.stall gapMs=(\d{4,})"),  # a main-thread stall of at least STALL_REPORT_MS
 ]
-STALL_REPORT_MS = 2000
+# A main-thread stall this long is a bug on any machine; shorter ones happen on a busy Mac with a debug build.
+STALL_REPORT_MS = 8000
 
 
 def scan_log(lines: list[str]) -> Failure | None:
@@ -40,6 +41,9 @@ def scan_log(lines: list[str]) -> Failure | None:
     return None
 
 
+HANG_CONFIRM_S = 20.0
+
+
 def heartbeat(sock, *, timeout: float = 6.0) -> tuple[float | None, str]:
     """(seconds the main thread took to answer, why not). system.identify hops to the main thread;
     system.ping does not, so ping OK with identify timing out means main is stuck."""
@@ -48,15 +52,31 @@ def heartbeat(sock, *, timeout: float = 6.0) -> tuple[float | None, str]:
         sock.call("system.identify", timeout=timeout)
         return time.monotonic() - start, ""
     except SocketTimeout:
+        # One slow answer is load; a hang is a main thread that stays silent through a much longer wait.
+        try:
+            sock.call("system.identify", timeout=HANG_CONFIRM_S)
+            return time.monotonic() - start, ""
+        except SocketTimeout:
+            pass
+        except Exception:  # noqa: BLE001
+            pass
         try:
             sock.call("system.ping", timeout=3)
-            return None, "main thread did not answer (socket worker did)"
+            return None, f"main thread did not answer for {timeout + HANG_CONFIRM_S:g} s (socket worker did)"
         except Exception as error:  # noqa: BLE001
             return None, f"socket dead ({type(error).__name__})"
     except SocketError as error:
         return time.monotonic() - start, f"identify error {error}"
     except OSError as error:
         return None, f"socket dead ({type(error).__name__})"
+
+
+def has_window(sock) -> bool:
+    """Whether the app still has a main window (closing the last one is a user action, not a bug)."""
+    try:
+        return bool(sock.call("system.tree", timeout=8).get("windows"))
+    except Exception:  # noqa: BLE001 - the layout oracle reports a failing tree query
+        return True
 
 
 def _rect(d: dict | None) -> Rect | None:
@@ -70,15 +90,27 @@ def layout_problems(tree: dict, layout: dict) -> list[tuple[str, str]]:
     (debug.layout) of the selected workspace."""
     problems: list[tuple[str, str]] = []
     windows = tree.get("windows") or []
-    key = [w for w in windows if w.get("key")] or windows
-    if not key:
+    if not windows:
         return [("no-window", "system.tree lists no window")]
-    spaces = key[0].get("workspaces") or []
-    selected = [w for w in spaces if w.get("selected")]
-    if len(selected) != 1:
-        problems.append(("selected-workspace-count", f"{len(selected)} selected workspaces"))
+    snap = (layout or {}).get("layout") or {}
+    model_panes = snap.get("panes") or []
+    view_ids = {str(p.get("paneId", "")).lower() for p in model_panes}
+    # debug.layout describes one window (the last active one); compare the tree's window whose selected
+    # workspace holds those panes. With no match (a window mid-switch), compare nothing rather than two windows.
+    window = None
+    for candidate in windows:
+        spaces = candidate.get("workspaces") or []
+        selected = [w for w in spaces if w.get("selected")]
+        if len(selected) != 1:
+            problems.append(("selected-workspace-count", f"{len(selected)} selected workspaces"))
+            return problems
+        ids = {str(p.get("id", "")).lower() for p in selected[0].get("panes") or []}
+        if ids & view_ids or (len(windows) == 1):
+            window = candidate
+            break
+    if window is None:
         return problems
-    ws = selected[0]
+    ws = [w for w in window.get("workspaces") or [] if w.get("selected")][0]
     panes = ws.get("panes") or []
     if not panes:
         problems.append(("workspace-without-panes", ws.get("ref", "")))
@@ -93,10 +125,7 @@ def layout_problems(tree: dict, layout: dict) -> list[tuple[str, str]]:
         elif p.get("selected_surface_id") not in ids:
             problems.append(("selected-tab-not-in-pane", p.get("ref", "")))
 
-    snap = (layout or {}).get("layout") or {}
-    model_panes = snap.get("panes") or []
     tree_ids = {str(p.get("id", "")).lower() for p in panes}
-    view_ids = {str(p.get("paneId", "")).lower() for p in model_panes}
     if tree_ids != view_ids:
         problems.append(("model-view-pane-mismatch",
                          f"system.tree has {len(tree_ids)} panes, bonsplit has {len(view_ids)}"))
@@ -114,7 +143,9 @@ def layout_problems(tree: dict, layout: dict) -> list[tuple[str, str]]:
     container = _rect(snap.get("containerFrame"))
     if container and container.w > 0 and container.h > 0:
         rects = {str(p.get("paneId")): r for p in model_panes if (r := _rect(p.get("frame")))}
-        for name, detail in tiling_problems(container, rects, divider_slack=2.0, min_coverage=0.97):
+        # Each divider takes a strip out of the container, so many narrow panes cover less of it.
+        coverage = max(0.8, 0.97 - 0.01 * max(0, len(rects) - 1))
+        for name, detail in tiling_problems(container, rects, divider_slack=2.0, min_coverage=coverage):
             problems.append(("model-" + name, detail))
     elif model_panes:
         problems.append(("container-degenerate", f"container {snap.get('containerFrame')}"))

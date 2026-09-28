@@ -58,13 +58,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     print(f"fuzz: seed {seed}, {args.minutes:g} min, out {out}", flush=True)
     print(f"fuzz: weights {json.dumps({k: round(v, 2) for k, v in weights.items()})}", flush=True)
     fz = Fuzzer(app=Path(args.app), out=out, seed=seed, area_weights=weights, use_pointer=not args.no_pointer,
-                log=lambda m: print(f"fuzz: {m}", flush=True))
+                log=lambda m: print(f"fuzz: {m}", flush=True), sha=args.sha or "", label=args.label or "")
     summary = fz.fuzz(args.minutes, steps_per_session=args.steps, max_findings=args.max_findings,
                       minimize_minutes=args.minimize_minutes)
-    for path in summary["findings"]:
-        finding = json.loads((Path(path) / "finding.json").read_text())
-        finding.update({"ref_label": meta["ref_label"], "sha": meta["sha"]})
-        (Path(path) / "finding.json").write_text(json.dumps(finding, indent=1))
     print(json.dumps({"fuzz": "done", **{k: v for k, v in summary.items()}}), flush=True)
     return 0
 
@@ -89,7 +85,10 @@ def cmd_regressions(args: argparse.Namespace) -> int:
     from .runner import replay
 
     failed = []
-    for path in sorted(REGRESSIONS.glob("*.json")):
+    repros = sorted(REGRESSIONS.glob("*.json"))
+    if not repros:
+        print(f"no repros in {REGRESSIONS}")
+    for path in repros:
         repro = json.loads(path.read_text())
         out = Path(args.out or "/tmp/cmux-fuzz-regressions") / path.stem
         out.mkdir(parents=True, exist_ok=True)
@@ -103,7 +102,7 @@ def cmd_regressions(args: argparse.Namespace) -> int:
 
 
 def cmd_issue(args: argparse.Namespace) -> int:
-    result = triage.file_or_comment(Path(args.finding), file=args.file, repo=args.repo)
+    result = triage.file_or_comment(Path(args.finding), file=args.file, repo=args.repo, redact=args.redact)
     print(json.dumps(result, indent=1) if not args.file else json.dumps({k: v for k, v in result.items()
                                                                           if k != "body"}))
     return 0
@@ -146,6 +145,8 @@ def main(argv: list[str] | None = None) -> int:
     iss.add_argument("finding", help="a session directory holding finding.json")
     iss.add_argument("--file", action="store_true", help="upload frames and file or comment (default: dry run)")
     iss.add_argument("--repo", default=triage.REPO)
+    iss.add_argument("--redact", action="append", default=[], metavar="NAME",
+                     help="a name to keep out of the issue (the host the finding came from); repeatable")
     iss.set_defaults(fn=cmd_issue)
 
     args = parser.parse_args(argv)

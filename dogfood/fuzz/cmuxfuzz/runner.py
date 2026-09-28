@@ -28,8 +28,9 @@ MEMORY_WARMUP_STEPS = 60
 MEMORY_LIMIT_MB = 3000
 
 
-class Stop(Exception):
-    """SIGTERM from the scheduler: a job wants this mini."""
+class Stop(BaseException):
+    """SIGTERM from the scheduler: a job wants this mini. A BaseException, so no `except Exception` on the way
+    (evidence capture, layout queries) swallows it or turns it into a finding."""
 
 
 # ------------------------------------------------------------------ pointer
@@ -47,7 +48,16 @@ class Pointer:
         self.scale = 1.0
 
     def refresh(self) -> None:
-        win = self.cua.main_window(self.session.pid or 0)
+        # The window debug.layout describes (its NSWindow number is the CGWindowID), so pane geometry and
+        # pointer coordinates are the same window's; the largest window when it does not say.
+        number = None
+        try:
+            number = oracles.debug_layout(self.session.sock).get("mainWindowNumber")
+        except Exception:  # noqa: BLE001
+            number = None
+        wins = self.cua.windows_for(self.session.pid or 0)
+        win = next((w for w in wins if number is not None and int(w.get("window_id", -1)) == int(number)), None)
+        win = win or self.cua.main_window(self.session.pid or 0)
         if not win:
             raise actions.Skip("no on-screen window for cua-driver")
         self.window_id = int(win["window_id"])
@@ -183,26 +193,35 @@ class Checker:
         self.counters: dict[str, int] = {}
         self.rss: list[float] = []
         self.check_started = time.time()
+        self.ended = ""  # why the session ended without a bug: the app quit, or its last window closed
 
     def baseline(self) -> None:
         self.counters = oracles.counters(self.session.sock)
         self.check_started = time.time()
-        # Oracles that already fail on a fresh app are wrong about this build; turn them off.
+        # Oracles that already fail on a fresh app are wrong about this build (or about the machine: a cold
+        # launch logs stalls): turn them off for this session.
         try:
             for name, detail in oracles.check_layout(self.session.sock):
                 self.disabled.add(name)
         except Exception:  # noqa: BLE001
-            pass
+            self.disabled.add("layout-query-failed")
+        for line in self.session.new_log_lines():
+            hit = oracles.scan_log([line])
+            if hit:
+                self.disabled.add(hit.signature.key)
 
     def after_step(self, index: int, since: float) -> Failure | None:
         s = self.session
         if not s.alive():
-            return self.crash_failure(since)
+            return self.exit_failure(since)
         elapsed, why = oracles.heartbeat(s.sock)
         if elapsed is None:
             if not s.alive():
-                return self.crash_failure(since)
+                return self.exit_failure(since)
             return self.hang_failure(why)
+        if not oracles.has_window(s.sock):
+            self.ended = "every window was closed"
+            return None
         log_fail = oracles.scan_log(s.new_log_lines())
         if log_fail and log_fail.signature.key not in self.disabled:
             return log_fail
@@ -242,12 +261,20 @@ class Checker:
             return [("layout-query-failed", f"{type(error).__name__}: {error}")] \
                 if "layout-query-failed" not in self.disabled else []
 
+    def exit_failure(self, since: float) -> Failure | None:
+        """The app is gone: a crash (a signal, or a crash report), or a quit a step asked for (exit 0)."""
+        if self.session.returncode() == 0 and not self.session.crash_reports_since(since):
+            self.ended = "the app quit"
+            return None
+        return self.crash_failure(since)
+
     def crash_failure(self, since: float) -> Failure:
         report = self.session.wait_for_crash_report(since)
         if report is None:
             return Failure(Signature("crash", "exited-without-report", "The app exited without a crash report"),
                            "process gone, no .ips within 20 s")
-        return Failure(crash_signature(report), report.name, {"crash_report": str(report)})
+        return Failure(crash_signature(report), f"{report.name} (exit {self.session.returncode()})",
+                       {"crash_report": str(report)})
 
     def hang_failure(self, why: str) -> Failure:
         dest = self.session.workdir / f"hang-{int(time.time())}.sample.txt"
@@ -280,6 +307,8 @@ def run_steps(ctx: Context, steps: list[dict], *, checker: Checker, shots: deque
             outcome, note = "pointer-error", str(error)[:300]
         except OSError as error:
             outcome, note = "io-error", f"{type(error).__name__}: {error}"
+        except Exception as error:  # noqa: BLE001 - a garbled reply or a missing field: the fuzzer's problem
+            outcome, note = "internal-error", f"{type(error).__name__}: {error}"[:300]
         record = StepRecord(index, step, outcome, note, round(time.monotonic() - t0, 3))
         result.steps.append(record)
         if shots is not None:
@@ -289,6 +318,8 @@ def run_steps(ctx: Context, steps: list[dict], *, checker: Checker, shots: deque
             on_step(record, failure)
         if failure:
             result.failure, result.failed_step = failure, index
+            break
+        if checker.ended:
             break
     return result
 
@@ -321,8 +352,10 @@ def _shot(ctx: Context, ring: deque, index: int, *, keep_all: bool = False) -> N
 
 class Fuzzer:
     def __init__(self, *, app: Path, out: Path, seed: int, area_weights: dict[str, float],
-                 use_pointer: bool = True, tag: str = "fuzz", log=print):
+                 use_pointer: bool = True, tag: str = "fuzz", log=print, sha: str = "", label: str = ""):
         self.app = app
+        self.sha = sha
+        self.label = label
         self.out = out
         self.seed = seed
         self.weights = area_weights
@@ -362,7 +395,8 @@ class Fuzzer:
         summary = {"seed": self.seed, "sessions": 0, "steps": 0, "findings": [], "stopped": False}
         seen: set[str] = set()
         try:
-            while time.monotonic() < deadline and len(summary["findings"]) < max_findings:
+            while (time.monotonic() < deadline and len(summary["findings"]) < max_findings
+                   and not self.stopping):
                 session_seed = rng.randrange(1 << 31)
                 srng = random.Random(session_seed)
                 planned = [actions.generate(srng, self.weights, pointer=self.cua is not None)
@@ -377,7 +411,7 @@ class Fuzzer:
                     continue
                 sig = result.failure.signature
                 self.log(f"failure at step {result.failed_step}: {sig.title} [{sig.digest}]")
-                if sig.digest in seen:
+                if sig.digest in seen or sig.kind == "launch":  # a launch failure is the machine's, not a bug
                     continue
                 seen.add(sig.digest)
                 finding = self._capture(workdir, session_seed, planned, result, minimize_minutes)
@@ -461,7 +495,8 @@ class Fuzzer:
 
         # First: does the plain prefix reproduce at all? A flaky failure is kept unminimized.
         if check(prefix):
-            mini = ddmin(prefix, check, max_replays=80, deadline=time.monotonic() + minimize_minutes * 60)
+            mini = ddmin(prefix, check, max_replays=80, deadline=time.monotonic() + minimize_minutes * 60,
+                         stop=lambda: self.stopping)
             steps, exhausted, reproducible = mini.steps, mini.exhausted, True
             (workdir / "minimize.log").write_text("\n".join(mini.log))
         else:
@@ -475,6 +510,8 @@ class Fuzzer:
             "detail": result.failure.detail,
             "seed": self.seed,
             "session_seed": session_seed,
+            "sha": self.sha,
+            "ref_label": self.label,
             "failed_step": result.failed_step,
             "total_steps": len(result.steps),
             "reproducible": reproducible,

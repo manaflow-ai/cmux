@@ -38,6 +38,7 @@ def ddmin(
     *,
     max_replays: int = 60,
     deadline: float | None = None,
+    stop: Callable[[], bool] | None = None,
 ) -> MinimizeResult:
     """Zeller's ddmin, with a replay budget.
 
@@ -51,7 +52,8 @@ def ddmin(
 
     def attempt(candidate: list[T], why: str) -> bool:
         nonlocal replays
-        if replays >= max_replays or (deadline is not None and time.monotonic() > deadline):
+        if (replays >= max_replays or (deadline is not None and time.monotonic() > deadline)
+                or (stop is not None and stop())):
             raise _Budget()
         replays += 1
         ok = reproduces(candidate)

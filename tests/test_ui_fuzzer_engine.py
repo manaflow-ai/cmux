@@ -74,7 +74,25 @@ class LayoutOracleTest(unittest.TestCase):
         self.assertEqual(self.problems(tree(), lay), set())
 
 
+class WindowChoiceTest(unittest.TestCase):
+    def test_the_tree_window_that_holds_debug_layouts_panes_is_compared(self) -> None:
+        other = {"key": False, "workspaces": [{"selected": True, "panes": [
+            {"id": "AAAAAAAA-0000-0000-0000-000000000000", "focused": True, "surface_ids": ["x"],
+             "selected_surface_id": "x"}]}]}
+        t = tree()
+        t["windows"] = [other, *t["windows"]]
+        t["windows"][1]["key"] = False
+        self.assertEqual(oracles.layout_problems(t, layout()["layout"]), [])
+
+
 class GenerationTest(unittest.TestCase):
+    def test_the_palette_runs_only_safe_matches(self) -> None:
+        rng = random.Random(9)
+        for _ in range(3000):
+            step = actions.generate(rng, {"palette": 50.0}, pointer=False)
+            if step["do"] == "palette" and step["then"] == "enter":
+                self.assertIn(step["query"], actions._PALETTE_RUNNABLE)
+
     def test_a_seed_gives_the_same_sequence(self) -> None:
         run = lambda seed: [actions.generate(random.Random(seed), {}, pointer=True) for _ in range(50)]
         self.assertEqual(run(3), run(3))
@@ -138,8 +156,10 @@ class IssueTextTest(unittest.TestCase):
                 "sha": "a" * 40, "repro_replayed": True, "minimize_exhausted": False}
 
     def test_issue_text_carries_no_machine_detail(self) -> None:
-        body = triage.issue_body(self.finding(), ["https://example.test/step-00000.png"], [])
-        for leak in ("cmux12s", "mac-mini", "/Users/cmux", "cmux-build-fleet", ".local"):
+        finding = self.finding()
+        finding["signature"]["key"] += " at /Users/Shared/cmux-build-fleet/ci/src/x.swift on mini-9"
+        body = triage.issue_body(finding, ["https://example.test/step-00000.png"], [], redact=["mini-9"])
+        for leak in ("cmux12s", "mac-mini", "/Users/cmux", "cmux-build-fleet", ".local", "mini-9"):
             self.assertNotIn(leak, body)
         self.assertIn("Resize the window to 480x800 points", body)
         self.assertIn("cmux-fuzz-signature: " + self.finding()["signature"]["digest"], body)
