@@ -17,14 +17,20 @@ struct AgentRecentPromptReader: Sendable {
         guard let handle = try? FileHandle(forReadingFrom: transcriptURL) else { return [] }
         defer { try? handle.close() }
         guard let size = try? handle.seekToEnd() else { return [] }
-        let start = size > UInt64(tailBytes) ? size - UInt64(tailBytes) : 0
+        // One byte before the window shows whether its first line is whole.
+        let start = size > UInt64(tailBytes) ? size - UInt64(tailBytes) - 1 : 0
         guard (try? handle.seek(toOffset: start)) != nil,
-              let data = try? handle.readToEnd() else { return [] }
-        var lines = data.split(separator: UInt8(ascii: "\n"))
-        if start > 0, !lines.isEmpty {
-            // The first line was cut by the seek.
-            lines.removeFirst()
+              var data = try? handle.readToEnd() else { return [] }
+        if start > 0 {
+            let startsMidLine = data.first != UInt8(ascii: "\n")
+            data = data.dropFirst()
+            if startsMidLine, let newline = data.firstIndex(of: UInt8(ascii: "\n")) {
+                data = data[data.index(after: newline)...]
+            } else if startsMidLine {
+                data = Data()
+            }
         }
+        let lines = data.split(separator: UInt8(ascii: "\n"))
         var prompts: [String] = []
         for line in lines.reversed() {
             guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],

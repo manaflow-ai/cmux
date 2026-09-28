@@ -61,6 +61,16 @@ struct AgentPromptInputReaderTests {
         #expect(codex.state(screen: "› refactor this\r\n\r\n  ? for shortcuts") == .hasText)
     }
 
+    @Test func codexDraftBelowAnEmptyFirstLineHasText() {
+        let screen = "› \r\n  second line of a draft\r\n\r\n  \u{1B}[2m? for shortcuts\u{1B}[22m"
+        #expect(codex.state(screen: screen) == .hasText)
+    }
+
+    @Test(arguments: ["\u{1B}[38m", "\u{1B}[48m", "\u{1B}[38:2::1:2:3m"])
+    func truncatedColorParametersDoNotTrap(sequence: String) {
+        #expect(claude.state(screen: claudeScreen(["❯ \(sequence)typed"])) == .hasText)
+    }
+
     @Test func menuRowsAreNotAnEmptyInput() {
         // A selection menu also marks its row with the glyph; its label is
         // bright, so the reader never mistakes it for an empty input.

@@ -52,9 +52,21 @@ public struct AgentCompactResumeFocusNote: Sendable, Equatable {
         }
     }
 
-    /// Collapses every run of whitespace, newlines included, to one space.
+    /// Collapses every run of whitespace, newlines included, to one space,
+    /// and drops control characters, which could end the paste early.
     static func singleLine(_ text: String) -> String {
-        text.split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+        var scalars = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            let value = scalar.value
+            let isControl = value < 0x20 || (0x7F...0x9F).contains(value)
+            if isControl {
+                if scalar == "\n" || scalar == "\t" || scalar == "\r" { scalars.append(" ") }
+                continue
+            }
+            scalars.append(scalar)
+        }
+        return String(scalars)
+            .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
             .joined(separator: " ")
     }
 

@@ -35,6 +35,13 @@ public struct AgentPromptInputReader: Sendable {
             for line in lines[(promptIndex + 1)..<ruleOffset] {
                 input.append(contentsOf: line.cells)
             }
+        } else {
+            // Without a closing rule, a multi-line draft runs until the blank
+            // line above the footer.
+            for line in lines[(promptIndex + 1)...] {
+                guard line.cells.contains(where: { !Self.isBlank($0.character) }) else { break }
+                input.append(contentsOf: line.cells)
+            }
         }
         let typed = input.contains { !$0.isFaint && !Self.isBlank($0.character) }
         return typed ? .hasText : .empty

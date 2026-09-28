@@ -201,7 +201,11 @@ public struct AgentCompactResumeFlow: Sendable, Equatable {
             return finish(.stopped(.agentExited))
         case .blocked:
             return finish(.stopped(.blocked))
-        case .running, .idle:
+        case .running:
+            // A turn is under way, so this report can't be the end of our
+            // `/compact`; wait for the deadline rather than type into it.
+            return []
+        case .idle:
             switch input() {
             case .empty:
                 return [.send(resumePrompt)] + finish(.resumed)

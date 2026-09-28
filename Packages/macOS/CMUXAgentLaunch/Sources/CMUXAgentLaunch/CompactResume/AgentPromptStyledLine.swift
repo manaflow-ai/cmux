@@ -85,8 +85,10 @@ struct AgentPromptStyledLine: Equatable {
             switch codes[index] {
             case 0, 22: faint = false
             case 2: faint = true
-            case 38, 48, 58 where !raw[index].contains(":") && index + 1 < codes.count:
+            case 38, 48, 58:
                 // Extended colors carry their own arguments: 5;n or 2;r;g;b.
+                // The colon form keeps them inside this parameter.
+                guard !raw[index].contains(":"), index + 1 < codes.count else { break }
                 index += codes[index + 1] == 5 ? 2 : codes[index + 1] == 2 ? 4 : 0
             default: break
             }

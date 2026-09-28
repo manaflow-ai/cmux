@@ -33,6 +33,9 @@ final class AgentCompactResumeRun {
     private var deadline: Task<Void, Never>?
     private var deadlinePhase: AgentCompactResumeFlow.Phase?
     private var settleWait: Task<Void, Never>?
+    /// The last phase handed to `onPhaseChange`. Compared after each step
+    /// batch, since callers mutate the flow before `perform` runs.
+    private var reportedPhase: AgentCompactResumeFlow.Phase?
 
     init(
         agent: AgentTurnInterruptTarget,
@@ -72,7 +75,12 @@ final class AgentCompactResumeRun {
             let report = AgentCompactionReport(notification: notification)
             MainActor.assumeIsolated {
                 guard let self, let report, self.matches(report) else { return }
-                self.perform(self.flow.compactionFinished(lifecycle: self.pane.lifecycle(), input: { self.pane.readInput() }))
+                // A finished manual compaction leaves the agent at its prompt
+                // even if its journal still says running (the /compact
+                // submit). Otherwise a running turn is never typed into.
+                var lifecycle = self.pane.lifecycle()
+                if lifecycle == .running, report.trigger == "manual" { lifecycle = .idle }
+                self.perform(self.flow.compactionFinished(lifecycle: lifecycle, input: { self.pane.readInput() }))
             }
         }
         perform(flow.start(lifecycle: pane.lifecycle(), input: { self.pane.readInput() }))
@@ -95,13 +103,13 @@ final class AgentCompactResumeRun {
     }
 
     func matches(_ report: AgentCompactionReport) -> Bool {
-        guard report.source == agent.hookSource else { return false }
+        // The agent's own auto-compaction is never the one this run asked for.
+        guard report.source == agent.hookSource, report.trigger != "auto" else { return false }
         if let reported = report.surfaceID, reported == surfaceID { return true }
         return sessionID != nil && report.sessionID == sessionID
     }
 
     private func perform(_ steps: [AgentCompactResumeFlow.Step]) {
-        let phaseBefore = flow.phase
         for step in steps {
             switch step {
             case .interrupt:
@@ -130,7 +138,8 @@ final class AgentCompactResumeRun {
                 after(timeout) { run in run.perform(run.flow.timedOut()) }
             }
         }
-        if flow.phase != phaseBefore {
+        if flow.phase != reportedPhase {
+            reportedPhase = flow.phase
             onPhaseChange(flow.phase)
         }
     }

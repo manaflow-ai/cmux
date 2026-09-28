@@ -62,7 +62,10 @@ struct TerminalAgentCompactResumeTests {
         AgentCompactionReport(source: "claude", sessionID: "other", surfaceID: UUID()).post()
         #expect(counts(panel) == counts(compacting), "Another pane's compaction is ignored")
 
-        AgentCompactionReport(source: "claude", sessionID: "s", surfaceID: panel.id).post()
+        AgentCompactionReport(source: "claude", sessionID: "s", surfaceID: panel.id, trigger: "auto").post()
+        #expect(counts(panel) == counts(compacting), "Claude's own auto-compaction is not ours")
+
+        AgentCompactionReport(source: "claude", sessionID: "s", surfaceID: panel.id, trigger: "manual").post()
         let resumed = panel.surface.debugPendingSocketInputForTesting()
         #expect(resumed.pasteTextItems == compacting.pasteTextItems + 1, "The continue prompt is typed")
         #expect(resumed.keyEvents == compacting.keyEvents + 1, "and submitted")

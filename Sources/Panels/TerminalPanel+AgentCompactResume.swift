@@ -46,8 +46,10 @@ extension TerminalPanel {
         }
         let dialect = agent.compactResumeDialect
         let note = AgentCompactResumeFocusNote(recentPrompts: context.1, customFocus: focus)
+        // Codex journals no idle after an interrupt, so a run that interrupted
+        // it would wait out its deadline; wait for its turn to end instead.
         let flow = AgentCompactResumeFlow(
-            timing: timing,
+            timing: agent.settlesTurnInJournal ? timing : .idle,
             compactCommand: dialect.compactCommand(focus: note),
             resumePrompt: dialect.resumePrompt(focus: note)
         )

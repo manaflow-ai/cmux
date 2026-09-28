@@ -40672,6 +40672,11 @@ export default CMUXSessionRestore;
             eventDict["cwd"] = cwd
         }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
+        if hookEventName == "PreCompact" || hookEventName == "PostCompact",
+           let trigger = stdinObj["trigger"] as? String {
+            // manual (/compact) or auto; compact and resume ignores auto.
+            eventDict["trigger"] = trigger
+        }
         if let isError = stdinObj["is_error"] as? Bool ?? stdinObj["isError"] as? Bool {
             eventDict["is_error"] = isError
         }

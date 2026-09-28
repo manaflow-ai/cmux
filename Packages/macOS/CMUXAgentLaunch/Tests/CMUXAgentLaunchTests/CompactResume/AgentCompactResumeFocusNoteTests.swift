@@ -15,6 +15,11 @@ struct AgentCompactResumeFocusNoteTests {
         #expect(!note.text.contains("\n"))
     }
 
+    @Test func controlCharactersAreDropped() {
+        let note = AgentCompactResumeFocusNote(recentPrompts: [], customFocus: "keep\u{1B}[201~ this\u{7F}\u{85}")
+        #expect(note.text == "keep[201~ this")
+    }
+
     @Test func longPromptsAreClipped() throws {
         let note = AgentCompactResumeFocusNote(recentPrompts: [String(repeating: "word ", count: 200)])
         let task = try #require(note.taskLine)

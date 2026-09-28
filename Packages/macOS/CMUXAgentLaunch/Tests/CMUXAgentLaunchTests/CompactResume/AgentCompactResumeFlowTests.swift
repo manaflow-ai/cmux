@@ -89,6 +89,14 @@ struct AgentCompactResumeFlowTests {
         #expect(flow.compactionFinished(lifecycle: .blocked) { .empty } == [.finish(.stopped(.blocked))])
     }
 
+    @Test func compactionReportDuringARunningTurnTypesNothing() {
+        var flow = flow(.now)
+        _ = flow.start(lifecycle: .idle) { .empty }
+        #expect(flow.compactionFinished(lifecycle: .running) { .empty } == [], "Never type into a running turn")
+        #expect(flow.phase == .compacting)
+        #expect(flow.compactionFinished(lifecycle: .idle) { .empty } == [.send(resume), .finish(.resumed)])
+    }
+
     @Test func timeoutGivesUpQuietlyOnce() {
         var flow = flow(.now)
         _ = flow.start(lifecycle: .idle) { .empty }

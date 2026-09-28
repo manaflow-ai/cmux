@@ -9,11 +9,15 @@ struct AgentCompactionReport: Equatable, Sendable {
     let source: String
     let sessionID: String
     let surfaceID: UUID?
+    /// The hook's `trigger`: `manual` for `/compact`, `auto` for the agent's
+    /// own compaction, `nil` when the payload didn't say.
+    let trigger: String?
 
-    init(source: String, sessionID: String, surfaceID: UUID?) {
+    init(source: String, sessionID: String, surfaceID: UUID?, trigger: String? = nil) {
         self.source = source
         self.sessionID = sessionID
         self.surfaceID = surfaceID
+        self.trigger = trigger
     }
 
     init?(event: WorkstreamEvent) {
@@ -21,7 +25,10 @@ struct AgentCompactionReport: Equatable, Sendable {
         self.init(
             source: event.source,
             sessionID: event.sessionId,
-            surfaceID: event.surfaceId.flatMap(UUID.init(uuidString:))
+            surfaceID: event.surfaceId.flatMap(UUID.init(uuidString:)),
+            trigger: event.extraFieldsJSON
+                .flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+                .flatMap { $0["trigger"] as? String }
         )
     }
 
