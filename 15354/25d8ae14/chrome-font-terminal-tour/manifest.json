@@ -1,0 +1,27 @@
+{
+  "tour": "chrome-font-terminal-tour",
+  "head_sha": "25d8ae14034f54715e58a935a8983d4bd33b82bc",
+  "result": "passed",
+  "shots": [
+    {
+      "name": "18-chrome-font-sidebar",
+      "file": "18-chrome-font-sidebar.png"
+    },
+    {
+      "name": "22-chrome-font-cloud-panel",
+      "file": "22-chrome-font-cloud-panel.png"
+    },
+    {
+      "name": "28-chrome-font-group-collapsed",
+      "file": "28-chrome-font-group-collapsed.png"
+    },
+    {
+      "name": "31-chrome-font-window",
+      "file": "31-chrome-font-window.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36453386417",
+  "failures": [],
+  "frames": 7
+}
