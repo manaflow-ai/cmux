@@ -727,9 +727,13 @@ enum AgentResumeCommandBuilder {
                   arguments: launchCommand?.arguments ?? [],
                   environment: launchCommand?.environment
               ) else { return nil }
+        // A relayed session's directory is a remote path; only global declarations apply.
+        let configDirectory = RelayAgentResumeContext.isRelayOrigin(source: launchCommand?.source)
+            ? nil
+            : workingDirectory ?? launchCommand?.workingDirectory
         return AgentExternalLauncherRegistry.load(
             homeDirectory: NSHomeDirectory(),
-            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            workingDirectory: configDirectory,
             sanitize: { try JSONCParser.preprocess(data: $0) }
         ).resolvedLauncher(id: launcherID, kind: kind.rawValue)
     }
@@ -907,6 +911,11 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     /// user-owned claude resume/fork when no explicit launch flag covers it.
     var permissionMode: String? = nil; var hadActivePromptTurn: Bool? = nil
 
+    /// Whether this session was recorded from an SSH relay host and may only resume there.
+    var requiresRemoteHostExecution: Bool {
+        RelayAgentResumeContext.isRelayOrigin(source: launchCommand?.source)
+    }
+
     func preparedResumeArguments(
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
@@ -936,6 +945,13 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         useLocalRestoreVerb: Bool,
         workingDirectorySelection: RestorableAgentWorkingDirectorySelection
     ) -> String? {
+        // A relay-origin session lives on a remote host. Only the remote
+        // workspace restore (`useLocalRestoreVerb: false`, typed into the
+        // reconnected remote shell) may resume it; dock, hibernation, and other
+        // local paths get nothing rather than a Mac shell running it.
+        if useLocalRestoreVerb, requiresRemoteHostExecution {
+            return nil
+        }
         if useLocalRestoreVerb {
             let executable = AgentRestoreLaunch.cliStartupExecutableToken
             guard AgentRestoreCLIArgument(rawValue: kind.rawValue) != nil,

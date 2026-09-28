@@ -40,7 +40,10 @@ struct RemoteRelayRoutingSchema {
             return terminal.union(["checkpoint_id", "checkpointId", "source", "expected_updated_at", "agent_session_ended"])
         case "agent.resolve_delivery_target": return workspace.union(["tty_name", "tty_resolution"])
         case "agent.hook.enqueue":
-            return surface.union(["agent", "subcommand", "payload", "relay_backed", "caller_tty"])
+            return surface.union([
+                "agent", "subcommand", "payload", "relay_backed", "caller_tty",
+                "remote_cwd", "ancestor_executables",
+            ])
         case "notification.create_for_target":
             return surface.union(["title", "subtitle", "body", "reply_shape"])
         default: return nil
@@ -72,7 +75,80 @@ struct RemoteRelayRoutingSchema {
                   callerTTY.utf8.count <= Self.maximumRelayAgentHookCallerTTYBytes,
                   !callerTTY.contains("\0") else { return "caller_tty" }
         }
+        // The resume binding fields ride only on SessionStart, where the Mac
+        // publishes the binding. They name data, never a command: the Mac
+        // builds the resume argv itself.
+        for key in ["remote_cwd", "ancestor_executables"] where parameters[key] != nil {
+            guard subcommand == "session-start" else { return key }
+        }
+        if let rawCwd = parameters["remote_cwd"] {
+            guard let cwd = rawCwd as? String,
+                  Self.isAdmissibleRelayRemoteWorkingDirectory(cwd) else { return "remote_cwd" }
+        }
+        if let rawAncestors = parameters["ancestor_executables"] {
+            guard Self.admissibleRelayAncestorExecutables(rawAncestors) != nil else {
+                return "ancestor_executables"
+            }
+        }
         return nil
+    }
+
+    // Mirrors `RelayAgentResumeContext` in CMUXAgentLaunch, which the CLI
+    // re-checks after admission; this package does not depend on it.
+    static let maximumRelayRemoteWorkingDirectoryBytes = 1_024
+    static let maximumRelayAncestors = 8
+    static let maximumRelayAncestorWords = 6
+    static let maximumRelayAncestorWordBytes = 128
+    static let maximumRelayAncestorBytes = 2_048
+
+    /// Punctuation a relayed remote directory may use besides letters, digits, and marks. The
+    /// Mac types the path into a remote shell whose dialect it cannot see, so quotes,
+    /// backslashes, and shell metacharacters are refused rather than escaped.
+    static let relayRemoteWorkingDirectoryPunctuation = " /._-+,@:=~%"
+
+    /// An absolute remote path within bounds that uses only letters, digits, marks, and
+    /// ``relayRemoteWorkingDirectoryPunctuation``.
+    static func isAdmissibleRelayRemoteWorkingDirectory(_ value: String) -> Bool {
+        value.hasPrefix("/") && value.utf8.count <= maximumRelayRemoteWorkingDirectoryBytes
+            && value.unicodeScalars.allSatisfy { scalar in
+                CharacterSet.alphanumerics.contains(scalar)
+                    || relayRemoteWorkingDirectoryPunctuation.unicodeScalars.contains(scalar)
+            }
+    }
+
+    /// Ancestor argv words within the relay bounds: at most 8 ancestors of 1 to 6
+    /// words, 128 bytes per word, 2 KiB in total, no control characters.
+    static func admissibleRelayAncestorExecutables(_ value: Any) -> [[String]]? {
+        guard let ancestors = value as? [Any], ancestors.count <= maximumRelayAncestors else { return nil }
+        var total = 0
+        var result: [[String]] = []
+        for ancestor in ancestors {
+            guard let words = ancestor as? [Any], !words.isEmpty,
+                  words.count <= maximumRelayAncestorWords else { return nil }
+            var admitted: [String] = []
+            for word in words {
+                guard let text = word as? String,
+                      text.utf8.count <= maximumRelayAncestorWordBytes,
+                      !containsControlCharacter(text) else { return nil }
+                total += text.utf8.count
+                admitted.append(text)
+            }
+            result.append(admitted)
+        }
+        return total <= maximumRelayAncestorBytes ? result : nil
+    }
+
+    /// Whether `value` holds a C0 or C1 control character, DEL, a line or paragraph separator, or
+    /// a bidirectional formatting character.
+    private static func containsControlCharacter(_ value: String) -> Bool {
+        value.unicodeScalars.contains { scalar in
+            switch scalar.value {
+            case 0..<0x20, 0x7F...0x9F, 0x200E, 0x200F, 0x2028, 0x2029, 0x202A...0x202E, 0x2066...0x2069:
+                return true
+            default:
+                return false
+            }
+        }
     }
 
     /// Returns the first parameter outside the method's reviewed contract, or

@@ -396,6 +396,7 @@ Declare the wrapper here and cmux re-supplies it whenever that session resumes.
 Behavior notes:
 
 - A project-level `cmux.json` (or `.cmux/cmux.json`) overrides a user-level declaration with the same `id`. The project file is resolved from the agent session's directory, not from wherever a CLI process happened to start.
+- Sessions on `cmux ssh` relay hosts are detected from redacted ancestor words the remote hook sends (see [daemon/remote/README.md](../daemon/remote/README.md#claude-code-hooks)). Their directory is a remote path, so only the user-level `~/.config/cmux/cmux.json` declarations apply; a project `cmux.json` is never looked up for them.
 - Only resume is wrapped. Fresh launches already run under the wrapper because you started them there, and `cmux restore <kind> <checkpoint-id>` in direct mode is left untouched.
 - Declarations fail closed. A missing detection entry, an empty `resumeArgvPrefix`, a blank `kinds` array, or a value of the wrong type makes that one declaration unusable — the session then resumes exactly as it did before, without the wrapper. The rest of the file still applies.
 - Removing a declaration is safe, and has the same effect: the capture keeps the recorded id, but nothing is re-supplied.

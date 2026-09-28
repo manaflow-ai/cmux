@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Darwin
 import Foundation
 import OSLog
@@ -200,8 +201,13 @@ struct AgentHookDeliveryProcess: Sendable {
             // probe an unrelated local process, write a same-named local path,
             // or persist an unlaunchable local resume command. Preserve only
             // routing that the relay has alias-rewritten plus explicit
-            // notification/subagent policy bits.
+            // notification/subagent policy bits, plus the SessionStart resume
+            // binding fields relay admission bounded (remote cwd and redacted
+            // ancestor words). The CLI builds the resume command from those
+            // itself and marks it for remote-only execution.
             let relayDeliveryKeys: Set<String> = [
+                RelayAgentResumeContext.ancestorExecutablesEnvironmentKey,
+                RelayAgentResumeContext.remoteWorkingDirectoryEnvironmentKey,
                 "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
                 "CMUX_AGENT_MANAGED_SUBAGENT",
                 "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",

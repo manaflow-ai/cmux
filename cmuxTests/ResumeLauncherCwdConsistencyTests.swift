@@ -147,6 +147,33 @@ struct ResumeLauncherCwdConsistencyTests {
         #expect(!input.contains("--cd"))
     }
 
+    @Test("a relay-origin Claude session resumes only through the remote workspace path")
+    func relayOriginClaudeSessionResumesOnlyRemotely() throws {
+        let sessionId = "0d15e2d1-ea11-4bcc-873e-e6167dc807aa"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: "/home/leo/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: nil,
+                arguments: [],
+                workingDirectory: "/home/leo/repo",
+                environment: nil,
+                capturedAt: 123,
+                source: RelayAgentResumeContext.launchCommandSource
+            )
+        )
+
+        #expect(snapshot.requiresRemoteHostExecution)
+        // Dock, hibernation, and local workspace restore use the local verb.
+        #expect(snapshot.resumeStartupInput() == nil)
+        let remote = try #require(snapshot.resumeStartupInput(useLocalRestoreVerb: false))
+        #expect(remote.contains("/home/leo/repo"))
+        #expect(remote.contains("--resume"))
+        #expect(remote.contains(sessionId))
+    }
+
     @Test("remote inline Subrouter resume routes its Codex child through the managed wrapper")
     func remoteInlineSubrouterResumeKeepsCodexHooks() throws {
         let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"

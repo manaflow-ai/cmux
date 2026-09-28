@@ -289,7 +289,23 @@ extension ControlCommandCoordinator {
             guard case .string(let argument) = value else { return nil }
             return argument
         }
-        guard arguments.count == rawArguments.count, !arguments.isEmpty else { return nil }
+        guard arguments.count == rawArguments.count else { return nil }
+        // A relay-origin record (an agent session on an SSH relay host) carries no argv,
+        // executable, or environment: the Mac builds its resume command itself, and the `relay`
+        // source is what keeps local restore paths from running it. Any other record needs argv.
+        let isRelayRecord = rawString(object, "source")?
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "relay"
+        if isRelayRecord {
+            guard arguments.isEmpty, rawString(object, "executable_path") == nil else { return nil }
+            switch object["environment"] {
+            case nil, .null:
+                break
+            default:
+                return nil
+            }
+        } else {
+            guard !arguments.isEmpty else { return nil }
+        }
         return ControlAgentLaunchCommand(
             launcher: rawString(object, "launcher"),
             // Trimmed on the way in: the id is compared against `agents.launchers` declarations,
