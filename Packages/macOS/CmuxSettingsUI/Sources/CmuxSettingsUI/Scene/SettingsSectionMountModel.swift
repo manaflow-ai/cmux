@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A scroll the settings scene applies once its target section is on
-/// screen, and re-applies while sections above it are still mounting.
+/// screen.
 /// Declared at file scope so this plain value stays free of
 /// ``SettingsSectionMountModel``'s main-actor isolation.
 public struct SettingsSectionScrollTarget: Equatable, Sendable {
@@ -47,18 +47,18 @@ public final class SettingsSectionMountModel {
     /// its own, so it never appears here.
     public static let displayOrder: [SettingsSectionID] = [
         .account, .app, .terminal, .textBox, .sleepyMode, .mobile, .cloudMachines,
-        .networking, .sidebarAppearance, .customSidebars, .betaFeatures, .automation,
-        .computerUse, .browser, .globalHotkey, .keyboardShortcuts, .workspaceColors,
-        .settingsJSON, .reset,
+        .computers, .networking, .sidebarAppearance, .customSidebars, .betaFeatures,
+        .automation, .computerUse, .browser, .globalHotkey, .keyboardShortcuts,
+        .workspaceColors, .settingsJSON, .reset,
     ]
 
     /// The slot that hosts `section`'s content.
-    public static func hostSection(for section: SettingsSectionID) -> SettingsSectionID {
-        switch section.canonicalSection {
+    nonisolated public static func hostSection(for section: SettingsSectionID) -> SettingsSectionID {
+        switch section {
         case .browserImport:
             return .browser
         default:
-            return section.canonicalSection
+            return section
         }
     }
 
@@ -73,8 +73,9 @@ public final class SettingsSectionMountModel {
     private var queue: [SettingsSectionID]
     /// Navigation waiting for its section to appear before scrolling.
     public private(set) var deferredScroll: SettingsSectionScrollTarget?
-    /// Most recent navigation; re-applied when a section above it mounts
-    /// so the viewport does not drift while placeholders grow into content.
+    /// Most recent navigation the detail scrolled (or will scroll) to.
+    /// Nothing re-applies it now that one pane is mounted at a time; it
+    /// stays as the observable record the window tests wait on.
     public private(set) var pinnedScroll: SettingsSectionScrollTarget?
 
     /// - Parameters:
@@ -158,16 +159,6 @@ public final class SettingsSectionMountModel {
 
     public func cancelDeferredScroll() {
         deferredScroll = nil
-    }
-
-    /// Whether `section` sits above `other` in the detail stack, i.e.
-    /// mounting it shifts `other` down.
-    public func isAbove(_ section: SettingsSectionID, _ other: SettingsSectionID) -> Bool {
-        guard
-            let index = order.firstIndex(of: Self.hostSection(for: section)),
-            let otherIndex = order.firstIndex(of: Self.hostSection(for: other))
-        else { return false }
-        return index < otherIndex
     }
 
     private func mount(_ section: SettingsSectionID) {

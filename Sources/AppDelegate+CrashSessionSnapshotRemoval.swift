@@ -1,3 +1,5 @@
+import CmuxFoundation
+import CmuxWorkspaces
 import Foundation
 
 extension AppDelegate {
@@ -17,13 +19,14 @@ extension AppDelegate {
     /// yet represent a partially completed restore; keeping the prior copy gives
     /// the user a rollback path and avoids destroying the only intact snapshot.
     func syncManualRestoreSnapshotCachePruningCrashDiagnostics(
-        preserveExistingBackup: Bool = false
+        preserveExistingBackup: Bool = false,
+        primaryOutcome: SessionSnapshotLoadOutcome<AppSessionSnapshot>? = nil
     ) {
         guard let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL(),
               let backupURL = sessionSnapshotStore.manualRestoreSnapshotFileURL() else {
             return
         }
-        switch sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
+        switch primaryOutcome ?? sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
         case .loaded(let snapshot):
             Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
             guard let prunedSnapshot = SessionPersistencePolicy
@@ -35,13 +38,96 @@ extension AppDelegate {
                case .loaded = sessionSnapshotStore.loadOutcome(fileURL: backupURL) {
                 return
             }
+            // Never replace a newer build's backup unless it was copied aside.
+            guard sessionSnapshotStore.preserveNewerSchemaSnapshotBeforeReplacing(fileURL: backupURL) else {
+                return
+            }
             _ = sessionSnapshotStore.save(prunedSnapshot, fileURL: backupURL)
         case .missing:
-            if !preserveExistingBackup && !Self.hasCrashOnlyPrimarySnapshotRemovalMarker() {
+            if !preserveExistingBackup,
+               !Self.hasCrashOnlyPrimarySnapshotRemovalMarker(),
+               sessionSnapshotStore.preserveNewerSchemaSnapshotBeforeReplacing(fileURL: backupURL) {
                 sessionSnapshotStore.removeSnapshot(fileURL: backupURL)
             }
         case .unusable:
             Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
+            // A snapshot from a newer schema (after a downgrade) is unusable
+            // here, and the next autosave would replace it. Copy it aside.
+            sessionSnapshotStore.preserveNewerSchemaSnapshot(fileURL: primaryURL)
+            sessionSnapshotStore.preserveNewerSchemaSnapshot(fileURL: backupURL)
+        }
+    }
+
+    /// Archives the snapshot the previous launch left behind into the rotated
+    /// history, then installs the overwrite guard with its richness as the
+    /// baseline. That is the primary, or the `-previous` copy when startup
+    /// restore falls back on it: the primary is unusable, or missing after an
+    /// unclean exit (`recoversMissingPrimary`). A primary missing because the
+    /// user closed every window starts fresh, so `-previous` is archived but
+    /// is not a baseline. Runs
+    /// before the manual-restore sync and before any save, so every launch's
+    /// starting layout is kept even if this launch restores nothing and is
+    /// relaunched again right away.
+    func archiveSessionSnapshotAndInstallOverwriteGuard(
+        now: Date = Date(),
+        primaryOutcome: SessionSnapshotLoadOutcome<AppSessionSnapshot>? = nil,
+        recoversMissingPrimary: Bool = true
+    ) {
+        var baseline = SessionSnapshotRichness.empty
+        let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL()
+        let candidates = [
+            primaryURL,
+            sessionSnapshotStore.manualRestoreSnapshotFileURL(),
+        ].compactMap { $0 }
+        var primaryIsMissing = false
+        for fileURL in candidates {
+            let outcome = (fileURL == primaryURL ? primaryOutcome : nil)
+                ?? sessionSnapshotStore.loadOutcome(fileURL: fileURL)
+            if fileURL == primaryURL, case .missing = outcome { primaryIsMissing = true }
+            guard case .loaded(let snapshot) = outcome else { continue }
+            if fileURL == primaryURL || !primaryIsMissing || recoversMissingPrimary {
+                baseline = snapshot.richness
+            }
+            sessionSnapshotStore.archiveSnapshotToHistory(
+                fileURL: fileURL,
+                richness: snapshot.richness,
+                archivedAt: now
+            )
+            break
+        }
+        sessionSnapshotOverwriteGuard = SessionSnapshotOverwriteGuard(baseline: baseline, launchDate: now)
+#if DEBUG
+        cmuxDebugLog(
+            "session.history.archive baselineWorkspaces=\(baseline.workspaces) " +
+                "baselinePanels=\(baseline.panels)"
+        )
+#endif
+    }
+
+    /// Returns `snapshot` when this launch may write it to the primary file,
+    /// or nil while the overwrite guard holds a poorer, unchanged, young
+    /// session back. Removals (nil snapshots) pass through unchanged.
+    func snapshotAllowedByOverwriteGuard(
+        _ snapshot: AppSessionSnapshot?,
+        now: Date = Date()
+    ) -> AppSessionSnapshot? {
+        guard let snapshot, var overwriteGuard = sessionSnapshotOverwriteGuard else { return snapshot }
+        defer { sessionSnapshotOverwriteGuard = overwriteGuard }
+        switch overwriteGuard.evaluate(
+            candidate: snapshot.richness,
+            structure: snapshot.structureSignature,
+            now: now
+        ) {
+        case .write:
+            return snapshot
+        case .hold:
+#if DEBUG
+            cmuxDebugLog(
+                "session.save.held reason=poorer_young_launch " +
+                    "panels=\(snapshot.richness.panels) baselinePanels=\(overwriteGuard.baseline.panels)"
+            )
+#endif
+            return nil
         }
     }
 
@@ -52,7 +138,7 @@ extension AppDelegate {
     nonisolated static func markCrashOnlyPrimarySnapshotRemoval(
         defaults: UserDefaults = .standard
     ) {
-        defaults.set(true, forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
+        defaults.setIfChanged(true, forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
     }
 
     nonisolated static func hasCrashOnlyPrimarySnapshotRemovalMarker(
@@ -64,6 +150,7 @@ extension AppDelegate {
     nonisolated static func clearCrashOnlyPrimarySnapshotRemovalMarker(
         defaults: UserDefaults = .standard
     ) {
-        defaults.removeObject(forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
+        // Called on every autosave write; skip the no-op removal notification.
+        defaults.removeObjectIfPresent(forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
     }
 }

@@ -4,6 +4,8 @@
     warm_distance.py admission STORE            append this admission's line, print its summary
     warm_distance.py fit DATA.jsonl... [--out MODEL] [--rows]
     warm_distance.py evaluate DATA.jsonl... [--model MODEL]
+    warm_distance.py refit DATA.jsonl... [--model MODEL] [--out MODEL] [--days 14]
+    warm_distance.py backtest DATA.jsonl... [--model MODEL] [--every-hours 24] [--days 14]
     warm_distance.py collect HOST...            every mini's admissions.jsonl, over SSH, to stdout
 
 An owned mini keeps compile admission's DerivedData (owned_build_state.py),
@@ -49,8 +51,14 @@ logs) and fits tiers, each a p50/p90 compile time:
 It also fits the start classes the picker can see before the job starts
 (start_classes: a kept build of the same merge base, of the same pull
 request, or anything else, by the pull request's own tier) and job lengths
-per glaeda job class (job_seconds) for the picker's wait estimate. The model
-is scripts/ci/warm-distance-model.json; refit with
+per glaeda job class (job_seconds) for the picker's wait estimate, and each
+tier's p50 per start kind (tiers_by_start, with counts): a near compile from
+a kept build costs about 90 s, one from a seed about 155 s. predict() uses a
+start's cell once it has MIN_START_ROWS compiles, else the tier, and so does
+glaeda's hook for a root's kept build. `refit` refits only the tiers and
+cells from recent admissions, `backtest` replays them in time order, and
+warm_model_refit.py runs both daily and proposes a drifted model as a pull
+request. The model is scripts/ci/warm-distance-model.json; refit all of it with
 
     python3 scripts/ci/warm_distance.py collect cmux14 cmux8s-mac-mini ... > data.jsonl
     python3 scripts/ci/warm_distance.py fit data.jsonl --out scripts/ci/warm-distance-model.json
@@ -60,7 +68,9 @@ from __future__ import annotations
 import contextlib
 import datetime as dt
 import fcntl
+import io
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -68,7 +78,6 @@ import statistics
 import subprocess
 import sys
 import time
-import urllib.parse
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 MODEL_PATH = Path(__file__).resolve().with_name("warm-distance-model.json")
@@ -92,6 +101,8 @@ INTERFACE_LINE = re.compile(
 # xcodebuild escapes the space after "Compiling" ("Compiling\\ A.swift /abs/A.swift (in target 'cmux' ...)").
 SWIFT_COMPILE = re.compile(r"^SwiftCompile \S+ \S+ Compiling\\? (.*?) \(in target '([^']*)'")
 TIERS = ("near", "far", "rebuild")
+# A (tier, start kind) cell of tiers_by_start predicts once it has this many compiles; glaeda's hook uses the same.
+MIN_START_ROWS = 5
 # Paths kept per record: enough for any near start, bounded for a far one.
 MAX_PATHS = 400
 
@@ -143,12 +154,30 @@ def load_model(path: Path | str | None = None) -> dict[str, Any]:
     return model if isinstance(model, dict) else {}
 
 
-def predict(feature: Mapping[str, Any], model: Mapping[str, Any]) -> tuple[str, float | None]:
-    """(tier, predicted compile seconds) for these distance features; None without a model."""
+def seconds_of(entry: Any) -> float | None:
+    """A fitted entry's p50, when it is a positive finite number."""
+    value = entry.get("p50") if isinstance(entry, Mapping) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        return None
+    return float(value)
+
+
+def tier_seconds(name: str, start: str | None, model: Mapping[str, Any]) -> float | None:
+    """The predicted compile of tier NAME from a START kind ('kept', 'seed', ...): the (tier, start) cell's
+    p50 once it has MIN_START_ROWS rows, else the tier's p50 (models before tiers_by_start have only that)."""
+    if start:
+        cells = (model.get("tiers_by_start") or {}).get(name)
+        entry = cells.get(start) if isinstance(cells, Mapping) else None
+        count = entry.get("n") if isinstance(entry, Mapping) else None
+        if isinstance(count, int) and count >= MIN_START_ROWS and seconds_of(entry) is not None:
+            return seconds_of(entry)
+    return seconds_of((model.get("tiers") or {}).get(name))
+
+
+def predict(feature: Mapping[str, Any], model: Mapping[str, Any], start: str | None = None) -> tuple[str, float | None]:
+    """(tier, predicted compile seconds) for these distance features from a START kind; None without a model."""
     name = tier(feature, model)
-    entry = (model.get("tiers") or {}).get(name) or {}
-    seconds = entry.get("p50")
-    return name, float(seconds) if isinstance(seconds, (int, float)) else None
+    return name, tier_seconds(name, start, model)
 
 
 def start_class_seconds(start: str, job_tier: str, model: Mapping[str, Any]) -> float | None:
@@ -160,34 +189,6 @@ def start_class_seconds(start: str, job_tier: str, model: Mapping[str, Any]) -> 
         if isinstance(value, (int, float)):
             return float(value)
     return None
-
-
-# A pull request's own previous build is near when it is recent and far or a rebuild once main moved
-# (09-25/26 re-pushes: within 30 min 16 of 26 near; after 90 min 21 of 23 rebuilt), so `fit` prices a
-# same-pull-request start by its age, in these buckets (minutes, upper bounds).
-PR_AGE_BUCKETS = (30, 90, 360)
-
-
-def age_bucket(minutes: float | None) -> str:
-    if minutes is None:
-        return "unknown"
-    for bound in PR_AGE_BUCKETS:
-        if minutes < bound:
-            return f"<{bound}"
-    return f">={PR_AGE_BUCKETS[-1]}"
-
-
-def pr_start_seconds(age_minutes: float | None, job_tier: str, model: Mapping[str, Any]) -> float | None:
-    """Predicted compile from this pull request's own previous build AGE_MINUTES old, by the job's own tier.
-
-    Falls back to the age bucket's overall value, then the 'pr' start class.
-    """
-    bucket = (model.get("pr_by_age") or {}).get(age_bucket(age_minutes)) or {}
-    cell = (bucket.get("by_job_tier") or {}).get(job_tier) or {}
-    for value in (cell.get("expected"), bucket.get("expected")):
-        if isinstance(value, (int, float)):
-            return float(value)
-    return start_class_seconds("pr", job_tier, model)
 
 
 # Recording --------------------------------------------------------------------------------------------------
@@ -215,6 +216,7 @@ def start_distance(current: Mapping[str, list], start: Mapping[str, list] | None
 _deadline: list[float] = [float("inf")]
 GIT_TIMEOUT_SECONDS = 10
 FETCH_TIMEOUT_SECONDS = 20
+FETCH_RESERVE_SECONDS = 2  # of the picker's budget, kept for the diffs after the base fetch
 RECORD_BUDGET_SECONDS = 60
 PICKER_BUDGET_SECONDS = 8
 
@@ -234,6 +236,11 @@ def git(workspace: Path, *args: str, timeout: float = GIT_TIMEOUT_SECONDS) -> st
 
 def have_commit(workspace: Path, sha: str) -> bool:
     return bool(sha) and git(workspace, "cat-file", "-e", f"{sha}^{{commit}}") is not None
+
+
+def have_tree(workspace: Path, sha: str) -> bool:
+    """SHA's commit and its root tree are in the checkout (a --filter=tree:0 history has the commit only)."""
+    return have_commit(workspace, sha) and git(workspace, "cat-file", "-e", f"{sha}^{{tree}}") is not None
 
 
 def ensure_commit(workspace: Path, sha: str) -> bool:
@@ -344,6 +351,15 @@ def stamp_pull_request(store: Path, files: Sequence[str], interface: bool | None
     incoming.rename(stamp_path)
 
 
+def picker_route_record(text: str | None) -> dict[str, Any] | None:
+    """The picker's route (ci.yml's admission_route output, route_record()), or None when absent or malformed."""
+    try:
+        value = json.loads(text or "")
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) and len(text or "") <= 16384 else None
+
+
 def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callable[[], dt.datetime]) -> dict[str, Any]:
     _deadline[0] = time.monotonic() + RECORD_BUDGET_SECONDS
     model = load_model()
@@ -402,7 +418,7 @@ def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callabl
     with contextlib.suppress(OSError, ValueError):
         metrics = json.loads(Path(env.get("METRICS") or "/nonexistent").read_text())
     compiled = env.get("COMPILE_OUTCOME") == "success"
-    predicted = predict(distance, model) if distance else (None, None)
+    predicted = predict(distance, model, start["kind"]) if distance else (None, None)
     record = {
         "schema": "cmux-warm-admission/v1",
         "at": now().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -425,6 +441,8 @@ def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callabl
             "admission_runner": env.get("ADMISSION_RUNNER") or None,
             "placement": env.get("PLACEMENT") or None,
             "hook": env.get("GLAEDA_WARM_ROUTE") or None,
+            # pr_runner_pool.py's admission pin: route_record() (candidates, chosen, predicted, baseline).
+            "picker": picker_route_record(env.get("PICKER_ROUTE")),
         },
     }
     _deadline[0] = float("inf")
@@ -432,6 +450,9 @@ def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callabl
     share_model(fleet_dir(store))
     if own is not None and env.get("KEPT") == "true":
         stamp_pull_request(store, own[0], own[1], hot_files)
+    elif own is not None and env.get("KEPT") == "parked" and (env.get("PR_NUMBER") or "").strip().isdigit():
+        # Kept in its PR slot beside a root that stays at main (owned_build_state.py holds_last_main).
+        stamp_pull_request(store / "pr-builds" / f"pr-{int(env['PR_NUMBER'])}", own[0], own[1], hot_files)
     return record
 
 
@@ -463,27 +484,6 @@ QUEUE_ROUND_SECONDS = 900
 # A pin must beat the unpinned root label by this much; below it, placement noise decides.
 ROUTE_MARGIN_SECONDS = 30
 UNKNOWN_JOB_SECONDS = 600.0
-# A compile on a mini whose other root already compiles runs slower: alone p50 366 s, overlapped by
-# another compile at least half its length p50 499 s (310 compiles on 12 minis, 09-26). Austin's M4
-# minis run p50 408 s against 366. Both multiply a candidate's predicted compile, which spreads compiles
-# across minis without a separate spread pin (CI_OWNED_SPREAD stays unset).
-CONTENDED_FACTOR = 1.3
-SLOW_MINI_FACTOR = 1.11
-SLOW_MINI = re.compile(r"austin")
-RUNNER_MEMBER = re.compile(r"(?P<member>.+)-glaeda(?:-[0-9]+)?")
-
-
-def mini_of(name: str) -> str:
-    match = RUNNER_MEMBER.fullmatch(name or "")
-    return match.group("member") if match else name
-
-
-def compile_factor(name: str, busy: set[str]) -> float:
-    """How much slower than alone on an M4 Pro a compile on runner NAME runs now: contended when another
-    root runner of its mini is busy (BUSY names them), slower on an Austin mini."""
-    contended = any(other != name and mini_of(other) == mini_of(name) for other in busy)
-    factor = CONTENDED_FACTOR if contended else 1.0
-    return factor * (SLOW_MINI_FACTOR if SLOW_MINI.search(name) else 1.0)
 
 
 def job_key(name: str) -> str:
@@ -519,7 +519,7 @@ def routed_wait_limit(queue_rounds: int | None) -> int:
 
 
 def route_admission(runners: Sequence[Mapping[str, Any]], root: str, *, base_warm: Iterable[str],
-                    pr_warm: Mapping[str, float | None] | Iterable[str], running: Mapping[str, Any], job_tier: str,
+                    pr_warm: Iterable[str], running: Mapping[str, Any], job_tier: str,
                     model: Mapping[str, Any], now: dt.datetime, max_wait: float,
                     runner_label: Callable[[str], str]) -> tuple[str, dict[str, Any]]:
     """The root runner whose expected wait plus predicted compile is lowest, if it beats the unpinned root label.
@@ -535,9 +535,7 @@ def route_admission(runners: Sequence[Mapping[str, Any]], root: str, *, base_war
     finish (UNKNOWN_JOB_SECONDS when none is known). Returns the runner name
     ("" to leave the root label) and the costs, for the log.
     """
-    base_warm = set(base_warm)
-    # name -> the age in minutes of this pull request's build there (None: unknown)
-    pr_warm = dict(pr_warm) if isinstance(pr_warm, Mapping) else {name: None for name in pr_warm}
+    base_warm, pr_warm = set(base_warm), set(pr_warm)
     cold = start_class_seconds("none", job_tier, model)
     decision: dict[str, Any] = {"job_tier": job_tier, "none_seconds": cold, "candidates": []}
     if cold is None:
@@ -545,50 +543,29 @@ def route_admission(runners: Sequence[Mapping[str, Any]], root: str, *, base_war
         return "", decision
     waits: list[float | None] = []
     pinnable: list[tuple[str, float | None]] = []
-    idle_names: list[str] = []
-    # Root runners run compiles (GUI jobs have their own runners since cmux#14796): a busy one means its
-    # mini compiles now.
-    busy = {str(runner.get("name") or "") for runner in runners
-            if runner.get("status") == "online" and runner.get("busy")
-            and root in {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}}
     for runner in runners:
         name = str(runner.get("name") or "")
         labels = {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
         if runner.get("status") != "online" or not name or root not in labels:
             continue
-        if not runner.get("busy"):
-            wait: float | None = 0.0
-        elif name in running:
-            wait = remaining_seconds(running.get(name), model, now)
-        else:
-            # Busy with a job that started after the snapshot: a root job that has only just begun.
-            wait = remaining_seconds({"job": "macos-compile-admission", "started_at": now.isoformat()}, model, now)
+        wait = 0.0 if not runner.get("busy") else remaining_seconds(running.get(name), model, now)
         waits.append(wait)
-        if wait == 0.0:
-            idle_names.append(name)
         if runner_label(name) in labels:
             pinnable.append((name, wait))
     if not waits:
         decision["why"] = "no online root runner"
         return "", decision
-    if idle_names:
-        # GitHub gives the root label any idle root runner: price the fastest place it could land.
-        baseline = cold * min(compile_factor(name, busy) for name in idle_names)
+    if 0.0 in waits:
+        baseline = cold
     else:
         baseline = cold + min((wait for wait in waits if wait is not None), default=UNKNOWN_JOB_SECONDS)
     decision["baseline_seconds"] = round(baseline, 1)
     best: tuple[float, str] | None = None
     for name, wait in pinnable:
-        options = []
-        if name in base_warm:
-            options.append(("base", start_class_seconds("base", job_tier, model)))
-        if name in pr_warm:
-            options.append(("pr", pr_start_seconds(pr_warm[name], job_tier, model)))
-        options = [(start, value) for start, value in options if value is not None]
-        if not options:
+        start = "base" if name in base_warm else "pr" if name in pr_warm else ""
+        compile_seconds = start_class_seconds(start, job_tier, model) if start else None
+        if compile_seconds is None:
             continue
-        start, compile_seconds = min(options, key=lambda option: option[1])
-        compile_seconds = round(compile_seconds * compile_factor(name, busy), 1)
         cost = None if wait is None else wait + compile_seconds
         decision["candidates"].append({"runner": name, "start": start, "wait": wait,
                                        "compile": compile_seconds, "cost": cost})
@@ -605,45 +582,10 @@ def route_admission(runners: Sequence[Mapping[str, Any]], root: str, *, base_war
     return best[1], decision
 
 
-ADMISSION_JOB_SUFFIX = "macOS compile admission"
-KEEP_STEP = "Keep this owned Mac's DerivedData"
-PREVIOUS_RUNS = 2
-
-
-def previous_admission(get: Callable[[str], Any], head_ref: str, exclude_run: str,
-                       now: dt.datetime) -> tuple[str, float] | None:
-    """The runner that kept this pull request's newest earlier build, and its age in minutes.
-
-    The janitor's warm state lags a sweep or more behind, and a re-push usually
-    comes within minutes (09-26: #13504's second push found no key for its first
-    build, 21 minutes old). At most 1 + PREVIOUS_RUNS requests.
-    """
-    if not head_ref:
-        return None
-    runs = get(f"/actions/runs?event=pull_request&branch={urllib.parse.quote(head_ref, safe='')}&per_page=5")
-    checked = 0
-    for run in (runs or {}).get("workflow_runs") or []:
-        if str(run.get("id")) == exclude_run or run.get("name") != "CI":
-            continue
-        if checked >= PREVIOUS_RUNS:
-            break
-        checked += 1
-        jobs = (get(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100") or {}).get("jobs") or []
-        for job in jobs:
-            if not str(job.get("name") or "").endswith(ADMISSION_JOB_SUFFIX) or not job.get("runner_name"):
-                continue
-            for step in job.get("steps") or []:
-                if step.get("name") == KEEP_STEP and step.get("conclusion") == "success" and step.get("completed_at"):
-                    done = dt.datetime.fromisoformat(str(step["completed_at"]).replace("Z", "+00:00"))
-                    return str(job["runner_name"]), max(0.0, (now - done).total_seconds() / 60)
-    return None
-
-
 def picker_route(runners: Sequence[Mapping[str, Any]], root: str, *, merged_onto: str | None,
                  pr_number: str | None, snapshot: Mapping[str, Any], workspace: Path, queue_rounds: int | None,
                  now: dt.datetime, warm_key: Callable[[str | None], str],
-                 runner_label: Callable[[str], str], model: Mapping[str, Any] | None = None,
-                 previous: Callable[[], tuple[str, float] | None] | None = None) -> tuple[str, dict[str, Any]]:
+                 runner_label: Callable[[str], str], model: Mapping[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
     """pr_runner_pool.py's admission pin: route_admission() over the snapshot's `warm` and `running`.
 
     The pull request's own tier comes from the checkout (the merge commit and
@@ -667,29 +609,389 @@ def picker_route(runners: Sequence[Mapping[str, Any]], root: str, *, merged_onto
         _deadline[0] = float("inf")
     job_tier = tier(features(own[0], own[1], model.get("hot_files") or DEFAULT_HOT_FILES), model) if own else ""
     running = snapshot.get("running") if isinstance(snapshot.get("running"), Mapping) else {}
-    # This pull request's builds: the snapshot's keys, aged by that runner's newest admission (a lower
-    # bound), and the runner the jobs API says kept its newest build, aged exactly.
-    pr_warm: dict[str, float | None] = {}
-    for held in holding(pr_key):
-        entry = kept.get(held) or {}
-        try:
-            at = dt.datetime.fromisoformat(str(entry.get("at")).replace("Z", "+00:00"))
-            pr_warm[held] = max(0.0, (now - at).total_seconds() / 60)
-        except ValueError:
-            pr_warm[held] = None
-    found = None
-    if previous is not None and pr_key:
-        try:
-            found = previous()
-        except Exception:  # noqa: BLE001 - the snapshot's keys still route
-            found = None
-    if found:
-        pr_warm[found[0]] = found[1]
-    name, decision = route_admission(runners, root, base_warm=holding(base_key), pr_warm=pr_warm,
+    name, decision = route_admission(runners, root, base_warm=holding(base_key), pr_warm=holding(pr_key),
                                      running=running, job_tier=job_tier, model=model, now=now,
                                      max_wait=routed_wait_limit(queue_rounds), runner_label=runner_label)
-    decision["previous_build"] = list(found) if found else None
     return (json.dumps([root, runner_label(name)], separators=(",", ":")) if name else ""), decision
+
+
+# Distance routing across minis (pr_runner_pool.py, CI_OWNED_WARM_DISTANCE) ---------------------------------------
+#
+# route_admission() above pins only on an exact key (the merge base, or `pr-<n>`) and costs the root label at
+# start_classes["none"]. glaeda's job-started hook (teamleaderleo/glaeda scripts/glaeda-cmux-runner-hook,
+# warm_root_costs()) already ranks the free roots inside one mini by the near/far/rebuild tier of each kept
+# build's distance to the job. distance_route() scores every mini's roots the same way, from the stamps
+# owned_build_state.py `warm-keys` publishes (`roots`, owned_warm_state.py), so a near build on another mini
+# counts too, and costs the root label as where it lands at random. hook_model(), hook_changes() and
+# hook_root_cost() mirror the hook's pure functions line for line (tests/test_ci_warm_distance.py pins them to
+# the hook's own answers, and checks the hook itself when a glaeda checkout is at hand); change them together.
+
+HOOK_TIERS = ("near", "far", "rebuild")
+# The hook's WARM_DEFAULT_MODEL: the model fitted on 223 admissions of 2026-09-25/26.
+HOOK_DEFAULT_MODEL = {"near_app_swift_files": 5, "hot_files": [],
+                      "tiers": {"near": 140.0, "far": 266.5, "rebuild": 400.7}, "kept": {}, "unknown": 309.7}
+HOOK_MAX_FILES = 400
+# Distinct kept merge bases compared per decision (one tree diff each; one fetch brings all that are missing).
+MAX_ROUTE_BASES = 24
+DISTANCE_BUDGET_SECONDS = 30  # two fetch attempts of ~14 s: a checkout fetch took 11.5 s on a slow runner
+WARM_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def hook_model(model: Mapping[str, Any]) -> dict[str, Any]:
+    """The hook's read_warm_model() of a model document: tier p50s, each tier's kept-start p50 (tiers_by_start,
+    once its cell has MIN_START_ROWS compiles), near threshold, hot files, unknown start."""
+    def seconds(value: Any) -> float:
+        number = float(value)
+        if number != number or number in (float("inf"), float("-inf")) or number < 0:
+            raise ValueError("not a duration")
+        return number
+
+    try:
+        tiers = {name: seconds(model["tiers"][name]["p50"]) for name in HOOK_TIERS}
+        hot = [str(path) for path in model.get("hot_files") or [] if isinstance(path, str)][:200]
+        near = int(model.get("near_app_swift_files") or 5)
+        unknown = seconds(((model.get("start_classes") or {}).get("none") or {}).get("expected") or tiers["far"])
+        kept = {}
+        by_start = model.get("tiers_by_start")
+        for name in tiers:
+            try:  # a model without tiers_by_start, a sparse cell or a bad one: that tier's p50
+                cell = by_start[name]["kept"]
+                count = cell["n"]
+                if isinstance(count, int) and not isinstance(count, bool) and count >= MIN_START_ROWS \
+                        and not isinstance(cell["p50"], bool) and seconds(cell["p50"]) > 0:
+                    kept[name] = seconds(cell["p50"])
+            except Exception:  # noqa: BLE001
+                pass
+        return {"near_app_swift_files": near, "hot_files": hot, "tiers": tiers, "kept": kept, "unknown": unknown}
+    except Exception:  # noqa: BLE001 - as the hook: any unreadable model is the default
+        return {**HOOK_DEFAULT_MODEL, "tiers": dict(HOOK_DEFAULT_MODEL["tiers"]), "kept": {}}
+
+
+def hook_changes(raw: str) -> tuple[set[str], bool]:
+    """The hook's main_changes() of `git diff --raw -z --no-renames --no-abbrev` output: app Swift files, and
+    whether a package source or submodule changed."""
+    fields = raw.split("\0")
+    files: set[str] = set()
+    package = False
+    for meta, path in zip(fields[0::2], fields[1::2]):
+        if "160000" in (mode.lstrip(":") for mode in meta.split()[:2]):
+            package = True  # a submodule bump: its sources changed
+            continue
+        if app_swift(path):
+            files.add(path)
+            package = package or path.startswith(PACKAGE_SOURCES)
+    return files, package
+
+
+def hook_root_cost(changes: tuple[set[str], bool] | None, stamp: Mapping[str, Any] | None, number: int | None,
+                   model: Mapping[str, Any], own: Mapping[str, Any] | None = None) -> tuple[float, str, int]:
+    """(seconds, tier, app Swift files) of starting from one kept build: the hook's per-root cost in
+    warm_root_costs(). CHANGES is main's diff from the stamp's merge base to the job's (None: not comparable),
+    STAMP the root's kept build (None: none, the cold cost), NUMBER the job's pull request, MODEL hook_model()'s.
+    OWN (the job's own `paths` and features()) is what the hook leaves out as the same for every root; with it
+    the seconds are the whole job's prediction rather than a lower bound. A kept build of the same pull
+    request has those files already, so there they count only for a hot file, or a package interface, which a
+    re-push often touches again (14 of 23 such starts rebuilt on 2026-09-26/27). That start still beats every
+    other one for a job with its own package interface change (they all rebuild), so it ranks far, not
+    rebuild. Without OWN this is the hook's cost."""
+    if stamp is None:
+        return max(model["tiers"].values()) + 1.0, "cold", -1
+    same = isinstance(stamp.get("pr"), int) and stamp.get("pr") == number
+    if changes is None or (not same and "pr_app_swift_files" not in stamp and stamp.get("pr")):
+        return model["unknown"], "unknown", -1  # not comparable, or an older cmux's stamp
+    files, package = changes
+    kept = stamp.get("pr_app_swift_files") if not same else []
+    kept = kept if isinstance(kept, list) else []
+    kept_set = {str(path) for path in kept[:HOOK_MAX_FILES] if isinstance(path, str) and app_swift(path)}
+    total = stamp.get("pr_app_swift_total") if not same else 0
+    extra = max(0, total - len(kept_set)) if isinstance(total, int) and not isinstance(total, bool) else 0
+    interface = stamp.get("pr_package_interface") if not same else False
+    # A list cut short may hide a package file: unless the stamp says no interface changed, assume one did.
+    kept_package = any(path.startswith(PACKAGE_SOURCES) for path in kept_set) or extra > 0
+    package = package or (kept_package and interface is not False)
+    changed = files | kept_set
+    own_paths: set[str] = set()
+    own_package = False
+    if own is not None:
+        own_paths = {str(path) for path in own.get("paths") or [] if isinstance(path, str) and app_swift(path)}
+        own_package = bool(own.get("package_swift_files") and own.get("package_interface") is not False)
+        if not same:  # a kept build of this pull request has its files already: they count only as a kind
+            changed |= own_paths
+            package = package or own_package
+    count = len(changed) + extra
+    hot = bool((changed | own_paths) & set(model["hot_files"]))
+    name = ("rebuild" if package or hot else "far" if count > model["near_app_swift_files"] else "near")
+    if same and own_package and name == "near":
+        name = "far"  # the kept build has the package change unless this push touched it again
+    # Every root starts from its kept build: that tier's kept-start p50 when the model has one.
+    return (model.get("kept") or {}).get(name, model["tiers"][name]), name, count
+
+
+def fetch_bases(workspace: Path, shas: Iterable[str]) -> dict[str, Any]:
+    """The commits and trees (no blobs) of SHAS the checkout lacks, in one shallow fetch, tried twice.
+
+    On 2026-09-27 the one fetch failed on some picker runs (1 of 14 bases compared), and every root of
+    every mini then cost the unknown start, so distance routing never pinned. A second attempt takes
+    what the first left missing. Returns what happened, for the decision record: the bases missing,
+    the seconds, and the last failure's stderr tail."""
+    # The tree, not only the commit: the changes job's delta_since_green.py fetches main's history with
+    # --filter=tree:0, so most kept bases were present as bare commits, never fetched, and their diffs
+    # failed (09-27 18Z: 13 of 15 bases uncomparable on #15003's run). --refetch makes the server send
+    # the trees of a commit the checkout already has.
+    missing = sorted({sha for sha in shas if WARM_SHA.fullmatch(sha) and not have_tree(workspace, sha)})
+    report: dict[str, Any] = {"missing": len(missing), "attempts": 0}
+    started = time.monotonic()
+    env = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
+    for attempt in range(2):
+        if not missing:
+            break
+        # Leave room for a second attempt and the diffs (tens of milliseconds each) after a slow failure.
+        timeout = min(FETCH_TIMEOUT_SECONDS, (_deadline[0] - time.monotonic() - FETCH_RESERVE_SECONDS) / (2 - attempt))
+        if timeout <= 0:
+            report["error"] = "no time left"
+            break
+        report["attempts"] += 1
+        try:
+            result = subprocess.run(["git", "-C", str(workspace), "fetch", "--quiet", "--no-tags",
+                                     "--no-write-fetch-head", "--refetch", "--depth=1", "--filter=blob:none",
+                                     "origin", *missing],
+                                    capture_output=True, text=True, timeout=timeout, env=env)
+            if result.returncode != 0:
+                report["error"] = f"exit {result.returncode}: {result.stderr.strip()[-300:]}"
+            else:
+                report.pop("error", None)
+        except subprocess.TimeoutExpired:
+            report["error"] = f"timed out after {timeout:.0f} s"
+        except OSError as error:
+            report["error"] = f"{type(error).__name__}: {error}"[:300]
+        missing = [sha for sha in missing if not have_tree(workspace, sha)]
+    report["left"] = len(missing)
+    report["seconds"] = round(time.monotonic() - started, 1)
+    return report
+
+
+def main_changes(workspace: Path, old: str, new: str) -> tuple[set[str], bool] | None:
+    """hook_changes() of main's diff between two commits in the checkout (trees only), or None."""
+    if not (WARM_SHA.fullmatch(old or "") and WARM_SHA.fullmatch(new or "")):
+        return None
+    if old == new:
+        return set(), False
+    raw = git(workspace, "diff", "--raw", "-z", "--no-renames", "--no-abbrev", old, new, "--")
+    return None if raw is None else hook_changes(raw)
+
+
+def mini_roots(warm: Mapping[str, Any], member: Callable[[str], str]) -> dict[str, list[Mapping[str, Any]]]:
+    """Each mini's roots (owned_warm_state.py `roots`), from its runner entry of the newest `at`."""
+    kept = warm.get("runners") if isinstance(warm.get("runners"), Mapping) else {}
+    newest: dict[str, tuple[str, list[Mapping[str, Any]]]] = {}
+    for name, entry in kept.items():
+        roots = entry.get("roots") if isinstance(entry, Mapping) else None
+        mini = member(str(name))
+        if not mini or not isinstance(roots, list) or not roots:
+            continue
+        at = str(entry.get("at") or "")
+        if mini not in newest or at > newest[mini][0]:
+            newest[mini] = (at, [root for root in roots if isinstance(root, Mapping)])
+    return {mini: roots for mini, (_, roots) in newest.items()}
+
+
+def own_parked(entry: Mapping[str, Any], pr_number: int | None) -> list[Mapping[str, Any]]:
+    """A root's parked builds (owned_build_state.py PR slots) of pull request PR_NUMBER."""
+    parked = entry.get("parked")
+    return [item for item in parked if isinstance(item, Mapping) and pr_number is not None
+            and item.get("pr") == pr_number] if isinstance(parked, list) else []
+
+
+def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
+                   minis: Mapping[str, Sequence[Mapping[str, Any]]],
+                   changes: Callable[[str], tuple[set[str], bool] | None], pr_number: int | None,
+                   own: Mapping[str, Any] | None, legacy: Mapping[str, float], running: Mapping[str, Any],
+                   model: Mapping[str, Any], now: dt.datetime, max_wait: float,
+                   runner_label: Callable[[str], str], member: Callable[[str], str]) -> tuple[str, dict[str, Any]]:
+    """The root runner whose mini's free root starts nearest, when it beats the root label by ROUTE_MARGIN_SECONDS.
+
+    Every online `root` runner is a candidate. Its mini's roots (MINIS, the
+    stamps admission publishes) each cost hook_root_cost() with the job's OWN
+    files, or by its parked build of this pull request, which admission swaps in. The hook hands the job the cheapest free root and each busy root
+    runner of the mini holds one, so a runner costs the root ranked after the
+    busy ones (the cheapest on an idle mini; for a busy runner, the one its
+    job frees). A mini without stamps costs LEGACY[runner] (route_admission()'s
+    exact-key start class) or the model's unknown start. A busy runner adds
+    its expected wait and counts only within MAX_WAIT. The root label goes to
+    whichever idle root runner GitHub picks: the mean of their costs, or,
+    with every one busy, the first wait plus the mean. Ties go to the lower
+    cost, then the less loaded mini, then the name. Returns the runner (""
+    for the root label) and the decision: candidates, chosen, predicted and
+    baseline seconds.
+    """
+    hook = hook_model(model)
+    decision: dict[str, Any] = {"mode": "distance", "candidates": [], "chosen": "", "predicted": None,
+                                "baseline": None}
+    online: list[tuple[str, bool, set[str]]] = []
+    busy_roots: dict[str, int] = {}
+    for runner in runners:
+        name = str(runner.get("name") or "")
+        labels = {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
+        if runner.get("status") != "online" or not name or root not in labels:
+            continue
+        online.append((name, bool(runner.get("busy")), labels))
+        if runner.get("busy"):
+            busy_roots[member(name)] = busy_roots.get(member(name), 0) + 1
+    if not online:
+        decision["why"] = "no online root runner"
+        return "", decision
+    ranked: dict[str, list[tuple[float, str, int, int]]] = {}
+    for mini, roots in minis.items():
+        costs = []
+        for entry in roots:
+            number = entry.get("root")
+            stamp = entry if entry.get("merged_onto") or entry.get("pr") else None
+            cost = hook_root_cost(changes(str(entry.get("merged_onto") or "")) if stamp else None, stamp,
+                                  pr_number, hook, own)
+            # This pull request's build parked beside the root: admission's `check` swaps it in, or adopts
+            # from it where the root keeps main (owned_build_state.py holds_last_main), and the hook ranks
+            # the root by it.
+            parked = own_parked(entry, pr_number)
+            if parked:
+                cost = hook_root_cost(changes(str(parked[0].get("merged_onto") or "")), parked[0], pr_number,
+                                      hook, own)
+            costs.append((*cost, number if isinstance(number, int) and not isinstance(number, bool) else 0))
+        ranked[mini] = sorted(costs, key=lambda item: (item[0], item[2], item[3]))
+    rows: list[dict[str, Any]] = []
+    for name, busy, labels in online:
+        mini = member(name)
+        wait = 0.0 if not busy else remaining_seconds(running.get(name), model, now)
+        taken = busy_roots.get(mini, 0) - (1 if busy else 0)
+        roots = ranked.get(mini) or []
+        if taken < len(roots):
+            seconds, tier_name, files, number = roots[taken]
+            where = f"root-{number}" if number else ""
+        else:
+            seconds = legacy.get(name, hook["unknown"])
+            tier_name, files, where = ("key" if name in legacy else "unknown"), -1, ""
+        rows.append({"runner": name, "mini": mini, "busy": busy, "wait": None if wait is None else round(wait, 1),
+                     "compile": round(seconds, 1), "tier": tier_name, "files": files, "root": where,
+                     "cost": None if wait is None else round(wait + seconds, 1),
+                     "pinnable": runner_label(name) in labels, "load": busy_roots.get(mini, 0)})
+    idle = [row["compile"] for row in rows if not row["busy"]]
+    if idle:
+        baseline = sum(idle) / len(idle)
+    else:
+        waits = [row["wait"] for row in rows if row["wait"] is not None]
+        baseline = min(waits, default=UNKNOWN_JOB_SECONDS) + sum(row["compile"] for row in rows) / len(rows)
+    decision["baseline"] = round(baseline, 1)
+    order = lambda row: (row["cost"] is None, row["cost"] or 0.0, row["load"], row["runner"])  # noqa: E731
+    decision["candidates"] = [{key: row[key] for key in ("runner", "mini", "wait", "compile", "tier", "files", "root",
+                                                          "cost")} for row in sorted(rows, key=order)][:24]
+    usable = sorted((row for row in rows if row["pinnable"] and row["cost"] is not None
+                     and (row["wait"] == 0 or row["wait"] < max_wait)), key=order)
+    if not usable:
+        decision.update(predicted=decision["baseline"],
+                        why="no root runner idle or with a known wait within the limit")
+        return "", decision
+    best = usable[0]
+    if best["cost"] + ROUTE_MARGIN_SECONDS > baseline:
+        decision.update(predicted=decision["baseline"],
+                        why=f"the nearest start ({best['runner']}, {best['tier']}, {best['cost']:.0f} s) does not "
+                            f"beat the root label ({baseline:.0f} s)")
+        return "", decision
+    decision.update(chosen=best["runner"], predicted=best["cost"], tier=best["tier"],
+                    why=f"{best['runner']}: {best['tier']} start, {best['cost']:.0f} s against {baseline:.0f} s "
+                        f"on the root label")
+    return best["runner"], decision
+
+
+def picker_distance_route(runners: Sequence[Mapping[str, Any]], root: str, *, merged_onto: str | None,
+                          pr_number: str | None, snapshot: Mapping[str, Any], workspace: Path,
+                          queue_rounds: int | None, now: dt.datetime, warm_key: Callable[[str | None], str],
+                          runner_label: Callable[[str], str], member: Callable[[str], str],
+                          model: Mapping[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
+    """pr_runner_pool.py's admission pin by distance: distance_route() over the snapshot's `warm` roots.
+
+    main's diff from each kept merge base to MERGED_ONTO comes from the
+    checkout, after one blobless shallow fetch of the bases it lacks, and the
+    job's own files from its depth-2 checkout, all within
+    DISTANCE_BUDGET_SECONDS; a base it cannot compare costs the unknown start.
+    Returns admission's runs-on JSON ("" for the root label) and the decision.
+    """
+    model = load_model() if model is None else model
+    warm = snapshot.get("warm") if isinstance(snapshot.get("warm"), Mapping) else {}
+    minis = mini_roots(warm, member)
+    base = (merged_onto or "").strip().lower()
+    number = int(pr_number) if (pr_number or "").strip().isdigit() else None
+    diffs: dict[str, tuple[set[str], bool] | None] = {}
+    fetched: dict[str, Any] = {}
+    _deadline[0] = time.monotonic() + DISTANCE_BUDGET_SECONDS
+    try:
+        own_files = pull_request_files(workspace, base, fetch=False) if base else None
+        parked_bases = {str(item.get("merged_onto") or "") for roots in minis.values() for entry in roots
+                        for item in own_parked(entry, number)}
+        bases = sorted({str(entry.get("merged_onto") or "") for roots in minis.values() for entry in roots}
+                       - {"", base} - parked_bases)
+        # This pull request's parked bases first, so the cap never drops them.
+        bases = [*sorted(parked_bases - {"", base}), *bases][:MAX_ROUTE_BASES]
+        if WARM_SHA.fullmatch(base):
+            if bases:
+                fetched = fetch_bases(workspace, bases)
+            diffs = {onto: main_changes(workspace, onto, base) for onto in bases}
+            diffs[base] = (set(), False)
+    finally:
+        _deadline[0] = float("inf")
+    own = None
+    if own_files:
+        own = {**features(own_files[0], own_files[1], model.get("hot_files") or DEFAULT_HOT_FILES),
+               "paths": own_files[0]}
+    job_tier = tier(own, model) if own else ""
+    # Minis whose admissions published no stamps yet (before `roots`): route_admission()'s exact-key classes.
+    kept = warm.get("runners") if isinstance(warm.get("runners"), Mapping) else {}
+    legacy: dict[str, float] = {}
+    for name, entry in kept.items():
+        keys = (entry.get("keys") or []) if isinstance(entry, Mapping) else []
+        start = "base" if warm_key(base) and warm_key(base) in keys else \
+            "pr" if warm_key(f"pr-{number}") and warm_key(f"pr-{number}") in keys else ""
+        seconds = start_class_seconds(start, job_tier, model) if start else None
+        if seconds is not None:
+            legacy[str(name)] = seconds
+    running = snapshot.get("running") if isinstance(snapshot.get("running"), Mapping) else {}
+    name, decision = distance_route(runners, root, minis=minis, changes=lambda onto: diffs.get(onto),
+                                    pr_number=number, own=own, legacy=legacy, running=running, model=model,
+                                    now=now, max_wait=routed_wait_limit(queue_rounds), runner_label=runner_label,
+                                    member=member)
+    decision["job_tier"] = job_tier
+    decision["bases"] = {"compared": sum(1 for value in diffs.values() if value is not None), "total": len(diffs),
+                         "fetch": fetched}
+    return (json.dumps([root, runner_label(name)], separators=(",", ":")) if name else ""), decision
+
+
+def route_record(decision: Mapping[str, Any]) -> dict[str, Any]:
+    """The picker's decision as admission records it (`route.picker`, for ci-dash's Estimates view), bounded:
+    mode, chosen runner ("" for the root label), predicted and baseline compile seconds, the candidates, and
+    (distance mode) how many kept merge bases it could compare and how their fetch went."""
+    candidates = []
+    for row in (decision.get("candidates") or [])[:12]:
+        if isinstance(row, Mapping):
+            candidates.append({"runner": row.get("runner"), "tier": row.get("tier") or row.get("start"),
+                               "wait": row.get("wait"), "compile": row.get("compile"), "cost": row.get("cost")})
+    chosen = decision.get("chosen")
+    if chosen is None:  # route_admission(): the runner is in `why`
+        best = [row for row in candidates if str(decision.get("why") or "").startswith(f"{row['runner']}:")]
+        chosen = best[0]["runner"] if best else ""
+    predicted = decision.get("predicted")
+    if predicted is None:
+        picked = [row for row in candidates if row["runner"] == chosen]
+        predicted = picked[0]["cost"] if picked else decision.get("baseline_seconds")
+    return {"mode": decision.get("mode") or "key", "chosen": chosen, "predicted": predicted,
+            "baseline": decision.get("baseline", decision.get("baseline_seconds")), "tier": decision.get("tier"),
+            "job_tier": decision.get("job_tier"), "candidates": candidates, "why": str(decision.get("why") or "")[:200],
+            **({"bases": bases_record(decision["bases"])} if isinstance(decision.get("bases"), Mapping) else {})}
+
+
+def bases_record(bases: Mapping[str, Any]) -> dict[str, Any]:
+    """The decision's base comparison, bounded: compared of total, and the fetch's outcome."""
+    fetch = bases.get("fetch") if isinstance(bases.get("fetch"), Mapping) else {}
+    return {"compared": bases.get("compared"), "total": bases.get("total"),
+            "fetch": {key: (str(fetch[key])[:160] if key == "error" else fetch[key])
+                      for key in ("missing", "left", "attempts", "seconds", "error") if key in fetch}}
 
 
 # Fitting ----------------------------------------------------------------------------------------------------
@@ -711,7 +1013,25 @@ def cell(values: Sequence[float], rebuilt: Sequence[bool] = ()) -> dict[str, Any
     return entry
 
 
+def from_dash(row: Mapping[str, Any]) -> dict[str, Any]:
+    """An admission line as ci-dash keeps it (cmuxterm-hq build-fleet/ci-dash, `estimates.jsonl`: the probe's
+    cut of this file's record, no paths) in this file's schema. Its hot files are only a count: the tier
+    they gave under the model it was recorded with."""
+    distance = None
+    if row.get("files") is not None:
+        distance = {"app_swift_files": row.get("files"), "package_swift_files": row.get("pkg"),
+                    "package_interface": row.get("iface"), "hot_files": ["(recorded)"] * int(row.get("hot") or 0)}
+    compiled = row.get("outcome") in (None, "success")
+    return {"schema": "cmux-warm-admission/v1", "at": row.get("at"), "run_id": row.get("run_id"),
+            "run_attempt": row.get("run_attempt"), "job": row.get("job"), "runner": row.get("runner"),
+            "root": row.get("root"), "pr": row.get("pr"), "start": {"kind": row.get("start") or "cold"},
+            "distance": distance, "tier": row.get("tier"), "predicted_seconds": row.get("pred"),
+            "compile_seconds": row.get("compile") if compiled else None, "compile_outcome": row.get("outcome"),
+            "app_rebuilt": row.get("rebuilt"), "model_fitted_at": row.get("fitted")}
+
+
 def read_rows(paths: Sequence[str]) -> list[dict[str, Any]]:
+    """Admission lines from files of this schema or ci-dash's (from_dash())."""
     rows = []
     for path in paths:
         with open(path) as handle:
@@ -719,7 +1039,7 @@ def read_rows(paths: Sequence[str]) -> list[dict[str, Any]]:
                 with contextlib.suppress(ValueError):
                     row = json.loads(line)
                     if isinstance(row, dict):
-                        rows.append(row)
+                        rows.append(from_dash(row) if "compile" in row and "compile_seconds" not in row else row)
     return rows
 
 
@@ -840,48 +1160,36 @@ def start_classes(rows: Sequence[Mapping[str, Any]], model: Mapping[str, Any],
     return classes
 
 
-def pr_by_age(rows: Sequence[Mapping[str, Any]], model: Mapping[str, Any],
-              repo: Path | None) -> dict[str, dict[str, Any]]:
-    """Predicted compile from this pull request's newest earlier build, by its age (age_bucket()) and the job's tier.
+def start_kind(row: Mapping[str, Any]) -> str:
+    """What the compile started from: 'kept' (this mini's kept build), 'seed', 'unknown' or 'cold'."""
+    return str((row.get("start") or {}).get("kind") or "cold")
 
-    For each admission with an earlier build of the same pull request, the
-    tier mean of the distance between the two builds (with REPO), or the
-    actual compile when it did start there.
-    """
-    ordered = sorted((row for row in rows if parse_at(row)), key=lambda row: parse_at(row))
-    cells: dict[str, list[tuple[str, float]]] = {}
-    for index, row in enumerate(ordered):
-        if not row.get("pr") or not row.get("sha"):
-            continue
-        match = next((other for other in reversed(ordered[:index])
-                      if other.get("pr") == row["pr"] and other.get("sha") and other["sha"] != row["sha"]), None)
-        if match is None:
-            continue
-        age = (parse_at(row) - parse_at(match)).total_seconds() / 60
-        own = tier(with_hot(row["own"], model), model) if row.get("own") else ""
-        if start_class(row) == "pr":
-            value: float | None = float(row["compile_seconds"])
-        elif repo is not None:
-            feature = tree_features(repo, match["sha"], row["sha"], model.get("hot_files") or ())
-            entry = (model.get("tiers") or {}).get(tier(feature, model)) or {} if feature else {}
-            value = entry.get("mean", entry.get("p50"))
-        else:
-            value = None
-        if isinstance(value, (int, float)):
-            cells.setdefault(age_bucket(age), []).append((own, float(value)))
-    out: dict[str, dict[str, Any]] = {}
-    for bucket, pairs in cells.items():
-        entry: dict[str, Any] = {"n": len(pairs)}
-        if len(pairs) >= MIN_CLASS_ROWS:
-            entry["expected"] = round(statistics.fmean(value for _, value in pairs), 1)
-        by_tier = {}
-        for own in TIERS:
-            picked = [value for job_tier, value in pairs if job_tier == own]
-            if len(picked) >= MIN_CLASS_ROWS:
-                by_tier[own] = {"n": len(picked), "expected": round(statistics.fmean(picked), 1)}
-        entry["by_job_tier"] = by_tier
-        out[bucket] = entry
-    return out
+
+def row_tier(row: Mapping[str, Any], model: Mapping[str, Any]) -> str:
+    """The row's tier under MODEL's near threshold and hot files (not the list it was recorded under)."""
+    return tier(with_hot(row["distance"], model), model)
+
+
+def tier_cells(rows: Sequence[Mapping[str, Any]], model: Mapping[str, Any]) -> dict[str, Any]:
+    """The tiers (p50/p90 compile), tiers_by_start (the same per start kind, with counts; predict() uses a
+    cell from MIN_START_ROWS) and the misclassified share of usable ROWS, tiered by MODEL. p50s, so a few
+    hung or cache-missing compiles move nothing."""
+    by_tier: dict[str, list[Mapping[str, Any]]] = {name: [] for name in TIERS}
+    for row in rows:
+        by_tier[row_tier(row, model)].append(row)
+    tiers, by_start = {}, {}
+    for name, members in by_tier.items():
+        tiers[name] = cell([row["compile_seconds"] for row in members], [row["app_rebuilt"] for row in members])
+        kinds: dict[str, list[Mapping[str, Any]]] = {}
+        for row in members:
+            kinds.setdefault(start_kind(row), []).append(row)
+        by_start[name] = {kind: cell([row["compile_seconds"] for row in picked], [row["app_rebuilt"] for row in picked])
+                          for kind, picked in sorted(kinds.items())}
+    # A tier "misclassifies" an admission when it says rebuild and none happened, or the reverse.
+    wrong = sum(1 for name, members in by_tier.items() for row in members
+                if bool(row["app_rebuilt"]) != (name == "rebuild"))
+    return {"tiers": tiers, "tiers_by_start": by_start,
+            "misclassified": {"rows": wrong, "share": round(wrong / len(rows), 3) if rows else None}}
 
 
 def fit(rows: Sequence[Mapping[str, Any]], *, now: dt.datetime, jobs: Sequence[Mapping[str, Any]] = (),
@@ -891,27 +1199,164 @@ def fit(rows: Sequence[Mapping[str, Any]], *, now: dt.datetime, jobs: Sequence[M
     hot = learn_hot_files(rows, hot_floor)
     model: dict[str, Any] = {"version": 1, "fitted_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "rows": len(rows),
                              "near_app_swift_files": near, "hot_files": hot, "app_rebuild_units": APP_REBUILD_UNITS}
-    by_tier: dict[str, list[Mapping[str, Any]]] = {name: [] for name in TIERS}
-    for row in rows:
-        distance = dict(row["distance"])
-        distance["hot_files"] = sorted(set(distance.get("paths") or distance.get("hot_files") or []) & set(hot))
-        by_tier[tier(distance, model)].append(row)
-    tiers = {}
-    for name, members in by_tier.items():
-        tiers[name] = cell([row["compile_seconds"] for row in members], [row["app_rebuilt"] for row in members])
-    model["tiers"] = tiers
-    # A tier "misclassifies" an admission when it says rebuild and none happened, or the reverse.
-    wrong = sum(1 for name, members in by_tier.items() for row in members
-                if bool(row["app_rebuilt"]) != (name == "rebuild"))
-    model["misclassified"] = {"rows": wrong, "share": round(wrong / len(rows), 3) if rows else None}
+    model.update(tier_cells(rows, model))
     model["start_classes"] = start_classes(rows, model, repo)
-    model["pr_by_age"] = pr_by_age(rows, model, repo)
     lengths: dict[str, list[float]] = {}
     for job in jobs:
         if isinstance(job.get("seconds"), (int, float)) and job.get("job"):
             lengths.setdefault(str(job["job"]), []).append(float(job["seconds"]))
     model["job_seconds"] = {name: cell(values) for name, values in sorted(lengths.items()) if len(values) >= 5}
     return model
+
+
+# Self-calibration --------------------------------------------------------------------------------------------
+#
+# `refit` is `fit` for the part of the model that drifts: the tier and (tier, start kind) p50s, refit from the
+# recent admissions under the committed model's near threshold and hot files. Everything else (hot files,
+# start_classes, job_seconds) needs the git history or glaeda's job log and stays as committed. It reports
+# drift: a p50 at least DRIFT_MIN_ROWS rows back that moved more than DRIFT_SHARE from what the committed model
+# predicts for it; scripts/ci/warm_model_refit.py opens a pull request only then.
+
+REFIT_DAYS = 14
+DRIFT_SHARE = 0.2
+DRIFT_MIN_ROWS = 20
+# A compile outside this range is a broken record, not a slow or fast build.
+PLAUSIBLE_SECONDS = (5.0, 7200.0)
+
+
+def dedupe(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Each admission once (a root's old log, the rotated copy and the collect of two aliases may repeat it),
+    oldest first; rows without a time go last."""
+    seen: dict[tuple, dict[str, Any]] = {}
+    for row in rows:
+        key = (row.get("runner"), row.get("run_id"), row.get("run_attempt"), row.get("job"), row.get("at"))
+        seen.setdefault(key, dict(row))
+    far = dt.datetime.max.replace(tzinfo=dt.timezone.utc)
+    return sorted(seen.values(), key=lambda row: parse_at(row) or far)
+
+
+def calibration_rows(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    low, high = PLAUSIBLE_SECONDS
+    return [row for row in dedupe(rows) if usable(row) and parse_at(row) and low <= row["compile_seconds"] <= high]
+
+
+def refit(rows: Iterable[Mapping[str, Any]], model: Mapping[str, Any], *, now: dt.datetime,
+          days: float | None = REFIT_DAYS) -> dict[str, Any]:
+    """MODEL with its tiers and tiers_by_start refit from ROWS of the last DAYS. A tier with fewer than
+    MIN_START_ROWS rows keeps the committed entry."""
+    recent = calibration_rows(rows)
+    if days is not None:
+        recent = [row for row in recent if parse_at(row) >= now - dt.timedelta(days=days)]
+    fitted = tier_cells(recent, model)
+    new = dict(model)
+    new["tiers"] = {name: (entry if entry["n"] >= MIN_START_ROWS or name not in (model.get("tiers") or {})
+                           else model["tiers"][name])
+                    for name, entry in fitted["tiers"].items()}
+    new["tiers_by_start"] = fitted["tiers_by_start"]
+    new["misclassified"] = fitted["misclassified"]
+    new["rows"] = len(recent)
+    new["fitted_at"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    new["calibrated"] = {"days": days, "rows": len(recent),
+                         "from": recent[0]["at"] if recent else None, "to": recent[-1]["at"] if recent else None}
+    return new
+
+
+def drift(old: Mapping[str, Any], new: Mapping[str, Any], *, share: float = DRIFT_SHARE,
+          min_rows: int = DRIFT_MIN_ROWS) -> list[dict[str, Any]]:
+    """The p50s of NEW (a tier, or a tier from a start kind) with MIN_ROWS rows that moved more than SHARE
+    from what OLD predicts for the same compiles."""
+    moved = []
+    for name in TIERS:
+        places: list[tuple[str | None, Any]] = [(None, (new.get("tiers") or {}).get(name))]
+        places += sorted(((new.get("tiers_by_start") or {}).get(name) or {}).items())
+        for start, entry in places:
+            after, count = seconds_of(entry), (entry or {}).get("n") or 0
+            before = tier_seconds(name, start, old)
+            if after is None or before is None or count < min_rows:
+                continue
+            change = after / before - 1
+            if abs(change) > share:
+                moved.append({"tier": name, "start": start, "n": count, "before": round(before, 1),
+                              "after": round(after, 1), "change": round(change, 3)})
+    return moved
+
+
+def errors(pairs: Sequence[tuple[float, float]]) -> dict[str, Any]:
+    """[(predicted, actual)] -> n, median absolute error, bias (median actual - predicted) and the share
+    within 25% of the prediction."""
+    if not pairs:
+        return {"n": 0}
+    return {"n": len(pairs), "mae": round(statistics.median(abs(a - p) for p, a in pairs), 1),
+            "bias": round(statistics.median(a - p for p, a in pairs), 1),
+            "within25": round(sum(1 for p, a in pairs if abs(a - p) <= 0.25 * p) / len(pairs), 3)}
+
+
+def backtest(rows: Iterable[Mapping[str, Any]], model: Mapping[str, Any], *,
+             every: dt.timedelta | None = None, days: float | None = REFIT_DAYS) -> list[dict[str, Any]]:
+    """Time-ordered replay: each usable admission's compile as MODEL predicts it (tier p50s only, as
+    committed) and as a self-calibrated model would have: refit() from the admissions before it (EVERY:
+    only those before the last refit, one every EVERY from midnight UTC), its cell once MIN_START_ROWS.
+    Each result: tier, start, actual, model, calibrated."""
+    ordered = calibration_rows(rows)
+    static = {key: value for key, value in model.items() if key != "tiers_by_start"}
+    out, cache = [], {}
+    for index, row in enumerate(ordered):
+        at = parse_at(row)
+        if every:
+            midnight = at.replace(hour=0, minute=0, second=0, microsecond=0)
+            cut = midnight + every * ((at - midnight) // every)
+        else:
+            cut = at
+        if cut not in cache:
+            earlier = [other for other in ordered[:index] if parse_at(other) < cut]
+            cache[cut] = refit(earlier, static, now=cut, days=days)
+        name = row_tier(row, static)
+        out.append({"tier": name, "start": start_kind(row), "actual": row["compile_seconds"],
+                    "model": tier_seconds(name, None, static),
+                    "calibrated": tier_seconds(name, start_kind(row), cache[cut])})
+    return out
+
+
+def backtest_table(results: Sequence[Mapping[str, Any]], label: str = "self-calibrated") -> str:
+    lines = [f"| compiles | n | model MAE s | model bias s | model within 25% | {label} MAE s | bias s | within 25% |",
+             "|---|---|---|---|---|---|---|---|"]
+    groups: list[tuple[str, list[Mapping[str, Any]]]] = [("all", list(results))]
+    groups += [(f"tier {name}", [r for r in results if r["tier"] == name]) for name in TIERS]
+    groups += [(f"start {kind}", [r for r in results if r["start"] == kind])
+               for kind in sorted({r["start"] for r in results})]
+    groups += [(f"{name} from {kind}", [r for r in results if r["tier"] == name and r["start"] == kind])
+               for name in TIERS for kind in sorted({r["start"] for r in results})]
+    for title, members in groups:
+        if not members:
+            continue
+        before = errors([(r["model"], r["actual"]) for r in members if r["model"]])
+        after = errors([(r["calibrated"], r["actual"]) for r in members if r["calibrated"]])
+        lines.append(f"| {title} | {len(members)} | {before.get('mae')} | {before.get('bias')} | "
+                     f"{pct(before.get('within25'))} | {after.get('mae')} | {after.get('bias')} | {pct(after.get('within25'))} |")
+    return "\n".join(lines)
+
+
+def pct(share: float | None) -> str:
+    return "" if share is None else f"{round(100 * share)}%"
+
+
+def drift_table(moved: Sequence[Mapping[str, Any]]) -> str:
+    lines = ["| tier | start | n | committed s | refit s | change |", "|---|---|---|---|---|---|"]
+    lines += [f"| {m['tier']} | {m['start'] or 'any'} | {m['n']} | {m['before']} | {m['after']} | "
+              f"{m['change']:+.0%} |" for m in moved]
+    return "\n".join(lines)
+
+
+def cells_table(model: Mapping[str, Any]) -> str:
+    lines = ["| tier | start | n | p50 s | p90 s | app rebuilt |", "|---|---|---|---|---|---|"]
+    for name in TIERS:
+        entry = (model.get("tiers") or {}).get(name) or {}
+        lines.append(f"| {name} | any | {entry.get('n')} | {entry.get('p50')} | {entry.get('p90')} | {entry.get('rebuilt')} |")
+        for kind, cell_entry in sorted(((model.get("tiers_by_start") or {}).get(name) or {}).items()):
+            used = "" if (cell_entry.get("n") or 0) >= MIN_START_ROWS else " (tier used)"
+            lines.append(f"| {name} | {kind}{used} | {cell_entry.get('n')} | {cell_entry.get('p50')} | "
+                         f"{cell_entry.get('p90')} | {cell_entry.get('rebuilt')} |")
+    return "\n".join(lines)
 
 
 def table(model: Mapping[str, Any]) -> str:
@@ -954,19 +1399,34 @@ def evaluate(rows: Sequence[Mapping[str, Any]], model: Mapping[str, Any]) -> str
     return "\n".join(lines)
 
 
-def collect(hosts: Sequence[str]) -> int:
+def collect(hosts: Sequence[str], out: Any = None) -> int:
+    """Every HOST's admission logs (root 1's, its rotated copy, and any root's own), over SSH, to OUT."""
+    out = out or sys.stdout
     for host in hosts:
         try:
-            # bash with nullglob: the minis' zsh aborts the whole command on a glob with no match.
-            out = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
-                                  "bash -c 'shopt -s nullglob; cat /Users/Shared/cmux-build-fleet/ci/"
-                                  f"{LOG_NAME}* /Users/Shared/cmux-build-fleet/ci/cmux-ci-*/{LOG_NAME}*'"],
+            text = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
+                                  # find, not a glob: the minis' login shell is zsh, whose unmatched glob
+                                  # (no cmux-ci-*/ log) failed the whole command and read nothing.
+                                  "find /Users/Shared/cmux-build-fleet/ci -maxdepth 2 -type f "
+                                  f"\\( -name {LOG_NAME} -o -name {LOG_NAME}.1 \\) -exec cat {{}} + 2>/dev/null; true"],
                                  capture_output=True, text=True, timeout=120).stdout
         except (OSError, subprocess.SubprocessError) as error:
             print(f"{host}: {error}", file=sys.stderr)
             continue
-        sys.stdout.write(out)
+        out.write(text)
     return 0
+
+
+def collect_rows(hosts: Sequence[str]) -> list[dict[str, Any]]:
+    buffer = io.StringIO()
+    collect(hosts, buffer)
+    rows = []
+    for line in buffer.getvalue().splitlines():
+        with contextlib.suppress(ValueError):
+            row = json.loads(line)
+            if isinstance(row, dict):
+                rows.append(row)
+    return rows
 
 
 def main(argv: Sequence[str]) -> int:
@@ -998,6 +1458,25 @@ def main(argv: Sequence[str]) -> int:
         print(table(model))
         if out:
             Path(out).write_text(json.dumps(model, indent=2, sort_keys=True) + "\n")
+        return 0
+    if len(argv) >= 3 and argv[1] in ("refit", "backtest"):
+        args = list(argv[2:])
+        option = lambda name: args.pop(args.index(name) + 1) if name in args and args.index(name) + 1 < len(args) else None  # noqa: E731
+        out, model_path, days, every = option("--out"), option("--model"), option("--days"), option("--every-hours")
+        args = [arg for arg in args if arg not in ("--out", "--model", "--days", "--every-hours")]
+        model, rows = load_model(model_path), read_rows(args)
+        days_value = float(days) if days else REFIT_DAYS
+        if argv[1] == "backtest":
+            step = dt.timedelta(hours=float(every)) if every else None
+            print(backtest_table(backtest(rows, model, every=step, days=days_value)))
+            return 0
+        new = refit(rows, model, now=now(), days=days_value)
+        moved = drift(model, new)
+        print(cells_table(new))
+        print("")
+        print(drift_table(moved) if moved else "No drift: every p50 is within 20% of the committed model's.")
+        if out:
+            Path(out).write_text(json.dumps(new, indent=2, sort_keys=True) + "\n")
         return 0
     if len(argv) >= 3 and argv[1] == "collect":
         return collect(argv[2:])
