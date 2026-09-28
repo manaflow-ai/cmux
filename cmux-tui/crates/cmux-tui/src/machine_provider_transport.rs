@@ -8,6 +8,7 @@
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, DirBuilder};
 use std::io::{self, Read, Write};
+use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
@@ -22,8 +23,10 @@ use std::time::{Duration, Instant};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use cmux_tui_machine_protocol::BearerToken;
+use socket2::{Domain, SockAddr, Socket, Type};
 use zeroize::Zeroize;
 
+use crate::machine_runtime::MachineConnectContext;
 use crate::process_diagnostics::BoundedDiagnosticBuffer;
 
 const PROVIDER_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -33,12 +36,12 @@ const PRIVATE_PATH_ATTEMPTS: usize = 16;
 
 /// Creates a fresh authenticated provider-control generation.
 pub(crate) trait MachineProviderConnector: Send + Sync {
-    fn connect(&self) -> io::Result<ProviderConnection>;
+    fn connect(&self, context: &MachineConnectContext) -> io::Result<ProviderConnection>;
 }
 
 /// Opens one independent byte stream for one provider-issued transport ticket.
 pub(crate) trait MachineStreamConnector: Send + Sync {
-    fn open(&self) -> io::Result<ProviderIo>;
+    fn open(&self, context: &MachineConnectContext) -> io::Result<ProviderIo>;
 }
 
 /// One control generation and its associated machine-stream factory.
@@ -119,8 +122,8 @@ impl ProviderIoGuard {
         self.cleanup.diagnostic()
     }
 
-    /// Interrupts a blocking pipe or socket read when a handshake stalls.
-    pub(crate) fn deadline(&self, timeout: Duration) -> io::Result<ProviderIoDeadline> {
+    #[cfg(test)]
+    fn deadline(&self, timeout: Duration) -> io::Result<ProviderIoDeadline> {
         let cleanup = self.clone();
         let (cancel, cancelled) = mpsc::sync_channel(1);
         let timed_out = Arc::new(AtomicBool::new(false));
@@ -130,6 +133,43 @@ impl ProviderIoGuard {
                 if cancelled.recv_timeout(timeout).is_err() {
                     thread_timed_out.store(true, Ordering::Release);
                     cleanup.close();
+                }
+            },
+        )?;
+        Ok(ProviderIoDeadline { cancel: Some(cancel), timed_out, worker: Some(worker) })
+    }
+
+    /// Closes the endpoint when the shared machine connection context is
+    /// cancelled or reaches its deadline. The watcher is joined by its owner.
+    pub(crate) fn watch_context(
+        &self,
+        context: &MachineConnectContext,
+    ) -> io::Result<ProviderIoDeadline> {
+        let cleanup = self.clone();
+        let context = context.clone();
+        let (cancel, cancelled) = mpsc::sync_channel(1);
+        let timed_out = Arc::new(AtomicBool::new(false));
+        let thread_timed_out = Arc::clone(&timed_out);
+        let worker = thread::Builder::new().name("machine-provider-deadline".to_string()).spawn(
+            move || {
+                loop {
+                    if context.is_cancelled() {
+                        cleanup.close();
+                        break;
+                    }
+                    let remaining = context
+                        .remaining_io()
+                        .unwrap_or(Duration::ZERO)
+                        .min(Duration::from_millis(50));
+                    match cancelled.recv_timeout(remaining) {
+                        Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        Err(mpsc::RecvTimeoutError::Timeout) if context.is_expired() => {
+                            thread_timed_out.store(true, Ordering::Release);
+                            cleanup.close();
+                            break;
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    }
                 }
             },
         )?;
@@ -185,20 +225,22 @@ impl UnixProviderConnector {
         socket_path: impl Into<PathBuf>,
     ) -> io::Result<(ProviderIo, Arc<dyn MachineStreamConnector>)> {
         let streams = Arc::new(UnixMachineStreamConnector { socket_path: socket_path.into() });
-        let control = streams.open()?;
+        let context = MachineConnectContext::new(Duration::from_secs(30));
+        let control = streams.open(&context)?;
         Ok((control, streams))
     }
 }
 
 impl MachineProviderConnector for UnixProviderConnector {
-    fn connect(&self) -> io::Result<ProviderConnection> {
+    fn connect(&self, context: &MachineConnectContext) -> io::Result<ProviderConnection> {
+        context.check_io()?;
         let token = match &self.token {
             Some(token) => token.clone(),
             None => random_bearer_token()?,
         };
         let streams =
             Arc::new(UnixMachineStreamConnector { socket_path: self.socket_path.clone() });
-        let control = streams.open()?;
+        let control = streams.open(context)?;
         Ok(ProviderConnection { token, control, streams })
     }
 }
@@ -208,13 +250,96 @@ struct UnixMachineStreamConnector {
 }
 
 impl MachineStreamConnector for UnixMachineStreamConnector {
-    fn open(&self) -> io::Result<ProviderIo> {
-        let writer = UnixStream::connect(&self.socket_path)?;
+    fn open(&self, context: &MachineConnectContext) -> io::Result<ProviderIo> {
+        context.check_io()?;
+        let socket = Socket::new(Domain::UNIX, Type::STREAM, None)?;
+        let address = SockAddr::unix(&self.socket_path)?;
+        connect_socket_with_context(&socket, &address, context)?;
+        let writer = unsafe { UnixStream::from_raw_fd(socket.into_raw_fd()) };
+        // The provider control and stream sockets stay open after the
+        // handshake. Keep reads blocking so an idle session does not fail
+        // after the connection deadline has elapsed. The existing bounded
+        // write timeout still prevents a full provider pipe from stalling a
+        // request forever; the context watcher closes the socket on cancel.
         writer.set_write_timeout(Some(PROVIDER_WRITE_TIMEOUT))?;
         let reader = writer.try_clone()?;
         let cleanup =
             Arc::new(UnixCleanup { stream: writer.try_clone()?, closed: AtomicBool::new(false) });
         Ok(ProviderIo::new(reader, writer, ProviderIoGuard::new(cleanup)))
+    }
+}
+
+fn connect_socket_with_context(
+    socket: &Socket,
+    address: &SockAddr,
+    context: &MachineConnectContext,
+) -> io::Result<()> {
+    context.check_io()?;
+    socket.set_nonblocking(true)?;
+    match socket.connect(address) {
+        Ok(()) => {}
+        Err(error) if connect_is_pending(&error) => {
+            wait_for_socket_ready_with_context(socket, context)?;
+        }
+        Err(error) => return Err(error),
+    }
+    context.check_io()?;
+    socket.set_nonblocking(false)
+}
+
+fn connect_is_pending(error: &io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(code)
+            if code == libc::EALREADY
+                || code == libc::EAGAIN
+                || code == libc::EINPROGRESS
+                || code == libc::EINTR
+                || code == libc::EWOULDBLOCK
+    )
+}
+
+fn wait_for_socket_ready_with_context(
+    socket: &Socket,
+    context: &MachineConnectContext,
+) -> io::Result<()> {
+    let mut descriptor = libc::pollfd {
+        fd: socket.as_raw_fd(),
+        events: (libc::POLLOUT | libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) as libc::c_short,
+        revents: 0,
+    };
+    loop {
+        context.check_io()?;
+        let timeout =
+            context.remaining_io()?.as_millis().min(Duration::from_millis(50).as_millis());
+        let timeout = i32::try_from(timeout).unwrap_or(50);
+        let result = unsafe { libc::poll(&mut descriptor, 1, timeout) };
+        if result < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error);
+        }
+        if result == 0 {
+            continue;
+        }
+        if descriptor.revents & libc::POLLNVAL as libc::c_short != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "socket descriptor is invalid",
+            ));
+        }
+        if let Some(error) = socket.take_error()? {
+            return Err(error);
+        }
+        if descriptor.revents & libc::POLLOUT as libc::c_short != 0 {
+            return Ok(());
+        }
+        return Err(io::Error::new(
+            io::ErrorKind::ConnectionAborted,
+            "Unix socket connection failed before becoming ready",
+        ));
     }
 }
 
@@ -254,12 +379,13 @@ impl CommandProviderConnector {
 }
 
 impl MachineProviderConnector for CommandProviderConnector {
-    fn connect(&self) -> io::Result<ProviderConnection> {
+    fn connect(&self, context: &MachineConnectContext) -> io::Result<ProviderConnection> {
+        context.check_io()?;
         let token = random_bearer_token()?;
         let redactions = Arc::new(vec![token.expose().to_string()]);
         let streams =
             Arc::new(CommandMachineStreamConnector { command: self.command.clone(), redactions });
-        let control = streams.open_role(CommandRole::Control)?;
+        let control = streams.open_role(CommandRole::Control, context)?;
         Ok(ProviderConnection { token, control, streams })
     }
 }
@@ -271,16 +397,21 @@ struct CommandMachineStreamConnector {
 }
 
 impl CommandMachineStreamConnector {
-    fn open_role(&self, role: CommandRole) -> io::Result<ProviderIo> {
+    fn open_role(
+        &self,
+        role: CommandRole,
+        context: &MachineConnectContext,
+    ) -> io::Result<ProviderIo> {
+        context.check_io()?;
         let mut arguments = self.command.arguments.as_ref().clone();
         arguments.push(OsString::from(role.as_str()));
-        spawn_command(&self.command.program, &arguments, Arc::clone(&self.redactions))
+        spawn_command(&self.command.program, &arguments, Arc::clone(&self.redactions), context)
     }
 }
 
 impl MachineStreamConnector for CommandMachineStreamConnector {
-    fn open(&self) -> io::Result<ProviderIo> {
-        self.open_role(CommandRole::Stream)
+    fn open(&self, context: &MachineConnectContext) -> io::Result<ProviderIo> {
+        self.open_role(CommandRole::Stream, context)
     }
 }
 
@@ -353,7 +484,8 @@ impl SshProviderConnector {
 }
 
 impl MachineProviderConnector for SshProviderConnector {
-    fn connect(&self) -> io::Result<ProviderConnection> {
+    fn connect(&self, context: &MachineConnectContext) -> io::Result<ProviderConnection> {
+        context.check_io()?;
         let token = random_bearer_token()?;
         let redactions = Arc::new(vec![token.expose().to_string()]);
         let control_socket = Arc::new(PrivateControlSocket::create()?);
@@ -365,7 +497,7 @@ impl MachineProviderConnector for SshProviderConnector {
             control_socket,
             redactions,
         });
-        let control = streams.open_role(CommandRole::Control)?;
+        let control = streams.open_role(CommandRole::Control, context)?;
         Ok(ProviderConnection { token, control, streams })
     }
 }
@@ -380,12 +512,18 @@ struct SshMachineStreamConnector {
 }
 
 impl SshMachineStreamConnector {
-    fn open_role(&self, role: CommandRole) -> io::Result<ProviderIo> {
+    fn open_role(
+        &self,
+        role: CommandRole,
+        context: &MachineConnectContext,
+    ) -> io::Result<ProviderIo> {
+        context.check_io()?;
         let master = match role {
             CommandRole::Control => "yes",
             CommandRole::Stream => "no",
         };
         let path_option = format!("ControlPath={}", self.control_socket.path().display());
+        let connect_timeout = context.remaining_io()?.as_secs().saturating_add(1);
         let mut arguments = vec![
             OsString::from("-T"),
             OsString::from("-o"),
@@ -398,6 +536,8 @@ impl SshMachineStreamConnector {
             OsString::from("ForwardX11=no"),
             OsString::from("-o"),
             OsString::from("ClearAllForwardings=yes"),
+            OsString::from("-o"),
+            OsString::from(format!("ConnectTimeout={connect_timeout}")),
             OsString::from("-o"),
             OsString::from("PermitLocalCommand=no"),
             OsString::from("-o"),
@@ -422,7 +562,8 @@ impl SshMachineStreamConnector {
             OsString::from("provider"),
             OsString::from(role.as_str()),
         ]);
-        let io = spawn_command(&self.ssh_program, &arguments, Arc::clone(&self.redactions))?;
+        let io =
+            spawn_command(&self.ssh_program, &arguments, Arc::clone(&self.redactions), context)?;
         // Every process guard retains the directory until its process exits.
         let ProviderIoParts { reader, writer, guard } = io.into_parts();
         let guard = ProviderIoGuard::new(Arc::new(CompositeCleanup {
@@ -434,8 +575,8 @@ impl SshMachineStreamConnector {
 }
 
 impl MachineStreamConnector for SshMachineStreamConnector {
-    fn open(&self) -> io::Result<ProviderIo> {
-        self.open_role(CommandRole::Stream)
+    fn open(&self, context: &MachineConnectContext) -> io::Result<ProviderIo> {
+        self.open_role(CommandRole::Stream, context)
     }
 }
 
@@ -503,7 +644,9 @@ fn spawn_command(
     program: &OsStr,
     arguments: &[OsString],
     redactions: Arc<Vec<String>>,
+    context: &MachineConnectContext,
 ) -> io::Result<ProviderIo> {
+    context.check_io()?;
     let (stderr_cancel, stderr_cancel_worker) = UnixStream::pair()?;
     let mut command = Command::new(program);
     command
@@ -517,6 +660,11 @@ fn spawn_command(
     let mut child = command.spawn().map_err(|error| {
         io::Error::new(error.kind(), format!("failed to start machine-provider command: {error}"))
     })?;
+    if let Err(error) = context.check_io() {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error);
+    }
     let stdin = child
         .stdin
         .take()
@@ -752,6 +900,10 @@ mod tests {
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(1);
 
+    fn context() -> MachineConnectContext {
+        MachineConnectContext::new(Duration::from_secs(30))
+    }
+
     struct TestDirectory {
         path: PathBuf,
     }
@@ -826,7 +978,7 @@ mod tests {
         ])
         .expect("create command connector");
 
-        let connection = connector.connect().expect("open command control");
+        let connection = connector.connect(&context()).expect("open command control");
         let (token, control, _) = connection.into_parts();
         wait_for_file(&complete);
         let recorded_arguments = fs::read_to_string(arguments).expect("read recorded arguments");
@@ -856,7 +1008,7 @@ mod tests {
                 complete.clone().into_os_string(),
             ])
             .expect("create command connector");
-            let connection = connector.connect().expect("open command control");
+            let connection = connector.connect(&context()).expect("open command control");
             let (_, control, _) = connection.into_parts();
             wait_for_file(&complete);
             let recorded_environment = fs::read_to_string(environment).expect("read environment");
@@ -912,11 +1064,11 @@ mod tests {
         ])
         .expect("create command connector");
 
-        let first = connector.connect().expect("open first generation");
+        let first = connector.connect(&context()).expect("open first generation");
         let (first_token, first_control, first_streams) = first.into_parts();
-        let first_stream = first_streams.open().expect("open first stream");
-        let second_stream = first_streams.open().expect("open second stream");
-        let second = connector.connect().expect("open second generation");
+        let first_stream = first_streams.open(&context()).expect("open first stream");
+        let second_stream = first_streams.open(&context()).expect("open second stream");
+        let second = connector.connect(&context()).expect("open second generation");
         let (second_token, second_control, _) = second.into_parts();
         assert_ne!(first_token.expose(), second_token.expose());
         assert!(first_token.expose().len() >= 32);
@@ -955,7 +1107,7 @@ mod tests {
             pid_path.clone().into_os_string(),
         ])
         .expect("create command connector");
-        let connection = connector.connect().expect("start provider child");
+        let connection = connector.connect(&context()).expect("start provider child");
         let (_, control, _) = connection.into_parts();
         wait_for_nonempty_file(&pid_path);
         let pid = fs::read_to_string(&pid_path)
@@ -988,7 +1140,7 @@ mod tests {
             descendant_path.clone().into_os_string(),
         ])
         .expect("create command connector");
-        let connection = connector.connect().expect("start provider child");
+        let connection = connector.connect(&context()).expect("start provider child");
         let (_, control, _) = connection.into_parts();
         wait_for_nonempty_file(&descendant_path);
         let descendant = fs::read_to_string(&descendant_path)
@@ -1060,7 +1212,7 @@ mod tests {
             descendant_path.clone().into_os_string(),
         ])
         .expect("create command connector");
-        let connection = connector.connect().expect("start provider child");
+        let connection = connector.connect(&context()).expect("start provider child");
         let (_, control, _) = connection.into_parts();
         wait_for_nonempty_file(&descendant_path);
         let descendant = fs::read_to_string(&descendant_path)
@@ -1100,7 +1252,7 @@ mod tests {
             ready.clone().into_os_string(),
         ])
         .expect("create command connector");
-        let connection = connector.connect().expect("start provider child");
+        let connection = connector.connect(&context()).expect("start provider child");
         let (token, mut control, _) = connection.into_parts();
         control
             .writer
@@ -1135,9 +1287,9 @@ mod tests {
 
         let connector = SshProviderConnector::with_program(fake_ssh, "cmux.cloud")
             .expect("create SSH connector");
-        let connection = connector.connect().expect("open SSH control");
+        let connection = connector.connect(&context()).expect("open SSH control");
         let (token, control, streams) = connection.into_parts();
-        let stream = streams.open().expect("open SSH stream");
+        let stream = streams.open(&context()).expect("open SSH stream");
         let deadline = Instant::now() + Duration::from_secs(10);
         let lines = loop {
             let lines = fs::read_to_string(&records).unwrap_or_default();
@@ -1194,7 +1346,7 @@ mod tests {
         )
         .expect("create configured cloud SSH connector");
 
-        let connection = connector.connect().expect("open cloud SSH control");
+        let connection = connector.connect(&context()).expect("open cloud SSH control");
         let (token, control, _) = connection.into_parts();
         wait_for_nonempty_file(&records);
         let arguments = fs::read_to_string(records).expect("read cloud SSH argv");
@@ -1233,10 +1385,10 @@ mod tests {
             socket_path,
             BearerToken::new("fixed-token").expect("fixed token"),
         );
-        let connection = connector.connect().expect("connect Unix control");
+        let connection = connector.connect(&context()).expect("connect Unix control");
         let (token, control, streams) = connection.into_parts();
         let (_accepted_control, _) = listener.accept().expect("accept control");
-        let stream = streams.open().expect("connect Unix stream");
+        let stream = streams.open(&context()).expect("connect Unix stream");
         let (_accepted_stream, _) = listener.accept().expect("accept stream");
         assert_eq!(token.expose(), "fixed-token");
         drop((stream, control));
@@ -1251,9 +1403,9 @@ mod tests {
         let listener = UnixListener::bind(&socket_path).expect("bind provider socket");
         let connector = UnixProviderConnector::generated(socket_path);
 
-        let first = connector.connect().expect("connect first generation");
+        let first = connector.connect(&context()).expect("connect first generation");
         let (_first_socket, _) = listener.accept().expect("accept first generation");
-        let second = connector.connect().expect("connect second generation");
+        let second = connector.connect(&context()).expect("connect second generation");
         let (_second_socket, _) = listener.accept().expect("accept second generation");
         let (first_token, first_control, _) = first.into_parts();
         let (second_token, second_control, _) = second.into_parts();
@@ -1274,12 +1426,50 @@ mod tests {
     }
 
     #[test]
+    fn unix_connect_readiness_wait_honors_cancellation() {
+        use std::io::ErrorKind;
+        use std::os::fd::IntoRawFd;
+        use std::os::unix::net::UnixStream;
+
+        let (mut writer, reader) = UnixStream::pair().expect("create readiness socket pair");
+        writer.set_nonblocking(true).expect("make readiness writer nonblocking");
+        let payload = [0_u8; 16 * 1024];
+        loop {
+            match writer.write(&payload) {
+                Ok(_) => {}
+                Err(error) if error.kind() == ErrorKind::WouldBlock => break,
+                Err(error) => panic!("fill readiness socket: {error}"),
+            }
+        }
+        let socket = unsafe { Socket::from_raw_fd(writer.into_raw_fd()) };
+        let context = MachineConnectContext::new(Duration::from_secs(30));
+        let worker_context = context.clone();
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        let worker = thread::spawn(move || {
+            let result = wait_for_socket_ready_with_context(&socket, &worker_context);
+            done_tx.send(result).expect("report readiness wait result");
+        });
+
+        thread::sleep(Duration::from_millis(25));
+        context.cancel();
+        let result = done_rx
+            .recv_timeout(Duration::from_millis(500))
+            .expect("readiness wait ignored cancellation");
+        assert_eq!(
+            result.expect_err("cancelled readiness wait succeeded").kind(),
+            ErrorKind::Interrupted
+        );
+        worker.join().expect("join readiness wait worker");
+        drop(reader);
+    }
+
+    #[test]
     fn deadline_interrupts_a_blocked_provider_pipe() {
         let directory = TestDirectory::new();
         let script = directory.script("block-forever", "while IFS= read -r _line; do :; done");
         let connector = CommandProviderConnector::new([script.into_os_string()])
             .expect("create command connector");
-        let connection = connector.connect().expect("open command control");
+        let connection = connector.connect(&context()).expect("open command control");
         let (_, control, _) = connection.into_parts();
         let ProviderIoParts { reader, writer: _writer, guard } = control.into_parts();
         let deadline = guard.deadline(Duration::from_millis(25)).expect("start deadline");
