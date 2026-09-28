@@ -293,7 +293,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
         let builders: [[String]] = [
             configuration.daemonTransportArguments(remotePath: "/remote/cmuxd-remote"),
             configuration.daemonSocketForwardArguments(
-                localPort: 64123,
+                localSocketPath: "/tmp/cmux-test-daemon.sock",
                 remoteSocketPath: "/run/cmuxd-remote.sock"
             ),
             try #require(configuration.reverseRelayControlMasterArguments(
@@ -338,7 +338,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
     func socketForwardTurnsOffAgentAndX11Forwarding() throws {
         let configured = ["ForwardAgent=yes", "ForwardX11=yes"]
         let arguments = configuration(sshOptions: configured).daemonSocketForwardArguments(
-            localPort: 64123,
+            localSocketPath: "/tmp/cmux-test-daemon.sock",
             remoteSocketPath: "/run/cmuxd-remote.sock"
         )
         for (override, option) in zip(["ForwardAgent=no", "ForwardX11=no"], configured) {
@@ -347,7 +347,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
             #expect(overrideIndex < configuredIndex)
         }
         #expect(pairIndex(arguments, "-o", "ClearAllForwardings=yes") == nil)
-        #expect(pairIndex(arguments, "-L", "127.0.0.1:64123:/run/cmuxd-remote.sock") != nil)
+        #expect(pairIndex(arguments, "-L", "/tmp/cmux-test-daemon.sock:/run/cmuxd-remote.sock") != nil)
     }
 
     private func pairIndex(_ arguments: [String], _ first: String, _ second: String) -> Int? {
