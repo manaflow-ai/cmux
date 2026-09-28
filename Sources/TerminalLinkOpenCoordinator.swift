@@ -8,6 +8,9 @@ import Foundation
 /// Owns terminal-link policy and routes the resulting action through whichever
 /// panel container currently owns the source terminal.
 ///
+/// Only a click in a terminal known to run on this Mac opens a local file; see
+/// ``RemoteLinkOpenPolicy/allowsLocalFile(_:localContent:remoteInitiated:)``.
+///
 /// Local files that leave cmux go through the shared ``FileOpening`` seam
 /// (`PreferredEditorService`), the single decision point for "open this file
 /// for the user": the preferred editor when configured, the system default
@@ -55,7 +58,7 @@ struct TerminalLinkOpenCoordinator {
 
         let trimmed = request.rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let container = containerResolver(request.sourceWorkspaceId, request.sourcePanelId)
-        if let sourcePanelId = request.sourcePanelId, let container,
+        if !request.isLocalExport, let sourcePanelId = request.sourcePanelId, let container,
            container.terminalLinkIsRemoteTerminal(sourcePanelId),
            RemoteTerminalPathResolver().isFileReference(trimmed),
            container.deferRemoteTerminalFileLinkOpen(sourcePanelId: sourcePanelId, rawValue: trimmed) {
@@ -72,7 +75,7 @@ struct TerminalLinkOpenCoordinator {
             canResolveLocalFilePath = false
         }
         if !trimmed.isEmpty,
-           canResolveLocalFilePath,
+           canResolveLocalFilePath, !request.isRemoteInitiated,
            let reference = TerminalPathResolver().resolveOpenURLFileReference(
                trimmed,
                cwd: resolvedWorkingDirectory(request: request, container: container)
@@ -111,6 +114,14 @@ struct TerminalLinkOpenCoordinator {
 
         guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
             log("link.openURL resolve failed")
+            return false
+        }
+        guard RemoteLinkOpenPolicy().allowsLocalFile(
+            target.url,
+            localContent: canResolveLocalFilePath || request.isLocalExport,
+            remoteInitiated: request.isRemoteInitiated
+        ) else {
+            log("link.openURL refused local file from remote or unplaced terminal url=\(target.url)")
             return false
         }
 

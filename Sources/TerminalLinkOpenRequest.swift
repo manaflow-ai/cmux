@@ -9,4 +9,6 @@ struct TerminalLinkOpenRequest: Sendable {
     var focus: Bool = true
     /// Whether the remote machine asked for the open without a click on this Mac.
     var isRemoteInitiated: Bool = false
+    /// Whether the URL names a file this Mac's terminal wrote, such as a scrollback export.
+    var isLocalExport: Bool = false
 }
