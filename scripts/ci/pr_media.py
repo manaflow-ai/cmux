@@ -63,9 +63,9 @@ UNLOADABLE_PRODUCT_EXIT = 4
 # its runner (an app pull request), or straight away (a manual dispatch).
 COMPILE_NEVER, COMPILE_FALLBACK, COMPILE_NOW = "never", "fallback", "now"
 COMPILE_MODES = (COMPILE_NEVER, COMPILE_FALLBACK, COMPILE_NOW)
-# The CLI lane: a pull request that only reaches the product here changes
-# no app a tour shows, so it never compiles an app just for its tours.
-CLI_ONLY_PREFIXES = ("CLI/", "cmuxCLITests/", "cmuxCLITestSupport/")
+# Product inputs no tour shows (the CLI lane, the app-host unit tests): a
+# pull request that only changes these never compiles an app for its tours.
+NON_TOUR_PRODUCT_PREFIXES = ("CLI/", "cmuxCLITests/", "cmuxCLITestSupport/", "cmuxTests/")
 GATE_WAIT_SECONDS = 25 * 60
 # Reads share the repository's token budget with the dispatcher, so waits poll slowly.
 GATE_POLL_SECONDS = 60
@@ -184,7 +184,7 @@ def select_tours(scenarios: dict[str, object], changed: Iterable[str], body: str
 def reaches_app(path: str) -> bool:
     """Whether a changed path can change the app a tour shows: an input of the
     app-host product (product_input_identity.reaches_product, what CI keys its
-    build on) outside the CLI lane."""
+    build on) outside NON_TOUR_PRODUCT_PREFIXES."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("product_input_identity",
                                                   ROOT / "scripts/ci/product_input_identity.py")
@@ -194,7 +194,7 @@ def reaches_app(path: str) -> bool:
         identity = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = identity
         spec.loader.exec_module(identity)
-    return identity.reaches_product(path) and not path.startswith(CLI_ONLY_PREFIXES)
+    return identity.reaches_product(path) and not path.startswith(NON_TOUR_PRODUCT_PREFIXES)
 
 
 def head_scenarios(head_sha: str) -> dict[str, object]:

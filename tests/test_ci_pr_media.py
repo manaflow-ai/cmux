@@ -335,7 +335,7 @@ class PlanTests(StubbedTest):
         self.assertTrue(media.reaches_app("config/IrohRelayPolicyProduction.xcconfig"))
         self.assertTrue(media.reaches_app("Sources/ContentView.swift"))
         self.assertTrue(media.reaches_app("Packages/Shared/CmuxAuthRuntime/Sources/A.swift"))
-        for path in ("CLI/cmux.swift", "docs/a.md", "web/app/page.tsx", "tests/test_x.py", "scripts/ci/pr_media.py"):
+        for path in ("CLI/cmux.swift", "cmuxTests/AppTests.swift", "docs/a.md", "web/app/page.tsx", "tests/test_x.py", "scripts/ci/pr_media.py"):
             with self.subTest(path=path):
                 self.assertFalse(media.reaches_app(path))
 
@@ -511,6 +511,24 @@ class TourCacheTests(StubbedTest):
         self.assertEqual(len(self.commands), 1)
         self.assertEqual(manifest["result"], "not run")
         self.assertIn("reuse error", manifest["note"])
+
+    def test_the_reuse_error_step_tells_errors_from_misses(self) -> None:
+        import subprocess
+        workflow = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())
+        step = next(step for job in workflow["jobs"].values() for step in job.get("steps", [])
+                    if step.get("name") == media.REUSE_ERROR_STEP)
+        cases = [("success", "miss", "no_matching_contract_artifact,artifact_expired", 0),
+                 ("success", "miss", "", 0),
+                 ("success", "miss", "artifact_expired,artifact_listing_unavailable", 1),
+                 ("success", "miss", "fingerprint_unavailable", 1),
+                 ("success", "fallback", "reuse_api_or_validation_error", 1),
+                 ("failure", "", "", 1)]
+        for outcome, reason, misses, expected in cases:
+            with self.subTest(outcome=outcome, reason=reason, misses=misses):
+                done = subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], capture_output=True, text=True,
+                                      env={"PATH": os.environ["PATH"], "OUTCOME": outcome, "REASON": reason,
+                                           "MISSES": misses})
+                self.assertEqual(done.returncode, expected, done.stdout + done.stderr)
 
     def test_the_reuse_error_step_is_named_as_in_test_e2e(self) -> None:
         workflow = (ROOT / ".github/workflows/test-e2e.yml").read_text()
