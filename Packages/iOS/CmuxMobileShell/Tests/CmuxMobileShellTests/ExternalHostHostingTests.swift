@@ -100,6 +100,34 @@ struct ExternalHostHostingTests {
         _ = stream
     }
 
+    @Test("A paired Mac's connection teardown leaves an external host's liveness alone")
+    func macTeardownDoesNotDowngradeExternalHost() {
+        let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)
+        let composite = Self.composite(with: host)
+        #expect(composite.externalHostSummaries.first?.status == .connected)
+
+        // A Mac reconnect loop runs this on every attempt. Downgrading the
+        // Cloud host with it showed its terminal as Disconnected and blocked
+        // its keyboard while the Cloud link itself was healthy.
+        composite.clearRemoteConnectionContext()
+        #expect(composite.externalHostSummaries.first?.status == .connected)
+        #expect(composite.workspaces.first?.macConnectionStatus == .connected)
+
+        composite.markSecondaryMacUnavailable(
+            MacPairingKey(macDeviceID: Self.hostID, instanceTag: nil)
+        )
+        #expect(composite.externalHostSummaries.first?.status == .connected)
+    }
+
+    @Test("A team switch leaves an external host's rows to their source")
+    func teamSwitchKeepsExternalHostRows() {
+        let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)
+        let composite = Self.composite(with: host)
+
+        composite.currentTeamDidChange()
+        #expect(composite.externalHostSummaries.map(\.hostID) == [Self.hostID])
+    }
+
     @Test("An external host's workspaces join the ordinary aggregated list")
     func rowsAppear() {
         let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)
