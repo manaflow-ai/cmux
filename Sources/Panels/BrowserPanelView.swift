@@ -5558,6 +5558,26 @@ struct WebViewRepresentable: NSViewRepresentable {
         return currentPaneId.id == paneId.id
     }
 
+    private static func allowsLocalInlineTransfer(
+        panel: BrowserPanel,
+        paneId: PaneID,
+        paneOwnershipOverride: Bool?
+    ) -> Bool {
+        if let paneOwnershipOverride {
+            return paneOwnershipOverride
+        }
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
+              let currentPaneId = workspace.paneId(forPanelId: panel.id) else {
+            // Standalone and headless hosts have no Workspace authority. Keep
+            // their established local-inline behavior until an authoritative
+            // pane mapping exists; explicit ownership overrides remain strict.
+            return true
+        }
+        return currentPaneId.id == paneId.id
+    }
+
     final class HostContainerView: NSView {
         private final class HostedInspectorSideDockContainerView: NSView {
             override init(frame frameRect: NSRect) {
@@ -7507,7 +7527,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                   coordinator.attachGeneration == generation,
                   coordinator.webView === webView,
                   panel.webView === webView,
-                  Self.isCurrentPaneOwner(
+                  Self.allowsLocalInlineTransfer(
                       panel: panel,
                       paneId: paneId,
                       paneOwnershipOverride: paneOwnershipOverride
@@ -7524,7 +7544,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         // remains installed so a host that becomes authorized on a later
         // representable update can still reconcile, while stale hosts return
         // without moving the shared web view.
-        guard Self.isCurrentPaneOwner(
+        guard Self.allowsLocalInlineTransfer(
             panel: panel,
             paneId: paneId,
             paneOwnershipOverride: paneOwnershipOverride
