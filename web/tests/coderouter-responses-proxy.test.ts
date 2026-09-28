@@ -2,6 +2,14 @@ import { vmToken } from "./vm-authorization-fixture";
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as analytics from "../services/coderouter/analytics";
 import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/routeTokenAuth";
+import {
+  createRefreshCompletionRegistry,
+  createStickyRefreshPatience,
+  STICKY_REFRESH_PATIENCE_MS,
+  type RefreshCompletionRegistry,
+  type StickyRefreshPatience,
+} from "../services/coderouter/refreshSignal";
+import { createFakeRefreshWaitClock, type FakeRefreshWaitClock } from "./refresh-wait-clock-fixture";
 
 type SelectInput = {
   teamId: string;
@@ -19,6 +27,44 @@ let upstreamStatuses: number[] = [];
 let credentialBusyBudgets = new Map<string, number>();
 let credentialCalls: string[] = [];
 let authenticatedTokens: string[] = [];
+let refreshClock: FakeRefreshWaitClock = createFakeRefreshWaitClock();
+let refreshRegistry: RefreshCompletionRegistry = createRefreshCompletionRegistry();
+let refreshPatience: StickyRefreshPatience;
+let refreshWaits: string[] = [];
+let settleOnWait = false;
+let abortOnWait: AbortController | null = null;
+let leaseActiveAnswers: boolean[] = [];
+let leaseProbeTimes: number[] = [];
+
+function resetRefreshPatience(): void {
+  refreshClock = createFakeRefreshWaitClock();
+  refreshWaits = [];
+  settleOnWait = false;
+  abortOnWait = null;
+  leaseActiveAnswers = [];
+  leaseProbeTimes = [];
+  // The registry stands in for this instance's refresh winner: a test decides
+  // whether the winner settles here, on another instance, or never.
+  refreshRegistry = createRefreshCompletionRegistry({
+    onWait: (accountId) => {
+      refreshWaits.push(accountId);
+      if (settleOnWait) queueMicrotask(() => refreshRegistry.settled(accountId));
+      const controller = abortOnWait;
+      if (controller) {
+        queueMicrotask(() => controller.abort(new DOMException("caller left", "AbortError")));
+      }
+    },
+  });
+  refreshPatience = createStickyRefreshPatience({
+    registry: refreshRegistry,
+    clock: refreshClock,
+    leaseActive: async () => {
+      leaseProbeTimes.push(refreshClock.now());
+      return leaseActiveAnswers.shift() ?? true;
+    },
+  });
+}
+resetRefreshPatience();
 const BOUND_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 const SIGNED_VM_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 
@@ -85,6 +131,7 @@ const proxy = createCodexResponsesProxy({
   cooldown: async (accountId) => {
     cooldowns.push(accountId);
   },
+  refreshPatience: (input, attempt) => refreshPatience(input, attempt),
 });
 
 beforeEach(() => {
@@ -96,6 +143,7 @@ beforeEach(() => {
   credentialBusyBudgets = new Map();
   credentialCalls = [];
   authenticatedTokens = [];
+  resetRefreshPatience();
 });
 
 function responsesRequest(headers: Record<string, string> = {}): Request {
@@ -550,13 +598,60 @@ describe("codex responses proxy session routing", () => {
     expect(selected).toEqual(["acct-1"]);
   });
 
-  test("a sticky session waits out an in-flight refresh instead of moving", async () => {
+  test("a sticky session retries on the refresh-completion signal instead of moving", async () => {
     accountsToServe = [{ id: "acct-1", sticky: true }];
     credentialBusyBudgets.set("acct-1", 2);
+    settleOnWait = true;
     const response = await proxy(responsesRequest({ session_id: "session-wait" }));
     expect(response.status).toBe(200);
     expect(selectInputs).toHaveLength(1);
     expect(credentialCalls).toEqual(["acct-1"]);
+    expect(refreshWaits).toEqual(["acct-1", "acct-1"]);
+    // The in-process signal resolves the wait: no clock time and no lease re-read.
+    expect(refreshClock.now()).toBe(0);
+    expect(leaseProbeTimes).toEqual([]);
+  });
+
+  test("a sticky session waits for another instance's refresh by re-reading the lease", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: true }];
+    credentialBusyBudgets.set("acct-1", 1);
+    leaseActiveAnswers = [true, false];
+    const response = await refreshClock.runUntilSettled(proxy(responsesRequest({ session_id: "session-remote" })));
+    expect(response.status).toBe(200);
+    expect(selectInputs).toHaveLength(1);
+    expect(credentialCalls).toEqual(["acct-1"]);
+    expect(leaseProbeTimes).toEqual([100, 300]);
+  });
+
+  test("a sticky session moves once the refresh outlasts the patience deadline", async () => {
+    accountsToServe = [
+      { id: "acct-1", sticky: true },
+      { id: "acct-2", sticky: false },
+    ];
+    credentialBusyBudgets.set("acct-1", 99);
+    const response = await refreshClock.runUntilSettled(proxy(responsesRequest({ session_id: "session-stuck" })));
+    expect(response.status).toBe(200);
+    expect(credentialCalls).toEqual(["acct-2"]);
+    expect(selectInputs).toHaveLength(2);
+    expect(selectInputs[1]?.excludedAccountIds).toEqual(["acct-1"]);
+    expect(refreshClock.now()).toBe(STICKY_REFRESH_PATIENCE_MS);
+    expect(leaseProbeTimes.at(-1)).toBe(STICKY_REFRESH_PATIENCE_MS);
+  });
+
+  test("a caller abort during a sticky refresh wait cancels without moving", async () => {
+    accountsToServe = [
+      { id: "acct-1", sticky: true },
+      { id: "acct-2", sticky: false },
+    ];
+    credentialBusyBudgets.set("acct-1", 99);
+    const controller = new AbortController();
+    abortOnWait = controller;
+    const request = new Request(responsesRequest({ session_id: "session-abort" }), { signal: controller.signal });
+    await expect(proxy(request)).rejects.toMatchObject({ name: "AbortError" });
+    expect(selectInputs).toHaveLength(1);
+    expect(credentialCalls).toEqual([]);
+    expect(leaseProbeTimes).toEqual([]);
+    expect(refreshClock.pendingSleeps()).toBe(0);
   });
 
   test("a non-sticky request moves immediately on refresh-busy", async () => {
@@ -569,6 +664,8 @@ describe("codex responses proxy session routing", () => {
     expect(response.status).toBe(200);
     expect(credentialCalls).toEqual(["acct-2"]);
     expect(selectInputs).toHaveLength(2);
+    expect(refreshWaits).toEqual([]);
+    expect(leaseProbeTimes).toEqual([]);
   });
 
   test("returns no_usable_account when selection is exhausted", async () => {

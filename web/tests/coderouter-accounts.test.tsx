@@ -32,7 +32,7 @@ mock.module("@base-ui-components/react/dialog", () => ({
   },
 }));
 
-const { CoderouterAccountsSection, requestNativeAccountTransfer } = await import(
+const { CoderouterAccountsSection, requestNativeAccountTransfer, transferErrorKey } = await import(
   "../app/[locale]/dashboard/components/coderouter-accounts"
 );
 
@@ -143,18 +143,31 @@ describe("coderouter account transfer", () => {
     expect(JSON.parse(String(calls[0].init.body))).toEqual({ destinationTeamId: "team-2" });
   });
 
-  test("reports the failing status so the dialog can explain it", async () => {
+  test("reports the failing status and error code so the dialog can explain it", async () => {
+    const input = { teamId: "team-1", accountId: "native-1", destinationTeamId: "team-2" };
     const send = (async () => new Response("{}", { status: 409 })) as unknown as typeof fetch;
-    expect(await requestNativeAccountTransfer(
-      { teamId: "team-1", accountId: "native-1", destinationTeamId: "team-2" },
-      send,
-    )).toEqual({ ok: false, status: 409 });
+    expect(await requestNativeAccountTransfer(input, send)).toEqual({ ok: false, status: 409, error: null });
+
+    const forbidden = (async () => Response.json({ error: "forbidden" }, { status: 403 })) as unknown as typeof fetch;
+    expect(await requestNativeAccountTransfer(input, forbidden)).toEqual({ ok: false, status: 403, error: "forbidden" });
+
+    const notJson = (async () => new Response("<html>", { status: 502 })) as unknown as typeof fetch;
+    expect(await requestNativeAccountTransfer(input, notJson)).toEqual({ ok: false, status: 502, error: null });
 
     const offline = (async () => { throw new TypeError("offline"); }) as unknown as typeof fetch;
-    expect(await requestNativeAccountTransfer(
-      { teamId: "team-1", accountId: "native-1", destinationTeamId: "team-2" },
-      offline,
-    )).toEqual({ ok: false, status: null });
+    expect(await requestNativeAccountTransfer(input, offline)).toEqual({ ok: false, status: null, error: null });
+  });
+
+  test("blames the source team when the viewer lost access to it, and the destination otherwise", () => {
+    // The route answers 403 "forbidden" when the viewer can no longer manage
+    // the source team, and 403 "destination_forbidden" for the destination.
+    expect(transferErrorKey(403, "forbidden")).toBe("teamAccessError");
+    expect(transferErrorKey(403, "destination_forbidden")).toBe("transferForbiddenError");
+    expect(transferErrorKey(403, null)).toBe("transferForbiddenError");
+    expect(transferErrorKey(409, "conflict")).toBe("transferConflictError");
+    expect(transferErrorKey(500, null)).toBe("transferError");
+    expect(transferErrorKey(null, null)).toBe("transferError");
+    expect(enMessages.dashboard.coderouterAccounts.teamAccessError).toBe("You do not have access to this team.");
   });
 });
 
@@ -218,6 +231,27 @@ describe("coderouter accounts section", () => {
     expect(html).toContain("API keys");
     expect(html).toContain("Create API key");
     expect(html).toContain('name="apiKeyLabel"');
+  });
+
+  test("keeps account controls when only API-key management is denied", () => {
+    const html = renderToStaticMarkup(
+      <CoderouterAccountsSection
+        teamId="team-1"
+        canManage
+        canManageApiKeys={false}
+        claude={{ kind: "ok", accounts: [claudeAccount] }}
+        native={{ kind: "ok", accounts: [nativeCodexAccount] }}
+        shared={{ kind: "ok", accounts: [codexAccount] }}
+      />,
+    );
+
+    // Every team member manages provider accounts; API keys keep their own gate.
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('name="apiKey"');
+    expect(html).toContain(">Remove<");
+    expect(html).toContain("acct_9f3");
+    expect(html).not.toContain('name="apiKeyLabel"');
+    expect(html).not.toContain("Create API key");
   });
 
   test("hides management controls when the viewer cannot manage accounts or API keys", () => {
