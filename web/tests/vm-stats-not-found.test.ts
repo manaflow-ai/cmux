@@ -25,6 +25,7 @@ async function withStatsFixture(
     writes: unknown[];
     usageEvents: { eventType: string; metadata?: Record<string, unknown> }[];
     revokedVmIds: string[];
+    completedCleanupSteps: string[];
     row: CloudVmRow;
   }) => Promise<void>,
   options: { failObservation?: boolean; team?: boolean; homeVolume?: boolean } = {},
@@ -35,7 +36,9 @@ async function withStatsFixture(
     id: "fixture-row", userId: "fixture-owner", ownerTeamId: options.team ? "fixture-team" : "fixture-owner",
     billingTeamId: options.team ? "fixture-team" : null,
     provider: "freestyle", providerVmId: "vm-fixture", status: "running",
-    providerMetadata: options.homeVolume ? { homeVolume: "vol-fixture" } : {},
+    providerMetadata: options.homeVolume
+      ? { homeVolume: "vol-fixture", homeVolumePerMachine: true }
+      : {},
   } as CloudVmRow;
   const client = new Freestyle({
     apiKey: "test-only",
@@ -52,6 +55,7 @@ async function withStatsFixture(
   const getStats = spyOn(getProvider("freestyle"), "getStats").mockImplementation((id) => driver.getStats(id));
   const usageEvents: { eventType: string; metadata?: Record<string, unknown> }[] = [];
   const revokedVmIds: string[] = [];
+  const completedCleanupSteps: string[] = [];
   const repo = new Proxy({
     findUserVm: (input: { userId: string; providerVmId: string }) => Effect.sync(() =>
       input.userId === row.userId && input.providerVmId === row.providerVmId && row.status !== "destroyed" ? row : null),
@@ -66,11 +70,19 @@ async function withStatsFixture(
           eventType: "vm.destroyed",
           metadata: { source: "provider_status_stats" },
         },
+        cleanup: options.homeVolume
+          ? { modelPlane: true, homeVolume: "vol-fixture" }
+          : { modelPlane: true },
       });
       row.status = input.status;
       if (input.usageEvent) usageEvents.push(input.usageEvent);
       return Effect.succeed(true);
     }),
+    completeObservedDestroyCleanup: ({ step }: { step: string }) => Effect.sync(() => {
+      completedCleanupSteps.push(step);
+      return true;
+    }),
+    deferObservedDestroyCleanup: () => Effect.succeed(true),
     recordUsageEvent: (input: { eventType: string; metadata?: Record<string, unknown> }) => Effect.sync(() => {
       usageEvents.push(input);
     }),
@@ -86,7 +98,7 @@ async function withStatsFixture(
   );
   try {
     await run({
-      row, requests, writes, usageEvents, revokedVmIds,
+      row, requests, writes, usageEvents, revokedVmIds, completedCleanupSteps,
       poll: async (userId = row.userId, teamIds = options.team ? ["fixture-team"] : []) => {
         const result = await Effect.runPromise(Effect.either(getVmStats({
           userId, teamIds, providerVmId: row.providerVmId!,
@@ -135,7 +147,7 @@ describe("stats provider missing classification", () => {
   });
 
   test("a missing volume-backed machine is retired, releases quota, and revokes credentials", async () => {
-    await withStatsFixture(missing, async ({ poll, row, writes, usageEvents, revokedVmIds }) => {
+    await withStatsFixture(missing, async ({ poll, row, writes, usageEvents, revokedVmIds, completedCleanupSteps }) => {
       const { tag, response, payload } = await poll();
       expect(tag).toBe("VmNotFoundError");
       expect(response.status).toBe(404);
@@ -144,6 +156,9 @@ describe("stats provider missing classification", () => {
       expect(writes).toHaveLength(1);
       expect(usageEvents).toHaveLength(1);
       expect(revokedVmIds).toEqual([row.id]);
+      // The current Freestyle driver cannot delete legacy volumes, so the
+      // durable homeVolume step must remain pending rather than false-ack.
+      expect(completedCleanupSteps).toEqual(["modelPlane"]);
     }, { homeVolume: true });
   });
 

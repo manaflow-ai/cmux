@@ -15,6 +15,7 @@ import { vmCapabilitiesFor } from "../services/vms/drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import {
   FAILED_CREATE_RETRY_WINDOW_MS,
+  OBSERVED_DESTROY_CLEANUP_METADATA_KEY,
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
   VmRepositoryLive,
@@ -6031,6 +6032,72 @@ describe("VM Effect workflows", () => {
     expect(oldVm?.destroyedAt).toBeInstanceOf(Date);
   });
 
+  dbTest("stores observed-destroy cleanup with the terminal ledger and acknowledges steps independently", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const vmId = "00000000-0000-4000-8000-000000000156";
+    await sql`
+      insert into cloud_vms (
+        id, user_id, billing_team_id, billing_plan_id, provider, provider_vm_id,
+        image_id, status, provider_metadata
+      ) values (
+        ${vmId}, 'user-observed-cleanup-db', 'team-observed-cleanup-db', 'pro',
+        'freestyle', 'provider-observed-cleanup-db', 'snapshot-test', 'running',
+        '{"homeVolume":"cmux-home-observed-cleanup-db","homeVolumePerMachine":true}'::jsonb
+      )
+    `;
+
+    const updated = await Effect.runPromise(vmRepositoryLiveShape.markProviderObservedStatus({
+      id: vmId,
+      providerVmId: "provider-observed-cleanup-db",
+      status: "destroyed",
+      cleanup: { modelPlane: true, homeVolume: "cmux-home-observed-cleanup-db" },
+      usageEvent: {
+        userId: "user-observed-cleanup-db",
+        billingTeamId: "team-observed-cleanup-db",
+        billingPlanId: "pro",
+        vmId,
+        eventType: "vm.destroyed",
+        provider: "freestyle",
+        imageId: "snapshot-test",
+        metadata: { source: "provider_status_cron" },
+      },
+    }));
+    expect(updated).toBe(true);
+    const [terminal] = await sql<{ status: string; cleanup: Record<string, unknown>; events: string }[]>`
+      select status,
+        provider_metadata->${OBSERVED_DESTROY_CLEANUP_METADATA_KEY} as cleanup,
+        (select count(*)::text from cloud_vm_usage_events where vm_id = ${vmId}) as events
+      from cloud_vms where id = ${vmId}
+    `;
+    expect(terminal).toMatchObject({
+      status: "destroyed",
+      cleanup: { modelPlane: true, homeVolume: "cmux-home-observed-cleanup-db" },
+      events: "1",
+    });
+
+    expect(await Effect.runPromise(vmRepositoryLiveShape.completeObservedDestroyCleanup!({
+      id: vmId, step: "modelPlane",
+    }))).toBe(true);
+    const [volumePending] = await sql<{ cleanup: Record<string, unknown> }[]>`
+      select provider_metadata->${OBSERVED_DESTROY_CLEANUP_METADATA_KEY} as cleanup
+      from cloud_vms where id = ${vmId}
+    `;
+    expect(volumePending.cleanup).toEqual({ homeVolume: "cmux-home-observed-cleanup-db" });
+
+    expect(await Effect.runPromise(vmRepositoryLiveShape.completeObservedDestroyCleanup!({
+      id: vmId, step: "homeVolume",
+    }))).toBe(true);
+    expect(await Effect.runPromise(vmRepositoryLiveShape.completeObservedDestroyCleanup!({
+      id: vmId, step: "homeVolume",
+    }))).toBe(false);
+    const [drained] = await sql<{ hasCleanup: boolean }[]>`
+      select provider_metadata ? ${OBSERVED_DESTROY_CLEANUP_METADATA_KEY} as "hasCleanup"
+      from cloud_vms where id = ${vmId}
+    `;
+    expect(drained.hasCleanup).toBe(false);
+  });
+
   dbTest("cron reconcile retires missing compute even when a detached home volume remains", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
@@ -7896,6 +7963,7 @@ describe("status read that observes a gone machine", () => {
 
     expect(entry.status).toBe("destroyed");
     expect(observedStatuses.map((update) => update.status)).toEqual(["destroyed"]);
+    expect(observedStatuses[0]).toMatchObject({ cleanup: { modelPlane: true } });
     // The row is terminal now, so `destroyVm` can never reach it again and the
     // cron's candidate query skips it. Both of these have to happen here.
     expect(revokedVmIds).toEqual([vm.id]);
@@ -8064,6 +8132,76 @@ describe("status read that observes a gone machine", () => {
     expect(observedStatuses.map((update) => update.status)).toEqual(["paused"]);
     expect(usageEvents).toEqual([]);
     expect(revokedVmIds).toEqual([]);
+  });
+
+  test("reconciliation drains terminal cleanup after a crash and retries each failed step idempotently", async () => {
+    const homeVolume = "cmux-home-observed-destroy-crash";
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000155",
+      userId: "user-observed-destroy-crash",
+      providerVmId: "noble-wren",
+      status: "destroyed",
+      destroyedAt: new Date(),
+      providerMetadata: { homeVolume, homeVolumePerMachine: true },
+    });
+    let pending: Record<string, unknown> | null = {
+      modelPlane: true,
+      homeVolume,
+    };
+    const baseRepo = testWorkflowRepo({ vm });
+    const repo: VmRepositoryShape = {
+      ...baseRepo,
+      observedDestroyCleanupCandidates: () => Effect.succeed(
+        pending
+          ? [{
+            ...vm,
+            providerMetadata: {
+              ...vm.providerMetadata,
+              [OBSERVED_DESTROY_CLEANUP_METADATA_KEY]: pending,
+            },
+          }]
+          : [],
+      ),
+      completeObservedDestroyCleanup: ({ step }) => Effect.sync(() => {
+        if (!pending || !(step in pending)) return false;
+        const next = { ...pending };
+        delete next[step];
+        pending = Object.keys(next).length > 0 ? next : null;
+        return true;
+      }),
+    };
+    let revokeCalls = 0;
+    let volumeDeleteCalls = 0;
+    const modelPlane = {
+      revoke: async () => {
+        revokeCalls += 1;
+        if (revokeCalls === 1) throw new Error("coderouter unavailable");
+      },
+    };
+    const provider: VmProviderGatewayShape = {
+      ...providerGone,
+      deleteHomeVolume: () => Effect.suspend(() => {
+        volumeDeleteCalls += 1;
+        return volumeDeleteCalls === 1
+          ? Effect.fail(providerOperationError("deleteHomeVolume", "volume still attached"))
+          : Effect.void;
+      }),
+    };
+    const layer = workflowLayer(repo, provider);
+
+    await Effect.runPromise(reconcileVmProviderStatuses({ modelPlane }).pipe(Effect.provide(layer)));
+    expect(pending).toEqual({ modelPlane: true, homeVolume });
+    expect(revokeCalls).toBe(1);
+    expect(volumeDeleteCalls).toBe(1);
+
+    await Effect.runPromise(reconcileVmProviderStatuses({ modelPlane }).pipe(Effect.provide(layer)));
+    expect(pending).toBeNull();
+    expect(revokeCalls).toBe(2);
+    expect(volumeDeleteCalls).toBe(2);
+
+    await Effect.runPromise(reconcileVmProviderStatuses({ modelPlane }).pipe(Effect.provide(layer)));
+    expect(revokeCalls).toBe(2);
+    expect(volumeDeleteCalls).toBe(2);
   });
 });
 

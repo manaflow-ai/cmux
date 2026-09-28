@@ -106,6 +106,7 @@ import {
 import { withVmProductAnalytics, type VmDestroySource } from "./productAnalytics";
 import {
   CREATE_CLEANUP_PROVIDER_VM_ID_KEY,
+  OBSERVED_DESTROY_CLEANUP_METADATA_KEY,
   PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE,
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
@@ -120,6 +121,8 @@ import {
   type CloudVmLeaseKind,
   type CloudVmRow,
   type VmRepositoryShape,
+  type VmObservedDestroyCleanup,
+  type VmObservedDestroyCleanupStep,
   type VmResizeReservation,
   type VmUsageEventInput,
 } from "./repository";
@@ -234,6 +237,8 @@ const CREATE_CLEANUP_LEASE_MS = 60 * 1000;
 const CREATE_CLEANUP_BACKOFF_BASE_MS = 5 * 1000;
 const CREATE_CLEANUP_BACKOFF_MAX_MS = 15 * 60 * 1000;
 const CREATE_CLEANUP_BATCH_LIMIT = 20;
+const OBSERVED_DESTROY_CLEANUP_BATCH_LIMIT = 20;
+const OBSERVED_DESTROY_CLEANUP_TIMEOUT = "15 seconds";
 const ABANDONED_CREATE_BATCH_LIMIT = 20;
 const ABANDONED_CREATE_CONCURRENCY = 4;
 const LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT = 50;
@@ -357,7 +362,7 @@ export function getVm(input: {
     if (providerStatus !== "creating") {
       const dbStatus = observedDbStatus(providerStatus);
       if (dbStatus !== vm.status) {
-        const didUpdate = yield* applyObservedProviderStatus(repo, vm, {
+        const didUpdate = yield* applyObservedProviderStatus(repo, providers, vm, {
           providerVmId,
           providerStatus,
           usageEventSource: "provider_status_read",
@@ -491,6 +496,12 @@ export function reconcileVmProviderStatuses(input: {
       // the five-minute cron budget while leaving time for status probes.
       limit: Math.min(boundedVmStatusReconcileLimit(input.limit), CREATE_CLEANUP_BATCH_LIMIT),
     });
+    yield* reconcileObservedDestroyCleanups(
+      repo,
+      providers,
+      input.modelPlane,
+      boundedVmStatusReconcileLimit(input.limit),
+    );
     const getStatus = providers.getStatus;
     if (!getStatus) {
       return {
@@ -507,7 +518,7 @@ export function reconcileVmProviderStatuses(input: {
     });
     const outcomes = yield* Effect.forEach(
       candidates,
-      (vm) => reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_cron", input.modelPlane),
+      (vm) => reconcileObservedProviderStatus(repo, providers, getStatus, vm, "provider_status_cron", input.modelPlane),
       { concurrency: 10 },
     );
     // Network heal moved here from the create path: re-create the members
@@ -705,6 +716,121 @@ export function machineOwnedHomeVolume(
   if (homeVolume === sharedName) return null;
   if (metadata["homeVolumePerMachine"] === true) return homeVolume;
   return providerVmId && homeVolume === `${sharedName}-${providerVmId}` ? homeVolume : null;
+}
+
+type PendingObservedDestroyCleanup = {
+  readonly modelPlane?: true;
+  readonly homeVolume?: string;
+};
+
+function observedDestroyCleanupFromMetadata(
+  metadata: Readonly<Record<string, unknown>> | null,
+): PendingObservedDestroyCleanup | null {
+  const raw = metadata?.[OBSERVED_DESTROY_CLEANUP_METADATA_KEY];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const marker = raw as Record<string, unknown>;
+  const modelPlane = marker.modelPlane === true ? true : undefined;
+  const homeVolume = marker.homeVolume;
+  const normalizedHomeVolume = typeof homeVolume === "string" && homeVolume.length > 0
+    ? homeVolume
+    : undefined;
+  if (!modelPlane && !normalizedHomeVolume) return null;
+  return {
+    ...(modelPlane ? { modelPlane } : {}),
+    ...(normalizedHomeVolume ? { homeVolume: normalizedHomeVolume } : {}),
+  };
+}
+
+function completeObservedDestroyCleanupStep(
+  repo: VmRepositoryShape,
+  vmId: string,
+  step: VmObservedDestroyCleanupStep,
+): Effect.Effect<void, never> {
+  const complete = repo.completeObservedDestroyCleanup;
+  if (!complete) return Effect.void;
+  return complete({ id: vmId, step }).pipe(
+    Effect.asVoid,
+    Effect.catchAll((err) =>
+      Effect.sync(() => {
+        console.error(`[vm] could not acknowledge observed-destroy ${step} cleanup for ${vmId}`, errorMessage(err));
+      })
+    ),
+  );
+}
+
+function deferObservedDestroyCleanupStep(
+  repo: VmRepositoryShape,
+  vmId: string,
+  step: VmObservedDestroyCleanupStep,
+): Effect.Effect<void, never> {
+  const defer = repo.deferObservedDestroyCleanup;
+  if (!defer) return Effect.void;
+  return defer({ id: vmId, step }).pipe(
+    Effect.asVoid,
+    Effect.catchAll(() => Effect.void),
+  );
+}
+
+/**
+ * Drain transactionally-recorded cleanup after a provider-observed destroy.
+ * Both side effects are idempotent, so a crash after the side effect but
+ * before its acknowledgement is safe: the terminal-row reconciler repeats it.
+ */
+function drainObservedDestroyCleanup(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  modelPlane: VmModelPlaneRevoker | undefined,
+  vm: CloudVmRow,
+  cleanup: PendingObservedDestroyCleanup,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    if (cleanup.modelPlane && modelPlane) {
+      const revoked = yield* attemptModelPlaneRevoke(modelPlane, vm.id);
+      if (revoked) yield* completeObservedDestroyCleanupStep(repo, vm.id, "modelPlane");
+      else yield* deferObservedDestroyCleanupStep(repo, vm.id, "modelPlane");
+    }
+    if (cleanup.homeVolume && providers.deleteHomeVolume) {
+      const deleted = yield* providers.deleteHomeVolume(vm.provider, cleanup.homeVolume).pipe(
+        Effect.timeoutFail({
+          duration: OBSERVED_DESTROY_CLEANUP_TIMEOUT,
+          onTimeout: () => new Error("observed-destroy volume cleanup deadline"),
+        }),
+        Effect.as(true),
+        Effect.catchAll((err) =>
+          Effect.sync(() => {
+            console.error(
+              `[vm] observed-destroy home volume cleanup failed for ${vm.id} (${cleanup.homeVolume})`,
+              errorMessage(err.cause),
+            );
+            return false;
+          })
+        ),
+      );
+      if (deleted) yield* completeObservedDestroyCleanupStep(repo, vm.id, "homeVolume");
+      else yield* deferObservedDestroyCleanupStep(repo, vm.id, "homeVolume");
+    }
+  });
+}
+
+function reconcileObservedDestroyCleanups(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  modelPlane: VmModelPlaneRevoker | undefined,
+  limit: number,
+): Effect.Effect<void, never> {
+  const listCandidates = repo.observedDestroyCleanupCandidates;
+  if (!listCandidates) return Effect.void;
+  return Effect.gen(function* () {
+    const candidates = yield* listCandidates({
+      limit: Math.min(limit, OBSERVED_DESTROY_CLEANUP_BATCH_LIMIT),
+    }).pipe(Effect.catchAll(() => Effect.succeed([] as CloudVmRow[])));
+    yield* Effect.forEach(candidates, (vm) => {
+      const cleanup = observedDestroyCleanupFromMetadata(vm.providerMetadata);
+      return cleanup
+        ? drainObservedDestroyCleanup(repo, providers, modelPlane, vm, cleanup)
+        : Effect.void;
+    }, { concurrency: 4, discard: true });
+  });
 }
 
 /**
@@ -1112,23 +1238,32 @@ function provisionModelPlane(
 }
 
 /**
- * Best-effort token revocation for a machine that is gone or never came up.
- * A failed revoke is logged, never fails the caller: the token stays bound to
- * a VM id no edge will ever inject again, so it is unusable anyway.
+ * Best-effort token revocation for create rollback and explicit destroy paths.
+ * Provider-observed terminal transitions use attemptModelPlaneRevoke plus the
+ * durable cleanup marker instead, so a failure there remains retryable.
  */
 function revokeModelPlane(
   modelPlane: VmModelPlaneRevoker | undefined,
   cloudVmId: string,
 ): Effect.Effect<void> {
   if (!modelPlane) return Effect.void;
+  return attemptModelPlaneRevoke(modelPlane, cloudVmId).pipe(Effect.asVoid);
+}
+
+function attemptModelPlaneRevoke(
+  modelPlane: VmModelPlaneRevoker,
+  cloudVmId: string,
+): Effect.Effect<boolean, never> {
   return Effect.tryPromise(() => modelPlane.revoke(cloudVmId)).pipe(
     Effect.timeoutFail({
       duration: MODEL_PLANE_REVOKE_TIMEOUT,
       onTimeout: () => new Error("model-plane revoke deadline"),
     }),
+    Effect.as(true),
     Effect.catchAll((err) =>
       Effect.sync(() => {
         console.error(`[vm] model-plane revoke failed for ${cloudVmId}`, errorMessage(err));
+        return false;
       })
     ),
   );
@@ -1481,7 +1616,7 @@ function reopenBaseIfProviderDeleted(
     Effect.catchAll((err) =>
       isProviderNotFoundError(err)
         ? Effect.gen(function* () {
-          const markedDestroyed = yield* applyObservedProviderStatus(repo, existing, {
+          const markedDestroyed = yield* applyObservedProviderStatus(repo, providers, existing, {
             providerVmId,
             providerStatus: "destroyed",
             usageEventSource: "base_open_provider_missing",
@@ -2646,7 +2781,7 @@ function refreshActiveLimitProviderStatuses(
       // full cron interval. Candidates are `running` rows only, so the
       // gateway's "running" fallback for a driver without getStatus is a
       // harmless no-op rather than a wrong transition.
-      return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh", input.modelPlane).pipe(
+      return reconcileObservedProviderStatus(repo, providers, getStatus, vm, "provider_status_refresh", input.modelPlane).pipe(
         Effect.asVoid,
       );
     }, { concurrency: 10, discard: true });
@@ -2665,12 +2800,10 @@ function observedDbStatus(
 
 /**
  * The one place an observed provider status becomes the row's status. A write
- * that lands on `destroyed` is the last chance to do the work `destroyVm` owns:
- * once the row is terminal, `findUserVm` hides it from every destroy request
- * and `reconciliationCandidates` drops it from the cron, so a revoke deferred
- * to either of them never happens. Callers that win the transition therefore
- * revoke the model plane and record `vm.destroyed` here, whichever entrypoint
- * they are.
+ * that lands on `destroyed` atomically records the ledger row plus an external
+ * cleanup outbox. The normal lookup and status-reconcile queries exclude the
+ * terminal row, but the cleanup reconciler keeps retrying credential revoke
+ * and any exclusively-owned volume deletion until each is acknowledged.
  *
  * The status is derived here rather than taken from the caller, so every
  * entrypoint agrees about what the provider observed. A provider-reported
@@ -2681,6 +2814,7 @@ function observedDbStatus(
  */
 function applyObservedProviderStatus(
   repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   input: {
     readonly providerVmId: string;
@@ -2705,14 +2839,24 @@ function applyObservedProviderStatus(
         metadata: { source: input.usageEventSource, ...input.usageEventMetadata },
       }
       : undefined;
+    const homeVolume = status === "destroyed"
+      ? machineOwnedHomeVolume(vm, input.providerVmId)
+      : null;
+    const cleanup: VmObservedDestroyCleanup | undefined = status === "destroyed"
+      ? {
+        modelPlane: true,
+        ...(homeVolume ? { homeVolume } : {}),
+      }
+      : undefined;
     const didUpdate = yield* repo.markProviderObservedStatus({
       id: vm.id,
       providerVmId: input.providerVmId,
       status,
       ...(usageEvent ? { usageEvent } : {}),
+      ...(cleanup ? { cleanup } : {}),
     });
-    if (!didUpdate || status !== "destroyed") return didUpdate;
-    yield* revokeModelPlane(input.modelPlane, vm.id);
+    if (!didUpdate || status !== "destroyed" || !cleanup) return didUpdate;
+    yield* drainObservedDestroyCleanup(repo, providers, input.modelPlane, vm, cleanup);
     return true;
   });
 }
@@ -2721,6 +2865,7 @@ type ProviderStatusReconcileOutcome = "updated" | "destroyed" | "unchanged" | "s
 
 function reconcileObservedProviderStatus(
   repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
   getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
   vm: CloudVmRow,
   usageEventSource: VmDestroySource,
@@ -2739,7 +2884,7 @@ function reconcileObservedProviderStatus(
     if (!providerStatus || providerStatus === "creating") return "skipped" as const;
     const dbStatus = observedDbStatus(providerStatus);
     if (dbStatus === vm.status) return "unchanged" as const;
-    const didUpdate = yield* applyObservedProviderStatus(repo, vm, {
+    const didUpdate = yield* applyObservedProviderStatus(repo, providers, vm, {
       providerVmId,
       providerStatus,
       usageEventSource,
@@ -2978,7 +3123,7 @@ function preflightResumeIfSuspended(
       // A detached home volume does not make missing compute resumable: no
       // workflow can create replacement compute around it. Retire the row so
       // it stops consuming quota, and revoke its model-plane credentials.
-      yield* applyObservedProviderStatus(repo, vm, {
+      yield* applyObservedProviderStatus(repo, providers, vm, {
         providerVmId,
         providerStatus: "destroyed",
         usageEventSource: "provider_status_access",
@@ -3429,7 +3574,7 @@ export function getVmStats(input: {
       Effect.catchAll((error) => {
         if (!isProviderNotFoundError(error)) return Effect.fail(error);
         return Effect.gen(function* () {
-          yield* applyObservedProviderStatus(repo, vm, {
+          yield* applyObservedProviderStatus(repo, providers, vm, {
             providerVmId: input.providerVmId,
             providerStatus: "destroyed",
             usageEventSource: "provider_status_stats",

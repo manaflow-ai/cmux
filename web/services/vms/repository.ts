@@ -92,6 +92,14 @@ export type VmResizeReservation = {
 };
 export type CloudVmStatus = CloudVmRow["status"];
 export type CloudVmSessionStatus = CloudVmSessionRow["status"];
+export const OBSERVED_DESTROY_CLEANUP_METADATA_KEY = "cmuxObservedDestroyCleanup";
+export type VmObservedDestroyCleanup = {
+  /** Model-plane revocation is idempotent and remains pending until acknowledged. */
+  readonly modelPlane: true;
+  /** Present only for a home volume owned exclusively by this machine. */
+  readonly homeVolume?: string;
+};
+export type VmObservedDestroyCleanupStep = keyof VmObservedDestroyCleanup;
 // Reaper batches are capped at 100. Keep repository calls bounded even if a
 // future caller passes a malformed or oversized name list.
 const VM_REAPER_REFERENCE_NAME_LIMIT = 100;
@@ -434,6 +442,20 @@ export type VmRepositoryShape = {
   readonly reconciliationCandidates: (input: {
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /** Terminal rows whose external credential or owned-volume cleanup is still pending. */
+  readonly observedDestroyCleanupCandidates?: (input: {
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /** Acknowledge one idempotent cleanup step without disturbing concurrent steps. */
+  readonly completeObservedDestroyCleanup?: (input: {
+    readonly id: string;
+    readonly step: VmObservedDestroyCleanupStep;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Move a failed step behind older pending work so one outage cannot starve the queue. */
+  readonly deferObservedDestroyCleanup?: (input: {
+    readonly id: string;
+    readonly step: VmObservedDestroyCleanupStep;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   /** Provider-less creates old enough to be reclaimed by the lifecycle cron. */
   readonly abandonedProvisioningCandidates?: (input: {
     readonly before: Date;
@@ -498,6 +520,8 @@ export type VmRepositoryShape = {
     readonly status: CloudVmStatus;
     /** Inserted atomically with a winning status transition. */
     readonly usageEvent?: VmUsageEventInput;
+    /** Durable external cleanup work inserted atomically with a terminal status. */
+    readonly cleanup?: VmObservedDestroyCleanup;
   }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly setDisplayName: (input: {
     readonly id: string;
@@ -2785,6 +2809,69 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .limit(input.limit);
     }),
 
+  observedDestroyCleanupCandidates: (input) =>
+    dbEffect("observedDestroyCleanupCandidates", async () => {
+      const db = cloudDb();
+      return await db
+        .select()
+        .from(cloudVms)
+        .where(and(
+          eq(cloudVms.status, "destroyed"),
+          sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}`,
+        ))
+        .orderBy(
+          desc(sql`case when coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+            ->${OBSERVED_DESTROY_CLEANUP_METADATA_KEY} ? 'modelPlane' then 1 else 0 end`),
+          asc(cloudVms.updatedAt),
+          asc(cloudVms.id),
+        )
+        .limit(input.limit);
+    }),
+
+  completeObservedDestroyCleanup: (input) =>
+    dbEffect("completeObservedDestroyCleanup", async () => {
+      const db = cloudDb();
+      const metadata = sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)`;
+      const cleanup = sql`coalesce(${metadata}->${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}, '{}'::jsonb)`;
+      const updated = await db
+        .update(cloudVms)
+        .set({
+          providerMetadata: sql`case
+            when jsonb_object_length(${cleanup}) <= 1
+              then ${metadata} - ${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}
+            else jsonb_set(
+              ${metadata},
+              array[${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}]::text[],
+              ${cleanup} - ${input.step}
+            )
+          end`,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.status, "destroyed"),
+          sql`${cleanup} ? ${input.step}`,
+        ))
+        .returning({ id: cloudVms.id });
+      return updated.length > 0;
+    }),
+
+  deferObservedDestroyCleanup: (input) =>
+    dbEffect("deferObservedDestroyCleanup", async () => {
+      const cleanup = sql`coalesce(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+        ->${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}, '{}'::jsonb)`;
+      const updated = await cloudDb()
+        .update(cloudVms)
+        .set({ updatedAt: new Date() })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.status, "destroyed"),
+          sql`${cleanup} ? ${input.step}`,
+        ))
+        .returning({ id: cloudVms.id });
+      return updated.length > 0;
+    }),
+
   abandonedProvisioningCandidates: (input) =>
     dbEffect("abandonedProvisioningCandidates", async () => {
       const db = cloudDb();
@@ -3100,6 +3187,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             status: input.status,
             destroyedAt: input.status === "destroyed" ? new Date() : null,
             updatedAt: new Date(),
+            ...(input.cleanup && input.status === "destroyed"
+              ? {
+                providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+                  || ${JSON.stringify({ [OBSERVED_DESTROY_CLEANUP_METADATA_KEY]: input.cleanup })}::jsonb`,
+              }
+              : {}),
           })
           .where(
             and(
