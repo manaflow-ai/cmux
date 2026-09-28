@@ -337,7 +337,7 @@ run_package_tests() {
     CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
-    CmuxTerminal|CmuxTerminalCore|CmuxCloudTui)
+    CmuxTerminal|CmuxTerminalCore|CmuxCloudTui|CmuxCloud)
       run_swift_test
       if [ "$test_status" -ne 0 ]; then
         if [ "$test_status" -eq 1 ] \
