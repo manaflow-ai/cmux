@@ -1358,6 +1358,10 @@
 		C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
 		C85390090000000000000001 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
 		7E1A1A0000000000000000A3 /* CmuxTerminalImport in Frameworks */ = {isa = PBXBuildFile; productRef = 7E1A1A0000000000000000A2 /* CmuxTerminalImport */; };
+		A1329B000000000000000102 /* CmuxTerminalSharing in Frameworks */ = {isa = PBXBuildFile; productRef = A1329B000000000000000101 /* CmuxTerminalSharing */; };
+		A1329B000000000000000103 /* CmuxTerminalSharing in Frameworks */ = {isa = PBXBuildFile; productRef = A1329B000000000000000101 /* CmuxTerminalSharing */; };
+		A1329A000000000000000102 /* CmuxTerminalSizing in Frameworks */ = {isa = PBXBuildFile; productRef = A1329A000000000000000101 /* CmuxTerminalSizing */; };
+		A1329A000000000000000103 /* CmuxTerminalSizing in Frameworks */ = {isa = PBXBuildFile; productRef = A1329A000000000000000101 /* CmuxTerminalSizing */; };
 		CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = CFF12E0000000000000000A2 /* CmuxTestSupport */; };
 		A2977C204AD69CF268D38EE3 /* CmuxTestWindowReleaseGuard.m in Sources */ = {isa = PBXBuildFile; fileRef = EA9B442F20273D64D2BA1FC5 /* CmuxTestWindowReleaseGuard.m */; };
 		906900000000000000000002 /* CmuxTopMemoryAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906900000000000000000001 /* CmuxTopMemoryAttributionTests.swift */; };
@@ -8183,6 +8187,8 @@
 				C01E00AA00000000000000A3 /* CmuxSyntaxHighlighting in Frameworks */,
 				C750500000000000000000A3 /* CmuxTerminal in Frameworks */,
 				C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */,
+				A1329B000000000000000102 /* CmuxTerminalSharing in Frameworks */,
+				A1329A000000000000000102 /* CmuxTerminalSizing in Frameworks */,
 				CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */,
 				CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */,
 				CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */,
@@ -8274,6 +8280,8 @@
 				D96970000000000000000005 /* CmuxSudoBrokerUI in Frameworks */,
 				5CA7A1060000000000000004 /* CmuxSurfaceCatalogModel in Frameworks */,
 				C01E00AA00000000000000A4 /* CmuxSyntaxHighlighting in Frameworks */,
+				A1329B000000000000000103 /* CmuxTerminalSharing in Frameworks */,
+				A1329A000000000000000103 /* CmuxTerminalSizing in Frameworks */,
 				730600040000000000000001 /* CmuxWindowing in Frameworks */,
 				A13296000000000000000103 /* CmuxWorkspacePresence in Frameworks */,
 				1A0B0C0D0E0F101112132214 /* IrohLib in Frameworks */,
@@ -12430,6 +12438,8 @@
 				5CA7A1060000000000000002 /* CmuxSurfaceCatalogModel */,
 				79E4513469FB44C7A3690415 /* CmuxCloudMachines */,
 				A13296000000000000000101 /* CmuxWorkspacePresence */,
+				A1329A000000000000000101 /* CmuxTerminalSizing */,
+				A1329B000000000000000101 /* CmuxTerminalSharing */,
 				A5001231 /* Sparkle */,
 				A5001271 /* PostHog */,
 				A5001261 /* Bonsplit */,
@@ -12588,6 +12598,8 @@
 				5CA7A1060000000000000003 /* CmuxSurfaceCatalogModel */,
 				79E4513469FB44C7A3690415 /* CmuxCloudMachines */,
 				A13296000000000000000101 /* CmuxWorkspacePresence */,
+				A1329A000000000000000101 /* CmuxTerminalSizing */,
+				A1329B000000000000000101 /* CmuxTerminalSharing */,
 				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
 				800100000000000000000202 /* CmuxHive */,
 
@@ -12696,6 +12708,8 @@
 				5CA7A1060000000000000001 /* XCLocalSwiftPackageReference "CmuxSurfaceCatalogModel" */,
 				3915DFE5FE794CDF87D746C9 /* XCLocalSwiftPackageReference "CmuxCloudMachines" */,
 				A13296000000000000000100 /* XCLocalSwiftPackageReference "CmuxWorkspacePresence" */,
+				A1329A000000000000000100 /* XCLocalSwiftPackageReference "CmuxTerminalSizing" */,
+				A1329B000000000000000100 /* XCLocalSwiftPackageReference "CmuxTerminalSharing" */,
 				A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
@@ -17784,6 +17798,8 @@
 			relativePath = vendor/WireGuardKit;
 		};
 		A13296000000000000000100 /* XCLocalSwiftPackageReference "CmuxWorkspacePresence" */ = {isa = XCLocalSwiftPackageReference; relativePath = Packages/Shared/CmuxWorkspacePresence; };
+		A1329A000000000000000100 /* XCLocalSwiftPackageReference "CmuxTerminalSizing" */ = {isa = XCLocalSwiftPackageReference; relativePath = Packages/Shared/CmuxTerminalSizing; };
+		A1329B000000000000000100 /* XCLocalSwiftPackageReference "CmuxTerminalSharing" */ = {isa = XCLocalSwiftPackageReference; relativePath = Packages/macOS/CmuxTerminalSharing; };
 		3915DFE5FE794CDF87D746C9 /* XCLocalSwiftPackageReference "CmuxCloudMachines" */ = {isa = XCLocalSwiftPackageReference; relativePath = Packages/macOS/CmuxCloudMachines; };
 		800100000000000000000204 /* XCLocalSwiftPackageReference "CmuxHive" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -18262,6 +18278,8 @@
 			productName = WireGuardKit;
 		};
 		A13296000000000000000101 /* CmuxWorkspacePresence */ = {isa = XCSwiftPackageProductDependency; package = A13296000000000000000100 /* XCLocalSwiftPackageReference "CmuxWorkspacePresence" */; productName = CmuxWorkspacePresence; };
+		A1329A000000000000000101 /* CmuxTerminalSizing */ = {isa = XCSwiftPackageProductDependency; package = A1329A000000000000000100 /* XCLocalSwiftPackageReference "CmuxTerminalSizing" */; productName = CmuxTerminalSizing; };
+		A1329B000000000000000101 /* CmuxTerminalSharing */ = {isa = XCSwiftPackageProductDependency; package = A1329B000000000000000100 /* XCLocalSwiftPackageReference "CmuxTerminalSharing" */; productName = CmuxTerminalSharing; };
 		79E4513469FB44C7A3690415 /* CmuxCloudMachines */ = {isa = XCSwiftPackageProductDependency; package = 3915DFE5FE794CDF87D746C9 /* XCLocalSwiftPackageReference "CmuxCloudMachines" */; productName = CmuxCloudMachines; };
 		800100000000000000000202 /* CmuxHive */ = {
 			isa = XCSwiftPackageProductDependency;
