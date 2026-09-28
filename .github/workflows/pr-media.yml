@@ -156,7 +156,11 @@ jobs:
           TOUR: ${{ matrix.tour }}
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin "$HEAD_SHA" ${BUILD_SHA:+"$BUILD_SHA"}
+          git fetch --no-tags --depth=1 origin "$HEAD_SHA"
+          if [ -n "$BUILD_SHA" ] && [ "$BUILD_SHA" != "$HEAD_SHA" ]; then
+            git fetch --no-tags --depth=1 origin "$BUILD_SHA" \
+              || echo "::warning::could not fetch $BUILD_SHA; the dispatch may find no product to adopt"
+          fi
           if [ -n "$MERGE_SHA" ]; then
             git fetch --no-tags --depth=1 origin "$MERGE_SHA" \
               || echo "::warning::could not fetch $MERGE_SHA; the dispatch may find no product to adopt"

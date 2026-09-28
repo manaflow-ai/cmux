@@ -235,7 +235,9 @@ def app_build_gate(repository: str, run_id: str, attempt: str, pr: int,
             if skipped:
                 return REUSED
             if admission:
-                return BUILT if admission.get("conclusion") != "skipped" else NO_BUILD
+                # A skipped admission (macos ran for packages or the CLI only)
+                # leaves the fingerprint lookup to find the build.
+                return BUILT if admission.get("conclusion") != "skipped" else REUSED
         run = gh_json([f"repos/{repository}/actions/runs/{run_id}"]) or {}
         if run.get("status") == "completed":
             return NO_BUILD
@@ -262,8 +264,10 @@ def admitted_build_run(repository: str, run: dict) -> dict:
     by the fingerprint artifact `run` published. {} when there is none, as when
     the pull request changes no app input at all and main's build stands in."""
     listing = gh_json([f"repos/{repository}/actions/runs/{run['id']}/artifacts?per_page=100"]) or {}
+    attempt = str(run.get("run_attempt") or 1)
     fingerprints = [match.group(1) for artifact in listing.get("artifacts") or []
-                    if (match := FINGERPRINT_ARTIFACT.fullmatch(str(artifact.get("name", ""))))]
+                    if (match := FINGERPRINT_ARTIFACT.fullmatch(str(artifact.get("name", ""))))
+                    and match.group(2) == attempt]
     if not fingerprints:
         return {}
     import importlib.util
@@ -272,8 +276,14 @@ def admitted_build_run(repository: str, run: dict) -> dict:
     finder = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = finder
     spec.loader.exec_module(finder)
-    url = finder.admitted_run(lambda path: gh_json([path]) or {}, repository, run.get("head_branch") or "",
-                              fingerprints[0], int(run["id"]))
+    def read(path: str) -> dict:
+        # The finder's contract: any API error means not found.
+        try:
+            return gh_json([path]) or {}
+        except RuntimeError:
+            return {}
+
+    url = finder.admitted_run(read, repository, run.get("head_branch") or "", fingerprints[0], int(run["id"]))
     match = re.search(r"/actions/runs/(\d+)", url or "")
     return (gh_json([f"repos/{repository}/actions/runs/{match.group(1)}"]) or {}) if match else {}
 
@@ -323,6 +333,10 @@ def plan(repository: str) -> int:
     # The run whose app a tour loads: this one, or the earlier run of the same
     # build inputs when this push changed no app input (only a tour, say).
     build_run = run if mode == BUILT else admitted_build_run(repository, run) if mode == REUSED else {}
+    if not build_run and not os.environ.get("SOURCE_RUN_ID"):
+        # A manual dispatch still runs: the tour reports that no product was
+        # found, or compiles one with allow_compile.
+        build_run = run or {"head_sha": head_sha}
     if not build_run:
         write_outputs({"tours": "[]", "run": "[]"})
         print("CI has no app build for this head (not an app change, CLI only, or no earlier build "
@@ -611,10 +625,14 @@ def section(repository: str, pr: int | str, head_sha: str, manifests: list[dict]
         link = manifest.get("run_url") or manifest.get("log_url")
         run = f" ([run]({link}))" if link else ""
         tested = manifest.get("tested_sha") or ""
-        merge = f", on its merge `{tested[:8]}` that CI built" if SHA.fullmatch(tested) else ""
         built = str(manifest.get("build_sha") or "")
+        merge = ""
         if SHA.fullmatch(built):
-            merge += f", on the app CI built for `{built[:8]}` (this push changed no app input)"
+            merge = f", on the app CI built for `{built[:8]}`"
+            merge += f" (merge `{tested[:8]}`)" if SHA.fullmatch(tested) else ""
+            merge += "; this push changed no app input"
+        elif SHA.fullmatch(tested):
+            merge = f", on its merge `{tested[:8]}` that CI built"
         result = html.escape(str(manifest.get("result", "not run")))
         lines.append(f"**{tour_name}** at `{head_sha[:8]}`{merge}: {result}{run}")
         if manifest.get("note"):

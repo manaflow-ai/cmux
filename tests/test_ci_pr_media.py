@@ -190,8 +190,11 @@ class GateTests(StubbedTest):
     def test_a_cli_only_pull_request_compiles_no_app(self) -> None:
         jobs = [{"name": "Dogfood build #42", "status": "completed", "conclusion": "success"}]
         self.assertEqual(self.gate(jobs, run_status="completed"), media.NO_BUILD)
-        jobs.append({"name": "macos / macOS compile admission", "status": "completed", "conclusion": "skipped"})
-        self.assertEqual(self.gate(jobs), media.NO_BUILD)
+
+    def test_a_skipped_admission_leaves_the_fingerprint_lookup_to_decide(self) -> None:
+        jobs = [{"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
+                {"name": "macos / macOS compile admission", "status": "completed", "conclusion": "skipped"}]
+        self.assertEqual(self.gate(jobs), media.REUSED)
 
 
 class AdmittedBuildTests(StubbedTest):
@@ -216,9 +219,74 @@ class AdmittedBuildTests(StubbedTest):
         self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": []}})
         self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}), {})
 
+    def test_only_this_attempts_fingerprint_counts(self) -> None:
+        self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [{"name": "build-inputs-fp1-1"}]}})
+        self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "run_attempt": 2, "head_branch": "t"}), {})
+
+    def test_an_api_error_in_the_lookup_means_no_earlier_build(self) -> None:
+        def refuse():
+            raise RuntimeError("HTTP 403")
+
+        self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [{"name": "build-inputs-fp1-1"}]},
+                   "repos/o/r/actions/workflows/ci.yml/runs": refuse})
+        self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}), {})
+
     def test_the_section_names_the_build_the_tour_loaded(self) -> None:
         manifest = {"tour": "t", "result": "passed", "build_sha": "c" * 40, "run_url": "https://x"}
         self.assertIn(f"on the app CI built for `{'c' * 8}`", media.section("o/r", 1, HEAD, [manifest]))
+
+
+class PlanTests(StubbedTest):
+    EARLIER = "c" * 40
+
+    def plan(self, answers: dict[str, object], env: dict[str, str]) -> dict[str, str]:
+        import os
+        import tempfile
+        self.stub({"repos/o/r/pulls/42/files": [[{"filename": "Sources/App.swift"}]],
+                   "repos/o/r/pulls/42": {"head": {"sha": HEAD, "repo": {"full_name": "o/r"}}, "body": ""},
+                   **answers})
+        original = media.head_scenarios
+        media.head_scenarios = lambda _sha: scenarios(sidebar_and_chrome_tour=["Sources/**"])
+        self.addCleanup(setattr, media, "head_scenarios", original)
+        with tempfile.NamedTemporaryFile("r", suffix=".out") as out:
+            keys = {"GITHUB_OUTPUT": out.name, "PR": "42", "SOURCE_RUN_ID": "", **env}
+            saved = {key: os.environ.get(key) for key in keys}
+            os.environ.update(keys)
+            try:
+                media.plan("o/r")
+            finally:
+                for key, value in saved.items():
+                    os.environ.pop(key, None) if value is None else os.environ.__setitem__(key, value)
+            return dict(line.split("=", 1) for line in out.read().splitlines())
+
+    def test_a_manual_dispatch_without_a_ci_run_still_tours_the_head(self) -> None:
+        outputs = self.plan({"repos/o/r/actions/workflows/ci.yml/runs": {"workflow_runs": []}}, {})
+        self.assertEqual(outputs["build_sha"], HEAD)
+        self.assertEqual(json.loads(outputs["run"]), ["sidebar-and-chrome-tour"])
+
+    def test_a_tour_only_push_tours_the_earlier_build(self) -> None:
+        run = {"id": 9, "run_attempt": 1, "head_sha": HEAD, "head_branch": "topic", "event": "pull_request",
+               "path": media.CI_WORKFLOW_PATH, "head_repository": {"full_name": "o/r"},
+               "pull_requests": [{"number": 42}], "status": "completed"}
+        original = media.admitted_build_run
+        media.admitted_build_run = lambda _repo, _run: {"head_sha": self.EARLIER}
+        self.addCleanup(setattr, media, "admitted_build_run", original)
+        outputs = self.plan({
+            "repos/o/r/actions/runs/9/attempts/1/jobs": {"jobs": [
+                {"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
+                {"name": "macos", "status": "completed", "conclusion": "skipped"}]},
+            "repos/o/r/actions/runs/9": run}, {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"})
+        self.assertEqual(outputs["build_sha"], self.EARLIER)
+
+    def test_an_automatic_run_without_a_build_tours_nothing(self) -> None:
+        run = {"id": 9, "run_attempt": 1, "head_sha": HEAD, "event": "pull_request", "status": "completed",
+               "path": media.CI_WORKFLOW_PATH, "head_repository": {"full_name": "o/r"},
+               "pull_requests": [{"number": 42}]}
+        outputs = self.plan({
+            "repos/o/r/actions/runs/9/attempts/1/jobs": {"jobs": [
+                {"name": "Dogfood build #42", "status": "completed", "conclusion": "skipped"}]},
+            "repos/o/r/actions/runs/9": run}, {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"})
+        self.assertEqual(outputs["run"], "[]")
 
 
 class CacheAndMergeTests(StubbedTest):
