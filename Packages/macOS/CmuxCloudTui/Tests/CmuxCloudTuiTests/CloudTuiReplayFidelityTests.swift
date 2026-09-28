@@ -55,6 +55,17 @@ import CmuxCloudTui
         #expect(fidelity.needsRepair(local: remote))
     }
 
+    @Test func unchangedGridReportDuringParsingKeepsReplayFaithful() {
+        var fidelity = CloudTuiReplayFidelity()
+        let token = fidelity.replayQueued(remote: remote, local: remote)
+        // Pixel-only layout updates report the same terminal dimensions.
+        fidelity.localGridChanged(to: remote)
+        fidelity.localGridChanged(to: remote)
+        fidelity.replayApplied(token: token, local: remote)
+        #expect(fidelity.faithfulGrid == remote)
+        #expect(!fidelity.needsRepair(local: remote))
+    }
+
     @Test func gridChangeAwayAndBackBeforeReplayCompletionIsNotFaithful() {
         var fidelity = CloudTuiReplayFidelity()
         let token = fidelity.replayQueued(remote: remote, local: remote)
