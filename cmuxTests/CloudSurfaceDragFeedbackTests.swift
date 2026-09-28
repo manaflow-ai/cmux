@@ -220,10 +220,14 @@ struct CloudSurfaceDragFeedbackTests {
         #expect(host.convert(gate.bounds, from: gate).contains(gate.feedback.badge.frame))
         gate.draggingExited(sender)
         #expect(gate.feedback.badge.superview == nil)
+        #expect(gate.draggingEntered(sender).isEmpty)
+        window.contentView = nil
+        #expect(gate.feedback.badge.superview == nil)
+        #expect(gate.feedback.rejection == nil)
     }
 
     @Test("Every pane destination boundary clears its warning", arguments: [
-        "exit", "end", "conclude", "prepare", "drop", "inactive", "workspace", "hide", "detach", "sameVM", "nonTransfer"
+        "exit", "end", "conclude", "prepare", "drop", "inactive", "workspace", "hide", "detach", "empty", "sameVM", "nonTransfer"
     ])
     func paneWarningCleanup(boundary: String) throws {
         let fixture = try CloudSurfaceDragFixture(kind: .terminal)
@@ -246,6 +250,9 @@ struct CloudSurfaceDragFeedbackTests {
         case "workspace": gate.workspace = nil
         case "hide": gate.isHidden = true
         case "detach": gate.removeFromSuperview()
+        case "empty":
+            gate.setFrameSize(.zero)
+            #expect(gate.draggingUpdated(sender).isEmpty)
         case "sameVM":
             fixture.workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "a", isBase: false)
             #expect(gate.draggingUpdated(sender).isEmpty)

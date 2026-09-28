@@ -15,17 +15,22 @@ final class SurfaceDropFeedback {
 
     func update(_ rejection: SurfaceTransferRejection?, over target: NSView) {
         guard let rejection else { clear(); return }
+        let host = target.window?.contentView?.superview ?? target
+        let targetBounds = host.convert(target.bounds, from: target)
+        let visibleBounds = host.bounds.intersection(targetBounds)
+        guard !visibleBounds.isEmpty else { clear(); return }
         let changed = self.rejection != rejection || badge.superview == nil
         self.rejection = rejection
-        let host = target.window?.contentView?.superview ?? target
         if badge.superview !== host {
             badge.removeFromSuperview()
             host.addSubview(badge, positioned: .above, relativeTo: nil)
         }
+        // Portal stacking requires a window-level host, but the warning must
+        // still fit the destination instead of covering an adjacent sidebar.
         badge.show(
             text: rejection.message,
-            centeredIn: host.convert(target.bounds, from: target),
-            clippedTo: host.bounds,
+            centeredIn: targetBounds,
+            clippedTo: visibleBounds,
             warning: true
         )
         if changed, let application = NSApp {
