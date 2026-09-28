@@ -357,6 +357,13 @@ public final class UpdateController {
             return
         }
 
+        // With automatic installs on, check in the background at launch so Sparkle downloads
+        // the update now instead of at its next scheduled check.
+        if installsAutomatically {
+            log.append("starting launch background check (automatic installs)")
+            updater.checkForUpdatesInBackground()
+            return
+        }
         // Probe immediately on launch so the sidebar can surface a passive update indicator
         // without waiting for Sparkle's scheduled check or opening interactive update UI.
         log.append("starting launch update probe")
