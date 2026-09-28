@@ -265,6 +265,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     // MARK: Creating
 
     public func externalHostCreateWorkspace(onHost hostID: String) async -> MobileWorkspacePreview.ID? {
+        bridgeLog.notice("create workspace start host=\(hostID, privacy: .public)")
         guard let address = CloudAddress(parsing: hostID), address.component == nil,
               let machine = admittedMachines.first(where: { $0.id == address.machineID }),
               let connection = links.link(for: machine),
@@ -281,8 +282,15 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     public func externalHostCreateTerminal(inWorkspace workspaceID: MobileWorkspacePreview.ID) async -> String? {
         guard let address = CloudAddress(parsing: workspaceID.rawValue),
               let remoteWorkspaceID = address.component,
-              let machine = admittedMachines.first(where: { $0.id == address.machineID }),
-              let connection = links.link(for: machine) else { return nil }
+              let machine = admittedMachines.first(where: { $0.id == address.machineID }) else {
+            bridgeLog.error("create terminal skipped: not a Cloud workspace \(workspaceID.rawValue, privacy: .public)")
+            return nil
+        }
+        guard let connection = links.link(for: machine) else {
+            bridgeLog.error("create terminal skipped: no link machine=\(machine.id, privacy: .public)")
+            return nil
+        }
+        bridgeLog.notice("create terminal start machine=\(machine.id, privacy: .public) workspace=\(remoteWorkspaceID, privacy: .public)")
         let remoteTerminalID: String?
         if remoteWorkspaceID == CloudWorkspaceProjector.unassignedWorkspaceID {
             // The row gathering terminals no workspace shows is not a daemon

@@ -8791,10 +8791,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// selects it once the host publishes it. No Mac knows the workspace, so
     /// the Mac create path must never see it.
     private func createExternalHostTerminal(in workspaceID: MobileWorkspacePreview.ID) {
-        guard createTerminalTask == nil,
-              let row = workspaces.first(where: { $0.id == workspaceID }),
+        guard createTerminalTask == nil else {
+            recordAppEvent(.terminalCreateFailed, correlationID: workspaceID.rawValue, failure: .routeGated)
+            return
+        }
+        guard let row = workspaces.first(where: { $0.id == workspaceID }),
               let hostID = externalHostID(ofWorkspace: workspaceID),
-              let source = externalHostSource(owningHost: hostID) else { return }
+              let source = externalHostSource(owningHost: hostID) else {
+            recordAppEvent(.terminalCreateFailed, correlationID: workspaceID.rawValue, failure: .endpointUnavailable)
+            return
+        }
+        recordAppEvent(.terminalCreateStarted, correlationID: workspaceID.rawValue)
         selectedWorkspaceID = workspaceID
         let publishedWorkspaceID = row.rpcWorkspaceID
         let taskID = UUID()
@@ -8811,10 +8818,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // The detail screen matches the error on the id its host
                 // published, as it does for a Mac.
                 self.terminalCreationErrorWorkspaceID = publishedWorkspaceID
+                self.recordAppEvent(.terminalCreateFailed, correlationID: workspaceID.rawValue, failure: .connectionClosed)
                 return
             }
             self.selectedWorkspaceID = owner
             self.selectedTerminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+            self.recordAppEvent(.terminalCreateSucceeded, correlationID: surfaceID)
         }
     }
 
