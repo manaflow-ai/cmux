@@ -33,8 +33,7 @@ final class AgentJournalLifecycleCenter: Sendable {
     }
 
     private struct InterruptSnapshotState: Sendable {
-        var boundaries: [InterruptScope: [String: Int64]] = [:]
-        var observedHeadSequence: Int64 = 0
+        var boundaries: [InterruptScope: UserInterruptBoundary] = [:]
     }
 
     private enum Operation: Sendable {
@@ -132,9 +131,6 @@ final class AgentJournalLifecycleCenter: Sendable {
                 while reconciledAheadSequences.remove(reconciledThroughSequence + 1) != nil {
                     reconciledThroughSequence += 1
                 }
-                interruptSnapshots.withLock {
-                    $0.observedHeadSequence = max($0.observedHeadSequence, sequence)
-                }
             }
             func noteReconciledScan(through sequence: Int64) {
                 reconciledThroughSequence = max(reconciledThroughSequence, sequence)
@@ -142,34 +138,45 @@ final class AgentJournalLifecycleCenter: Sendable {
                 reconciledAheadSequences = reconciledAheadSequences.filter {
                     $0 > reconciledFloor
                 }
-                interruptSnapshots.withLock {
-                    $0.observedHeadSequence = max($0.observedHeadSequence, sequence)
-                }
             }
-            func publishInterruptBoundary(surfaceId: String, agentKey: String) {
+            func publishInterruptBoundary(
+                surfaceId: String,
+                agentKey: String,
+                observedHeadSequence: Int64
+            ) {
                 let scope = InterruptScope(surfaceId: surfaceId, agentKey: agentKey)
-                let boundary = state.userInterruptSessionBoundary(
+                let sessionSequences = state.userInterruptSessionBoundary(
                     surfaceId: surfaceId,
                     agentKey: agentKey
                 )
                 interruptSnapshots.withLock { snapshot in
-                    if boundary.isEmpty {
+                    if sessionSequences.isEmpty {
                         snapshot.boundaries.removeValue(forKey: scope)
                     } else {
-                        snapshot.boundaries[scope] = boundary
+                        snapshot.boundaries[scope] = UserInterruptBoundary(
+                            sessionSequences: sessionSequences,
+                            observedHeadSequence: max(
+                                observedHeadSequence,
+                                snapshot.boundaries[scope]?.observedHeadSequence ?? 0
+                            )
+                        )
                     }
                 }
             }
-            func publishAllInterruptBoundaries() {
-                var boundaries: [InterruptScope: [String: Int64]] = [:]
+            func publishAllInterruptBoundaries(observedHeadSequence: Int64) {
+                var boundaries: [InterruptScope: UserInterruptBoundary] = [:]
                 for (surfaceId, byAgent) in state.sessions {
                     for agentKey in byAgent.keys {
-                        let boundary = state.userInterruptSessionBoundary(
+                        let sessionSequences = state.userInterruptSessionBoundary(
                             surfaceId: surfaceId,
                             agentKey: agentKey
                         )
-                        if !boundary.isEmpty {
-                            boundaries[InterruptScope(surfaceId: surfaceId, agentKey: agentKey)] = boundary
+                        if !sessionSequences.isEmpty {
+                            boundaries[InterruptScope(surfaceId: surfaceId, agentKey: agentKey)] =
+                                UserInterruptBoundary(
+                                    sessionSequences: sessionSequences,
+                                    observedHeadSequence: observedHeadSequence
+                                )
                         }
                     }
                 }
@@ -213,26 +220,33 @@ final class AgentJournalLifecycleCenter: Sendable {
                 reconciliationCursorDidAdvance(event)
                 let canonical = Self.canonicalized(event, aliases: eventAliases)
                 let decision = notifications.apply(canonical)
+                var snapshotEvent = canonical
+                var application: LifecycleApplication?
                 if decision.disposition != .stale, decision.projectsLifecycle {
                     let lifecycleEvent = notifications.lifecycleEvent(canonical)
-                    let application = Self.reduceIngest(
+                    snapshotEvent = lifecycleEvent
+                    application = Self.reduceIngest(
                         lifecycleEvent,
                         sourceKind: canonical.kind,
                         aliases: eventAliases,
                         reducer: reducer,
                         state: &state
                     )
-                    if let surfaceId = lifecycleEvent.draft.surfaceId {
-                        publishInterruptBoundary(surfaceId: surfaceId, agentKey: lifecycleEvent.agentKey)
-                    }
-                    if let application {
-                        await MainActor.run {
-                            Self.apply(
-                                application.assignment,
-                                workspaceHint: application.workspaceHint,
-                                activity: application.activity
-                            )
-                        }
+                }
+                if let surfaceId = snapshotEvent.draft.surfaceId {
+                    publishInterruptBoundary(
+                        surfaceId: surfaceId,
+                        agentKey: snapshotEvent.agentKey,
+                        observedHeadSequence: event.sequence
+                    )
+                }
+                if let application {
+                    await MainActor.run {
+                        Self.apply(
+                            application.assignment,
+                            workspaceHint: application.workspaceHint,
+                            activity: application.activity
+                        )
                     }
                 }
                 Self.clearInvalidatedNotifications(canonical, decision: decision)
@@ -271,19 +285,27 @@ final class AgentJournalLifecycleCenter: Sendable {
                 // A successful store scan may cross a pruned sequence prefix
                 // or undecodable rows, both of which are safe to cover even
                 // though they cannot advance the event-by-event cursor.
+                // Capture a durable upper bound once: commits arriving after
+                // this scan began belong to the next FIFO operation and cannot
+                // keep the sole journal consumer chasing a moving head.
+                let upperBound = try store.headSequence()
                 var cursor = reconciledThroughSequence
-                while true {
+                while cursor < upperBound {
                     let page = try store.readPage(afterSequence: cursor, limit: 2_048)
                     reconciliationPageRead()
                     if page.isEmpty {
-                        noteReconciledScan(through: cursor)
-                        return cursor
+                        cursor = upperBound
+                        break
                     }
-                    for event in page.events where !containsReconciledSequence(event.sequence) {
+                    for event in page.events where event.sequence <= upperBound
+                        && !containsReconciledSequence(event.sequence) {
                         _ = await reconcile(event, store: store, deliver: true)
                     }
-                    cursor = max(cursor, page.scannedThroughSequence)
+                    cursor = max(cursor, min(page.scannedThroughSequence, upperBound))
                 }
+                noteReconciledScan(through: upperBound)
+                publishAllInterruptBoundaries(observedHeadSequence: upperBound)
+                return upperBound
             }
             for await operation in channel.stream {
                 guard let store = lazyStore.store() else {
@@ -450,7 +472,9 @@ final class AgentJournalLifecycleCenter: Sendable {
                         notifications: &notifications
                     ) else { continue }
                     noteReconciledScan(through: replay.scannedThroughSequence)
-                    publishAllInterruptBoundaries()
+                    publishAllInterruptBoundaries(
+                        observedHeadSequence: replay.scannedThroughSequence
+                    )
                     if !replay.assignments.isEmpty {
                         await MainActor.run {
                             for assignment in replay.assignments {
@@ -576,9 +600,9 @@ final class AgentJournalLifecycleCenter: Sendable {
     ) -> UserInterruptBoundary {
         let scope = InterruptScope(surfaceId: surfaceId.uuidString, agentKey: agentKey)
         return interruptSnapshots.withLock {
-            UserInterruptBoundary(
-                sessionSequences: $0.boundaries[scope] ?? [:],
-                observedHeadSequence: $0.observedHeadSequence
+            $0.boundaries[scope] ?? UserInterruptBoundary(
+                sessionSequences: [:],
+                observedHeadSequence: 0
             )
         }
     }
