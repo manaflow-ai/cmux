@@ -133,7 +133,9 @@ struct DeviceNotificationSyncTests {
         let snapshot = SurfaceCatalogSnapshot(machines: [SurfaceMachineInfo(
             id: machine, name: "Mac mini", status: "running", image: nil, hasDesktop: false,
             memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
-            cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil, remoteWorkspaces: [workspace]
+            cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil, remoteWorkspaces: [workspace],
+            presence: SurfaceDevicePresence(state: .online, lastSeenAt: nil, tag: instance.tag,
+                bundleID: "com.cmuxterm.app", accountTrust: .sameAccount)
         )], resources: [resource], projections: [])
         let nodes = CloudTreeNodeBuilder.nodes(machines: [], snapshot: snapshot, localWorkspaces: [],
             unreadTerminalIDs: [machine.rawValue: [terminal]], includeLocalMachine: false, source: .devices)
