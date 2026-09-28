@@ -579,8 +579,10 @@ final class WorkspaceContentViewVisibilityTests {
         counts: MinimalModeBodyProbeCounts,
         window: NSWindow
     ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(10))
         var quietRounds = 0
-        for _ in 0..<100 where quietRounds < 10 {
+        while quietRounds < 10 && clock.now < deadline {
             counts.reset()
             await drainMainRunLoop(for: window)
             let settled = counts.contentViewBody == 0
