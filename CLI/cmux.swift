@@ -9489,7 +9489,17 @@ struct CMUXCLI {
         // routed PiP floater when no explicit surface context is supplied.
         let hasExplicitWindow = windowArg != nil || windowOverride != nil
         let environment = ProcessInfo.processInfo.environment
-        let surfaceRaw = surfaceArg ?? (hasExplicitWindow ? nil : environment["CMUX_SURFACE_ID"])
+        let surfaceRaw: String?
+        if let surfaceArg {
+            surfaceRaw = surfaceArg
+        } else if action == "return" || hasExplicitWindow {
+            // A return resolves the detached PiP panel through the socket's
+            // routed window state. Do not let the caller's surface context
+            // pin it to an unrelated surface.
+            surfaceRaw = nil
+        } else {
+            surfaceRaw = environment["CMUX_SURFACE_ID"]
+        }
         if surfaceArg != nil || surfaceRaw != nil {
             let workspaceID = try normalizeWorkspaceHandle(
                 hasExplicitWindow ? nil : environment["CMUX_WORKSPACE_ID"],
