@@ -244,6 +244,7 @@ public final class MobileWhatsNewCenter {
         }
     }
 
+
     /// Records the given pages as seen: shown announcements join the
     /// acknowledged id set, and the marker advances (never retreats) to the
     /// newest shown binary entry.
@@ -318,3 +319,4 @@ public final class MobileWhatsNewCenter {
 
 }
 #endif
+

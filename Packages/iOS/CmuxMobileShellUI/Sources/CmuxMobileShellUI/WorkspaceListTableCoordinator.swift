@@ -1,6 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxMobileDiagnostics
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -695,7 +696,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
                 filter: filter,
                 showAll: { [weak self] in self?.configuration.showAll() }
             )
-        case .emptyWorkspaceList:
+        case .emptyWorkspaceList(let empty):
             MobileWorkspaceListEmptyRow(
                 retry: configuration.refresh,
                 cancelRetry: configuration.cancelRefresh,
@@ -704,7 +705,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
                 isRetryOwnerCurrentOnDisappear: configuration.isRetryOwnerCurrentOnDisappear,
                 beginRetry: configuration.beginRefresh,
                 cancelRetryAttempt: configuration.cancelRefreshAttempt,
-                cancelRetryOnDisappear: configuration.cancelRefreshAttemptOnDisappear
+                cancelRetryOnDisappear: configuration.cancelRefreshAttemptOnDisappear,
+                guidance: empty.guidance
             )
         case .missing:
             EmptyView()
@@ -1021,7 +1023,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         waitsForContextMenuDismissal: Bool,
         contextMenuIdentifier: String? = nil
     ) {
-        guard configuration.closeWorkspace != nil else { return }
+        guard let closeWorkspace = configuration.closeWorkspace else { return }
+        guard configuration.closeConfirmation(workspace.id) != nil else {
+            // Nothing to ask (an SSH shell): close in one tap.
+            closeWorkspace(workspace.id)
+            return
+        }
         if waitsForContextMenuDismissal {
             pendingContextMenuWorkspaceClose = (
                 workspace,
@@ -1043,10 +1050,14 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         for workspace: MobileWorkspacePreview,
         sourceView: UIView
     ) {
-        guard let tableViewController, configuration.closeWorkspace != nil else { return }
+        guard let tableViewController,
+              configuration.closeWorkspace != nil,
+              let confirmation = configuration.closeConfirmation(workspace.id)
+        else { return }
         let workspaceID = workspace.id
         tableViewController.presentWorkspaceCloseConfirmation(
             workspaceID: workspaceID,
+            confirmation: confirmation,
             sourceView: sourceView
         ) { [weak self] in
             self?.configuration.closeWorkspace?(workspaceID)
