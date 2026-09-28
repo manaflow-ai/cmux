@@ -349,4 +349,37 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
 
         closeSettings(app, window)
     }
+
+    // MARK: - Font card
+
+    /// The Terminal section opens with the Font card: a font preview above
+    /// the font button, which opens a searchable font list. Read-only: it
+    /// doesn't pick a font, so the runner's Ghostty config is left alone.
+    func testFontCardShowsPreviewAndFontGallery() {
+        let app = makeLaunchedApp()
+        let window = openTerminalSettings(app)
+
+        let preview = window.descendants(matching: .any)["SettingsTerminalFontPreview"]
+        XCTAssertTrue(poll(timeout: 6.0) { preview.exists }, "The Font card should show the font preview")
+        attachScreenshot(of: window, name: "Settings Terminal Font card")
+
+        let fontButton = window.buttons["SettingsTerminalGhosttyFontFamilyPicker"]
+        XCTAssertTrue(poll(timeout: 6.0) { fontButton.exists && fontButton.isEnabled }, "The font button should be enabled once options load")
+        fontButton.click()
+
+        let search = app.textFields["SettingsTerminalFontSearchField"]
+        XCTAssertTrue(poll(timeout: 4.0) { search.exists }, "The font button should open the searchable font list")
+        attachScreenshot(of: window, name: "Settings Terminal font gallery")
+
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(poll(timeout: 4.0) { !search.exists }, "Escape should close the font list")
+        closeSettings(app, window)
+    }
+
+    private func attachScreenshot(of window: XCUIElement, name: String) {
+        let screenshot = XCTAttachment(screenshot: window.screenshot())
+        screenshot.name = name
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
 }
