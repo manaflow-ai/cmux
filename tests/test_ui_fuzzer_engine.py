@@ -17,6 +17,7 @@ from cmuxfuzz.app import LaunchError  # noqa: E402
 from cmuxfuzz.minimize import ddmin  # noqa: E402
 from cmuxfuzz.signature import Signature, hang_signature, normalize  # noqa: E402
 
+REPO = Path(__file__).resolve().parents[1]
 PANE_A = "999149DB-B3D6-48F7-817D-06CF744052C2"
 PANE_B = "4FDBE39E-10F4-48BF-82A2-DDCB725A07E3"
 
@@ -107,6 +108,22 @@ class GenerationTest(unittest.TestCase):
         run = lambda seed: [actions.generate(random.Random(seed), {}, pointer=True) for _ in range(50)]
         self.assertEqual(run(3), run(3))
         self.assertNotEqual(run(3), run(4))
+
+    def test_window_resizes_stay_at_or_above_the_main_window_minimum(self) -> None:
+        # Smaller frames are raised to the minimum, so the step would not test the size it names.
+        rng = random.Random(2)
+        for _ in range(2000):
+            step = actions.generate(rng, {"window": 50.0}, pointer=False)
+            if step["do"] == "window_resize":
+                self.assertGreaterEqual(step["w"], actions.MIN_WINDOW_WIDTH)
+                self.assertGreaterEqual(step["h"], actions.MIN_WINDOW_HEIGHT)
+
+    def test_checked_in_repros_resize_within_the_main_window_minimum(self) -> None:
+        for path in sorted((REPO / "dogfood/fuzz/regressions").glob("*.json")):
+            for step in json.loads(path.read_text())["steps"]:
+                if step["do"] == "window_resize":
+                    self.assertGreaterEqual(step["h"], actions.MIN_WINDOW_HEIGHT, path.name)
+                    self.assertGreaterEqual(step["w"], actions.MIN_WINDOW_WIDTH, path.name)
 
     def test_socket_only_runs_never_plan_pointer_actions(self) -> None:
         rng = random.Random(1)

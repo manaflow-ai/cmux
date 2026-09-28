@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxPanes
 import CmuxTerminal
 
 /// The live-app half of the v1 bonsplit pane commands (`list_panes` /
@@ -195,6 +196,12 @@ extension TerminalController {
 
         let orientation: SplitOrientation = orientationIsHorizontal ? .horizontal : .vertical
         if isBrowser {
+            // Terminal splits check the minimum pane size in
+            // `newTerminalSplitOutcome` (#15371).
+            if !tab.isRemoteTmuxMirror,
+               tab.splitSpaceVerdict(splittingPanel: focusedPanelId, orientation: orientation) == .noSpace {
+                return .noSpace
+            }
             guard let id = tab.newBrowserSplit(
                 from: focusedPanelId,
                 orientation: orientation,
@@ -205,6 +212,7 @@ extension TerminalController {
             )?.id else {
                 return .failed
             }
+            tab.finishSplitSpaceBorrow(newPanelId: id, orientation: orientation)
             return .created(id)
         }
         if tab.isRemoteTmuxMirror, insertFirst {
@@ -223,6 +231,8 @@ extension TerminalController {
             return .created(panel.id)
         case .routedToRemote:
             return .routedToRemote
+        case .noSpace:
+            return .noSpace
         case .failed:
             return .failed
         }
@@ -278,7 +288,7 @@ extension TerminalController {
             return .created(panel.id)
         case .routedToRemote:
             return .routedToRemote
-        case .failed:
+        case .failed, .noSpace:
             return .failed
         }
     }

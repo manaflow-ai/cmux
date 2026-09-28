@@ -1396,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "عرض كل مساحة عمل في سطر واحد: أيقونة ملونة واحدة قبل العنوان تعرض حالة الوكيل والعناصر غير المقروءة وطلب السحب، وتحل محل أسطر حالة الوكيل (مثل قيد التشغيل أو يحتاج إلى إدخال) وسطر الفرع والمجلد وأسطر طلبات السحب، وتنتقل تفاصيلها إلى تلميح الأيقونة. تحتفظ إدخالات الحالة الأخرى بأسطرها.",
+          "compactStatusIcons": "أسماء SF Symbols التي تستبدل رمز compactAgentStatus لكل حالة، مثل {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. تحتفظ الحالات غير المعيّنة بالرمز المدمج، ويعود الاسم الذي لا يمكن عرضه إليه.",
           "notificationMessageLineLimit": "الحد الأقصى لعدد الأسطر المعروضة لأحدث إشعار أسفل عنوان كل مساحة عمل.",
           "rightMaxWidth": "أقصى عرض بالنقاط للشريط الجانبي الأيمن. عند تركه فارغًا، يُطبّق الحد الديناميكي المضمن."
         },
