@@ -60,17 +60,31 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     /// changes in between coalesce to the newest.
     private static let sessionStatusPublishInterval: TimeInterval = 0.25
 
+    typealias SessionStatusSink = @MainActor @Sendable (TerminalSessionStatus) -> Void
+
     private var sessionStatusScanner = TerminalSessionStatusOSCScanner()
     private var sessionStatus = TerminalSessionStatus()
     private let sessionStatusOutbox = OSAllocatedUnfairLock(initialState: SessionStatusOutbox())
+    private let sessionStatusSink: SessionStatusSink
 
     init(
         workspaceID: UUID,
         surfaceID: UUID,
-        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition]
+        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition],
+        sessionStatusSink: SessionStatusSink? = nil
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
+        if let sessionStatusSink {
+            self.sessionStatusSink = sessionStatusSink
+        } else {
+            self.sessionStatusSink = { status in
+                AppDelegate.shared?
+                    .workspaceContainingPanel(panelId: surfaceID, preferredWorkspaceId: workspaceID)?
+                    .workspace
+                    .applyTerminalSessionStatus(status, panelId: surfaceID)
+            }
+        }
         self.notificationHandler = PromptTurnNotificationHandler(
             workspaceID: workspaceID,
             surfaceID: surfaceID
@@ -106,12 +120,13 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     private func consumeSessionStatus(_ bytes: UnsafeBufferPointer<UInt8>) {
         let updates = sessionStatusScanner.consume(bytes)
         guard !updates.isEmpty else { return }
-        var next = sessionStatus
         for update in updates {
-            next.apply(update)
+            sessionStatus.apply(update)
         }
-        guard next != sessionStatus else { return }
-        sessionStatus = next
+        // Every sequence is published, even one that repeats the last status:
+        // the entry may have been moved or cleared since, and the workspace
+        // skips writes that change nothing.
+        let next = sessionStatus
         let shouldSchedule = sessionStatusOutbox.withLock { outbox in
             outbox.pending = next
             guard !outbox.scheduled else { return false }
@@ -120,8 +135,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         }
         guard shouldSchedule else { return }
         let outbox = sessionStatusOutbox
-        let surfaceID = surfaceID
-        let workspaceID = workspaceID
+        let sink = sessionStatusSink
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.sessionStatusPublishInterval) {
             let status = outbox.withLock { outbox -> TerminalSessionStatus? in
                 defer {
@@ -132,10 +146,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
             }
             guard let status else { return }
             MainActor.assumeIsolated {
-                AppDelegate.shared?
-                    .workspaceContainingPanel(panelId: surfaceID, preferredWorkspaceId: workspaceID)?
-                    .workspace
-                    .applyTerminalSessionStatus(status, panelId: surfaceID)
+                sink(status)
             }
         }
     }

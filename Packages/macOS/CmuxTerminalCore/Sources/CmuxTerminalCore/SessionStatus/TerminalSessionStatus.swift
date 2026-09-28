@@ -50,9 +50,15 @@ public struct TerminalSessionStatusUpdate: Equatable, Sendable {
         return recognized ? update : nil
     }
 
+    private static let strippedCategories: Set<Unicode.GeneralCategory> = [
+        .control, .format, .lineSeparator, .paragraphSeparator,
+    ]
+
     private static func sanitizedText(_ value: Substring, limit: Int) -> String {
         var scalars = String.UnicodeScalarView()
-        for scalar in value.unicodeScalars where scalar.properties.generalCategory != .control {
+        // Controls, and format characters such as bidi overrides that could
+        // make the row read differently than its bytes, never reach the row.
+        for scalar in value.unicodeScalars where !strippedCategories.contains(scalar.properties.generalCategory) {
             scalars.append(scalar)
         }
         let trimmed = String(scalars).trimmingWhitespace()

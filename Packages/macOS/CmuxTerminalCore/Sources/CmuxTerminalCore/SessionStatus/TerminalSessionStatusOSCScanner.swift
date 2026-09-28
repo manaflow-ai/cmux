@@ -5,9 +5,15 @@ public import Foundation
 ///
 /// Built for Ghostty's synchronous PTY tee: outside a sequence it only looks
 /// for ESC, so ordinary output costs one byte search per read. Libghostty
-/// ignores this OSC itself, so this scanner is the only consumer. Payloads
-/// over `maximumPayloadBytes` are dropped whole. An ESC not followed by `\`,
-/// CAN or SUB inside the payload cancels it, as in the VT parser.
+/// discards this OSC number itself, so this scanner is the only consumer.
+/// Payloads over `maximumPayloadBytes` are dropped whole, and the rest of an
+/// oversized payload is skipped with a byte search for its terminator.
+///
+/// This is stricter than Ghostty's VT parser, on purpose: only BEL and
+/// `ESC \` apply a sequence. Ghostty also dispatches an OSC that ends in ESC
+/// followed by any other byte, CAN or SUB; here those cancel it. The 8-bit
+/// C1 introducer (0x9D) is not recognized, and C0 controls inside the payload
+/// are kept for the text sanitizer to strip rather than skipped.
 public struct TerminalSessionStatusOSCScanner: Sendable {
     public static let maximumPayloadBytes = 1_024
 
@@ -47,6 +53,16 @@ public struct TerminalSessionStatusOSCScanner: Sendable {
                 state = .escape
                 continue
             }
+            if case .payload = state, payloadOverflowed {
+                // Nothing in an oversized payload is kept, so jump straight to
+                // the next byte that can end it. CAN and SUB would also end
+                // it, but a dropped payload ends the same way at the next
+                // BEL or ESC.
+                guard let terminator = Self.nextTerminatorIndex(in: bytes, from: index) else {
+                    return updates
+                }
+                index = terminator
+            }
             if let update = step(bytes[index]) {
                 updates.append(update)
             }
@@ -59,6 +75,18 @@ public struct TerminalSessionStatusOSCScanner: Sendable {
         data.withUnsafeBytes { raw in
             consume(raw.bindMemory(to: UInt8.self))
         }
+    }
+
+    private static func nextTerminatorIndex(in bytes: UnsafeBufferPointer<UInt8>, from index: Int) -> Int? {
+        guard let base = bytes.baseAddress else { return nil }
+        let start = base + index
+        let origin = UnsafeRawPointer(base)
+        let escapeIndex = memchr(start, Int32(escape), bytes.count - index)
+            .map { origin.distance(to: UnsafeRawPointer($0)) }
+        let searchEnd = escapeIndex ?? bytes.count
+        let bellIndex = memchr(start, Int32(bell), searchEnd - index)
+            .map { origin.distance(to: UnsafeRawPointer($0)) }
+        return bellIndex ?? escapeIndex
     }
 
     private mutating func step(_ byte: UInt8) -> TerminalSessionStatusUpdate? {
