@@ -38,18 +38,10 @@ class SettingsUITestCase: XCTestCase {
 
     // MARK: - Launch / window
 
-    /// Whether `makeLaunchedApp` gives the app a fresh home (see
-    /// `isolateUserState`). Subclasses that assert a setting's default
-    /// override this to `true`.
-    var isolatesUserState: Bool { false }
-
     func makeLaunchedApp(additionalArguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += settingsLaunchArguments + additionalArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        if isolatesUserState {
-            isolateUserState(app)
-        }
         launchAndActivate(app)
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "main window did not appear")
         return app
@@ -155,40 +147,12 @@ class SettingsUITestCase: XCTestCase {
         return value == "1" || value == "true" || value == "on"
     }
 
-    /// The resolved control's type, identifier, value and selection, for
-    /// failure messages.
-    func toggleDescription(_ control: XCUIElement) -> String {
-        "type=\(control.elementType.rawValue) id=\(control.identifier) "
-            + "value=\(String(describing: control.value)) selected=\(control.isSelected)"
-    }
-
     /// A control's accessibility value as trimmed lowercase text, or "" when
     /// it reports none.
     static func valueText(of control: XCUIElement) -> String {
         control.value.map { String(describing: $0) }?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
-    }
-
-    /// Points the app's preferences (`CFFIXED_USER_HOME`), `HOME` and config
-    /// directory at a fresh directory, so it starts from factory defaults and
-    /// cmux.json whatever earlier tests on the same machine left behind, and
-    /// nothing it writes outlives the test.
-    func isolateUserState(_ app: XCUIApplication) {
-        let fileManager = FileManager.default
-        let home = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-settings-ui-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try? fileManager.createDirectory(at: home, withIntermediateDirectories: true)
-        app.launchEnvironment["HOME"] = home.path
-        app.launchEnvironment["CFFIXED_USER_HOME"] = home.path
-        app.launchEnvironment["XDG_CONFIG_HOME"] =
-            home.appendingPathComponent(".config", isDirectory: true).path
-        addTeardownBlock {
-            app.terminate()
-            try? FileManager.default.removeItem(at: home)
-        }
     }
 
     /// Deletes UserDefaults keys from the debug suite so a test starts
