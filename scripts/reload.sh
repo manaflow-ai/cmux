@@ -1024,11 +1024,9 @@ tagged_derived_data_path() {
 # the existing overrides next to the resolver's error.
 resolve_cmux_tui_client_commit() {
   local commit
-  local -a resolver_args=()
-  if [[ -n "${CMUX_TUI_CLIENT_MAX_FALLBACK:-}" ]]; then
-    resolver_args+=(--max-fallback "$CMUX_TUI_CLIENT_MAX_FALLBACK")
-  fi
-  if ! commit="$("$PWD/scripts/ci/resolve-cmux-tui-client-commit.sh" "${resolver_args[@]}")"; then
+  # Only a published artifact with this checkout's client inputs may stand in.
+  # Older commits within that same input group are already searched by the resolver.
+  if ! commit="$("$PWD/scripts/ci/resolve-cmux-tui-client-commit.sh" --max-fallback 0)"; then
     cat >&2 <<'EOF'
 error: no published cmux-tui client for this checkout, so the app bundle cannot get one.
        A branch that changes cmux-tui has no published client for its own commits
