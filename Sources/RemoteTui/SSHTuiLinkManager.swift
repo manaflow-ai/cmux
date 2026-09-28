@@ -95,10 +95,17 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     /// otherwise win. A carrier that is not connected takes the new options;
     /// a connected one keeps running so its terminals do not drop. Restores
     /// never call this, because their options have already lost their controls.
+    /// The whole connection is replaced, so the open's agent socket and command
+    /// also apply to the next carrier. A carrier still connecting keeps the
+    /// options it started with.
     func adopt(_ replacement: SSHTuiConnection) async {
         guard replacement.id == connection.id,
-              replacement.configuration.sshOptions != connection.configuration.sshOptions else { return }
-        if let current, await current.isConnected { return }
+              replacement.configuration.sshOptions != connection.configuration.sshOptions,
+              connecting == nil else { return }
+        let observed = current
+        if let observed, await observed.isConnected { return }
+        // The check above suspends; a carrier started meanwhile keeps its options.
+        guard current === observed, connecting == nil else { return }
         connection = replacement
     }
 
