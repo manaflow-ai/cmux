@@ -442,10 +442,36 @@ class DistanceRouting(unittest.TestCase):
         runners = [runner("m1-glaeda"), runner("m2-glaeda"), runner("m2-glaeda-1", busy=True)]
         name, decision = self.route(runners, minis, changes)
         costs = {row["runner"]: (row["tier"], row["compile"]) for row in decision["candidates"]}
-        self.assertEqual(costs["m2-glaeda"], ("cold", 401.0))
+        # m2's other root compiles now, so its cold start runs slower (x CONTENDED_FACTOR).
+        self.assertEqual(costs["m2-glaeda"], ("cold", round(401.0 * wd.CONTENDED_FACTOR, 1)))
         self.assertEqual(costs["m1-glaeda"], ("far", 270.0))
-        # The far build beats GitHub's pick between the two (335.5 s) by more than the margin.
-        self.assertEqual((name, decision["baseline"]), ("m1-glaeda", 335.5))
+        # The far build beats GitHub's pick between the two by more than the margin.
+        self.assertEqual((name, decision["baseline"]), ("m1-glaeda", round((270.0 + 401.0 * wd.CONTENDED_FACTOR) / 2, 1)))
+
+    def test_contention_spreads_equal_starts_across_minis(self):
+        # Both minis would rebuild from the same base; m2's other root is compiling, so m1 wins.
+        minis = {"m1": [self.stamp("1" * 40), {"root": 2}], "m2": [self.stamp("1" * 40), self.stamp("1" * 40, 2)]}
+        changes = {"1" * 40: (swift(1), True)}
+        runners = [runner("m1-glaeda"), runner("m2-glaeda"), runner("m2-glaeda-1", busy=True)]
+        running = {"m2-glaeda-1": {"job": "macOS / macOS compile admission", "started_at": NOW.isoformat()}}
+        name, decision = self.route(runners, minis, changes, running=running)
+        costs = {row["runner"]: (row["tier"], row["compile"]) for row in decision["candidates"]}
+        self.assertEqual(costs["m1-glaeda"][0], "rebuild")
+        self.assertEqual(costs["m2-glaeda"][1], round(costs["m1-glaeda"][1] * wd.CONTENDED_FACTOR, 1))
+        self.assertEqual(name, "m1-glaeda")
+
+    def test_a_slower_mini_costs_more(self):
+        self.assertEqual(wd.compile_factor("cmux-austin-mini-0", 0), wd.SLOW_MINI_FACTOR)
+        self.assertEqual(wd.compile_factor("cmux8s-mac-mini", 0), 1.0)
+        self.assertEqual(wd.compile_factor("cmux8s-mac-mini", 1), wd.CONTENDED_FACTOR)
+
+    def test_a_busy_runner_the_snapshot_does_not_list_waits_as_a_fresh_admission(self):
+        minis = {"m1": [self.stamp("1" * 40)]}
+        changes = {"1" * 40: (swift(1), False)}
+        name, decision = self.route([runner("m1-glaeda", busy=True)], minis, changes, max_wait=900.0)
+        row = decision["candidates"][0]
+        self.assertEqual(row["wait"], 420.0)  # the admission p50, just begun
+        self.assertEqual(row["cost"], 420.0 + row["compile"])
 
     def test_equal_costs_do_not_pin_and_ties_are_deterministic(self):
         minis = {"m1": [self.stamp("1" * 40)], "m2": [self.stamp("1" * 40)]}

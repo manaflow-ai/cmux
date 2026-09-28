@@ -484,6 +484,20 @@ QUEUE_ROUND_SECONDS = 900
 # A pin must beat the unpinned root label by this much; below it, placement noise decides.
 ROUTE_MARGIN_SECONDS = 30
 UNKNOWN_JOB_SECONDS = 600.0
+# A compile runs slower while another root of its mini compiles too, and slower on the two older minis.
+# Owned admissions of 2026-09-26 to 28 (rebuild tier, alone on an M4 Pro mini p50 403 s): overlapped by
+# another admission on the same mini for at least half its compile p50 484 s (158 compiles, x1.19); on
+# cmux-austin-mini-* p50 575 s (23 compiles, x1.43). distance_route() multiplies a candidate's compile by
+# them, so compiles spread across minis without CI_OWNED_SPREAD's separate pin.
+CONTENDED_FACTOR = 1.19
+SLOW_MINI_FACTOR = 1.43
+SLOW_MINI = re.compile(r"(?:^|-)austin-")
+
+
+def compile_factor(mini: str, others_busy: int) -> float:
+    """How much slower than alone on an M4 Pro mini a compile on MINI runs while OTHERS_BUSY of its other
+    root runners are busy."""
+    return (CONTENDED_FACTOR if others_busy > 0 else 1.0) * (SLOW_MINI_FACTOR if SLOW_MINI.search(mini) else 1.0)
 
 
 def job_key(name: str) -> str:
@@ -816,8 +830,11 @@ def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
     runner of the mini holds one, so a runner costs the root ranked after the
     busy ones (the cheapest on an idle mini; for a busy runner, the one its
     job frees). A mini without stamps costs LEGACY[runner] (route_admission()'s
-    exact-key start class) or the model's unknown start. A busy runner adds
-    its expected wait and counts only within MAX_WAIT. The root label goes to
+    exact-key start class) or the model's unknown start. The compile is
+    multiplied by compile_factor() while another root runner of the mini is
+    busy, and on a slower mini. A busy runner adds its expected wait (one the
+    snapshot does not list yet waits as an admission that just began) and
+    counts only within MAX_WAIT. The root label goes to
     whichever idle root runner GitHub picks: the mean of their costs, or,
     with every one busy, the first wait plus the mean. Ties go to the lower
     cost, then the less loaded mini, then the name. Returns the runner (""
@@ -860,7 +877,13 @@ def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
     rows: list[dict[str, Any]] = []
     for name, busy, labels in online:
         mini = member(name)
-        wait = 0.0 if not busy else remaining_seconds(running.get(name), model, now)
+        if not busy:
+            wait: float | None = 0.0
+        elif name in running:
+            wait = remaining_seconds(running.get(name), model, now)
+        else:
+            # Busy with a job newer than the snapshot: most likely an admission that has only just begun.
+            wait = remaining_seconds({"job": "macos-compile-admission", "started_at": now.isoformat()}, model, now)
         taken = busy_roots.get(mini, 0) - (1 if busy else 0)
         roots = ranked.get(mini) or []
         if taken < len(roots):
@@ -869,6 +892,7 @@ def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
         else:
             seconds = legacy.get(name, hook["unknown"])
             tier_name, files, where = ("key" if name in legacy else "unknown"), -1, ""
+        seconds *= compile_factor(mini, taken)
         rows.append({"runner": name, "mini": mini, "busy": busy, "wait": None if wait is None else round(wait, 1),
                      "compile": round(seconds, 1), "tier": tier_name, "files": files, "root": where,
                      "cost": None if wait is None else round(wait + seconds, 1),

@@ -74,7 +74,7 @@ class Link(unittest.TestCase):
 
     def test_the_workflow_links_before_the_package_tests(self):
         text = WORKFLOW.read_text()
-        self.assertLess(text.index("owned_spm_scratch.py link"), text.index("- name: Run Bonsplit package tests"))
+        self.assertLess(text.index("owned_spm_scratch.py link"), text.index("run: ./scripts/ci/package-test-lane.sh run"))
 
 
 if __name__ == "__main__":
