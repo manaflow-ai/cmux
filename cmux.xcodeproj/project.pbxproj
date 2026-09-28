@@ -140,6 +140,8 @@
 		A77A000EA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A000DA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift */; };
 		A77A000CA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A000BA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift */; };
 		C11757000000000000000041 /* AgentJournalTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A000BA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift */; };
+		FCA2E7019ACB85B94989255F /* AgentKeyHintPhysicalKeyboardReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29E0D5BFDDE7870681397E63 /* AgentKeyHintPhysicalKeyboardReader.swift */; };
+		E28FF0D5FB44BB76C28FFFD2 /* AgentKeyHintPhysicalKeyboardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB69B35E77E63BC3E290724 /* AgentKeyHintPhysicalKeyboardStore.swift */; };
 		E506942F7E8A3C80F94EA4EB /* AgentNotificationAdmissionWaiters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0F23A5D074809C236E5C607 /* AgentNotificationAdmissionWaiters.swift */; };
 		0A1107110000000000000010 /* AgentNotificationDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000011 /* AgentNotificationDelivery.swift */; };
 		A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */; };
@@ -4344,6 +4346,8 @@
 		A77A0006A1B2C3D4E5F60001 /* AgentJournalLifecycleCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentJournalLifecycleCenter.swift; sourceTree = "<group>"; };
 		A77A000DA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentJournalLifecycleCenterTests.swift; sourceTree = "<group>"; };
 		A77A000BA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentJournalTestSupport.swift; sourceTree = "<group>"; };
+		29E0D5BFDDE7870681397E63 /* AgentKeyHintPhysicalKeyboardReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentKeyHintPhysicalKeyboardReader.swift; sourceTree = "<group>"; };
+		5DB69B35E77E63BC3E290724 /* AgentKeyHintPhysicalKeyboardStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentKeyHintPhysicalKeyboardStore.swift; sourceTree = "<group>"; };
 		A0F23A5D074809C236E5C607 /* AgentNotificationAdmissionWaiters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationAdmissionWaiters.swift; sourceTree = "<group>"; };
 		0A1107110000000000000011 /* AgentNotificationDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationDelivery.swift; sourceTree = "<group>"; };
 		A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGate.swift; sourceTree = "<group>"; };
@@ -10956,6 +10960,8 @@
 				36C1F9C28D7E37CC4A1583D3 /* TerminalAgentTurnControlView.swift */,
 				DC0674036E2A7F742B565DC4 /* GhosttyNSView+AgentKeyHints.swift */,
 				C29C74CD93ABC0AD224843AA /* TerminalPanel+AgentKeyHints.swift */,
+				29E0D5BFDDE7870681397E63 /* AgentKeyHintPhysicalKeyboardReader.swift */,
+				5DB69B35E77E63BC3E290724 /* AgentKeyHintPhysicalKeyboardStore.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13221,6 +13227,8 @@
 				C3C8079F2C1B6648739BA1A6 /* AgentJournalLifecycleCenter+Notifications.swift in Sources */,
 				009E54A15EB3D846E02D2650 /* AgentJournalLifecycleCenter+Projection.swift in Sources */,
 				A77A0005A1B2C3D4E5F60001 /* AgentJournalLifecycleCenter.swift in Sources */,
+				FCA2E7019ACB85B94989255F /* AgentKeyHintPhysicalKeyboardReader.swift in Sources */,
+				E28FF0D5FB44BB76C28FFFD2 /* AgentKeyHintPhysicalKeyboardStore.swift in Sources */,
 				E506942F7E8A3C80F94EA4EB /* AgentNotificationAdmissionWaiters.swift in Sources */,
 				0A1107110000000000000010 /* AgentNotificationDelivery.swift in Sources */,
 				A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */,

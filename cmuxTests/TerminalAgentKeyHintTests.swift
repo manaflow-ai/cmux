@@ -1,5 +1,6 @@
 import AppKit
 import CmuxSettings
+import CmuxTerminalCore
 import Testing
 
 #if canImport(cmux_DEV)
@@ -143,6 +144,43 @@ struct TerminalAgentKeyHintTests {
         #expect(GhosttyNSView.agentKeyHintDisplay("shift+tab") == "⇧⇥")
         #expect(GhosttyNSView.agentKeyHintDisplay("escape") == "⎋")
         #expect(GhosttyNSView.agentKeyHintToolTip(keys: ["ctrl+o"], action: "expand", needsCommand: false).contains("⌃O"))
+    }
+
+    @Test
+    func tooltipsAddThePhysicalKeysWhenTheyDiffer() throws {
+        let o = try #require(PhysicalKey(karabinerKeyCode: "o"))
+        let capsLock = PhysicalKeyAdvice(
+            keyboardNames: ["Built-in"],
+            appliesToEveryKeyboard: true,
+            chords: [PhysicalKeyChord(modifiers: [.capsLock], key: o)],
+            notes: [PhysicalKeyNote(physical: .capsLock, sends: .leftControl)],
+            viaKarabinerRule: false
+        )
+        let external = PhysicalKeyAdvice(
+            keyboardNames: ["External Keyboard"],
+            appliesToEveryKeyboard: false,
+            chords: [PhysicalKeyChord(modifiers: [.leftCommand], key: o)],
+            notes: [],
+            viaKarabinerRule: true
+        )
+        let plain = GhosttyNSView.agentKeyHintToolTip(keys: ["ctrl+o"], action: "expand", needsCommand: false)
+        #expect(!plain.contains("\n"))
+
+        let lines = GhosttyNSView.agentKeyHintToolTip(
+            keys: ["ctrl+o"],
+            action: "expand",
+            needsCommand: false,
+            physicalKeys: [capsLock, external]
+        ).components(separatedBy: "\n")
+        #expect(lines.count == 3)
+        #expect(lines[0] == plain)
+        #expect(lines[1].contains("⇪O"))
+        #expect(lines[1].contains(GhosttyNSView.agentKeyHintKeyName(.capsLock)))
+        #expect(lines[1].contains(GhosttyNSView.agentKeyHintKeyName(.leftControl)))
+        #expect(!lines[1].contains("Built-in"))
+        #expect(lines[2].contains("External Keyboard"))
+        #expect(lines[2].contains("⌘O"))
+        #expect(lines[2].contains("Karabiner-Elements"))
     }
 
     private func makeWorkspaceFixture() throws -> (
