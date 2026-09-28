@@ -592,6 +592,58 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "wait must poll status more than once before ready"
         )
     }
+
+    func testVMWaitRejectsOverflowingPollIntervalOverride() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-wait-infinite-delay")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let pollCounter = VMTransferMockState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "vm.status" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
+            }
+            let status = pollCounter.nextCount() == 1 ? "creating" : "running"
+            return self.v2Response(id: id, ok: true, result: [
+                "id": "brave-otter",
+                "provider": "freestyle",
+                "status": status,
+            ])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_VM_WAIT_POLL_SECONDS"] = "1e309"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "wait", "brave-otter", "--timeout", "8"],
+            environment: environment,
+            timeout: 8
+        )
+
+        wait(for: [serverHandled], timeout: 8)
+        XCTAssertFalse(result.timedOut, "an overflowing injected delay must fall back instead of sleeping forever")
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(
+            state.snapshot().filter { $0.contains(#""method":"vm.status""#) }.count,
+            2,
+            "wait must poll again after rejecting the override"
+        )
+    }
 }
 
 // MARK: - vm push --secret / --watch, vm agent --wait, vm self
