@@ -842,6 +842,54 @@ struct ChatUsageAccumulatorTests {
         #expect(totals.usageByModel.isEmpty)
     }
 
+    @Test("an inherited cumulative-only rollout counts growth, not its parent baseline")
+    func codexInheritedCumulativeOnlyCountsGrowth() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexSessionMetaLine(model: "", inheritedHistory: true),
+            codexTokenCountLine(
+                cumulativeInput: 1_000_000, cumulativeOutput: 20_000,
+                lastInput: 0, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 1_000_025, cumulativeOutput: 20_005,
+                lastInput: 25, lastOutput: 5
+            ),
+        ])
+
+        let totals = accumulator.totals
+        #expect(accumulator.codexSource == .cumulativeEvents)
+        #expect(totals.usage.freshInputTokens == 25)
+        #expect(totals.usage.outputTokens == 5)
+        #expect(!totals.cumulativeUsageIsAmbiguous)
+    }
+
+    @Test("camel-case mixed-case subagent metadata discards the inherited prefix")
+    func codexCamelCaseSubagentMetadataDiscardsPrefix() {
+        let metadata = Self.json([
+            "type": "session_meta",
+            "payload": [
+                "id": "session-child",
+                "model": "",
+                "threadSource": "SubAgent",
+            ],
+        ])
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            metadata,
+            codexTokenCountLine(
+                cumulativeInput: 1_000_000, cumulativeOutput: 20_000,
+                lastInput: 0, lastOutput: 0
+            ),
+            codexRecordLine(responseID: "child-response", input: 25, cached: 0, output: 5),
+        ])
+
+        let totals = accumulator.totals
+        #expect(accumulator.codexSource == .usageRecords)
+        #expect(totals.responses == 1)
+        #expect(totals.usage.totalTokens == 30)
+    }
+
     @Test("cumulative events after records begin do not move the total")
     func codexEventsAfterRecordsDoNotMoveTheTotal() {
         var accumulator = ChatUsageAccumulator()

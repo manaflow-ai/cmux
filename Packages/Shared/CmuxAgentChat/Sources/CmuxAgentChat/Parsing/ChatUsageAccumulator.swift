@@ -120,6 +120,7 @@ public struct ChatUsageAccumulator: Sendable {
     // still climbing. Once response records appear, records own all usage.
     private var codexCumulativeBanked = ChatTokenUsage()
     private var codexCumulativeCurrent: ChatTokenUsage?
+    private var codexInheritedCumulativeBaseline: ChatTokenUsage?
     private var cumulativeUsageIsAmbiguous = false
 
     private var duplicateReports = 0
@@ -361,12 +362,25 @@ public struct ChatUsageAccumulator: Sendable {
     }
 
     private mutating func ingestCodexSessionMetadata(_ payload: TranscriptJSONValue) {
-        if payload["thread_source"]?.string == "subagent"
-            || payload["thread_source"]?.string == "memory_consolidation"
+        let threadSource = (
+            payload["thread_source"]?.string ?? payload["threadSource"]?.string
+        )?.lowercased()
+        let source = payload["source"]?.string?.lowercased()
+        let internalSource = payload["source"]?["internal"]?.string?.lowercased()
+        let inheritsHistory = threadSource == "subagent"
+            || threadSource == "memory_consolidation"
+            || threadSource == "memoryconsolidation"
+            || source == "subagent"
+            || source == "memory_consolidation"
+            || source == "memoryconsolidation"
             || payload["source"]?["subagent"]?.object != nil
-            || payload["source"]?["internal"]?.string == "memory_consolidation"
-        {
+            || internalSource == "memory_consolidation"
+            || internalSource == "memoryconsolidation"
+        if inheritsHistory, !codexTranscriptInheritsHistory {
             codexTranscriptInheritsHistory = true
+            codexCumulativeBanked = ChatTokenUsage()
+            codexInheritedCumulativeBaseline = codexCumulativeCurrent
+            codexCumulativeCurrent = nil
         }
         observeCodexSessionID(payload["id"]?.string)
         observeCodexThreadID(payload["thread_id"]?.string)
@@ -472,11 +486,12 @@ public struct ChatUsageAccumulator: Sendable {
 
     /// Banks a cumulative run at a provider-declared thread/reset boundary.
     private mutating func beginCodexCumulativeRun() {
-        guard codexSource != .usageRecords,
-              let codexCumulativeCurrent
-        else { return }
-        codexCumulativeBanked += codexCumulativeCurrent
+        guard codexSource != .usageRecords else { return }
+        if let codexCumulativeCurrent {
+            codexCumulativeBanked += codexCumulativeCurrent
+        }
         self.codexCumulativeCurrent = nil
+        codexInheritedCumulativeBaseline = nil
     }
 
     /// Folds one fallback cumulative report into the monotone-run total.
@@ -494,6 +509,10 @@ public struct ChatUsageAccumulator: Sendable {
         }
         guard codexSource != .usageRecords else { return }
         let usage = codexUsage(from: cumulative)
+        if codexTranscriptInheritsHistory {
+            readInheritedCodexCumulative(usage)
+            return
+        }
         if usage.isEmpty {
             // Zero is a reset delimiter only after a run exists. A leading
             // zero must not claim that cumulative accounting is active.
@@ -517,6 +536,51 @@ public struct ChatUsageAccumulator: Sendable {
             // make the uncertainty visible instead of guessing from size.
             cumulativeUsageIsAmbiguous = true
             codexCumulativeCurrent = usage
+        }
+    }
+
+    /// Counts only growth after an inherited parent-thread snapshot.
+    private mutating func readInheritedCodexCumulative(_ usage: ChatTokenUsage) {
+        codexSource = .cumulativeEvents
+        if usage.isEmpty {
+            if let current = codexCumulativeCurrent {
+                codexCumulativeBanked += current
+            }
+            codexCumulativeCurrent = nil
+            codexInheritedCumulativeBaseline = nil
+            return
+        }
+        guard let baseline = codexInheritedCumulativeBaseline else {
+            codexInheritedCumulativeBaseline = usage
+            codexCumulativeCurrent = nil
+            return
+        }
+        guard usage.freshInputTokens >= baseline.freshInputTokens,
+              usage.cacheReadTokens >= baseline.cacheReadTokens,
+              usage.cacheWriteTokens >= baseline.cacheWriteTokens,
+              usage.outputTokens >= baseline.outputTokens,
+              usage.reasoningOutputTokens >= baseline.reasoningOutputTokens
+        else {
+            cumulativeUsageIsAmbiguous = true
+            if let current = codexCumulativeCurrent {
+                codexCumulativeBanked += current
+            }
+            codexCumulativeCurrent = nil
+            codexInheritedCumulativeBaseline = usage
+            return
+        }
+        let delta = Self.difference(usage, baseline)
+        guard let current = codexCumulativeCurrent else {
+            codexCumulativeCurrent = delta
+            return
+        }
+        if delta.totalTokens > current.totalTokens {
+            codexCumulativeCurrent = delta
+        } else if delta == current {
+            Self.incrementSaturating(&duplicateReports)
+        } else {
+            cumulativeUsageIsAmbiguous = true
+            codexCumulativeCurrent = delta
         }
     }
 
