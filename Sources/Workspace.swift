@@ -1781,7 +1781,11 @@ extension Workspace {
                     let trustedRuntimeWorkingDirectory = hasTrustedRemoteDirectory
                         ? savedWorkingDirectory
                         : nil
-                    let trustedAgentWorkingDirectory = hasTrustedRemoteDirectory
+                    // A relay-origin launch cwd is the remote path relay
+                    // admission bounded, so it stays trusted without a
+                    // runtime report; Claude finds the session by it.
+                    let trustedAgentWorkingDirectory = hasTrustedRemoteDirectory ||
+                        restorableAgent.requiresRemoteHostExecution
                         ? (restorableAgent.workingDirectory
                             ?? restorableAgent.launchCommand?.workingDirectory)
                         : nil
@@ -6029,7 +6033,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         guard restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit,
               let snapshot = restoredAgentSnapshotsByPanelId[panelId] ?? observation?.snapshot,
-              snapshot.resumeCommand != nil else {
+              snapshot.resumeCommand != nil,
+              // Waking types the local restore verb, which a relay-origin
+              // session never gets, so hibernating it would strand the pane.
+              !snapshot.requiresRemoteHostExecution else {
             return nil
         }
         let fingerprint = TabManager.restorableAgentSnapshotFingerprint(snapshot)
@@ -6051,6 +6058,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return false
         }
         guard agent.resumeCommand != nil,
+              !agent.requiresRemoteHostExecution,
               terminalPanel.enterAgentHibernation(
                 agent: agent,
                 lastActivityAt: lastActivityAt
