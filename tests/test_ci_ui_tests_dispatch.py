@@ -235,7 +235,7 @@ class AwaitVerdictTests(unittest.TestCase):
 class DispatchTests(unittest.TestCase):
     def test_cancels_the_dispatched_run_when_the_ci_attempt_finishes(self) -> None:
         command = [sys.executable, "-c",
-                   "import time; print('Run: https://github.com/manaflow-ai/cmux/actions/runs/555', flush=True); time.sleep(60)"]
+                   "import signal; print('Run: https://github.com/manaflow-ai/cmux/actions/runs/555', flush=True); signal.pause()"]
         # The attempt finishes only after the dispatcher has named its run.
         gh = FakeGitHub({RUN: [lambda: ci_run(status="completed" if job.dispatched else "in_progress")]})
         job = ui.Dispatch(gh, command, "100", "1")
@@ -245,7 +245,7 @@ class DispatchTests(unittest.TestCase):
     def test_cancels_the_dispatched_run_when_this_run_is_cancelled(self) -> None:
         gh = FakeGitHub({RUN: [ci_run()]})
         command = [sys.executable, "-c",
-                   "import time; print('Run: https://github.com/manaflow-ai/cmux/actions/runs/556', flush=True); time.sleep(60)"]
+                   "import signal; print('Run: https://github.com/manaflow-ai/cmux/actions/runs/556', flush=True); signal.pause()"]
         job = ui.Dispatch(gh, command, "100", "1")
 
         def cancel_once_named() -> None:
@@ -258,8 +258,8 @@ class DispatchTests(unittest.TestCase):
 
     def test_leaves_a_run_it_attached_to_running(self) -> None:
         command = [sys.executable, "-c",
-                   "import time; print('x is already queued at y on z; reusing that run instead of dispatching.'); "
-                   "print('Run: https://github.com/manaflow-ai/cmux/actions/runs/557', flush=True); time.sleep(60)"]
+                   "import signal; print('x is already queued at y on z; reusing that run instead of dispatching.'); "
+                   "print('Run: https://github.com/manaflow-ai/cmux/actions/runs/557', flush=True); signal.pause()"]
         gh = FakeGitHub({RUN: [lambda: ci_run(status="completed" if job.dispatched else "in_progress")]})
         job = ui.Dispatch(gh, command, "100", "1")
         self.assertEqual(job.run(interval=0.2, tick=0.1), 130)
