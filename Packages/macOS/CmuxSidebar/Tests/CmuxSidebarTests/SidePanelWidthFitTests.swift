@@ -68,12 +68,30 @@ struct SidePanelWidthFitTests {
         let fit = leftOnly.showing(.right, windowWidth: 600, leftWidth: left, rightWidth: right)
         #expect(fit.isRightVisible && !fit.isRightAutoCollapsed)
         #expect(!fit.isLeftVisible && fit.isLeftAutoCollapsed)
+        #expect(fit.preferredPanel == .right)
+    }
+
+    /// Showing the right sidebar beside the left one in a mid-width window must
+    /// survive the fit pass that follows (the left sidebar hiding, or any resize).
+    @Test(arguments: [SidePanelWidthFit.Panel.left, .right])
+    func aShownPanelSurvivesTheNextFit(panel: SidePanelWidthFit.Panel) {
+        let start = panel == .left
+            ? SidePanelWidthFit(isLeftVisible: false, isRightVisible: true, preferredPanel: .right)
+            : SidePanelWidthFit(isLeftVisible: true, isRightVisible: false)
+        for width in stride(from: CGFloat(300), through: 1200, by: 5) {
+            let shown = start.showing(panel, windowWidth: width, leftWidth: left, rightWidth: right)
+            let refit = shown.fitting(windowWidth: width, leftWidth: left, rightWidth: right)
+            if width - (panel == .left ? left : right) >= floor {
+                #expect(refit == shown, "width \(width)")
+            }
+            #expect(panel == .left ? shown.isLeftVisible : shown.isRightVisible)
+        }
     }
 
     @Test func showingAPanelThatFitsKeepsTheOther() {
         let leftOnly = SidePanelWidthFit(isLeftVisible: true, isRightVisible: false)
         let fit = leftOnly.showing(.right, windowWidth: 1440, leftWidth: left, rightWidth: right)
-        #expect(fit == SidePanelWidthFit(isLeftVisible: true, isRightVisible: true))
+        #expect(fit == SidePanelWidthFit(isLeftVisible: true, isRightVisible: true, preferredPanel: .right))
     }
 
     @Test func showingAnAutoCollapsedPanelClearsItsFlag() {

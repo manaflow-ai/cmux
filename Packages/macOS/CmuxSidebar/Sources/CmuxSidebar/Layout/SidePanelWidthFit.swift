@@ -30,22 +30,27 @@ public struct SidePanelWidthFit: Equatable, Sendable {
     public var isLeftAutoCollapsed: Bool
     /// Same as ``isLeftAutoCollapsed`` for the right sidebar.
     public var isRightAutoCollapsed: Bool
+    /// The panel kept when only one of the two fits: the one the person showed
+    /// last, else the left one.
+    public var preferredPanel: Panel
 
     public init(
         isLeftVisible: Bool,
         isRightVisible: Bool,
         isLeftAutoCollapsed: Bool = false,
-        isRightAutoCollapsed: Bool = false
+        isRightAutoCollapsed: Bool = false,
+        preferredPanel: Panel = .left
     ) {
         self.isLeftVisible = isLeftVisible
         self.isRightVisible = isRightVisible
         self.isLeftAutoCollapsed = isLeftAutoCollapsed
         self.isRightAutoCollapsed = isRightAutoCollapsed
+        self.preferredPanel = preferredPanel
     }
 
     /// The panels to show at `windowWidth`. Of the panels the person wants
     /// (shown, or collapsed here earlier), it shows both if they fit, else the
-    /// left one alone, else the right one alone, else neither. The answer
+    /// preferred one alone, else the other one alone, else neither. The answer
     /// depends only on the wanted panels and the widths, so applying it twice
     /// changes nothing and a live resize never flickers a panel.
     ///
@@ -63,7 +68,10 @@ public struct SidePanelWidthFit: Equatable, Sendable {
         guard windowWidth.isFinite, windowWidth > 0 else { return self }
         let wantsLeft = isLeftVisible || isLeftAutoCollapsed
         let wantsRight = isRightVisible || isRightAutoCollapsed
-        let candidates = [(wantsLeft, wantsRight), (wantsLeft, false), (false, wantsRight)]
+        let single = preferredPanel == .left
+            ? [(wantsLeft, false), (false, wantsRight)]
+            : [(false, wantsRight), (wantsLeft, false)]
+        let candidates = [(wantsLeft, wantsRight)] + single
         let chosen = candidates.first { left, right in
             windowWidth - (left ? leftWidth : 0) - (right ? rightWidth : 0) >= minimumTerminalWidth
         } ?? (false, false)
@@ -71,15 +79,18 @@ public struct SidePanelWidthFit: Equatable, Sendable {
             isLeftVisible: chosen.0,
             isRightVisible: chosen.1,
             isLeftAutoCollapsed: wantsLeft && !chosen.0,
-            isRightAutoCollapsed: wantsRight && !chosen.1
+            isRightAutoCollapsed: wantsRight && !chosen.1,
+            preferredPanel: preferredPanel
         )
     }
 
-    /// The panels to show after the person shows `panel`: that panel stays,
-    /// and the other one collapses if both do not fit. A panel shown in a
-    /// window too narrow even for it alone stays shown; the terminal still
-    /// keeps some width because the window minimum is wider than either
-    /// panel, and the next window resize collapses it.
+    /// The panels to show after the person shows `panel`: that panel becomes
+    /// the preferred one and stays, and the other one collapses if both do not
+    /// fit. The result is what ``fitting`` keeps at the same width, so a later
+    /// resize does not undo it. A panel shown in a window too narrow even for
+    /// it alone stays shown; the terminal still keeps some width because the
+    /// window minimum is wider than either panel, and the next window resize
+    /// collapses it.
     public func showing(
         _ panel: Panel,
         windowWidth: CGFloat,
@@ -88,6 +99,7 @@ public struct SidePanelWidthFit: Equatable, Sendable {
         minimumTerminalWidth: CGFloat = SidePanelWidthFit.minimumTerminalWidth
     ) -> SidePanelWidthFit {
         var next = self
+        next.preferredPanel = panel
         switch panel {
         case .left:
             next.isLeftVisible = true

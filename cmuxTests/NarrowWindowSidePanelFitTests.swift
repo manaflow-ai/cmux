@@ -35,6 +35,7 @@ struct NarrowWindowSidePanelFitTests {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let defaults = UserDefaults.standard
         let savedRightSidebarVisible = defaults.object(forKey: "fileExplorer.isVisible")
+        let savedRightSidebarWidth = defaults.object(forKey: "fileExplorer.width")
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
         let window = try #require(appDelegate.mainWindow(for: windowId) as? CmuxMainWindow)
 #if DEBUG
@@ -48,10 +49,15 @@ struct NarrowWindowSidePanelFitTests {
 #if DEBUG
             appDelegate.debugCloseMainWindowConfirmationHandler = previousConfirmationHandler
 #endif
-            if let savedRightSidebarVisible {
-                defaults.set(savedRightSidebarVisible, forKey: "fileExplorer.isVisible")
-            } else {
-                defaults.removeObject(forKey: "fileExplorer.isVisible")
+            for (key, saved) in [
+                ("fileExplorer.isVisible", savedRightSidebarVisible),
+                ("fileExplorer.width", savedRightSidebarWidth),
+            ] {
+                if let saved {
+                    defaults.set(saved, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
             }
         }
         let context = try #require(appDelegate.contextForMainWindow(window))
@@ -96,6 +102,23 @@ struct NarrowWindowSidePanelFitTests {
             return context.sidebarState.isVisible && rightSidebar.isVisible
         }
         #expect(restored, "auto-collapsed side panels return when the window widens")
+
+        // At a width that holds one panel beside the terminal, showing the right
+        // sidebar while the left one shows keeps the right one, even after a resize.
+        _ = appDelegate.resizeMainWindow(windowId: windowId, width: 600, height: 900)
+        let leftOnly = await pump.waitUntil(timeout: .seconds(10)) {
+            layOut(window)
+            return context.sidebarState.isVisible && !rightSidebar.isVisible
+        }
+        #expect(leftOnly, "a 600 pt window keeps the left sidebar alone")
+        rightSidebar.isVisible = true
+        _ = appDelegate.resizeMainWindow(windowId: windowId, width: 601, height: 900)
+        let rightKept = await pump.waitUntil(timeout: .seconds(10)) {
+            layOut(window)
+            return rightSidebar.isVisible && !context.sidebarState.isVisible
+        }
+        #expect(rightKept, "the sidebar the person just showed stays")
+        #expect(context.sidebarState.isAutoCollapsed)
     }
 
     private func layOut(_ window: NSWindow) {
