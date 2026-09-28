@@ -27,6 +27,11 @@ on:
         description: "Base64 JSON scenario for cmuxUITests/DogfoodScenarioUITests (scripts/run-e2e.sh --scenario builds it); empty otherwise"
         required: false
         default: ""
+      require_adopted_product:
+        description: "Fail instead of compiling when no compiled product of this revision can be adopted (scripts/run-e2e.sh --adopt-only)"
+        required: false
+        default: false
+        type: boolean
       record_video:
         description: Record the virtual display during UI tests
         required: false
@@ -586,6 +591,16 @@ jobs:
           CMUX_REUSE_SWITCH_ROOTS: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && '1' || '' }}
         run: python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
 
+      # PR media tours (pr-media.yml) ask for CI's product and never pay for
+      # a second compile of the app.
+      - name: Refuse to compile for a dispatch that requires an adopted product
+        if: ${{ inputs.require_adopted_product && steps.reuse.outputs.hit != 'true' }}
+        env:
+          MISSES: ${{ steps.reuse.outputs.miss_reasons }}
+        run: |
+          echo "::error::No compiled product of this revision could be adopted (${MISSES:-no reason recorded}), and this dispatch asked not to compile one."
+          exit 1
+
       # An owned Mac (glaeda-*) keeps compile admission's DerivedData and
       # resolved packages between jobs (owned_build_state.py), at
       # this same root, path and fingerprint. Start from them instead of
@@ -630,7 +645,8 @@ jobs:
           tools="$RUNNER_TEMP/owned-state-tools"
           rm -rf -- "$tools"
           mkdir -p "$tools"
-          for name in owned_build_state.py apfs_clone.py e2e_warm_derived_data.py parallel_artifact_download.py \
+          for name in owned_build_state.py apfs_clone.py owned_spm_scratch.py e2e_warm_derived_data.py \
+            parallel_artifact_download.py \
             r2-cache.sh seed_derived_data.py; do
             curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
               -o "$tools/$name" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$WORKFLOW_SHA/scripts/ci/$name"
@@ -1131,9 +1147,15 @@ jobs:
       # dispatch still publishes what it compiled. The tested revision's test
       # code ran between packaging and here, so the archive must still hash
       # to what the package step sealed.
+      #
+      # A product this job adopted is already published by the run that
+      # compiled it, under the same name, and later dispatches adopt it from
+      # there. Uploading it again only held the verdict: 162 s at the median
+      # on owned Macs (18 adopting runs, 2026-09-25 to 09-28). It is uploaded
+      # only when the `test` job needs it.
       - name: Check the product archive before the late upload
         id: late-upload-check
-        if: ${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' }}
+        if: ${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' && (steps.reuse.outputs.hit != 'true' || steps.test-here.outputs.tested != 'true') }}
         env:
           EXPECTED_SHA256: ${{ steps.package.outputs.sha256 }}
         run: echo "$EXPECTED_SHA256  $RUNNER_TEMP/app-host-products.tar.gz" | shasum -a 256 -c -

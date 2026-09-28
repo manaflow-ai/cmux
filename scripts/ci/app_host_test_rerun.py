@@ -236,7 +236,10 @@ def plan(args: argparse.Namespace, api: Callable[[str], dict] = gh_api) -> dict:
             )
         artifact = products_artifact(args.repository, args.source_run_id, api)
         if not artifact:
-            raise SystemExit(f"run {args.source_run_id} has no unexpired {PRODUCTS_PREFIX}* artifact")
+            adopted = (" A test-e2e.yml build that adopted another run's product uploads none of its own:"
+                       " pass the run named in its 'Compiled test product' summary instead."
+                       if run.get("path") == E2E_WORKFLOW else "")
+            raise SystemExit(f"run {args.source_run_id} has no unexpired {PRODUCTS_PREFIX}* artifact.{adopted}")
         found = {"revision": revision, "run_id": args.source_run_id, "artifact": artifact}
     else:
         revisions, blocker = eligible_revisions(head, args.max_commits)
