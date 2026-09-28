@@ -614,6 +614,7 @@
 		C10657000000000000000003 /* CLILocalTmuxIdentityRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10657000000000000000004 /* CLILocalTmuxIdentityRegressionTests.swift */; };
 		C10657000000000000000001 /* CLILocalTmuxReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10657000000000000000002 /* CLILocalTmuxReviewRegressionTests.swift */; };
 		C10657000000000000000005 /* CLILocalTmuxSurfaceRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10657000000000000000006 /* CLILocalTmuxSurfaceRecoveryTests.swift */; };
+		ED22B79C954E3E1F374D0B96 /* CLIMetaBlockCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E957FC46AB028DC69BDC456 /* CLIMetaBlockCommandTests.swift */; };
 		A5D41330A1B2C3D4E5F60718 /* CLIMockSocketServerSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41331A1B2C3D4E5F60718 /* CLIMockSocketServerSupport.swift */; };
 		11189000A1B2C3D4E5F60718 /* CLINotificationPaneAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11189001A1B2C3D4E5F60718 /* CLINotificationPaneAttributionTests.swift */; };
 		F0F0CF0E0000000000000001 /* CLINotifyClaudeForkOfForkRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0CF0E0000000000000002 /* CLINotifyClaudeForkOfForkRegressionTests.swift */; };
@@ -4795,6 +4796,7 @@
 		C10657000000000000000004 /* CLILocalTmuxIdentityRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILocalTmuxIdentityRegressionTests.swift; sourceTree = "<group>"; };
 		C10657000000000000000002 /* CLILocalTmuxReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILocalTmuxReviewRegressionTests.swift; sourceTree = "<group>"; };
 		C10657000000000000000006 /* CLILocalTmuxSurfaceRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILocalTmuxSurfaceRecoveryTests.swift; sourceTree = "<group>"; };
+		1E957FC46AB028DC69BDC456 /* CLIMetaBlockCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIMetaBlockCommandTests.swift; sourceTree = "<group>"; };
 		A5D41331A1B2C3D4E5F60718 /* CLIMockSocketServerSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIMockSocketServerSupport.swift; sourceTree = "<group>"; };
 		11189001A1B2C3D4E5F60718 /* CLINotificationPaneAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotificationPaneAttributionTests.swift; sourceTree = "<group>"; };
 		F0F0CF0E0000000000000002 /* CLINotifyClaudeForkOfForkRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyClaudeForkOfForkRegressionTests.swift; sourceTree = "<group>"; };
@@ -8343,6 +8345,7 @@
 				C11757000000000000000023 /* CodexTeamsResumedBackfillTests.swift */,
 				C11757000000000000000024 /* CodexTerminalErrorNotificationTests.swift */,
 				C11757000000000000000025 /* KimiHookConfigLocationTests.swift */,
+				1E957FC46AB028DC69BDC456 /* CLIMetaBlockCommandTests.swift */,
 			);
 			path = cmuxCLITests;
 			sourceTree = "<group>";
@@ -13071,6 +13074,7 @@
 				C1175700000000000000002E /* CLIExplicitSurfaceRoutingTests.swift in Sources */,
 				C1175700000000000000002F /* CLIHookNoResponseTests.swift in Sources */,
 				C11757000000000000000044 /* CLIHookProcessRunner.swift in Sources */,
+				ED22B79C954E3E1F374D0B96 /* CLIMetaBlockCommandTests.swift in Sources */,
 				C11757000000000000000030 /* CLIOmpSupersededCleanupTests.swift in Sources */,
 				C117570000000000000000A2 /* CLIPasteCommandTests.swift in Sources */,
 				C11757000000000000000031 /* CLIRelayQueuedHookRegressionTests.swift in Sources */,
