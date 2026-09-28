@@ -111,27 +111,48 @@ fn session_socket_path(socket_dir: &Path, uid: u32, session: &str) -> Result<Pat
 }
 
 /// Resolve a session socket and prepare the directories it depends on.
+/// A long session name can move the socket into a `/tmp` or hashed fallback
+/// directory, which gets the same private-directory check as `socket_dir`.
 async fn prepare_session_socket(
     socket_dir: &Path,
     uid: u32,
     session: &str,
 ) -> Result<PathBuf, String> {
+    prepare_private_directory(socket_dir, uid).await?;
+    let socket_path = session_socket_path(socket_dir, uid, session)?;
+    if let Some(parent) = socket_path.parent().filter(|parent| *parent != socket_dir) {
+        prepare_private_directory(parent, uid).await?;
+    }
+    Ok(socket_path)
+}
+
+/// Create `dir` for `uid`, or accept an existing real directory `uid` owns,
+/// and make it private. Symlinks and other users' directories are refused.
+async fn prepare_private_directory(dir: &Path, uid: u32) -> Result<(), String> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    tokio::fs::create_dir_all(socket_dir)
+    let mut builder = tokio::fs::DirBuilder::new();
+    builder.recursive(true).mode(0o700);
+    builder
+        .create(dir)
         .await
         .map_err(|error| format!("control socket directory create failed: {error}"))?;
-    let metadata = tokio::fs::metadata(socket_dir)
+    let metadata = tokio::fs::symlink_metadata(dir)
         .await
         .map_err(|error| format!("control socket directory stat failed: {error}"))?;
     if !metadata.is_dir() || metadata.uid() != uid {
-        return Err(format!("control socket directory is not owned by uid {uid}"));
+        return Err(format!(
+            "control socket directory {} is not owned by uid {uid}",
+            dir.display()
+        ));
     }
-    let mut permissions = metadata.permissions();
-    permissions.set_mode(0o700);
-    tokio::fs::set_permissions(socket_dir, permissions)
-        .await
-        .map_err(|error| format!("control socket directory permissions failed: {error}"))?;
-    session_socket_path(socket_dir, uid, session)
+    if metadata.mode() & 0o077 != 0 {
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o700);
+        tokio::fs::set_permissions(dir, permissions)
+            .await
+            .map_err(|error| format!("control socket directory permissions failed: {error}"))?;
+    }
+    Ok(())
 }
 
 fn unix_socket_path_fits(path: &Path) -> bool {

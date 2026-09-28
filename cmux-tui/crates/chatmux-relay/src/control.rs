@@ -125,12 +125,12 @@ mod unix {
         timeout_ms: u64,
         expected_uid: u32,
     ) -> Result<Arc<UnixControl>, String> {
-        let _ = expected_uid;
         let connect = UnixStream::connect(socket_path);
         let stream = tokio::time::timeout(Duration::from_millis(timeout_ms), connect)
             .await
             .map_err(|_| format!("cmux-tui control connect timed out ({})", socket_path.display()))?
             .map_err(|error| error.to_string())?;
+        require_peer_uid(&stream, expected_uid)?;
         let raw_fd = {
             use std::os::fd::AsRawFd as _;
             stream.as_raw_fd()
@@ -165,6 +165,22 @@ mod unix {
             next_id: AtomicU64::new(1),
             timeout_ms,
         }))
+    }
+
+    /// Session sockets can live in shared fallback directories, so check who
+    /// serves one before sending anything on it.
+    fn require_peer_uid(stream: &UnixStream, expected_uid: u32) -> Result<(), String> {
+        let peer_uid = stream
+            .peer_cred()
+            .map_err(|error| format!("cmux-tui control peer check failed: {error}"))?
+            .uid();
+        if peer_uid == expected_uid {
+            Ok(())
+        } else {
+            Err(format!(
+                "cmux-tui control socket is served by uid {peer_uid}, not uid {expected_uid}"
+            ))
+        }
     }
 
     #[cfg(test)]

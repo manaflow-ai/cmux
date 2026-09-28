@@ -329,12 +329,20 @@ struct PoolState {
 
 #[cfg(unix)]
 async fn run(events: ManagedEvents, cancellation: CancellationToken) {
-    let (cursor_path, cursors) = match default_cursor_path() {
-        Some(path) => match open_cursor_store(&path, Path::new(LEGACY_CURSOR_PATH)).await {
-            Some(cursors) => (Some(path), cursors),
-            None => (None, HashMap::new()),
-        },
-        None => (None, HashMap::new()),
+    let store = match default_cursor_path() {
+        Some(path) => open_cursor_store(&path, Path::new(LEGACY_CURSOR_PATH))
+            .await
+            .map(|cursors| (path, cursors)),
+        None => None,
+    };
+    let (cursor_path, cursors) = match store {
+        Some((path, cursors)) => (Some(path), cursors),
+        None => {
+            eprintln!(
+                "chatmux-relay: journal cursors stay in memory; no private state directory is available"
+            );
+            (None, HashMap::new())
+        }
     };
     let client = match build_http_client(DEFAULT_REQUEST_TIMEOUT) {
         Ok(client) => client,
@@ -1287,19 +1295,64 @@ fn default_cursor_path() -> Option<PathBuf> {
     cursor_path_for(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"))
 }
 
+/// `$XDG_STATE_HOME/chatmux-relay/journal-cursors.json`, falling back to
+/// `$HOME/.local/state`. Relative values are ignored, as the XDG spec requires.
 #[cfg(unix)]
 fn cursor_path_for(
     state_home: Option<std::ffi::OsString>,
     home: Option<std::ffi::OsString>,
 ) -> Option<PathBuf> {
-    let _ = (state_home, home);
-    Some(PathBuf::from(LEGACY_CURSOR_PATH))
+    let absolute = |value: std::ffi::OsString| {
+        let path = PathBuf::from(value);
+        path.is_absolute().then_some(path)
+    };
+    let state_home = state_home
+        .and_then(absolute)
+        .or_else(|| home.and_then(absolute).map(|home| home.join(".local/state")))?;
+    Some(state_home.join("chatmux-relay").join("journal-cursors.json"))
+}
+
+/// Open the cursor store at `path` in a private directory. The first time,
+/// cursors from this user's private legacy `/tmp` file move into it. None
+/// means no private store is available and cursors stay in memory.
+#[cfg(unix)]
+async fn open_cursor_store(path: &Path, legacy: &Path) -> Option<HashMap<String, JournalCursor>> {
+    if !prepare_cursor_directory(path.parent()?).await {
+        return None;
+    }
+    if tokio::fs::symlink_metadata(path).await.is_ok() {
+        return Some(load_cursor_file(path).await);
+    }
+    // load_cursor_file only accepts this user's private regular file.
+    let cursors = load_cursor_file(legacy).await;
+    if !cursors.is_empty() && persist_cursor_file(path, &cursors).await {
+        let _ = tokio::fs::remove_file(legacy).await;
+    }
+    Some(cursors)
 }
 
 #[cfg(unix)]
-async fn open_cursor_store(path: &Path, legacy: &Path) -> Option<HashMap<String, JournalCursor>> {
-    let _ = legacy;
-    Some(load_cursor_file(path).await)
+async fn prepare_cursor_directory(dir: &Path) -> bool {
+    let parent_ready = match dir.parent() {
+        Some(parent) => tokio::fs::create_dir_all(parent).await.is_ok(),
+        None => true,
+    };
+    if !parent_ready {
+        return false;
+    }
+    let mut builder = tokio::fs::DirBuilder::new();
+    builder.mode(0o700);
+    match builder.create(dir).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(_) => return false,
+    }
+    let Ok(metadata) = tokio::fs::symlink_metadata(dir).await else { return false };
+    if !metadata.is_dir() || metadata.uid() != unsafe { libc::getuid() } {
+        return false;
+    }
+    metadata.permissions().mode() & 0o077 == 0
+        || tokio::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).await.is_ok()
 }
 
 #[cfg(unix)]
