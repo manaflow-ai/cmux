@@ -965,7 +965,11 @@ struct ChatUsageAccumulatorTests {
         let totals = accumulator.totals
         #expect(accumulator.codexSource == .usageRecords)
         #expect(totals.responses == 1)
-        #expect(totals.usage.totalTokens == 25_640)
+        // A cumulative event has no response identity. Even though its
+        // last-token tuple matches the record, these can be two distinct
+        // responses and must not be collapsed on token equality alone.
+        #expect(totals.usage.totalTokens == 51_280)
+        #expect(totals.cumulativeUsageIsAmbiguous)
         #expect(totals.usageByModel.isEmpty)
     }
 
@@ -1031,8 +1035,8 @@ struct ChatUsageAccumulatorTests {
         #expect(totals.usage.totalTokens == 30)
     }
 
-    @Test("a matching first record replaces the inherited cumulative tail")
-    func codexInheritedMatchingRecordReplacesCumulativeTail() {
+    @Test("distinct responses with equal usage tuples are both preserved")
+    func codexInheritedEqualUsageResponsesAreBothPreserved() {
         var accumulator = ChatUsageAccumulator()
         accumulator.ingest(codexLines: [
             codexSessionMetaLine(model: "", inheritedHistory: true),
@@ -1050,7 +1054,8 @@ struct ChatUsageAccumulatorTests {
         let totals = accumulator.totals
         #expect(accumulator.codexSource == .usageRecords)
         #expect(totals.responses == 1)
-        #expect(totals.usage.totalTokens == 20)
+        #expect(totals.usage.totalTokens == 40)
+        #expect(totals.cumulativeUsageIsAmbiguous)
     }
 
     @Test("an equal-total record with different fields is not the cumulative tail")
@@ -1074,6 +1079,7 @@ struct ChatUsageAccumulatorTests {
         #expect(totals.usage.freshInputTokens == 30)
         #expect(totals.usage.outputTokens == 10)
         #expect(totals.usage.totalTokens == 40)
+        #expect(totals.cumulativeUsageIsAmbiguous)
     }
 
     @Test("a less-informative duplicate cumulative snapshot preserves its tail")
@@ -1099,8 +1105,9 @@ struct ChatUsageAccumulatorTests {
 
         let totals = accumulator.totals
         #expect(accumulator.codexSource == .usageRecords)
-        #expect(totals.usage.totalTokens == 20)
+        #expect(totals.usage.totalTokens == 40)
         #expect(totals.duplicateReports == 1)
+        #expect(totals.cumulativeUsageIsAmbiguous)
     }
 
     @Test("an inherited explicit zero starts a fully countable cumulative run")

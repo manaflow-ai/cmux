@@ -122,7 +122,6 @@ public struct ChatUsageAccumulator: Sendable {
     private var codexCumulativeBanked = ChatTokenUsage()
     private var codexCumulativeCurrent: ChatTokenUsage?
     private var codexInheritedCumulativeBaseline: ChatTokenUsage?
-    private var codexCumulativeReplaceableTail: ChatTokenUsage?
     private var cumulativeUsageIsAmbiguous = false
 
     private var duplicateReports = 0
@@ -389,7 +388,6 @@ public struct ChatUsageAccumulator: Sendable {
             codexCumulativeBanked = ChatTokenUsage()
             codexInheritedCumulativeBaseline = codexCumulativeCurrent
             codexCumulativeCurrent = nil
-            codexCumulativeReplaceableTail = nil
         }
         observeCodexSessionID(payload["id"]?.string)
         observeCodexThreadID(payload["thread_id"]?.string)
@@ -421,23 +419,20 @@ public struct ChatUsageAccumulator: Sendable {
         // Records are precise from this point forward. Preserve a cumulative
         // prefix written before record support appeared. In an inherited
         // rollout, cumulative accounting has already removed the parent
-        // baseline. The one exception is a latest cumulative tail that is the
-        // same response as this first precise record: replace that estimate
-        // instead of counting the response twice.
+        // baseline. Cumulative events carry no response identity, so even an
+        // identical token tuple cannot prove that the first record describes
+        // the same response. Preserve the prefix and expose that overlap as
+        // ambiguous rather than silently undercounting a distinct response.
         if codexSource != .usageRecords {
-            var prefix = codexCumulativeTotal
-            if codexTranscriptInheritsHistory,
-               let tail = codexCumulativeReplaceableTail,
-               tail == usage,
-               let withoutTail = Self.subtract(tail, from: prefix)
-            {
-                prefix = withoutTail
-            }
+            let prefix = codexCumulativeTotal
             codexRecordPrefixUsage = prefix
-            cumulativeUsageIsAmbiguous = cumulativeUsageIsAmbiguous && !prefix.isEmpty
+            if codexTranscriptInheritsHistory, !prefix.isEmpty {
+                cumulativeUsageIsAmbiguous = true
+            } else {
+                cumulativeUsageIsAmbiguous = cumulativeUsageIsAmbiguous && !prefix.isEmpty
+            }
         }
         codexSource = .usageRecords
-        codexCumulativeReplaceableTail = nil
         Self.incrementSaturating(&codexResponseCount)
         codexRecordUsage += usage
         // Resolve the record against its own identity. A later turn context
@@ -534,7 +529,6 @@ public struct ChatUsageAccumulator: Sendable {
         }
         self.codexCumulativeCurrent = nil
         codexInheritedCumulativeBaseline = nil
-        codexCumulativeReplaceableTail = nil
     }
 
     /// Folds one fallback cumulative report into the monotone-run total.
@@ -605,7 +599,6 @@ public struct ChatUsageAccumulator: Sendable {
             // Unlike the inherited opening snapshot, an explicit zero is a
             // known baseline. The next run belongs wholly to this transcript.
             codexInheritedCumulativeBaseline = ChatTokenUsage()
-            codexCumulativeReplaceableTail = nil
             return
         }
         guard let baseline = codexInheritedCumulativeBaseline else {
@@ -618,11 +611,9 @@ public struct ChatUsageAccumulator: Sendable {
                 // `last_token_usage` is the only proven child portion.
                 codexInheritedCumulativeBaseline = baseline
                 codexCumulativeCurrent = lastUsage
-                codexCumulativeReplaceableTail = lastUsage
             } else {
                 codexInheritedCumulativeBaseline = usage
                 codexCumulativeCurrent = nil
-                codexCumulativeReplaceableTail = nil
             }
             return
         }
@@ -638,39 +629,20 @@ public struct ChatUsageAccumulator: Sendable {
             }
             codexCumulativeCurrent = nil
             codexInheritedCumulativeBaseline = usage
-            codexCumulativeReplaceableTail = nil
             return
         }
         let delta = Self.difference(usage, baseline)
-        let replaceableTail: ChatTokenUsage?
-        if let lastUsage,
-           !lastUsage.isEmpty,
-           Self.subtract(lastUsage, from: delta) != nil
-        {
-            replaceableTail = lastUsage
-        } else {
-            replaceableTail = nil
-        }
         guard let current = codexCumulativeCurrent else {
             codexCumulativeCurrent = delta
-            codexCumulativeReplaceableTail = replaceableTail
             return
         }
         if delta.totalTokens > current.totalTokens {
             codexCumulativeCurrent = delta
-            codexCumulativeReplaceableTail = replaceableTail
         } else if delta == current {
             Self.incrementSaturating(&duplicateReports)
-            // A duplicate snapshot without a last-usage block carries no new
-            // evidence about which cumulative tail a later record replaces.
-            // Preserve the proven tail until a nonempty replacement appears.
-            if let replaceableTail {
-                codexCumulativeReplaceableTail = replaceableTail
-            }
         } else {
             cumulativeUsageIsAmbiguous = true
             codexCumulativeCurrent = delta
-            codexCumulativeReplaceableTail = replaceableTail
         }
     }
 
