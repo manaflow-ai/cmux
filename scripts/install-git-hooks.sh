@@ -15,8 +15,27 @@ if [[ "$GIT_COMMON_DIR" != /* ]]; then
 fi
 TRUSTED_HOOK_DIR="$GIT_COMMON_DIR/cmux-git-hooks"
 mkdir -p "$TRUSTED_HOOK_DIR"
+
+PYTHON3_BIN="$(command -v python3 || true)"
+if [[ -z "$PYTHON3_BIN" || "$PYTHON3_BIN" != /* ]]; then
+    echo "error: python3 must resolve to an absolute executable outside the checkout." >&2
+    exit 1
+fi
+PYTHON3_BIN="$(/bin/realpath "$PYTHON3_BIN")"
+case "$PYTHON3_BIN" in
+    "$REPO_ROOT"|"$REPO_ROOT"/*)
+        echo "error: python3 resolves inside the checkout; refusing to install an untrusted interpreter." >&2
+        exit 1
+        ;;
+esac
 install -m 0755 scripts/git-hooks/pre-commit "$TRUSTED_HOOK_DIR/pre-commit"
 install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
+install -m 0644 scripts/ci/validate_test_execution_registry.py "$TRUSTED_HOOK_DIR/validate_test_execution_registry.py"
+install -m 0644 scripts/ci/test_execution_registry.py "$TRUSTED_HOOK_DIR/test_execution_registry.py"
+install -m 0644 scripts/ci/workload_entrypoints.py "$TRUSTED_HOOK_DIR/workload_entrypoints.py"
+install -m 0644 scripts/normalize-pbxproj.py "$TRUSTED_HOOK_DIR/normalize-pbxproj.py"
+printf '%s\n' "$PYTHON3_BIN" > "$TRUSTED_HOOK_DIR/python3-path"
+chmod 0644 "$TRUSTED_HOOK_DIR/python3-path"
 
 # Hooks a contributor already has (a core.hooksPath set in any config scope, or
 # executable hooks such as Git LFS's in .git/hooks) are left in place with a
@@ -87,18 +106,6 @@ install -m 0755 scripts/merge-xcstrings.py "$MERGE_DRIVER_DIR/merge-xcstrings.py
 install -m 0755 scripts/merge-pbxproj.py "$MERGE_DRIVER_DIR/merge-pbxproj.py"
 install -m 0644 scripts/ci/catch_up_pr.py "$MERGE_DRIVER_DIR/ci/catch_up_pr.py"
 install -m 0755 scripts/normalize-pbxproj.py "$MERGE_DRIVER_DIR/normalize-pbxproj.py"
-PYTHON3_BIN="$(command -v python3 || true)"
-if [[ -z "$PYTHON3_BIN" || "$PYTHON3_BIN" != /* ]]; then
-    echo "error: python3 must resolve to an absolute executable outside the checkout." >&2
-    exit 1
-fi
-PYTHON3_BIN="$(/bin/realpath "$PYTHON3_BIN")"
-case "$PYTHON3_BIN" in
-    "$REPO_ROOT"|"$REPO_ROOT"/*)
-        echo "error: python3 resolves inside the checkout; refusing to install an untrusted merge interpreter." >&2
-        exit 1
-        ;;
-esac
 printf -v XCSTRINGS_DRIVER '%q -I %q %%O %%A %%B %%P' \
     "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-xcstrings.py"
 printf -v PBXPROJ_DRIVER '%q -I %q %%O %%A %%B %%P' \

@@ -46,6 +46,9 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
             "scripts/ci/catch_up_pr.py",
+            "scripts/ci/validate_test_execution_registry.py",
+            "scripts/ci/test_execution_registry.py",
+            "scripts/ci/workload_entrypoints.py",
             "scripts/normalize-pbxproj.py",
         ):
             source, target = SOURCE / relative, root / relative
@@ -77,6 +80,25 @@ class InstallGitHooksTests(unittest.TestCase):
         for name in ("pre-commit", "post-merge"):
             self.assertTrue((installed / name).is_file(), name)
             self.assertTrue(os.access(installed / name, os.X_OK), name)
+        for name in (
+            "validate_test_execution_registry.py",
+            "test_execution_registry.py",
+            "workload_entrypoints.py",
+            "normalize-pbxproj.py",
+            "python3-path",
+        ):
+            self.assertTrue((installed / name).is_file(), name)
+        python3 = Path((installed / "python3-path").read_text(encoding="utf-8").strip())
+        self.assertTrue(python3.is_absolute())
+        self.assertFalse(python3.resolve().is_relative_to(self.repo.resolve()))
+        helper = subprocess.run(
+            [str(python3), "-I", str(installed / "validate_test_execution_registry.py"), "--help"],
+            cwd=self.repo,
+            env=self.env,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(helper.returncode, 0, helper.stderr)
 
     def assert_merge_driver_installed(self):
         installed = self.common_dir() / "cmux-merge-drivers"
@@ -121,6 +143,54 @@ class InstallGitHooksTests(unittest.TestCase):
             installed_hook.resolve(),
             (self.repo / "scripts/git-hooks/post-merge").resolve(),
         )
+
+    def test_pre_commit_helpers_do_not_follow_checked_out_changes(self):
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        installed = Path(self.local_hooks_path())
+        for relative, installed_name in (
+            ("scripts/ci/validate_test_execution_registry.py", "validate_test_execution_registry.py"),
+            ("scripts/normalize-pbxproj.py", "normalize-pbxproj.py"),
+        ):
+            reviewed = (installed / installed_name).read_bytes()
+            (self.repo / relative).write_text(
+                "raise SystemExit('untrusted checkout executed')\n",
+                encoding="utf-8",
+            )
+            self.assertEqual((installed / installed_name).read_bytes(), reviewed)
+
+        hook = (installed / "pre-commit").read_text(encoding="utf-8")
+        self.assertNotIn("scripts/ci/validate_test_execution_registry.py", hook)
+        self.assertNotIn("scripts/normalize-pbxproj.py", hook)
+
+    def test_pre_commit_executes_no_checked_out_python_helpers(self):
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        marker = self.root / "untrusted-hook-helper-ran"
+        payload = (
+            "from pathlib import Path\n"
+            f"Path({str(marker)!r}).touch()\n"
+        )
+        (self.repo / "scripts/ci/validate_test_execution_registry.py").write_text(
+            payload, encoding="utf-8"
+        )
+        (self.repo / "scripts/normalize-pbxproj.py").write_text(payload, encoding="utf-8")
+
+        workflow = self.repo / ".github/workflows/probe.yml"
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text("name: probe\n", encoding="utf-8")
+        pbxproj = self.repo / "cmux.xcodeproj/project.pbxproj"
+        pbxproj.parent.mkdir(parents=True)
+        pbxproj.write_text("not a project\n", encoding="utf-8")
+        self.git("add", str(workflow.relative_to(self.repo)), str(pbxproj.relative_to(self.repo)))
+
+        hook = Path(self.local_hooks_path()) / "pre-commit"
+        hook_result = subprocess.run(
+            [str(hook)], cwd=self.repo, env=self.env, text=True, capture_output=True
+        )
+
+        self.assertNotEqual(hook_result.returncode, 0, "trusted normalizer must reject the fixture")
+        self.assertFalse(marker.exists(), "a helper from the checked-out branch executed")
 
     def test_merge_driver_does_not_follow_checked_out_script_changes(self):
         result = self.install()

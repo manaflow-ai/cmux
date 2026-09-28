@@ -224,10 +224,14 @@ def logical_source_entries(module, text: str) -> dict[tuple[str, str, str], set[
 def source_entry_union(module, base: str, ours: str, theirs: str) -> str:
     """Union only source-file entries in their known order-insensitive containers."""
     merged = module.union_pbxproj(base, ours, theirs)
+    base_entries = logical_source_entries(module, base)
     ours_entries = logical_source_entries(module, ours)
     theirs_entries = logical_source_entries(module, theirs)
     for key in ours_entries.keys() & theirs_entries.keys():
-        if ours_entries[key] != theirs_entries[key]:
+        base_lines = base_entries.get(key, set())
+        ours_added = ours_entries[key] - base_lines
+        theirs_added = theirs_entries[key] - base_lines
+        if ours_added and theirs_added and ours_added != theirs_added:
             raise ValueError(
                 "both sides added the same logical file with different Xcode object IDs"
             )

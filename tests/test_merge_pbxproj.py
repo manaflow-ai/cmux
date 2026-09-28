@@ -235,6 +235,21 @@ def test_one_sided_change_applies():
     assert entries(merged, "Theirs.swift") == REGIONS, merged
 
 
+def test_one_sided_existing_entry_edit_does_not_collide_with_unrelated_addition():
+    base = project(["Alpha.swift", "Zeta.swift"])
+    ours = base.replace(
+        "path = Alpha.swift; sourceTree = \"<group>\";",
+        "path = Alpha.swift; includeInIndex = 1; sourceTree = \"<group>\";",
+    )
+    theirs = project(["Alpha.swift", "Zeta.swift", "Theirs.swift"])
+
+    code, merged, stderr = run(base, ours, theirs)
+
+    assert code == 0, stderr
+    assert "includeInIndex = 1" in merged
+    assert entries(merged, "Theirs.swift") == REGIONS, merged
+
+
 def test_both_sides_change_the_same_setting_falls_back_to_git():
     """A disagreement is not an insertion, so the author has to settle it."""
     base = project(["Alpha.swift"], settings="5.0")
