@@ -147,8 +147,10 @@ public actor IrxJournalUploader {
         switch status {
         case 200..<300:
             uploadedCount += batch.count
-        case 400, 413:
-            // The server rejected the batch shape; retrying cannot succeed.
+        case 400, 404, 413:
+            // The server rejected the batch shape, or this backend does not
+            // serve the route yet; retrying this batch cannot succeed. Later
+            // batches still try, so the lane comes up when the route ships.
             droppedCount += batch.count
         default:
             // Auth outage, rate limit, or transport failure: retain for the
