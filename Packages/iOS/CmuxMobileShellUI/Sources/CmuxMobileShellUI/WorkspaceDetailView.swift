@@ -660,6 +660,19 @@ struct WorkspaceDetailView: View {
         // Reconnect in the title menu, and last-known content stays visible
         // throughout.
         #if os(iOS)
+        .overlay {
+            // Shared sizing chrome (chip, cut pill, detached card). Attached
+            // after `allowsHitTesting` so the detached card's Reattach
+            // buttons stay tappable while terminal input is blocked.
+            if let terminal = selectedTerminal {
+                TerminalSharedSizingOverlay(
+                    store: store,
+                    surfaceID: terminal.id.rawValue,
+                    tabTitle: terminal.name,
+                    topInset: terminalSurfaceTopContentInset
+                )
+            }
+        }
         .overlay(alignment: .topTrailing) {
             if let terminalID = selectedTerminal?.id.rawValue,
                !store.isComposerPresented {
@@ -783,7 +796,11 @@ struct WorkspaceDetailView: View {
     /// in). Internal so the +Surfaces chrome-return refocus can share the
     /// same policy.
     var terminalInputIsBlocked: Bool {
-        effectiveConnectionStatus == .unavailable
+        if effectiveConnectionStatus == .unavailable { return true }
+        // Another participant detached this phone from the terminal: the
+        // detached card owns the surface until the user reattaches.
+        guard let terminalID = selectedTerminal?.id.rawValue else { return false }
+        return !store.terminalAllowsTraffic(surfaceID: terminalID)
     }
 
     #if os(iOS)

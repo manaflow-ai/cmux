@@ -174,6 +174,19 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             && !store.usesScreenAnchoredRenderGrid
             ? .verifiedRenderGrid
             : .legacyMirror
+        // Shared sizing: the owner-color bounds follow the published size
+        // state (read here so Observation re-runs this on every change), and
+        // a reattach or owner change re-reports the viewport so the surface
+        // learns its new grid through the normal acknowledgement path.
+        let sizing = store.terminalSizing(for: surfaceID)
+        surfaceView.sharedSizingDecoration = sizing?.attachment.allowsTerminalTraffic == false
+            ? nil
+            : store.terminalSizingPresentation(for: surfaceID)?.boundsDecoration
+        if let reassert = sizing?.viewportReassertGeneration,
+           reassert != context.coordinator.appliedViewportReassertGeneration {
+            context.coordinator.appliedViewportReassertGeneration = reassert
+            surfaceView.reassertViewportCapacityReport()
+        }
         if artifactCountModeChanged {
             surfaceView.resetVisibleArtifactCountTracking()
         }
@@ -204,6 +217,8 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         #if DEBUG
         var releaseGateUIProbe: MobileReleaseGateUIProbe?
         var releaseGateSawNonblankFrame = false
+        /// The last shared-sizing viewport reassert this surface honored.
+        var appliedViewportReassertGeneration: UInt64 = 0
         #endif
         let workspaceID: String
         let surfaceID: String
