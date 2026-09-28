@@ -18,7 +18,13 @@ def executable(path: Path, text: str) -> None:
     path.chmod(0o755)
 
 
-def run_case(root: Path, *, disabled: bool = False, managed_global: bool = False) -> dict[str, object]:
+def run_case(
+    root: Path,
+    *,
+    disabled: bool = False,
+    managed_global: bool = False,
+    stale_cached_extension: bool = False,
+) -> dict[str, object]:
     bin_dir = root / "bin"
     bin_dir.mkdir(exist_ok=True)
     log = root / "pi-argv.json"
@@ -44,6 +50,10 @@ def run_case(root: Path, *, disabled: bool = False, managed_global: bool = False
         extension = agent_dir / "extensions/cmux-session.ts"
         extension.parent.mkdir(parents=True)
         extension.write_text(f"// {MARKER}\n", encoding="utf-8")
+    if stale_cached_extension:
+        cached = root / "tmp/cmux-pi-extensions/surface-test/cmux-session.ts"
+        cached.parent.mkdir(parents=True)
+        cached.write_text("// cmux-pi-session-extension-marker v3\n", encoding="utf-8")
 
     environment = {
         "PATH": f"{bin_dir}:/usr/bin:/bin",
@@ -75,6 +85,13 @@ def main() -> int:
         managed = run_case(root, managed_global=True)
         if "-e" in managed["args"]:
             raise AssertionError(f"managed global Pi extension loaded twice: {managed}")
+
+    with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-refresh-") as directory:
+        root = Path(directory)
+        refreshed = run_case(root, stale_cached_extension=True)
+        cached = root / "tmp/cmux-pi-extensions/surface-test/cmux-session.ts"
+        if "-e" not in refreshed["args"] or cached.read_text(encoding="utf-8").strip() != f"// {MARKER}":
+            raise AssertionError(f"stale bundled Pi extension was not refreshed: {refreshed}")
 
     with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-disabled-") as directory:
         root = Path(directory)

@@ -279,7 +279,9 @@ while (performance.now() < deadline) {
     ]
     lifecycle_completed = [
         line for line in completed
-        if " report_pwd " not in line and " report_pr_action " not in line
+        if " report_pwd " not in line
+        and " clear_git_branch " not in line
+        and " report_pr_action " not in line
     ]
     indexes = {
         command: [index for index, line in enumerate(lifecycle_completed) if command in line]
@@ -291,6 +293,7 @@ while (performance.now() < deadline) {
         for line in calls
         if line.startswith(("start ", "end "))
         and " report_pwd " not in line
+        and " clear_git_branch " not in line
         and " report_pr_action " not in line
     ]
     if (
@@ -299,6 +302,7 @@ while (performance.now() < deadline) {
         or orderedIndexes != sorted(orderedIndexes)
         or commandPhases != [phase for _ in expected for phase in ("start", "end")]
         or sum("report_pwd " in line for line in completed) < 2
+        or sum("clear_git_branch " in line for line in completed) < 2
         or not any("report_pr_action create" in line for line in completed)
     ):
         print(f"FAIL: detached Pi lifecycle work lost command ordering: {calls!r}")
@@ -374,6 +378,64 @@ await handlers.get("session_shutdown")({ reason: "dialog test" }, ctx);
         or response_payloads[1].get("cmux_pi_idle_dialog") is not False
     ):
         print(f"FAIL: Pi UI dialog did not bracket a needs-input lifecycle: {calls!r}")
+        return 1
+    return 0
+
+
+def check_ui_dialog_rejection_publishes_response(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    if "installPiUIDialogHooks" not in extension_path.read_text(encoding="utf-8"):
+        return 0
+    dialog_log = root / "ui-dialog-rejection-cmux.log"
+    dialog_cmux = root / "ui-dialog-rejection-cmux"
+    make_executable(
+        dialog_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_DIALOG_REJECTION_LOG"
+printf '{}\n'
+""",
+    )
+    dialog_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  hasUI: true,
+  cwd: "/tmp/pi-dialog-rejection-project",
+  ui: {
+    confirm: async () => { throw new Error("dialog failed"); },
+    select: async () => undefined,
+    input: async () => undefined,
+  },
+  isIdle() { return true; },
+  sessionManager: { getSessionId() { return "pi-dialog-rejection-session"; } },
+};
+await handlers.get("session_start")({}, ctx);
+try { await ctx.ui.confirm("Question", "This dialog fails"); } catch (_) {}
+await handlers.get("session_shutdown")({ reason: "dialog test" }, ctx);
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=dialog_cmux,
+        source=dialog_source,
+        extra_env={"CMUX_TEST_PI_DIALOG_REJECTION_LOG": str(dialog_log)},
+    )
+    if result.returncode != 0:
+        print(f"FAIL: Pi rejected-dialog harness failed: {result.stderr!r}")
+        return 1
+    calls = dialog_log.read_text(encoding="utf-8").splitlines()
+    questions = [line for line in calls if "hooks pi notification" in line and "questionAsked" in line]
+    responses = [line for line in calls if "hooks pi approval-response" in line]
+    if len(questions) != 1 or len(responses) != 1:
+        print(f"FAIL: rejected Pi dialog did not publish a response: {calls!r}")
         return 1
     return 0
 
@@ -3463,6 +3525,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_responsiveness,
         check_ui_lifecycle_handlers_return_immediately,
         check_ui_dialogs_publish_needs_input,
+        check_ui_dialog_rejection_publishes_response,
         check_hot_path_defers_projection_and_reuses_launch_probes,
         check_completion_precedes_next_prompt,
         check_cross_session_lifecycle_isolation,
