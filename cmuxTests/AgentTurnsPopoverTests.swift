@@ -33,6 +33,18 @@ struct AgentPaneSessionLocatorTests {
         #expect(locator.session(surfaceID: UUID()) == nil)
     }
 
+    @Test func claudeWithoutAnActivePointerHasNoSession() throws {
+        let surface = UUID()
+        // The CLI omits the pointer map once it is empty (SessionEnd, age-out).
+        let store = try writeStore([
+            "sessions": [
+                "nested": ["surfaceId": surface.uuidString, "transcriptPath": "/t/nested.jsonl", "updatedAt": 9.0],
+            ],
+        ])
+        defer { try? FileManager.default.removeItem(at: store) }
+        #expect(AgentPaneSessionLocator(agent: .claude, hookStoreURL: store).session(surfaceID: surface) == nil)
+    }
+
     @Test func codexUsesTheNewestEntryOnTheSurface() throws {
         let surface = UUID()
         let store = try writeStore([
@@ -64,6 +76,33 @@ struct VaultCheckpointPromptTextTests {
         let checkpoint = try #require(VaultSessionCheckpoints.deriveClaudeTurns(fileURL: url).checkpoints.first)
         #expect(checkpoint.promptText == long)
         #expect(checkpoint.promptSnippet != long, "The snippet stays short")
+    }
+
+    @Test func slashCommandsComeBackAsTyped() {
+        let line: [String: Any] = [
+            "type": "user",
+            "message": [
+                "role": "user",
+                "content": "<command-message>init is analyzing your codebase…</command-message>\n"
+                    + "<command-name>/review</command-name>\n<command-args>15284</command-args>",
+            ],
+        ]
+        #expect(VaultSessionCheckpoints.claudeEditablePromptText(from: line) == "/review 15284")
+    }
+
+    @Test func overlongPromptsGetNoEditText() throws {
+        let long = String(repeating: "x", count: VaultSessionCheckpoint.promptTextLimit + 1)
+        let line = try JSONSerialization.data(withJSONObject: [
+            "sessionId": "s", "uuid": "u1", "type": "user", "timestamp": "2026-09-28T10:00:00Z",
+            "message": ["role": "user", "content": long],
+        ])
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("turn-prompt-\(UUID().uuidString).jsonl")
+        try (line + Data("\n".utf8)).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let checkpoint = try #require(VaultSessionCheckpoints.deriveClaudeTurns(fileURL: url).checkpoints.first)
+        #expect(checkpoint.promptText == nil, "Resending a cut-off prompt would be wrong")
     }
 }
 
@@ -103,6 +142,20 @@ struct TerminalAgentTurnsButtonTests {
         let after = fixture.panel.surface.debugPendingSocketInputForTesting()
         #expect(after.pasteTextItems == before.pasteTextItems + 1, "The prompt is pasted")
         #expect(after.keyEvents == before.keyEvents, "No Enter: the prompt is not sent")
+    }
+
+    @Test
+    func editNeverPastesIntoAPermissionDialog() throws {
+        let fixture = try makeWorkspaceFixture()
+        defer { closeWindow(fixture.windowID) }
+        fixture.workspace.setAgentLifecycle(key: "claude_code", panelId: fixture.panel.id, lifecycle: .needsInput)
+        defer { _ = fixture.workspace.clearAgentLifecycle(key: "claude_code", panelId: fixture.panel.id) }
+        let before = fixture.panel.surface.debugPendingSocketInputForTesting()
+
+        fixture.panel.putPromptInAgentInput("fix the flaky test")
+
+        let after = fixture.panel.surface.debugPendingSocketInputForTesting()
+        #expect(after.pasteTextItems == before.pasteTextItems, "A needs-input dialog would take the paste as its answer")
     }
 
     private func makeWorkspaceFixture() throws -> (

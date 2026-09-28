@@ -217,7 +217,7 @@ extension Array where Element == CuratedSettingEntry {
                 title: String(localized: "settings.agentActions.promptEditing", defaultValue: "Agent Prompt Editing"),
                 detailText: String(localized: "settings.agentActions.promptEditing.subtitle", defaultValue: "Shows a Turns button over agent terminals to edit a past prompt or fork from it, and Edit Queued while Claude Code has prompts waiting, which moves them back into the input like pressing Up."),
                 paths: ["agentActions.promptEditing"],
-                synonyms: "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code click"
+                synonyms: "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code codex click turns turn history timeline past prompt resend fork"
             ),
             .init(section: .terminal, id: "agent-auto-resume", title: String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), synonyms: "Resume Agent Sessions on Reopen terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(

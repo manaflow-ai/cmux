@@ -28,9 +28,13 @@ struct AgentPaneSessionLocator: Sendable {
         let sessions = (root["sessions"] as? [String: Any]) ?? [:]
         let surface = surfaceID.uuidString
         let sessionID: String?
-        if let active = root["activeSessionsBySurface"] as? [String: Any] {
-            sessionID = (active[surface] as? [String: Any])?["sessionId"] as? String
-        } else {
+        switch agent {
+        case .claude:
+            // No pointer means no known active session; the newest entry
+            // could be a nested `claude -p` run.
+            let active = root["activeSessionsBySurface"] as? [String: Any]
+            sessionID = (active?[surface] as? [String: Any])?["sessionId"] as? String
+        default:
             sessionID = sessions
                 .compactMap { key, value -> (String, Double)? in
                     guard let record = value as? [String: Any],

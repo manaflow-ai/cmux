@@ -97,7 +97,7 @@ struct VaultCheckpointTimelineView: View {
                         checkpointNotice(
                             systemImage: "exclamationmark.triangle",
                             text: String(localized: "sessionIndex.checkpoints.truncated",
-                                         defaultValue: "Long transcript — earliest turns not shown")
+                                         defaultValue: "Long transcript: the latest turns are not shown")
                         )
                     }
                     ForEach(mergedCheckpoints) { checkpoint in

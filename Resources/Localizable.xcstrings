@@ -18413,55 +18413,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Long transcript — earliest turns not shown"
+            "value": "Long transcript: the latest turns are not shown"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "トランスクリプトが長いため、最初期のターンは表示されません"
+            "value": "トランスクリプトが長いため、最新のターンは表示されません"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "转录内容过长 —— 最早的轮次未显示"
+            "value": "转录内容过长：最新的轮次未显示"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Langes Transkript — früheste Züge werden nicht angezeigt"
+            "value": "Langes Transkript: die neuesten Züge werden nicht angezeigt"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Transcription longue — les premiers tours ne sont pas affichés"
+            "value": "Transcription longue : les tours les plus récents ne sont pas affichés"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نص طويل — الجولات الأولى لا تظهر"
+            "value": "نص طويل: أحدث الجولات لا تظهر"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Transcripción larga — no se muestran los turnos más antiguos"
+            "value": "Transcripción larga: no se muestran los turnos más recientes"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "紀錄過長 — 未顯示最早的輪次"
+            "value": "紀錄過長：未顯示最新的輪次"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "대화 기록이 깁니다 — 초기 턴은 표시되지 않습니다"
+            "value": "대화 기록이 깁니다: 최근 턴은 표시되지 않습니다"
           }
         }
       }

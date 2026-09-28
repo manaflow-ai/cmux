@@ -35,8 +35,9 @@ struct VaultSessionCheckpoint: Identifiable, Equatable, Sendable, Codable {
     let gitSHA: String?
     /// First ~80 chars of the prompt that started the anchored turn.
     let promptSnippet: String?
-    /// The full prompt (up to ``promptTextLimit`` characters) that started a
-    /// derived turn, for editing and resending it. `nil` for manual checkpoints.
+    /// The full prompt that started a derived turn, as typed, for editing and
+    /// resending it. `nil` for manual checkpoints and for prompts longer than
+    /// ``promptTextLimit`` characters.
     let promptText: String?
 
     static let promptTextLimit = 65_536
@@ -105,7 +106,8 @@ enum VaultSessionCheckpoints {
         fileURL: URL,
         maxBytes: Int = derivationByteCap,
         anchorToken: @escaping ([String: Any], Int) -> String?,
-        userPrompt: @escaping ([String: Any]) -> String?
+        userPrompt: @escaping ([String: Any]) -> String?,
+        editablePrompt: (([String: Any]) -> String?)? = nil
     ) -> Derivation {
         var checkpoints: [VaultSessionCheckpoint] = []
         var userTurnIndex = 0
@@ -123,6 +125,10 @@ enum VaultSessionCheckpoints {
                 }
                 guard let prompt = userPrompt(obj) else { return false }
                 userTurnIndex += 1
+                // A prompt over the limit gets no edit text rather than a
+                // silently cut one.
+                let editable = (editablePrompt?(obj) ?? prompt)
+                let promptText = editable.count <= VaultSessionCheckpoint.promptTextLimit ? editable : nil
                 checkpoints.append(
                     VaultSessionCheckpoint(
                         id: anchor.map { "turn:" + $0 } ?? "turn-index:\(userTurnIndex)",
@@ -134,7 +140,7 @@ enum VaultSessionCheckpoints {
                         anchorFingerprint: fingerprint,
                         gitSHA: nil,
                         promptSnippet: snippet(from: prompt),
-                        promptText: String(prompt.prefix(VaultSessionCheckpoint.promptTextLimit))
+                        promptText: promptText
                     )
                 )
                 return false
@@ -160,8 +166,24 @@ enum VaultSessionCheckpoints {
             anchorToken: { obj, _ in
                 (obj["uuid"] as? String).flatMap { $0.isEmpty ? nil : "uuid:" + $0 }
             },
-            userPrompt: claudeUserPromptText(from:)
+            userPrompt: claudeUserPromptText(from:),
+            editablePrompt: claudeEditablePromptText(from:)
         )
+    }
+
+    /// The prompt a Claude `user` line started, as typed: every text part,
+    /// and slash commands as `/name args`. See ``claudeUserPromptText(from:)``
+    /// for which lines count as prompts.
+    nonisolated static func claudeEditablePromptText(from obj: [String: Any]) -> String? {
+        guard claudeUserPromptText(from: obj) != nil,
+              let message = obj["message"] as? [String: Any] else { return nil }
+        if let content = message["content"] as? String {
+            return SessionEntry.claudeEditablePrompt(from: content)
+        }
+        let texts = (message["content"] as? [[String: Any]] ?? [])
+            .filter { ($0["type"] as? String) == "text" }
+            .compactMap { ($0["text"] as? String).flatMap(SessionEntry.claudeEditablePrompt(from:)) }
+        return texts.isEmpty ? nil : texts.joined(separator: "\n")
     }
 
     /// Extracts the visible prompt text from a Claude `user` line; nil for
