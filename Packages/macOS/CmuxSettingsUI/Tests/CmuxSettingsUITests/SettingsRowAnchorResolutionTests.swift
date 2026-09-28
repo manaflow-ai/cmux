@@ -181,6 +181,8 @@ struct SettingsRowAnchorResolutionTests {
         "setting:mobile:iOSPairingHost",
         "setting:mobile:iOSPairingPort",
         "setting:mobile:iOSPairingDisplayName",
+        "setting:computers:incoming-access",
+        "setting:computers:discovery",
         "setting:betaFeatures:feed",
         "setting:betaFeatures:dock",
         "setting:betaFeatures:cloudMachines",
