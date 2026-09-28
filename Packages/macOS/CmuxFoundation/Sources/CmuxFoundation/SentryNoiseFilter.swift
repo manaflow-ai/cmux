@@ -32,7 +32,13 @@ public struct SentryNoiseFilter: Sendable {
             return false
         }
         switch normalized {
+        // `rate_limited` is admission backpressure the CLI already retried
+        // within its deadline. `auth_required`/`auth_failed` mean the caller
+        // has no or a wrong socket password in password access mode.
+        // `auth_unconfigured` stays reportable: it can be a keychain regression.
         case "already_exists",
+             "auth_failed",
+             "auth_required",
              "browser_disabled",
              "invalid_params",
              "invalid_request",
@@ -40,6 +46,8 @@ public struct SentryNoiseFilter: Sendable {
              "not_found",
              "not_supported",
              "protected",
+             "rate_limited",
+             "surface_unavailable",
              "tab_manager_unavailable",
              "unrecognized_method",
              "unsupported",
