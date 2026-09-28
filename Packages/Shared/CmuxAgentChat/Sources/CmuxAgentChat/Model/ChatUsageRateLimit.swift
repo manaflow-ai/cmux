@@ -7,30 +7,6 @@ import Foundation
 /// for Claude sessions; the absence is the honest answer rather than a
 /// zero.
 public struct ChatUsageRateLimit: Sendable, Equatable {
-    /// One rolling allowance window.
-    public struct Window: Sendable, Equatable {
-        /// Percentage of the window's allowance used, 0 to 100.
-        public var usedPercent: Double
-
-        /// Length of the rolling window in minutes.
-        public var windowMinutes: Int?
-
-        /// When the window resets, when the provider says.
-        public var resetsAt: Date?
-
-        /// Creates a window reading.
-        ///
-        /// - Parameters:
-        ///   - usedPercent: Percentage of the allowance used.
-        ///   - windowMinutes: Window length in minutes.
-        ///   - resetsAt: When the window resets.
-        public init(usedPercent: Double, windowMinutes: Int? = nil, resetsAt: Date? = nil) {
-            self.usedPercent = usedPercent
-            self.windowMinutes = windowMinutes
-            self.resetsAt = resetsAt
-        }
-    }
-
     /// The short window, the one that throttles a burst of work.
     public var primary: Window
 

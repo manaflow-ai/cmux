@@ -1,5 +1,12 @@
 import Foundation
 
+/// Adds two integer counts without allowing extreme input to trap.
+private func saturatedSum(_ lhs: Int, _ rhs: Int) -> Int {
+    let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+    guard overflow else { return sum }
+    return lhs >= 0 ? Int.max : Int.min
+}
+
 /// Accumulates normalized token usage from agent transcript JSONL lines.
 ///
 /// Feed lines in transcript order, then read ``totals``. The accumulator is
@@ -142,7 +149,7 @@ public struct ChatUsageAccumulator: Sendable {
         case .usageRecords:
             usage += codexCumulativeBaseline
             usage += codexRecordUsage
-            responses = Self.saturatedSum(responses, codexResponseCount)
+            responses = saturatedSum(responses, codexResponseCount)
             for (model, modelUsage) in codexRecordUsageByModel {
                 byModel[model, default: ChatTokenUsage()] += modelUsage
             }
@@ -476,7 +483,7 @@ public struct ChatUsageAccumulator: Sendable {
         let input = nonNegative(value["input_tokens"]?.int)
         let cacheRead = nonNegative(value["cached_input_tokens"]?.int)
         let cacheWrite = nonNegative(value["cache_write_input_tokens"]?.int)
-        let cachedInput = Self.saturatedSum(cacheRead, cacheWrite)
+        let cachedInput = saturatedSum(cacheRead, cacheWrite)
         return ChatTokenUsage(
             freshInputTokens: input > cachedInput ? input - cachedInput : 0,
             cacheReadTokens: cacheRead,
@@ -545,12 +552,6 @@ public struct ChatUsageAccumulator: Sendable {
 
     private static func clampedDifference(_ lhs: Int, _ rhs: Int) -> Int {
         lhs > rhs ? lhs - rhs : 0
-    }
-
-    private static func saturatedSum(_ lhs: Int, _ rhs: Int) -> Int {
-        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
-        guard overflow else { return sum }
-        return lhs >= 0 ? Int.max : Int.min
     }
 
     private static func incrementSaturating(_ value: inout Int) {
