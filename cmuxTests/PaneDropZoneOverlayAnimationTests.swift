@@ -340,4 +340,83 @@ struct PaneDropZoneOverlayAnimationTests {
         let overlay = try #require(container.subviews.first { $0 is GhosttyFlashOverlayView })
         expectSnap(of: overlay, to: PaneDropRouting.compactOverlayFrame(for: .left, in: hostedView.bounds.size))
     }
+
+    /// Tab drags report their zone through the terminal's AppKit drop target, while portal
+    /// reconciliation forwards SwiftUI's zone, which stays nil for those drags. A
+    /// reconciliation mid-hover must not fade the highlight out until the next drag update.
+    @Test("A portal refresh during a tab drag keeps the terminal drop zone shown")
+    func terminalPortalRefreshKeepsTabDragZone() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            TerminalController.shared.setActiveTabManager(manager)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let workspace = try #require(manager.tabs.first)
+            let targetPanel = try #require(workspace.panels.values.first)
+            let targetPane = try #require(workspace.paneId(forPanelId: targetPanel.id))
+            let sourcePanel = try #require(workspace.newTerminalSurface(inPane: targetPane, focus: true))
+            let sourceTabId = try #require(workspace.surfaceIdFromPanelId(sourcePanel.id))
+
+            let host = OverlayWindowHost(size: CGSize(width: 240, height: 120))
+            defer { host.close() }
+            let hostedView = GhosttySurfaceScrollView(surfaceView: GhosttyNSView(frame: .zero))
+            hostedView.frame = host.container.bounds
+            host.container.addSubview(hostedView)
+            hostedView.needsLayout = true
+            hostedView.layoutSubtreeIfNeeded()
+            hostedView.setPaneDropContext(
+                PaneDropContext(workspaceId: workspace.id, panelId: targetPanel.id, paneId: targetPane)
+            )
+            let dropPoint = NSPoint(x: 230, y: 60)
+            let target = try #require(hostedView.paneDropTargetForDrop(at: dropPoint))
+
+            let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-1842.\(UUID().uuidString)"))
+            pasteboard.clearContents()
+            let registration = try #require(appDelegate.tabDragTransferRegistry.register(TabDragTransfer(
+                tab: Tab(id: TabID(uuid: sourceTabId.uuid), title: "Terminal", kind: "terminal"),
+                sourcePaneId: PaneID(id: targetPane.id)
+            )))
+            defer {
+                appDelegate.tabDragTransferRegistry.end(registration)
+                pasteboard.clearContents()
+            }
+            #expect(registration.write(to: pasteboard))
+            let draggingInfo = DockPaneDropMockDraggingInfo(
+                window: host.window,
+                location: dropPoint,
+                pasteboard: pasteboard
+            )
+
+            #expect(target.draggingEntered(draggingInfo) == .move)
+            let overlay = try #require(host.container.subviews.first { $0 is GhosttyFlashOverlayView })
+            #expect(!overlay.isHidden)
+            let zoneFrame = overlay.frame
+            // Settle the fade-in, as a hover that has lasted a moment would be.
+            overlay.layer?.removeAllAnimations()
+            overlay.alphaValue = 1
+
+            // What portal reconciliation forwards for an AppKit tab drag.
+            hostedView.setDropZoneOverlay(zone: nil)
+
+            #expect(!overlay.isHidden)
+            #expect(overlay.alphaValue == 1, "the highlight started fading out")
+            #expect((overlay.layer?.animationKeys() ?? []).isEmpty, "the highlight started fading out")
+            #expect(Probe.approximatelyEqual(overlay.frame, zoneFrame))
+
+            target.draggingExited(draggingInfo)
+            let fadingOut = overlay.alphaValue < 1 || !(overlay.layer?.animationKeys() ?? []).isEmpty
+            #expect(fadingOut, "leaving the pane should still fade the highlight out")
+        }
+    }
 }
