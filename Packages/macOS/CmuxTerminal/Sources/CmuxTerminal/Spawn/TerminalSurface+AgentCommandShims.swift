@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxFoundation
 public import CmuxTerminalCore
 
 extension TerminalSurface {
@@ -119,14 +120,15 @@ extension TerminalSurface {
         defer {
             try? fileManager.removeItem(at: stagingDirectory)
         }
+        let privateDirectoryCheck = PrivateDirectoryCheck()
         do {
             try fileManager.createDirectory(at: shimParentDirectory, withIntermediateDirectories: true)
             try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: false)
-            for directory in [shimParentDirectory, stagingDirectory] {
-                try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-            }
         } catch {
             return nil
+        }
+        for directory in [shimParentDirectory, stagingDirectory] {
+            guard privateDirectoryCheck.makePrivate(atPath: directory.path) else { return nil }
         }
 
         let computerUseSettingURL = computerUseSettingFileURL ?? computerUseLiveSettingFileURL(
@@ -176,10 +178,10 @@ extension TerminalSurface {
             } else {
                 try fileManager.moveItem(at: stagingDirectory, to: shimDirectory)
             }
-            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimDirectory.path)
         } catch {
             return nil
         }
+        guard privateDirectoryCheck.makePrivate(atPath: shimDirectory.path) else { return nil }
         return TerminalSurfaceAgentCommandShimSet(
             directoryPath: shimDirectory.path,
             shims: shims
