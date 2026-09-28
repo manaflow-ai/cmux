@@ -378,7 +378,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 metrics.nameFontSize,
                 percent: model.globalFontMagnificationPercent
             ),
-            weight: SidebarRowTextWeight.workspaceGroupHeaderName
+            weight: SidebarRowTextWeight.workspaceGroupHeaderName.appKitWeight
         )
     }
 
