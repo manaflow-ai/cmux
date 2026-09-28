@@ -30977,6 +30977,32 @@ struct CMUXCLI {
         return try? JSONDecoder().decode(CodexMonitorLeaseRecord.self, from: data)
     }
 
+    private func activeCodexMonitorLease(
+        sessionId: String,
+        turnId: String?,
+        env: [String: String]
+    ) -> CodexMonitorLeaseRecord? {
+        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedTurnId = turnId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty, let normalizedTurnId, !normalizedTurnId.isEmpty else {
+            return nil
+        }
+        let directory = codexMonitorLeaseDirectory(env: env)
+        let paths = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        return paths
+            .compactMap { readCodexMonitorLease(path: $0.path) }
+            .filter {
+                $0.sessionId == normalizedSessionId
+                    && $0.turnId == normalizedTurnId
+                    && $0.retiredAt == nil
+            }
+            .max { $0.createdAt < $1.createdAt }
+    }
+
     private func createCodexMonitorLease(
         sessionId: String,
         turnId: String?,
@@ -36670,37 +36696,45 @@ export default CMUXSessionRestore;
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
                     return
                 }
-                let leasePath = createCodexMonitorLease(
+                if activeCodexMonitorLease(
                     sessionId: sessionId,
                     turnId: input.turnId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
                     env: env
-                )
-                if leasePath == nil {
-                    telemetry.breadcrumb(
-                        "codex-hook.monitor.lease-unavailable",
-                        data: ["has_turn_id": normalizedHookValue(input.turnId) != nil]
-                    )
+                ) != nil {
+                    telemetry.breadcrumb("codex-hook.monitor.reused-same-turn")
                 } else {
-                    retireCodexMonitorLeases(
+                    let leasePath = createCodexMonitorLease(
                         sessionId: sessionId,
-                        turnId: nil,
-                        preservingLeasePath: leasePath,
+                        turnId: input.turnId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
                         env: env
                     )
+                    if leasePath == nil {
+                        telemetry.breadcrumb(
+                            "codex-hook.monitor.lease-unavailable",
+                            data: ["has_turn_id": normalizedHookValue(input.turnId) != nil]
+                        )
+                    } else {
+                        retireCodexMonitorLeases(
+                            sessionId: sessionId,
+                            turnId: nil,
+                            preservingLeasePath: leasePath,
+                            env: env
+                        )
+                    }
+                    startCodexTranscriptMonitor(
+                        sessionId: sessionId,
+                        turnId: input.turnId,
+                        transcriptPath: normalizedHookValue(hookTranscriptPath),
+                        cwd: hookCwd ?? mapped?.cwd,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        leasePath: leasePath,
+                        env: env,
+                        telemetry: telemetry
+                    )
                 }
-                startCodexTranscriptMonitor(
-                    sessionId: sessionId,
-                    turnId: input.turnId,
-                    transcriptPath: normalizedHookValue(hookTranscriptPath),
-                    cwd: hookCwd ?? mapped?.cwd,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    leasePath: leasePath,
-                    env: env,
-                    telemetry: telemetry
-                )
             }
 
         case .stop:
