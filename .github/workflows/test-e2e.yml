@@ -27,6 +27,11 @@ on:
         description: "Base64 JSON scenario for cmuxUITests/DogfoodScenarioUITests (scripts/run-e2e.sh --scenario builds it); empty otherwise"
         required: false
         default: ""
+      require_adopted_product:
+        description: "Fail instead of compiling when no compiled product of this revision can be adopted (scripts/run-e2e.sh --adopt-only)"
+        required: false
+        default: false
+        type: boolean
       record_video:
         description: Record the virtual display during UI tests
         required: false
@@ -585,6 +590,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CMUX_REUSE_SWITCH_ROOTS: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && '1' || '' }}
         run: python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
+
+      # PR media tours (pr-media.yml) ask for CI's product and never pay for
+      # a second compile of the app.
+      - name: Refuse to compile for a dispatch that requires an adopted product
+        if: ${{ inputs.require_adopted_product && steps.reuse.outputs.hit != 'true' }}
+        env:
+          MISSES: ${{ steps.reuse.outputs.miss_reasons }}
+        run: |
+          echo "::error::No compiled product of this revision could be adopted (${MISSES:-no reason recorded}), and this dispatch asked not to compile one."
+          exit 1
 
       # An owned Mac (glaeda-*) keeps compile admission's DerivedData and
       # resolved packages between jobs (owned_build_state.py), at

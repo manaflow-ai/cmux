@@ -16,6 +16,12 @@ public struct AgentHookDeliveryPolicy: Sendable {
     /// The maximum time a queued hook waits for the app to acknowledge admission.
     public static let admissionResponseTimeoutSeconds: TimeInterval = 0.5
 
+    /// The whole-command budget of a queued hook process. The response
+    /// timeout bounds only socket waits; keychain lookups, stdin, and process
+    /// work are not socket waits. Past this budget the hook answers with its
+    /// neutral response itself, well inside ``declaredTimeoutSeconds``.
+    public static let admissionWallClockSeconds: TimeInterval = 2
+
     /// The timeout declared to agent runtimes for queued hook processes.
     public static let declaredTimeoutSeconds = 5
 
