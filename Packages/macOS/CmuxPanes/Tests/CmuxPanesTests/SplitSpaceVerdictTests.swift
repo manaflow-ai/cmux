@@ -145,6 +145,29 @@ struct SplitSpaceVerdictTests {
         #expect(verdict(tree, splitting: "d", "horizontal", minimum: 160) == .noSpace)
     }
 
+    @Test func aProspectiveSplitInsideACrossOrientationSubtreeCannotUseOutsideSpace() {
+        // The outer row has ample width, but target's same-axis run is only
+        // the 180 pt row nested inside the vertical subtree. Its prospective
+        // third pane needs 302 pt, so the enclosing mixed layout cannot make
+        // this split safe by treating the vertical subtree as one old slot.
+        let nestedRow = split(
+            "horizontal",
+            pane("target", x: 600, y: 0, width: 90, height: 430),
+            pane("peer", x: 690, y: 0, width: 90, height: 430)
+        )
+        let mixed = split(
+            "vertical",
+            nestedRow,
+            pane("below", x: 600, y: 430, width: 600, height: 430)
+        )
+        let tree = split(
+            "horizontal",
+            pane("outside", x: 0, y: 0, width: 600, height: 860),
+            mixed
+        )
+        #expect(verdict(tree, splitting: "target", "horizontal", minimum: 100) == .noSpace)
+    }
+
     @Test func anEleventhExactCapacitySlotAccountsForBonsplitRatioClamping() {
         // Ten 100 pt panes plus ten 1 pt dividers would arithmetically fit an
         // eleventh pane in 1110 pt. Equalizing this right-heavy tree asks its
