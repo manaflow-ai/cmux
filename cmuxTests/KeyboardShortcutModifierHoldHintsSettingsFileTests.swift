@@ -209,12 +209,8 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
 @Suite("Pane attention color")
 struct PaneAttentionColorTests {
     @Test
-    func fallsBackToCmuxAccentWhenUnset() {
-        #expect(
-            WorkspaceAttentionColor(configuredHex: nil).nsColor.hexString() ==
-                WorkspaceAttentionCoordinator.notificationRingStyle.accent
-                    .strokeColor(accent: CmuxAccentColor()).hexString()
-        )
+    func fallsBackToInjectedAccentWhenUnset() {
+        assertUsesInjectedAccent(configuredHex: nil)
     }
 
     @Test
@@ -226,10 +222,16 @@ struct PaneAttentionColorTests {
 
     @Test(arguments: ["not-a-color", "#FFZZZZ", "FF69B4", "#FF69B4AA"])
     func rejectsValuesOutsideSchema(configuredHex: String) {
-        #expect(
-            WorkspaceAttentionColor(configuredHex: configuredHex).nsColor.hexString() ==
-                WorkspaceAttentionCoordinator.notificationRingStyle.accent
-                    .strokeColor(accent: CmuxAccentColor()).hexString()
-        )
+        assertUsesInjectedAccent(configuredHex: configuredHex)
+    }
+
+    private func assertUsesInjectedAccent(configuredHex: String?) {
+        for mode in CmuxAccentColorMode.allCases {
+            let accent = CmuxAccentColor(mode: mode)
+            #expect(
+                WorkspaceAttentionColor(configuredHex: configuredHex, accent: accent).nsColor.hexString() ==
+                    accent.dynamicNSColor.hexString()
+            )
+        }
     }
 }

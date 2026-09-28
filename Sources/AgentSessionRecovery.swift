@@ -9,8 +9,11 @@ import Foundation
 /// The agent journal knows which sessions never ended, and the hook session
 /// stores know where each ran and how it was launched. When the app comes back
 /// after an unclean exit, the sessions that are neither running nor already
-/// restored into a panel are reopened, one workspace each, and resumed through
-/// the launcher that originally started them (see `AgentLauncherPrefix`).
+/// restored into a panel are reopened, one workspace each. Each resumes
+/// through `cmux restore <kind> <id>`, the verb a normal restore types, from
+/// a panel that carries the session's restore record. A session started
+/// through an undeclared launcher that `cmux restore` cannot rebuild resumes
+/// through that launcher instead (see `AgentLauncherPrefix`).
 ///
 /// Only Claude is recovered: its `SessionEnd` hook marks sessions that ended
 /// normally, so a session without one was killed. Codex has no end hook, so
@@ -92,6 +95,7 @@ struct AgentSessionRecovery: Sendable {
                     launchCommand: Self.trustedLaunchCommand(record.launchCommand, kind: kind),
                     pid: record.pid,
                     pidStartSeconds: record.pidStartSeconds,
+                    permissionMode: record.lastPermissionMode,
                     updatedAt: Date(timeIntervalSince1970: record.updatedAt)
                 )
             }
@@ -124,32 +128,58 @@ struct AgentSessionRecovery: Sendable {
         return identity.startSeconds == startSeconds
     }
 
-    /// The shell input that resumes `candidate`: through its recorded
-    /// launcher when there is one, otherwise the kind's normal resume command.
-    static func resumeCommand(for candidate: AgentRecoveryCandidate) -> String? {
-        guard let kind = RestorableAgentKind(rawValue: candidate.kind) else { return nil }
-        if let arguments = candidate.launcherResumeArguments {
-            var launchCommand = candidate.launchCommand
-            if candidate.routesThroughSubrouter {
-                // sr recomputes the auth selection and markers; replaying the
-                // captured ones would pin the resume to a dead launch's route.
-                let replayable = candidate.launchCommand?.environment?.filter {
-                    !SubrouterClaudeResumeRouting.restoreOwnedEnvironmentKeys.contains($0.key)
-                }
-                launchCommand?.environment = replayable
+    /// How a recovered session starts in its new terminal.
+    enum Launch {
+        /// Type the `cmux restore` verb into a panel carrying `agent` as its
+        /// restore record, so the session resumes exactly as a normal restore
+        /// would (routed launcher, wrapper authorization, permission mode).
+        case restoreVerb(input: String, agent: SessionRestorableAgentSnapshot)
+        /// Type a shell command that resumes through an undeclared launcher
+        /// the restore verb has no record of.
+        case launcherCommand(String)
+
+        /// Text typed into the new terminal, including its trailing newline.
+        var terminalInput: String {
+            switch self {
+            case .restoreVerb(let input, _): input
+            case .launcherCommand(let command): command + "\n"
             }
-            return AgentResumeCommandBuilder.launcherResumeShellCommand(
-                kind: kind,
-                sessionId: candidate.sessionId,
-                launchCommand: launchCommand,
-                launcherArguments: arguments
-            )
         }
-        return kind.resumeCommand(
+    }
+
+    /// The restorable-agent snapshot `cmux restore` reads for `candidate`.
+    static func restorableAgent(for candidate: AgentRecoveryCandidate) -> SessionRestorableAgentSnapshot? {
+        guard let kind = RestorableAgentKind(rawValue: candidate.kind),
+              kind.restoreMode == .resumeSession else { return nil }
+        return SessionRestorableAgentSnapshot(
+            kind: kind,
             sessionId: candidate.sessionId,
+            workingDirectory: candidate.cwd,
             launchCommand: candidate.launchCommand,
-            workingDirectory: candidate.cwd
+            permissionMode: candidate.permissionMode
         )
+    }
+
+    /// How `candidate` resumes: through its recorded launcher when only that
+    /// launcher can rebuild it, otherwise through `cmux restore`.
+    static func launch(for candidate: AgentRecoveryCandidate) -> Launch? {
+        guard let agent = restorableAgent(for: candidate) else { return nil }
+        if let arguments = candidate.launcherResumeArguments {
+            return AgentResumeCommandBuilder.launcherResumeShellCommand(
+                kind: agent.kind,
+                sessionId: candidate.sessionId,
+                launchCommand: candidate.launchCommand,
+                launcherArguments: arguments
+            ).map(Launch.launcherCommand)
+        }
+        return agent.resumeStartupInput(useLocalRestoreVerb: true).map {
+            .restoreVerb(input: $0, agent: agent)
+        }
+    }
+
+    /// The command shown for `candidate` in `session.agent_recovery.*` results.
+    static func resumeCommand(for candidate: AgentRecoveryCandidate) -> String? {
+        launch(for: candidate)?.terminalInput.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Workspace title for a recovered session: the cwd's last component.
@@ -160,13 +190,81 @@ struct AgentSessionRecovery: Sendable {
     }
 }
 
+extension AgentSessionRecovery {
+    /// Reopens each candidate in its own workspace of `tabManager` and types
+    /// its resume command. Sessions in `alreadyOpen` are skipped. Returns the
+    /// session ids that were reopened.
+    ///
+    /// Only the sessions ``AgentRecoveryStartPlan`` picks start right away;
+    /// the rest open their workspace now and resume on its first visit, so a
+    /// relaunch after a crash does not start every agent at once.
+    @MainActor
+    @discardableResult
+    static func reopen(
+        _ candidates: [AgentRecoveryCandidate],
+        in tabManager: TabManager,
+        alreadyOpen: Set<String>,
+        visibleWorkspaceIds: Set<UUID> = []
+    ) -> [String] {
+        let plan = AgentRecoveryStartPlan(
+            candidates: candidates.filter { !alreadyOpen.contains($0.sessionId) },
+            visibleWorkspaceIds: visibleWorkspaceIds
+        )
+        var restored: [String] = []
+        let ordered = plan.startNow.map { ($0, true) } + plan.startOnVisit.map { ($0, false) }
+        for (candidate, startsNow) in ordered {
+            guard let launch = launch(for: candidate) else { continue }
+            let directory = candidate.cwd.flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil }
+            let startupAgent: SessionRestorableAgentSnapshot?
+            switch launch {
+            case .restoreVerb(_, let agent):
+                // `cmux restore` takes the launch claim at its admission
+                // boundary, so a concurrent restore cannot start the session
+                // twice. The panel carries the session, so a second recovery
+                // sees it as open, even before a deferred start.
+                startupAgent = agent
+            case .launcherCommand:
+                // Nothing downstream claims a launcher command; take the
+                // claim startup restore takes before typing it. The start
+                // plan always starts these now, before the claim expires.
+                guard AgentResumeLaunchGuard.shared.claimResumeLaunch(
+                    kind: candidate.kind,
+                    sessionId: candidate.sessionId
+                ) else { continue }
+                startupAgent = nil
+            }
+            guard tabManager.addWorkspaceIfActive(
+                title: workspaceTitle(for: candidate),
+                titleSource: .auto,
+                workingDirectory: directory,
+                initialTerminalInput: launch.terminalInput,
+                initialTerminalStartupRestoreAgent: startupAgent,
+                select: false,
+                // A session picked to start now runs without waiting for a
+                // visit (its hook record then carries a live pid). The rest
+                // hold their terminal until the workspace is first selected.
+                eagerLoadTerminal: startsNow,
+                initialTerminalStartsOnFirstVisit: !startsNow
+            ) != nil else {
+                if startupAgent == nil {
+                    AgentResumeLaunchGuard.shared.releaseResumeLaunch(kind: candidate.kind, sessionId: candidate.sessionId)
+                }
+                continue
+            }
+            restored.append(candidate.sessionId)
+        }
+        return restored
+    }
+}
+
 extension AppDelegate {
     /// Agent session ids already carried by open panels (restored from the
     /// snapshot or bound since launch), which recovery must not duplicate.
     ///
     /// Covers workspace panels, workspace and window Docks, and restores that
-    /// are staged or deferred but have not launched yet.
-    func openAgentSessionIdsForRecovery() -> Set<String> {
+    /// are staged or deferred but have not launched yet. Entries for
+    /// `excludedPanelId` are skipped.
+    func openAgentSessionIdsForRecovery(excludingPanelId excludedPanelId: UUID? = nil) -> Set<String> {
         var managers = mainWindowContexts.values.map(\.tabManager)
         if let tabManager, !managers.contains(where: { $0 === tabManager }) {
             managers.append(tabManager)
@@ -177,9 +275,9 @@ extension AppDelegate {
             bindings: [UUID: SurfaceResumeBindingSnapshot],
             deferred: [UUID: DeferredAgentResumeRestore]
         ) {
-            ids.formUnion(restored.values.map(\.sessionId))
-            ids.formUnion(bindings.values.compactMap(\.checkpointId))
-            for restore in deferred.values {
+            ids.formUnion(restored.filter { $0.key != excludedPanelId }.values.map(\.sessionId))
+            ids.formUnion(bindings.filter { $0.key != excludedPanelId }.values.compactMap(\.checkpointId))
+            for (panelId, restore) in deferred where panelId != excludedPanelId {
                 if let sessionId = restore.restorableAgent?.sessionId { ids.insert(sessionId) }
                 if let checkpointId = restore.resumeBinding?.checkpointId { ids.insert(checkpointId) }
             }
@@ -189,6 +287,12 @@ extension AppDelegate {
                 restored: dock.restoredAgentLifecycle.snapshotsByPanelId,
                 bindings: dock.surfaceResumeBindingsByPanelId,
                 deferred: dock.deferredAgentResumeRestoresByPanelId
+            )
+            ids.formUnion(
+                dock.managedAgentResumeBindingsByPanelId
+                    .filter { $0.key != excludedPanelId }
+                    .values
+                    .compactMap(\.checkpointId)
             )
         }
         for manager in managers {
@@ -206,39 +310,25 @@ extension AppDelegate {
     }
 
     /// Reopens each candidate in its own workspace and types its resume
-    /// command. Returns the session ids that were started.
+    /// command. Returns the session ids that were reopened.
     @discardableResult
     func restoreRecoveredAgentSessions(_ candidates: [AgentRecoveryCandidate]) -> [String] {
         guard let tabManager else { return [] }
-        let alreadyOpen = openAgentSessionIdsForRecovery()
-        var restored: [String] = []
-        for candidate in candidates where !alreadyOpen.contains(candidate.sessionId) {
-            guard let command = AgentSessionRecovery.resumeCommand(for: candidate),
-                  // The same claim startup restore takes, so a concurrent
-                  // restore (or a second recovery) cannot launch it twice.
-                  AgentResumeLaunchGuard.shared.claimResumeLaunch(
-                    kind: candidate.kind,
-                    sessionId: candidate.sessionId
-                  ) else { continue }
-            let directory = candidate.cwd.flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil }
-            guard tabManager.addWorkspaceIfActive(
-                title: AgentSessionRecovery.workspaceTitle(for: candidate),
-                titleSource: .auto,
-                workingDirectory: directory,
-                initialTerminalInput: command + "\r",
-                select: false,
-                // Start the terminal now so the agent is running (and its
-                // hook record carries a live pid) before the resume claim
-                // expires; otherwise a later `cmux session restore` would see
-                // the unvisited session as lost and open it a second time.
-                eagerLoadTerminal: true
-            ) != nil else {
-                AgentResumeLaunchGuard.shared.releaseResumeLaunch(kind: candidate.kind, sessionId: candidate.sessionId)
-                continue
-            }
-            restored.append(candidate.sessionId)
+        return AgentSessionRecovery.reopen(
+            candidates,
+            in: tabManager,
+            alreadyOpen: openAgentSessionIdsForRecovery(),
+            visibleWorkspaceIds: visibleWorkspaceIdsForRecovery()
+        )
+    }
+
+    /// Workspaces shown in a main window right now.
+    private func visibleWorkspaceIdsForRecovery() -> Set<UUID> {
+        var managers = mainWindowContexts.values.map(\.tabManager)
+        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
+            managers.append(tabManager)
         }
-        return restored
+        return Set(managers.compactMap(\.selectedTabId))
     }
 
     /// After a launch that followed an unclean exit, finds agent sessions the
