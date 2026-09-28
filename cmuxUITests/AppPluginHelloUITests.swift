@@ -49,7 +49,7 @@ final class AppPluginHelloUITests: SettingsUITestCase {
         attachScreenshot(name: "1 cmux plugin link")
 
         app.typeText("cmux plugin enable hello\n")
-        sleep(2)
+        waitForTerminalText("[y/N]", in: terminal)
         attachScreenshot(name: "2 cmux plugin enable lists the commands and asks y/N")
         app.typeText("y\n")
         let enablement = home.appendingPathComponent(".config/cmux/plugins.json")
@@ -59,7 +59,7 @@ final class AppPluginHelloUITests: SettingsUITestCase {
             },
             "cmux plugin enable must record hello in plugins.json"
         )
-        sleep(1)
+        waitForTerminalText("Enabled hello.", in: terminal)
         attachScreenshot(name: "3 hello enabled")
         let firstTranscript = home.appendingPathComponent("transcript-1.txt")
         app.typeText("cmux read-screen --scrollback > \"$CFFIXED_USER_HOME/transcript-1.txt\"; clear\n")
@@ -84,7 +84,6 @@ final class AppPluginHelloUITests: SettingsUITestCase {
             format: "label CONTAINS %@ OR value CONTAINS %@", "Hello from hello", "Hello from hello"
         )).firstMatch
         let notified = notification.waitForExistence(timeout: 10)
-        sleep(1)
         attachScreenshot(name: "5 after Say Hello: notification from the plugin")
         XCTAssertTrue(notified, "Say Hello must post a cmux notification")
 
@@ -100,9 +99,15 @@ final class AppPluginHelloUITests: SettingsUITestCase {
         XCTAssertTrue(newTerminal.waitForExistence(timeout: 10))
         newTerminal.click()
         app.typeText("clear; tail -n 1 \"$CFFIXED_USER_HOME/.local/state/cmux/plugins/hello/events.log\"\n")
-        sleep(2)
+        waitForTerminalText("\"workspace.created\"", in: newTerminal)
         attachScreenshot(name: "6 new workspace: workspace.created hook wrote events.log")
         attachText(file: eventsLog, name: "events.log")
+    }
+
+    /// Best effort: the terminal's accessibility value mirrors its screen when
+    /// available; otherwise this only paces the next screenshot.
+    private func waitForTerminalText(_ text: String, in terminal: XCUIElement) {
+        _ = poll(timeout: 5, interval: 0.2) { (terminal.value as? String)?.contains(text) == true }
     }
 
     private func attachScreenshot(name: String) {
