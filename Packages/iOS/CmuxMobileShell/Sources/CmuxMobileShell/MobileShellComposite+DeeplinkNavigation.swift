@@ -156,6 +156,15 @@ extension CMUXMobileShellStore {
                 ) && row.terminals.contains { $0.id.rawValue == terminalID }
             }?.id
         }
+        // An external host's surfaces resolve to that host's row whichever
+        // Mac is in the foreground. Their ids are namespaced by construction,
+        // so the sibling-build ambiguity the scoping below defends against
+        // cannot arise, and the Mac-scoped lookups never match them.
+        if externalHostOwnsSurface(terminalID) {
+            return workspaces.first { row in
+                row.terminals.contains { $0.id.rawValue == terminalID }
+            }?.id
+        }
         guard let foregroundMacDeviceID else {
             return workspaceID(forTerminalID: terminalID, macDeviceID: nil)
         }
