@@ -187,6 +187,28 @@ def read(*args):
     return subprocess.check_output(args, text=True, timeout=30).strip()
 
 
+def contract_sdkroot(sdkroot):
+    """SDKROOT as the contract hashes it: empty when it names the default SDK.
+
+    Some owned Macs' runner services export SDKROOT as the selected Xcode's
+    MacOSX.sdk and others export nothing. Both build against the same SDK,
+    whose build is already `sdk` in the contract, but hashing the raw value
+    split one product into two names: on 2026-09-28 a UI test run on one such
+    Mac compiled the app again (376 s, run 36403079789) beside the product
+    compile admission had just published from the other kind (run 36401440165),
+    their receipts differing in SDKROOT alone. Any other SDK still hashes.
+    """
+    if not sdkroot:
+        return ""
+    try:
+        default = read("xcrun", "--sdk", "macosx", "--show-sdk-path")
+    except (OSError, subprocess.SubprocessError):
+        return sdkroot
+    if default and os.path.realpath(sdkroot) == os.path.realpath(default):
+        return ""
+    return sdkroot
+
+
 def contract(derived=None):
     """Fingerprint everything that decides a compiled product's bytes.
 
@@ -225,6 +247,7 @@ def contract(derived=None):
         "tools": versions,
         "environment": {k: os.environ.get(k, "") for k in CONTRACT_ENVIRONMENT},
     }
+    value["environment"]["SDKROOT"] = contract_sdkroot(value["environment"]["SDKROOT"])
     if derived is None:
         value["os"] = read("sw_vers", "-buildVersion")
         value["environment"].update(
@@ -240,7 +263,17 @@ def contract(derived=None):
 # holds one canonical root; `take ROOT --switch` moves it to another, waiting
 # for ROOT while it still holds its own, so a timeout leaves it where it was.
 ROOT_HELPER = Path("/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root")
-ROOT_SWITCH_WAIT_S = 120
+# How long a switch waits for the product's root. Giving up means compiling
+# the whole product at the root this job holds, about 405 s at the median on
+# an owned Mac, and that holds the root and the Mac just as long. A shorter
+# wait only trades a wait for a longer compile. With 120 s, 10 of 53 owned E2E
+# builds that found a product for their revision (2026-09-27 23:30Z to 09-28
+# 13:00Z) gave up and compiled. The product's root had been held by a compile
+# admission, an E2E build or an app-host shard, and it came free 214 to 623 s
+# into the wait: within 360 s in 7 of the 10, which then adopt. A waiter polls
+# every second, so it takes the root as it frees. Two switchers after each
+# other's root both give up after this wait, as before, and then compile.
+ROOT_SWITCH_WAIT_S = 360
 # Root 1. CANONICAL_DERIVED_DATA follows the job's own root instead.
 FIRST_ROOT = Path("/private/tmp/cmux-ci")
 DERIVED_NAME = "derived-data-compile-admission"

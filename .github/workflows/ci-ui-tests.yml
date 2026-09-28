@@ -9,7 +9,8 @@ run-name: ${{ format('UI tests for CI run {0} attempt {1}', inputs.run_id || git
 # on the pull request and under ci-status. This workflow, and the dispatcher it
 # runs, always come from the default branch. It starts with every CI run
 # attempt, returns at once for anything but a
-# same-repository pull request that changes cmuxUITests/, and otherwise waits
+# same-repository pull request that changes cmuxUITests/ or a path the UI
+# fuzzer's regression replays cover (FUZZ_REGRESSION_PATHS), and otherwise waits
 # for the attempt's request. It cancels the dispatched run when the CI attempt
 # finishes first. A re-run made with GITHUB_TOKEN may emit no workflow_run
 # event, so the bots that re-run CI (owned_pool_rescue.py, classify_failures.py)

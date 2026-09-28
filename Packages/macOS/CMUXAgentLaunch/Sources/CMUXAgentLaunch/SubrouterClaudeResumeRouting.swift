@@ -31,6 +31,21 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
     /// Wrapper-attested copy of the marker bound to the current Claude argv.
     public static let launchBoundEnvironmentKey = "CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND"
 
+    /// The account a routed launch was pinned to, exported by
+    /// `cmux-claude-wrapper` from the routing headers in the launcher's
+    /// private `--settings` file. It is the launcher's resolved choice, so it
+    /// survives however the launcher was invoked or what it appended to the
+    /// arguments it forwarded.
+    public static let accountEnvironmentKey = "CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT"
+
+    /// Launch metadata the wrapper exports for a routed launch, which the
+    /// queued Claude hooks must carry to the session-start capture.
+    public static let hookCapturedEnvironmentKeys = [
+        environmentKey,
+        launchBoundEnvironmentKey,
+        accountEnvironmentKey,
+    ]
+
     /// Directory-name prefix of the private settings directory `sr claude proxy` creates.
     public static let privateSettingsDirectoryPrefix = "subrouter-claude-settings-"
 
@@ -50,6 +65,7 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
     public static let restoreOwnedEnvironmentKeys: Set<String> = [
         environmentKey,
         launchBoundEnvironmentKey,
+        accountEnvironmentKey,
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
         "ANTHROPIC_BASE_URL",
@@ -136,6 +152,29 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
         ]
     }
 
+    /// The pinned account the wrapper recorded for this launch, or `nil` when
+    /// the launch was pooled or the value is not a plain account id. The value
+    /// becomes an argument to the launcher, so anything that could read as an
+    /// option or carry shell or control characters is refused.
+    public func capturedAccount(in environment: [String: String]?) -> String? {
+        guard let value = environment?[Self.accountEnvironmentKey],
+              (1...256).contains(value.count),
+              !value.hasPrefix("-"),
+              value.unicodeScalars.allSatisfy(Self.accountScalars.contains) else {
+            return nil
+        }
+        return value
+    }
+
+    private static let accountScalars = CharacterSet(
+        charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._@+:=-"
+    )
+
+    /// The pinned account as durable launch metadata, or an empty environment.
+    public func capturedAccountEnvironment(in environment: [String: String]?) -> [String: String] {
+        capturedAccount(in: environment).map { [Self.accountEnvironmentKey: $0] } ?? [:]
+    }
+
     /// Whether the captured launch proves a Subrouter-routed plain `claude` launch.
     ///
     /// cmux launchers (`claudeTeams` and friends) own their own resume shape and
@@ -160,11 +199,17 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
     /// proves the routed invocation. The captured Claude options that are safe
     /// to replay follow the session id; Subrouter's private `--settings` file is
     /// dropped because the launcher issues a fresh one.
+    ///
+    /// A pinned launch keeps its account: the pin the wrapper recorded
+    /// (``accountEnvironmentKey``) when present, else one read from a captured
+    /// launcher argv (`sr claude proxy --account x`) on records that predate
+    /// it. Otherwise the pool picks the account.
     public func resumeArguments(
         launcher: String?,
         sessionID: String,
         launchArguments: [String],
-        environment: [String: String]?
+        environment: [String: String]?,
+        launcherPrefix: [String]? = nil
     ) -> [String]? {
         guard provesRoutedLaunch(launcher: launcher, environment: environment),
               let marker = capturedLaunchBoundMarker(in: environment) else {
@@ -174,9 +219,48 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
         guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: tail) else {
             return nil
         }
-        return marker.split(separator: " ").map(String.init)
+        let markerTokens = marker.split(separator: " ").map(String.init)
+        let head = capturedAccount(in: environment).map { Array(markerTokens[0..<3]) + ["--account", $0, "--resume"] }
+            ?? pinnedLauncherArguments(launcherPrefix, markerTokens: markerTokens)
+            ?? markerTokens
+        return head
             + [sessionID]
             + removingPrivateSettingsArguments(from: preserved)
+    }
+
+    /// The marker's launcher with the captured account pin carried over, when
+    /// the captured launcher argv is the same launcher. Only `--account` is
+    /// taken: anything else sr was given (a prompt, `--settings`, `--print`)
+    /// must not be replayed ahead of `--resume`, and the marker's own program
+    /// name is kept so the restore resolves it on PATH as before.
+    private func pinnedLauncherArguments(_ launcherPrefix: [String]?, markerTokens: [String]) -> [String]? {
+        guard let launcherPrefix,
+              let executable = launcherPrefix.first,
+              markerTokens.count == 4,
+              launcherPrefix.count >= 3,
+              (executable as NSString).lastPathComponent == markerTokens[0],
+              Array(launcherPrefix[1..<3]) == Array(markerTokens[1..<3]) else {
+            return nil
+        }
+        let options = Array(launcherPrefix.dropFirst(3))
+        var account: [String] = []
+        var index = 0
+        while index < options.count {
+            let option = options[index]
+            if option == "--account", index + 1 < options.count, !options[index + 1].hasPrefix("-") {
+                account = [option, options[index + 1]]
+                index += 2
+            } else if option.hasPrefix("--account="), option.count > "--account=".count {
+                account = [option]
+                index += 1
+            } else {
+                // sr reads its own options only up to the first other
+                // argument; everything after that is literal Claude input.
+                break
+            }
+        }
+        guard !account.isEmpty else { return nil }
+        return Array(markerTokens[0..<3]) + account + ["--resume"]
     }
 
     /// Whether a `--settings` value names Subrouter's private per-launch file.
