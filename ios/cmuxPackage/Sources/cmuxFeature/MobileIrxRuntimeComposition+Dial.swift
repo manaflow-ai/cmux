@@ -105,11 +105,17 @@ extension MobileIrxRuntimeComposition {
             let quic = candidates.filter { $0.transport == .directQuic }
             let legacy = candidates.filter { $0.transport == .iroh }
             if !quic.isEmpty {
+                // Only a failed QUIC dial may fall through to the legacy
+                // pinned entries (a rolling upgrade). An admission verdict,
+                // scope change, or auth failure after connecting is final.
+                var quicConnection: IrxConnection?
                 do {
-                    let connection = try await dialDirectQuic(peerHex: peerHex, candidates: quic)
-                    return try await admit(connection, peerHex: peerHex, intent: intent, scope: scope, epoch: currentEpoch)
+                    quicConnection = try await dialDirectQuic(peerHex: peerHex, candidates: quic)
                 } catch where !legacy.isEmpty {
-                    // Fall through to the legacy pinned entries.
+                    quicConnection = nil
+                }
+                if let quicConnection {
+                    return try await admit(quicConnection, peerHex: peerHex, intent: intent, scope: scope, epoch: currentEpoch)
                 }
             }
             guard !legacy.isEmpty else { throw CompositionError.directDialUnavailable }

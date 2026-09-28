@@ -51,8 +51,21 @@ public final class DirectQuicListener: @unchecked Sendable {
         (connections, continuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(32))
     }
 
-    /// Starts listening and returns the bound port.
-    public func start() async throws -> UInt16 {
+    /// Starts listening and returns the bound port. A listener parked in
+    /// `.waiting` (unresolved interfaces or permissions) fails after
+    /// `deadline` instead of blocking the host's activation indefinitely.
+    public func start(deadline: Duration = .seconds(5)) async throws -> UInt16 {
+        let result = try await withIrxDeadlineResult(deadline) { [self] in
+            try await startWithoutDeadline()
+        }
+        guard case let .operation(port?) = result else {
+            cancel()
+            throw DirectQuicError.listenerUnavailable
+        }
+        return port
+    }
+
+    private func startWithoutDeadline() async throws -> UInt16 {
         listener.newConnectionGroupHandler = { [weak self] group in
             self?.handshake(group)
         }
