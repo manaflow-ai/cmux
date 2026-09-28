@@ -75,6 +75,19 @@ struct MachineDeleteCoordinatorTests {
         #expect(launches.cancellations == 1)
     }
 
+    @Test func retireClosesTheMachinesRegistrationsThenRepublishesSocketReads() {
+        var steps: [String] = []
+        MachineDeleteCoordinator.retireLocalPresentations(
+            of: "m1",
+            closeRegistrations: { steps.append("close registrations \($0)") },
+            republishSocketReads: { steps.append("republish socket reads") }
+        )
+        // A workspace or URL pane opened on the machine while its delete was pending
+        // closes here. `cmux vm rm` reaches the delete through a worker-lane
+        // `vm.destroy` call, which never refreshes socket reads when it returns.
+        #expect(steps == ["close registrations m1", "republish socket reads"])
+    }
+
     @Test func createCleanupDetachesOnlyAfterTheTransitionThatRequestedIt() async throws {
         var steps: [String] = []
         let deletions = MachineDeleteCoordinator(

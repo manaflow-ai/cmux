@@ -34,7 +34,7 @@ final class MachineDeleteCoordinator {
         notificationCenter: NotificationCenter = .default,
         destroyMachine: @escaping @MainActor (String) async throws -> Void = { try await VMClient.shared.destroy(id: $0) },
         didHide: @escaping @MainActor (String) -> Void = { MachineDeleteCoordinator.detachLocalPresentations(of: $0) },
-        didRetire: @escaping @MainActor (String) -> Void = { AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: $0) },
+        didRetire: @escaping @MainActor (String) -> Void = { MachineDeleteCoordinator.retireLocalPresentations(of: $0) },
         didRestore: @escaping @MainActor (String) -> Void = { MachineCreateCoordinator.shared.machineDeletionFailed($0) }
     ) {
         self.destroyMachine = destroyMachine
@@ -121,6 +121,22 @@ final class MachineDeleteCoordinator {
         closeWorkspaces(machineID)
         closePanes(machineID)
         republishSocketReads()
+    }
+
+    /// Closes the local workspaces and URL-backed panes of a machine whose delete
+    /// is confirmed, including any opened while the delete was pending, and
+    /// refreshes socket reads.
+    /// - Parameters:
+    ///   - machineID: The exact provider machine identifier.
+    ///   - closeRegistrations: Closes the machine's local workspaces and
+    ///     unregisters its surface provider, which closes its URL-backed panes.
+    ///   - republishSocketReads: Refreshes what socket reads answer.
+    static func retireLocalPresentations(
+        of machineID: String,
+        closeRegistrations: @MainActor (String) -> Void = { AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: $0) },
+        republishSocketReads: @MainActor () -> Void = { TerminalController.shared.externalTopologyDidChange() }
+    ) {
+        closeRegistrations(machineID)
     }
 
     /// Destroys the machine for the `vm.destroy` socket method, which every
