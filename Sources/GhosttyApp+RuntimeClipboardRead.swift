@@ -185,8 +185,16 @@ extension GhosttyApp {
             case .insertText(let text):
                 completeClipboardRequest(with: text)
             case .fileURLs(let fileURLs):
-                let target = requestTerminalSurface
-                    .resolvedImageTransferTarget()
+                let target = await requestTerminalSurface
+                    .resolvedImageTransferTargetAsync()
+                guard !operation.isCancelled,
+                      requestSurfaceIdentity.matches(requestTerminalSurface) else {
+                    preparedContent.cleanupTransferredTemporaryFiles(
+                        using: terminalPasteboard
+                    )
+                    completeClipboardRequest(with: "")
+                    return
+                }
                 let plan = TerminalImageTransferPlanner.plan(
                     fileURLs: fileURLs,
                     target: target

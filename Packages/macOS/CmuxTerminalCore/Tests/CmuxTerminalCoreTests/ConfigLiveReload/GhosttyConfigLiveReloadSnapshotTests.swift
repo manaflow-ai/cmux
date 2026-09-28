@@ -126,4 +126,25 @@ private struct NoFonts: GhosttyFontProbing {
         #expect(paths.contains("\(base)/com.cmuxterm.app.debug.tag/config.ghostty"))
         #expect(Set(paths).count == paths.count)
     }
+
+    /// Ghostty loads `$XDG_CONFIG_HOME/ghostty/config` when that variable is
+    /// set, so an edit there must be watched and reloaded.
+    @Test func readerWatchesTheConfigUnderXDGConfigHome() {
+        let files = InMemoryConfigFiles(contentsByPath: [
+            "/xdg-home/ghostty/config.ghostty": "font-size = 13\n",
+        ])
+        let reader = DiscoveryGhosttyConfigLiveReloadSnapshotReader(
+            currentBundleIdentifier: nil,
+            appSupportDirectory: nil,
+            configHomeDirectory: "/xdg-home"
+        ) {
+            GhosttyConfigDiscovery(fileReader: files, fontProbe: NoFonts())
+        }
+
+        let result = reader.snapshot()
+
+        #expect(result.watchedPaths.contains("/xdg-home/ghostty/config"))
+        #expect(result.watchedPaths.contains("/xdg-home/ghostty/config.ghostty"))
+        #expect(result.contentsByPath["/xdg-home/ghostty/config.ghostty"] == "font-size = 13\n")
+    }
 }

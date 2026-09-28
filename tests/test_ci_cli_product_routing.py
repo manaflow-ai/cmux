@@ -18,7 +18,7 @@ def gate(expression, *, macos, cli, full_suite, compile_admitted, swift_packages
          unit_in_admission="false"):
     routes = dict(macos=macos, cli=cli, full_suite=full_suite, unit_suite=unit_suite,
                   compile_admitted=compile_admitted, release_build="false", swift_packages=swift_packages,
-                  unit_in_admission=unit_in_admission)
+                  unit_in_admission=unit_in_admission, unit_tested="")
     expression = expression.removeprefix("${{").removesuffix("}}").strip()
     expression = expression.replace("!cancelled()", "True")
     expression = expression.replace("github.event_name", repr("pull_request"))
