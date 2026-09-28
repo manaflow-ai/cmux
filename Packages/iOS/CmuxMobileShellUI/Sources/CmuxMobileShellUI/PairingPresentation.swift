@@ -6,15 +6,14 @@ enum PairingPresentation: Equatable {
     /// The QR scanner, with the manual form still available after a scan error.
     case scanner(entry: PairingAnalyticsEntry)
 
-    /// The same add-connection sheet opened from a Computer's Tailscale
-    /// method section, titled as adding a Tailscale connection. The scanner
-    /// stays one tap away inside the sheet instead of opening the camera
-    /// directly.
+    /// Adds a Tailscale connection to one already-paired Computer. The camera
+    /// opens immediately and the sheet never shows the Add Computer form: the
+    /// Computer exists, and hand-entered addresses belong in its Direct
+    /// address list, not the pairing flow.
     case tailscaleSetup
 
-    /// Replaces the selected Computer's existing Tailscale route. The QR
-    /// scanner opens immediately, while the manual form remains available if
-    /// the user needs it.
+    /// Replaces the selected Computer's existing Tailscale route. Scanner-only,
+    /// like ``tailscaleSetup``.
     case tailscaleReplacement
 
     /// Approval for an externally supplied attach ticket whose compatibility
@@ -23,7 +22,7 @@ enum PairingPresentation: Equatable {
 
     var showsScanner: Bool {
         switch self {
-        case .scanner, .tailscaleReplacement:
+        case .scanner, .tailscaleSetup, .tailscaleReplacement:
             return true
         default:
             return false
@@ -31,7 +30,23 @@ enum PairingPresentation: Equatable {
     }
 
     var showsManualPairingControls: Bool {
-        self != .versionApproval
+        switch self {
+        case .manual, .scanner:
+            return true
+        case .tailscaleSetup, .tailscaleReplacement, .versionApproval:
+            return false
+        }
+    }
+
+    /// A scan scoped to one already-paired Computer: the sheet is the scanner
+    /// plus scan results, with a rescan affordance after a failed code.
+    var isPerComputerScan: Bool {
+        switch self {
+        case .tailscaleSetup, .tailscaleReplacement:
+            return true
+        default:
+            return false
+        }
     }
 
     var analyticsEntry: String {

@@ -13,12 +13,29 @@ struct MobileRootPresentationStateTests {
         #expect(approval.analyticsEntry == "version_approval")
     }
 
+    /// A per-Computer Tailscale scan is the camera only: the Computer already
+    /// exists, so the Add Computer form (name, host, port, Pair) never shows,
+    /// and hand-entered addresses belong in its Direct address list.
+    @Test(arguments: [PairingPresentation.tailscaleSetup, .tailscaleReplacement])
+    func perComputerTailscaleScanIsScannerOnly(_ presentation: PairingPresentation) {
+        #expect(presentation.showsScanner)
+        #expect(!presentation.showsManualPairingControls)
+        #expect(presentation.isPerComputerScan)
+    }
+
     @Test func tailscaleReplacementStartsScannerWithReplacementAnalytics() {
         let replacement = PairingPresentation.tailscaleReplacement
 
         #expect(replacement.showsScanner)
-        #expect(replacement.showsManualPairingControls)
         #expect(replacement.analyticsEntry == "tailscale_replacement")
+    }
+
+    @Test func rootScannerKeepsItsManualPairingEscape() {
+        let scanner = PairingPresentation.scanner(entry: .settingsReplay)
+
+        #expect(scanner.showsScanner)
+        #expect(scanner.showsManualPairingControls)
+        #expect(!scanner.isPerComputerScan)
     }
 
     @Test func interactiveIntroductionDismissalRequestsAcknowledgement() {

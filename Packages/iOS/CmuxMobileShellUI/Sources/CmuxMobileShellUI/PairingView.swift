@@ -147,17 +147,7 @@ struct PairingView: View {
                         .accessibilityElement(children: .contain)
                     }
 
-                    #if os(iOS)
-                    Section {
-                        Button {
-                            isShowingScanner = true
-                        } label: {
-                            Label(L10n.string("mobile.pairing.scan", defaultValue: "Scan QR Code"), systemImage: "qrcode.viewfinder")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .accessibilityIdentifier("MobileScanQRCodeButton")
-                    }
-                    #endif
+                    scanQRSection
 
                     if let manualRouteWarningText {
                         Section {
@@ -170,6 +160,13 @@ struct PairingView: View {
                             .accessibilityIdentifier("MobileManualRouteWarning")
                         }
                     }
+                }
+
+                // A per-Computer scan sheet is the camera plus its results:
+                // after a failed code the error sections below explain it,
+                // and this row reopens the camera.
+                if initialPresentation.isPerComputerScan, !isShowingScanner {
+                    scanQRSection
                 }
 
                 if let versionWarning {
@@ -313,6 +310,21 @@ struct PairingView: View {
         )
     }
 
+    @ViewBuilder
+    private var scanQRSection: some View {
+        #if os(iOS)
+        Section {
+            Button {
+                isShowingScanner = true
+            } label: {
+                Label(L10n.string("mobile.pairing.scan", defaultValue: "Scan QR Code"), systemImage: "qrcode.viewfinder")
+                    .frame(maxWidth: .infinity)
+            }
+            .accessibilityIdentifier("MobileScanQRCodeButton")
+        }
+        #endif
+    }
+
     private var cancelButton: some View {
         Button {
             cancelActivePairingTask()
@@ -349,11 +361,28 @@ struct PairingView: View {
 
     private var scannerCancelAction: (() -> Void)? {
         guard initialPresentation.showsScanner else { return nil }
+        if initialPresentation.isPerComputerScan {
+            // With no form behind the camera, cancelling it ends the flow —
+            // unless a failed scan's error is showing, which the user should
+            // land back on rather than lose.
+            return {
+                if errorText == nil, versionWarning == nil {
+                    cancelActivePairingTask()
+                    cancelPairing()
+                    cancel()
+                } else {
+                    isShowingScanner = false
+                }
+            }
+        }
         return { cancelDirectScanner() }
     }
 
     private var scannerManualEntryAction: (() -> Void)? {
-        guard initialPresentation.showsScanner else { return nil }
+        // A per-Computer scan has no manual escape: hand-entered addresses
+        // belong in the Computer's Direct address list, not the pairing flow.
+        guard initialPresentation.showsScanner,
+              initialPresentation.showsManualPairingControls else { return nil }
         return { isShowingScanner = false }
     }
 
