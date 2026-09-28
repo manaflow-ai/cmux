@@ -94,7 +94,8 @@ import {
 } from "./entitlements";
 import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
 import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
-import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
+import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
+import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
@@ -133,6 +134,7 @@ export {
   listVmTunnels,
   listVmAccessGrants,
   networkSlugForUser,
+  networkSlugForTeam,
   readVmTunnel,
   renameVmAccessGrant,
   resolveOwnerNetwork,
@@ -388,8 +390,75 @@ export function renameVm(input: {
   });
 }
 
+/**
+ * Detach tunnels from team networks their owner no longer belongs to. Freestyle
+ * is the record of both the team networks (found by slug) and their attached
+ * tunnels; candidate teams come from the live machines billed to them.
+ */
+function reconcileTeamTunnelAttachments(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  directory: VmTeamDirectory,
+  timeoutMs = 3000,
+  pageSize = 50,
+  budgetMs = 60_000,
+  now: () => number = Date.now,
+): Effect.Effect<void, never> {
+  const reconcileTeam = (owner: { readonly teamId: string; readonly provider: ProviderId }) =>
+    Effect.gen(function* () {
+      const network = yield* providers.getNetwork!(owner.provider, networkSlugForTeam(owner.teamId));
+      if (!network) return;
+      const membersResult = yield* listTeamMemberIdsWithTimeout(directory, owner.teamId, timeoutMs);
+      if ("error" in membersResult) return;
+      const members = membersResult.memberIds ? new Set(membersResult.memberIds) : null;
+      const tunnelIds = yield* providers.listNetworkTunnelIds!(owner.provider, network.id);
+      const rows = yield* repo.findTunnelsByProviderTunnelIds!(owner.provider, tunnelIds);
+      for (const row of rows) {
+        // Tunnels with no row are skipped: the provider account can hold
+        // tunnels another environment issued.
+        const remove = members === null || row.revokedAt !== null || !members.has(row.userId);
+        if (!remove) continue;
+        yield* providers.detachTunnelNetwork!(owner.provider, row.providerTunnelId, network.id).pipe(Effect.catchAll(() => Effect.void));
+      }
+    }).pipe(Effect.catchAll(() => Effect.void));
+  return Effect.gen(function* () {
+    const startedAt = now();
+    let after: { teamId: string; provider: ProviderId } | undefined;
+    for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
+      if (now() - startedAt >= budgetMs) {
+        yield* Effect.logInfo("Cloud team tunnel reconciliation budget exhausted", {
+          skippedTeamsInPage: 0,
+          remainingPagesUnread: true,
+        });
+        break;
+      }
+      const page = yield* repo.listActiveTeamVmOwners!({ limit: pageSize, after }).pipe(Effect.catchAll(() => Effect.succeed([])));
+      if (page.length === 0) break;
+      for (const [index, owner] of page.entries()) {
+        if (now() - startedAt >= budgetMs) {
+          // Count only fetched teams; further pages remain unread for the next run.
+          yield* Effect.logInfo("Cloud team tunnel reconciliation budget exhausted", {
+            skippedTeamsInPage: page.length - index,
+            remainingPagesUnread: page.length === pageSize,
+          });
+          return;
+        }
+        yield* reconcileTeam(owner);
+      }
+      if (page.length < pageSize) break;
+      after = page[page.length - 1];
+      if (!after) break;
+    }
+  }).pipe(Effect.catchAllCause(() => Effect.void));
+}
+
 export function reconcileVmProviderStatuses(input: {
   readonly limit?: number;
+  readonly teamDirectory?: VmTeamDirectory;
+  readonly directoryTimeoutMs?: number;
+  readonly teamNetworkPageSize?: number;
+  readonly teamReconcileBudgetMs?: number;
+  readonly now?: () => number;
   /** Revokes coderouter tokens for machines the provider reports gone. */
   readonly modelPlane?: VmModelPlaneRevoker;
 } = {}): Effect.Effect<VmProviderStatusReconcileResult, VmWorkflowError, VmRepository | VmProviderGateway> {
@@ -452,6 +521,15 @@ export function reconcileVmProviderStatuses(input: {
       if (outcome === "updated") updated += 1;
       else if (outcome === "destroyed") destroyed += 1;
       else if (outcome === "skipped") skipped += 1;
+    }
+    if (
+      input.teamDirectory && repo.listActiveTeamVmOwners && repo.findTunnelsByProviderTunnelIds &&
+      providers.getNetwork && providers.listNetworkTunnelIds && providers.detachTunnelNetwork
+    ) {
+      yield* reconcileTeamTunnelAttachments(
+        repo, providers, input.teamDirectory, input.directoryTimeoutMs,
+        input.teamNetworkPageSize, input.teamReconcileBudgetMs, input.now,
+      );
     }
     return {
       checked: candidates.length,
@@ -683,6 +761,8 @@ type CreateVmInput = {
    * unwired machine.
    */
   readonly modelPlane?: VmModelPlaneProvisioner;
+  /** Set only when the requesting client routes team networks. */
+  readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
   /**
    * Runs best-effort work after the response has been sent (the route passes
@@ -728,7 +808,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
           measureVmEffect(
             input.timing,
             "resolve_network",
-            resolveOwnerNetwork({ userId: input.userId, provider: input.provider }),
+            resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory }),
           ),
         ),
         beginCreateWithLazyProviderRefresh(repo, providers, beginInput),
@@ -828,7 +908,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         memoryMb: input.memoryMb,
         imageSize: input.imageSize ?? (input.billingPlanId === "go" ? { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } : undefined),
         edgeRules: materials?.edgeRules,
-        network: { id: network.providerNetworkId },
+        network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -995,6 +1075,8 @@ export function openBaseVm(input: {
   readonly imageSize?: CreateOptions["imageSize"];
   readonly baseName?: string;
   readonly modelPlane?: VmModelPlaneProvisioner;
+  /** Set only when the requesting client routes team networks. */
+  readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -1075,6 +1157,7 @@ function finishBaseCreate(
     readonly runtimeBudgetSeconds?: number;
     readonly baseName?: string;
     readonly modelPlane?: VmModelPlaneProvisioner;
+    readonly teamDirectory?: VmTeamDirectory;
     readonly timing?: VmTimingSink;
   },
   create: BeginBaseCreateResult,
@@ -1129,7 +1212,7 @@ function finishBaseCreate(
     const network = yield* measureVmEffect(
       input.timing,
       "resolve_network",
-      resolveOwnerNetwork({ userId: input.userId, provider: input.provider }).pipe(
+      resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory }).pipe(
         Effect.provideService(VmRepository, repo),
         Effect.provideService(VmProviderGateway, providers),
       ),
@@ -1167,7 +1250,7 @@ function finishBaseCreate(
         promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: create.vm.providerMetadata,
         edgeRules: materials?.edgeRules,
-        network: { id: network.providerNetworkId },
+        network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -1632,6 +1715,8 @@ export function restoreVm(input: {
   readonly idempotencyKey?: string;
   /** Same contract as createVm: the restored machine gets its own token and edge rule. */
   readonly modelPlane?: VmModelPlaneProvisioner;
+  /** Set only when the requesting client routes team networks. */
+  readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
 }) {
   return Effect.gen(function* () {
@@ -1678,6 +1763,7 @@ export function restoreVm(input: {
       origin: "restore",
       ...(resourceReservation ? { resourceReservation } : {}),
       modelPlane: input.modelPlane,
+      teamDirectory: input.teamDirectory,
       timing: input.timing,
     });
   });
@@ -1817,6 +1903,8 @@ export function forkVm(input: {
   readonly name?: string;
   readonly idempotencyKey?: string;
   readonly modelPlane?: VmModelPlaneProvisioner;
+  /** Set only when the requesting client routes team networks. */
+  readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
 }) {
   return Effect.gen(function* () {
@@ -2050,6 +2138,7 @@ export function forkVm(input: {
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
       modelPlane: input.modelPlane,
+      teamDirectory: input.teamDirectory,
       timing: input.timing,
     });
     yield* repo.recordUsageEvent({

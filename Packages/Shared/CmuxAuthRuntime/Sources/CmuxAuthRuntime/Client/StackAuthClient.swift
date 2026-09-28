@@ -28,8 +28,8 @@ public struct StackAuthClient: AuthClient {
     ///
     /// - Parameters:
     ///   - config: The resolved auth configuration (project id + publishable key).
-    ///   - tokenStore: Where Stack persists tokens. Pass `.memory` for the
-    ///     simulator DEBUG flow and `.keychain` for real devices/release.
+    ///   - tokenStore: Where Stack persists tokens. App composition selects
+    ///     a store scoped to the installed app and authentication environment.
     ///   - oauthBrowserSessionPrivacy: Whether OAuth may reuse Safari cookies.
     ///   - baseURL: Stack API origin. Defaults to Stack's production API.
     ///   - noAutomaticPrefetch: Disables Stack project prefetch when the host

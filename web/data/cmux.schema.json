@@ -537,6 +537,12 @@
           "default": "system",
           "description": "App appearance mode."
         },
+        "accentColor": {
+          "type": "string",
+          "enum": ["cmux", "system"],
+          "default": "cmux",
+          "description": "Accent for cmux-drawn chrome: the selected workspace, attention ring and pane flash, agent status, pane swap, canvas focus, and scroll markers. \"cmux\" uses cmux blue; \"system\" follows the macOS accent color and updates when it changes. workspaceColors.selectionColor and notifications.paneFlashColor still override their parts. Native controls always use the macOS accent."
+        },
         "appIcon": {
           "type": "string",
           "enum": ["automatic", "light", "dark"],
@@ -679,6 +685,16 @@
           "descriptionKey": "schemaDescriptions.app.warnBeforeClosingTabXButton",
           "description": "Show a confirmation before closing a tab with the tab close button."
         },
+        "warnBeforeClosingWorkspace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off."
+        },
+        "warnBeforeClosingWindow": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation before closing a window with a running process, or all of a window's workspaces at once."
+        },
         "hideTabCloseButton": {
           "type": "boolean",
           "default": false,
@@ -756,6 +772,11 @@
           "type": "boolean",
           "default": false,
           "description": "When true, copying terminal text also joins a line that exactly fills the terminal width onto the next line, undoing hard wraps a program inserted at the grid edge. Soft-wrapped rows are always joined."
+        },
+        "confirmUnsafePaste": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, a paste that Ghostty's clipboard-paste-protection flags as unsafe (for example, text with a line break going to a program that has not enabled bracketed paste) waits for confirmation in a sheet attached to the terminal's window. When false, cmux pastes it without asking. OSC 52 clipboard reads are not affected."
         },
         "textEditingGestures": {
           "type": "boolean",
@@ -1421,6 +1442,11 @@
           "default": null,
           "description": "Override the selected workspace background color."
         },
+        "subtleSelection": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the selected workspace as a faint accent tint with a thin edge instead of a solid fill. A custom selectionColor still uses a solid fill."
+        },
         "notificationBadgeColor": {
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
@@ -1547,11 +1573,8 @@
           "default": true,
           "description": "Enable cmux integration hooks for Claude Code."
         },
-        "codexIntegration": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe."
-        },
+        "codexIntegration": {"type": "boolean", "default": true, "description": "Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe."},
+        "piIntegration": {"type": "boolean", "default": true, "description": "Enable cmux integration hooks for Pi."},
         "claudeBinaryPath": {
           "type": "string",
           "default": "",
@@ -2009,6 +2032,7 @@
               "cycleTextBoxSubmitAction",
               "attachTextBoxFile",
               "sendCtrlFToTerminal",
+              "pasteLastScreenshot",
               "clearScreenKeepScrollback",
               "simulatorHome",
               "simulatorRotateLeft",

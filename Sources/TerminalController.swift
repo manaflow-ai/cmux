@@ -295,6 +295,12 @@ class TerminalController {
             defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
         )
     }
+    nonisolated static var terminalNotRunningMessage: String {
+        String(
+            localized: "socket.terminal.notRunning",
+            defaultValue: "The terminal is not running right now, for example because it is hibernated or still starting. Show it in cmux, then retry."
+        )
+    }
     private nonisolated static var terminalProcessExitedSocketError: String {
         "ERROR: \(terminalProcessExitedMessage)"
     }
@@ -454,6 +460,32 @@ class TerminalController {
     /// read-only afterward; the controller is an app-lifetime singleton.
     private final class ServerEventTarget: @unchecked Sendable {
         weak var controller: TerminalController?
+    }
+
+    /// Queues a session hook the app observed for a remote agent (the cmux-tui agent
+    /// roster of a `cmux ssh` machine) through the same relay-backed delivery
+    /// lane as `agent.hook.enqueue`, routed to the local pane showing it.
+    /// - Returns: `false` when the socket is not listening, the event is
+    ///   invalid for queued delivery, or the queue is full.
+    nonisolated func enqueueMirroredAgentHook(
+        agent: String,
+        subcommand: String,
+        payload: String,
+        workspaceID: UUID,
+        surfaceID: UUID
+    ) -> Bool {
+        guard let socketPath = currentSocketPathForRemoteRestore(),
+              let event = AgentHookDeliveryEvent.mirrored(
+                  agent: agent,
+                  subcommand: subcommand,
+                  payload: payload,
+                  workspaceID: workspaceID,
+                  surfaceID: surfaceID,
+                  deliverySocketPath: socketPath
+              ) else {
+            return false
+        }
+        return agentHookDeliveryQueue.enqueue(event)
     }
 
     private init(
@@ -1282,7 +1314,7 @@ class TerminalController {
                     await self.v2SurfaceReadSelection(params: parsedRequest.params)
                 }
             }
-            if request.method == "mobile.task.models.list" {
+            if ["mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt"].contains(request.method) {
                 return v2AsyncResultCall(
                     id: request.id,
                     timeoutSeconds: 7
@@ -1603,14 +1635,23 @@ class TerminalController {
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "agent.hook.enqueue":
+            // Relay provenance survives only after the ingress gate authorized
+            // the owner workspace and surface selectors.
+            let enqueueParams: [String: Any]?
+            if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil {
+                enqueueParams = RemoteRelayAgentHookAdmission().queueParameters(from: request.params)
+            } else {
+                enqueueParams = request.params
+            }
             let hookParams: [String: Any]
-            if request.params["relay_backed"] as? Bool == true,
-               request.params["caller_tty"] != nil {
+            if let enqueueParams,
+               enqueueParams["relay_backed"] as? Bool == true,
+               enqueueParams["caller_tty"] != nil {
                 hookParams = v2MainSync {
-                    self.agentHookParametersResolvingRelayTTY(request.params)
+                    self.agentHookParametersResolvingRelayTTY(enqueueParams)
                 }
             } else {
-                hookParams = request.params
+                hookParams = enqueueParams ?? [:]
             }
             guard let localSocketPath = currentSocketPathForRemoteRestore(),
                   let event = AgentHookDeliveryEvent(
@@ -5622,6 +5663,16 @@ class TerminalController {
         }
     }
 
+    /// The `surface.read_text` reply for a resolved terminal with no live
+    /// runtime surface to read from.
+    private nonisolated static func readTextTerminalNotRunningResult(surfaceID: UUID?) -> V2CallResult {
+        .err(
+            code: "surface_unavailable",
+            message: terminalNotRunningMessage,
+            data: surfaceID.map { ["surface_id": $0.uuidString] }
+        )
+    }
+
     /// `surface.read_text` worker body (issue #5757). The former
     /// `ControlCommandCoordinator.surfaceReadText` ran the whole read — including
     /// the full-scrollback line tailing, candidate scoring, and base64 encoding —
@@ -5796,7 +5847,10 @@ class TerminalController {
                 terminalSurface: terminalSurface,
                 includeScrollback: includeScrollback
             ) else {
-                return .finished(.err(code: "internal_error", message: "Failed to read terminal text", data: nil))
+                // No live runtime: the terminal is hibernated, awaiting
+                // restore admission, or did not start before the deadline.
+                // That is surface state, not a server failure.
+                return .finished(Self.readTextTerminalNotRunningResult(surfaceID: surfaceId))
             }
             // `terminalTextPayload`'s only failure predicate is snapshot shape
             // (O(1)), so reject here and mint refs only when a success reply is
@@ -5833,7 +5887,7 @@ class TerminalController {
             return result
         case .surfaceStarting:
             // v2MainSyncAwaitingSurfaceStart never returns this case.
-            return .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
+            return Self.readTextTerminalNotRunningResult(surfaceID: nil)
         case let .captured(capture):
             // The full-scrollback formatting stays off the main actor.
             switch Self.terminalTextPayload(
@@ -15294,6 +15348,10 @@ class TerminalController {
         if hasViewportReportFields, v2String(params, "client_id") == nil || v2Int(params, "viewport_columns") == nil || v2Int(params, "viewport_rows") == nil {
             return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
         }
+        // A hibernated agent has no runtime, so this replay would be empty and
+        // no output would follow: the viewer would stay blank. Once resumed,
+        // the runtime's output streams to the viewer like any live terminal.
+        terminalTarget.resumeAgentHibernationForRemoteAttach()
         let expectedViewport = applyMobileViewportReport(
             params: params,
             terminalTarget: terminalTarget,

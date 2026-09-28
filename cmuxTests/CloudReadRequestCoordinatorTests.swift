@@ -474,17 +474,18 @@ struct CloudReadRequestCoordinatorTests {
 
 @Suite("Cloud machines offline empty state")
 struct CloudMachinesOfflineStateTests {
-    @Test("Offline before the first list load exposes retry state")
+    @Test("Offline before the first list load says it is waiting for the network")
     @MainActor
     func offlineBeforeFirstLoadIsVisible() async throws {
         let fixture = try await CloudRefreshFixture.make()
         defer { fixture.session.invalidateAndCancel() }
         let model = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
         await fixture.readRequests.networkChanged(isOnline: false)
-        for _ in 0..<10 { await Task.yield() }
-        #expect(model.hasLoadedOnce)
-        #expect(model.listProblem == .unreachable)
-        #expect(model.lastErrorDescription != nil)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while model.listStatus != .waitingForNetwork, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(model.listStatus == .waitingForNetwork)
+        #expect(!model.hasLoadedOnce, "No list read has answered yet")
+        #expect(model.listProblem == nil)
         model.stopPolling()
     }
 }
