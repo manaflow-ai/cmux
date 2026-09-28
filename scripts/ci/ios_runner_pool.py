@@ -96,8 +96,18 @@ the owned pool uploads the fixed-name `owned-pool-watch` marker (the rescue
 sweeper's), so a listing of that name (owned_placements(), at most
 MARKER_PAGES pages) says which runs took the fleet. An `auto` run without it is charged nothing once its runner
 job has had PLACEMENT_GRACE_MINUTES to pick, and so is a re-run attempt,
-which always takes the retry label. A run younger than that, a listing that
-failed, or one older than the listing reaches is charged in full.
+which always takes the retry label. A younger `auto` run whose `runner` job
+has already finished without a marker is on Blacksmith too: picked_runs()
+reads the jobs of at most MAX_PICKER_READS such runs, before the markers are
+listed, so a marker uploaded between the two reads is still seen. On
+2026-09-28 a burst of pull request runs, each sent to Blacksmith within a
+minute, was charged two simulators and two machines apiece for five minutes,
+so the picker read "-2 glaeda-ios-sim free" and a pool of -1 while std
+runners, root and side, sat idle, and every run behind them overflowed too.
+The live pool count charges a recent run only when it may be on the fleet,
+by the same rule. A run younger than the grace whose picker has not
+finished, a listing that failed, or a run older than the listing reaches is
+charged in full.
 
 Labels. ios-simulator-build and ios-simulator need the iOS runtime, and
 screenshots too, so they ask for the owned pool label and SIM_LABEL together
@@ -129,7 +139,8 @@ macOS 26 pool.
 
 API budget: the E2E picker's four requests, plus one page of runs for each
 of the two iOS workflows and up to MARKER_PAGES pages of `owned-pool-watch`
-markers.
+markers; on the live path, four pages of in-flight runs, the marker pages,
+and one job listing for each of at most MAX_PICKER_READS young `auto` runs.
 Anything uncertain keeps the default.
 """
 from __future__ import annotations
@@ -169,6 +180,12 @@ WATCH_MARKER = "owned-pool-watch"
 # How long a run's runner job has to pick and upload that marker. An `auto` run
 # younger than this is charged in full; an older one without it is on Blacksmith.
 PLACEMENT_GRACE_MINUTES = 5
+# The picker's job in test-ios.yml. Once it has finished, the run's marker
+# (if any) is uploaded, so a finished picker without one means Blacksmith.
+PICKER_JOB = "runner"
+# Young in-flight runs whose jobs are read to learn whether the picker is done,
+# one request each; the newest first, the rest are charged in full.
+MAX_PICKER_READS = 8
 # Pages of markers read. The name is shared with ci.yml and test-e2e.yml, so one
 # page of 100 reached back about an hour on 2026-09-25; three cover a saturated
 # Blacksmith pool's longest waits.
@@ -408,6 +425,8 @@ class Placements:
     runs: frozenset[int]
     # The oldest marker read when more remain: a run created before it may be on an unread page.
     since: str | None = None
+    # Runs whose picker job had finished before the markers were read (picked_runs()).
+    picked: frozenset[int] = frozenset()
 
     def off_fleet(self, run: Mapping[str, Any], now: dt.datetime) -> bool:
         """True when `run` certainly holds no owned machine: a re-run, or picked a while ago without a marker."""
@@ -416,6 +435,8 @@ class Placements:
             return True
         if run.get("id") in self.runs:
             return False
+        if run.get("id") in self.picked:
+            return True
         created = str(run.get("created_at") or "")
         if not created or self.since is not None and created < self.since:
             return False
@@ -423,8 +444,42 @@ class Placements:
         return age is not None and age >= PLACEMENT_GRACE_MINUTES
 
 
-def owned_placements(client: Any) -> Placements | None:
-    """Which runs took the owned pool (MARKER_PAGES requests at most), or None when the markers cannot be read."""
+def picked_runs(client: Any, runs: Sequence[Mapping[str, Any]], now: dt.datetime) -> frozenset[int]:
+    """The young `auto` runs among `runs` whose picker job has finished (MAX_PICKER_READS requests at most).
+
+    Only a run Placements.off_fleet() cannot yet settle by age is read: attempt 1, created less
+    than PLACEMENT_GRACE_MINUTES ago, titled `on auto`. Call it before owned_placements(), so a
+    run whose picker finishes in between shows its marker. A run whose jobs cannot be read is
+    left out, and so charged in full.
+    """
+    young = []
+    for run in runs:
+        fields = str(run.get("display_title") or "").split(TITLE_SEPARATOR)
+        age = pr_runner_pool.run_age_minutes(run, now)
+        if (isinstance(run.get("id"), int) and run.get("run_attempt") in (None, 1) and run.get("status") != "completed"
+                and str(run.get("display_title") or "").startswith(TITLE_PREFIX) and len(fields) == 7
+                and fields[6].strip() in ("on", "on auto") and age is not None and age < PLACEMENT_GRACE_MINUTES):
+            young.append(run)
+    young.sort(key=lambda run: str(run.get("created_at") or ""), reverse=True)
+    picked = set()
+    for run in young[:MAX_PICKER_READS]:
+        try:
+            jobs = client.get(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page={pr_runner_pool.PAGE_SIZE}")
+        except Exception as error:  # noqa: BLE001 - an unread run is charged in full
+            print(f"::warning title=owned placements::could not read run {run['id']}'s jobs ({error})",
+                  file=sys.stderr)
+            continue
+        if any(isinstance(job, Mapping) and job.get("name") == PICKER_JOB and job.get("status") == "completed"
+               for job in (jobs or {}).get("jobs") or []):
+            picked.add(run["id"])
+    return frozenset(picked)
+
+
+def owned_placements(client: Any, picked: frozenset[int] = frozenset()) -> Placements | None:
+    """Which runs took the owned pool (MARKER_PAGES requests at most), or None when the markers cannot be read.
+
+    `picked` are the runs picked_runs() found with a finished picker, read before this listing.
+    """
     artifacts: list[Mapping[str, Any]] = []
     more = False
     try:
@@ -444,7 +499,7 @@ def owned_placements(client: Any) -> Placements | None:
     since = None
     if more:
         since = min((str(item.get("created_at") or "") for item in artifacts), default="") or None
-    return Placements(runs, since)
+    return Placements(runs, since, picked)
 
 
 def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = None,
@@ -469,13 +524,22 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
     return sim_jobs("test-ios", fields[4], package)
 
 
-def charged_jobs(run: Mapping[str, Any]) -> int:
-    """The owned machines an in-flight iOS run may hold, read from its title; in full when unsure."""
+def charged_jobs(run: Mapping[str, Any], placements: Placements | None = None,
+                 now: dt.datetime | None = None) -> int:
+    """The owned machines an in-flight iOS run may hold, read from its title; in full when unsure.
+
+    With `placements`, an `auto` run the picker sent to Blacksmith is charged nothing, as in
+    charged_sim_jobs().
+    """
     title = str(run.get("display_title") or "")
     fields = title.split(TITLE_SEPARATOR)
     if not title.startswith(TITLE_PREFIX) or len(fields) != 7 or not fields[6].startswith("on "):
         return LANES["test-ios"].jobs
-    if fields[6][len("on "):].strip() not in ("", "auto", OWNED_CHOICE):
+    runner = fields[6][len("on "):].strip()
+    if runner not in ("", "auto", OWNED_CHOICE):
+        return 0
+    if runner != OWNED_CHOICE and placements is not None \
+            and placements.off_fleet(run, now or dt.datetime.now(dt.timezone.utc)):
         return 0
     return run_jobs("test-ios", "" if fields[2] == "simulator" else fields[2])
 
@@ -505,7 +569,7 @@ def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[
     since = pr_runner_pool.iso(now - dt.timedelta(minutes=pr_runner_pool.LIVE_WINDOW_MINUTES))
     # created_at is ISO 8601 in UTC, so it compares as text; a run without one counts.
     newest = [run for run in recent if str(run.get("created_at") or since) >= since]
-    return LiveFree(pool=idle[pool] - sum(charged_jobs(run) for run in newest),
+    return LiveFree(pool=idle[pool] - sum(charged_jobs(run, placements, now) for run in newest),
                     sim=min(len(sim_hosts), capacity) - sum(charged_sim_jobs(run, placements, now)
                                                             for run in recent))
 
@@ -575,8 +639,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 since = pr_runner_pool.iso(now - dt.timedelta(minutes=SIM_WINDOW_MINUTES))
                 recent = in_flight_ios_runs(client, since, exclude_run_id=exclude)
                 capacity = pr_runner_pool.capability_slots(args.owned_slots).get(SIM_LABEL, 0)
+                # The picker jobs first, then the markers (picked_runs()).
+                picked = picked_runs(client, recent, now)
                 return IOSLoad(None, live=live_free(runners, pools[0], recent, now=now, capacity=capacity,
-                                                    placements=owned_placements(client)))
+                                                    placements=owned_placements(client, picked)))
             except Exception as error:  # noqa: BLE001 - the snapshot path still decides
                 print(f"::warning title=live owned capacity::could not list runners ({error}); using the snapshot",
                       file=sys.stderr)
