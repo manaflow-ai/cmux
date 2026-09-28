@@ -11,9 +11,10 @@ request CI run, next to CI and never inside it:
   off. With no match it takes DEFAULT_TOUR. Tours already published for this
   head are not run again.
 - `tour` runs one tour through scripts/run-e2e.sh with --adopt-only, so it loads
-  the app and UI test bundle the pull request's CI compiled and fails rather
-  than compiling one itself, then turns the tour's frames into a few PNGs and
-  a captioned GIF. A tour that could not run is noted, not cached.
+  the app and UI test bundle the pull request's CI compiled. When its runner
+  cannot load that build, an app pull request compiles once for the tour
+  (COMPILE_FALLBACK). It turns the tour's frames into a few PNGs and a
+  captioned GIF. A tour that could not run is noted with why, not cached.
 - `publish` uploads them to the `pr-media` branch at <pr>/<sha8>/<tour>/ and
   writes a media section into the sticky dogfood comment (DOGFOOD_MARKER),
   unless a newer push has moved the head since.
@@ -56,6 +57,15 @@ OVERRIDE_LINE = re.compile(r"^\s*dogfood-tours\s*:\s*(.*?)\s*$", re.IGNORECASE |
 RUN_LINE = re.compile(r"^Run: https://github\.com/[^/]+/[^/]+/actions/runs/(\d+)")
 # dispatch-focused-test.py --adopt-only: no CI product this run could load.
 NO_PRODUCT_EXIT = 3
+# When a tour compiles its own app: never, only when no CI build loads on
+# its runner (an app pull request), or straight away (a manual dispatch).
+COMPILE_NEVER, COMPILE_FALLBACK, COMPILE_NOW = "never", "fallback", "now"
+COMPILE_MODES = (COMPILE_NEVER, COMPILE_FALLBACK, COMPILE_NOW)
+# Changes to these build the app; a pull request touching none (a CLI-only
+# one, say) never compiles an app just for its tours.
+APP_PATH_PREFIXES = ("Sources/", "Packages/macOS/", "Resources/", "Assets.xcassets/", "AppIcon.icon/", "vendor/",
+                     "ghostty", "cmux.xcodeproj/", "cmux-Bridging-Header.h", "webviews/", "cmuxUITests/",
+                     f"{SCENARIOS_DIR}/")
 GATE_WAIT_SECONDS = 25 * 60
 # Reads share the repository's token budget with the dispatcher, so waits poll slowly.
 GATE_POLL_SECONDS = 60
@@ -214,8 +224,8 @@ def app_build_gate(repository: str, run_id: str, attempt: str, pr: int,
 
     Its dogfood build job runs only for app and CLI pull requests (docs or web
     only changes skip it). A CLI-only push still runs compile admission but
-    leaves no app product; its tours exit without dispatching, and publish
-    leaves such tours out of the comment.
+    leaves no app product; its tours do not compile one (no app path
+    changed), and the comment says why each was skipped.
     """
     deadline = clock() + GATE_WAIT_SECONDS
     name = f"{DOGFOOD_JOB_PREFIX}{pr}"
@@ -332,6 +342,10 @@ def plan(repository: str) -> int:
     # The run whose app a tour loads: this one, or the earlier run of the same
     # build inputs when this push changed no app input (only a tour, say).
     build_run = run if mode == BUILT else admitted_build_run(repository, run, attempt) if mode == REUSED else {}
+    if mode == REUSED and not build_run:
+        # CI reused main's build (this pull request changes no build input
+        # main lacks): the tour compiles the head once.
+        build_run = {"head_sha": head_sha}
     if not build_run and not os.environ.get("SOURCE_RUN_ID"):
         # A manual dispatch still runs: the tour reports that no product was
         # found, or compiles one with allow_compile.
@@ -359,10 +373,12 @@ def plan(repository: str) -> int:
             except json.JSONDecodeError:
                 pass
     tours, reason = select_tours(scenarios, changed, pull.get("body"))
+    app_change = any(path.startswith(APP_PATH_PREFIXES) for path in changed)
     force = os.environ.get("FORCE", "").lower() == "true"
     pending = [tour for tour in tours if force or published(repository, pr, head_sha, tour) is None]
     print(f"#{pr} at {head_sha}: tours {tours or 'none'} ({reason}); to run: {pending or 'none'}", flush=True)
     write_outputs({"pr": str(pr), "head_sha": head_sha, "build_sha": build_sha, "merge_sha": merge_sha,
+                   "compile": COMPILE_FALLBACK if app_change else COMPILE_NEVER,
                    "tours": json.dumps(tours),
                    "run": json.dumps(pending)})
     return 0
@@ -385,6 +401,7 @@ class Dispatch:
         self.run_id: str | None = None
         self.tested: str | None = None
         self.process: subprocess.Popen | None = None
+        self.completed: dict | None = None
 
     def cancel(self, *_: object) -> None:
         if self.process and self.process.poll() is None:
@@ -426,6 +443,16 @@ class Dispatch:
                 subprocess.run(["gh", "run", "cancel", str(self.run_id), "--repo", self.repository], check=False)
                 return run
             sleep(RUN_POLL_SECONDS)
+
+
+def refused_after(dispatch: "Dispatch", repository: str) -> bool:
+    """Wait for an adopt-only tour run; whether it stopped because it could
+    not load CI's build. The finished run is kept on `dispatch.completed`."""
+    run = dispatch.wait()
+    if run.get("conclusion") == "failure" and refused_to_compile(repository, str(dispatch.run_id)):
+        return True
+    dispatch.completed = run
+    return False
 
 
 def refused_to_compile(repository: str, run_id: str) -> bool:
@@ -535,7 +562,7 @@ def tour_media(run_id: str, name: str, head_sha: str, out: Path, repository: str
     return found
 
 
-def tour(repository: str, name: str, scenario: Path, head_sha: str, out: Path, allow_compile: bool,
+def tour(repository: str, name: str, scenario: Path, head_sha: str, out: Path, compile_mode: str = COMPILE_NEVER,
          build_sha: str = "") -> int:
     if not TOUR_NAME.fullmatch(name) or not SHA.fullmatch(head_sha):
         raise ValueError("bad tour name or head")
@@ -547,30 +574,44 @@ def tour(repository: str, name: str, scenario: Path, head_sha: str, out: Path, a
     build_sha = build_sha if SHA.fullmatch(build_sha or "") else head_sha
     if build_sha != head_sha:
         manifest["build_sha"] = build_sha
-    command = [str(ROOT / "scripts/run-e2e.sh"), "--scenario", str(scenario), "--ref", build_sha, "--no-video"]
-    if not allow_compile:
-        command.append("--adopt-only")
-    status = dispatch.start(command)
-    if status == NO_PRODUCT_EXIT:
-        manifest["note"] = (f"no CI build of `{build_sha[:8]}` that a UI run can load, "
-                            "so the tour was skipped rather than compiled")
+    base = [str(ROOT / "scripts/run-e2e.sh"), "--scenario", str(scenario), "--ref", build_sha, "--no-video"]
+    # First the build CI made. When the tour's runner cannot load it (CI built
+    # on another pool, or reused main's build), compile once for the tour: fix
+    # sessions read this media, so a skip costs more than the compile.
+    status = NO_PRODUCT_EXIT if compile_mode == COMPILE_NOW else dispatch.start([*base, "--adopt-only"])
+    try:
+        refused = status == 0 and bool(dispatch.run_id) and refused_after(dispatch, repository)
+    except Exception as error:  # the compile below still makes media
+        print(f"::warning::could not read the adopt-only run: {error}", flush=True)
+        refused = True
+    if (status == NO_PRODUCT_EXIT or refused) and compile_mode == COMPILE_NEVER:
+        manifest["note"] = ("skipped: no CI build this tour's runner can load, and this pull request "
+                            "changes no app code to compile one for")
+        status = None
+    elif status == NO_PRODUCT_EXIT or refused:
+        print("::notice::No CI build this tour's runner can load; compiling one for the tour.", flush=True)
+        dispatch.run_id = dispatch.tested = None
+        # The head itself: a tour-only push compiles to the same app anyway.
+        status = dispatch.start([*base[:4], head_sha, *base[5:]])
+        manifest["compiled"] = True
+        manifest.pop("build_sha", None)
+    if status is None:
+        pass
     elif status != 0 or not dispatch.run_id:
-        manifest["note"] = f"the dispatcher failed (exit {status})"
+        manifest["note"] = f"skipped: the tour dispatcher failed (exit {status}); see the run log"
     else:
         if dispatch.tested and dispatch.tested not in (head_sha, build_sha):
             manifest["tested_sha"] = dispatch.tested
         manifest["run_url"] = f"https://github.com/{repository}/actions/runs/{dispatch.run_id}"
         try:
-            run = dispatch.wait()
+            run = dispatch.completed or dispatch.wait()
             conclusion = run.get("conclusion")
-            if conclusion == "failure" and refused_to_compile(repository, dispatch.run_id):
-                manifest["note"] = ("the tour's runner could not load CI's build, and the tour does not "
-                                    "compile its own; the next CI attempt of this head tries again")
-            elif conclusion in ("success", "failure"):
+            if conclusion in ("success", "failure"):
                 manifest["result"] = "passed" if conclusion == "success" else "failure"
                 manifest.update(tour_media(dispatch.run_id, name, head_sha, out, repository))
             else:
-                manifest["note"] = f"the tour run ended {conclusion or 'unfinished'}; the next CI attempt tries again"
+                manifest["note"] = (f"skipped: the tour run ended {conclusion or 'unfinished'}; "
+                                    "the next CI attempt tries again")
         except Exception as error:  # a manifest with the run link beats no media section at all
             manifest["note"] = f"media could not be made: {str(error)[:200]}"
         # Only a verdict with media is cached (published() keys on run_url);
@@ -627,7 +668,9 @@ def section(repository: str, pr: int | str, head_sha: str, manifests: list[dict]
         tested = manifest.get("tested_sha") or ""
         built = str(manifest.get("build_sha") or "")
         merge = ""
-        if SHA.fullmatch(built):
+        if manifest.get("compiled"):
+            merge = ", on an app compiled for the tour (no CI build loaded on its runner)"
+        elif SHA.fullmatch(built):
             merge = f", on the app CI built for `{built[:8]}`"
             merge += f" (merge `{tested[:8]}`)" if SHA.fullmatch(tested) else ""
             merge += "; this push changed no app input"
@@ -690,10 +733,15 @@ def publish(repository: str, pr: int, head_sha: str, tours: list[str], media: Pa
                        f"PR #{pr} media: {tour_name} at {head_sha[:8]}")
         else:
             manifest = published(repository, pr, head_sha, tour_name)
-        # A tour that never dispatched (no CI build a UI run can load, as on
-        # a CLI-only push) is noise in the comment.
-        if manifest and (manifest.get("run_url") or manifest.get("log_url")):
-            manifests.append(manifest)
+        if not manifest:
+            # The tour job died before writing a manifest (cancelled, timed out).
+            here = os.environ.get("GITHUB_RUN_ID")
+            manifest = {"tour": tour_name, "result": "not run",
+                        "note": "skipped: the tour job left no result; the next CI attempt tries again"}
+            if here:
+                manifest["log_url"] = f"https://github.com/{repository}/actions/runs/{here}"
+        # Every picked tour gets a line: its media, or why it was skipped.
+        manifests.append(manifest)
     if not manifests:
         print("No tour left media.", flush=True)
         return 0
@@ -730,7 +778,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--name", required=True)
     run.add_argument("--scenario", type=Path, required=True)
     run.add_argument("--out", type=Path, required=True)
-    run.add_argument("--allow-compile", action="store_true")
+    run.add_argument("--compile", choices=COMPILE_MODES, default=COMPILE_NEVER,
+                     help="when to compile the app for the tour (default: never)")
     post = sub.add_parser("publish", help="upload media and update the dogfood comment")
     post.add_argument("--media", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -741,7 +790,7 @@ def main(argv: list[str] | None = None) -> int:
     if not SHA.fullmatch(head_sha):
         raise SystemExit(f"HEAD_SHA {head_sha!r} is not a full commit SHA")
     if args.command == "tour":
-        return tour(repository, args.name, args.scenario, head_sha, args.out, args.allow_compile,
+        return tour(repository, args.name, args.scenario, head_sha, args.out, args.compile,
                     os.environ.get("BUILD_SHA", ""))
     return publish(repository, int(os.environ["PR"]), head_sha, json.loads(os.environ.get("TOURS") or "[]"),
                    args.media)
