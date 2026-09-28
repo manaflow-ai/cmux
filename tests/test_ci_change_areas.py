@@ -5556,6 +5556,18 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     fork_guard = jobs["ui-tests"]["steps"][0]
     assert fork_guard["if"] == "github.event.pull_request.head.repo.full_name != github.repository"
     assert "exit 1" in fork_guard["run"]
+    # The token-holding dispatcher is the default branch's code, never the pull
+    # request's, and every step that runs a repository script follows that
+    # checkout.
+    steps = jobs["ui-tests"]["steps"]
+    checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
+    assert len(checkouts) == 1, checkouts
+    assert checkouts[0]["with"]["ref"] == "${{ github.event.repository.default_branch }}"
+    assert checkouts[0]["with"]["persist-credentials"] is False
+    dispatch = next(step for step in steps if step.get("name") == "Run the changed UI test classes")
+    assert steps.index(checkouts[0]) < steps.index(dispatch)
+    assert '"${selectors[@]}"' in dispatch["run"] and "$SELECTORS --ref" not in dispatch["run"]
+    assert "^cmuxUITests/" in dispatch["run"]
 
 
 def test_macos_compile_admission_precedes_expensive_shards() -> None:
