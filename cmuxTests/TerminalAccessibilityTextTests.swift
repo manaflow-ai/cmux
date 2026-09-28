@@ -13,26 +13,45 @@ import Testing
 struct TerminalAccessibilityTextTests {
     private let screen = "~/src main\n$ echo ready\nready\n$ "
 
+    /// Vends each value to a fresh model the way AX reads do, a snapshot apart.
+    private func model(vending values: [String]) -> TerminalAccessibilityText {
+        let text = TerminalAccessibilityText()
+        for (offset, value) in values.enumerated() {
+            _ = text.value(now: Double(offset), read: { value })
+        }
+        return text
+    }
+
     @Test("A value that splices text into what the client read inserts only that text")
     func splicedValueYieldsTheInsertion() {
-        #expect(TerminalAccessibilityText.insertedText(settingValue: screen + "git status", over: screen) == "git status")
-        #expect(TerminalAccessibilityText.insertedText(settingValue: "git status" + screen, over: screen) == "git status")
+        let text = model(vending: [screen])
+        #expect(text.insertedText(settingValue: screen + "git status") == "git status")
+        #expect(text.insertedText(settingValue: "git status" + screen) == "git status")
         let middle = screen.index(screen.startIndex, offsetBy: 11)
         var spliced = screen
         spliced.insert(contentsOf: "hello ", at: middle)
-        #expect(TerminalAccessibilityText.insertedText(settingValue: spliced, over: screen) == "hello ")
+        #expect(text.insertedText(settingValue: spliced) == "hello ")
+    }
+
+    @Test("A value spliced into an older read still inserts only the text after the screen changed")
+    func staleReadStillYieldsTheInsertion() {
+        let older = screen
+        let newer = "ready\n$ \nagent output line one\nagent output line two\n"
+        let text = model(vending: [older, newer])
+        #expect(text.insertedText(settingValue: older + "git status") == "git status")
     }
 
     @Test("A value that doesn't keep the text the client read is inserted as is")
     func unrelatedValueIsLiteral() {
-        #expect(TerminalAccessibilityText.insertedText(settingValue: "hello world", over: screen) == "hello world")
-        #expect(TerminalAccessibilityText.insertedText(settingValue: "$ ", over: "") == "$ ")
-        #expect(TerminalAccessibilityText.insertedText(settingValue: "ends with a space ", over: screen) == "ends with a space ")
+        #expect(model(vending: [screen]).insertedText(settingValue: "hello world") == "hello world")
+        #expect(model(vending: []).insertedText(settingValue: "$ ") == "$ ")
+        #expect(model(vending: [screen]).insertedText(settingValue: "ends with a space ") == "ends with a space ")
+        #expect(model(vending: ["% "]).insertedText(settingValue: "hello ") == "hello ")
     }
 
     @Test("Setting the value the client read inserts nothing")
     func unchangedValueInsertsNothing() {
-        #expect(TerminalAccessibilityText.insertedText(settingValue: screen, over: screen) == "")
+        #expect(model(vending: [screen]).insertedText(settingValue: screen) == "")
     }
 
     @Test("Trailing line breaks split off as a submit")
@@ -62,7 +81,7 @@ struct TerminalAccessibilityTextTests {
         #expect(text.value(now: 10 + TerminalAccessibilityText.snapshotLifetime, read: read) == "read 2")
         text.invalidate()
         #expect(text.value(now: 10.6, read: read) == "read 3")
-        #expect(text.lastVendedValue == "read 3")
+        #expect(text.vendedValues == ["read 1", "read 2", "read 3"])
     }
 
     @Test("Only key events posted by another process count as foreign")

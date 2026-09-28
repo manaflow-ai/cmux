@@ -87,6 +87,24 @@ struct TerminalDictationAccessibilityTests {
         }
     }
 
+    @Test("A trailing newline after a multi-line AX value submits once, after the paste")
+    func multiLineValueWithTrailingNewlineSubmitsOnce() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try DictationTerminalFixture()
+            defer { fixture.close() }
+            try await fixture.waitUntilReady()
+            let recorder = GhosttyKeyPressRecorder()
+            defer { recorder.stop() }
+
+            fixture.view.setAccessibilityValue("first line\nsecond line\n")
+
+            let received = try await fixture.receivedHex()
+            let expected = Data("\u{1b}[200~first line\nsecond line\u{1b}[201~".utf8)
+            #expect(received == expected.map { String(format: "%02x", $0) }.joined())
+            #expect(recorder.textlessKeyCodes == [36], "The trailing newline is one Return")
+        }
+    }
+
     @Test("A Command chord another process posts does not type into the terminal")
     func foreignUnboundCommandChordIsDropped() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
@@ -110,6 +128,7 @@ struct TerminalDictationAccessibilityTests {
             ))
             // Superwhisper-style hotkey: the same Cmd+Option+C, posted by
             // another process (PID 1 is launchd, never this test host).
+            try #require(!GhosttyNSView.isKeyEventPostedByAnotherProcess(keyboardEvent))
             let postedCGEvent = try #require(keyboardEvent.cgEvent)
             postedCGEvent.setIntegerValueField(.eventSourceUnixProcessID, value: 1)
             let postedEvent = try #require(NSEvent(cgEvent: postedCGEvent))

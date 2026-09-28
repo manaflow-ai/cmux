@@ -15,11 +15,16 @@ final class TerminalAccessibilityText {
     /// shell or agent has usually echoed the text by the time clients re-read.
     static let valueChangedDelay: TimeInterval = 0.15
 
+    /// How many distinct values handed to AX clients are remembered. A
+    /// dictation tool can read, wait while the user speaks and output
+    /// arrives, then write back an older value than the latest one read.
+    static let vendedValueHistoryLimit = 8
+
     private var snapshot: String?
     private var snapshotCapturedAt: TimeInterval = 0
-    /// The last value handed to an AX client. A client that edits `AXValue`
-    /// sends back this text with its insertion spliced in.
-    private(set) var lastVendedValue = ""
+    /// Values recently handed to AX clients, newest last. A client that edits
+    /// `AXValue` sends back one of these with its insertion spliced in.
+    private(set) var vendedValues: [String] = []
     private var valueChangedTimer: Timer?
 
     nonisolated init() {}
@@ -30,13 +35,18 @@ final class TerminalAccessibilityText {
         read: () -> String?
     ) -> String {
         if let snapshot, now - snapshotCapturedAt < Self.snapshotLifetime {
-            lastVendedValue = snapshot
             return snapshot
         }
         let fresh = read() ?? ""
         snapshot = fresh
         snapshotCapturedAt = now
-        lastVendedValue = fresh
+        if !fresh.isEmpty, vendedValues.last != fresh {
+            vendedValues.removeAll { $0 == fresh }
+            vendedValues.append(fresh)
+            if vendedValues.count > Self.vendedValueHistoryLimit {
+                vendedValues.removeFirst(vendedValues.count - Self.vendedValueHistoryLimit)
+            }
+        }
         return fresh
     }
 
@@ -64,14 +74,30 @@ final class TerminalAccessibilityText {
 
     /// Returns the text an AX client meant to insert when it sets the whole value.
     ///
-    /// Some clients write `AXValue` as the value they last read with their
-    /// text spliced in. Typing that back would paste the whole screen into the
-    /// shell, so when `newValue` keeps most of `currentValue` around one edit,
-    /// only the edited middle is returned. Anything else is taken literally,
-    /// which is how clients that set just the dictated text have always worked.
-    static func insertedText(settingValue newValue: String, over currentValue: String) -> String {
+    /// Some clients write `AXValue` as a value they read with their text
+    /// spliced in. Typing that back would paste the screen into the shell,
+    /// so when `newValue` is an edit of a recently vended value, only the
+    /// edited middle is returned. Anything else is taken literally, which is
+    /// how clients that set just the dictated text have always worked.
+    func insertedText(settingValue newValue: String) -> String {
+        for vended in vendedValues.reversed() {
+            if let inserted = Self.insertedText(settingValue: newValue, over: vended) {
+                return inserted
+            }
+        }
+        return newValue
+    }
+
+    /// The edited middle of `newValue` when it keeps `currentValue` around one
+    /// edit, or `nil` when it isn't an edit of `currentValue`.
+    ///
+    /// A pure insertion keeps all of `currentValue`. A longer value may also
+    /// have lost a selection the client replaced, so it counts when most of
+    /// it survives. Short values need a pure insertion, so a literal that
+    /// happens to end like a two-character prompt isn't trimmed.
+    static func insertedText(settingValue newValue: String, over currentValue: String) -> String? {
         let old = Array(currentValue.unicodeScalars)
-        guard !old.isEmpty else { return newValue }
+        guard !old.isEmpty else { return nil }
         let new = Array(newValue.unicodeScalars)
         let limit = min(old.count, new.count)
         var prefix = 0
@@ -83,7 +109,8 @@ final class TerminalAccessibilityText {
               old[old.count - 1 - suffix] == new[new.count - 1 - suffix] {
             suffix += 1
         }
-        guard prefix + suffix >= (old.count + 1) / 2 else { return newValue }
+        let kept = prefix + suffix
+        guard kept == old.count || (old.count >= 64 && kept >= old.count / 2) else { return nil }
         var inserted = String.UnicodeScalarView()
         inserted.append(contentsOf: new[prefix..<(new.count - suffix)])
         return String(inserted)

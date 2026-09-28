@@ -54,12 +54,9 @@ extension GhosttyNSView {
     override func setAccessibilityValue(_ value: Any?) {
         guard let content = Self.accessibilityCommittedString(value) else { return }
         let inject = {
-            // Diff against what this client last read, on the main thread
+            // Diff against what clients recently read, on the main thread
             // where the snapshot lives.
-            let inserted = TerminalAccessibilityText.insertedText(
-                settingValue: content,
-                over: self.terminalAccessibilityText.lastVendedValue
-            )
+            let inserted = self.terminalAccessibilityText.insertedText(settingValue: content)
             self.insertAccessibilityCommittedText(inserted)
         }
         if Thread.isMainThread {
@@ -135,7 +132,12 @@ extension GhosttyNSView {
 #endif
 
         let (body, lineBreaks) = TerminalAccessibilityText.splitTrailingLineBreaks(content)
-        if TerminalAccessibilityText.containsLineBreak(body), let terminalSurface {
+        // A cold surface queues the paste but can send the Return at once, so
+        // multi-line text takes the paste path only on a live runtime.
+        if TerminalAccessibilityText.containsLineBreak(body),
+           let terminalSurface,
+           terminalSurface.hasLiveSurface {
+            unmarkText()
             let payload = TerminalAccessibilityText.pastePayload(
                 Self.sanitizeExternalCommittedText(body)
             )
