@@ -38,7 +38,7 @@ public final class BrowserLocalFileEncodingPolicy {
     ///
     /// - Parameter url: The candidate local-file destination.
     /// - Returns: `"UTF-8"` for an eligible file, otherwise `nil`.
-    public static func preferredEncodingName(for url: URL) async -> String? {
+    nonisolated public static func preferredEncodingName(for url: URL) async -> String? {
         guard url.isFileURL, url.scheme?.caseInsensitiveCompare("file") == .orderedSame else {
             return nil
         }
@@ -77,8 +77,87 @@ public final class BrowserLocalFileEncodingPolicy {
         let prefix = data.prefix(maximumMetadataSize)
         let text = String(decoding: prefix, as: UTF8.self).lowercased()
         if ["html", "htm", "xhtml"].contains(extensionName) {
-            return text.contains("<meta") && text.contains("charset")
+            return containsHTMLCharsetDeclaration(in: text)
         }
         return text.contains("<?xml") && text.contains("encoding")
+    }
+
+    /// Finds HTML meta elements whose parsed attributes declare a character set.
+    nonisolated private static func containsHTMLCharsetDeclaration(in text: String) -> Bool {
+        var searchStart = text.startIndex
+        while searchStart < text.endIndex,
+              let metaStart = text.range(of: "<meta", range: searchStart..<text.endIndex) {
+            let afterName = metaStart.upperBound
+            if afterName < text.endIndex,
+               !text[afterName].isWhitespace,
+               text[afterName] != "/",
+               text[afterName] != ">" {
+                searchStart = afterName
+                continue
+            }
+            guard let tagEnd = text[afterName...].firstIndex(of: ">") else { break }
+            let attributes = htmlAttributes(in: text[afterName..<tagEnd])
+            if let charset = attributes["charset"], !charset.isEmpty {
+                return true
+            }
+            if attributes["http-equiv"] == "content-type",
+               let content = attributes["content"],
+               content.range(of: #"charset\s*="#, options: .regularExpression) != nil {
+                return true
+            }
+            searchStart = text.index(after: tagEnd)
+        }
+        return false
+    }
+
+    /// Parses the ASCII attribute grammar used by an HTML meta element.
+    nonisolated private static func htmlAttributes(in source: Substring) -> [String: String] {
+        var attributes: [String: String] = [:]
+        var index = source.startIndex
+        while index < source.endIndex {
+            while index < source.endIndex && (source[index].isWhitespace || source[index] == "/") {
+                index = source.index(after: index)
+            }
+            guard index < source.endIndex else { break }
+            let nameStart = index
+            while index < source.endIndex,
+                  source[index].isLetter || source[index].isNumber || source[index] == "-"
+                    || source[index] == ":" || source[index] == "_" {
+                index = source.index(after: index)
+            }
+            guard nameStart < index else {
+                index = source.index(after: index)
+                continue
+            }
+            let name = String(source[nameStart..<index])
+            while index < source.endIndex && source[index].isWhitespace {
+                index = source.index(after: index)
+            }
+            var value = ""
+            if index < source.endIndex, source[index] == "=" {
+                index = source.index(after: index)
+                while index < source.endIndex && source[index].isWhitespace {
+                    index = source.index(after: index)
+                }
+                if index < source.endIndex, source[index] == "\"" || source[index] == "'" {
+                    let quote = source[index]
+                    index = source.index(after: index)
+                    let valueStart = index
+                    while index < source.endIndex, source[index] != quote {
+                        index = source.index(after: index)
+                    }
+                    value = String(source[valueStart..<index])
+                    if index < source.endIndex { index = source.index(after: index) }
+                } else {
+                    let valueStart = index
+                    while index < source.endIndex && !source[index].isWhitespace {
+                        index = source.index(after: index)
+                    }
+                    value = String(source[valueStart..<index])
+                }
+            }
+            attributes[name] = value
+        }
+        return attributes
     }
 }

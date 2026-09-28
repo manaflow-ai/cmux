@@ -72,6 +72,21 @@ struct CloudMachineNotificationDeliveryTests {
         return nil
     }
 
+    private func waitForNotification(
+        titled title: String,
+        in store: TerminalNotificationStore,
+        timeout: Duration = .seconds(2)
+    ) async throws -> TerminalNotification? {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if let notification = store.notifications.first(where: { $0.title == title }) {
+                return notification
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return nil
+    }
+
     @Test func remoteOriginIsClampedToDisplayOnly() throws {
         let harness = makeHarness()
         defer { harness.restore() }
@@ -146,9 +161,10 @@ struct CloudMachineNotificationDeliveryTests {
             subtitle: "vivid-newt",
             origin: .cloudVM(machineID: "vivid-newt")
         )
+        let notification = try await waitForNotification(titled: "from the machine", in: harness.store)
         #expect(harness.store.notifications.map(\.title) == ["from the machine"])
-        #expect(harness.store.notifications.first?.origin == .cloudVM(machineID: "vivid-newt"))
-        #expect(harness.store.notifications.first?.subtitle == "vivid-newt")
+        #expect(notification?.origin == .cloudVM(machineID: "vivid-newt"))
+        #expect(notification?.subtitle == "vivid-newt")
         #expect(
             !FileManager.default.fileExists(atPath: marker.path),
             "a project cmux.json next to the local pane's cwd must never run for a machine's text"
