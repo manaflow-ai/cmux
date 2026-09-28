@@ -181,6 +181,8 @@ def watcher_fixture(tmp: Path, fake_bin: Path, log: Path) -> tuple[dict[str, str
     server.listen(1)
     ready_dir = tmp / "sleep-ready"
     ready_dir.mkdir(exist_ok=True)
+    zselect_ready_file = tmp / "zselect-ready"
+    zselect_ready_file.unlink(missing_ok=True)
 
     repo = tmp / "repo"
     (repo / ".git").mkdir(parents=True)
@@ -196,6 +198,7 @@ def watcher_fixture(tmp: Path, fake_bin: Path, log: Path) -> tuple[dict[str, str
             "CMUX_NO_GIT_WATCH": "",
             "_CMUX_WATCHER_IDENTITY_INTERVAL": "1",
             "CMUX_FAKE_SLEEP_READY_DIR": str(ready_dir),
+            "CMUX_ZSELECT_READY_FILE": str(zselect_ready_file),
         }
     )
     # The caller owns the socket and repository for the lifetime of the shell.
@@ -214,6 +217,13 @@ if [[ "$CMUX_TEST_FORCE_NO_ZSELECT" == 1 ]]; then
     zmodload() { return 1; }
 fi
 source "$1"
+if (( _CMUX_HAS_ZSELECT )); then
+    functions[_cmux_test_sleep_impl]=$functions[_cmux_sleep_cs]
+    _cmux_sleep_cs() {
+        print -r -- ready >> "$CMUX_ZSELECT_READY_FILE"
+        _cmux_test_sleep_impl "$@"
+    }
+fi
 _cmux_run_pr_probe_with_timeout() { return 0; }
 _cmux_report_git_branch_for_path() { return 0; }
 _cmux_clear_pr_for_panel() { return 0; }
@@ -231,9 +241,19 @@ print -r -- "WATCHERS:${_CMUX_PR_POLL_PID}:${_CMUX_GIT_HEAD_WATCH_PID}"
 pr_pid="$_CMUX_PR_POLL_PID"
 git_pid="$_CMUX_GIT_HEAD_WATCH_PID"
 if (( _CMUX_HAS_ZSELECT )); then
-    # zselect is the wait in this parent too, so the fixture never needs a
-    # real sleep executable while the two watcher children make their pass.
-    zselect -t 150 || true
+    ready=0
+    for (( attempt = 0; attempt < 80; attempt++ )); do
+        ready_count="$(wc -l < "$CMUX_ZSELECT_READY_FILE" 2>/dev/null)"
+        if (( ready_count >= 2 )); then
+            ready=1
+            break
+        fi
+        zselect -t 5 || true
+    done
+    (( ready )) || {
+        print -r -- "ZSELECT_WATCHERS_NOT_READY:$pr_pid:$git_pid"
+        exit 7
+    }
 else
     ready=0
     for (( attempt = 0; attempt < 80; attempt++ )); do
