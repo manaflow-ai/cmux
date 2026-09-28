@@ -38,6 +38,11 @@ def run_zsh(
     timeout: float = 10.0,
     job_control: bool = False,
 ) -> subprocess.CompletedProcess[str]:
+    # zsh reads /etc/zshenv even with -f, and a host's /etc/zshenv can reorder
+    # PATH (path_helper puts /bin ahead of the fixture's fake sleep). Restore
+    # the fixture PATH before the command runs.
+    env = {**env, "FIXTURE_PATH": env["PATH"]}
+    command = 'PATH="$FIXTURE_PATH"; unset FIXTURE_PATH; ' + command
     argv = ["/bin/zsh", "-f", "-c", command, "cmux-test", str(SCRIPT)]
     if not job_control:
         return subprocess.run(
@@ -163,6 +168,7 @@ def test_fallback_sleep(tmp: Path, fake_bin: Path, log: Path) -> None:
         # the integration is sourced, so the production capability probe takes
         # its documented fallback branch.
         "zmodload() { return 1; }; source \"$1\"; (( !_CMUX_HAS_ZSELECT )) || exit 2; "
+        "print -r -- \"SLEEP_PATH:$(whence -p sleep)\"; "
         "_cmux_sleep_cs 20; print -r -- FALLBACK_OK",
         env=env,
     )
@@ -171,7 +177,10 @@ def test_fallback_sleep(tmp: Path, fake_bin: Path, log: Path) -> None:
         raise AssertionError(f"fallback sleep did not complete: {result.stdout!r}")
     calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
     if len(calls) != 1 or abs(float(calls[0]) - 0.2) > 1e-9:
-        raise AssertionError(f"fallback should launch sleep once for 20cs, got {calls!r}")
+        raise AssertionError(
+            f"fallback should launch sleep once for 20cs, got {calls!r}; "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
 
 
 def watcher_fixture(tmp: Path, fake_bin: Path, log: Path) -> tuple[dict[str, str], socket.socket, Path]:

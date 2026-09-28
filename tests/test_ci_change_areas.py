@@ -5545,13 +5545,13 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     assert '.conclusion != null and .conclusion != "success" and .conclusion != "skipped"' in watcher
     assert "permissions: {}" in watcher and "actions: write" in watcher
     assert "uses:" not in watcher
-    # ci.yml holds no actions: write but for ui-tests, which dispatches
-    # test-e2e.yml for a same-repository pull request's changed UI test
-    # classes: the owned-pool rescue sweeper finds CI runs by marker
-    # (ci-owned-pool-rescue.yml).
+    # ci.yml holds no actions: write at all: a pull_request run takes it from
+    # the pull request. ui-tests only requests the UI test run, which
+    # ci-ui-tests.yml dispatches from the default branch
+    # (tests/test_ci_ui_tests_dispatch.py).
     jobs = _ci_jobs()
     writers = sorted(key for key, job in jobs.items() if (job.get("permissions") or {}).get("actions") == "write")
-    assert writers == ["ui-tests"], writers
+    assert writers == [], writers
     assert (yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8")).get("permissions") or {}).get("actions") != "write"
     fork_guard = jobs["ui-tests"]["steps"][0]
     assert fork_guard["if"] == "github.event.pull_request.head.repo.full_name != github.repository"

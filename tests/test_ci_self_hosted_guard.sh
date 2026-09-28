@@ -1664,8 +1664,6 @@ import yaml
 # (workflow file, job id, env key) -> why this site keeps the macos-15 Xcode
 # regardless of where the pull-request lane points.
 EXEMPT = {
-    ("iroh-release-gate.yml", "tailscale-version-skew", "CMUX_CI_XCODE_APP"):
-        "uses the macOS 15 Xcode configuration; runs on MACOS_RUNNER_15 for paid overflow or blacksmith-6vcpu-macos-15 otherwise",
     ("ci-macos.yml", "swift-package-tests", "CMUX_CI_HELPER_XCODE_APP"):
         "same job's SDK 15 release-helper pin",
     ("ci.yml", "changes", "CMUX_CI_XCODE_APP_MACOS_15"):

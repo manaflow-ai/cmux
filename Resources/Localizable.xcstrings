@@ -1,474 +1,710 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "browser.omnibar.accessibilityLabel": {
+    "cli.session.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Address and search bar"
+            "value": "Usage: cmux session restore [--list] [--session <id>]...\n\nReopen Claude sessions that were running when cmux last quit unexpectedly.\ncmux finds them in the agent journal, skips any that are running or already\nopen, and resumes each in its own workspace through the launcher that started\nit.\n\nWithout --session, restore acts only after an unexpected quit.\n\nOptions:\n  --list            Show the sessions without restoring them.\n  --session <id>    Restore only this session (repeatable)."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adress- und Suchleiste"
+            "value": "Verwendung: cmux session restore [--list] [--session <id>]...\n\nÖffnet Claude-Sitzungen erneut, die liefen, als cmux zuletzt unerwartet beendet wurde.\ncmux findet sie im Agent-Journal, überspringt laufende oder bereits geöffnete\nund setzt jede in einem eigenen Workspace\nüber den Launcher fort, der sie gestartet hat.\n\nOhne --session stellt restore nur nach einem unerwarteten Beenden wieder her.\n\nOptionen:\n  --list            Sitzungen anzeigen, ohne sie wiederherzustellen.\n  --session <id>    Nur diese Sitzung wiederherstellen (wiederholbar)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Barre d’adresse et de recherche"
+            "value": "Utilisation : cmux session restore [--list] [--session <id>]...\n\nRouvre les sessions Claude en cours lorsque cmux s’est fermé de façon inattendue.\ncmux les trouve dans le journal des agents, ignore celles qui tournent ou sont déjà\nouvertes, et reprend chacune dans son propre espace de travail via le lanceur qui l’a\ndémarrée.\n\nSans --session, restore n’agit qu’après une fermeture inattendue.\n\nOptions :\n  --list            Afficher les sessions sans les restaurer.\n  --session <id>    Restaurer uniquement cette session (répétable)."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "شريط العنوان والبحث"
+            "value": "الاستخدام: cmux session restore [--list] [--session <id>]...\n\nيعيد فتح جلسات Claude التي كانت قيد التشغيل عندما أُغلق cmux بشكل غير متوقع آخر مرة.\nيعثر cmux عليها في سجل الوكيل، ويتخطى ما يعمل منها أو المفتوح بالفعل،\nويستأنف كل جلسة في مساحة عمل خاصة بها\nعبر المشغّل الذي بدأها.\n\nبدون --session، لا تعمل الاستعادة إلا بعد إغلاق غير متوقع.\n\nالخيارات:\n  --list            عرض الجلسات دون استعادتها.\n  --session <id>    استعادة هذه الجلسة فقط (قابل للتكرار)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Barra de direcciones y búsqueda"
+            "value": "Uso: cmux session restore [--list] [--session <id>]...\n\nVuelve a abrir las sesiones de Claude que estaban en ejecución cuando cmux se cerró inesperadamente.\ncmux las encuentra en el diario de agentes, omite las que están en ejecución o ya\nabiertas, y reanuda cada una en su propio espacio de trabajo mediante el lanzador que\nla inició.\n\nSin --session, restore solo actúa tras un cierre inesperado.\n\nOpciones:\n  --list            Mostrar las sesiones sin restaurarlas.\n  --session <id>    Restaurar solo esta sesión (repetible)."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "網址與搜尋列"
+            "value": "用法： cmux session restore [--list] [--session <id>]...\n\n重新開啟 cmux 上次意外結束時仍在執行的 Claude 工作階段。\ncmux 會從代理日誌中找出它們，略過仍在執行或已開啟的工作階段，\n並透過原本啟動它的啟動器\n在各自的工作區中繼續。\n\n未指定 --session 時，restore 只會在意外結束後執行。\n\n選項：\n  --list            只列出工作階段，不還原。\n  --session <id>    只還原此工作階段（可重複）。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "地址和搜索栏"
+            "value": "用法： cmux session restore [--list] [--session <id>]...\n\n重新打开 cmux 上次意外退出时仍在运行的 Claude 会话。\ncmux 会从代理日志中找到它们，跳过仍在运行或已打开的会话，\n并通过最初启动它的启动器\n在各自的工作区中继续。\n\n未指定 --session 时，restore 只会在意外退出后执行。\n\n选项：\n  --list            只列出会话，不恢复。\n  --session <id>    只恢复此会话（可重复）。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "주소 및 검색 막대"
+            "value": "사용법: cmux session restore [--list] [--session <id>]...\n\ncmux가 마지막으로 예기치 않게 종료될 때 실행 중이던 Claude 세션을 다시 엽니다.\ncmux는 에이전트 저널에서 세션을 찾고, 실행 중이거나 이미 열려 있는 세션은 건너뛰며,\n각 세션을 시작한 런처를 통해\n자체 워크스페이스에서 이어갑니다.\n\n--session이 없으면 restore는 예기치 않은 종료 후에만 동작합니다.\n\n옵션:\n  --list            복원하지 않고 세션만 표시합니다.\n  --session <id>    이 세션만 복원합니다(반복 가능)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アドレスと検索バー"
+            "value": "使用法: cmux session restore [--list] [--session <id>]...\n\ncmux が前回予期せず終了したときに実行中だった Claude セッションを再び開きます。\ncmux はエージェントジャーナルからセッションを見つけ、実行中または既に開いている\nものはスキップし、それぞれを起動したランチャー経由で\n専用のワークスペースで再開します。\n\n--session を指定しない場合、restore は予期しない終了の後にのみ動作します。\n\nオプション:\n  --list            復元せずにセッションを表示します。\n  --session <id>    このセッションのみ復元します（複数指定可）。"
           }
         }
       }
     },
-    "projectPanel.reload": {
+    "cli.session.error.expectedRestore": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reload Project"
+            "value": "session: expected 'restore' (see cmux help session)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Projekt neu laden"
+            "value": "session: 'restore' erwartet (siehe cmux help session)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recharger le projet"
+            "value": "session : « restore » attendu (voir cmux help session)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعادة تحميل المشروع"
+            "value": "session: كان المتوقع 'restore' (راجع cmux help session)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recargar proyecto"
+            "value": "session: se esperaba 'restore' (consulta cmux help session)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新載入專案"
+            "value": "session：應為 'restore'（請參閱 cmux help session）"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新加载项目"
+            "value": "session：应为 'restore'（请参阅 cmux help session）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "프로젝트 다시 불러오기"
+            "value": "session: 'restore'가 필요합니다(cmux help session 참조)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロジェクトを再読み込み"
+            "value": "session: 'restore' が必要です（cmux help session を参照）"
           }
         }
       }
     },
-    "projectPanel.reloadErrors": {
+    "cli.session.error.sessionRequiresId": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reload returned errors: %@"
+            "value": "session restore: --session requires an id"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Beim Neuladen sind Fehler aufgetreten: %@"
+            "value": "session restore: --session erfordert eine ID"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le rechargement a renvoyé des erreurs : %@"
+            "value": "session restore : --session nécessite un identifiant"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أعادت إعادة التحميل أخطاء: %@"
+            "value": "session restore: يتطلب --session معرّفًا"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La recarga devolvió errores: %@"
+            "value": "session restore: --session requiere un id"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新載入時發生錯誤：%@"
+            "value": "session restore：--session 需要一個 ID"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新加载时出现错误：%@"
+            "value": "session restore：--session 需要一个 ID"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다시 불러오기 중 오류 발생: %@"
+            "value": "session restore: --session에는 ID가 필요합니다"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再読み込みでエラーが発生しました: %@"
+            "value": "session restore: --session には ID が必要です"
           }
         }
       }
     },
-    "projectPanel.dismissReloadErrors": {
+    "cli.session.error.unknownArgument": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dismiss Errors"
+            "value": "session restore: unknown argument '%@'"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fehler ausblenden"
+            "value": "session restore: unbekanntes Argument '%@'"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ignorer les erreurs"
+            "value": "session restore : argument inconnu « %@ »"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تجاهل الأخطاء"
+            "value": "session restore: وسيط غير معروف '%@'"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Descartar errores"
+            "value": "session restore: argumento desconocido '%@'"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "關閉錯誤"
+            "value": "session restore：未知的參數 '%@'"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关闭错误"
+            "value": "session restore：未知参数 '%@'"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오류 닫기"
+            "value": "session restore: 알 수 없는 인수 '%@'"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エラーを閉じる"
+            "value": "session restore: 不明な引数 '%@'"
           }
         }
       }
     },
-    "projectPanel.scheme": {
+    "cli.session.list.empty": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scheme"
+            "value": "No agent sessions to restore."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Schema"
+            "value": "Keine Agent-Sitzungen zum Wiederherstellen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Schéma"
+            "value": "Aucune session d’agent à restaurer."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المخطط"
+            "value": "لا توجد جلسات وكيل لاستعادتها."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esquema"
+            "value": "No hay sesiones de agente para restaurar."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "方案"
+            "value": "沒有可還原的代理工作階段。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "方案"
+            "value": "没有可恢复的代理会话。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "스킴"
+            "value": "복원할 에이전트 세션이 없습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スキーム"
+            "value": "復元するエージェントセッションはありません。"
           }
         }
       }
     },
-    "projectPanel.configuration": {
+    "cli.session.restore.cleanQuit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configuration"
+            "value": "No agent sessions restored: cmux last quit normally. To restore one anyway, pass --session <id> from --list."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Konfiguration"
+            "value": "Keine Agent-Sitzungen wiederhergestellt: cmux wurde zuletzt normal beendet. Um trotzdem eine wiederherzustellen, übergib --session <id> aus --list."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configuration de build"
+            "value": "Aucune session d’agent restaurée : cmux s’est fermé normalement la dernière fois. Pour en restaurer une quand même, passez --session <id> depuis --list."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "التكوين"
+            "value": "لم تتم استعادة أي جلسات وكيل: أُغلق cmux بشكل طبيعي آخر مرة. لاستعادة جلسة على أي حال، مرّر --session <id> من --list."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configuración"
+            "value": "No se restauró ninguna sesión de agente: cmux se cerró normalmente la última vez. Para restaurar una de todos modos, pasa --session <id> de --list."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "組態"
+            "value": "未還原任何代理工作階段：cmux 上次是正常結束。若仍要還原，請傳入 --list 中的 --session <id>。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "配置"
+            "value": "未恢复任何代理会话：cmux 上次是正常退出。若仍要恢复，请传入 --list 中的 --session <id>。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "구성"
+            "value": "복원된 에이전트 세션이 없습니다. cmux가 마지막에 정상적으로 종료되었습니다. 그래도 복원하려면 --list에서 확인한 --session <id>를 전달하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "構成"
+            "value": "エージェントセッションは復元されませんでした。cmux は前回正常に終了しています。それでも復元する場合は、--list の --session <id> を指定してください。"
           }
         }
       }
     },
-    "projectPanel.loadingFormat": {
+    "cli.session.restore.empty": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Loading %@"
+            "value": "No agent sessions restored."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ wird geladen"
+            "value": "Keine Agent-Sitzungen wiederhergestellt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chargement de %@"
+            "value": "Aucune session d’agent restaurée."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "جارٍ تحميل %@"
+            "value": "لم تتم استعادة أي جلسات وكيل."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cargando %@"
+            "value": "No se restauró ninguna sesión de agente."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在載入 %@"
+            "value": "未還原任何代理工作階段。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在加载 %@"
+            "value": "未恢复任何代理会话。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 불러오는 중"
+            "value": "복원된 에이전트 세션이 없습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ を読み込み中"
+            "value": "エージェントセッションは復元されませんでした。"
           }
         }
       }
     },
-    "projectPanel.failedFormat": {
+    "cli.session.restore.done": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed: %@"
+            "value": "Agent sessions restored: %lld"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fehlgeschlagen: %@"
+            "value": "Wiederhergestellte Agent-Sitzungen: %lld"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Échec : %@"
+            "value": "Sessions d’agent restaurées : %lld"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فشل: %@"
+            "value": "جلسات الوكيل المستعادة: %lld"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error: %@"
+            "value": "Sesiones de agente restauradas: %lld"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "失敗：%@"
+            "value": "已還原的代理工作階段：%lld"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "失败：%@"
+            "value": "已恢复的代理会话：%lld"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "실패: %@"
+            "value": "복원된 에이전트 세션: %lld"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "失敗: %@"
+            "value": "復元したエージェントセッション: %lld"
+          }
+        }
+      }
+    },
+    "agentRecovery.alert.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore agent sessions?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Sitzungen wiederherstellen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer les sessions d’agent ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد استعادة جلسات الوكيل؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Restaurar las sesiones de agente?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要還原代理工作階段嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要恢复代理会话吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션을 복원할까요?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションを復元しますか？"
+          }
+        }
+      }
+    },
+    "agentRecovery.alert.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux quit unexpectedly while agent sessions were running. Sessions to restore: %lld. Each one reopens in its own workspace and resumes where it left off."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux wurde unerwartet beendet, während Agent-Sitzungen liefen. Wiederherzustellende Sitzungen: %lld. Jede wird in einem eigenen Workspace geöffnet und dort fortgesetzt, wo sie aufgehört hat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux s’est fermé de façon inattendue pendant que des sessions d’agent étaient en cours. Sessions à restaurer : %lld. Chacune rouvre dans son propre espace de travail et reprend là où elle s’était arrêtée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أُغلق cmux بشكل غير متوقع أثناء تشغيل جلسات الوكيل. الجلسات المطلوب استعادتها: %lld. تُفتح كل جلسة في مساحة عمل خاصة بها وتُستأنف من حيث توقفت."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se cerró inesperadamente mientras había sesiones de agente en ejecución. Sesiones por restaurar: %lld. Cada una se abre en su propio espacio de trabajo y continúa donde se quedó."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在代理工作階段執行時意外結束。要還原的工作階段：%lld。每個工作階段都會在各自的工作區重新開啟，並從中斷處繼續。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在代理会话运行时意外退出。要恢复的会话：%lld。每个会话都会在各自的工作区重新打开，并从中断处继续。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션이 실행 중일 때 cmux가 예기치 않게 종료되었습니다. 복원할 세션: %lld. 각 세션은 자체 워크스페이스에서 다시 열리고 중단된 곳에서 이어집니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションの実行中に cmux が予期せず終了しました。復元するセッション: %lld。各セッションは専用のワークスペースで再び開き、中断したところから再開します。"
+          }
+        }
+      }
+    },
+    "agentRecovery.alert.restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Agent Sessions"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Sitzungen wiederherstellen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer les sessions d’agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استعادة جلسات الوكيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar sesiones de agente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還原代理工作階段"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复代理会话"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션 복원"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションを復元"
+          }
+        }
+      }
+    },
+    "agentRecovery.alert.notNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Now"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht jetzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas maintenant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليس الآن"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora no"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稍後"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以后再说"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나중에"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "後で"
           }
         }
       }
@@ -176299,71 +176535,6 @@
         }
       }
     },
-    "dialog.close.dontAskAgain": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Don’t ask again"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا تسأل مرة أخرى"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nicht mehr fragen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No volver a preguntar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ne plus demander"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "今後確認しない"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 묻지 않기"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Більше не запитувати"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不再询问"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不再詢問"
-          }
-        }
-      }
-    },
     "dialog.closeAnchor.message.lone": {
       "extractionState": "manual",
       "localizations": {
@@ -228056,65 +228227,6 @@
         }
       }
     },
-    "globalSearch.kind.terminal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナル"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "터미널"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "طرفية"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "終端"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "终端"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal"
-          }
-        }
-      }
-    },
     "globalSearch.kind.title": {
       "extractionState": "manual",
       "localizations": {
@@ -229974,23 +230086,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "OpenCode"
-          }
-        }
-      }
-    },
-    "machines.agent.pi": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pi"
           }
         }
       }
@@ -291015,596 +291110,6 @@
         }
       }
     },
-    "settings.app.accentColor": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لون التمييز"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Boja naglaska"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Accentfarve"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Akzentfarbe"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Accent Color"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Color de acento"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couleur d’accentuation"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Colore di evidenziazione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アクセントカラー"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "강조 색상"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aksentfarge"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kolor akcentu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cor de destaque"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цвет акцента"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สีเน้น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vurgu Rengi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Колір акценту"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "强调色"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "強調色"
-          }
-        }
-      }
-    },
-    "settings.app.accentColor.cmux": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أزرق cmux"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux plava"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-blå"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-Blau"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Blue"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Azul de cmux"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bleu cmux"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Blu cmux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux ブルー"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 파란색"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-blå"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Niebieski cmux"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Azul do cmux"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Синий cmux"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สีน้ำเงิน cmux"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Mavisi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Синій cmux"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 蓝"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 藍"
-          }
-        }
-      }
-    },
-    "settings.app.accentColor.subtitle": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لون مساحة العمل المحددة وحلقة التنبيه وحالة الوكيل وإبرازات cmux الأخرى. يتبع خيار النظام لون التمييز في macOS."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Boja odabranog radnog prostora, prstena pažnje, statusa agenta i ostalih cmux istaknutih elemenata. Sistem prati boju naglaska macOS-a."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Farve for det valgte arbejdsområde, opmærksomhedsringen, agentstatus og andre cmux-fremhævninger. System følger macOS-accentfarven."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Farbe des ausgewählten Workspace, des Aufmerksamkeitsrings, des Agentenstatus und anderer cmux-Hervorhebungen. „Systemfarbe“ folgt der macOS-Akzentfarbe."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Color of the selected workspace, attention ring, agent status, and other cmux highlights. System follows the macOS accent color."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Color del espacio de trabajo seleccionado, el anillo de atención, el estado del agente y otros resaltados de cmux. Sistema sigue el color de acento de macOS."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couleur de l’espace de travail sélectionné, de l’anneau d’attention, de l’état de l’agent et des autres mises en évidence de cmux. Système suit la couleur d’accentuation de macOS."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Colore dell’area di lavoro selezionata, dell’anello di attenzione, dello stato dell’agente e degli altri elementi evidenziati di cmux. Sistema segue il colore di evidenziazione di macOS."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択中のワークスペース、注意リング、エージェントの状態など、cmux のハイライトの色です。「システム」は macOS のアクセントカラーに従います。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "선택한 워크스페이스, 주의 링, 에이전트 상태 등 cmux 강조 표시의 색상입니다. 시스템은 macOS 강조 색상을 따릅니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Farge for det valgte arbeidsområdet, oppmerksomhetsringen, agentstatus og andre cmux-uthevinger. System følger macOS-aksentfargen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kolor wybranego obszaru roboczego, pierścienia uwagi, stanu agenta i innych wyróżnień cmux. Systemowy podąża za kolorem akcentu macOS."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cor do espaço de trabalho selecionado, do anel de atenção, do status do agente e de outros destaques do cmux. Sistema segue a cor de destaque do macOS."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цвет выбранного рабочего пространства, кольца внимания, статуса агента и других выделений cmux. «Системный» следует цвету акцента macOS."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สีของพื้นที่ทำงานที่เลือก วงแจ้งเตือน สถานะเอเจนต์ และไฮไลต์อื่นๆ ของ cmux ตัวเลือกระบบจะใช้สีเน้นของ macOS"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seçili çalışma alanı, dikkat halkası, ajan durumu ve diğer cmux vurgularının rengi. Sistem, macOS vurgu rengini izler."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Колір вибраного робочого простору, кільця уваги, статусу агента та інших виділень cmux. «Системний» використовує колір акценту macOS."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "所选工作区、提醒环、代理状态和其他 cmux 高亮的颜色。“系统”跟随 macOS 强调色。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "所選工作區、提醒環、代理狀態和其他 cmux 醒目提示的顏色。「系統」跟隨 macOS 強調色。"
-          }
-        }
-      }
-    },
-    "settings.app.accentColor.system": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "النظام"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistem"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Systemfarbe"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistema"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Système"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistema"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "システム"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "시스템"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Systemowy"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistema"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Системный"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ระบบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistem"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Системний"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "系统"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "系統"
-          }
-        }
-      }
-    },
-    "settings.app.accentColor.systemToggle": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لون التمييز للنظام"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistemska boja naglaska"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Systemets accentfarve"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System-Akzentfarbe"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System Accent Color"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Color de acento del sistema"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couleur d’accentuation du système"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Colore di evidenziazione di sistema"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "システムのアクセントカラー"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "시스템 강조 색상"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Systemets aksentfarge"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Systemowy kolor akcentu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cor de destaque do sistema"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Системный цвет акцента"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สีเน้นของระบบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistem Vurgu Rengi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Системний колір акценту"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "系统强调色"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "系統強調色"
-          }
-        }
-      }
-    },
     "settings.app.appearance": {
       "extractionState": "manual",
       "localizations": {
@@ -344229,124 +343734,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "app.appIcon dock icon application icon app switcher alternate icon app.appIcon dock icon application app switcher alternate 應用程式 一般 偏好設定 行為 選單列 狀態 側邊欄 圖示"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.app.accent-color": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue لون التمييز أزرق النظام"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue boja naglaska plava sistem"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue accentfarve blå system"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue Akzentfarbe blau System"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue color de acento azul sistema"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue couleur d’accentuation bleu système"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue colore di evidenziazione blu sistema"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue アクセントカラー 青 システム"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue 강조 색상 파란색 시스템"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue aksentfarge blå system"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue kolor akcentu niebieski systemowy"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue cor de destaque azul sistema"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue цвет акцента синий системный"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue สีเน้น สีน้ำเงิน ระบบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue vurgu rengi mavi sistem"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue колір акценту синій системний"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue 强调色 蓝色 系统"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue 強調色 藍色 系統"
           }
         }
       }
@@ -547402,297 +546789,19 @@
         }
       }
     },
-    "terminal.passwordInput.indicator": {
+    "machines.agent.pi": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إدخال كلمة المرور"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Passworteingabe"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Password input"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Entrada de contraseña"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Saisie du mot de passe"
+            "value": "Pi"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "パスワード入力"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "비밀번호 입력"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "密码输入"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "密碼輸入"
-          }
-        }
-      }
-    },
-    "settings.terminal.showPasswordInputIndicator": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مؤشر إدخال كلمة المرور"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anzeige für Passworteingabe"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Password Input Indicator"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indicador de entrada de contraseña"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indicateur de saisie du mot de passe"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスワード入力インジケーター"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "비밀번호 입력 표시"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "密码输入指示器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "密碼輸入指示器"
-          }
-        }
-      }
-    },
-    "settings.terminal.showPasswordInputDots": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار نقاط للأحرف المكتوبة"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Punkte für eingegebene Zeichen anzeigen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Typed Password Dots"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar puntos por los caracteres escritos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher des points pour les caractères saisis"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "入力したパスワードのドットを表示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "입력한 비밀번호 점 표시"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示已输入的密码圆点"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示已輸入的密碼圓點"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.terminal.password-input-indicator": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt كلمة المرور إدخال مؤشر قفل"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt passwort eingabe anzeige schloss"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt contraseña entrada indicador candado eco"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt mot de passe saisie indicateur cadenas écho"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt パスワード 入力 インジケーター 鍵 エコー"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt 비밀번호 입력 표시 자물쇠 에코"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt 密码 输入 指示器 锁 回显"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt 密碼 輸入 指示器 鎖頭 回顯"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.terminal.password-input-dots": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt كلمة المرور نقاط أحرف"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt passwort punkte zeichen anzahl"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt contraseña puntos caracteres"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt mot de passe points caractères"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt パスワード ドット 文字"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt 비밀번호 점 문자"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt 密码 圆点 字符"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt 密碼 圓點 字元"
+            "value": "Pi"
           }
         }
       }
@@ -548165,6 +547274,1605 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@：文字過大；經 JSON 跳脫後的上限為 %@ MiB"
+          }
+        }
+      }
+    },
+    "globalSearch.kind.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طرفية"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        }
+      }
+    },
+    "terminal.passwordInput.indicator": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدخال كلمة المرور"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passworteingabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Password input"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrada de contraseña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisie du mot de passe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワード入力"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비밀번호 입력"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密码输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密碼輸入"
+          }
+        }
+      }
+    },
+    "settings.terminal.showPasswordInputIndicator": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مؤشر إدخال كلمة المرور"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anzeige für Passworteingabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Password Input Indicator"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indicador de entrada de contraseña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indicateur de saisie du mot de passe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワード入力インジケーター"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비밀번호 입력 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密码输入指示器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密碼輸入指示器"
+          }
+        }
+      }
+    },
+    "settings.terminal.showPasswordInputDots": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار نقاط للأحرف المكتوبة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Punkte für eingegebene Zeichen anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Typed Password Dots"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar puntos por los caracteres escritos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher des points pour les caractères saisis"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力したパスワードのドットを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력한 비밀번호 점 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示已输入的密码圆点"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示已輸入的密碼圓點"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.password-input-indicator": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt كلمة المرور إدخال مؤشر قفل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt passwort eingabe anzeige schloss"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt contraseña entrada indicador candado eco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt mot de passe saisie indicateur cadenas écho"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt パスワード 入力 インジケーター 鍵 エコー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt 비밀번호 입력 표시 자물쇠 에코"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt 密码 输入 指示器 锁 回显"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt 密碼 輸入 指示器 鎖頭 回顯"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.password-input-dots": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt كلمة المرور نقاط أحرف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt passwort punkte zeichen anzahl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt contraseña puntos caracteres"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt mot de passe points caractères"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt パスワード ドット 文字"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt 비밀번호 점 문자"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt 密码 圆点 字符"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt 密碼 圓點 字元"
+          }
+        }
+      }
+    },
+    "browser.omnibar.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Address and search bar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adress- und Suchleiste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre d’adresse et de recherche"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط العنوان والبحث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de direcciones y búsqueda"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網址與搜尋列"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "地址和搜索栏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주소 및 검색 막대"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスと検索バー"
+          }
+        }
+      }
+    },
+    "projectPanel.reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload Project"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekt neu laden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recharger le projet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تحميل المشروع"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recargar proyecto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入專案"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新加载项目"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트 다시 불러오기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトを再読み込み"
+          }
+        }
+      }
+    },
+    "projectPanel.reloadErrors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload returned errors: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Neuladen sind Fehler aufgetreten: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le rechargement a renvoyé des erreurs : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعادت إعادة التحميل أخطاء: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La recarga devolvió errores: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入時發生錯誤：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新加载时出现错误：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 불러오기 중 오류 발생: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込みでエラーが発生しました: %@"
+          }
+        }
+      }
+    },
+    "projectPanel.dismissReloadErrors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss Errors"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehler ausblenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorer les erreurs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجاهل الأخطاء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descartar errores"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉錯誤"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭错误"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류 닫기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーを閉じる"
+          }
+        }
+      }
+    },
+    "projectPanel.scheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheme"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schéma"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المخطط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esquema"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方案"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方案"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스킴"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキーム"
+          }
+        }
+      }
+    },
+    "projectPanel.configuration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguration"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration de build"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التكوين"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuración"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組態"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구성"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "構成"
+          }
+        }
+      }
+    },
+    "projectPanel.loadingFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wird geladen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ تحميل %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargando %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在載入 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在加载 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 불러오는 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を読み込み中"
+          }
+        }
+      }
+    },
+    "projectPanel.failedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlgeschlagen: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失败：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실패: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗: %@"
+          }
+        }
+      }
+    },
+    "dialog.close.dontAskAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t ask again"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تسأل مرة أخرى"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht mehr fragen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No volver a preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne plus demander"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今後確認しない"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 묻지 않기"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Більше не запитувати"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不再询问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不再詢問"
+          }
+        }
+      }
+    },
+    "settings.app.accentColor": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون التمييز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja naglaska"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accentfarve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akzentfarbe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accent Color"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color de acento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur d’accentuation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore di evidenziazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセントカラー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "강조 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aksentfarge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor akcentu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor de destaque"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет акцента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีเน้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vurgu Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір акценту"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强调色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強調色"
+          }
+        }
+      }
+    },
+    "settings.app.accentColor.cmux": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أزرق cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux plava"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-blå"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Blau"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Blue"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Azul de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bleu cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blu cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブルー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 파란색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-blå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niebieski cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Azul do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синий cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีน้ำเงิน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Mavisi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синій cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 蓝"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 藍"
+          }
+        }
+      }
+    },
+    "settings.app.accentColor.subtitle": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون مساحة العمل المحددة وحلقة التنبيه وحالة الوكيل وإبرازات cmux الأخرى. يتبع خيار النظام لون التمييز في macOS."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja odabranog radnog prostora, prstena pažnje, statusa agenta i ostalih cmux istaknutih elemenata. Sistem prati boju naglaska macOS-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farve for det valgte arbejdsområde, opmærksomhedsringen, agentstatus og andre cmux-fremhævninger. System følger macOS-accentfarven."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farbe des ausgewählten Workspace, des Aufmerksamkeitsrings, des Agentenstatus und anderer cmux-Hervorhebungen. „Systemfarbe“ folgt der macOS-Akzentfarbe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color of the selected workspace, attention ring, agent status, and other cmux highlights. System follows the macOS accent color."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del espacio de trabajo seleccionado, el anillo de atención, el estado del agente y otros resaltados de cmux. Sistema sigue el color de acento de macOS."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de l’espace de travail sélectionné, de l’anneau d’attention, de l’état de l’agent et des autres mises en évidence de cmux. Système suit la couleur d’accentuation de macOS."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore dell’area di lavoro selezionata, dell’anello di attenzione, dello stato dell’agente e degli altri elementi evidenziati di cmux. Sistema segue il colore di evidenziazione di macOS."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中のワークスペース、注意リング、エージェントの状態など、cmux のハイライトの色です。「システム」は macOS のアクセントカラーに従います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 워크스페이스, 주의 링, 에이전트 상태 등 cmux 강조 표시의 색상입니다. 시스템은 macOS 강조 색상을 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farge for det valgte arbeidsområdet, oppmerksomhetsringen, agentstatus og andre cmux-uthevinger. System følger macOS-aksentfargen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor wybranego obszaru roboczego, pierścienia uwagi, stanu agenta i innych wyróżnień cmux. Systemowy podąża za kolorem akcentu macOS."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor do espaço de trabalho selecionado, do anel de atenção, do status do agente e de outros destaques do cmux. Sistema segue a cor de destaque do macOS."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет выбранного рабочего пространства, кольца внимания, статуса агента и других выделений cmux. «Системный» следует цвету акцента macOS."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีของพื้นที่ทำงานที่เลือก วงแจ้งเตือน สถานะเอเจนต์ และไฮไลต์อื่นๆ ของ cmux ตัวเลือกระบบจะใช้สีเน้นของ macOS"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçili çalışma alanı, dikkat halkası, ajan durumu ve diğer cmux vurgularının rengi. Sistem, macOS vurgu rengini izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір вибраного робочого простору, кільця уваги, статусу агента та інших виділень cmux. «Системний» використовує колір акценту macOS."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选工作区、提醒环、代理状态和其他 cmux 高亮的颜色。“系统”跟随 macOS 强调色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所選工作區、提醒環、代理狀態和其他 cmux 醒目提示的顏色。「系統」跟隨 macOS 強調色。"
+          }
+        }
+      }
+    },
+    "settings.app.accentColor.system": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemfarbe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системний"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統"
+          }
+        }
+      }
+    },
+    "settings.app.accentColor.systemToggle": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون التمييز للنظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistemska boja naglaska"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemets accentfarve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System-Akzentfarbe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System Accent Color"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color de acento del sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur d’accentuation du système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore di evidenziazione di sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムのアクセントカラー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 강조 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemets aksentfarge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemowy kolor akcentu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor de destaque do sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системный цвет акцента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีเน้นของระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem Vurgu Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системний колір акценту"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统强调色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統強調色"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.accent-color": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue لون التمييز أزرق النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue boja naglaska plava sistem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue accentfarve blå system"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue Akzentfarbe blau System"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue color de acento azul sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue couleur d’accentuation bleu système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue colore di evidenziazione blu sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue アクセントカラー 青 システム"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue 강조 색상 파란색 시스템"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue aksentfarge blå system"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue kolor akcentu niebieski systemowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue cor de destaque azul sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue цвет акцента синий системный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue สีเน้น สีน้ำเงิน ระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue vurgu rengi mavi sistem"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue колір акценту синій системний"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue 强调色 蓝色 系统"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue 強調色 藍色 系統"
           }
         }
       }
@@ -555137,55 +555845,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows a lock badge in the terminal corner while a program such as sudo or ssh reads a password with echo off."
+            "value": "Shows a lock badge in the terminal corner while a program such as sudo or ssh reads a password with echo off. Only local prompts are detected: ssh's own password prompt counts, but sudo inside an ssh session does not."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt in der Terminalecke ein Schloss-Symbol an, während ein Programm wie sudo oder ssh ein Passwort ohne Echo einliest."
+            "value": "Zeigt in der Terminalecke ein Schloss-Symbol an, während ein Programm wie sudo oder ssh ein Passwort ohne Echo einliest. Nur lokale Abfragen werden erkannt: Die Passwortabfrage von ssh selbst zählt, sudo innerhalb einer ssh-Sitzung nicht."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche un badge de cadenas dans le coin du terminal pendant qu'un programme comme sudo ou ssh lit un mot de passe sans écho."
+            "value": "Affiche un badge de cadenas dans le coin du terminal pendant qu'un programme comme sudo ou ssh lit un mot de passe sans écho. Seules les invites locales sont détectées : l'invite de mot de passe de ssh compte, mais pas sudo dans une session ssh."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض شارة قفل في زاوية الطرفية أثناء قراءة برنامج مثل sudo أو ssh لكلمة مرور مع إيقاف الصدى."
+            "value": "يعرض شارة قفل في زاوية الطرفية أثناء قراءة برنامج مثل sudo أو ssh لكلمة مرور مع إيقاف الصدى. تُكتشف المطالبات المحلية فقط: تُحتسب مطالبة كلمة مرور ssh نفسها، أما sudo داخل جلسة ssh فلا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra una insignia de candado en la esquina del terminal mientras un programa como sudo o ssh lee una contraseña sin eco."
+            "value": "Muestra una insignia de candado en la esquina del terminal mientras un programa como sudo o ssh lee una contraseña sin eco. Solo se detectan las solicitudes locales: la solicitud de contraseña de ssh cuenta, pero sudo dentro de una sesión ssh no."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "當 sudo 或 ssh 等程式在關閉回顯的情況下讀取密碼時，在終端機角落顯示鎖頭標記。"
+            "value": "當 sudo 或 ssh 等程式在關閉回顯的情況下讀取密碼時，在終端機角落顯示鎖頭標記。僅偵測本機提示：ssh 本身的密碼提示會被偵測，但 ssh 工作階段中的 sudo 不會。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当 sudo 或 ssh 等程序在关闭回显的情况下读取密码时，在终端角落显示锁形标记。"
+            "value": "当 sudo 或 ssh 等程序在关闭回显的情况下读取密码时，在终端角落显示锁形标记。仅检测本地提示：ssh 自身的密码提示会被检测，但 ssh 会话中的 sudo 不会。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "sudo나 ssh 같은 프로그램이 에코를 끈 상태로 비밀번호를 읽는 동안 터미널 모서리에 자물쇠 배지를 표시합니다."
+            "value": "sudo나 ssh 같은 프로그램이 에코를 끈 상태로 비밀번호를 읽는 동안 터미널 모서리에 자물쇠 배지를 표시합니다. 로컬 프롬프트만 감지됩니다. ssh 자체의 비밀번호 프롬프트는 포함되지만 ssh 세션 안의 sudo는 포함되지 않습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "sudo や ssh などのプログラムがエコーをオフにしてパスワードを読み取っている間、ターミナルの隅に鍵のバッジを表示します。"
+            "value": "sudo や ssh などのプログラムがエコーをオフにしてパスワードを読み取っている間、ターミナルの隅に鍵のバッジを表示します。検出されるのはローカルのプロンプトだけです。ssh 自体のパスワード入力は対象ですが、ssh セッション内の sudo は対象外です。"
           }
         }
       }
@@ -555196,55 +555904,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows one dot in the badge per typed character. cmux keeps only a count, never the characters."
+            "value": "Shows one dot in the badge per typed character. cmux keeps only a count, never the characters. Pasted text is not counted."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt im Symbol einen Punkt pro eingegebenem Zeichen. cmux speichert nur die Anzahl, niemals die Zeichen."
+            "value": "Zeigt im Symbol einen Punkt pro eingegebenem Zeichen. cmux speichert nur die Anzahl, niemals die Zeichen. Eingefügter Text wird nicht gezählt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche dans le badge un point par caractère saisi. cmux ne conserve qu'un compteur, jamais les caractères."
+            "value": "Affiche dans le badge un point par caractère saisi. cmux ne conserve qu'un compteur, jamais les caractères. Le texte collé n'est pas compté."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض في الشارة نقطة واحدة لكل حرف مكتوب. يحتفظ cmux بالعدد فقط، ولا يحتفظ بالأحرف أبدًا."
+            "value": "يعرض في الشارة نقطة واحدة لكل حرف مكتوب. يحتفظ cmux بالعدد فقط، ولا يحتفظ بالأحرف أبدًا. لا يُحتسب النص الملصق."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra en la insignia un punto por cada carácter escrito. cmux solo guarda un recuento, nunca los caracteres."
+            "value": "Muestra en la insignia un punto por cada carácter escrito. cmux solo guarda un recuento, nunca los caracteres. El texto pegado no se cuenta."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在標記中為每個已輸入的字元顯示一個圓點。cmux 只保留數量，絕不保留字元本身。"
+            "value": "在標記中為每個已輸入的字元顯示一個圓點。cmux 只保留數量，絕不保留字元本身。貼上的文字不計入。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在标记中为每个已输入的字符显示一个圆点。cmux 只保留数量，绝不保留字符本身。"
+            "value": "在标记中为每个已输入的字符显示一个圆点。cmux 只保留数量，绝不保留字符本身。粘贴的文本不计入。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "배지에 입력한 문자마다 점을 하나씩 표시합니다. cmux는 개수만 유지하며 문자는 절대 보관하지 않습니다."
+            "value": "배지에 입력한 문자마다 점을 하나씩 표시합니다. cmux는 개수만 유지하며 문자는 절대 보관하지 않습니다. 붙여넣은 텍스트는 세지 않습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "入力した文字ごとにバッジにドットを 1 つ表示します。cmux が保持するのは数だけで、文字そのものは保持しません。"
+            "value": "入力した文字ごとにバッジにドットを 1 つ表示します。cmux が保持するのは数だけで、文字そのものは保持しません。貼り付けたテキストは数えません。"
           }
         }
       }
@@ -565529,127 +566237,2066 @@
         }
       }
     },
-    "socket.terminal.notRunning": {
+    "cli.auth.status.teamNotLoaded": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The terminal is not running right now, for example because it is hibernated or still starting. Show it in cmux, then retry."
+            "value": "  team:     not loaded"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルは現在実行されていません（休止中または起動中など）。cmux で表示してから再試行してください。"
+            "value": "  チーム:   未読み込み"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "终端当前未运行（例如处于休眠状态或仍在启动）。请在 cmux 中显示它，然后重试。"
+            "value": "  团队：    未加载"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das Terminal läuft gerade nicht, zum Beispiel weil es im Ruhezustand ist oder noch startet. Zeigen Sie es in cmux an und versuchen Sie es dann erneut."
+            "value": "  Team:     nicht geladen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le terminal ne s’exécute pas pour le moment, par exemple parce qu’il est en veille ou encore en cours de démarrage. Affichez-le dans cmux, puis réessayez."
+            "value": "  équipe:   non chargée"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الطرفية لا تعمل حالياً، على سبيل المثال لأنها في وضع السبات أو لا تزال قيد التشغيل. اعرضها في cmux ثم أعد المحاولة."
+            "value": "  الفريق:   لم يتم تحميله"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La terminal no se está ejecutando ahora mismo, por ejemplo porque está hibernada o todavía se está iniciando. Muéstrela en cmux y vuelva a intentarlo."
+            "value": "  equipo:   no cargado"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "終端機目前未執行（例如處於休眠狀態或仍在啟動中）。請在 cmux 中顯示它，然後重試。"
+            "value": "  團隊：    未載入"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널이 현재 실행 중이 아닙니다(예: 최대 절전 상태이거나 아직 시작 중). cmux에서 표시한 후 다시 시도하십시오."
+            "value": "  팀:       로드되지 않음"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal trenutno ne radi, na primjer zato što je u hibernaciji ili se još pokreće. Prikažite ga u cmuxu, pa pokušajte ponovo."
+            "value": "  tim:      nije učitan"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminalen kører ikke lige nu, for eksempel fordi den er i dvale eller stadig starter. Vis den i cmux, og prøv igen."
+            "value": "  team:     ikke indlæst"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il terminale non è in esecuzione in questo momento, ad esempio perché è ibernato o ancora in avvio. Mostralo in cmux, quindi riprova."
+            "value": "  team:     non caricato"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ទែមីណាល់មិនកំពុងដំណើរការឥឡូវនេះទេ ឧទាហរណ៍ ដោយសារវាកំពុងសម្រាក ឬកំពុងចាប់ផ្តើម។ បង្ហាញវានៅក្នុង cmux រួចព្យាយាមម្តងទៀត។"
+            "value": "  ក្រុម៖    មិនទាន់បានផ្ទុក"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminalen kjører ikke akkurat nå, for eksempel fordi den er i dvale eller fortsatt starter. Vis den i cmux, og prøv igjen."
+            "value": "  team:     ikke lastet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal nie działa w tej chwili, na przykład dlatego, że jest uśpiony lub wciąż się uruchamia. Pokaż go w cmux, a następnie spróbuj ponownie."
+            "value": "  zespół:   nie załadowano"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O terminal não está em execução agora, por exemplo porque está hibernado ou ainda iniciando. Mostre-o no cmux e tente novamente."
+            "value": "  equipe:   não carregada"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Терминал сейчас не запущен, например потому что он в спящем режиме или ещё запускается. Откройте его в cmux и повторите попытку."
+            "value": "  команда:  не загружена"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เทอร์มินัลไม่ได้ทำงานอยู่ในขณะนี้ เช่น เพราะกำลังพักการทำงานหรือยังเริ่มต้นไม่เสร็จ แสดงเทอร์มินัลใน cmux แล้วลองอีกครั้ง"
+            "value": "  ทีม:       ยังไม่ได้โหลด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal şu anda çalışmıyor; örneğin hazırda bekletiliyor ya da hâlâ başlatılıyor. cmux'ta gösterin, ardından yeniden deneyin."
+            "value": "  ekip:     yüklenmedi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Термінал зараз не запущено, наприклад тому що він у режимі сну або ще запускається. Покажіть його в cmux і спробуйте ще раз."
+            "value": "  команда:  не завантажена"
+          }
+        }
+      }
+    },
+    "cli.auth.status.teamNotLoadedRetrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  team:     not loaded (retrying)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  チーム:   未読み込み（再試行中）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  团队：    未加载（正在重试）"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  Team:     nicht geladen (wird erneut versucht)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  équipe:   non chargée (nouvel essai)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  الفريق:   لم يتم تحميله (جارٍ إعادة المحاولة)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  equipo:   no cargado (reintentando)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  團隊：    未載入（重試中）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  팀:       로드되지 않음 (재시도 중)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  tim:      nije učitan (ponovni pokušaj)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  team:     ikke indlæst (prøver igen)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  team:     non caricato (nuovo tentativo)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  ក្រុម៖    មិនទាន់បានផ្ទុក (កំពុងព្យាយាមម្ដងទៀត)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  team:     ikke lastet (prøver igjen)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  zespół:   nie załadowano (ponawianie próby)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  equipe:   não carregada (tentando novamente)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  команда:  не загружена (повторная попытка)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  ทีม:       ยังไม่ได้โหลด (กำลังลองอีกครั้ง)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  ekip:     yüklenmedi (yeniden deneniyor)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  команда:  не завантажена (повторна спроба)"
+          }
+        }
+      }
+    },
+    "mobile.pairing.error.teamUnavailable": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Could not load your cmux team. Check your internet connection, then try again."
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "cmux チームを読み込めませんでした。インターネット接続を確認してから、もう一度お試しください。"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "无法加载你的 cmux 团队。请检查网络连接，然后重试。"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Dein cmux-Team konnte nicht geladen werden. Prüfe deine Internetverbindung und versuche es erneut."
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Impossible de charger votre équipe cmux. Vérifiez votre connexion Internet, puis réessayez."
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "تعذّر تحميل فريق cmux الخاص بك. تحقّق من اتصالك بالإنترنت، ثم حاول مرة أخرى."
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "No se pudo cargar tu equipo de cmux. Comprueba tu conexión a internet e inténtalo de nuevo."
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "無法載入你的 cmux 團隊。請檢查網路連線，然後再試一次。"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "cmux 팀을 불러올 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요."
+      }
+    },
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nije moguće učitati vaš cmux tim. Provjerite internetsku vezu i pokušajte ponovo."
+      }
+    },
+    "da": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Din cmux-team kunne ikke indlæses. Kontrollér din internetforbindelse, og prøv igen."
+      }
+    },
+    "it": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Impossibile caricare il tuo team cmux. Controlla la connessione Internet e riprova."
+      }
+    },
+    "km": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "មិនអាចផ្ទុកក្រុម cmux របស់អ្នកបានទេ។ សូមពិនិត្យការតភ្ជាប់អ៊ីនធឺណិត ហើយព្យាយាមម្ដងទៀត។"
+      }
+    },
+    "nb": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Kunne ikke laste inn cmux-teamet ditt. Kontroller internettilkoblingen, og prøv igjen."
+      }
+    },
+    "pl": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nie udało się załadować Twojego zespołu cmux. Sprawdź połączenie z internetem i spróbuj ponownie."
+      }
+    },
+    "pt-BR": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Não foi possível carregar sua equipe cmux. Verifique sua conexão com a internet e tente novamente."
+      }
+    },
+    "ru": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Не удалось загрузить вашу команду cmux. Проверьте подключение к интернету и попробуйте ещё раз."
+      }
+    },
+    "th": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ไม่สามารถโหลดทีม cmux ของคุณได้ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองอีกครั้ง"
+      }
+    },
+    "tr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "cmux ekibiniz yüklenemedi. İnternet bağlantınızı kontrol edip tekrar deneyin."
+      }
+    },
+    "uk": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Не вдалося завантажити вашу команду cmux. Перевірте підключення до інтернету й спробуйте ще раз."
+      }
+    }
+  }
+},
+    "command.newPaneAutoLayout.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوحة جديدة (تخطيط تلقائي)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi panel (automatski raspored)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyt panel (automatisk layout)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Bereich (automatisches Layout)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Pane (Auto Layout)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo panel (diseño automático)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveau panneau (disposition automatique)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovo pannello (layout automatico)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいペイン（自動レイアウト）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 패널 (자동 레이아웃)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nytt panel (automatisk oppsett)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowy panel (układ automatyczny)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novo Painel (Layout Automático)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая панель (автоматическая раскладка)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บานหน้าต่างใหม่ (จัดวางอัตโนมัติ)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Bölme (Otomatik Düzen)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нова панель (автоматичне розташування)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建窗格（自动布局）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增窗格（自動佈局）"
+          }
+        }
+      }
+    },
+    "shortcut.newPaneAutoLayout.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوحة جديدة (تخطيط تلقائي)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi panel (automatski raspored)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyt panel (automatisk layout)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Bereich (automatisches Layout)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Pane (Auto Layout)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo panel (diseño automático)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveau panneau (disposition automatique)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovo pannello (layout automatico)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいペイン（自動レイアウト）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 패널 (자동 레이아웃)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nytt panel (automatisk oppsett)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowy panel (układ automatyczny)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novo Painel (Layout Automático)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая панель (автоматическая раскладка)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บานหน้าต่างใหม่ (จัดวางอัตโนมัติ)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Bölme (Otomatik Düzen)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нова панель (автоматичне розташування)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建窗格（自动布局）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增窗格（自動佈局）"
+          }
+        }
+      }
+    },
+    "socket.terminal.notRunning.awaitingRestore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is still restoring the terminal after it reopened and is checking which agent session to resume. Retry in a few seconds."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال cmux يستعيد الطرفية بعد إعادة فتحه ويتحقق من جلسة الوكيل التي يجب استئنافها. أعد المحاولة بعد بضع ثوانٍ."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux stellt das Terminal nach dem erneuten Öffnen noch wieder her und prüft, welche Agent-Sitzung fortgesetzt werden soll. Versuche es in ein paar Sekunden erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux todavía está restaurando la terminal después de volver a abrirse y comprueba qué sesión de agente reanudar. Vuelve a intentarlo en unos segundos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux restaure encore le terminal après sa réouverture et vérifie quelle session d’agent reprendre. Réessayez dans quelques secondes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は再起動後にターミナルを復元中で、再開するエージェントセッションを確認しています。数秒後に再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 다시 열린 후 터미널을 아직 복원하는 중이며 어떤 에이전트 세션을 재개할지 확인하고 있습니다. 몇 초 후에 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 重新打开后仍在恢复此终端，并确认要恢复哪个代理会话。请几秒后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 重新開啟後仍在還原此終端機，並確認要恢復哪個代理工作階段。請幾秒後再試。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux još vraća terminal nakon ponovnog otvaranja i provjerava koju sesiju agenta treba nastaviti. Pokušajte ponovo za nekoliko sekundi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux gendanner stadig terminalen efter genåbning og tjekker, hvilken agentsession der skal genoptages. Prøv igen om et par sekunder."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sta ancora ripristinando il terminale dopo la riapertura e verifica quale sessione dell’agente riprendere. Riprova tra qualche secondo."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នៅតែកំពុងស្ដារទែមីណាល់ឡើងវិញ បន្ទាប់ពីបើកម្ដងទៀត ហើយកំពុងពិនិត្យមើលថាត្រូវបន្តវគ្គភ្នាក់ងារមួយណា។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux gjenoppretter fortsatt terminalen etter at den ble åpnet på nytt, og sjekker hvilken agentøkt som skal gjenopptas. Prøv igjen om noen sekunder."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux wciąż przywraca terminal po ponownym otwarciu i sprawdza, którą sesję agenta wznowić. Spróbuj ponownie za kilka sekund."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux ainda está restaurando o terminal após ser reaberto e verificando qual sessão do agente retomar. Tente novamente em alguns segundos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux ещё восстанавливает терминал после повторного открытия и проверяет, какой сеанс агента возобновить. Повторите попытку через несколько секунд."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux ยังคงกู้คืนเทอร์มินัลหลังจากเปิดใหม่ และกำลังตรวจสอบว่าจะทำเซสชันเอเจนต์ใดต่อ ลองอีกครั้งในอีกไม่กี่วินาที"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux yeniden açıldıktan sonra terminali hâlâ geri yüklüyor ve hangi ajan oturumunun sürdürüleceğini denetliyor. Birkaç saniye sonra yeniden deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux ще відновлює термінал після повторного відкриття та перевіряє, який сеанс агента відновити. Спробуйте ще раз за кілька секунд."
+          }
+        }
+      }
+    },
+    "socket.terminal.notRunning.closing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal is closing and cannot be read."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطرفية قيد الإغلاق ولا يمكن قراءتها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal wird geschlossen und kann nicht gelesen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La terminal se está cerrando y no se puede leer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal est en cours de fermeture et ne peut pas être lu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルは閉じられているため読み取れません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 닫히는 중이라 읽을 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端正在关闭，无法读取。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機正在關閉，無法讀取。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal se zatvara i ne može se pročitati."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen lukkes og kan ikke læses."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il terminale si sta chiudendo e non può essere letto."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទែមីណាល់កំពុងបិទ ហើយមិនអាចអានបានទេ។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen lukkes og kan ikke leses."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal jest zamykany i nie można go odczytać."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O terminal está sendo fechado e não pode ser lido."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Терминал закрывается, и его нельзя прочитать."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เทอร์มินัลกำลังปิดและไม่สามารถอ่านได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal kapanıyor ve okunamıyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Термінал закривається, і його не можна прочитати."
+          }
+        }
+      }
+    },
+    "socket.terminal.notRunning.hibernated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal is hibernated: cmux suspended its idle agent to save memory. Wake it by showing it (this brings its window to the front), then retry: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطرفية في وضع السبات: أوقف cmux وكيلها الخامل مؤقتًا لتوفير الذاكرة. أيقظها بعرضها (يؤدي ذلك إلى إحضار نافذتها إلى المقدمة)، ثم أعد المحاولة: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal ruht: cmux hat seinen inaktiven Agenten angehalten, um Speicher zu sparen. Wecke es, indem du es anzeigst (dadurch kommt sein Fenster in den Vordergrund), und versuche es dann erneut: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La terminal está hibernada: cmux suspendió su agente inactivo para ahorrar memoria. Despiértala mostrándola (esto trae su ventana al frente) y vuelve a intentarlo: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal est en veille : cmux a suspendu son agent inactif pour économiser de la mémoire. Réveillez-le en l’affichant (sa fenêtre passe au premier plan), puis réessayez : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルは休止中です。cmux がメモリ節約のためアイドル状態のエージェントを停止しました。表示すると再開します（ウィンドウが前面に出ます）。その後、再試行してください: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 최대 절전 상태입니다. cmux가 메모리를 절약하려고 유휴 에이전트를 일시 중단했습니다. 터미널을 표시해 깨운 후(창이 앞으로 옵니다) 다시 시도하세요: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端已休眠：cmux 暂停了其空闲的代理以节省内存。显示它即可唤醒（这会将其窗口带到最前面），然后重试：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機已休眠：cmux 暫停了其閒置的代理以節省記憶體。顯示它即可喚醒（這會將其視窗帶到最前面），然後再試一次：%@"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Probudite ga tako što ćete ga prikazati (njegov prozor prelazi u prvi plan), pa pokušajte ponovo: %@"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Væk den ved at vise den (dens vindue kommer forrest), og prøv igen: %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Riattivalo mostrandolo (la sua finestra passa in primo piano), quindi riprova: %@"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ ដាស់វាដោយបង្ហាញវា (បង្អួចរបស់វានឹងមកខាងមុខ) រួចព្យាយាមម្ដងទៀត៖ %@"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vekk den ved å vise den (vinduet kommer i forgrunnen), og prøv igjen: %@"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wybudź go, wyświetlając go (jego okno przejdzie na pierwszy plan), a potem spróbuj ponownie: %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Desperte-o exibindo-o (a janela vem para a frente) e tente novamente: %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Разбудите его, показав терминал (его окно выйдет на передний план), и повторите попытку: %@"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ ปลุกโดยแสดงเทอร์มินัล (หน้าต่างจะมาอยู่ด้านหน้า) แล้วลองอีกครั้ง: %@"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Onu göstererek uyandırın (penceresi öne gelir), ardından yeniden deneyin: %@"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Розбудіть його, показавши термінал (його вікно перейде на передній план), і спробуйте ще раз: %@"
+          }
+        }
+      }
+    },
+    "socket.terminal.notRunning.hibernatedNoCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal is hibernated: cmux suspended its idle agent to save memory. Show the terminal in cmux to wake it, then retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطرفية في وضع السبات: أوقف cmux وكيلها الخامل مؤقتًا لتوفير الذاكرة. اعرض الطرفية في cmux لإيقاظها، ثم أعد المحاولة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal ruht: cmux hat seinen inaktiven Agenten angehalten, um Speicher zu sparen. Zeige das Terminal in cmux an, um es zu wecken, und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La terminal está hibernada: cmux suspendió su agente inactivo para ahorrar memoria. Muestra la terminal en cmux para despertarla y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal est en veille : cmux a suspendu son agent inactif pour économiser de la mémoire. Affichez le terminal dans cmux pour le réveiller, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルは休止中です。cmux がメモリ節約のためアイドル状態のエージェントを停止しました。cmux でターミナルを表示して再開してから、再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 최대 절전 상태입니다. cmux가 메모리를 절약하려고 유휴 에이전트를 일시 중단했습니다. cmux에서 터미널을 표시해 깨운 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端已休眠：cmux 暂停了其空闲的代理以节省内存。请在 cmux 中显示此终端以唤醒它，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機已休眠：cmux 暫停了其閒置的代理以節省記憶體。請在 cmux 中顯示此終端機以喚醒它，然後再試一次。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Prikažite terminal u cmuxu da ga probudite, pa pokušajte ponovo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Vis terminalen i cmux for at vække den, og prøv igen."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Mostra il terminale in cmux per riattivarlo, quindi riprova."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ បង្ហាញទែមីណាល់នៅក្នុង cmux ដើម្បីដាស់វា រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vis terminalen i cmux for å vekke den, og prøv igjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wyświetl terminal w cmux, aby go wybudzić, a potem spróbuj ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Mostre o terminal no cmux para despertá-lo e tente novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Покажите терминал в cmux, чтобы разбудить его, и повторите попытку."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ แสดงเทอร์มินัลใน cmux เพื่อปลุก แล้วลองอีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Uyandırmak için terminali cmux'ta gösterin, ardından yeniden deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Покажіть термінал у cmux, щоб розбудити його, і спробуйте ще раз."
+          }
+        }
+      }
+    },
+    "socket.terminal.notRunning.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal has not started yet. Retry in a few seconds."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تبدأ الطرفية بعد. أعد المحاولة بعد بضع ثوانٍ."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal wurde noch nicht gestartet. Versuche es in ein paar Sekunden erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La terminal aún no se ha iniciado. Vuelve a intentarlo en unos segundos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal n’a pas encore démarré. Réessayez dans quelques secondes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルはまだ起動していません。数秒後に再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 아직 시작되지 않았습니다. 몇 초 후에 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端尚未启动。请几秒后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機尚未啟動。請幾秒後再試。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal se još nije pokrenuo. Pokušajte ponovo za nekoliko sekundi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen er ikke startet endnu. Prøv igen om et par sekunder."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il terminale non è ancora stato avviato. Riprova tra qualche secondo."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទែមីណាល់មិនទាន់បានចាប់ផ្តើមនៅឡើយទេ។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen har ikke startet ennå. Prøv igjen om noen sekunder."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal jeszcze się nie uruchomił. Spróbuj ponownie za kilka sekund."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O terminal ainda não foi iniciado. Tente novamente em alguns segundos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Терминал ещё не запущен. Повторите попытку через несколько секунд."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เทอร์มินัลยังไม่ได้เริ่มทำงาน ลองอีกครั้งในอีกไม่กี่วินาที"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal henüz başlamadı. Birkaç saniye sonra yeniden deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Термінал ще не запущено. Спробуйте ще раз за кілька секунд."
+          }
+        }
+      }
+    },
+    "cli.restoreSession.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux restore-session\n       cmux restore-session --from <stable|nightly|rc|staging|debug:<tag>|path>\n       cmux restore-session --export <path> [--force]\n\nReopen the previous saved cmux session.\n\nIf the app is already running, this restores the last saved session into the current app.\nIf the app is not running, this launches cmux and lets startup restore reopen the saved session.\n\nEach cmux install (stable, nightly, rc, staging, tagged debug builds) saves its own session.\n--from <channel>  Reopen another install's saved session in this running cmux, for example\n                  after trying nightly and switching back to stable. The session opens as\n                  additional windows; the other install's saved file is only read.\n--from <path>     Reopen a session file written by --export.\n--export <path>   Write this cmux's saved session to a file. Pass --force to replace an\n                  existing file.\n\n--from and --export require cmux to be running."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux restore-session\n       cmux restore-session --from <stable|nightly|rc|staging|debug:<tag>|path>\n       cmux restore-session --export <path> [--force]\n\nDie zuletzt gespeicherte cmux-Sitzung erneut öffnen.\n\nLäuft die App bereits, wird die zuletzt gespeicherte Sitzung in der aktuellen App wiederhergestellt.\nLäuft die App nicht, wird cmux gestartet und die gespeicherte Sitzung beim Start wiederhergestellt.\n\nJede cmux-Installation (stable, nightly, rc, staging, getaggte Debug-Builds) speichert ihre eigene Sitzung.\n--from <channel>  Die gespeicherte Sitzung einer anderen Installation in diesem laufenden cmux öffnen,\n                  z. B. nachdem Sie nightly ausprobiert haben und zu stable zurückkehren. Die Sitzung\n                  öffnet sich in zusätzlichen Fenstern; die Datei der anderen Installation wird nur gelesen.\n--from <path>     Eine mit --export geschriebene Sitzungsdatei öffnen.\n--export <path>   Die gespeicherte Sitzung dieses cmux in eine Datei schreiben. Mit --force wird eine\n                  vorhandene Datei ersetzt.\n\n--from und --export setzen ein laufendes cmux voraus."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux restore-session\n       cmux restore-session --from <stable|nightly|rc|staging|debug:<tag>|path>\n       cmux restore-session --export <path> [--force]\n\nRouvrir la dernière session cmux enregistrée.\n\nSi l'app est déjà ouverte, la dernière session enregistrée est restaurée dans l'app actuelle.\nSi l'app n'est pas ouverte, cmux est lancé et la restauration au démarrage rouvre la session enregistrée.\n\nChaque installation de cmux (stable, nightly, rc, staging, builds debug avec tag) enregistre sa propre session.\n--from <channel>  Rouvrir la session enregistrée d'une autre installation dans ce cmux en cours, par exemple\n                  après avoir essayé nightly puis être revenu à stable. La session s'ouvre dans des fenêtres\n                  supplémentaires ; le fichier de l'autre installation est seulement lu.\n--from <path>     Rouvrir un fichier de session écrit par --export.\n--export <path>   Écrire la session enregistrée de ce cmux dans un fichier. Ajoutez --force pour remplacer\n                  un fichier existant.\n\n--from et --export nécessitent que cmux soit ouvert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux restore-session\n       cmux restore-session --from <stable|nightly|rc|staging|debug:<tag>|path>\n       cmux restore-session --export <path> [--force]\n\nVuelve a abrir la última sesión guardada de cmux.\n\nSi la app ya está abierta, restaura la última sesión guardada en la app actual.\nSi la app no está abierta, inicia cmux y deja que la restauración de inicio vuelva a abrir la sesión guardada.\n\nCada instalación de cmux (stable, nightly, rc, staging, builds de depuración con etiqueta) guarda su propia sesión.\n--from <channel>  Abre en este cmux la sesión guardada de otra instalación, por ejemplo después de\n                  probar nightly y volver a stable. La sesión se abre en ventanas adicionales; el archivo\n                  de la otra instalación solo se lee.\n--from <path>     Abre un archivo de sesión escrito con --export.\n--export <path>   Escribe en un archivo la sesión guardada de este cmux. Usa --force para reemplazar un\n                  archivo existente.\n\n--from y --export requieren que cmux esté abierto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux restore-session\n       cmux restore-session --from <stable|nightly|rc|staging|debug:<tag>|path>\n       cmux restore-session --export <path> [--force]\n\n前回保存した cmux セッションを再度開きます。\n\nアプリがすでに起動している場合は、最後に保存したセッションを現在のアプリに復元します。\nアプリが起動していない場合は、cmux を起動し、起動時の復元で保存済みセッションを開きます。\n\ncmux の各インストール（stable、nightly、rc、staging、タグ付き debug ビルド）はそれぞれ独自のセッションを保存します。\n--from <channel>  別のインストールで保存したセッションを、起動中のこの cmux で開きます。たとえば nightly を\n                  試したあと stable に戻る場合に使います。セッションは追加のウインドウとして開き、別の\n                  インストールのファイルは読み取るだけです。\n--from <path>     --export で書き出したセッションファイルを開きます。\n--export <path>   この cmux の保存済みセッションをファイルに書き出します。既存のファイルを置き換えるには\n                  --force を指定します。\n\n--from と --export を使うには cmux が起動している必要があります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux restore-session\n       cmux restore-session --from <stable|nightly|rc|staging|debug:<tag>|path>\n       cmux restore-session --export <path> [--force]\n\nأعد فتح آخر جلسة cmux محفوظة.\n\nإذا كان التطبيق يعمل بالفعل، فستُستعاد آخر جلسة محفوظة في التطبيق الحالي.\nإذا لم يكن التطبيق يعمل، فسيُشغَّل cmux وتعيد استعادة بدء التشغيل فتح الجلسة المحفوظة.\n\nيحفظ كل تثبيت من cmux (stable وnightly وrc وstaging وإصدارات debug الموسومة) جلسته الخاصة.\n--from <channel>  افتح الجلسة المحفوظة لتثبيت آخر في cmux الذي يعمل الآن، مثلًا\n                  بعد تجربة nightly والعودة إلى stable. تُفتح الجلسة في\n                  نوافذ إضافية، ويُقرأ ملف التثبيت الآخر فقط.\n--from <path>     افتح ملف جلسة كتبه الأمر --export.\n--export <path>   اكتب الجلسة المحفوظة لهذا cmux في ملف. استخدم --force لاستبدال\n                  ملف موجود.\n\nيتطلب --from و--export أن يكون cmux قيد التشغيل."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux restore-session\n       cmux restore-session --from <stable|nightly|rc|staging|debug:<tag>|path>\n       cmux restore-session --export <path> [--force]\n\n重新開啟上次儲存的 cmux 工作階段。\n\n如果 App 已在執行，會將上次儲存的工作階段還原到目前的 App 中。\n如果 App 未執行，會啟動 cmux，並由啟動還原重新開啟已儲存的工作階段。\n\n每個 cmux 安裝（stable、nightly、rc、staging、帶標籤的 debug 建置）都會儲存自己的工作階段。\n--from <channel>  在執行中的 cmux 開啟另一個安裝儲存的工作階段，例如\n                  試用 nightly 後切回 stable。工作階段會以\n                  額外視窗開啟；另一個安裝的檔案只會被讀取。\n--from <path>     開啟由 --export 寫出的工作階段檔案。\n--export <path>   將此 cmux 儲存的工作階段寫入檔案。使用 --force 可取代\n                  既有檔案。\n\n--from 和 --export 需要 cmux 正在執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux restore-session\n       cmux restore-session --from <stable|nightly|rc|staging|debug:<tag>|path>\n       cmux restore-session --export <path> [--force]\n\n重新打开上次保存的 cmux 会话。\n\n如果应用已在运行，会将上次保存的会话恢复到当前应用中。\n如果应用未运行，会启动 cmux，并由启动恢复重新打开保存的会话。\n\n每个 cmux 安装（stable、nightly、rc、staging、带标签的 debug 构建）都会保存自己的会话。\n--from <channel>  在正在运行的 cmux 中打开另一个安装保存的会话，例如\n                  试用 nightly 后切回 stable。会话会以\n                  额外窗口打开；另一个安装的会话文件只会被读取。\n--from <path>     打开由 --export 写出的会话文件。\n--export <path>   将此 cmux 保存的会话写入文件。使用 --force 可替换\n                  已有文件。\n\n--from 和 --export 需要 cmux 正在运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux restore-session\n       cmux restore-session --from <stable|nightly|rc|staging|debug:<tag>|path>\n       cmux restore-session --export <path> [--force]\n\n마지막으로 저장된 cmux 세션을 다시 엽니다.\n\n앱이 이미 실행 중이면 마지막으로 저장된 세션을 현재 앱에 복원합니다.\n앱이 실행 중이 아니면 cmux를 실행하고 시작 복원이 저장된 세션을 다시 열도록 합니다.\n\n각 cmux 설치(stable, nightly, rc, staging, 태그가 지정된 debug 빌드)는 자체 세션을 저장합니다.\n--from <channel>  다른 설치에 저장된 세션을 실행 중인 이 cmux에서 엽니다. 예를 들어\n                  nightly를 사용해 본 뒤 stable로 돌아올 때 사용합니다. 세션은\n                  추가 창으로 열리며, 다른 설치의 파일은 읽기만 합니다.\n--from <path>     --export로 작성한 세션 파일을 엽니다.\n--export <path>   이 cmux에 저장된 세션을 파일로 씁니다. 기존 파일을 바꾸려면\n                  --force를 사용하세요.\n\n--from과 --export를 사용하려면 cmux가 실행 중이어야 합니다."
+          }
+        }
+      }
+    },
+    "session.export.error.destinationExists": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ already exists. Pass --force to replace it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ موجود بالفعل. استخدم --force لاستبداله."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist bereits vorhanden. Verwenden Sie --force, um die Datei zu ersetzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ya existe. Usa --force para reemplazarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ existe déjà. Ajoutez --force pour le remplacer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はすでに存在します。置き換えるには --force を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 파일이 이미 있습니다. 바꾸려면 --force를 사용하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已存在。使用 --force 以替换它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已存在。使用 --force 以取代它。"
+          }
+        }
+      }
+    },
+    "session.export.error.destinationIsLive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is this cmux's own session file. Choose another path."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ هو ملف الجلسة الخاص بهذا الـ cmux. اختر مسارًا آخر."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist die eigene Sitzungsdatei dieses cmux. Wählen Sie einen anderen Pfad."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ es el archivo de sesión de este cmux. Elige otra ruta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ est le fichier de session de ce cmux. Choisissez un autre chemin."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はこの cmux 自身のセッションファイルです。別のパスを指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 파일은 이 cmux의 세션 파일입니다. 다른 경로를 선택하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 是此 cmux 自己的会话文件。请选择其他路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 是此 cmux 本身的工作階段檔案。請選擇其他路徑。"
+          }
+        }
+      }
+    },
+    "session.export.error.noSnapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux has not saved a session yet. Try again in a few seconds."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يحفظ cmux أي جلسة بعد. حاول مرة أخرى بعد بضع ثوانٍ."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat noch keine Sitzung gespeichert. Versuchen Sie es in ein paar Sekunden erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux aún no ha guardado ninguna sesión. Inténtalo de nuevo en unos segundos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas encore enregistré de session. Réessayez dans quelques secondes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はまだセッションを保存していません。数秒後にもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 아직 세션을 저장하지 않았습니다. 몇 초 후에 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 尚未保存会话。请几秒后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 尚未儲存工作階段。請過幾秒再試一次。"
+          }
+        }
+      }
+    },
+    "session.export.error.writeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not write %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت كتابة %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ konnte nicht geschrieben werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo escribir %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d'écrire %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を書き込めませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 파일을 쓸 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法写入 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法寫入 %@。"
+          }
+        }
+      }
+    },
+    "session.import.error.fileNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No saved cmux session at %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد جلسة cmux محفوظة في %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unter %@ gibt es keine gespeicherte cmux-Sitzung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ninguna sesión de cmux guardada en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune session cmux enregistrée à l'emplacement %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に保存された cmux セッションはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 위치에 저장된 cmux 세션이 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 没有已保存的 cmux 会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 沒有已儲存的 cmux 工作階段。"
+          }
+        }
+      }
+    },
+    "session.import.error.newerSchema": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ was saved by a newer cmux (session format %2$@, this cmux reads %3$@). Update cmux to import it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حُفظ %1$@ بواسطة إصدار أحدث من cmux (تنسيق الجلسة %2$@، ويقرأ هذا الـ cmux التنسيق %3$@). حدّث cmux لاستيراده."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ wurde von einem neueren cmux gespeichert (Sitzungsformat %2$@, dieses cmux liest %3$@). Aktualisieren Sie cmux, um die Datei zu importieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ se guardó con un cmux más reciente (formato de sesión %2$@; este cmux lee el %3$@). Actualiza cmux para importarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ a été enregistré par une version plus récente de cmux (format de session %2$@, ce cmux lit le format %3$@). Mettez cmux à jour pour l'importer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は新しい cmux で保存されています（セッション形式 %2$@、この cmux が読める形式は %3$@）。読み込むには cmux をアップデートしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 파일은 더 새로운 cmux에서 저장되었습니다(세션 형식 %2$@, 이 cmux는 %3$@ 형식을 읽음). 가져오려면 cmux를 업데이트하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 由较新版本的 cmux 保存（会话格式 %2$@，此 cmux 读取 %3$@）。请更新 cmux 后再导入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 是由較新版本的 cmux 儲存（工作階段格式 %2$@，此 cmux 讀取 %3$@）。請更新 cmux 後再匯入。"
+          }
+        }
+      }
+    },
+    "session.import.error.noWindows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has no windows to restore."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يحتوي %@ على نوافذ لاستعادتها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ enthält keine Fenster zum Wiederherstellen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no tiene ventanas que restaurar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ne contient aucune fenêtre à restaurer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ には復元できるウインドウがありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 파일에 복원할 창이 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 没有可恢复的窗口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 沒有可還原的視窗。"
+          }
+        }
+      }
+    },
+    "session.import.error.notASnapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not a cmux session snapshot."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ليس لقطة جلسة cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist keine cmux-Sitzungsdatei."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no es una instantánea de sesión de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n'est pas un instantané de session cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は cmux のセッションスナップショットではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 파일은 cmux 세션 스냅샷이 아닙니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不是 cmux 会话快照。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不是 cmux 工作階段快照。"
+          }
+        }
+      }
+    },
+    "session.import.error.nothingRestored": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing in %@ could be reopened."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إعادة فتح أي شيء من %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus %@ konnte nichts wieder geöffnet werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo volver a abrir nada de %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun élément de %@ n'a pu être rouvert."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ から再度開けるものはありませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 파일에서 다시 열 수 있는 항목이 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法重新打开 %@ 中的任何内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法重新開啟 %@ 中的任何內容。"
+          }
+        }
+      }
+    },
+    "session.import.error.olderSchema": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ uses an older session format (%2$@) that this cmux no longer reads (%3$@)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم %1$@ تنسيق جلسة أقدم (%2$@) لم يعد هذا الـ cmux يقرؤه (%3$@)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ verwendet ein älteres Sitzungsformat (%2$@), das dieses cmux nicht mehr liest (%3$@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ usa un formato de sesión anterior (%2$@) que este cmux ya no lee (%3$@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ utilise un ancien format de session (%2$@) que ce cmux ne lit plus (%3$@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ はこの cmux が読み込まなくなった古いセッション形式（%2$@）を使用しています（%3$@）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 파일은 이 cmux가 더 이상 읽지 않는 이전 세션 형식(%2$@)을 사용합니다(%3$@)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 使用较旧的会话格式（%2$@），此 cmux 已不再读取（%3$@）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 使用較舊的工作階段格式（%2$@），此 cmux 已不再讀取（%3$@）。"
+          }
+        }
+      }
+    },
+    "session.import.error.unknownChannel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown cmux channel \"%@\". Use stable, nightly, rc, staging, debug:<tag>, or a path to a session file."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قناة cmux غير معروفة \"%@\". استخدم stable أو nightly أو rc أو staging أو debug:<tag> أو مسار ملف جلسة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter cmux-Kanal \"%@\". Verwenden Sie stable, nightly, rc, staging, debug:<tag> oder einen Pfad zu einer Sitzungsdatei."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canal de cmux desconocido \"%@\". Usa stable, nightly, rc, staging, debug:<tag> o la ruta de un archivo de sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canal cmux inconnu « %@ ». Utilisez stable, nightly, rc, staging, debug:<tag> ou le chemin d'un fichier de session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な cmux チャンネル「%@」です。stable、nightly、rc、staging、debug:<tag>、またはセッションファイルのパスを指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 cmux 채널 \"%@\"입니다. stable, nightly, rc, staging, debug:<tag> 또는 세션 파일 경로를 사용하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 cmux 渠道“%@”。请使用 stable、nightly、rc、staging、debug:<tag> 或会话文件路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 cmux 通道「%@」。請使用 stable、nightly、rc、staging、debug:<tag> 或工作階段檔案路徑。"
+          }
+        }
+      }
+    },
+    "session.import.error.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not read %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت قراءة %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ konnte nicht gelesen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を読み込めませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 파일을 읽을 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取 %@。"
+          }
+        }
+      }
+    },
+    "session.import.error.liveSnapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is the session this cmux is saving right now. Run cmux restore-session without --from to reopen the previous launch."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist die Sitzung, die dieses cmux gerade speichert. Führen Sie cmux restore-session ohne --from aus, um den vorherigen Start wieder zu öffnen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ est la session que ce cmux enregistre actuellement. Exécutez cmux restore-session sans --from pour rouvrir le lancement précédent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ هي الجلسة التي يحفظها cmux هذا الآن. شغّل cmux restore-session دون --from لإعادة فتح التشغيل السابق."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ es la sesión que este cmux está guardando ahora. Ejecuta cmux restore-session sin --from para volver a abrir el inicio anterior."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 是此 cmux 目前正在儲存的工作階段。執行不含 --from 的 cmux restore-session 以重新開啟上次啟動的內容。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 是此 cmux 当前正在保存的会话。运行不带 --from 的 cmux restore-session 以重新打开上次启动的内容。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 파일은 이 cmux가 지금 저장 중인 세션입니다. 이전 실행을 다시 열려면 --from 없이 cmux restore-session을 실행하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はこの cmux が現在保存しているセッションです。前回の起動を再度開くには、--from を付けずに cmux restore-session を実行してください。"
           }
         }
       }
