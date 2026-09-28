@@ -23,6 +23,9 @@ public final class CloudMachineCreateCoordinator {
     @ObservationIgnored private var carries: [UUID: String] = [:]
     @ObservationIgnored private var tombstones: [CloudMachineCreateAttempt: String] = [:]
     @ObservationIgnored private var cleanupIssued: Set<String> = []
+    /// Machines whose deletion began and wasn't restored. A create never keeps one,
+    /// and cleanup never duplicates the deletion's destroy request.
+    @ObservationIgnored private var deletedMachineIDs: Set<String> = []
     @ObservationIgnored private let output: CloudMachineCreateOutput
     @ObservationIgnored private let now: () -> Date
 
@@ -105,7 +108,7 @@ public final class CloudMachineCreateCoordinator {
         if let id, projection.operations[index].createdMachineID == nil {
             projection.operations[index].createdMachineID = id
             // The machine was deleted before its receipt arrived: stop this create.
-            if cleanupIssued.contains(id) { return retireCreates(producing: id) }
+            if deletedMachineIDs.contains(id) { return retireCreates(producing: id) }
             adopt(projection.operations[index])
             transition.changed = true
         }
@@ -129,8 +132,8 @@ public final class CloudMachineCreateCoordinator {
         var operation = projection.operations[index]
         operation.createdMachineID = completion.machineID ?? operation.createdMachineID ?? output.machineID(in: completion.output)
         projection.operations[index] = operation
-        if let id = operation.createdMachineID, cleanupIssued.contains(id) {
-            // The process already ended, so retiring it installs no receipt tombstone.
+        if let id = operation.createdMachineID, deletedMachineIDs.contains(id) {
+            // The process already ended, so retiring it cancels nothing.
             attempts[operation.id] = nil
             carries[operation.id] = nil
             return retireCreates(producing: id)
@@ -209,18 +212,25 @@ public final class CloudMachineCreateCoordinator {
     /// Retires every create that produced a machine whose deletion just began.
     ///
     /// Running creates stop, and their presentations close. Deletion owns the
-    /// destroy request, so no receipt from these creates, including one that
-    /// arrives later, requests another.
+    /// destroy request, so these creates keep no receipt tombstone, and none of
+    /// their receipts, including one after a failed deletion, requests another.
     /// - Parameter machineID: The provider machine being deleted.
     /// - Returns: Process and presentation effects, never a cleanup request.
     public func retireCreates(producing machineID: String) -> CloudMachineCreateTransition {
-        cleanupIssued.insert(machineID)
-        return remove(where: { $0.createdMachineID == machineID }, closePresentations: true)
+        deletedMachineIDs.insert(machineID)
+        return remove(where: { $0.createdMachineID == machineID }, closePresentations: true, cleanup: false)
     }
 
-    /// Records that a machine's deletion failed and it is listed again.
+    /// Lets creates keep a machine whose deletion failed and that is listed again.
+    ///
+    /// A create whose receipt names the machine afterwards adopts it, and
+    /// cancelling that create cleans the machine up. Creates that the deletion
+    /// already retired stay retired, so the app never retries a failed delete on
+    /// its own.
     /// - Parameter machineID: The provider machine whose deletion failed.
-    public func machineDeletionFailed(_ machineID: String) {}
+    public func machineDeletionFailed(_ machineID: String) {
+        deletedMachineIDs.remove(machineID)
+    }
 
     /// Fences an account transition and clears account-specific projection aliases.
     /// - Parameter cleanupCreatedMachines: Whether the departing account permits cleanup.
@@ -271,7 +281,7 @@ public final class CloudMachineCreateCoordinator {
     /// Issues one destruction request even when progress and completion repeat a
     /// receipt, and none for a machine the user is already deleting.
     private func appendCleanup(_ id: String, to transition: inout CloudMachineCreateTransition) {
-        guard cleanupIssued.insert(id).inserted else { return }
+        guard !deletedMachineIDs.contains(id), cleanupIssued.insert(id).inserted else { return }
         transition.cleanupMachineIDs.append(id)
     }
 }

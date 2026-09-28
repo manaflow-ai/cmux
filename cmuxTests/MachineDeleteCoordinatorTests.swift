@@ -40,6 +40,7 @@ struct MachineDeleteCoordinatorTests {
         let confirmedWasGone = try await coordinator.destroy(id: "m1")
         #expect(confirmedWasGone, "A confirmed deletion answers already gone")
         #expect(fixture.requested == ["m1"] && fixture.detached == ["m1"] && fixture.retired == ["m1"])
+        #expect(fixture.restored.isEmpty)
     }
 
     @Test func notFoundRetiresTheMachineAndOtherFailuresRestoreIt() async throws {
@@ -59,6 +60,7 @@ struct MachineDeleteCoordinatorTests {
         fixture.answer(throwing: VMClientError.httpStatus(500, "internal"))
         await #expect(throws: VMClientError.self) { try await failing.value }
         #expect(fixture.retired == ["gone"])
+        #expect(fixture.restored == ["kept"], "Creates may keep the machine the failure lists again")
         #expect(coordinator.hiddenMachineIDs == ["gone"] && coordinator.pendingMachineIDs.isEmpty)
         #expect(coordinator.canBegin("kept"), "A failed delete can be retried")
     }
@@ -70,7 +72,7 @@ struct MachineDeleteCoordinatorTests {
         #expect(!coordinator.begin("m1"), "A second confirm is a no-op")
         coordinator.launchEnded("m1")
         #expect(coordinator.hiddenMachineIDs.isEmpty, "A CLI that never reached the socket restores the row")
-        #expect(fixture.requested.isEmpty)
+        #expect(fixture.requested.isEmpty && fixture.restored == ["m1"])
 
         #expect(coordinator.begin("m1"))
         let request = Task { try await coordinator.destroy(id: "m1") }
@@ -81,6 +83,7 @@ struct MachineDeleteCoordinatorTests {
         await #expect(throws: VMClientError.self) { try await request.value }
         #expect(coordinator.hiddenMachineIDs.isEmpty)
         #expect(fixture.detached == ["m1", "m1"] && fixture.requested == ["m1"] && fixture.retired.isEmpty)
+        #expect(fixture.restored == ["m1", "m1"])
     }
 
     @Test func accountEndForgetsDeletionsAndFencesTheirLateOutcomes() async throws {
@@ -104,6 +107,7 @@ struct MachineDeleteCoordinatorTests {
         #expect(!departedWasGone)
         #expect(coordinator.hiddenMachineIDs == ["m1"], "A departed account's failure never restores the current delete")
         #expect(fixture.retired.isEmpty, "A departed account's success closes nothing")
+        #expect(fixture.restored.isEmpty, "A departed account's failure restores nothing")
 
         fixture.answer()
         let currentWasGone = try await current.value
@@ -119,6 +123,7 @@ private final class MachineDeleteFixture {
     private(set) var requested: [String] = []
     private(set) var detached: [String] = []
     private(set) var retired: [String] = []
+    private(set) var restored: [String] = []
     private var openRequests: [CheckedContinuation<Void, Error>] = []
     private let requestsSent = AsyncStream<Void>.makeStream()
 
@@ -133,7 +138,8 @@ private final class MachineDeleteFixture {
                 }
             },
             didHide: { [unowned self] in self.detached.append($0) },
-            didRetire: { [unowned self] in self.retired.append($0) }
+            didRetire: { [unowned self] in self.retired.append($0) },
+            didRestore: { [unowned self] in self.restored.append($0) }
         )
     }
 

@@ -97,7 +97,10 @@ no single read proves that every list has dropped the machine. The projection's
 still come back, so a view keeps rollback state only for those. `endAccount()`
 forgets every entry without rollback. The app adapter owns the CLI, alerts, and
 closing workspaces, and calls the create owner's `retireCreates(producing:)` so a
-create for the same machine stops without a second destroy request:
+create for the same machine stops without a second destroy request. After a
+failure it calls `machineDeletionFailed(_:)`, so a create whose receipt names the
+restored machine keeps it; the creates the delete stopped stay stopped and never
+retry the destroy on their own:
 
 ```swift
 let deletions = CloudMachineDeletionCoordinator()
@@ -105,7 +108,8 @@ guard deletions.begin("m1") else { return }       // hidden before any request
 _ = creates.retireCreates(producing: "m1")        // stop a pending create for m1
 switch deletions.finish("m1", result: .deleted) {
 case .retired: break                              // close local registrations; m1 stays hidden
-case .restored: break                             // row is listed again; alert
+case .restored:                                   // row is listed again; alert
+    creates.machineDeletionFailed("m1")
 case .ignored: break                              // duplicate, or the account ended
 }
 deletions.endAccount()                            // sign-out: both sets are empty

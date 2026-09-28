@@ -18,6 +18,7 @@ final class MachineDeleteCoordinator {
     private let destroyMachine: @MainActor (String) async throws -> Void
     private let didHide: @MainActor (String) -> Void
     private let didRetire: @MainActor (String) -> Void
+    private let didRestore: @MainActor (String) -> Void
     private var requests: [String: Request] = [:]
     private var accountEpoch: UInt64 = 0
     private var accessDidEndObserver: NSObjectProtocol?
@@ -27,15 +28,18 @@ final class MachineDeleteCoordinator {
     ///   - destroyMachine: Sends the provider destroy request.
     ///   - didHide: Detaches the machine's local presentations once it is hidden.
     ///   - didRetire: Closes the machine's registrations once its delete is confirmed.
+    ///   - didRestore: Lets creates keep the machine once its failed delete lists it again.
     init(
         notificationCenter: NotificationCenter = .default,
         destroyMachine: @escaping @MainActor (String) async throws -> Void = { try await VMClient.shared.destroy(id: $0) },
         didHide: @escaping @MainActor (String) -> Void = MachineDeleteCoordinator.detachLocalPresentations(of:),
-        didRetire: @escaping @MainActor (String) -> Void = { AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: $0) }
+        didRetire: @escaping @MainActor (String) -> Void = { AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: $0) },
+        didRestore: @escaping @MainActor (String) -> Void = { MachineCreateCoordinator.shared.machineDeletionFailed($0) }
     ) {
         self.destroyMachine = destroyMachine
         self.didHide = didHide
         self.didRetire = didRetire
+        self.didRestore = didRestore
         accessDidEndObserver = notificationCenter.addObserver(
             forName: .cmuxCloudVMAccessDidEnd, object: nil, queue: .main
         ) { [weak self] _ in
@@ -121,18 +125,25 @@ final class MachineDeleteCoordinator {
     /// The launcher presents the failure.
     /// - Parameter machineID: The machine the process was deleting.
     func launchEnded(_ machineID: String) {
-        guard deletions.isPending(machineID), requests[machineID] == nil else { return }
-        _ = deletions.finish(machineID, result: .failed)
+        guard deletions.isPending(machineID), requests[machineID] == nil,
+              deletions.finish(machineID, result: .failed) == .restored else { return }
+        didRestore(machineID)
     }
 
     private func finish(_ machineID: String, result: CloudMachineDeletionResult, epoch: UInt64, token: UUID) {
         // An outcome that outlived its account neither restores nor retires anything.
         guard epoch == accountEpoch else { return }
         if requests[machineID]?.token == token { requests[machineID] = nil }
-        guard deletions.finish(machineID, result: result) == .retired else { return }
-        // Unregisters the machine's surface provider, which closes any URL-backed
-        // pane opened since the delete began.
-        didRetire(machineID)
+        switch deletions.finish(machineID, result: result) {
+        case .retired:
+            // Unregisters the machine's surface provider, which closes any URL-backed
+            // pane opened since the delete began.
+            didRetire(machineID)
+        case .restored:
+            didRestore(machineID)
+        case .ignored:
+            break
+        }
     }
 
     /// Sign-out and account or team switches forget every deletion without
