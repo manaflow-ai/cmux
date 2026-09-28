@@ -234,6 +234,12 @@ final class BrowserExtensions: NSObject, ObservableObject {
 
     func unregister(panelID: UUID) {
         for controller in controllers.values { controller.unregister(panelID: panelID) }
+        // A profile with no open tabs runs no extensions; they load again
+        // with its next tab. The controller itself stays, because prewarmed
+        // web views were built with it.
+        for controller in controllers.values where controller.adapters.isEmpty {
+            for id in Array(controller.contexts.keys) { controller.unload(id: id) }
+        }
         anchors = anchors.filter { $0.key.panelID != panelID }
         if lastFocusedPanelID == panelID { lastFocusedPanelID = nil }
     }
@@ -602,6 +608,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
     func applyURLAllowlistPolicy() {
         if Self.isBlockedByURLAllowlist {
             closePopup()
+            closeExtensionPages()
             for controller in controllers.values {
                 for id in Array(controller.contexts.keys) { controller.unload(id: id) }
             }
@@ -711,7 +718,14 @@ final class BrowserExtensions: NSObject, ObservableObject {
         popoverExtensionID = nil
     }
 
-    private var extensionPageWindows: [NSWindow] = []
+    private var extensionPageWindows: [(extensionID: String, window: NSWindow)] = []
+
+    /// Closes the extension's page windows, or every one when `id` is nil.
+    fileprivate func closeExtensionPages(ofExtensionID id: String? = nil) {
+        for entry in extensionPageWindows where id == nil || entry.extensionID == id {
+            entry.window.close()
+        }
+    }
 
     /// Shows one of an extension's own pages (options, a popped-out popup)
     /// in a window whose web view is built from that extension's
@@ -732,11 +746,11 @@ final class BrowserExtensions: NSObject, ObservableObject {
         window.title = context.webExtension.displayName ?? context.uniqueIdentifier
         window.contentView = webView
         window.center()
-        extensionPageWindows.append(window)
+        extensionPageWindows.append((context.uniqueIdentifier, window))
         var observer: NSObjectProtocol?
         observer = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self, weak window] _ in
             MainActor.assumeIsolated {
-                self?.extensionPageWindows.removeAll { $0 === window }
+                self?.extensionPageWindows.removeAll { $0.window === window }
                 if let observer { NotificationCenter.default.removeObserver(observer) }
             }
         }
@@ -1102,6 +1116,7 @@ private final class Controller: NSObject, WKWebExtensionControllerDelegate {
     func unload(id: String) {
         guard let context = contexts.removeValue(forKey: id) else { return }
         owner.closePopup(ofExtensionID: id)
+        owner.closeExtensionPages(ofExtensionID: id)
         owner.stopObservingErrors(of: context)
         try? controller.unload(context)
         owner.objectWillChange.send()
@@ -1129,13 +1144,20 @@ private final class Controller: NSObject, WKWebExtensionControllerDelegate {
               let pane = workspace.paneId(forPanelId: anchor.id),
               let panel = workspace.newBrowserSurface(
                   inPane: pane,
-                  url: url,
+                  url: nil,
                   focus: focus,
                   preferredProfileID: anchor.profileID,
                   websiteDataStore: anchor.websiteDataStore
               ) else { return nil }
-        // Redirects of this first load stay under the extension URL policy.
+        // Mark the tab before its first load, so redirects of that load stay
+        // under the extension URL policy, then load it on the ordinary
+        // (untrusted) path.
         panel.extensionNavigationOrigin = extensionID
+        panel.navigateWithoutInsecureHTTPPrompt(
+            request: URLRequest(url: url),
+            recordTypedNavigation: false,
+            trustedInternalNavigation: false
+        )
         // The panel registers itself with its own store's controller when it
         // binds its web view; hand back an adapter only if that is this one.
         guard BrowserExtensions.profileKey(for: panel.websiteDataStore) == profileKey else { return nil }
@@ -1337,12 +1359,20 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
         guard showsPageAccessible(to: context), let panel = livePanel else { return nil }
         return panel.webView.url ?? panel.currentURL
     }
-    func isLoadingComplete(for context: WKWebExtensionContext) -> Bool { !(panel?.isLoading ?? false) }
+    func isLoadingComplete(for context: WKWebExtensionContext) -> Bool {
+        showsPageAccessible(to: context) ? !(livePanel?.isLoading ?? false) : true
+    }
     func isSelected(for context: WKWebExtensionContext) -> Bool { owner.activeTab === self }
     func isPinned(for context: WKWebExtensionContext) -> Bool { false }
-    func isPlayingAudio(for context: WKWebExtensionContext) -> Bool { panel?.isPlayingAudio == true }
-    func zoomFactor(for context: WKWebExtensionContext) -> Double { Double(panel?.webView.pageZoom ?? 1) }
-    func size(for context: WKWebExtensionContext) -> CGSize { panel?.webView.bounds.size ?? .zero }
+    func isPlayingAudio(for context: WKWebExtensionContext) -> Bool {
+        showsPageAccessible(to: context) && livePanel?.isPlayingAudio == true
+    }
+    func zoomFactor(for context: WKWebExtensionContext) -> Double {
+        showsPageAccessible(to: context) ? Double(livePanel?.webView.pageZoom ?? 1) : 1
+    }
+    func size(for context: WKWebExtensionContext) -> CGSize {
+        showsPageAccessible(to: context) ? (livePanel?.webView.bounds.size ?? .zero) : .zero
+    }
     /// activeTab on a click, except where no extension may go (the Web Store
     /// and pages outside ``ChromeExtensionNavigationPolicy``).
     func shouldGrantPermissionsOnUserGesture(for context: WKWebExtensionContext) -> Bool {
