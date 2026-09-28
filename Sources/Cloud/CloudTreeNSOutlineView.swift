@@ -8,6 +8,7 @@ import CmuxFoundation
 final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
     lazy var reorderPresentation = CloudTreeReorderPresentation(outline: self)
+    let disclosureScope = CloudTreeDisclosureScope()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -351,19 +352,23 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     override func expandItem(_ item: Any?, expandChildren: Bool) {
-        NSAnimationContext.beginGrouping()
-        NSAnimationContext.current.duration = 0
-        super.expandItem(item, expandChildren: expandChildren)
-        NSAnimationContext.endGrouping()
-        onDocumentContentChanged?()
+        disclosureScope.perform(item: item, recursive: expandChildren) {
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0
+            super.expandItem(item, expandChildren: expandChildren)
+            NSAnimationContext.endGrouping()
+            onDocumentContentChanged?()
+        }
     }
 
     override func collapseItem(_ item: Any?, collapseChildren: Bool) {
-        NSAnimationContext.beginGrouping()
-        NSAnimationContext.current.duration = 0
-        super.collapseItem(item, collapseChildren: collapseChildren)
-        NSAnimationContext.endGrouping()
-        onDocumentContentChanged?()
+        disclosureScope.perform(item: item, recursive: collapseChildren) {
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0
+            super.collapseItem(item, collapseChildren: collapseChildren)
+            NSAnimationContext.endGrouping()
+            onDocumentContentChanged?()
+        }
     }
 
     override func reloadData() {
