@@ -466,20 +466,18 @@ struct AgentFeedRow: View, Equatable {
         }
     }
 
-    /// iMessage inline-reply layout: the agent message being answered as a
-    /// gray outlined quote on the leading side, then the user's reply as a
-    /// filled accent bubble on the trailing side.
+    /// iMessage inline-reply layout: the row already shows the agent's
+    /// message as plain text above, so the marker is only the user's reply as
+    /// a filled accent bubble, sized like the quoted-prompt bubbles. Bubbles
+    /// belong to user text alone.
     private func bubbleReplyMarker(reply: String, reference: String?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let reference {
-                bubbleQuote(reference, lineLimit: 2, sender: .agent)
-            }
             bubbleSide(
                 bubbleContentPadding(
-                    AgentFeedMarkdownText(markdown: reply, font: .subheadline, color: .white)
+                    AgentFeedMarkdownText(markdown: reply, font: .footnote, color: .white)
                         .fixedSize(horizontal: false, vertical: true),
                     sender: .user,
-                    vertical: 8
+                    vertical: 7
                 )
                 .background(
                     AgentFeedBubbleShape(tailEdge: .trailing)

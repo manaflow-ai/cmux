@@ -54,18 +54,23 @@ struct AgentFeedBubbleShape: Shape {
             control2: CGPoint(x: left, y: top + handle)
         )
         path.addLine(to: CGPoint(x: left, y: tailTop))
-        // Tail: down and out to the tip, then curl back into the bottom edge.
+        // Tail: down and out to a slightly lifted, rounded tip, then curl
+        // back into the bottom edge, so filled bubbles never end in a point.
         path.addCurve(
-            to: CGPoint(x: rect.minX, y: bottom),
-            control1: CGPoint(x: left, y: bottom - 1),
-            control2: CGPoint(x: rect.minX, y: bottom)
+            to: CGPoint(x: rect.minX + 0.7, y: bottom - 0.6),
+            control1: CGPoint(x: left, y: bottom - 2.4),
+            control2: CGPoint(x: rect.minX + 2.1, y: bottom - 0.7)
+        )
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + 1.6, y: bottom - 0.2),
+            control: CGPoint(x: rect.minX + 0.4, y: bottom - 0.1)
         )
         // The inner edge peaks with a horizontal tangent so it arches
         // smoothly back into the bottom edge instead of meeting it in a cusp.
         let archPeak = CGPoint(x: left + 7, y: bottom - 3.5)
         path.addCurve(
             to: archPeak,
-            control1: CGPoint(x: rect.minX + 3, y: bottom + 0.3),
+            control1: CGPoint(x: rect.minX + 3.4, y: bottom + 0.2),
             control2: CGPoint(x: left + 4, y: archPeak.y)
         )
         path.addCurve(
