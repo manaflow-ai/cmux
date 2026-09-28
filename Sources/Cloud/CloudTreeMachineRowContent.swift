@@ -82,7 +82,13 @@ struct CloudTreeMachineRowContent: View {
         lines.append(subtitle)
         lines.append(machine.image)
         lines.append(usageSummary)
-        return lines.joined(separator: "\n")
+        // A machine the catalog found before the fleet list named it is built
+        // with `image: info.image ?? ""`, and an empty line in the middle of a
+        // popup reads as a missing fact rather than an absent one.
+        return lines
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
     }
 
     /// A missing backend report remains visible instead of looking like a removed feature.

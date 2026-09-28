@@ -472,6 +472,10 @@ enum CloudTreeRowToolTip {
         case .display(let resource, _, _):
             // `searchableTitle` already resolves the remote view name, the
             // resource title and the "Desktop" fallback in that order.
+            //
+            // No `beyond:` here, unlike the browser and port cases: `text(for:)`
+            // always returns at least the transport ("noVNC"), so a display's
+            // hover text can never reduce to the title the row drew.
             let detail = CloudTreeRowContentView.text(for: resource)
             return .init(
                 toolTip: joined([node.searchableTitle, detail]),
@@ -484,12 +488,16 @@ enum CloudTreeRowToolTip {
                 ? String(localized: "cloudTree.browser.untitled", defaultValue: "browser")
                 : row.resource.title
             return .init(
-                toolTip: joined([title, row.resource.url, CloudTreeBrowserDetail.text(for: row)]),
+                // `beyond: title`, not `beyond: node.searchableTitle`: for an
+                // untitled browser that is the empty resource title, while the
+                // row draws the same "browser" resolved above. The comparison
+                // has to be against what the row draws.
+                toolTip: joined([title, row.resource.url, CloudTreeBrowserDetail.text(for: row)], beyond: title),
                 accessibilityLabel: title
             )
         case .port(let resource, let url, _):
             return .init(
-                toolTip: joined([url, resource.title, resource.detail]),
+                toolTip: joined([url, resource.title, resource.detail], beyond: node.searchableTitle),
                 accessibilityLabel: node.searchableTitle
             )
         case .resource(_, let row):
