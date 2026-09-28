@@ -373,7 +373,7 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
         attachScreenshot(name: "02 Font gallery")
 
         for family in ["Courier New", "Menlo"] {
-            let row = app.buttons[family]
+            let row = fontRow(app, family)
             guard poll(timeout: 2.0, { row.exists }) else { continue }
             row.hover()
             attachScreenshot(name: "03 Hover \(family)")
@@ -383,7 +383,7 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
         search.typeText("men")
         attachScreenshot(name: "04 Search men")
 
-        let menlo = app.buttons["Menlo"]
+        let menlo = fontRow(app, "Menlo")
         XCTAssertTrue(poll(timeout: 4.0) { menlo.exists }, "Searching should find Menlo")
         menlo.click()
         XCTAssertTrue(poll(timeout: 4.0) { !search.exists }, "Picking a font should close the list")
@@ -398,12 +398,18 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
         for _ in 0..<5 { lineHeight.decrementArrows.firstMatch.click() }
         XCTAssertTrue(poll(timeout: 4.0) { !stepperText(lineHeight).contains("+") }, "Stepping back should read 0%")
         fontButton.click()
-        let defaultRow = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Default (")).firstMatch
+        let defaultRow = fontRow(app, "default")
         XCTAssertTrue(poll(timeout: 4.0) { defaultRow.exists }, "The font list should offer the built-in font")
         defaultRow.click()
         XCTAssertTrue(poll(timeout: 4.0) { fontButton.label.hasPrefix("Default") }, "Picking Default should restore the built-in font")
         attachScreenshot(name: "06 Back to defaults")
         closeSettings(app, window)
+    }
+
+    /// A row in the font list. The font button behind the popover is also
+    /// labeled with the current font, so match the list's row identifier.
+    private func fontRow(_ app: XCUIApplication, _ family: String) -> XCUIElement {
+        app.buttons["SettingsTerminalFontRow-\(family)"]
     }
 
     /// A SwiftUI stepper's label text, which XCUITest exposes on the stepper

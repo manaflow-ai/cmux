@@ -99,6 +99,7 @@ struct TerminalFontFamilyPicker: View {
             }
         }
         .accessibilityLabel(title)
+        .accessibilityIdentifier("SettingsTerminalFontRow-\(family ?? "default")")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
