@@ -10696,7 +10696,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                                 )
                             }
                             return runtime.pairingRequestTimeoutNanoseconds
-                        }
+                        },
+                        acceptCombinedHostStatus: workspaceListRequest.includesHostStatus
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(exchange.response)
                     guard isConnectCurrent() else {
@@ -11128,6 +11129,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var data: Data
         var isScoped: Bool
         var preferActiveTicketTarget: Bool
+        /// The v2 control method includes authenticated host metadata in the
+        /// same response. Legacy fallback keeps the two-request proof.
+        var includesHostStatus: Bool
     }
 
     private func supportedRoutes(
@@ -11275,19 +11279,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if hasAttachToken {
             requests.append(
                 WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
+                    data: try MobileCoreRPCClient.requestData(
+                        method: "workspace.list",
+                        params: ["include_host_status": true]
+                    ),
                     isScoped: false,
-                    preferActiveTicketTarget: true
+                    preferActiveTicketTarget: true,
+                    includesHostStatus: true
                 )
             )
         }
 
         if !scopedParams.isEmpty {
+            var combinedScopedParams = scopedParams
+            combinedScopedParams["include_host_status"] = true
             requests.append(
                 WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: scopedParams),
+                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: combinedScopedParams),
                     isScoped: !scopedParams.isEmpty,
-                    preferActiveTicketTarget: true
+                    preferActiveTicketTarget: true,
+                    includesHostStatus: true
                 )
             )
         }
@@ -11295,9 +11306,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if requests.isEmpty {
             requests.append(
                 WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
+                    data: try MobileCoreRPCClient.requestData(
+                        method: "workspace.list",
+                        params: ["include_host_status": true]
+                    ),
                     isScoped: false,
-                    preferActiveTicketTarget: true
+                    preferActiveTicketTarget: true,
+                    includesHostStatus: true
                 )
             )
         }
