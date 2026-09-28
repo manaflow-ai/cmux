@@ -33,7 +33,7 @@ extension AppDelegate {
         )
         monitor.registry.register(
             BrowserHiddenWebViewMemoryPressureResponder { [weak self] in
-                self?.paneMemoryGuardrailTabManagers() ?? []
+                self?.allLiveBrowserPanels() ?? []
             }
         )
         monitor.registry.register(
@@ -70,13 +70,28 @@ extension AppDelegate {
         monitor.start()
     }
 
-    /// Every live browser panel the memory budget weighs.
+    /// Every live browser panel, each once: workspace panes plus the panes of
+    /// workspace and window Docks.
     func allLiveBrowserPanels() -> [BrowserPanel] {
-        paneMemoryGuardrailTabManagers().flatMap { manager in
-            manager.tabs.flatMap { workspace in
-                workspace.panels.values.compactMap { $0 as? BrowserPanel }
+        var panels: [BrowserPanel] = []
+        var seen: Set<ObjectIdentifier> = []
+
+        func append(_ panel: any Panel) {
+            guard let browserPanel = panel as? BrowserPanel,
+                  seen.insert(ObjectIdentifier(browserPanel)).inserted else { return }
+            panels.append(browserPanel)
+        }
+
+        for manager in paneMemoryGuardrailTabManagers() {
+            for workspace in manager.tabs {
+                workspace.panels.values.forEach(append)
+                workspace._dockSplit?.forEachPanel { _, panel in append(panel) }
             }
         }
+        for dock in existingWindowDocks {
+            dock.forEachPanel { _, panel in append(panel) }
+        }
+        return panels
     }
 
     private func paneMemoryGuardrailTabManagers() -> [TabManager] {

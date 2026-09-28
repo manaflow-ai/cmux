@@ -196,7 +196,9 @@ public final class BrowserHiddenWebViewDiscardManager {
         guard blockers(for: delegate.hiddenWebViewDiscardSnapshot, now: now, urgency: urgency).isEmpty else {
             return false
         }
-        // A deferred pressure discard keeps its countdown in either mode.
+        // A deferred pressure discard arms a countdown in either mode. Routine
+        // rescheduling may replace it; the monitor asks again on every sample
+        // while pressure lasts.
         guard delegate.hiddenWebViewDiscardHiddenAt != nil else {
             armDiscardCountdown(reason: reason, now: now, urgency: urgency)
             return false

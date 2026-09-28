@@ -3515,13 +3515,6 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func discardHiddenBrowserWebViewsForSystemMemoryPressure(now: Date = Date()) -> Int {
-        tabs.reduce(0) { count, workspace in
-            count + workspace.discardHiddenBrowserWebViewsForSystemMemoryPressure(now: now)
-        }
-    }
-
-    @discardableResult
     func performFocusedBrowserZoom(_ action: (BrowserPanel) -> Bool) -> Bool? {
         guard let panel = focusedBrowserPanel else { return nil }
         return action(panel)

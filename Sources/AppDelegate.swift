@@ -15713,7 +15713,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // The Close Tab shortcut must close the focused panel even if first-responder
         // momentarily lags on a browser NSTextView during split focus transitions.
         if matchConfiguredShortcut(event: event, action: .closeTab) {
-            let panels = allBrowserPanelsForInspectorWindowClose()
+            let panels = allLiveBrowserPanels()
             if closeDetachedInspectorWindowForCloseShortcut(event: event, panels: panels) {
                 return true
             }
@@ -19308,11 +19308,6 @@ extension AppDelegate {
     }
 }
 
-extension AppDelegate {
-    func browserPanelsForInspectorFocusHandoff() -> [BrowserPanel] {
-        allBrowserPanelsForInspectorWindowClose()
-    }
-}
 private extension NSWindow {
     static func cmuxCommandPaletteOwnsFieldEditor(_ textView: NSTextView?, in window: NSWindow) -> Bool {
         guard let textView,

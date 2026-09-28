@@ -6503,17 +6503,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
-    @discardableResult
-    func discardHiddenBrowserWebViewsForSystemMemoryPressure(now: Date = Date()) -> Int {
-        var discardedCount = 0
-        for browserPanel in panels.values.compactMap({ $0 as? BrowserPanel }) {
-            if browserPanel.discardHiddenWebViewForSystemMemoryPressure(now: now) {
-                discardedCount += 1
-            }
-        }
-        return discardedCount
-    }
-
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
         for panelId in Array(pendingTerminalInputObserversByPanelId.keys) where !validSurfaceIds.contains(panelId) {
             removePendingTerminalInputObservers(forPanelId: panelId)
