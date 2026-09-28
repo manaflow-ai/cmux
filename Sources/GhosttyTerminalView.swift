@@ -11135,6 +11135,8 @@ final class GhosttySurfaceScrollView: NSView {
     let surfaceView: GhosttyNSView
     private let mobileViewportBorderOverlayView = TerminalViewportBorderOverlayView(frame: .zero)
     private let inactiveOverlayView: GhosttyFlashOverlayView
+    private var inactiveOverlayColor: NSColor = .clear
+    private var inactiveOverlayOpacity: CGFloat = 0
     private let dropZoneOverlayView: GhosttyFlashOverlayView
     private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
     private let notificationRingOverlayView: GhosttyFlashOverlayView
@@ -12310,11 +12312,19 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setInactiveOverlay(color: NSColor, opacity: CGFloat, visible: Bool) {
         let clampedOpacity = max(0, min(1, opacity))
+        inactiveOverlayColor = color
+        inactiveOverlayOpacity = clampedOpacity
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         inactiveOverlayView.layer?.backgroundColor = color.withAlphaComponent(clampedOpacity).cgColor
         inactiveOverlayView.isHidden = !(visible && clampedOpacity > 0.0001)
         CATransaction.commit()
+    }
+
+    /// Shows or hides the unfocused-split dim with the last configured color,
+    /// so synchronous portal reconciliation can move it with visibility state.
+    func setInactiveOverlayVisible(_ visible: Bool) {
+        setInactiveOverlay(color: inactiveOverlayColor, opacity: inactiveOverlayOpacity, visible: visible)
     }
 
     func setNotificationRing(visible: Bool) {
