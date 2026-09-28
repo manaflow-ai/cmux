@@ -581,9 +581,10 @@ def admission_ended_without_product(gh: GitHub, run_id: str, attempt: str) -> di
     job = next((job for job in jobs if str(job.get("name", "")).endswith(ADMISSION_JOB)), None)
     if job is None or job.get("status") != "completed" or job.get("conclusion") not in ADMISSION_FAILURES:
         return None
-    if str(job.get("run_attempt") or attempt) != str(attempt):
-        # Carried over from an earlier attempt (only ui-tests was re-run): the
-        # dispatcher compiles for itself, so the UI tests still run.
+    if str(job.get("run_attempt")) != str(attempt):
+        # Carried over from an earlier attempt (only ui-tests was re-run), or of
+        # unknown attempt: the dispatcher compiles for itself, so the UI tests
+        # still run.
         return None
     listing = gh.get(f"repos/{{repo}}/actions/runs/{run_id}/artifacts?per_page=100")
     artifacts = listing.get("artifacts", [])

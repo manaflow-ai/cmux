@@ -215,7 +215,7 @@ class AwaitVerdictTests(unittest.TestCase):
 
     def admission(self, conclusion, status="completed"):
         return {"jobs": [{"name": "macos / macOS compile admission", "status": status, "conclusion": conclusion,
-                          "html_url": "https://x/job/7"}]}
+                          "run_attempt": 1, "html_url": "https://x/job/7"}]}
 
     def test_stops_once_compile_admission_ended_without_a_product(self) -> None:
         # Run 36435812903: the fleet refused compile admission at 14:30, and this
