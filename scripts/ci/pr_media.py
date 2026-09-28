@@ -201,9 +201,16 @@ def published(repository: str, pr: int | str, head_sha: str, tour: str) -> dict 
     return manifest if isinstance(manifest, dict) and manifest.get("run_url") else None
 
 
+BUILT, REUSED, NO_BUILD = "built", "reused", ""
+
+
 def app_build_gate(repository: str, run_id: str, attempt: str, pr: int,
-                   sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> bool:
-    """Whether the CI attempt is an app pull request's that compiles the app.
+                   sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> str:
+    """How the CI attempt of an app pull request provides an app build.
+
+    BUILT: its compile admission ran. REUSED: it skipped the macOS caller
+    because an earlier run already compiled the same build inputs (a push that
+    only edits a tour, docs or tests). NO_BUILD: anything else.
 
     Its dogfood build job runs only for app and CLI pull requests (docs or web
     only changes skip it). A CLI-only push still runs compile admission but
@@ -219,21 +226,24 @@ def app_build_gate(repository: str, run_id: str, attempt: str, pr: int,
         # Only after the dogfood comment exists: publish edits it, and the job
         # rewrites the whole comment when it posts.
         if dogfood and dogfood.get("status") == "completed" and dogfood.get("conclusion") != "success":
-            return False
+            return NO_BUILD
         admission = next((job for job in jobs if str(job.get("name", "")).endswith(ADMISSION_JOB_SUFFIX)), None)
         # A skipped `macos` caller lists no admission job: this push changed
-        # nothing the app is built from, so there is no build of it to load
-        # (dispatch-focused-test.py skips_macos).
-        if any(job.get("name") == "macos" and job.get("conclusion") == "skipped" for job in jobs):
-            return False
-        if dogfood and dogfood.get("status") == "completed" and admission:
-            return admission.get("conclusion") != "skipped"
+        # nothing the app is built from (dispatch-focused-test.py skips_macos).
+        skipped = any(job.get("name") == "macos" and job.get("conclusion") == "skipped" for job in jobs)
+        if dogfood and dogfood.get("status") == "completed":
+            if skipped:
+                return REUSED
+            if admission:
+                # A skipped admission (macos ran for packages or the CLI only)
+                # leaves the fingerprint lookup to find the build.
+                return BUILT if admission.get("conclusion") != "skipped" else REUSED
         run = gh_json([f"repos/{repository}/actions/runs/{run_id}"]) or {}
         if run.get("status") == "completed":
-            return False
+            return NO_BUILD
         if clock() > deadline:
             print(f"::warning::CI showed no app build within {GATE_WAIT_SECONDS // 60} minutes", flush=True)
-            return False
+            return NO_BUILD
         sleep(GATE_POLL_SECONDS)
 
 
@@ -243,6 +253,38 @@ def built_merge(run: dict) -> str:
               if isinstance(item, dict) and MERGE_REF.fullmatch(str(item.get("ref", ""))) and item.get("sha")}
     merge = merges.pop() if len(merges) == 1 else ""
     return merge if SHA.fullmatch(merge or "") else ""
+
+
+FINGERPRINT_ARTIFACT = re.compile(r"build-inputs-(.+)-(\d+)")
+
+
+def admitted_build_run(repository: str, run: dict, attempt: str) -> dict:
+    """The earlier CI run of this pull request that compiled the build inputs
+    `run` skipped compiling, found as ci.yml found it (find_admitted_build.py):
+    by the fingerprint artifact `run` published. {} when there is none, as when
+    the pull request changes no app input at all and main's build stands in."""
+    listing = gh_json([f"repos/{repository}/actions/runs/{run['id']}/artifacts?per_page=100"]) or {}
+    fingerprints = [match.group(1) for artifact in listing.get("artifacts") or []
+                    if (match := FINGERPRINT_ARTIFACT.fullmatch(str(artifact.get("name", ""))))
+                    and match.group(2) == attempt]
+    if not fingerprints:
+        return {}
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("find_admitted_build", ROOT / "scripts/ci/find_admitted_build.py")
+    assert spec and spec.loader
+    finder = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = finder
+    spec.loader.exec_module(finder)
+    def read(path: str) -> dict:
+        # The finder's contract: any API error means not found.
+        try:
+            return gh_json([path]) or {}
+        except RuntimeError:
+            return {}
+
+    url = finder.admitted_run(read, repository, run.get("head_branch") or "", fingerprints[0], int(run["id"]))
+    match = re.search(r"/actions/runs/(\d+)", url or "")
+    return (gh_json([f"repos/{repository}/actions/runs/{match.group(1)}"]) or {}) if match else {}
 
 
 def latest_ci_run(repository: str, head_sha: str) -> dict:
@@ -271,10 +313,6 @@ def plan(repository: str) -> int:
             print(f"No open pull request has head {head_sha}.", flush=True)
             return 0
         pr = int(numbers[0])
-        if not app_build_gate(repository, run_id, attempt, pr):
-            write_outputs({"tours": "[]", "run": "[]"})
-            print("CI builds no app for this pull request (not an app change, or CLI only).", flush=True)
-            return 0
     else:
         pr = int(os.environ["PR"])
     pull = gh_json([f"repos/{repository}/pulls/{pr}"]) or {}
@@ -287,7 +325,27 @@ def plan(repository: str) -> int:
         write_outputs({"tours": "[]", "run": "[]"})
         print(f"#{pr} moved on to {head_sha}; its own run makes media.", flush=True)
         return 0
-    merge_sha = built_merge(run if run_id else latest_ci_run(repository, head_sha))
+    if not run_id:
+        run = latest_ci_run(repository, head_sha)
+        run_id, attempt = str(run.get("id") or ""), str(run.get("run_attempt") or 1)
+    mode = app_build_gate(repository, run_id, attempt, pr) if run_id else NO_BUILD
+    # The run whose app a tour loads: this one, or the earlier run of the same
+    # build inputs when this push changed no app input (only a tour, say).
+    build_run = run if mode == BUILT else admitted_build_run(repository, run, attempt) if mode == REUSED else {}
+    if not build_run and not os.environ.get("SOURCE_RUN_ID"):
+        # A manual dispatch still runs: the tour reports that no product was
+        # found, or compiles one with allow_compile.
+        build_run = run or {"head_sha": head_sha}
+    if not build_run:
+        write_outputs({"tours": "[]", "run": "[]"})
+        print("CI has no app build for this head (not an app change, CLI only, or no earlier build "
+              "of the same inputs).", flush=True)
+        return 0
+    build_sha = build_run.get("head_sha") or head_sha
+    if build_sha != head_sha:
+        print(f"{head_sha} changed no app input; tours load the build of {build_sha} "
+              f"({build_run.get('html_url')}).", flush=True)
+    merge_sha = built_merge(build_run)
     pages = gh_json([f"repos/{repository}/pulls/{pr}/files?per_page=100", "--paginate", "--slurp"]) or []
     changed = [entry["filename"] for page in pages for entry in page if isinstance(entry, dict)]
     subprocess.run(["git", "fetch", "--no-tags", "--depth=1", "origin", head_sha], cwd=ROOT, check=True)
@@ -304,7 +362,8 @@ def plan(repository: str) -> int:
     force = os.environ.get("FORCE", "").lower() == "true"
     pending = [tour for tour in tours if force or published(repository, pr, head_sha, tour) is None]
     print(f"#{pr} at {head_sha}: tours {tours or 'none'} ({reason}); to run: {pending or 'none'}", flush=True)
-    write_outputs({"pr": str(pr), "head_sha": head_sha, "merge_sha": merge_sha, "tours": json.dumps(tours),
+    write_outputs({"pr": str(pr), "head_sha": head_sha, "build_sha": build_sha, "merge_sha": merge_sha,
+                   "tours": json.dumps(tours),
                    "run": json.dumps(pending)})
     return 0
 
@@ -476,7 +535,8 @@ def tour_media(run_id: str, name: str, head_sha: str, out: Path, repository: str
     return found
 
 
-def tour(repository: str, name: str, scenario: Path, head_sha: str, out: Path, allow_compile: bool) -> int:
+def tour(repository: str, name: str, scenario: Path, head_sha: str, out: Path, allow_compile: bool,
+         build_sha: str = "") -> int:
     if not TOUR_NAME.fullmatch(name) or not SHA.fullmatch(head_sha):
         raise ValueError("bad tour name or head")
     manifest: dict[str, Any] = {"tour": name, "head_sha": head_sha, "result": "not run", "shots": [], "gif": None}
@@ -484,16 +544,20 @@ def tour(repository: str, name: str, scenario: Path, head_sha: str, out: Path, a
     dispatch = Dispatch(repository)
     for signum in (signal.SIGINT, signal.SIGTERM):
         signal.signal(signum, dispatch.cancel)
-    command = [str(ROOT / "scripts/run-e2e.sh"), "--scenario", str(scenario), "--ref", head_sha, "--no-video"]
+    build_sha = build_sha if SHA.fullmatch(build_sha or "") else head_sha
+    if build_sha != head_sha:
+        manifest["build_sha"] = build_sha
+    command = [str(ROOT / "scripts/run-e2e.sh"), "--scenario", str(scenario), "--ref", build_sha, "--no-video"]
     if not allow_compile:
         command.append("--adopt-only")
     status = dispatch.start(command)
     if status == NO_PRODUCT_EXIT:
-        manifest["note"] = "no CI build of this head that a UI run can load, so the tour was skipped rather than compiled"
+        manifest["note"] = (f"no CI build of `{build_sha[:8]}` that a UI run can load, "
+                            "so the tour was skipped rather than compiled")
     elif status != 0 or not dispatch.run_id:
         manifest["note"] = f"the dispatcher failed (exit {status})"
     else:
-        if dispatch.tested and dispatch.tested != head_sha:
+        if dispatch.tested and dispatch.tested not in (head_sha, build_sha):
             manifest["tested_sha"] = dispatch.tested
         manifest["run_url"] = f"https://github.com/{repository}/actions/runs/{dispatch.run_id}"
         try:
@@ -561,7 +625,14 @@ def section(repository: str, pr: int | str, head_sha: str, manifests: list[dict]
         link = manifest.get("run_url") or manifest.get("log_url")
         run = f" ([run]({link}))" if link else ""
         tested = manifest.get("tested_sha") or ""
-        merge = f", on its merge `{tested[:8]}` that CI built" if SHA.fullmatch(tested) else ""
+        built = str(manifest.get("build_sha") or "")
+        merge = ""
+        if SHA.fullmatch(built):
+            merge = f", on the app CI built for `{built[:8]}`"
+            merge += f" (merge `{tested[:8]}`)" if SHA.fullmatch(tested) else ""
+            merge += "; this push changed no app input"
+        elif SHA.fullmatch(tested):
+            merge = f", on its merge `{tested[:8]}` that CI built"
         result = html.escape(str(manifest.get("result", "not run")))
         lines.append(f"**{tour_name}** at `{head_sha[:8]}`{merge}: {result}{run}")
         if manifest.get("note"):
@@ -670,7 +741,8 @@ def main(argv: list[str] | None = None) -> int:
     if not SHA.fullmatch(head_sha):
         raise SystemExit(f"HEAD_SHA {head_sha!r} is not a full commit SHA")
     if args.command == "tour":
-        return tour(repository, args.name, args.scenario, head_sha, args.out, args.allow_compile)
+        return tour(repository, args.name, args.scenario, head_sha, args.out, args.allow_compile,
+                    os.environ.get("BUILD_SHA", ""))
     return publish(repository, int(os.environ["PR"]), head_sha, json.loads(os.environ.get("TOURS") or "[]"),
                    args.media)
 
