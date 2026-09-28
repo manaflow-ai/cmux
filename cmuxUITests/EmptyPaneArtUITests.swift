@@ -1,12 +1,12 @@
 import XCTest
 
-/// With `emptyPane.artFile` set, a pane left empty by closing its last surface
+/// With `emptyPane.artFile` set, a pane left empty when its last terminal exits
 /// shows the user's art above the Terminal and Browser buttons.
 ///
 /// The settings come in through the launch-argument defaults domain, the same
 /// defaults keys cmux.json writes: the art file, and keeping the workspace open
-/// when the Close shortcut closes its last surface (otherwise the workspace
-/// closes instead of leaving an empty pane). The art mixes a lolcat-style
+/// when its last surface closes (otherwise the workspace closes instead of
+/// leaving an empty pane). The art mixes a lolcat-style
 /// truecolor banner, 16-color text and chafa-style half blocks so the
 /// screenshot shows each.
 final class EmptyPaneArtUITests: SettingsUITestCase {
@@ -33,19 +33,17 @@ final class EmptyPaneArtUITests: SettingsUITestCase {
         XCTAssertTrue(poll(timeout: 10) { terminal.frame.height > 100 }, "Expected a laid-out terminal")
         RunLoop.current.run(until: Date().addingTimeInterval(1.0))
 
-        // Close the launch terminal with the Close shortcut. With the workspace
-        // kept open on its last surface, that leaves an empty pane.
+        // Exit the launch shell. A surface that closes on its own (not an
+        // explicit Close) leaves an empty pane when the workspace is kept
+        // open on its last surface; the Close shortcut would close the
+        // workspace instead.
         terminal.click()
-        app.typeKey("w", modifierFlags: .command)
-        let confirm = app.buttons["Close"]
-        if confirm.waitForExistence(timeout: 2) {
-            confirm.click()
-        }
+        app.typeText("exit\n")
 
         let art = app.descendants(matching: .any)["EmptyPanelArt"]
         let appeared = art.waitForExistence(timeout: 15)
-        let screenshot = XCTAttachment(screenshot: window.screenshot())
-        screenshot.name = appeared ? "empty pane with art" : "after closing the last tab"
+        let screenshot = XCTAttachment(screenshot: window.exists ? window.screenshot() : XCUIScreen.main.screenshot())
+        screenshot.name = appeared ? "empty pane with art" : "after exiting the last shell"
         screenshot.lifetime = .keepAlways
         add(screenshot)
         XCTAssertTrue(appeared, "Expected the configured art in the empty pane")
