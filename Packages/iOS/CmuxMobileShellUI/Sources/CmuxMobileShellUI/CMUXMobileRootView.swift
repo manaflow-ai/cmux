@@ -682,7 +682,15 @@ struct CMUXMobileRootView: View {
                 await store.connectManualHostResult(name: name, host: host, port: port)
             },
             cancelPairing: cancelPairing,
-            cancel: dismissAddDeviceSheet
+            cancel: dismissAddDeviceSheet,
+            onPairingResult: { result in
+                // Pairing another computer keeps the current Mac connected, so
+                // there is no connection-state edge to dismiss on. The attempt's
+                // own result owns closing the sheet.
+                if result == .connected {
+                    dismissAddDeviceSheet()
+                }
+            }
         )
         #if os(iOS)
         .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
@@ -1367,6 +1375,9 @@ struct CMUXMobileRootView: View {
             await authManager.supersedeTimedOutAuthPhases()
             let result = await store.connectPairingURLResult(rawURL)
             guard !Task.isCancelled, openURLTaskToken == token else { return }
+            if result == .connected {
+                dismissAddDeviceSheet()
+            }
             let failure: DiagnosticFailureKind? = switch result {
             case .connected:
                 nil

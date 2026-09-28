@@ -25,7 +25,7 @@ General app preferences from Settings > App.
 | `app.openSupportedFilesInCmux` | boolean | `true` | When enabled, Cmd-clicking readable local files opens supported previews in cmux, including text, code, PDFs, images, audio, video, and Quick Look files. Preview headers include an Open With menu based on the user's default and compatible macOS apps for that file. |
 | `app.openMarkdownInCmuxViewer` | boolean | `true` | When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview. |
 | `app.devWindowDisplay` | string | `""` | DEBUG-only display name used when opening new windows. An empty value uses the system default. |
-| `app.reorderOnNotification` | boolean | `true` | Move workspaces with new notifications toward the top. |
+| `app.reorderOnNotification` | boolean or `off`, `notifications`, `agentActivity` | `true` | Move workspaces with new notifications toward the top. `agentActivity` also moves them when a prompt is sent or an agent finishes a turn, needs input, or fails, throttled and never while the pointer is over the sidebar. |
 | `app.iMessageMode` | boolean | `false` | Move a workspace to the top and show the submitted message when sending an agent prompt. |
 | `app.sendAnonymousTelemetry` | boolean | `true` | Allow anonymous telemetry. |
 | `app.warnBeforeQuit` | boolean | `true` | Show a confirmation before quitting cmux. |
@@ -43,6 +43,7 @@ General app preferences from Settings > App.
 | `app.warnBeforeClosingWorkspace` | boolean | `true` | Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off. |
 | `app.warnBeforeClosingWindow` | boolean | `true` | Show a confirmation before closing a window with a running process, or all of a window's workspaces at once. |
 | `app.hideTabCloseButton` | boolean | `false` | Hide tab close buttons in the pane tab bar. |
+| `app.tabBarVisibility` | `"always"` or `"multiple-tabs"` | `"always"` | Control when each pane's surface tab bar is shown. `"always"` shows it even when the pane has a single tab; `"multiple-tabs"` hides the bar until the pane has two or more tabs. Minimal mode (app.minimalMode) always shows it, because there the top tab bar is the titlebar row. |
 
 ## terminal
 
@@ -64,7 +65,7 @@ Terminal presentation settings from Settings > Terminal.
 | `terminal.showPasswordInputDots` | boolean | `false` | When the password input badge is shown, also draw one dot per typed character. cmux keeps only a count, never the typed characters. Backspace removes a dot; Enter or echo turning back on clears them. Pasted text is not counted. |
 | `terminal.showTextBoxOnNewTerminals` | boolean | `false` | Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. |
 | `terminal.focusTextBoxOnNewTerminals` | boolean | `false` | Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox. |
-| `terminal.agentHibernation` | object | — | Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, during critical memory pressure cmux may hibernate a bounded batch of safe idle background agents even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback. |
+| `terminal.agentHibernation` | object | — | Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, under memory pressure (critical pressure from macOS or from the cmux app's own footprint, or cmux's total memory use past its aggregate warning threshold) cmux may hibernate every safe idle background agent even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback. |
 | `terminal.rendererRealization` | object | — | Reclaim off-screen terminal GPU renderer memory. cmux releases the Metal renderer (IOSurface) of a terminal that has stayed off-screen and idle while keeping its process and terminal state alive, then rebuilds the renderer instantly when the tab is visited again. Non-destructive and on by default. |
 | `terminal.textBoxMaxLines` | integer | `10` | Maximum number of lines the rich terminal TextBox input can grow to before it scrolls. |
 | `terminal.textBoxDefaultSubmitAction` | string | `"text-entry"` | Default TextBox submit action ID for new terminal sessions. Use text-entry for plain input or one of the configured action IDs. |
@@ -83,12 +84,14 @@ Notification behavior from Settings > Notifications.
 | `notifications.unreadPaneRing` | boolean | `true` | Highlight panes with unread notifications. |
 | `notifications.paneFlash` | boolean | `true` | Flash the focused pane when requested. |
 | `notifications.sound` | `"default"` or `"Basso"` or `"Blow"` or `"Bottle"` or `"Frog"` or `"Funk"` or `"Glass"` or `"Hero"` or `"Morse"` or `"Ping"` or `"Pop"` or `"Purr"` or `"Sosumi"` or `"Submarine"` or `"Tink"` or `"custom_file"` or `"none"` | `"default"` | Notification sound preset. |
+| `notifications.soundWhenFocused` | boolean | `false` | Play the notification sound even when the pane that notified is already focused. Off by default, so a focused pane shows only its ring and flash. |
 | `notifications.customSoundFilePath` | string | `""` | Local path to the custom notification sound file. |
 | `notifications.command` | string | `""` | Optional shell command to run alongside notification delivery. |
 | `notifications.hooksMode` | `"append"` or `"replace"` | `"append"` | Controls whether project-local notification hooks append to inherited hooks or replace them. |
 | `notifications.hooks` | array<object> | `[]` | Composable shell hooks that receive notification policy JSON on stdin and return updated policy JSON on stdout. |
 | `notifications.paneFlashColor` | string or null | `null` | Override the pane flash and unread ring color. Null keeps the built-in blue. |
 | `notifications.suppressOnlyFocusedSurface` | boolean | `false` | When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw. |
+| `notifications.suppressWhenAppFocused` | boolean | `false` | When enabled, cmux skips the desktop banner for every notification while cmux is the active app, not only for the focused pane. Notifications still appear in the sidebar, the sound and custom command still run, and phone forwarding is unchanged. Off keeps showing banners for other workspaces and panes while cmux is focused. |
 | `notifications.agentPermissionPrompt` | boolean | `true` | Notify when an agent (e.g. Claude Code) is blocked waiting for your permission to run a tool. On by default, since this is the alert you must act on to unblock the agent. |
 | `notifications.agentTurnComplete` | `"whenIdle"` or `"always"` or `"never"` | `"whenIdle"` | When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it. |
 | `notifications.agentIdleReminder` | boolean | `true` | Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert. |
@@ -117,6 +120,8 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showLog` | boolean | `true` | Show recent log snippets. |
 | `sidebar.showProgress` | boolean | `true` | Show progress indicators. |
 | `sidebar.showCustomMetadata` | boolean | `true` | Show custom metadata pills. |
+| `sidebar.compactAgentStatus` | boolean | `false` | Fold a workspace's agent status, branch, pull request and unread rows into one colored icon before the title, with the details in its tooltip. Rows you added yourself keep their lines. |
+| `sidebar.compactStatusIcons` | object | `{}` | SF Symbol names that replace the compactAgentStatus glyph for each state, for example {"terminal": "apple.terminal", "needsInput": "hand.raised.fill"}. Unset states keep the built-in symbol, and a name that does not render falls back to it. |
 | `sidebar.wrapWorkspaceTitles` | boolean | `false` | Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line. |
 | `sidebar.beta` | object | — | Experimental sidebar features. |
 | `sidebar.notificationMessageLineLimit` | integer | `12` | Maximum lines shown for the latest notification below each workspace title. |
