@@ -160,11 +160,11 @@ Workspaces and surfaces on distinct number and bracket lanes.
 
 ### Browser-Style Terminal Navigation
 
-For people who drive the terminal like a browser text field. Ctrl+W closes the surface at the shell prompt and still reaches vim, less, or tmux, because `terminalAlternateScreen` is true only while a full-screen app has the terminal. Word and line motion come from two terminal settings rather than bindings.
+For people who drive the terminal like a browser text field. Ctrl+W closes the surface at the shell prompt and still reaches vim, less, or tmux, because `terminalAlternateScreen` is true only while a full-screen app has the terminal. `terminalFocus` keeps Ctrl+W from closing a browser or sidebar surface, where `terminalAlternateScreen` reads false. Word and line motion come from two terminal settings rather than bindings.
 
 ```bash
 "$CMUX_SETTINGS" set shortcuts.bindings.closeTab ctrl+w
-"$CMUX_SETTINGS" set shortcuts.when.closeTab '"!terminalAlternateScreen"'
+"$CMUX_SETTINGS" set shortcuts.when.closeTab '"terminalFocus && !terminalAlternateScreen"'
 "$CMUX_SETTINGS" set terminal.textEditingGestures true
 "$CMUX_SETTINGS" set terminal.textEditingCommandMovesByWord true
 ```

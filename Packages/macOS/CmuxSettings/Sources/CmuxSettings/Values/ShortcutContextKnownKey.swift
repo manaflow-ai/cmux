@@ -37,8 +37,9 @@ public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
     /// The focused terminal is showing the alternate screen, which full-screen
     /// applications such as vim, less, htop and tmux switch to. Lets a binding
     /// fire at the shell prompt and pass through to the application otherwise,
-    /// for example `"closeTab": "!terminalAlternateScreen"` with `closeTab`
-    /// bound to `ctrl+w`. `false` when no terminal owns focus.
+    /// for example `"closeTab": "terminalFocus && !terminalAlternateScreen"`
+    /// with `closeTab` bound to `ctrl+w`. `false` when no terminal owns focus,
+    /// so pair it with `terminalFocus` when the binding should stay terminal-only.
     ///
     /// Reading it serializes the terminal viewport, so the app target only
     /// resolves it for a keystroke that already matches the binding of an

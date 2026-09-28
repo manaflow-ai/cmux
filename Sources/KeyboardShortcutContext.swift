@@ -600,15 +600,6 @@ extension AppDelegate {
             if let window = NSApp.window(withWindowNumber: event.windowNumber) {
                 return window
             }
-#if DEBUG
-            // Honor the routing override the same way `resolvedShortcutEventWindow`
-            // does, so a synthesized event in a test resolves to the test's
-            // window and the when-clause context is reachable.
-            if let window = debugShortcutRoutingFocusedWindowOverrideForTesting.window,
-               window.windowNumber == event.windowNumber {
-                return window
-            }
-#endif
         }
         return event.window
     }
