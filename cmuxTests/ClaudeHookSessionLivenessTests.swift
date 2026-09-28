@@ -16,6 +16,7 @@ import Testing
 struct ClaudeHookSessionLivenessTests {
     private struct Fixture {
         let root: URL
+        let capturedAt: TimeInterval = 1_790_627_600
         let workspaceId = UUID()
         var panelId = UUID()
         let sessionId = UUID().uuidString.lowercased()
@@ -47,7 +48,7 @@ struct ClaudeHookSessionLivenessTests {
                     path: fixture.executablePath
                 ),
             ],
-            sampledAt: Date(timeIntervalSince1970: 1_790_627_600),
+            sampledAt: Date(timeIntervalSince1970: fixture.capturedAt),
             includesProcessDetails: true
         )
 
@@ -56,7 +57,7 @@ struct ClaudeHookSessionLivenessTests {
             fileManager: .default,
             registry: CmuxVaultAgentRegistry(registrations: []),
             processSnapshotProvider: { processSnapshot },
-            capturedAtProvider: { 1_790_627_600 },
+            capturedAtProvider: { fixture.capturedAt },
             processArgumentsProvider: { pid in
                 guard pid == agentPID else { return nil }
                 return CmuxTopProcessArguments(
@@ -118,7 +119,7 @@ struct ClaudeHookSessionLivenessTests {
             fileManager: .default,
             registry: CmuxVaultAgentRegistry(registrations: []),
             processSnapshotProvider: { processSnapshot },
-            capturedAtProvider: { 1_790_627_600 },
+            capturedAtProvider: { fixture.capturedAt },
             processArgumentsProvider: { pid in
                 guard pid == agentPID else { return nil }
                 return CmuxTopProcessArguments(
@@ -140,7 +141,7 @@ struct ClaudeHookSessionLivenessTests {
             checkpointId: fixture.sessionId,
             source: "agent-hook",
             autoResume: true,
-            updatedAt: 1_790_627_600
+            updatedAt: fixture.capturedAt
         )
         #expect(source.setSurfaceResumeBinding(binding, panelId: panelID))
         let snapshot = source.sessionSnapshot(
@@ -210,7 +211,7 @@ struct ClaudeHookSessionLivenessTests {
             fileManager: .default,
             registry: CmuxVaultAgentRegistry(registrations: []),
             processSnapshotProvider: { processSnapshot },
-            capturedAtProvider: { processSnapshot.sampledAt.timeIntervalSince1970 },
+            capturedAtProvider: { fixture.capturedAt },
             processArgumentsProvider: { pid in
                 guard pid == agentPID, processSnapshot.process(pid: pid) != nil else { return nil }
                 return CmuxTopProcessArguments(
@@ -261,7 +262,7 @@ struct ClaudeHookSessionLivenessTests {
 
     /// Mirrors what `cmux claude-hook` records for a running session.
     private func writeHookRecord(fixture: Fixture, identity: AgentPIDProcessIdentity) throws {
-        let now = Date().timeIntervalSince1970
+        let now = fixture.capturedAt
         let record: [String: Any] = [
             "sessionId": fixture.sessionId,
             "workspaceId": fixture.workspaceId.uuidString,
