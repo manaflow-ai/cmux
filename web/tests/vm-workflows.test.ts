@@ -8,12 +8,14 @@ import {
   VmBillingGateway,
   noOpVmBillingGateway,
   type VmBillingGatewayShape,
+  type VmCreateCreditReservation,
 } from "../services/vms/billingGateway";
 import type { AttachEndpoint, SSHEndpoint, VMHandle } from "../services/vms/drivers";
 import { vmCapabilitiesFor } from "../services/vms/drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import {
   FAILED_CREATE_RETRY_WINDOW_MS,
+  PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
   VmRepositoryLive,
   type CloudVmIdentityLeaseRow,
@@ -3967,6 +3969,144 @@ describe("VM Effect workflows", () => {
       message: "",
     }]);
     expect(adHocMarks).toEqual([]);
+  });
+
+  test("a Base create whose network resolve fails refunds the credit and releases the Base generation", async () => {
+    // finishBaseCreate reserves the create credit and records the requested
+    // events before it resolves the owner network, and the resolve step had no
+    // failure handler at all. So the credit stayed spent for a machine that was
+    // never created, and because markBaseCreateFailed is the mark on this path
+    // that also runs restoreBaseAfterCreateFailure, the base row kept state
+    // "resetting" and its generation kept state "creating".
+    //
+    // Reset then tripped the existingOperationInFlight guard in beginBaseReset
+    // and got VmCreateInProgressError. Open has no such guard, but it could not
+    // finish either: finishBaseCreate returns the same 409 when the existing row
+    // has no providerVmId, which the stuck row does not. Both cleared only when
+    // markCreateAbandoned reclaimed the row, which needs the staleness threshold
+    // plus a run of the ten-minutely vm-reconcile cron.
+    const now = new Date();
+    const requested = testCloudVmRow({
+      id: "00000000-0000-4000-8000-0000000001b1",
+      userId: "user-workflow-base-network",
+      billingTeamId: "team-workflow-base-network",
+      billingPlanId: "pro",
+      status: "provisioning",
+      providerVmId: null,
+    });
+    const base = {
+      id: "00000000-0000-4000-8000-0000000001b2",
+      scopeType: "team",
+      scopeId: requested.billingTeamId!,
+      name: "default",
+      activeGeneration: 3,
+      activeVmId: requested.id,
+      activeProvider: "freestyle",
+      activeProviderVmId: null,
+      state: "resetting",
+      createdByUserId: requested.userId,
+      lastOpenedByUserId: requested.userId,
+      createdAt: now,
+      updatedAt: now,
+    } as CloudVmBaseRow;
+    const generation = {
+      id: "00000000-0000-4000-8000-0000000001b3",
+      baseId: base.id,
+      generation: 3,
+      vmId: requested.id,
+      provider: "freestyle",
+      providerVmId: null,
+      state: "creating",
+      createdByUserId: requested.userId,
+      retainedAt: null,
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    } as CloudVmBaseGenerationRow;
+
+    const usageEvents: RecordedUsageEvent[] = [];
+    const adHocMarks: unknown[] = [];
+    const baseMarks: unknown[] = [];
+    const repo = {
+      ...testWorkflowRepo({ vm: requested, usageEvents }),
+      beginBaseOpen: () => Effect.succeed({
+        kind: "create" as const,
+        base,
+        generation,
+        vm: requested,
+        previousGeneration: null,
+        previousVm: null,
+      }),
+      markCreateFailed: (mark: unknown) => Effect.sync(() => {
+        adHocMarks.push(mark);
+        return true;
+      }),
+      markBaseCreateFailed: (mark: unknown) => Effect.sync(() => {
+        baseMarks.push(mark);
+        return true;
+      }),
+    } as unknown as VmRepositoryShape;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      // The account owns no network row yet, so the resolve provisions one and
+      // the provider's network API is what fails.
+      ensureNetwork: () => Effect.fail(
+        providerOperationError("ensureNetwork", "network API unavailable"),
+      ),
+      create: () => Effect.sync(() => {
+        throw new Error("provider create must not run after the network resolve fails");
+      }),
+    };
+    const reservation: VmCreateCreditReservation = {
+      kind: "stack_item",
+      itemId: "cmux-vm-create-credit",
+      customerType: "team",
+      customerId: requested.billingTeamId!,
+      amount: 1,
+    };
+    const refunds: VmCreateCreditReservation[] = [];
+    const billing: VmBillingGatewayShape = {
+      ...noOpVmBillingGateway(),
+      reserveCreate: () => Effect.succeed(reservation),
+      refundCreate: (refunded) => Effect.sync(() => {
+        refunds.push(refunded);
+      }),
+    };
+
+    const error = await Effect.runPromise(
+      openBaseVm({
+        userId: requested.userId,
+        billingCustomerType: "team",
+        billingTeamId: requested.billingTeamId!,
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+        provider: "freestyle",
+        image: requested.imageId,
+        baseName: "default",
+      }).pipe(Effect.provide(workflowLayer(repo, provider, billing)), Effect.flip),
+    );
+
+    // The caller still sees the network failure, not an error from the rollback.
+    expect(error).toBeInstanceOf(VmProviderOperationError);
+    expect(error).toMatchObject({ operation: "ensureNetwork" });
+    // The reserved credit goes back to the customer.
+    expect(refunds).toHaveLength(1);
+    expect(refunds[0]).toMatchObject({ itemId: "cmux-vm-create-credit", amount: 1 });
+    // Only the Base-aware mark fails the generation and promotes the retained
+    // one back onto the base, so the ad-hoc mark is the wrong call here.
+    expect(baseMarks).toHaveLength(1);
+    expect(baseMarks[0]).toMatchObject({
+      baseId: base.id,
+      generation: generation.generation,
+      vmId: requested.id,
+      userId: requested.userId,
+      code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+    });
+    expect(adHocMarks).toEqual([]);
+    // The ledger gets a terminal event for the open-ended vm.create.requested.
+    const failureEvents = usageEvents.filter((event) => event.eventType === "vm.base.create.failed");
+    expect(failureEvents).toHaveLength(1);
+    expect(failureEvents[0]).toMatchObject({ metadata: { operation: "resolve_network" } });
   });
 
 

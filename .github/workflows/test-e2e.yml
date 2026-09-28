@@ -593,8 +593,32 @@ jobs:
 
       # PR media tours (pr-media.yml) ask for CI's product and never pay for
       # a second compile of the app.
-      - name: Refuse to compile for a dispatch that requires an adopted product
+      # A reuse error is no evidence the product is unloadable, so it fails
+      # under its own name (pr_media.py compiles only after a refusal). The
+      # lookup records API and transfer failures as miss reasons, so those
+      # count as errors too.
+      - name: Fail a dispatch that requires an adopted product when reuse errored
+        id: reuse_error
         if: ${{ inputs.require_adopted_product && steps.reuse.outputs.hit != 'true' }}
+        env:
+          OUTCOME: ${{ steps.reuse.outcome }}
+          REASON: ${{ steps.reuse.outputs.reason }}
+          MISSES: ${{ steps.reuse.outputs.miss_reasons }}
+        run: |
+          errors=",artifact_listing_unavailable,consumer_provenance_unavailable,artifact_download_error,fingerprint_unavailable,reuse_api_or_validation_error,"
+          errored=""
+          if [ "$OUTCOME" != success ] || [ "$REASON" != miss ]; then errored=1; fi
+          IFS=, read -ra reasons <<<"$MISSES"
+          for reason in "${reasons[@]}"; do
+            case "$errors" in *",$reason,"*) errored=1 ;; esac
+          done
+          if [ -n "$errored" ]; then
+            echo "::error::Compiled-product reuse did not complete (${MISSES:-no reason recorded}), so this dispatch cannot tell whether a product loads."
+            exit 1
+          fi
+
+      - name: Refuse to compile for a dispatch that requires an adopted product
+        if: ${{ inputs.require_adopted_product && steps.reuse.outputs.hit != 'true' && steps.reuse_error.outcome == 'success' }}
         env:
           MISSES: ${{ steps.reuse.outputs.miss_reasons }}
         run: |
