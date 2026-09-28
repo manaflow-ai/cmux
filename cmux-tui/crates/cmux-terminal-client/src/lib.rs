@@ -2785,6 +2785,49 @@ pub unsafe extern "C" fn cmux_terminal_client_list_terminals(
     }
 }
 
+/// Returns the daemon's public session snapshot as the JSON `session.snapshot`
+/// returns: workspaces, screens, panes, tabs, terminals, and the rest of the
+/// session. A terminal's `tab_id`, the tab's `pane_id`, the pane's
+/// `screen_id`, and the screen's `workspace_id` place it under its workspace,
+/// which `terminal.list` alone cannot.
+///
+/// Returns an owned NUL-terminated UTF-8 string to free with
+/// [`cmux_terminal_client_string_free`], or NULL with the error written.
+///
+/// # Safety
+///
+/// `client` must be a live handle. `error_buffer` follows the connect buffer
+/// contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_session_snapshot(
+    client: *mut CmuxTerminalClient,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    timeout_milliseconds: u64,
+) -> *mut c_char {
+    if client.is_null() {
+        copy_utf8("client is null", error_buffer, error_capacity);
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the caller guarantees a live handle.
+    let client = unsafe { &*client };
+    let result = client
+        .resource_operation(
+            "session.snapshot",
+            serde_json::Map::new(),
+            false,
+            timeout_from_millis(timeout_milliseconds),
+        )
+        .and_then(|value| json_to_c_string(&value));
+    match result {
+        Ok(text) => text,
+        Err(error) => {
+            copy_utf8(&error, error_buffer, error_capacity);
+            std::ptr::null_mut()
+        }
+    }
+}
+
 /// Creates a workspace holding one new terminal (`workspace.create` with
 /// `initial_content: terminal`) and returns the mutation result JSON
 /// (`MutationResult<CreatedPath>`), whose `value.terminal_id` names the
