@@ -6,6 +6,17 @@ import Testing
 /// Behavior tests for the change-only `UserDefaults` writers: each no-op write
 /// must post no `didChangeNotification`, and real changes still post exactly one.
 @Suite struct UserDefaultsChangeOnlyWritesTests {
+    @Test func orderedStringArraysWriteOnlyOnChange() throws {
+        try withIsolatedDefaults { defaults, counter in
+            #expect(defaults.setIfChanged(["a", "b"], forKey: "nodes"))
+            #expect(!defaults.setIfChanged(["a", "b"], forKey: "nodes"))
+            #expect(counter.value == 1)
+            #expect(defaults.setIfChanged(["b", "a"], forKey: "nodes"))
+            #expect(counter.value == 2)
+            #expect(defaults.stringArray(forKey: "nodes") == ["b", "a"])
+        }
+    }
+
     @Test func dataWriteIsSilentWhenUnchanged() throws {
         try withIsolatedDefaults { defaults, counter in
             let payload = Data("geometry".utf8)

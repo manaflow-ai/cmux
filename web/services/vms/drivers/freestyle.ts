@@ -29,6 +29,8 @@ import {
   type ExecResult,
   type ProviderNetwork,
   type ProviderTunnel,
+  type ProviderTunnelAttachment,
+  ProviderTunnelNetworkOverlapError,
   type ProviderTunnelCreateResult,
   type RestoreOptions,
   type SnapshotRef,
@@ -238,10 +240,10 @@ export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
  *   machine is reachable at all. Session auth is the daemon's Noise device
  *   enrollment, the same posture the e2b driver builds by hand with iptables.
  */
-export function freestyleFirewallRules(options?: { publicDaemonIngress?: boolean }) {
+export function freestyleFirewallRules(options?: { publicDaemonIngress?: boolean; memberIngressNetworkId?: string }) {
   const rules: Array<{
     action: "allow";
-    source: { public?: true };
+    source: { public?: true; vpcId?: string };
     destination: { public?: true; port?: number; protocol?: "tcp" };
   }> = [{ action: "allow", source: {}, destination: { public: true } }];
   if (options?.publicDaemonIngress) {
@@ -250,6 +252,9 @@ export function freestyleFirewallRules(options?: { publicDaemonIngress?: boolean
       source: { public: true },
       destination: { port: CMUX_TUI_PORT, protocol: "tcp" },
     });
+  }
+  if (options?.memberIngressNetworkId) {
+    rules.push({ action: "allow", source: { vpcId: options.memberIngressNetworkId }, destination: {} });
   }
   return rules;
 }
@@ -440,6 +445,11 @@ export function mapFreestyleTunnel(data: TunnelData, networkId: string): Provide
     routes: data.routes ?? [],
     addressV4: attachment?.ipv4 ?? null,
     addressV6: attachment?.ipv6 ?? null,
+    attachments: data.attachments.map((entry) => ({
+      networkId: entry.vpcId,
+      addressV4: entry.ipv4 ?? null,
+      addressV6: entry.ipv6 ?? null,
+    })),
   };
 }
 
@@ -571,7 +581,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
    * it is off the request path because a rule deleted out of band is an
    * operator event, not something every create should pay to re-check.
    */
-  async ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean }): Promise<ProviderNetwork> {
+  async ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean }): Promise<ProviderNetwork> {
     const slug = options.slug.trim();
     if (!slug) throw new ProviderError("freestyle", "ensureNetwork requires a slug");
     return withVmSpan(
@@ -583,7 +593,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
         if (options.heal) {
           const existing = await this.readNetworkBySlug(fs, slug);
           if (!existing) throw new ProviderError("freestyle", `ensureNetwork(${slug}): no network to heal`);
-          await this.ensureMembersRule(fs, existing.id);
+          if (options.membersRule !== false) await this.ensureMembersRule(fs, existing.id);
           setSpanAttributes(span, { "cmux.vm.network.id": existing.id, "cmux.vm.network.created": false });
           return existing;
         }
@@ -594,7 +604,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           const { data } = await fs.vpc.create({
             slug,
             displayName: options.displayName,
-            firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES },
+            firewall: { rules: options.membersRule === false ? [] : FREESTYLE_NETWORK_FIREWALL_RULES },
           });
           setSpanAttributes(span, { "cmux.vm.network.id": data.id, "cmux.vm.network.created": true });
           return mapFreestyleNetwork(data);
@@ -606,7 +616,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           }
           const existing = await this.readNetworkBySlug(fs, slug);
           if (existing) {
-            await this.ensureMembersRule(fs, existing.id);
+            if (options.membersRule !== false) await this.ensureMembersRule(fs, existing.id);
             setSpanAttributes(span, { "cmux.vm.network.id": existing.id, "cmux.vm.network.created": false });
             return existing;
           }
@@ -616,12 +626,12 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     );
   }
 
-  async getNetwork(networkId: string): Promise<ProviderNetwork | null> {
+  async getNetwork(networkIdOrSlug: string): Promise<ProviderNetwork | null> {
     try {
-      return mapFreestyleNetwork(await this.client().vpc.get(networkId));
+      return mapFreestyleNetwork(await this.client().vpc.get(networkIdOrSlug));
     } catch (err) {
       if (isNotFound(err)) return null;
-      throw new ProviderError("freestyle", `getNetwork(${networkId})`, err);
+      throw new ProviderError("freestyle", `getNetwork(${networkIdOrSlug})`, err);
     }
   }
 
@@ -754,6 +764,39 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     } catch (err) {
       if (isNotFound(err)) return; // already gone; delete is idempotent
       throw new ProviderError("freestyle", `deleteTunnel(${tunnelId})`, err);
+    }
+  }
+
+  async attachTunnelNetwork(tunnelId: string, networkId: string): Promise<ProviderTunnelAttachment> {
+    try {
+      const data = await this.client().tunnels.attachVpc(tunnelId, networkId);
+      const attachment = data.attachments.find((entry) => entry.vpcId === networkId);
+      if (!attachment) throw new Error("missing attachment");
+      return { networkId, addressV4: attachment.ipv4 ?? null, addressV6: attachment.ipv6 ?? null };
+    } catch (err) {
+      // Freestyle uses generic CONFLICT for 409s; without remoteCidrs or pinned addresses, overlap is the only reachable 409.
+      if (err instanceof FreestyleApiError && err.status === 409 && err.code === "CONFLICT") {
+        throw new ProviderTunnelNetworkOverlapError(`Freestyle refused overlapping tunnel network ${networkId}`);
+      }
+      throw new ProviderError("freestyle", `attachTunnelNetwork(${tunnelId})`, err);
+    }
+  }
+
+  async detachTunnelNetwork(tunnelId: string, networkId: string): Promise<void> {
+    try {
+      await this.client().tunnels.detachVpc(tunnelId, networkId);
+    } catch (err) {
+      if (isNotFound(err)) return;
+      throw new ProviderError("freestyle", `detachTunnelNetwork(${tunnelId})`, err);
+    }
+  }
+
+  async listNetworkTunnelIds(networkId: string): Promise<string[]> {
+    try {
+      const { tunnels } = await this.client().vpc.ref(networkId).tunnels.list();
+      return tunnels.map((tunnel) => tunnel.tunnelId ?? tunnel.id);
+    } catch (err) {
+      throw new ProviderError("freestyle", `listNetworkTunnelIds(${networkId})`, err);
     }
   }
 
@@ -900,7 +943,7 @@ export class FreestyleProvider implements VMProvider {
               maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)), automaticRestart: false,
             } : {}),
             metadata: { cmux: "cloud" },
-            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
+            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options.network?.memberIngress ? networkId : undefined }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
           });
@@ -1271,7 +1314,7 @@ export class FreestyleProvider implements VMProvider {
             displayName: "cmux Cloud VM",
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
             metadata: { cmux: "cloud" },
-            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
+            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options?.network?.memberIngress ? networkId : undefined }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
           });

@@ -462,6 +462,15 @@ struct MachinesPanelView: View {
         nodeActions.setDeviceIncomingAccess = { [weak devicesModel] enabled in
             Task { await devicesModel?.preferences?.setIncomingAccessEnabled(enabled) }
         }
+        // The header "+" is Cmd-Y from this window: same gates, sheet and
+        // optimistic create, and no workspace until the sheet completes.
+        nodeActions.newMachine = { [weak tabManager] in
+            _ = AppDelegate.shared?.performNewCloudMachineAction(
+                tabManager: tabManager,
+                preferredWindow: tabManager?.window,
+                debugSource: "cloudTree.cloudMachinesSection"
+            )
+        }
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [],
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
@@ -481,6 +490,7 @@ struct MachinesPanelView: View {
                 discoveryManaged: discoveryManaged,
                 incomingAccessManaged: incomingAccessManaged
             ),
+            canCreateCloudMachine: includesCloud,
             reveal: devicesModel.revealRequest
         )
         .accessibilityIdentifier("CloudMachinesTree")
@@ -496,12 +506,12 @@ struct MachinesPanelView: View {
                     .foregroundStyle(.secondary)
                 Text(String(localized: "devices.empty.title", defaultValue: "No other Macs yet"))
                     .font(.callout.weight(.medium))
-                Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Mobile › Computers."))
+                Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Devices."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
-                Button(String(localized: "devices.settings", defaultValue: "Computers Settings…")) {
+                Button(String(localized: "devices.settings", defaultValue: "Devices Settings…")) {
                     SettingsWindowPresenter.show(navigationTarget: .computers)
                 }
             } else if let status = viewModel.listStatus {
