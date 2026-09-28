@@ -6,7 +6,6 @@ on:
   pull_request:
     paths:
       - web/**
-      - .github/workflows/web-complexity.yml
   push:
     branches:
       - main

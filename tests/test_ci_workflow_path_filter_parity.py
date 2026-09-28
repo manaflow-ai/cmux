@@ -20,7 +20,9 @@ WORKFLOWS = ROOT / ".github/workflows"
 # name -> why the two filters are deliberately different. Keep this empty unless
 # a maintainer has chosen the divergence; an entry that is no longer needed is an
 # error, so a synced workflow cannot keep a stale exemption.
-EXEMPTIONS: dict[str, str] = {}
+EXEMPTIONS: dict[str, str] = {
+    "web-complexity.yml": "pull requests must not self-queue the contributor-side candidate job",
+}
 
 FILTERS = ("paths", "paths-ignore")
 
