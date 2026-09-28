@@ -41,9 +41,13 @@ extension FeedCoordinator {
             agent: TerminalNotificationPolicyAgentContext(kind: event.source,
                 category: "needs-permission", pending: false, isSubagent: false, sessionId: input.sessionID), soundContext: soundContext)
         guard AgentJournalLifecycleCenter.notificationRequestIsCurrent(request) else { return false }
+        // The mobile Feed merges notification history with workstream rows and
+        // drops records whose id matches a workstream item, so this banner's
+        // history record must carry the feed event's id or the phone shows a
+        // duplicate "Notification" row beside the actionable one.
         _ = TerminalNotificationStore.shared.applyNotification(request: request, effects: storeEffects,
             now: Date(), cooldownReservation: nil, scrollPosition: nil, clickAction: nil,
-            notificationID: UUID())
+            notificationID: store?.items.first(where: { $0.requestId == requestId })?.id ?? UUID())
         return true
     }
     @MainActor

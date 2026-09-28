@@ -777,6 +777,10 @@ private struct AgentFeedQuestionControls: View {
     @State private var selectedOptionIDsByQuestion: [String: Set<String>] = [:]
     @State private var customTextByQuestion: [String: String] = [:]
     @State private var pageIndex = 0
+    /// Natural height of each question page. A paged TabView never sizes to
+    /// its content: it takes the proposed height and centers overflow, which
+    /// clipped tall questions. The frame follows the current page instead.
+    @State private var pageHeights: [Int: CGFloat] = [:]
     @State private var editingCustomAnswerForQuestionID: String?
     @FocusState private var focusedCustomAnswerQuestionID: String?
 
@@ -815,11 +819,16 @@ private struct AgentFeedQuestionControls: View {
                 TabView(selection: $pageIndex) {
                     ForEach(Array(questions.enumerated()), id: \.element.id) { index, question in
                         questionPage(question, index: index)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                                pageHeights[index] = height
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                             .tag(index)
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                .frame(minHeight: 212)
+                .frame(height: max(pageHeights[pageIndex] ?? 212, 120))
+                .clipped()
                 .animation(.snappy, value: pageIndex)
                 pagerFooter
             } else if let question = questions.first {
@@ -893,34 +902,34 @@ private struct AgentFeedQuestionControls: View {
         }
     }
 
+    /// Page navigation in the row's shared action-button family: a quiet
+    /// Previous, a filled accent Next with a trailing chevron. Navigation is
+    /// never disabled; only Submit is gated on complete answers.
     private var pagerFooter: some View {
         HStack(spacing: 8) {
             if pageIndex > 0 {
-                Button {
-                    withAnimation(.snappy) { pageIndex -= 1 }
-                } label: {
-                    Label(String(
+                pagerNavButton(
+                    title: String(
                         localized: "mobile.agentFeed.question.previous",
                         defaultValue: "Previous",
                         bundle: .module
-                    ), systemImage: "chevron.left")
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
+                    ),
+                    chevron: "chevron.left",
+                    chevronLeading: true,
+                    role: .neutral
+                ) { pageIndex -= 1 }
             }
             if pageIndex < questions.count - 1 {
-                Button {
-                    withAnimation(.snappy) { pageIndex += 1 }
-                } label: {
-                    Label(String(
+                pagerNavButton(
+                    title: String(
                         localized: "mobile.agentFeed.question.next",
                         defaultValue: "Next",
                         bundle: .module
-                    ), systemImage: "chevron.right")
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!hasAnswer(for: questions[pageIndex]))
+                    ),
+                    chevron: "chevron.right",
+                    chevronLeading: false,
+                    role: .primary
+                ) { pageIndex += 1 }
             } else {
                 submitButton(title: String(
                     localized: "mobile.agentFeed.question.submitAll",
@@ -929,6 +938,33 @@ private struct AgentFeedQuestionControls: View {
                 ))
             }
         }
+    }
+
+    private func pagerNavButton(
+        title: String,
+        chevron: String,
+        chevronLeading: Bool,
+        role: AgentFeedActionRole,
+        action: @escaping @MainActor () -> Void
+    ) -> some View {
+        Button {
+            withAnimation(.snappy) { action() }
+        } label: {
+            HStack(spacing: 5) {
+                if chevronLeading {
+                    Image(systemName: chevron).font(.caption.weight(.bold))
+                }
+                Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                if !chevronLeading {
+                    Image(systemName: chevron).font(.caption.weight(.bold))
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 10).fill(role.fill))
+            .foregroundStyle(role.label)
+        }
+        .buttonStyle(.plain)
     }
 
     private var answeredQuestionCount: Int {
