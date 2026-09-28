@@ -28,6 +28,25 @@ on:
       ghostty_helper_sdk:
         required: true
         type: string
+      # The macOS pool picker's placement (pr_runner_pool.py), as ci-macos.yml
+      # takes it. release-build uses the owned side label only when the picker
+      # placed ' release-build ' in pr_owned_jobs.
+      pr_runner:
+        required: false
+        default: ""
+        type: string
+      pr_side_runner:
+        required: false
+        default: ""
+        type: string
+      pr_owned_jobs:
+        required: false
+        default: ""
+        type: string
+      pr_xcode_app:
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -45,18 +64,28 @@ jobs:
     # compiles into the same artifact shape as nightly and stable releases.
     # Release builds need enough disk for a universal Release build plus the
     # restored SwiftPM cache, which the macOS 26 image already carries. The
-    # variable names that image, not this lane.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    # variable names that image, not this lane. A same-repository pull request
+    # or main's full-suite dispatch takes the owned side label when the picker
+    # placed ' release-build ' in pr_owned_jobs (pr_runner_pool.RELEASE_BUILD_JOB)
+    # on attempt 1 or a manual re-run of a pull request (attempt 1 only on
+    # main, whose re-runs the janitor charges no owned machine), with the
+    # lane's Xcode; glaeda's hook classes the job isolated. A bot re-run
+    # (ci-owned-pool-rescue.yml) takes the macOS 26 variable. The picker never
+    # gives it the light pool's side runners,
+    # and swift-package-tests (the only lane ci.yml hands the light label
+    # through pr_side_runner) never shares a run with it.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     timeout-minutes: 60
     permissions:
       actions: read
       attestations: read
       contents: read
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      # The owned label's Xcode exactly when runs-on took it, as swift-package-tests.
+      CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+      CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
       CMUX_RELEASE_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
