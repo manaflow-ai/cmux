@@ -1,6 +1,714 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.session.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux session restore [--list] [--session <id>]...\n\nReopen Claude sessions that were running when cmux last quit unexpectedly.\ncmux finds them in the agent journal, skips any that are running or already\nopen, and resumes each in its own workspace through the launcher that started\nit.\n\nWithout --session, restore acts only after an unexpected quit.\n\nOptions:\n  --list            Show the sessions without restoring them.\n  --session <id>    Restore only this session (repeatable)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux session restore [--list] [--session <id>]...\n\nÖffnet Claude-Sitzungen erneut, die liefen, als cmux zuletzt unerwartet beendet wurde.\ncmux findet sie im Agent-Journal, überspringt laufende oder bereits geöffnete\nund setzt jede in einem eigenen Workspace\nüber den Launcher fort, der sie gestartet hat.\n\nOhne --session stellt restore nur nach einem unerwarteten Beenden wieder her.\n\nOptionen:\n  --list            Sitzungen anzeigen, ohne sie wiederherzustellen.\n  --session <id>    Nur diese Sitzung wiederherstellen (wiederholbar)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux session restore [--list] [--session <id>]...\n\nRouvre les sessions Claude en cours lorsque cmux s’est fermé de façon inattendue.\ncmux les trouve dans le journal des agents, ignore celles qui tournent ou sont déjà\nouvertes, et reprend chacune dans son propre espace de travail via le lanceur qui l’a\ndémarrée.\n\nSans --session, restore n’agit qu’après une fermeture inattendue.\n\nOptions :\n  --list            Afficher les sessions sans les restaurer.\n  --session <id>    Restaurer uniquement cette session (répétable)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux session restore [--list] [--session <id>]...\n\nيعيد فتح جلسات Claude التي كانت قيد التشغيل عندما أُغلق cmux بشكل غير متوقع آخر مرة.\nيعثر cmux عليها في سجل الوكيل، ويتخطى ما يعمل منها أو المفتوح بالفعل،\nويستأنف كل جلسة في مساحة عمل خاصة بها\nعبر المشغّل الذي بدأها.\n\nبدون --session، لا تعمل الاستعادة إلا بعد إغلاق غير متوقع.\n\nالخيارات:\n  --list            عرض الجلسات دون استعادتها.\n  --session <id>    استعادة هذه الجلسة فقط (قابل للتكرار)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux session restore [--list] [--session <id>]...\n\nVuelve a abrir las sesiones de Claude que estaban en ejecución cuando cmux se cerró inesperadamente.\ncmux las encuentra en el diario de agentes, omite las que están en ejecución o ya\nabiertas, y reanuda cada una en su propio espacio de trabajo mediante el lanzador que\nla inició.\n\nSin --session, restore solo actúa tras un cierre inesperado.\n\nOpciones:\n  --list            Mostrar las sesiones sin restaurarlas.\n  --session <id>    Restaurar solo esta sesión (repetible)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux session restore [--list] [--session <id>]...\n\n重新開啟 cmux 上次意外結束時仍在執行的 Claude 工作階段。\ncmux 會從代理日誌中找出它們，略過仍在執行或已開啟的工作階段，\n並透過原本啟動它的啟動器\n在各自的工作區中繼續。\n\n未指定 --session 時，restore 只會在意外結束後執行。\n\n選項：\n  --list            只列出工作階段，不還原。\n  --session <id>    只還原此工作階段（可重複）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux session restore [--list] [--session <id>]...\n\n重新打开 cmux 上次意外退出时仍在运行的 Claude 会话。\ncmux 会从代理日志中找到它们，跳过仍在运行或已打开的会话，\n并通过最初启动它的启动器\n在各自的工作区中继续。\n\n未指定 --session 时，restore 只会在意外退出后执行。\n\n选项：\n  --list            只列出会话，不恢复。\n  --session <id>    只恢复此会话（可重复）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux session restore [--list] [--session <id>]...\n\ncmux가 마지막으로 예기치 않게 종료될 때 실행 중이던 Claude 세션을 다시 엽니다.\ncmux는 에이전트 저널에서 세션을 찾고, 실행 중이거나 이미 열려 있는 세션은 건너뛰며,\n각 세션을 시작한 런처를 통해\n자체 워크스페이스에서 이어갑니다.\n\n--session이 없으면 restore는 예기치 않은 종료 후에만 동작합니다.\n\n옵션:\n  --list            복원하지 않고 세션만 표시합니다.\n  --session <id>    이 세션만 복원합니다(반복 가능)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux session restore [--list] [--session <id>]...\n\ncmux が前回予期せず終了したときに実行中だった Claude セッションを再び開きます。\ncmux はエージェントジャーナルからセッションを見つけ、実行中または既に開いている\nものはスキップし、それぞれを起動したランチャー経由で\n専用のワークスペースで再開します。\n\n--session を指定しない場合、restore は予期しない終了の後にのみ動作します。\n\nオプション:\n  --list            復元せずにセッションを表示します。\n  --session <id>    このセッションのみ復元します（複数指定可）。"
+          }
+        }
+      }
+    },
+    "cli.session.error.expectedRestore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session: expected 'restore' (see cmux help session)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session: 'restore' erwartet (siehe cmux help session)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session : « restore » attendu (voir cmux help session)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session: كان المتوقع 'restore' (راجع cmux help session)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session: se esperaba 'restore' (consulta cmux help session)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session：應為 'restore'（請參閱 cmux help session）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session：应为 'restore'（请参阅 cmux help session）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session: 'restore'가 필요합니다(cmux help session 참조)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session: 'restore' が必要です（cmux help session を参照）"
+          }
+        }
+      }
+    },
+    "cli.session.error.sessionRequiresId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: --session requires an id"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: --session erfordert eine ID"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore : --session nécessite un identifiant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: يتطلب --session معرّفًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: --session requiere un id"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore：--session 需要一個 ID"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore：--session 需要一个 ID"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: --session에는 ID가 필요합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: --session には ID が必要です"
+          }
+        }
+      }
+    },
+    "cli.session.error.unknownArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: unknown argument '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: unbekanntes Argument '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore : argument inconnu « %@ »"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: وسيط غير معروف '%@'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: argumento desconocido '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore：未知的參數 '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore：未知参数 '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: 알 수 없는 인수 '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: 不明な引数 '%@'"
+          }
+        }
+      }
+    },
+    "cli.session.list.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent sessions to restore."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Agent-Sitzungen zum Wiederherstellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune session d’agent à restaurer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد جلسات وكيل لاستعادتها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay sesiones de agente para restaurar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可還原的代理工作階段。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可恢复的代理会话。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복원할 에이전트 세션이 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元するエージェントセッションはありません。"
+          }
+        }
+      }
+    },
+    "cli.session.restore.cleanQuit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent sessions restored: cmux last quit normally. To restore one anyway, pass --session <id> from --list."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Agent-Sitzungen wiederhergestellt: cmux wurde zuletzt normal beendet. Um trotzdem eine wiederherzustellen, übergib --session <id> aus --list."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune session d’agent restaurée : cmux s’est fermé normalement la dernière fois. Pour en restaurer une quand même, passez --session <id> depuis --list."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تتم استعادة أي جلسات وكيل: أُغلق cmux بشكل طبيعي آخر مرة. لاستعادة جلسة على أي حال، مرّر --session <id> من --list."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se restauró ninguna sesión de agente: cmux se cerró normalmente la última vez. Para restaurar una de todos modos, pasa --session <id> de --list."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未還原任何代理工作階段：cmux 上次是正常結束。若仍要還原，請傳入 --list 中的 --session <id>。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未恢复任何代理会话：cmux 上次是正常退出。若仍要恢复，请传入 --list 中的 --session <id>。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복원된 에이전트 세션이 없습니다. cmux가 마지막에 정상적으로 종료되었습니다. 그래도 복원하려면 --list에서 확인한 --session <id>를 전달하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションは復元されませんでした。cmux は前回正常に終了しています。それでも復元する場合は、--list の --session <id> を指定してください。"
+          }
+        }
+      }
+    },
+    "cli.session.restore.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent sessions restored."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Agent-Sitzungen wiederhergestellt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune session d’agent restaurée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تتم استعادة أي جلسات وكيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se restauró ninguna sesión de agente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未還原任何代理工作階段。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未恢复任何代理会话。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복원된 에이전트 세션이 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションは復元されませんでした。"
+          }
+        }
+      }
+    },
+    "cli.session.restore.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent sessions restored: %lld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiederhergestellte Agent-Sitzungen: %lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessions d’agent restaurées : %lld"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسات الوكيل المستعادة: %lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesiones de agente restauradas: %lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已還原的代理工作階段：%lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已恢复的代理会话：%lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복원된 에이전트 세션: %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元したエージェントセッション: %lld"
+          }
+        }
+      }
+    },
+    "agentRecovery.alert.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore agent sessions?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Sitzungen wiederherstellen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer les sessions d’agent ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد استعادة جلسات الوكيل؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Restaurar las sesiones de agente?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要還原代理工作階段嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要恢复代理会话吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션을 복원할까요?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションを復元しますか？"
+          }
+        }
+      }
+    },
+    "agentRecovery.alert.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux quit unexpectedly while agent sessions were running. Sessions to restore: %lld. Each one reopens in its own workspace and resumes where it left off."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux wurde unerwartet beendet, während Agent-Sitzungen liefen. Wiederherzustellende Sitzungen: %lld. Jede wird in einem eigenen Workspace geöffnet und dort fortgesetzt, wo sie aufgehört hat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux s’est fermé de façon inattendue pendant que des sessions d’agent étaient en cours. Sessions à restaurer : %lld. Chacune rouvre dans son propre espace de travail et reprend là où elle s’était arrêtée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أُغلق cmux بشكل غير متوقع أثناء تشغيل جلسات الوكيل. الجلسات المطلوب استعادتها: %lld. تُفتح كل جلسة في مساحة عمل خاصة بها وتُستأنف من حيث توقفت."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se cerró inesperadamente mientras había sesiones de agente en ejecución. Sesiones por restaurar: %lld. Cada una se abre en su propio espacio de trabajo y continúa donde se quedó."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在代理工作階段執行時意外結束。要還原的工作階段：%lld。每個工作階段都會在各自的工作區重新開啟，並從中斷處繼續。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在代理会话运行时意外退出。要恢复的会话：%lld。每个会话都会在各自的工作区重新打开，并从中断处继续。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션이 실행 중일 때 cmux가 예기치 않게 종료되었습니다. 복원할 세션: %lld. 각 세션은 자체 워크스페이스에서 다시 열리고 중단된 곳에서 이어집니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションの実行中に cmux が予期せず終了しました。復元するセッション: %lld。各セッションは専用のワークスペースで再び開き、中断したところから再開します。"
+          }
+        }
+      }
+    },
+    "agentRecovery.alert.restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Agent Sessions"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Sitzungen wiederherstellen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer les sessions d’agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استعادة جلسات الوكيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar sesiones de agente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還原代理工作階段"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复代理会话"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션 복원"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションを復元"
+          }
+        }
+      }
+    },
+    "agentRecovery.alert.notNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Now"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht jetzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas maintenant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليس الآن"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora no"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稍後"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以后再说"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나중에"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "後で"
+          }
+        }
+      }
+    },
     "settings.automation.rules.createFailed.title": {
       "extractionState": "manual",
       "localizations": {
@@ -30405,6 +31113,256 @@
           "stringUnit": {
             "state": "translated",
             "value": "올라마"
+          }
+        }
+      }
+    },
+    "agentRestore.writerLock.candidates": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Possible owners: %1$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mögliche Besitzer: %1$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Propriétaires possibles : %1$@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المالكون المحتملون: %1$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posibles propietarios: %1$@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可能的擁有者：%1$@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可能的所有者：%1$@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가능한 소유자: %1$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有者の候補: %1$@。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mogući vlasnici: %1$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mulige ejere: %1$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Possibili proprietari: %1$@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម្ចាស់ដែលអាចមាន៖ %1$@។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mulige eiere: %1$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Możliwi właściciele: %1$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Possíveis proprietários: %1$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Возможные владельцы: %1$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เจ้าของที่เป็นไปได้: %1$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olası sahipler: %1$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Можливі власники: %1$@."
+          }
+        }
+      }
+    },
+    "agentRestore.writerLock.held": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This conversation is in use by another process. Continue there or close it normally, then retry restoring it here."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Unterhaltung wird von einem anderen Prozess verwendet. Setzen Sie sie dort fort oder schließen Sie sie regulär und versuchen Sie dann erneut, sie hier wiederherzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette conversation est utilisée par un autre processus. Continuez là-bas ou fermez-la normalement, puis réessayez de la restaurer ici."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم عملية أخرى هذه المحادثة. تابع هناك أو أغلقها بالطريقة المعتادة، ثم أعد محاولة استعادتها هنا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otro proceso está usando esta conversación. Continúa allí o ciérrala normalmente y vuelve a intentar restaurarla aquí."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一個程序正在使用此對話。請在該處繼續，或正常關閉後再嘗試於此處還原。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一个进程正在使用此对话。请在该处继续，或正常关闭后再尝试在此处恢复。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 프로세스가 이 대화를 사용 중입니다. 해당 프로세스에서 계속하거나 정상적으로 닫은 후 여기에서 다시 복원하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のプロセスがこの会話を使用しています。そちらで続けるか、通常の手順で閉じてから、ここでの復元を再試行してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj razgovor koristi drugi proces. Nastavite tamo ili ga zatvorite na uobičajen način, a zatim ponovo pokušajte vratiti razgovor ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne samtale bruges af en anden proces. Fortsæt dér, eller luk den på normal vis, og prøv derefter at gendanne den her igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa conversazione è in uso da un altro processo. Continua lì oppure chiudila normalmente, quindi riprova a ripristinarla qui."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការសន្ទនានេះកំពុងត្រូវបានប្រើដោយដំណើរការមួយផ្សេងទៀត។ បន្តនៅទីនោះ ឬបិទវាតាមធម្មតា រួចព្យាយាមស្ដារវានៅទីនេះម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne samtalen brukes av en annen prosess. Fortsett der, eller lukk den på vanlig måte, og prøv deretter å gjenopprette den her igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta rozmowa jest używana przez inny proces. Kontynuuj tam lub zamknij ją w zwykły sposób, a następnie spróbuj ponownie ją tutaj przywrócić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta conversa está em uso por outro processo. Continue lá ou feche-a normalmente e tente restaurá-la aqui novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот разговор используется другим процессом. Продолжите там или закройте его обычным способом, затем попробуйте восстановить его здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การสนทนานี้กำลังใช้งานอยู่ในอีกกระบวนการหนึ่ง ให้ดำเนินการต่อที่นั่นหรือปิดตามปกติ แล้วลองกู้คืนการสนทนาที่นี่อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu konuşma başka bir işlem tarafından kullanılıyor. Orada devam edin veya normal şekilde kapatın, ardından burada geri yüklemeyi yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цю розмову використовує інший процес. Продовжте там або закрийте її звичайним способом, а потім спробуйте відновити її тут."
           }
         }
       }
@@ -252935,131 +253893,6 @@
         }
       }
     },
-    "menu.view.toggleFileEditorWordWrap": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle File Editor Word Wrap"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルエディタの行折り返しを切り替え"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeilenumbruch im Dateieditor umschalten"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activer ou désactiver le retour à la ligne de l’éditeur de fichiers"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تبديل التفاف الكلمات في محرر الملفات"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar el ajuste de línea del editor de archivos"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切換檔案編輯器自動換行"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切换文件编辑器自动换行"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "파일 편집기 자동 줄 바꿈 전환"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uključi ili isključi prelamanje redova u uređivaču datoteka"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå linjeombrydning i fileditoren til eller fra"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attiva o disattiva il ritorno a capo nell’editor di file"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បិទឬបើកការរុំបន្ទាត់ក្នុងកម្មវិធីកែសម្រួលឯកសារ"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå linjebryting i filredigereren av eller på"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przełącz zawijanie wierszy w edytorze plików"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar quebra de linha no editor de arquivos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Переключить перенос строк в редакторе файлов"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สลับการตัดบรรทัดในตัวแก้ไขไฟล์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dosya düzenleyicisinde sözcük kaydırmayı değiştir"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перемкнути перенесення рядків у редакторі файлів"
-          }
-        }
-      }
-    },
     "menu.view.clearBrowserHistory": {
       "extractionState": "manual",
       "localizations": {
@@ -336142,6 +336975,124 @@
         }
       }
     },
+    "settings.notifications.soundWhenFocused.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play the notification sound even when the pane that notified is already focused. When off, a focused pane shows its ring without a sound."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شغّل صوت الإشعار حتى عندما تكون اللوحة التي أرسلت الإشعار في موضع التركيز بالفعل. عند إيقافه، تعرض اللوحة المُركَّز عليها حلقتها دون صوت."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den Benachrichtigungston auch abspielen, wenn der benachrichtigende Bereich bereits fokussiert ist. Wenn aus, zeigt ein fokussierter Bereich seinen Ring ohne Ton."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduce el sonido de notificación incluso cuando el panel que notificó ya tiene el foco. Si está desactivado, un panel con foco muestra su anillo sin sonido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jouer le son de notification même lorsque le panneau à l’origine de la notification a déjà le focus. Désactivé, un panneau actif affiche son anneau sans son."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を送ったペインがすでにフォーカスされている場合でも通知音を鳴らします。オフの場合、フォーカス中のペインは音を鳴らさずにリングを表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림을 보낸 패널이 이미 포커스된 상태여도 알림음을 재생합니다. 끄면 포커스된 패널은 소리 없이 링만 표시합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使发出通知的窗格已处于焦点状态，也播放通知声音。关闭时，处于焦点的窗格会显示光环但不发出声音。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使發出通知的窗格已在焦點中，也播放通知聲音。關閉時，焦點中的窗格會顯示光環但不發出聲音。"
+          }
+        }
+      }
+    },
+    "settings.notifications.soundWhenFocused.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sound for Focused Pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صوت للوحة المُركَّز عليها"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ton für fokussierten Bereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonido para el panel con foco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son pour le panneau actif"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のペインの通知音"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포커스된 패널 소리"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "焦点窗格的声音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "焦點窗格的聲音"
+          }
+        }
+      }
+    },
     "settings.notifications.soundOverrides.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -354367,6 +355318,65 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.reflow-hard-wrap-on-copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste التفاف سطر فواصل الأسطر نسخ لصق ضم"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste umbruch zeilenumbruch kopieren einfügen zusammenfügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste ajuste de línea saltos de línea copiar pegar reunir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste retour à la ligne saut de ligne copier coller rejoindre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste 折り返し 改行 ハード改行 コピー ペースト 結合"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste 줄바꿈 강제 줄바꿈 자동 줄바꿈 복사 붙여넣기 잇기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste 换行 硬换行 自动换行 复制 粘贴 合并"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste 換行 硬換行 自動換行 複製 貼上 接合"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.terminal.resume-commands": {
       "extractionState": "manual",
       "localizations": {
@@ -361811,6 +362821,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "選取時複製"
+          }
+        }
+      }
+    },
+    "settings.terminal.reflowHardWrapOnCopy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة ضم النص المقسّم يدويًا عند النسخ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hart umbrochenen Text beim Kopieren zusammenfügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reflow Hard-Wrapped Text on Copy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unir el texto con saltos de línea forzados al copiar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fusionner les lignes à retour forcé lors de la copie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー時にハード改行されたテキストを再結合"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사 시 강제 줄바꿈된 텍스트 다시 잇기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制时重新合并硬换行文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製時重新接合硬換行文字"
           }
         }
       }
@@ -380984,131 +382053,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "顯示側邊欄保險箱"
-          }
-        }
-      }
-    },
-    "shortcut.toggleFileEditorWordWrap.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle File Editor Word Wrap"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルエディタの行折り返しを切り替え"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeilenumbruch im Dateieditor umschalten"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activer ou désactiver le retour à la ligne de l’éditeur de fichiers"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تبديل التفاف الكلمات في محرر الملفات"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar el ajuste de línea del editor de archivos"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切換檔案編輯器自動換行"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切换文件编辑器自动换行"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "파일 편집기 자동 줄 바꿈 전환"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uključi ili isključi prelamanje redova u uređivaču datoteka"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå linjeombrydning i fileditoren til eller fra"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attiva o disattiva il ritorno a capo nell’editor di file"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បិទឬបើកការរុំបន្ទាត់ក្នុងកម្មវិធីកែសម្រួលឯកសារ"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå linjebryting i filredigereren av eller på"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przełącz zawijanie wierszy w edytorze plików"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar quebra de linha no editor de arquivos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Переключить перенос строк в редакторе файлов"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สลับการตัดบรรทัดในตัวแก้ไขไฟล์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dosya düzenleyicisinde sözcük kaydırmayı değiştir"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перемкнути перенесення рядків у редакторі файлів"
           }
         }
       }
@@ -539439,2274 +540383,6 @@
         }
       }
     },
-    "agentRestore.recovery.checking": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restoring saved agent session…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تجري استعادة جلسة الوكيل المحفوظة…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gespeicherte Agentensitzung wird wiederhergestellt…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restaurando la sesión guardada del agente…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restauration de la session d’agent enregistrée…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存されたエージェントセッションを復元しています…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "저장된 에이전트 세션을 복원하는 중…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在恢复已保存的智能体会话…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在還原已儲存的代理程式工作階段…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vraćanje sačuvane sesije agenta…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gendanner gemt agentsession…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ripristino della sessione salvata dell’agente…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កំពុងស្ដារសម័យភ្នាក់ងារដែលបានរក្សាទុក…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gjenoppretter lagret agentøkt…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przywracanie zapisanej sesji agenta…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restaurando a sessão salva do agente…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Восстановление сохранённого сеанса агента…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กำลังกู้คืนเซสชันเอเจนต์ที่บันทึกไว้…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kaydedilmiş aracı oturumu geri yükleniyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Відновлення збереженого сеансу агента…"
-          }
-        }
-      }
-    },
-    "agentRestore.recovery.liveOwner": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ session is running in process %2$@. Waiting for its writer to become available…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جلسة %1$@ تعمل في العملية %2$@. جارٍ انتظار إتاحة الكتابة…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Sitzung von %1$@ läuft in Prozess %2$@. Warten auf die Schreibfreigabe…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La sesión de %1$@ se ejecuta en el proceso %2$@. Esperando a que se libere la escritura…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La session %1$@ s’exécute dans le processus %2$@. En attente de la libération de l’écriture…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ セッションはプロセス %2$@ で実行中です。書き込みロックの解放を待っています…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 세션이 프로세스 %2$@에서 실행 중입니다. 쓰기 권한이 해제되기를 기다리는 중…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 会话正在进程 %2$@ 中运行。正在等待写入权限释放…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 工作階段正在程序 %2$@ 中執行。正在等待寫入權限釋出…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sesija %1$@ radi u procesu %2$@. Čeka se oslobađanje prava pisanja…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sessionen %1$@ kører i proces %2$@. Venter på, at skriveadgangen bliver ledig…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La sessione %1$@ è in esecuzione nel processo %2$@. In attesa che l’accesso in scrittura sia disponibile…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សម័យ %1$@ កំពុងដំណើរការក្នុងដំណើរការ %2$@។ កំពុងរង់ចាំសិទ្ធិសរសេរឱ្យទំនេរ…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Økten %1$@ kjører i prosess %2$@. Venter på at skrivetilgangen blir ledig…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sesja %1$@ działa w procesie %2$@. Oczekiwanie na zwolnienie dostępu do zapisu…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A sessão %1$@ está em execução no processo %2$@. Aguardando a liberação do acesso de escrita…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сеанс %1$@ выполняется в процессе %2$@. Ожидание освобождения доступа для записи…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เซสชัน %1$@ กำลังทำงานในโพรเซส %2$@ กำลังรอให้สิทธิ์การเขียนว่าง…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ oturumu %2$@ işleminde çalışıyor. Yazma erişiminin serbest kalması bekleniyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сеанс %1$@ виконується в процесі %2$@. Очікування звільнення доступу для запису…"
-          }
-        }
-      }
-    },
-    "cli.ssh.authenticationFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH authentication did not open the connection. Check your SSH credentials and retry."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لم تتمكن مصادقة SSH من فتح الاتصال. تحقق من بيانات اعتماد SSH وحاول مرة أخرى."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die SSH-Authentifizierung konnte die Verbindung nicht öffnen. Prüfen Sie Ihre SSH-Zugangsdaten und versuchen Sie es erneut."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La autenticación SSH no abrió la conexión. Revisa tus credenciales SSH e inténtalo de nuevo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’authentification SSH n’a pas permis d’ouvrir la connexion. Vérifiez vos identifiants SSH et réessayez."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 認証で接続を確立できませんでした。SSH の認証情報を確認して再試行してください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 인증으로 연결을 열지 못했습니다. SSH 자격 증명을 확인하고 다시 시도하세요."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 身份验证未能建立连接。请检查您的 SSH 凭据后重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 驗證未能建立連線。請檢查您的 SSH 認證資料後再試一次。"
-          }
-        }
-      }
-    },
-    "ssh.tui.sessionNotFound": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This SSH terminal is no longer available."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لم تعد هذه الطرفية عبر SSH متاحة."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dieses SSH-Terminal ist nicht mehr verfügbar."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este terminal SSH ya no está disponible."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ce terminal SSH n’est plus disponible."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この SSH ターミナルは利用できなくなりました。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 SSH 터미널을 더 이상 사용할 수 없습니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此 SSH 终端已不可用。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此 SSH 終端機已無法使用。"
-          }
-        }
-      }
-    },
-    "cli.ssh.authenticationNeedsTerminal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH authentication requires a terminal. Run this command from an interactive shell."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تتطلب مصادقة SSH طرفية. شغّل هذا الأمر من صدفة تفاعلية."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die SSH-Authentifizierung benötigt ein Terminal. Führen Sie diesen Befehl in einer interaktiven Shell aus."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La autenticación SSH requiere un terminal. Ejecuta este comando desde un intérprete de órdenes interactivo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’authentification SSH nécessite un terminal. Exécutez cette commande depuis un shell interactif."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 認証にはターミナルが必要です。対話型シェルからこのコマンドを実行してください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 인증에는 터미널이 필요합니다. 대화형 셸에서 이 명령을 실행하세요."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 身份验证需要终端。请在交互式 Shell 中运行此命令。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 驗證需要終端機。請在互動式 Shell 中執行此命令。"
-          }
-        }
-      }
-    },
-    "cli.ssh.authenticationForegroundFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not hand the terminal to SSH for %@. Authentication was cancelled to avoid a hang (%@)."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذر تسليم الطرفية إلى SSH للاتصال بـ %@. أُلغيت المصادقة لتجنب التعليق (%@)."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das Terminal konnte SSH für %@ nicht übergeben werden. Die Authentifizierung wurde abgebrochen, um ein Hängenbleiben zu vermeiden (%@)."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo ceder el terminal a SSH para %@. Se canceló la autenticación para evitar un bloqueo (%@)."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de confier le terminal à SSH pour %@. L’authentification a été annulée pour éviter un blocage (%@)."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ への接続でターミナルを SSH に渡せませんでした。ハングを防ぐため認証をキャンセルしました（%@）。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@에 연결하기 위해 터미널을 SSH에 넘길 수 없습니다. 멈춤을 방지하기 위해 인증을 취소했습니다(%@)."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法将终端交给 SSH 以连接到 %@。为避免卡住，已取消身份验证（%@）。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法將終端機交給 SSH 以連線至 %@。為避免停滯，已取消驗證（%@）。"
-          }
-        }
-      }
-    },
-    "cli.ssh.authenticationLaunchFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not launch SSH: %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذر تشغيل SSH: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH konnte nicht gestartet werden: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo iniciar SSH: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de lancer SSH : %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH を起動できませんでした：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH를 시작할 수 없습니다: %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法启动 SSH：%@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法啟動 SSH：%@"
-          }
-        }
-      }
-    },
-    "cli.ssh.authenticationSystemExecutableRequired": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH authentication requires the system SSH executable."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تتطلب مصادقة SSH ملف SSH التنفيذي الخاص بالنظام."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die SSH-Authentifizierung erfordert die SSH-Programmdatei des Systems."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La autenticación SSH requiere el ejecutable SSH del sistema."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’authentification SSH nécessite l’exécutable SSH du système."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 認証にはシステムの SSH 実行ファイルが必要です。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 인증에는 시스템 SSH 실행 파일이 필요합니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 身份验证需要使用系统的 SSH 可执行文件。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 驗證需要使用系統的 SSH 執行檔。"
-          }
-        }
-      }
-    },
-    "cli.ssh.authenticationExitFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH authentication to %@ failed (exit %@)."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فشلت مصادقة SSH مع %@ (رمز الخروج %@)."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die SSH-Authentifizierung bei %@ ist fehlgeschlagen (Exit-Code %@)."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La autenticación SSH en %@ falló (código de salida %@)."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’authentification SSH auprès de %@ a échoué (code de sortie %@)."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ への SSH 認証に失敗しました（終了コード %@）。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@에 대한 SSH 인증에 실패했습니다(종료 코드 %@)."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "连接到 %@ 的 SSH 身份验证失败（退出代码 %@）。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "連線至 %@ 的 SSH 驗證失敗（結束代碼 %@）。"
-          }
-        }
-      }
-    },
-    "settings.configMutation.undoConflict": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Undo preserved a newer choice. Review this setting before changing it:"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "取り消しでは新しい選択を保持しました。変更する前にこの設定を確認してください："
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die neuere Auswahl wurde beim Rückgängigmachen beibehalten. Prüfen Sie diese Einstellung vor einer Änderung:"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’annulation a conservé un choix plus récent. Vérifiez ce réglage avant de le modifier :"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se conservó una elección más reciente al deshacer. Revisa este ajuste antes de cambiarlo:"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "احتفظ التراجع باختيار أحدث. راجع هذا الإعداد قبل تغييره:"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "撤销操作保留了较新的选择。更改前请检查此设置："
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "復原操作保留了較新的選擇。變更前請檢查此設定："
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "실행 취소 시 더 최근의 선택을 유지했습니다. 변경하기 전에 이 설정을 검토하세요:"
-          }
-        }
-      }
-    },
-    "settings.configMutation.invalidCandidate": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The proposed config is invalid. No changes were saved."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "変更後の設定が無効です。変更は保存されませんでした。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die vorgeschlagene Konfiguration ist ungültig. Es wurden keine Änderungen gespeichert."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La configuration proposée est invalide. Aucune modification n’a été enregistrée."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La configuración propuesta no es válida. No se guardó ningún cambio."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الإعدادات المقترحة غير صالحة. لم تُحفظ أي تغييرات."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "建议的配置无效。未保存任何更改。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "建議的設定無效。未儲存任何變更。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "제안된 설정이 유효하지 않습니다. 변경 사항이 저장되지 않았습니다."
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.conversationSidebar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conversation Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "会話サイドバー"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "对话侧边栏"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Konversations-Seitenleiste"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Barre latérale des conversations"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الشريط الجانبي للمحادثات"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Barra lateral de conversaciones"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "對話側邊欄"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "대화 사이드바"
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.conversationSidebar.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hides Conversations while preserving existing agent sessions."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "既存のエージェントセッションを保持したまま、「会話」を非表示にします。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "隐藏“对话”，同时保留现有智能体会话。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Blendet „Konversationen“ aus und behält vorhandene Agent-Sitzungen bei."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Masque les conversations tout en conservant les sessions d’agent existantes."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يخفي «المحادثات» مع الاحتفاظ بجلسات الوكيل الحالية."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oculta Conversaciones y conserva las sesiones de agente existentes."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "隱藏「對話」，同時保留現有代理程式工作階段。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "기존 에이전트 세션은 유지하면서 대화를 숨깁니다."
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.conversationSidebar.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows Conversations in the left sidebar picker."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "左側サイドバーの選択メニューに「会話」を表示します。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在左侧边栏选择器中显示“对话”。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeigt „Konversationen“ im Auswahlmenü der linken Seitenleiste an."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Affiche les conversations dans le sélecteur de la barre latérale gauche."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعرض «المحادثات» في منتقي الشريط الجانبي الأيسر."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Muestra Conversaciones en el selector de la barra lateral izquierda."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在左側側邊欄選取器中顯示「對話」。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "왼쪽 사이드바 선택기에 대화를 표시합니다."
-          }
-        }
-      }
-    },
-    "sidebar.provider.conversations.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Coding-agent sessions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コーディングエージェントのセッション"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "编码智能体会话"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sitzungen von Coding-Agenten"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sessions d’agents de programmation"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جلسات وكلاء البرمجة"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sesiones de agentes de programación"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "程式設計代理程式工作階段"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "코딩 에이전트 세션"
-          }
-        }
-      }
-    },
-    "sidebar.provider.conversations.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conversations"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "会話"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "对话"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Konversationen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Discussions"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "المحادثات"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conversaciones"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "對話"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "대화"
-          }
-        }
-      }
-    },
-    "featureFlags.conversationSidebar.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Multi-provider conversation sidebar"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Multi-Provider-Konversationsseitenleiste"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Barre latérale de conversations multi-fournisseurs"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الشريط الجانبي للمحادثات متعددة المزوّدين"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Barra lateral de conversaciones de varios proveedores"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "多提供者對話側邊欄"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "多提供商对话侧边栏"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다중 제공자 대화 사이드바"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "複数プロバイダーの会話サイドバー"
-          }
-        }
-      }
-    },
-    "featureFlags.conversationSidebar.description": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enables the opt-in sidebar for conversations from multiple coding-agent providers."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktiviert die optionale Seitenleiste für Unterhaltungen von mehreren Coding-Agent-Anbietern."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Active la barre latérale facultative pour les conversations provenant de plusieurs fournisseurs d’agents de codage."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يمكّن الشريط الجانبي الاختياري للمحادثات من مزوّدي وكلاء برمجة متعدّدين."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activa la barra lateral opcional para conversaciones de varios proveedores de agentes de programación."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "啟用可選的側邊欄，顯示來自多個程式設計代理程式提供者的對話。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "启用可选的侧边栏，显示来自多个编程代理提供商的对话。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "여러 코딩 에이전트 제공자의 대화를 위한 선택적 사이드바를 활성화합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "複数のコーディングエージェントプロバイダーの会話を表示するオプトインのサイドバーを有効にします。"
-          }
-        }
-      }
-    },
-    "cli.session.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usage: cmux session restore [--list] [--session <id>]...\n\nReopen Claude sessions that were running when cmux last quit unexpectedly.\ncmux finds them in the agent journal, skips any that are running or already\nopen, and resumes each in its own workspace through the launcher that started\nit.\n\nWithout --session, restore acts only after an unexpected quit.\n\nOptions:\n  --list            Show the sessions without restoring them.\n  --session <id>    Restore only this session (repeatable)."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verwendung: cmux session restore [--list] [--session <id>]...\n\nÖffnet Claude-Sitzungen erneut, die liefen, als cmux zuletzt unerwartet beendet wurde.\ncmux findet sie im Agent-Journal, überspringt laufende oder bereits geöffnete\nund setzt jede in einem eigenen Workspace\nüber den Launcher fort, der sie gestartet hat.\n\nOhne --session stellt restore nur nach einem unerwarteten Beenden wieder her.\n\nOptionen:\n  --list            Sitzungen anzeigen, ohne sie wiederherzustellen.\n  --session <id>    Nur diese Sitzung wiederherstellen (wiederholbar)."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utilisation : cmux session restore [--list] [--session <id>]...\n\nRouvre les sessions Claude en cours lorsque cmux s’est fermé de façon inattendue.\ncmux les trouve dans le journal des agents, ignore celles qui tournent ou sont déjà\nouvertes, et reprend chacune dans son propre espace de travail via le lanceur qui l’a\ndémarrée.\n\nSans --session, restore n’agit qu’après une fermeture inattendue.\n\nOptions :\n  --list            Afficher les sessions sans les restaurer.\n  --session <id>    Restaurer uniquement cette session (répétable)."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الاستخدام: cmux session restore [--list] [--session <id>]...\n\nيعيد فتح جلسات Claude التي كانت قيد التشغيل عندما أُغلق cmux بشكل غير متوقع آخر مرة.\nيعثر cmux عليها في سجل الوكيل، ويتخطى ما يعمل منها أو المفتوح بالفعل،\nويستأنف كل جلسة في مساحة عمل خاصة بها\nعبر المشغّل الذي بدأها.\n\nبدون --session، لا تعمل الاستعادة إلا بعد إغلاق غير متوقع.\n\nالخيارات:\n  --list            عرض الجلسات دون استعادتها.\n  --session <id>    استعادة هذه الجلسة فقط (قابل للتكرار)."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uso: cmux session restore [--list] [--session <id>]...\n\nVuelve a abrir las sesiones de Claude que estaban en ejecución cuando cmux se cerró inesperadamente.\ncmux las encuentra en el diario de agentes, omite las que están en ejecución o ya\nabiertas, y reanuda cada una en su propio espacio de trabajo mediante el lanzador que\nla inició.\n\nSin --session, restore solo actúa tras un cierre inesperado.\n\nOpciones:\n  --list            Mostrar las sesiones sin restaurarlas.\n  --session <id>    Restaurar solo esta sesión (repetible)."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用法： cmux session restore [--list] [--session <id>]...\n\n重新開啟 cmux 上次意外結束時仍在執行的 Claude 工作階段。\ncmux 會從代理日誌中找出它們，略過仍在執行或已開啟的工作階段，\n並透過原本啟動它的啟動器\n在各自的工作區中繼續。\n\n未指定 --session 時，restore 只會在意外結束後執行。\n\n選項：\n  --list            只列出工作階段，不還原。\n  --session <id>    只還原此工作階段（可重複）。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用法： cmux session restore [--list] [--session <id>]...\n\n重新打开 cmux 上次意外退出时仍在运行的 Claude 会话。\ncmux 会从代理日志中找到它们，跳过仍在运行或已打开的会话，\n并通过最初启动它的启动器\n在各自的工作区中继续。\n\n未指定 --session 时，restore 只会在意外退出后执行。\n\n选项：\n  --list            只列出会话，不恢复。\n  --session <id>    只恢复此会话（可重复）。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용법: cmux session restore [--list] [--session <id>]...\n\ncmux가 마지막으로 예기치 않게 종료될 때 실행 중이던 Claude 세션을 다시 엽니다.\ncmux는 에이전트 저널에서 세션을 찾고, 실행 중이거나 이미 열려 있는 세션은 건너뛰며,\n각 세션을 시작한 런처를 통해\n자체 워크스페이스에서 이어갑니다.\n\n--session이 없으면 restore는 예기치 않은 종료 후에만 동작합니다.\n\n옵션:\n  --list            복원하지 않고 세션만 표시합니다.\n  --session <id>    이 세션만 복원합니다(반복 가능)."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用法: cmux session restore [--list] [--session <id>]...\n\ncmux が前回予期せず終了したときに実行中だった Claude セッションを再び開きます。\ncmux はエージェントジャーナルからセッションを見つけ、実行中または既に開いている\nものはスキップし、それぞれを起動したランチャー経由で\n専用のワークスペースで再開します。\n\n--session を指定しない場合、restore は予期しない終了の後にのみ動作します。\n\nオプション:\n  --list            復元せずにセッションを表示します。\n  --session <id>    このセッションのみ復元します（複数指定可）。"
-          }
-        }
-      }
-    },
-    "cli.session.error.expectedRestore": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session: expected 'restore' (see cmux help session)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session: 'restore' erwartet (siehe cmux help session)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session : « restore » attendu (voir cmux help session)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session: كان المتوقع 'restore' (راجع cmux help session)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session: se esperaba 'restore' (consulta cmux help session)"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session：應為 'restore'（請參閱 cmux help session）"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session：应为 'restore'（请参阅 cmux help session）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session: 'restore'가 필요합니다(cmux help session 참조)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session: 'restore' が必要です（cmux help session を参照）"
-          }
-        }
-      }
-    },
-    "cli.session.error.sessionRequiresId": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore: --session requires an id"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore: --session erfordert eine ID"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore : --session nécessite un identifiant"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore: يتطلب --session معرّفًا"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore: --session requiere un id"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore：--session 需要一個 ID"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore：--session 需要一个 ID"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore: --session에는 ID가 필요합니다"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore: --session には ID が必要です"
-          }
-        }
-      }
-    },
-    "cli.session.error.unknownArgument": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore: unknown argument '%@'"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore: unbekanntes Argument '%@'"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore : argument inconnu « %@ »"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore: وسيط غير معروف '%@'"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore: argumento desconocido '%@'"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore：未知的參數 '%@'"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore：未知参数 '%@'"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore: 알 수 없는 인수 '%@'"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "session restore: 不明な引数 '%@'"
-          }
-        }
-      }
-    },
-    "cli.session.list.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No agent sessions to restore."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keine Agent-Sitzungen zum Wiederherstellen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aucune session d’agent à restaurer."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا توجد جلسات وكيل لاستعادتها."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No hay sesiones de agente para restaurar."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "沒有可還原的代理工作階段。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "没有可恢复的代理会话。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "복원할 에이전트 세션이 없습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "復元するエージェントセッションはありません。"
-          }
-        }
-      }
-    },
-    "cli.session.restore.cleanQuit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No agent sessions restored: cmux last quit normally. To restore one anyway, pass --session <id> from --list."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keine Agent-Sitzungen wiederhergestellt: cmux wurde zuletzt normal beendet. Um trotzdem eine wiederherzustellen, übergib --session <id> aus --list."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aucune session d’agent restaurée : cmux s’est fermé normalement la dernière fois. Pour en restaurer une quand même, passez --session <id> depuis --list."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لم تتم استعادة أي جلسات وكيل: أُغلق cmux بشكل طبيعي آخر مرة. لاستعادة جلسة على أي حال، مرّر --session <id> من --list."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se restauró ninguna sesión de agente: cmux se cerró normalmente la última vez. Para restaurar una de todos modos, pasa --session <id> de --list."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未還原任何代理工作階段：cmux 上次是正常結束。若仍要還原，請傳入 --list 中的 --session <id>。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未恢复任何代理会话：cmux 上次是正常退出。若仍要恢复，请传入 --list 中的 --session <id>。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "복원된 에이전트 세션이 없습니다. cmux가 마지막에 정상적으로 종료되었습니다. 그래도 복원하려면 --list에서 확인한 --session <id>를 전달하세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントセッションは復元されませんでした。cmux は前回正常に終了しています。それでも復元する場合は、--list の --session <id> を指定してください。"
-          }
-        }
-      }
-    },
-    "cli.session.restore.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No agent sessions restored."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keine Agent-Sitzungen wiederhergestellt."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aucune session d’agent restaurée."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لم تتم استعادة أي جلسات وكيل."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se restauró ninguna sesión de agente."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未還原任何代理工作階段。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未恢复任何代理会话。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "복원된 에이전트 세션이 없습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントセッションは復元されませんでした。"
-          }
-        }
-      }
-    },
-    "cli.session.restore.done": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent sessions restored: %lld"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wiederhergestellte Agent-Sitzungen: %lld"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sessions d’agent restaurées : %lld"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جلسات الوكيل المستعادة: %lld"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sesiones de agente restauradas: %lld"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已還原的代理工作階段：%lld"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已恢复的代理会话：%lld"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "복원된 에이전트 세션: %lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "復元したエージェントセッション: %lld"
-          }
-        }
-      }
-    },
-    "agentRecovery.alert.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restore agent sessions?"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent-Sitzungen wiederherstellen?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restaurer les sessions d’agent ?"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "هل تريد استعادة جلسات الوكيل؟"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "¿Restaurar las sesiones de agente?"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要還原代理工作階段嗎？"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要恢复代理会话吗？"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 세션을 복원할까요?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントセッションを復元しますか？"
-          }
-        }
-      }
-    },
-    "agentRecovery.alert.message": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux quit unexpectedly while agent sessions were running. Sessions to restore: %lld. Each one reopens in its own workspace and resumes where it left off."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux wurde unerwartet beendet, während Agent-Sitzungen liefen. Wiederherzustellende Sitzungen: %lld. Jede wird in einem eigenen Workspace geöffnet und dort fortgesetzt, wo sie aufgehört hat."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux s’est fermé de façon inattendue pendant que des sessions d’agent étaient en cours. Sessions à restaurer : %lld. Chacune rouvre dans son propre espace de travail et reprend là où elle s’était arrêtée."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أُغلق cmux بشكل غير متوقع أثناء تشغيل جلسات الوكيل. الجلسات المطلوب استعادتها: %lld. تُفتح كل جلسة في مساحة عمل خاصة بها وتُستأنف من حيث توقفت."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux se cerró inesperadamente mientras había sesiones de agente en ejecución. Sesiones por restaurar: %lld. Cada una se abre en su propio espacio de trabajo y continúa donde se quedó."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 在代理工作階段執行時意外結束。要還原的工作階段：%lld。每個工作階段都會在各自的工作區重新開啟，並從中斷處繼續。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 在代理会话运行时意外退出。要恢复的会话：%lld。每个会话都会在各自的工作区重新打开，并从中断处继续。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 세션이 실행 중일 때 cmux가 예기치 않게 종료되었습니다. 복원할 세션: %lld. 각 세션은 자체 워크스페이스에서 다시 열리고 중단된 곳에서 이어집니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントセッションの実行中に cmux が予期せず終了しました。復元するセッション: %lld。各セッションは専用のワークスペースで再び開き、中断したところから再開します。"
-          }
-        }
-      }
-    },
-    "agentRecovery.alert.restore": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restore Agent Sessions"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent-Sitzungen wiederherstellen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restaurer les sessions d’agent"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "استعادة جلسات الوكيل"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restaurar sesiones de agente"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "還原代理工作階段"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "恢复代理会话"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 세션 복원"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントセッションを復元"
-          }
-        }
-      }
-    },
-    "agentRecovery.alert.notNow": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not Now"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nicht jetzt"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pas maintenant"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ليس الآن"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ahora no"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "稍後"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "以后再说"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "나중에"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "後で"
-          }
-        }
-      }
-    },
-    "agentRestore.writerLock.candidates": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Possible owners: %1$@."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mögliche Besitzer: %1$@."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Propriétaires possibles : %1$@."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "المالكون المحتملون: %1$@."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Posibles propietarios: %1$@."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "可能的擁有者：%1$@。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "可能的所有者：%1$@。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "가능한 소유자: %1$@."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "所有者の候補: %1$@。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mogući vlasnici: %1$@."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mulige ejere: %1$@."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Possibili proprietari: %1$@."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ម្ចាស់ដែលអាចមាន៖ %1$@។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mulige eiere: %1$@."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Możliwi właściciele: %1$@."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Possíveis proprietários: %1$@."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Возможные владельцы: %1$@."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เจ้าของที่เป็นไปได้: %1$@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Olası sahipler: %1$@."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Можливі власники: %1$@."
-          }
-        }
-      }
-    },
-    "agentRestore.writerLock.held": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This conversation is in use by another process. Continue there or close it normally, then retry restoring it here."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diese Unterhaltung wird von einem anderen Prozess verwendet. Setzen Sie sie dort fort oder schließen Sie sie regulär und versuchen Sie dann erneut, sie hier wiederherzustellen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cette conversation est utilisée par un autre processus. Continuez là-bas ou fermez-la normalement, puis réessayez de la restaurer ici."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تستخدم عملية أخرى هذه المحادثة. تابع هناك أو أغلقها بالطريقة المعتادة، ثم أعد محاولة استعادتها هنا."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otro proceso está usando esta conversación. Continúa allí o ciérrala normalmente y vuelve a intentar restaurarla aquí."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "另一個程序正在使用此對話。請在該處繼續，或正常關閉後再嘗試於此處還原。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "另一个进程正在使用此对话。请在该处继续，或正常关闭后再尝试在此处恢复。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다른 프로세스가 이 대화를 사용 중입니다. 해당 프로세스에서 계속하거나 정상적으로 닫은 후 여기에서 다시 복원하세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "別のプロセスがこの会話を使用しています。そちらで続けるか、通常の手順で閉じてから、ここでの復元を再試行してください。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ovaj razgovor koristi drugi proces. Nastavite tamo ili ga zatvorite na uobičajen način, a zatim ponovo pokušajte vratiti razgovor ovdje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne samtale bruges af en anden proces. Fortsæt dér, eller luk den på normal vis, og prøv derefter at gendanne den her igen."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questa conversazione è in uso da un altro processo. Continua lì oppure chiudila normalmente, quindi riprova a ripristinarla qui."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការសន្ទនានេះកំពុងត្រូវបានប្រើដោយដំណើរការមួយផ្សេងទៀត។ បន្តនៅទីនោះ ឬបិទវាតាមធម្មតា រួចព្យាយាមស្ដារវានៅទីនេះម្ដងទៀត។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne samtalen brukes av en annen prosess. Fortsett der, eller lukk den på vanlig måte, og prøv deretter å gjenopprette den her igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ta rozmowa jest używana przez inny proces. Kontynuuj tam lub zamknij ją w zwykły sposób, a następnie spróbuj ponownie ją tutaj przywrócić."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esta conversa está em uso por outro processo. Continue lá ou feche-a normalmente e tente restaurá-la aqui novamente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Этот разговор используется другим процессом. Продолжите там или закройте его обычным способом, затем попробуйте восстановить его здесь."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การสนทนานี้กำลังใช้งานอยู่ในอีกกระบวนการหนึ่ง ให้ดำเนินการต่อที่นั่นหรือปิดตามปกติ แล้วลองกู้คืนการสนทนาที่นี่อีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu konuşma başka bir işlem tarafından kullanılıyor. Orada devam edin veya normal şekilde kapatın, ardından burada geri yüklemeyi yeniden deneyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цю розмову використовує інший процес. Продовжте там або закрийте її звичайним способом, а потім спробуйте відновити її тут."
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.terminal.reflow-hard-wrap-on-copy": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste التفاف سطر فواصل الأسطر نسخ لصق ضم"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste umbruch zeilenumbruch kopieren einfügen zusammenfügen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste ajuste de línea saltos de línea copiar pegar reunir"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste retour à la ligne saut de ligne copier coller rejoindre"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste 折り返し 改行 ハード改行 コピー ペースト 結合"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste 줄바꿈 강제 줄바꿈 자동 줄바꿈 복사 붙여넣기 잇기"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste 换行 硬换行 自动换行 复制 粘贴 合并"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste 換行 硬換行 自動換行 複製 貼上 接合"
-          }
-        }
-      }
-    },
-    "settings.terminal.reflowHardWrapOnCopy": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعادة ضم النص المقسّم يدويًا عند النسخ"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hart umbrochenen Text beim Kopieren zusammenfügen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reflow Hard-Wrapped Text on Copy"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unir el texto con saltos de línea forzados al copiar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fusionner les lignes à retour forcé lors de la copie"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コピー時にハード改行されたテキストを再結合"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "복사 시 강제 줄바꿈된 텍스트 다시 잇기"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "复制时重新合并硬换行文本"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "複製時重新接合硬換行文字"
-          }
-        }
-      }
-    },
     "machines.menu.defaultMachine": {
       "extractionState": "manual",
       "localizations": {
@@ -543071,6 +541747,1035 @@
           "stringUnit": {
             "state": "translated",
             "value": "Налаштування завершено. cmux Computer Use готовий."
+          }
+        }
+      }
+    },
+    "menu.view.toggleFileEditorWordWrap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle File Editor Word Wrap"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエディタの行折り返しを切り替え"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeilenumbruch im Dateieditor umschalten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer ou désactiver le retour à la ligne de l’éditeur de fichiers"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل التفاف الكلمات في محرر الملفات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar el ajuste de línea del editor de archivos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換檔案編輯器自動換行"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换文件编辑器自动换行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 편집기 자동 줄 바꿈 전환"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključi ili isključi prelamanje redova u uređivaču datoteka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå linjeombrydning i fileditoren til eller fra"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva o disattiva il ritorno a capo nell’editor di file"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទឬបើកការរុំបន្ទាត់ក្នុងកម្មវិធីកែសម្រួលឯកសារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå linjebryting i filredigereren av eller på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz zawijanie wierszy w edytorze plików"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar quebra de linha no editor de arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключить перенос строк в редакторе файлов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับการตัดบรรทัดในตัวแก้ไขไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya düzenleyicisinde sözcük kaydırmayı değiştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути перенесення рядків у редакторі файлів"
+          }
+        }
+      }
+    },
+    "shortcut.toggleFileEditorWordWrap.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle File Editor Word Wrap"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエディタの行折り返しを切り替え"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeilenumbruch im Dateieditor umschalten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer ou désactiver le retour à la ligne de l’éditeur de fichiers"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل التفاف الكلمات في محرر الملفات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar el ajuste de línea del editor de archivos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換檔案編輯器自動換行"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换文件编辑器自动换行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 편집기 자동 줄 바꿈 전환"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključi ili isključi prelamanje redova u uređivaču datoteka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå linjeombrydning i fileditoren til eller fra"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva o disattiva il ritorno a capo nell’editor di file"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទឬបើកការរុំបន្ទាត់ក្នុងកម្មវិធីកែសម្រួលឯកសារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå linjebryting i filredigereren av eller på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz zawijanie wierszy w edytorze plików"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar quebra de linha no editor de arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключить перенос строк в редакторе файлов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับการตัดบรรทัดในตัวแก้ไขไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya düzenleyicisinde sözcük kaydırmayı değiştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути перенесення рядків у редакторі файлів"
+          }
+        }
+      }
+    },
+    "agentRestore.recovery.checking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restoring saved agent session…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجري استعادة جلسة الوكيل المحفوظة…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gespeicherte Agentensitzung wird wiederhergestellt…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurando la sesión guardada del agente…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restauration de la session d’agent enregistrée…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存されたエージェントセッションを復元しています…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 에이전트 세션을 복원하는 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在恢复已保存的智能体会话…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在還原已儲存的代理程式工作階段…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vraćanje sačuvane sesije agenta…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gendanner gemt agentsession…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristino della sessione salvata dell’agente…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងស្ដារសម័យភ្នាក់ងារដែលបានរក្សាទុក…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjenoppretter lagret agentøkt…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywracanie zapisanej sesji agenta…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurando a sessão salva do agente…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Восстановление сохранённого сеанса агента…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังกู้คืนเซสชันเอเจนต์ที่บันทึกไว้…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaydedilmiş aracı oturumu geri yükleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відновлення збереженого сеансу агента…"
+          }
+        }
+      }
+    },
+    "agentRestore.recovery.liveOwner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ session is running in process %2$@. Waiting for its writer to become available…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسة %1$@ تعمل في العملية %2$@. جارٍ انتظار إتاحة الكتابة…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Sitzung von %1$@ läuft in Prozess %2$@. Warten auf die Schreibfreigabe…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sesión de %1$@ se ejecuta en el proceso %2$@. Esperando a que se libere la escritura…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La session %1$@ s’exécute dans le processus %2$@. En attente de la libération de l’écriture…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ セッションはプロセス %2$@ で実行中です。書き込みロックの解放を待っています…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 세션이 프로세스 %2$@에서 실행 중입니다. 쓰기 권한이 해제되기를 기다리는 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 会话正在进程 %2$@ 中运行。正在等待写入权限释放…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 工作階段正在程序 %2$@ 中執行。正在等待寫入權限釋出…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesija %1$@ radi u procesu %2$@. Čeka se oslobađanje prava pisanja…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionen %1$@ kører i proces %2$@. Venter på, at skriveadgangen bliver ledig…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sessione %1$@ è in esecuzione nel processo %2$@. In attesa che l’accesso in scrittura sia disponibile…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម័យ %1$@ កំពុងដំណើរការក្នុងដំណើរការ %2$@។ កំពុងរង់ចាំសិទ្ធិសរសេរឱ្យទំនេរ…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Økten %1$@ kjører i prosess %2$@. Venter på at skrivetilgangen blir ledig…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesja %1$@ działa w procesie %2$@. Oczekiwanie na zwolnienie dostępu do zapisu…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sessão %1$@ está em execução no processo %2$@. Aguardando a liberação do acesso de escrita…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс %1$@ выполняется в процессе %2$@. Ожидание освобождения доступа для записи…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชัน %1$@ กำลังทำงานในโพรเซส %2$@ กำลังรอให้สิทธิ์การเขียนว่าง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ oturumu %2$@ işleminde çalışıyor. Yazma erişiminin serbest kalması bekleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс %1$@ виконується в процесі %2$@. Очікування звільнення доступу для запису…"
+          }
+        }
+      }
+    },
+    "cli.ssh.authenticationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH authentication did not open the connection. Check your SSH credentials and retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تتمكن مصادقة SSH من فتح الاتصال. تحقق من بيانات اعتماد SSH وحاول مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Authentifizierung konnte die Verbindung nicht öffnen. Prüfen Sie Ihre SSH-Zugangsdaten und versuchen Sie es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La autenticación SSH no abrió la conexión. Revisa tus credenciales SSH e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’authentification SSH n’a pas permis d’ouvrir la connexion. Vérifiez vos identifiants SSH et réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 認証で接続を確立できませんでした。SSH の認証情報を確認して再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 인증으로 연결을 열지 못했습니다. SSH 자격 증명을 확인하고 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 身份验证未能建立连接。请检查您的 SSH 凭据后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 驗證未能建立連線。請檢查您的 SSH 認證資料後再試一次。"
+          }
+        }
+      }
+    },
+    "ssh.tui.sessionNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This SSH terminal is no longer available."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تعد هذه الطرفية عبر SSH متاحة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses SSH-Terminal ist nicht mehr verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este terminal SSH ya no está disponible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce terminal SSH n’est plus disponible."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この SSH ターミナルは利用できなくなりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 SSH 터미널을 더 이상 사용할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 SSH 终端已不可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 SSH 終端機已無法使用。"
+          }
+        }
+      }
+    },
+    "cli.ssh.authenticationNeedsTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH authentication requires a terminal. Run this command from an interactive shell."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتطلب مصادقة SSH طرفية. شغّل هذا الأمر من صدفة تفاعلية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Authentifizierung benötigt ein Terminal. Führen Sie diesen Befehl in einer interaktiven Shell aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La autenticación SSH requiere un terminal. Ejecuta este comando desde un intérprete de órdenes interactivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’authentification SSH nécessite un terminal. Exécutez cette commande depuis un shell interactif."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 認証にはターミナルが必要です。対話型シェルからこのコマンドを実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 인증에는 터미널이 필요합니다. 대화형 셸에서 이 명령을 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 身份验证需要终端。请在交互式 Shell 中运行此命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 驗證需要終端機。請在互動式 Shell 中執行此命令。"
+          }
+        }
+      }
+    },
+    "cli.ssh.authenticationForegroundFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not hand the terminal to SSH for %@. Authentication was cancelled to avoid a hang (%@)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تسليم الطرفية إلى SSH للاتصال بـ %@. أُلغيت المصادقة لتجنب التعليق (%@)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal konnte SSH für %@ nicht übergeben werden. Die Authentifizierung wurde abgebrochen, um ein Hängenbleiben zu vermeiden (%@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo ceder el terminal a SSH para %@. Se canceló la autenticación para evitar un bloqueo (%@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de confier le terminal à SSH pour %@. L’authentification a été annulée pour éviter un blocage (%@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ への接続でターミナルを SSH に渡せませんでした。ハングを防ぐため認証をキャンセルしました（%@）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 연결하기 위해 터미널을 SSH에 넘길 수 없습니다. 멈춤을 방지하기 위해 인증을 취소했습니다(%@)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法将终端交给 SSH 以连接到 %@。为避免卡住，已取消身份验证（%@）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法將終端機交給 SSH 以連線至 %@。為避免停滯，已取消驗證（%@）。"
+          }
+        }
+      }
+    },
+    "cli.ssh.authenticationLaunchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not launch SSH: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تشغيل SSH: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH konnte nicht gestartet werden: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo iniciar SSH: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lancer SSH : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH を起動できませんでした：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH를 시작할 수 없습니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法启动 SSH：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法啟動 SSH：%@"
+          }
+        }
+      }
+    },
+    "cli.ssh.authenticationSystemExecutableRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH authentication requires the system SSH executable."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتطلب مصادقة SSH ملف SSH التنفيذي الخاص بالنظام."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Authentifizierung erfordert die SSH-Programmdatei des Systems."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La autenticación SSH requiere el ejecutable SSH del sistema."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’authentification SSH nécessite l’exécutable SSH du système."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 認証にはシステムの SSH 実行ファイルが必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 인증에는 시스템 SSH 실행 파일이 필요합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 身份验证需要使用系统的 SSH 可执行文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 驗證需要使用系統的 SSH 執行檔。"
+          }
+        }
+      }
+    },
+    "cli.ssh.authenticationExitFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH authentication to %@ failed (exit %@)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشلت مصادقة SSH مع %@ (رمز الخروج %@)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Authentifizierung bei %@ ist fehlgeschlagen (Exit-Code %@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La autenticación SSH en %@ falló (código de salida %@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’authentification SSH auprès de %@ a échoué (code de sortie %@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ への SSH 認証に失敗しました（終了コード %@）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 대한 SSH 인증에 실패했습니다(종료 코드 %@)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接到 %@ 的 SSH 身份验证失败（退出代码 %@）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線至 %@ 的 SSH 驗證失敗（結束代碼 %@）。"
+          }
+        }
+      }
+    },
+    "settings.configMutation.undoConflict": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo preserved a newer choice. Review this setting before changing it:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り消しでは新しい選択を保持しました。変更する前にこの設定を確認してください："
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die neuere Auswahl wurde beim Rückgängigmachen beibehalten. Prüfen Sie diese Einstellung vor einer Änderung:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’annulation a conservé un choix plus récent. Vérifiez ce réglage avant de le modifier :"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se conservó una elección más reciente al deshacer. Revisa este ajuste antes de cambiarlo:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "احتفظ التراجع باختيار أحدث. راجع هذا الإعداد قبل تغييره:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销操作保留了较新的选择。更改前请检查此设置："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復原操作保留了較新的選擇。變更前請檢查此設定："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 취소 시 더 최근의 선택을 유지했습니다. 변경하기 전에 이 설정을 검토하세요:"
+          }
+        }
+      }
+    },
+    "settings.configMutation.invalidCandidate": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The proposed config is invalid. No changes were saved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更後の設定が無効です。変更は保存されませんでした。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die vorgeschlagene Konfiguration ist ungültig. Es wurden keine Änderungen gespeichert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuration proposée est invalide. Aucune modification n’a été enregistrée."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuración propuesta no es válida. No se guardó ningún cambio."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإعدادات المقترحة غير صالحة. لم تُحفظ أي تغييرات."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建议的配置无效。未保存任何更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建議的設定無效。未儲存任何變更。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제안된 설정이 유효하지 않습니다. 변경 사항이 저장되지 않았습니다."
           }
         }
       }
@@ -568710,6 +568415,419 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ はこの cmux が現在保存しているセッションです。前回の起動を再度開くには、--from を付けずに cmux restore-session を実行してください。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.conversationSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversation Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話サイドバー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对话侧边栏"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konversations-Seitenleiste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre latérale des conversations"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشريط الجانبي للمحادثات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra lateral de conversaciones"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對話側邊欄"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화 사이드바"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.conversationSidebar.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides Conversations while preserving existing agent sessions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既存のエージェントセッションを保持したまま、「会話」を非表示にします。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏“对话”，同时保留现有智能体会话。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blendet „Konversationen“ aus und behält vorhandene Agent-Sitzungen bei."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masque les conversations tout en conservant les sessions d’agent existantes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يخفي «المحادثات» مع الاحتفاظ بجلسات الوكيل الحالية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta Conversaciones y conserva las sesiones de agente existentes."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏「對話」，同時保留現有代理程式工作階段。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기존 에이전트 세션은 유지하면서 대화를 숨깁니다."
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.conversationSidebar.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Conversations in the left sidebar picker."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左側サイドバーの選択メニューに「会話」を表示します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在左侧边栏选择器中显示“对话”。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt „Konversationen“ im Auswahlmenü der linken Seitenleiste an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche les conversations dans le sélecteur de la barre latérale gauche."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض «المحادثات» في منتقي الشريط الجانبي الأيسر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra Conversaciones en el selector de la barra lateral izquierda."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在左側側邊欄選取器中顯示「對話」。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "왼쪽 사이드바 선택기에 대화를 표시합니다."
+          }
+        }
+      }
+    },
+    "sidebar.provider.conversations.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding-agent sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コーディングエージェントのセッション"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编码智能体会话"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungen von Coding-Agenten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessions d’agents de programmation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسات وكلاء البرمجة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesiones de agentes de programación"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式設計代理程式工作階段"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코딩 에이전트 세션"
+          }
+        }
+      }
+    },
+    "sidebar.provider.conversations.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversations"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对话"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konversationen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discussions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المحادثات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversaciones"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對話"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화"
+          }
+        }
+      }
+    },
+    "featureFlags.conversationSidebar.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multi-provider conversation sidebar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multi-Provider-Konversationsseitenleiste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre latérale de conversations multi-fournisseurs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشريط الجانبي للمحادثات متعددة المزوّدين"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra lateral de conversaciones de varios proveedores"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "多提供者對話側邊欄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "多提供商对话侧边栏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다중 제공자 대화 사이드바"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複数プロバイダーの会話サイドバー"
+          }
+        }
+      }
+    },
+    "featureFlags.conversationSidebar.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enables the opt-in sidebar for conversations from multiple coding-agent providers."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviert die optionale Seitenleiste für Unterhaltungen von mehreren Coding-Agent-Anbietern."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active la barre latérale facultative pour les conversations provenant de plusieurs fournisseurs d’agents de codage."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكّن الشريط الجانبي الاختياري للمحادثات من مزوّدي وكلاء برمجة متعدّدين."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa la barra lateral opcional para conversaciones de varios proveedores de agentes de programación."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用可選的側邊欄，顯示來自多個程式設計代理程式提供者的對話。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用可选的侧边栏，显示来自多个编程代理提供商的对话。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여러 코딩 에이전트 제공자의 대화를 위한 선택적 사이드바를 활성화합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複数のコーディングエージェントプロバイダーの会話を表示するオプトインのサイドバーを有効にします。"
           }
         }
       }
