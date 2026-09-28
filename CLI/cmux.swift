@@ -32705,7 +32705,7 @@ struct CMUXCLI {
             params["resume_evidence_provenance"] = codexEvidenceProvenance.logValue
         }
         do {
-            try client.sendV2(
+            _ = try client.sendV2(
                 method: "surface.resume.set",
                 params: params,
                 responseTimeout: responseTimeout,
