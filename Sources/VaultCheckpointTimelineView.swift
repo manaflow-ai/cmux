@@ -146,8 +146,11 @@ struct VaultCheckpointTimelineView: View {
                 .padding(.horizontal, 10)
                 .frame(height: 26)
                 .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(cmuxAccent.color.opacity(0.13))
+                    RoundedRectangle(
+                        cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius,
+                        style: .continuous
+                    )
+                    .fill(cmuxAccent.color.opacity(0.13))
                 )
             }
             .buttonStyle(.borderless)
