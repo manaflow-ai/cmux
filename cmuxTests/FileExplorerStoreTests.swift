@@ -238,6 +238,47 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func exclusionReloadReconcilesSelectionAfterExpandedLoadFails() async throws {
+        let rootPath = "/tmp/project"
+        let sourcePath = "\(rootPath)/Sources"
+        let selectedFilePath = "\(sourcePath)/Generated.swift"
+        let provider = MockFileExplorerProvider()
+        provider.listings[rootPath] = .success([
+            FileExplorerEntry(name: "Sources", path: sourcePath, isDirectory: true),
+            FileExplorerEntry(name: "README.md", path: "\(rootPath)/README.md", isDirectory: false),
+        ])
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Generated.swift", path: selectedFilePath, isDirectory: false),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath(rootPath)
+        try await waitFor("root nodes loaded") { store.rootNodes.count == 2 }
+        let sourceNode = try #require(store.rootNodes.first)
+        store.expand(node: sourceNode)
+        try await waitFor("source children loaded") { sourceNode.children?.count == 1 }
+        store.select(node: try #require(sourceNode.children?.first))
+
+        // Rebuilding an expanded tree must retain a selection that still exists.
+        store.setExcludePatterns(["README.md"])
+        try await waitFor("expanded source reloaded") {
+            store.rootNodes.first { $0.path == sourcePath }?.children?.count == 1
+        }
+        #expect(store.selectedPath == selectedFilePath)
+        #expect(store.selectedPaths == [selectedFilePath])
+
+        provider.listings[sourcePath] = .failure(FileExplorerError.providerUnavailable)
+        store.setExcludePatterns(["Sources/Generated.swift"])
+        try await waitFor("expanded source load failed") {
+            store.rootNodes.first { $0.path == sourcePath }?.error != nil &&
+                store.loadingPaths.isEmpty
+        }
+        #expect(store.selectedPath == sourcePath)
+        #expect(store.selectedPaths == [sourcePath])
+    }
+
+    @Test
     func testLoadRootPopulatesNodes() async throws {
         let provider = MockFileExplorerProvider()
         provider.listings["/home/user/project"] = .success([
