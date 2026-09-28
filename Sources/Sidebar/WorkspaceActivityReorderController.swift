@@ -92,7 +92,7 @@ final class WorkspaceActivityReorderController {
         return WorkspaceActivityReorderGate.Context(
             isPinned: workspace.isPinned,
             isSelected: manager.selectedTabId == workspaceId,
-            isAtTop: manager.tabs.first(where: { !$0.isPinned })?.id == workspaceId,
+            isAtTop: manager.isAtTopOfUnpinnedTier(workspaceId),
             isSidebarInteracting: isSidebarInteracting()
         )
     }

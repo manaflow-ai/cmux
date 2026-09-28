@@ -53,7 +53,8 @@ public enum AgentLifecycleActivity: String, Sendable, Equatable, CaseIterable {
     ///
     /// Explicit phase corrections (`stateChanged`) and session bookkeeping
     /// restore or tear down state rather than report new activity, so they
-    /// never count, whatever phases they produce.
+    /// never count, whatever phases they produce. A new prompt counts only
+    /// for a turn start.
     ///
     /// - Parameters:
     ///   - kind: The kind of the event that was reduced.
@@ -69,7 +70,11 @@ public enum AgentLifecycleActivity: String, Sendable, Equatable, CaseIterable {
         case .stateChanged, .sessionStarted, .sessionEnded:
             return nil
         default:
-            return classify(from: previous, to: current)
+            let activity = classify(from: previous, to: current)
+            // Only a turn start is a new prompt; a background child that
+            // wakes an idle session is work, not the user asking for more.
+            if activity == .promptSubmitted, kind != .turnStarted { return nil }
+            return activity
         }
     }
 }

@@ -37,6 +37,13 @@ struct AgentLifecycleActivityTests {
         #expect(AgentLifecycleActivity.classify(event: .approvalRequested, from: .running, to: .needsInput) == .needsInput)
     }
 
+    @Test func onlyATurnStartIsANewPrompt() {
+        #expect(AgentLifecycleActivity.classify(event: .turnStarted, from: .idle, to: .running) == .promptSubmitted)
+        #expect(AgentLifecycleActivity.classify(event: .childSpawned, from: .idle, to: .running) == nil)
+        #expect(AgentLifecycleActivity.classify(event: .childCompleted, from: .running, to: .idle) == .turnFinished)
+        #expect(AgentLifecycleActivity.classify(event: .idleObserved, from: .running, to: .idle) == .turnFinished)
+    }
+
     @Test func reducedEventsClassifyThroughTheCombinedPhase() {
         let reducer = AgentLifecycleReducer()
         var state = AgentLifecycleReducerState()
