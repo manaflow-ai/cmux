@@ -3460,6 +3460,48 @@ class E2EQueueRounds(unittest.TestCase):
         self.assertIn("pool.QUEUE_ROUNDS_VARIABLE, QUEUE_ROUNDS_ENV",
                       (ROOT / "scripts/ci/dispatch-focused-test.py").read_text())
 
+class IrohReleaseGateWiring(unittest.TestCase):
+    """iroh-release-gate.yml offers its Tailscale job to the owned Macs; simulator-e2e stays on Blacksmith."""
+
+    BLACKSMITH = "(vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15')"
+
+    def setUp(self):
+        self.jobs = yaml.safe_load((WORKFLOWS / "iroh-release-gate.yml").read_text())["jobs"]
+
+    def test_the_tailscale_job_takes_an_owned_pick_on_attempt_1_only(self):
+        job = self.jobs["tailscale-version-skew"]
+        self.assertEqual(job["needs"], ["resolve-ref", "runner"])
+        # A failed or skipped runner job leaves the Blacksmith expression.
+        self.assertEqual(job["if"], "${{ !cancelled() && needs.resolve-ref.result == 'success' }}")
+        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                                         "(github.run_attempt == 1 && needs.runner.outputs.label || "
+                                         f"{self.BLACKSMITH}) }}}}")
+        self.assertEqual(job["env"]["CMUX_CI_XCODE_APP"],
+                         "${{ github.run_attempt == 1 && needs.runner.outputs.label != '' && "
+                         "vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}")
+        names = [step.get("name") for step in job["steps"]]
+        self.assertLess(names.index("Take this Mac's gui token"), names.index("Run deterministic version-skew gate"))
+
+    def test_the_picker_offers_only_owned_labels_of_trusted_first_attempts(self):
+        runner = self.jobs["runner"]
+        pool = next(step for step in runner["steps"] if step.get("id") == "pool")
+        for word in ("github.run_attempt == 1", "vars.CI_PR_POOL_OWNED == '1'",
+                     "needs.resolve-ref.outputs.trusted_ref == 'true'"):
+            self.assertIn(word, pool["if"])
+        self.assertIn("python3 scripts/ci/e2e_runner_pool.py", pool["run"])
+        self.assertNotIn("--queue-rounds", pool["run"])
+        self.assertIn("glaeda-*) ;;", pool["run"])
+        self.assertTrue(janitor.may_hold_owned_pool(
+            {"run_attempt": 1, "event": "workflow_dispatch", "path": ".github/workflows/iroh-release-gate.yml",
+             "head_repository": {"id": 1}, "repository": {"id": 1}}, []))
+
+    def test_simulator_e2e_stays_on_blacksmith(self):
+        job = self.jobs["simulator-e2e"]
+        self.assertEqual(job["needs"], "resolve-ref")
+        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                                         f"{self.BLACKSMITH} }}}}")
+
+
 class IOSWiring(unittest.TestCase):
     """The unsigned iOS jobs read ios_runner_pool.py; everything that signs or leaks stays on Blacksmith."""
 
