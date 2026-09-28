@@ -7395,7 +7395,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["MobileNewTerminalMenuItem"].exists)
         dismissOpenMenu(in: app)
 
-        tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        tapMenuItem(app.buttons["MobileNewWorkspaceMenuItem"], in: app)
         let freshBackButton = app.buttons["MobileWorkspaceBackButton"]
         let freshTitleMenu = workspaceTitleElement(in: app)
         let freshTerminalDropdown = app.buttons["MobileTerminalDropdown"]
