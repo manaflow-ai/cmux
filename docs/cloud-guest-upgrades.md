@@ -123,7 +123,7 @@ The target is the cmux-tui build the default image bakes (the manifest's
    for each machine returns 200 (Axiom `cmux-prod-otel-traces`, span
    `POST /api/vm/[id]/attach-endpoint`).
 
-What the guest script (`web/services/vms/images/devbox/cmux-tui-upgrade`)
+What the guest script (`web/scripts/cloud-vm/cmux-tui-upgrade.sh`)
 does per machine, detached as root, one result line in
 `/var/lib/cmux-tui-upgrade/result`:
 

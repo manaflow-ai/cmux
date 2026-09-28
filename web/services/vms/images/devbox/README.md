@@ -298,7 +298,7 @@ when the machine is a clone, and starts the daemon. The driver runs no
 bootstrap at create and no guest work on attach, so nothing on a running
 machine changes its cmux-tui: upgrade running machines with
 `bun scripts/upgrade-fleet-cmux-tui.ts` and the in-place guest script
-`cmux-tui-upgrade`, under the compatibility rules in
+`scripts/cloud-vm/cmux-tui-upgrade.sh`, under the compatibility rules in
 docs/cloud-guest-upgrades.md. The container Dockerfile still ships only the
 supervisor and waits for a driver install.
 

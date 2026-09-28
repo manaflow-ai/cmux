@@ -5,7 +5,7 @@
  *
  * Each machine gets two files in /var/lib/cmux-tui-upgrade: the pinned install
  * command (`cmuxTuiInstallCommand`, the exact command the image bake runs)
- * and the guest script `services/vms/images/devbox/cmux-tui-upgrade`, which
+ * and the guest script `scripts/cloud-vm/cmux-tui-upgrade.sh`, which
  * runs detached as root and writes one result line. This runner only starts
  * the script and polls the result; the guest script owns every safety check
  * and the rollback.
@@ -39,7 +39,7 @@ const GUEST_DIR = "/var/lib/cmux-tui-upgrade";
 const POLL_INTERVAL_MS = 15_000;
 const POLL_DEADLINE_MS = 30 * 60_000;
 const guestScript = readFileSync(
-  path.join(path.dirname(fileURLToPath(import.meta.url)), "../services/vms/images/devbox/cmux-tui-upgrade"),
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "cloud-vm/cmux-tui-upgrade.sh"),
   "utf8",
 );
 

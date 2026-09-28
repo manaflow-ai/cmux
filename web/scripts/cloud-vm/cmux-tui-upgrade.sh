@@ -12,7 +12,7 @@
 # not restart the daemon with the current contract, and rolls the binary back
 # when the new daemon crashes or never listens.
 #
-# Usage: cmux-tui-upgrade <target-sha256> <target-commit>
+# Usage: cmux-tui-upgrade.sh <target-sha256> <target-commit>
 # Result: one line in /var/lib/cmux-tui-upgrade/result, starting with
 # OK, SKIP, PENDING, ROLLBACK or FAIL. Log: /var/lib/cmux-tui-upgrade/log.
 set -u
