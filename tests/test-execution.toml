@@ -1437,3 +1437,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_guard_tests_emit_no_workflow_commands.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_merge_pbxproj.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_btop_agents_sidebar.py"
+lane = "linux-guard"
