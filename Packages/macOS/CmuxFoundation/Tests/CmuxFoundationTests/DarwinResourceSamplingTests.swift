@@ -23,6 +23,8 @@ struct DarwinResourceSamplingTests {
         ).capture()
         #expect(!listing.isComplete)
         #expect(listing.missingProcessCount == 1)
+        // A PID that vanished after listing is not a truncated PID list.
+        #expect(!listing.isTruncated)
     }
 
     @Test("Truncated PID buffers remain incomplete after bounded retries")
@@ -45,7 +47,34 @@ struct DarwinResourceSamplingTests {
         ).capture()
         #expect(readCount == 3)
         #expect(!listing.isComplete)
+        #expect(listing.isTruncated)
         #expect(!listing.processes.isEmpty)
+    }
+
+    @Test("Truncation is reported separately from unreadable listed processes")
+    func truncationIsSeparateFromMissingProcesses() {
+        let fullyRead = DarwinProcessEnumerator(
+            listPIDs: { pointer, _ in
+                guard let pointer else { return 1 }
+                pointer.assumingMemoryBound(to: pid_t.self)[0] = 42
+                return 1
+            },
+            readProcess: { pid in
+                var info = proc_bsdinfo()
+                info.pbi_pid = UInt32(pid)
+                return info
+            }
+        ).capture()
+        let unlisted = DarwinProcessEnumerator(
+            listPIDs: { _, _ in 0 },
+            readProcess: { _ in nil }
+        ).capture()
+
+        #expect(fullyRead.isComplete)
+        #expect(!fullyRead.isTruncated)
+        #expect(!unlisted.isComplete)
+        #expect(unlisted.isTruncated)
+        #expect(unlisted.processes.isEmpty)
     }
 
     @Test("Topology fallback preserves kernel parent and process generation")
