@@ -113,11 +113,15 @@ if [[ -n "$SOAK_PROFILE" ]]; then
     echo "error: soak requires automatic or relay-only mode" >&2; exit 2;
   }
   case "$SOAK_PROFILE" in
-    basic) REPORT_TIMEOUT=840 ;;
+    # The app deadline is the workload duration plus the rollover probe and
+    # its bounded readiness/teardown allowance. The waiter starts after the
+    # prewarm launch below, so this margin only covers report delivery.
+    basic) REPORT_TIMEOUT=1170 ;;
     stress)
       # Relay-only stress adds the 330-second rollover probe after the
-      # one-hour workload. Leave enough time for that probe and teardown.
-      REPORT_TIMEOUT="$([[ "$MODE" == relay-only ]] && printf 4200 || printf 3840)"
+      # one-hour workload. Leave enough time for that probe, teardown, and
+      # report delivery.
+      REPORT_TIMEOUT="$([[ "$MODE" == relay-only ]] && printf 4170 || printf 3870)"
       ;;
     *) echo "error: invalid soak profile" >&2; exit 2 ;;
   esac
@@ -782,30 +786,6 @@ CMUX_ATTACH_ALLOW_RELAUNCH=1 \
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" physical_device ${MAC_AUTH_ARGS[@]+"${MAC_AUTH_ARGS[@]}"}
 
-# Wait for the app's atomic report-write signal. Python owns the simulator
-# notifyutil child so its timeout is bounded without polling the filesystem.
-SIMULATOR_ID="$SIMULATOR_ID" \
-REPORT_READY_NOTIFICATION="$REPORT_READY_NOTIFICATION" \
-REPORT_TIMEOUT="$REPORT_TIMEOUT" \
-/usr/bin/python3 <<'PY' &
-import os
-import subprocess
-
-try:
-    subprocess.run(
-        [
-            "xcrun", "simctl", "spawn", os.environ["SIMULATOR_ID"],
-            "notifyutil", "-1", os.environ["REPORT_READY_NOTIFICATION"],
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        timeout=int(os.environ["REPORT_TIMEOUT"]),
-    )
-except subprocess.TimeoutExpired:
-    raise SystemExit("Iroh release gate report signal timed out")
-PY
-REPORT_WAITER_PID=$!
-
 MOBILE_LAUNCH_ARGS=(
   --tag "$TAG"
   --simulator-id "$SIMULATOR_ID"
@@ -827,6 +807,32 @@ if [[ -n "$SOAK_PROFILE" ]]; then
   CMUX_DEV_AUTH_REPLACE_SESSION=1 \
     ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}"
 fi
+
+# Wait for the app's atomic report-write signal. Start this after prewarm so
+# its deadline measures the release-gate run itself, rather than an unrelated
+# enrollment or build delay. Python owns the simulator notifyutil child so its
+# timeout is bounded without polling the filesystem.
+SIMULATOR_ID="$SIMULATOR_ID" \
+REPORT_READY_NOTIFICATION="$REPORT_READY_NOTIFICATION" \
+REPORT_TIMEOUT="$REPORT_TIMEOUT" \
+/usr/bin/python3 <<'PY' &
+import os
+import subprocess
+
+try:
+    subprocess.run(
+        [
+            "xcrun", "simctl", "spawn", os.environ["SIMULATOR_ID"],
+            "notifyutil", "-1", os.environ["REPORT_READY_NOTIFICATION"],
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        timeout=int(os.environ["REPORT_TIMEOUT"]),
+    )
+except subprocess.TimeoutExpired:
+    raise SystemExit("Iroh release gate report signal timed out")
+PY
+REPORT_WAITER_PID=$!
 
 MOBILE_LAUNCH_ARGS+=(--iroh-release-gate "$RAW_MODE")
 # Capture the simulator's composited terminal pixels at the presentation
