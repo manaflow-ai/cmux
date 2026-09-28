@@ -23,10 +23,11 @@ pane's session (or a session grouped with it), prefers the one whose current
 window shows the pane and then the most recently active one, and reads the
 session socket and terminal id from that client's environment. The event goes
 to that terminal, so its agent status appears where the session is attached.
-This takes precedence over the pane's own `CMUX_TUI_*` values, which come
-from whichever terminal started the tmux server. Without such a client the
-helper uses the pane's environment as before. Agents started before the
-hooks were installed or updated pick this up on their next start.
+Each event is routed on its own, so after the session moves to another
+terminal the next event reports there. A pane that has the session's
+variables, including one in a tmux server started from a cmux-tui terminal,
+keeps using them. Agents started before the hooks were installed or updated
+pick this up on their next start.
 
 ## Claude Code without an install
 

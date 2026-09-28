@@ -110,18 +110,17 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
     }
 }
 
-/// The session socket and terminal that receive this event. Inside tmux the
-/// pane's own `CMUX_TUI_*` values come from whichever terminal started the
-/// tmux server, which may be gone or unrelated, so the cmux-tui terminal
-/// attached to the pane's session wins. Outside tmux, or when no attached
-/// client runs in a cmux-tui terminal, the environment decides.
+/// The session socket and terminal that receive this event: the terminal's
+/// own `CMUX_TUI_*` values, or, for an agent in a tmux session started
+/// outside cmux-tui (which has none), the cmux-tui terminal attached to the
+/// pane's tmux session.
 fn session_route() -> Option<(PathBuf, Option<String>)> {
-    if let Some(route) = tmux_route::attached_terminal() {
-        return Some((route.socket, Some(route.terminal)));
+    if let Some(socket) = env::var_os("CMUX_TUI_SOCKET").filter(|value| !value.is_empty()) {
+        let terminal = env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|value| !value.is_empty());
+        return Some((PathBuf::from(socket), terminal));
     }
-    let socket = env::var_os("CMUX_TUI_SOCKET").filter(|value| !value.is_empty())?;
-    let terminal = env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|value| !value.is_empty());
-    Some((PathBuf::from(socket), terminal))
+    let route = tmux_route::attached_terminal()?;
+    Some((route.socket, Some(route.terminal)))
 }
 
 /// Finds the cmux-tui terminal whose tmux client shows the hook's pane.
@@ -140,9 +139,10 @@ mod tmux_route {
     #[cfg(target_os = "linux")]
     use std::time::{Duration, Instant};
 
-    /// Bound on both tmux queries together; hooks must not stall the agent.
+    /// Bound on both tmux queries together. It comes out of the provider's
+    /// hook budget, and codex kills SessionEnd hooks at 3s.
     #[cfg(target_os = "linux")]
-    const TMUX_BUDGET: Duration = Duration::from_millis(1500);
+    const TMUX_BUDGET: Duration = Duration::from_millis(500);
 
     #[derive(Debug, PartialEq, Eq)]
     pub(super) struct Route {
