@@ -462,7 +462,7 @@ struct CmuxAgentChatConfigTests {
 
         try withAgentChatUIFlag(true) {
             let contributions = ContentView.commandPaletteNewAgentChatContributions()
-            #expect(contributions.map(\.commandId) == ["palette.newAgentChat"])
+            #expect(contributions.map(\.commandId) == ["palette.newAgentChat", "palette.openTerminalChatView"])
         }
     }
 

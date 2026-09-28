@@ -27,6 +27,7 @@ import {
 import { accountAccessPredicate, scopedSessionKey, type CoderouterAccountAccess } from "./accountAccess";
 import { signVmAuthorization, verifyVmAuthorization, type VmAuthorizationClaims } from "./vmAuthorization";
 import { createLastUsedWriter } from "./lastUsedWriter";
+import { refreshCompletionRegistry } from "./refreshSignal";
 
 const ROUTE_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 const VAULT_LEASE_MS = 30_000;
@@ -45,6 +46,9 @@ export function routeTokenHash(token: string): string {
 }
 
 const ROUTE_TOKEN_PATTERN = /^crt_[A-Za-z0-9_-]{40,}$/;
+// cloud_vms.id is a uuid; coderouter_route_tokens.vm_id is text. Compare the
+// two only through a validated parameter, never column to column.
+const CLOUD_VM_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const API_KEY_PATTERN = /^crk_[A-Za-z0-9_-]{40,}$/;
 const API_KEY_LIFETIME_LABEL = "api key";
 // `last_used_at` is display metadata. Keep it fresh enough for the control
@@ -257,7 +261,7 @@ export async function authenticateRouteToken(
   routeTokenLastUsed.schedule(tokenRow.id, tokenRow.teamId, now);
   const row = { teamId: tokenRow.teamId, stackUserId: tokenRow.stackUserId, vmId: tokenRow.vmId };
   if (row.vmId === null) return row;
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.vmId)) return null;
+  if (!CLOUD_VM_ID_PATTERN.test(row.vmId)) return null;
   const [vm] = await cloudDb().select({ poolId: cloudVms.coderouterPoolId })
     .from(cloudVms)
     .innerJoin(coderouterPools, and(eq(coderouterPools.id, cloudVms.coderouterPoolId), eq(coderouterPools.teamId, cloudVms.ownerTeamId)))
@@ -272,9 +276,10 @@ async function authenticateVmAuthorization(
   claims: VmAuthorizationClaims,
   now = new Date(),
 ): Promise<RouteTokenPrincipal | null> {
+  if (!CLOUD_VM_ID_PATTERN.test(claims.vm_id)) return null;
   const [row] = await cloudDb().select({ poolId: cloudVms.coderouterPoolId })
     .from(coderouterRouteTokens)
-    .innerJoin(cloudVms, eq(cloudVms.id, coderouterRouteTokens.vmId))
+    .innerJoin(cloudVms, eq(cloudVms.id, claims.vm_id))
     .innerJoin(coderouterPools, and(eq(coderouterPools.id, cloudVms.coderouterPoolId), eq(coderouterPools.teamId, cloudVms.ownerTeamId)))
     .where(and(
       eq(coderouterRouteTokens.tokenHash, routeTokenHash(token)),
@@ -645,6 +650,25 @@ export async function listEncryptedCredentials(
     .then((rows) => rows.map(encryptedCredentialRow));
 }
 
+/** Whether `access` may manage the team's native account: it exists in the
+ * team and is shared or the caller's own private account. */
+export async function nativeAccountAccessible(
+  teamId: string,
+  accountId: string,
+  access: CoderouterAccountAccess,
+): Promise<boolean> {
+  const [row] = await cloudDb()
+    .select({ id: coderouterAccounts.id })
+    .from(coderouterAccounts)
+    .where(and(
+      eq(coderouterAccounts.id, accountId),
+      eq(coderouterAccounts.teamId, teamId),
+      nativeAccess(access),
+    ))
+    .limit(1);
+  return Boolean(row);
+}
+
 export async function encryptedCredentialForAccount(
   teamId: string,
   accountId: string,
@@ -948,21 +972,21 @@ async function sweepExpiredRefreshLeases(
   signal?: AbortSignal,
 ): Promise<void> {
   const now = new Date();
-  await runWithCloudDbQuerySignal(signal, async () => {
-    await cloudDb()
-      .update(coderouterAccounts)
-      .set({
-        state: "active",
-        refreshLeaseId: null,
-        refreshLeaseExpiresAt: null,
-        updatedAt: now,
-      })
-      .where(and(
-        eq(coderouterAccounts.teamId, teamId),
-        eq(coderouterAccounts.state, "refreshing"),
-        lte(coderouterAccounts.refreshLeaseExpiresAt, now),
-      ));
-  });
+  const swept = await runWithCloudDbQuerySignal(signal, async () => await cloudDb()
+    .update(coderouterAccounts)
+    .set({
+      state: "active",
+      refreshLeaseId: null,
+      refreshLeaseExpiresAt: null,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(coderouterAccounts.teamId, teamId),
+      eq(coderouterAccounts.state, "refreshing"),
+      lte(coderouterAccounts.refreshLeaseExpiresAt, now),
+    ))
+    .returning({ id: coderouterAccounts.id }));
+  for (const { id } of swept) refreshCompletionRegistry.settled(id);
 }
 
 /**
@@ -1413,6 +1437,28 @@ export async function completeRefreshLease(input: {
       throw new CodeRouterCredentialRace("credential refresh lost lease");
     }
   }));
+  refreshCompletionRegistry.settled(input.accountId);
+}
+
+/**
+ * True while the account row holds an unexpired refresh lease. Waiters on
+ * other instances re-read this to learn that a refresh has settled.
+ */
+export async function refreshLeaseActive(
+  accountId: string,
+  signal?: AbortSignal,
+  now = new Date(),
+): Promise<boolean> {
+  const [row] = await runWithCloudDbQuerySignal(signal, () => cloudDb()
+    .select({ id: coderouterAccounts.id })
+    .from(coderouterAccounts)
+    .where(and(
+      eq(coderouterAccounts.id, accountId),
+      isNotNull(coderouterAccounts.refreshLeaseId),
+      gt(coderouterAccounts.refreshLeaseExpiresAt, now),
+    ))
+    .limit(1));
+  return row !== undefined;
 }
 
 export async function releaseRefreshLease(
@@ -1433,6 +1479,7 @@ export async function releaseRefreshLease(
       eq(coderouterAccounts.id, accountId),
       eq(coderouterAccounts.refreshLeaseId, leaseId),
     )));
+  refreshCompletionRegistry.settled(accountId);
 }
 
 export async function failRefreshLease(
@@ -1455,6 +1502,7 @@ export async function failRefreshLease(
       eq(coderouterAccounts.id, accountId),
       eq(coderouterAccounts.refreshLeaseId, leaseId),
     )));
+  refreshCompletionRegistry.settled(accountId);
 }
 
 export async function withVaultLease<T>(

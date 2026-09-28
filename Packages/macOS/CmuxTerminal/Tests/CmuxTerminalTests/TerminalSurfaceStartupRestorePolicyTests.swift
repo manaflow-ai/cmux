@@ -84,8 +84,8 @@ struct TerminalSurfaceStartupRestorePolicyTests {
         #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
     }
 
-    @Test("Cancelling deferred admission uses the transport-only command")
-    func cancellationUsesTransportOnlyCommand() {
+    @Test("Cancelling deferred admission drops the resume command")
+    func cancellationDropsResumeCommand() {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
         )
@@ -109,10 +109,9 @@ struct TerminalSurfaceStartupRestorePolicyTests {
         )
         defer { surface.closeHeadlessStartupWindowIfNeeded() }
 
-        surface.setStartupRestoreAdmissionFallbackCommand("attach-only")
         surface.cancelStartupRestoreAdmission()
 
-        #expect(surface.startupRestoreAdmissionCommandOverride == "attach-only")
+        #expect(surface.startupRestoreAdmissionCommandOverride == nil)
         #expect(surface.hasStartupRestoreAdmissionCommandOverride)
         #expect(surface.suppressConfiguredInitialInput)
     }

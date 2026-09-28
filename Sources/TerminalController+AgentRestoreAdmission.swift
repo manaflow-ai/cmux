@@ -61,7 +61,7 @@ extension TerminalController {
             )
         }
 
-        let writer = AgentRestoreCodexEvidence().inspect(
+        var writer = AgentRestoreCodexEvidence().inspect(
             record: record, sessionID: inputs.sessionID, effectiveHome: inputs.codexHome
         )
         let liveOwner: LiveAgentSessionOwner?
@@ -97,7 +97,16 @@ extension TerminalController {
                 request: request, inputs: inputs, decision: .targetChanged, startedAt: admissionStart
             )
         }
-        let evidenceDecision = inputs.launchLeasePending ? .refreshEvidence : AgentRestoreEvidencePolicy().decision(
+        var writerCandidates: [CodexWriterProcessInspector.Candidate] = []
+        if !inputs.launchLeasePending, liveOwner == nil, let observed = writer, observed.state == .active {
+            writerCandidates = CodexWriterProcessInspector().candidates(for: observed)
+            writer = AgentRestoreCodexEvidence().inspect(
+                record: record, sessionID: inputs.sessionID, effectiveHome: inputs.codexHome
+            )
+            if writer?.deviceAndInodeMatch(observed) != true { writerCandidates = [] }
+        }
+        let heldWriterCandidates = writer?.state == .active ? writerCandidates : nil
+        let evidenceDecision = AgentRestoreEvidencePolicy().decision(
             hasLiveOwner: liveOwner != nil,
             indexComplete: indexComplete,
             writerLock: writer?.state
@@ -105,10 +114,12 @@ extension TerminalController {
         let decision = await v2MainAsync { () -> AgentRestoreAdmissionDecision in
             guard self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil,
                   self.agentRestoreTargetRecord(inputs) == record else { return .targetChanged }
-            if evidenceDecision != .claimLaunch {
+            if inputs.launchLeasePending || liveOwner != nil {
+                // The CLI prints the terminal live-owner/launch-pending error.
+                // This operation has ended; leaving recovery visible suggests
+                // a queued launch that no longer exists.
                 let changed = self.presentAgentRestoreRecovery(
-                    workspaceID: inputs.workspaceID, surfaceID: inputs.surfaceID,
-                    state: liveOwner.map { .liveOwner(kind: inputs.kind, processID: $0.processID) } ?? .checking
+                    workspaceID: inputs.workspaceID, surfaceID: inputs.surfaceID, state: nil
                 )
                 if changed, let liveOwner {
                     AgentRestoreSuppressionJournal().record(
@@ -117,21 +128,28 @@ extension TerminalController {
                         processID: liveOwner.processID
                     )
                 }
-                return liveOwner.map(AgentRestoreAdmissionDecision.liveOwner) ?? .recovering
+                return liveOwner.map(AgentRestoreAdmissionDecision.liveOwner) ?? .concurrentLaunch
             }
-            guard let claim = AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
-                kind: inputs.kind, sessionId: inputs.sessionID
-            ) else { return .concurrentLaunch }
+            if evidenceDecision != .claimLaunch {
+                self.presentAgentRestoreRecovery(
+                    workspaceID: inputs.workspaceID, surfaceID: inputs.surfaceID,
+                    state: heldWriterCandidates.map { .writerLock(candidates: $0) } ?? .checking
+                )
+                return .recovering
+            }
             self.presentAgentRestoreRecovery(
                 workspaceID: inputs.workspaceID, surfaceID: inputs.surfaceID, state: nil
             )
+            guard let claim = AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
+                kind: inputs.kind, sessionId: inputs.sessionID
+            ) else { return .concurrentLaunch }
             return .admitted(claim)
         }
         // The CLI keeps the original restore operation alive. Each subsequent
         // request is paced by kernel evidence or the bounded RPC deadline.
         if inputs.waitForChange {
             switch decision {
-            case .liveOwner, .recovering, .concurrentLaunch:
+            case .recovering:
                 let kind = RestorableAgentKind(rawValue: inputs.kind)
                 let hookPath = kind?.hookStoreFileURL(homeDirectory: NSHomeDirectory())
                 let lockDirectory = writer.map { URL(fileURLWithPath: $0.lockPath).deletingLastPathComponent().path }
@@ -139,7 +157,7 @@ extension TerminalController {
                     process: liveOwner?.processIdentity,
                     paths: [hookPath?.deletingLastPathComponent().path, lockDirectory, writer?.lockPath].compactMap { $0 }
                 )
-            case .admitted, .targetChanged:
+            case .admitted, .targetChanged, .liveOwner, .concurrentLaunch:
                 break
             }
         }
@@ -301,7 +319,7 @@ extension TerminalController {
                 .ok(.object([
                     "admitted": .bool(false),
                     "live_owner_pid": .int(Int64(owner.processID)),
-                    "recovering": .bool(true),
+                    "recovering": .bool(false),
                 ]))
             )
         case .concurrentLaunch:
@@ -310,7 +328,7 @@ extension TerminalController {
                 .ok(.object([
                     "admitted": .bool(false),
                     "launch_pending": .bool(true),
-                    "recovering": .bool(true),
+                    "recovering": .bool(false),
                 ]))
             )
         case .targetChanged:

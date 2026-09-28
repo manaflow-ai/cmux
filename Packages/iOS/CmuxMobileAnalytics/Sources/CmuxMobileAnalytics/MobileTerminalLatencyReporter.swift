@@ -23,6 +23,20 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
         var inputToOutput = Array(repeating: 0, count: 17)
         var inputToVisible = Array(repeating: 0, count: 17)
         var render = Array(repeating: 0, count: 17)
+        // Per-hop stages for keystrokes whose echo frame carried Mac stamps.
+        var hostAccept = Array(repeating: 0, count: 17)
+        var hostCapture = Array(repeating: 0, count: 17)
+        var hostDispatch = Array(repeating: 0, count: 17)
+        var networkRoundTrip = Array(repeating: 0, count: 17)
+        var uplink = Array(repeating: 0, count: 17)
+        var downlink = Array(repeating: 0, count: 17)
+        // Mac emission pacer, from samples it attaches at most once a second.
+        var pacerSamples = 0
+        var pacerEmitted = 0
+        var pacerCoalesced = 0
+        var pacerSheds = 0
+        var pacerPeriodMaxMs = 0
+        var pacerPeriod = Array(repeating: 0, count: 17)
         var hasActivity: Bool { inputCount > 0 || failedCount > 0 || outputCount > 0 || presentedCount > 0 || droppedCount > 0 }
     }
 
@@ -37,6 +51,7 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
         var lastPresentedReceipt: UInt64 = 0
         var lastAnomalyAt: [String: UInt64] = [:]
         var consecutiveSlowFrames = 0
+        var clockOffset = MobileTerminalClockOffsetEstimator()
         init(now: UInt64) { windowStartedAt = now; lastActivityAt = now }
     }
 
@@ -156,6 +171,42 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
             trim(&surface.presentationStarts)
             emitAnomaly(timestamp - start, thresholdMs: 1_000, stage: "input_to_output", surface: surface)
         }
+    }
+
+    public func hostTimingReceived(
+        surfaceID: String,
+        appliedInputSequence: UInt64?,
+        timing: MobileTerminalHostTiming,
+        receivedAtNanos: UInt64?
+    ) {
+        guard let surface = state(for: surfaceID) else { return }
+        if let pacer = timing.pacer {
+            surface.window.pacerSamples += 1
+            surface.window.pacerEmitted += max(0, pacer.emitted)
+            surface.window.pacerCoalesced += max(0, pacer.coalesced)
+            surface.window.pacerSheds += max(0, pacer.sheds)
+            surface.window.pacerPeriodMaxMs = max(surface.window.pacerPeriodMaxMs, pacer.periodMillis)
+            Self.record(UInt64(max(0, pacer.periodMillis)) * 1_000_000, in: &surface.window.pacerPeriod)
+        }
+        guard timing.hasCompleteInputStamps,
+              let received = timing.inputReceivedMicros,
+              let accepted = timing.inputAcceptedMicros,
+              let captured = timing.frameCapturedMicros,
+              let dispatched = timing.frameDispatchedMicros else { return }
+        Self.record((accepted - received) * 1_000, in: &surface.window.hostAccept)
+        Self.record((captured - accepted) * 1_000, in: &surface.window.hostCapture)
+        Self.record((dispatched - captured) * 1_000, in: &surface.window.hostDispatch)
+        guard let sequence = appliedInputSequence,
+              let sent = surface.inputStarts[sequence] else { return }
+        guard let split = surface.clockOffset.observe(
+            phoneSendNanos: sent,
+            macReceiveMicros: received,
+            macDispatchMicros: dispatched,
+            phoneReceiveNanos: receivedAtNanos ?? now()
+        ) else { return }
+        Self.record(split.roundTripNanos, in: &surface.window.networkRoundTrip)
+        Self.record(split.uplinkNanos, in: &surface.window.uplink)
+        Self.record(split.downlinkNanos, in: &surface.window.downlink)
     }
 
     /// The output queue acknowledgment records application, not GPU presentation.
@@ -284,9 +335,26 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
             "dropped_count": .int(w.droppedCount), "output_bytes": .int(w.outputBytes),
             "max_queue_depth": .int(w.maxQueueDepth), "histogram_version": .int(1),
         ]
-        for (name, histogram) in [("input_to_output", w.inputToOutput), ("input_to_visible", w.inputToVisible), ("render", w.render)] {
-            values["\(name)_histogram"] = .string("[" + histogram.map(String.init).joined(separator: ",") + "]")
+        if w.pacerSamples > 0 {
+            values["pacer_sample_count"] = .int(w.pacerSamples)
+            values["pacer_emitted_count"] = .int(w.pacerEmitted)
+            values["pacer_coalesced_count"] = .int(w.pacerCoalesced)
+            values["pacer_shed_count"] = .int(w.pacerSheds)
+            values["pacer_period_max_ms"] = .int(w.pacerPeriodMaxMs)
+        }
+        let stages: [(String, [Int])] = [
+            ("input_to_output", w.inputToOutput), ("input_to_visible", w.inputToVisible), ("render", w.render),
+            ("host_accept", w.hostAccept), ("host_capture", w.hostCapture), ("host_dispatch", w.hostDispatch),
+            ("network_round_trip", w.networkRoundTrip), ("uplink", w.uplink), ("downlink", w.downlink),
+            ("pacer_period", w.pacerPeriod),
+        ]
+        let alwaysEmitted: Set<String> = ["input_to_output", "input_to_visible", "render"]
+        for (name, histogram) in stages {
             let count = histogram.reduce(0, +)
+            // Per-hop stages only appear in windows that measured them, so
+            // idle or legacy-Mac windows add no bytes to the event.
+            if count == 0, !alwaysEmitted.contains(name) { continue }
+            values["\(name)_histogram"] = .string("[" + histogram.map(String.init).joined(separator: ",") + "]")
             for percentile in [50, 95, 99] {
                 var cumulative = 0
                 let rank = max(1, (count * percentile + 99) / 100)

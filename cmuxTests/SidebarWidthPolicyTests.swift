@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 import Testing
 import XCTest
@@ -339,6 +340,47 @@ struct AppWebThemeContrastTests {
 }
 
 final class SidebarWorkspaceSelectionColorTests: XCTestCase {
+    func testIncreaseContrastStrengthensMultiSelectionWashOnly() {
+        for style in [WorkspaceIndicatorStyle.leftRail, .solidFill] {
+            func multiSelected(increaseContrast: Bool) -> SidebarWorkspaceRowBackgroundStyle {
+                sidebarWorkspaceRowBackgroundStyle(
+                    activeTabIndicatorStyle: style,
+                    isActive: false,
+                    isMultiSelected: true,
+                    customColorHex: nil,
+                    colorScheme: .dark,
+                    sidebarSelectionColorHex: nil,
+                    increaseContrast: increaseContrast
+                )
+            }
+            XCTAssertEqual(multiSelected(increaseContrast: false).opacity, 0.25, accuracy: 0.001)
+            XCTAssertGreaterThan(
+                multiSelected(increaseContrast: true).opacity,
+                multiSelected(increaseContrast: false).opacity
+            )
+
+            let active = { (increaseContrast: Bool) in
+                sidebarWorkspaceRowBackgroundStyle(
+                    activeTabIndicatorStyle: style,
+                    isActive: true,
+                    isMultiSelected: false,
+                    customColorHex: nil,
+                    colorScheme: .dark,
+                    sidebarSelectionColorHex: nil,
+                    increaseContrast: increaseContrast
+                )
+            }
+            XCTAssertEqual(active(true), active(false), "Selection fill values are not changed by Increase Contrast")
+        }
+    }
+
+    func testActiveBorderDrawsForSolidFillOrIncreaseContrast() {
+        XCTAssertTrue(WorkspaceIndicatorStyle.solidFill.drawsActiveBorder(isActive: true, increaseContrast: false))
+        XCTAssertFalse(WorkspaceIndicatorStyle.leftRail.drawsActiveBorder(isActive: true, increaseContrast: false))
+        XCTAssertTrue(WorkspaceIndicatorStyle.leftRail.drawsActiveBorder(isActive: true, increaseContrast: true))
+        XCTAssertFalse(WorkspaceIndicatorStyle.solidFill.drawsActiveBorder(isActive: false, increaseContrast: true))
+    }
+
     func testSelectedColoredWorkspaceUsesStandardSelectionBackgroundInLightAndDark() {
         for colorScheme in [ColorScheme.light, .dark] {
             let coloredSelected = sidebarWorkspaceRowBackgroundStyle(
@@ -486,9 +528,9 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
             terminalRenderingMode: .windowHostBackdrop,
             unifySurfaceBackdrops: true,
             sidebarSettings: SidebarBackdropSettingsSnapshot(
-                materialRawValue: SidebarMaterialOption.sidebar.rawValue,
-                blendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
-                stateRawValue: SidebarStateOption.followWindow.rawValue,
+                materialRawValue: WindowChromeSidebarMaterialOption.sidebar.rawValue,
+                blendModeRawValue: WindowChromeSidebarBlendModeOption.withinWindow.rawValue,
+                stateRawValue: WindowChromeSidebarStateOption.followWindow.rawValue,
                 tintHex: SidebarTintDefaults().hex,
                 tintHexLight: nil,
                 tintHexDark: nil,
@@ -498,7 +540,7 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
                 colorScheme: .light
             ),
             windowGlassSettings: WindowGlassSettingsSnapshot(
-                sidebarBlendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
+                sidebarBlendModeRawValue: WindowChromeSidebarBlendModeOption.withinWindow.rawValue,
                 isEnabled: false,
                 tintHex: "#000000",
                 tintOpacity: 0,

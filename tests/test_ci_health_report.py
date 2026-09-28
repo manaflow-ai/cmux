@@ -85,6 +85,30 @@ class JobRowTests(unittest.TestCase):
         self.assertEqual(skipped.minutes, 0.0)
         self.assertEqual(skipped.bucket, "skipped")
 
+    def test_a_job_cancelled_while_queued_is_wait_not_minutes(self):
+        # Shape of iroh-v2 run 35941162262's client job: superseded after 53
+        # minutes in the macOS queue, never assigned a runner. The API stamps
+        # started_at = created_at on it.
+        queued = {
+            "name": "client",
+            "conclusion": "cancelled",
+            "created_at": "2026-09-24T01:02:41Z",
+            "started_at": "2026-09-24T01:02:41Z",
+            "completed_at": "2026-09-24T01:55:37Z",
+            "runner_id": 0,
+            "runner_name": "",
+            "steps": [],
+            "labels": ["blacksmith-6vcpu-macos-26"],
+        }
+        ran = dict(queued, runner_id=1195080, runner_name="mac-runner-1", steps=[{"name": "Set up job"}])
+        run = self.fixture["runs"][0]
+        [queued_row, ran_row] = report.job_rows(run, [queued, ran], REPO)
+        self.assertEqual(queued_row.minutes, 0.0)
+        self.assertAlmostEqual(queued_row.queue_seconds, (52 * 60) + 56)
+        self.assertEqual(queued_row.bucket, "cancelled")
+        self.assertEqual(report.cancelled_macos_waste([queued_row]), [])
+        self.assertAlmostEqual(ran_row.minutes, 52 + 56 / 60)
+
     def test_fork_head_repository_marks_the_row(self):
         fork = next(row for row in self.rows if row.run_id == 1013)
         self.assertTrue(fork.fork)
@@ -612,7 +636,7 @@ class WorkflowStructureTests(unittest.TestCase):
 
     def test_the_runner_comes_from_a_repository_variable(self):
         self.assertIn(
-            "runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", self.text
+            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", self.text
         )
 
     def test_it_can_read_runs_and_write_issue_comments_but_not_cancel(self):

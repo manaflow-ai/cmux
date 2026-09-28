@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import Network
 import Testing
@@ -42,7 +43,11 @@ struct CloudPortForwardAddressReuseTests {
             client.cancel()
         }
         let attempts = hub.connectTargets
-        #expect(attempts.filter { $0.host == ipv4 }.count == 1,
+        // Advancing the clock 250 ms in one step also passes the connector's
+        // 50 ms redial point, so the first connection may redial IPv4 once if
+        // its refusal was not read yet. Dialing IPv4 again for the second and
+        // third connections would make at least three.
+        #expect(attempts.filter { $0.host == ipv4 }.count <= 2,
                 "A desktop asset burst must not dial the failed family for every connection")
         #expect(attempts.filter { $0.host == ipv6 }.count == 3)
 

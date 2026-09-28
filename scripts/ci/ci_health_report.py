@@ -246,6 +246,16 @@ class JobRow:
     fork: bool
 
 
+def never_got_a_runner(job: Mapping[str, Any]) -> bool:
+    """A job that finished without ever being assigned a runner.
+
+    The Actions API reports such a job (cancelled while queued) with
+    `runner_id: 0`, an empty runner name and no steps. A skipped job has
+    `runner_id: null` instead and no start time, so it is not matched here.
+    """
+    return job.get("runner_id") == 0 and not job.get("runner_name") and not job.get("steps")
+
+
 def job_rows(run: Mapping[str, Any], jobs: Iterable[Mapping[str, Any]], repo: str) -> list[JobRow]:
     """Flatten one run's jobs into rows the aggregations read.
 
@@ -258,6 +268,10 @@ def job_rows(run: Mapping[str, Any], jobs: Iterable[Mapping[str, Any]], repo: st
         created = parse_time(job.get("created_at"))
         started = parse_time(job.get("started_at"))
         completed = parse_time(job.get("completed_at"))
+        if never_got_a_runner(job):
+            # GitHub stamps started_at = created_at on a job cancelled while
+            # still queued, so started -> completed would be the whole wait.
+            started = completed
         minutes = 0.0
         if started and completed and completed > started:
             minutes = (completed - started).total_seconds() / 60.0
@@ -636,7 +650,8 @@ def _runner_variable_drift_lines() -> list[str]:
     if not drifted:
         return [
             "**Runner variable values:** every runner variable holds a label "
-            "`tests/test_ci_self_hosted_guard.sh` would accept in a workflow."
+            "`tests/test_ci_self_hosted_guard.sh` would accept in a workflow, and "
+            "`CI_PR_POOL_ORDER` names only those or owned pools."
         ]
     detail = "; ".join(
         f"`{_escape(name)}` = `{_escape(value)}` ({reason})"

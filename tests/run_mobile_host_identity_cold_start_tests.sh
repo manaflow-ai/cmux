@@ -26,7 +26,7 @@ let package = Package(
     swiftLanguageModes: [.v5]
 )
 SWIFT
-cp "$ROOT/Sources/Mobile/MobileHostIdentity.swift" "$DEST/Sources/IdentityColdStartFixture/"
+cp "$ROOT/Packages/macOS/CmuxCloud/Sources/CmuxCloud/Environment/MobileHostIdentity.swift" "$DEST/Sources/IdentityColdStartFixture/"
 cp "$ROOT/tests/fixtures/mobile-host-identity-cold-start/IdentityColdStartFixture.swift" \
   "$ROOT/tests/fixtures/mobile-host-identity-cold-start/IdentityNotificationProbe.swift" \
   "$DEST/Sources/IdentityColdStartFixture/"

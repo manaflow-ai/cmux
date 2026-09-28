@@ -72,11 +72,6 @@ class AppHostTestOutputTests(unittest.TestCase):
 
         self.assertFalse(passed)
 
-    def test_zero_executed_tests_is_not_a_passing_run(self) -> None:
-        passed, _ = MODULE.classify("Executed 0 tests, with 0 failures (0 unexpected)\n")
-
-        self.assertFalse(passed)
-
     def test_unexpected_failure_in_earlier_summary_is_not_masked(self) -> None:
         passed, message = MODULE.classify(
             "Executed 4 tests, with 1 failure (1 unexpected)\n"

@@ -30,7 +30,7 @@ describe("whats-new route channel targeting", () => {
     expect(response.status).toBe(200);
     const payload = (await response.json()) as WhatsNewList;
     expect(payload).toEqual(whatsNewList);
-    expect(payload.visibleEntryIds).toEqual(["connections.v2", "connections.v1"]);
+    expect(payload.visibleEntryIds).toEqual(["pairing.1.0.6", "connections.v2", "connections.v1"]);
     // The rejection-driven contract: no checked-in entry or announcement may
     // silently target the official app; reaching "prod" must be a reviewed,
     // explicit channel list. If this assertion fails, someone opted content
@@ -120,4 +120,52 @@ describe("whats-new route channel targeting", () => {
   test("still accepts the legacy shape with no channel fields", () => {
     expect(validateList(base)).toEqual(base);
   });
+
+  test("ships the 1.0.6 connection notice only to beta and internal", () => {
+    const notice = whatsNewList.announcements.find(
+      (entry) => entry.id === "ios-1.0.6-connections",
+    );
+    expect(notice).toEqual({
+      id: "ios-1.0.6-connections",
+      minVersion: "1.0.6",
+      maxVersion: "1.0.6",
+      title: "What's New in 1.0.6",
+      releaseLabel: "1.0.6 · September 2026",
+      channels: ["beta", "internal"],
+      localizations: expect.objectContaining({ en: expect.objectContaining({ title: "What's New in 1.0.6" }) }),
+      features: expect.arrayContaining([
+        expect.objectContaining({
+          title: "Updated Mac connections",
+        }),
+        expect.objectContaining({
+          detail: expect.stringContaining("0.64.25-nightly.3522337919701"),
+        }),
+      ]),
+    });
+  });
+
+  test("serves translated release instructions with exact compatibility values", async () => {
+    const response = await GET(new Request("https://cmux.test/api/whats-new"));
+    const payload = await response.json() as WhatsNewList;
+    const notice = payload.announcements.find((entry) => entry.id === "ios-1.0.6-connections")!;
+    const translations = notice.localizations!;
+    expect(Object.keys(translations).sort()).toEqual([
+      "ar", "bs", "da", "de", "en", "es", "fr", "it", "ja", "km", "ko", "no",
+      "pl", "pt-BR", "ru", "th", "tr", "uk", "zh-CN", "zh-TW",
+    ]);
+    for (const [locale, content] of Object.entries(translations)) {
+      expect(content.features[1].detail).toContain("0.64.25-nightly.3522337919701");
+      expect(content.features[2].detail).toContain("1.0.5 (20260914204800)");
+      expect(JSON.stringify(content)).not.toMatch(/\{(?:stableVersion|nightlyVersion|rollbackBuild)\}/);
+      if (locale !== "en") expect(content.features[2].detail).not.toBe(translations.en.features[2].detail);
+    }
+  });
+
+  test("rejects incomplete translated release instructions", () => {
+    expect(() => validateList({
+      ...base,
+      announcements: [{ ...announcement, localizations: { ja: { title: "お知らせ", features: [] } } }],
+    })).toThrow("localizations[ja].features must not be empty");
+  });
+
 });

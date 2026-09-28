@@ -46,6 +46,18 @@ pub struct RegistryAgentProjection {
     pub updated_at_ms: u64,
     pub source_session: Option<String>,
     pub agent: Option<String>,
+    /// The agent's native hook session id (`extra.agent_session_id`).
+    pub agent_session_id: Option<String>,
+}
+
+/// The agent value's `extra` object. `agent_session_id` is present only when
+/// a hook reported the agent's own session id.
+pub(crate) fn agent_projection_extra(agent: Option<&str>, agent_session_id: Option<&str>) -> Value {
+    let mut extra = json!({"agent": agent});
+    if let Some(agent_session_id) = agent_session_id {
+        extra["agent_session_id"] = json!(agent_session_id);
+    }
+    extra
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,7 +69,10 @@ pub(crate) struct RegistryAgentHookState {
 }
 
 impl RegistryAgentProjection {
+    /// The public `AgentSnapshot` value for this projection, including
+    /// `extra.agent_session_id` when a hook reported one.
     pub(crate) fn into_public_snapshot(self, session_id: &SessionPublicId) -> Value {
+        let extra = agent_projection_extra(self.agent.as_deref(), self.agent_session_id.as_deref());
         json!({
             "id": self.id,
             "session_id": session_id,
@@ -66,7 +81,7 @@ impl RegistryAgentProjection {
             "source": self.source,
             "updated_at_ms": self.updated_at_ms.to_string(),
             "source_session": self.source_session,
-            "extra": {"agent": self.agent},
+            "extra": extra,
         })
     }
 }
@@ -220,6 +235,9 @@ impl WorkspaceRegistry {
         })
     }
 
+    /// Current agent projections, optionally filtered by terminal and state,
+    /// decoded from their stored results (adapter and hook session id
+    /// included).
     pub(crate) fn public_agent_projections(
         &self,
         terminal: Option<&TerminalPublicId>,
@@ -424,7 +442,12 @@ impl WorkspaceRegistry {
                 stored.id,
                 stored.terminal_id
             );
-            let _ = stored.extra;
+            let agent_session_id = stored
+                .extra
+                .as_ref()
+                .and_then(|extra| extra.get("agent_session_id"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
             agents.push(RegistryAgentProjection {
                 id: stored.id,
                 terminal_id: stored.terminal_id,
@@ -439,6 +462,7 @@ impl WorkspaceRegistry {
                     .and_then(Value::as_str)
                     .map(str::to_string)
                     .or(stored.agent),
+                agent_session_id,
             });
         }
         agents.reverse();

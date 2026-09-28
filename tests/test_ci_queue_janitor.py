@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import re
 import sys
 import tempfile
 import unittest
 import urllib.parse
 from pathlib import Path
 from unittest import mock
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -263,7 +266,11 @@ class DoomedCategoryTests(unittest.TestCase):
         # test above relies on, so reading a `failure` conclusion as decisive
         # would stop being sound.
         macos = (ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
-        block = macos.split("\n  app-host-unit-tests:\n", 1)[1].split("\n  ", 1)[0]
+        # The job ends at the next line indented exactly two spaces. Splitting
+        # on "\n  " alone stopped after the job's first key, so a job-level
+        # continue-on-error anywhere below it went unseen.
+        block = re.split(r"\n  (?=\S)", macos.split("\n  app-host-unit-tests:\n", 1)[1], maxsplit=1)[0]
+        self.assertIn("\n    steps:", "\n" + block)
         self.assertNotIn("\n    continue-on-error", "\n" + block)
 
     def test_a_run_fixing_the_failing_job_is_kept(self):
@@ -617,9 +624,50 @@ class SummaryTests(unittest.TestCase):
         self.assertIn("| cancelled |", live)
 
 
+class OwnedMarkerRunTests(unittest.TestCase):
+    def run_of(self, **overrides):
+        run = {"event": "pull_request", "path": ".github/workflows/ci.yml", "run_attempt": 1,
+               "head_repository": {"id": 1}, "repository": {"id": 1}}
+        run.update(overrides)
+        return run
+
+    def test_ci_pull_requests_and_e2e_dispatches_may_hold_an_owned_pool(self):
+        self.assertTrue(janitor.may_hold_owned_pool(self.run_of(), []))
+        # Attempt 2 may take the light tier, only while CI_OWNED_LIGHT_RETRY is on.
+        bot = {"login": "github-actions[bot]"}
+        self.assertTrue(janitor.may_hold_owned_pool(self.run_of(run_attempt=2, triggering_actor=bot), [],
+                                                    light_retry=True))
+        self.assertFalse(janitor.may_hold_owned_pool(self.run_of(run_attempt=2, triggering_actor=bot), []))
+        # A person's re-run follows a code failure and may pick the fleet again.
+        self.assertTrue(janitor.may_hold_owned_pool(self.run_of(run_attempt=3), []))
+        self.assertTrue(janitor.may_hold_owned_pool(
+            self.run_of(event="workflow_dispatch", path=".github/workflows/test-e2e.yml"), []))
+        for why, run in {
+            "ci.yml dispatch": self.run_of(event="workflow_dispatch"),
+            "e2e as a pull request": self.run_of(path=".github/workflows/test-e2e.yml"),
+            "the bot's third attempt": self.run_of(run_attempt=3, triggering_actor={"login": "github-actions[bot]"}),
+            "fork": self.run_of(head_repository={"id": 2}),
+            "other workflow": self.run_of(event="workflow_dispatch", path=".github/workflows/nightly.yml"),
+        }.items():
+            with self.subTest(why=why):
+                self.assertFalse(janitor.may_hold_owned_pool(run, [], light_retry=True))
+
+
 class WorkflowShapeTests(unittest.TestCase):
     def setUp(self):
         self.text = WORKFLOW.read_text(encoding="utf-8")
+
+    def test_a_requested_ci_run_refreshes_a_stale_snapshot(self):
+        # The cron drifts (55 minutes apart on 2026-09-25), so CI being
+        # requested also sweeps, unless the newest snapshot is fresh.
+        workflow = yaml.safe_load(self.text)
+        triggers = workflow[True] if True in workflow else workflow["on"]
+        self.assertEqual(triggers["workflow_run"], {"workflows": ["CI"], "types": ["requested"]})
+        steps = workflow["jobs"]["sweep"]["steps"]
+        self.assertEqual(steps[0]["id"], "fresh")
+        self.assertEqual(steps[0]["if"], "github.event_name == 'workflow_run'")
+        for step in steps[1:]:
+            self.assertIn("steps.fresh.outputs.skip != 'true'", step["if"], step["name"])
 
     def test_triggers_permissions_and_runner(self):
         text = self.text
@@ -628,7 +676,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn("dry_run:", text)
         self.assertNotIn("pull_request", text.split("jobs:")[0].replace("pull-requests: read", ""))
         self.assertIn("permissions:\n  actions: write\n  pull-requests: read\n  contents: read\n", text)
-        self.assertIn("runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
+        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
         self.assertIn("concurrency:\n  group: ci-queue-janitor\n  cancel-in-progress: false\n", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
         self.assertIn("ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}", text)
@@ -777,7 +825,7 @@ class OrphanPlanTests(unittest.TestCase):
                 jobs = {run["id"]: [orphan_job(age=250 + index)], other["id"]: [served_job(age=5)]}
                 result += find([run, other], jobs)
             else:
-                run = make_run(status="queued", age=60 * 24 * 11 + index, **run_kwargs)
+                run = make_run(status="queued", age=60 * 48 + index, **run_kwargs)
                 result += find([run], {})
         return result
 
@@ -795,6 +843,41 @@ class OrphanPlanTests(unittest.TestCase):
         capped = [d for d in decisions if d.action == "skip"]
         self.assertEqual(len(capped), 2)
         self.assertTrue(all("orphan cap of 3" in d.note for d in capped))
+
+    def test_ghost_past_give_up_age_is_left_to_github(self):
+        # The 2026-09-13 runs answer 409 to cancel and force-cancel alike;
+        # retrying them every sweep only spends the shared API budget.
+        old = [o for o in (find([make_run(status="queued", age=60 * 24 * 11 + i)], {}) for i in range(3))
+               for o in o]
+        young = self.orphans(1, kind="ghost")
+        decisions = orphan_plan(old + young, max_cancels=1)
+        by_id = {d.orphan.run["id"]: d.action for d in decisions}
+        self.assertEqual([by_id[o.run["id"]] for o in old], ["github-side"] * 3)
+        self.assertEqual(by_id[young[0].run["id"]], "cancel")
+        summary = janitor.render_orphan_summary(decisions, dry_run=False, now=NOW, min_age=dt.timedelta(hours=2))
+        self.assertIn("3 run(s) still queued after", summary)
+        self.assertNotIn(old[0].run["html_url"], summary)
+
+    def test_ghost_left_to_github_skips_the_label_lookup(self):
+        old = find([make_run(status="queued", age=60 * 24 * 11, branch="sep13", event="pull_request_target")], {})
+        young = find([make_run(status="queued", age=60 * 48, branch="young", event="pull_request_target")], {})
+        self.assertEqual(janitor.orphan_branches(old + young, NOW), ["young"])
+
+    def test_protected_ghost_past_give_up_age_keeps_its_row(self):
+        run = make_run(status="queued", age=60 * 24 * 11, name="Release", path=".github/workflows/release.yml")
+        decisions = orphan_plan(find([run], {}))
+        self.assertEqual([d.action for d in decisions], ["skip"])
+        summary = janitor.render_orphan_summary(decisions, dry_run=False, now=NOW, min_age=dt.timedelta(hours=2))
+        self.assertIn(run["html_url"], summary)
+        self.assertIn("left for a human", summary)
+
+    def test_summary_with_only_ghosts_left_to_github_has_no_table(self):
+        old = find([make_run(status="queued", age=60 * 24 * 11)], {})
+        summary = janitor.render_orphan_summary(orphan_plan(old), dry_run=False, now=NOW,
+                                                min_age=dt.timedelta(hours=2))
+        self.assertIn("1 run(s) still queued after", summary)
+        self.assertNotIn("| Decision |", summary)
+        self.assertNotIn("No orphaned runs found.", summary)
 
     def test_ghost_order_rotates_between_sweeps(self):
         # Runs GitHub refuses to cancel must not hold the cap forever.
@@ -859,7 +942,7 @@ class OrphanPlanTests(unittest.TestCase):
 
     def test_orphan_pr_branches_are_resolved(self):
         orphans = self.orphans(1, branch="pr-branch") + self.orphans(1, kind="ghost", event="push", branch="exp/x")
-        self.assertEqual(janitor.orphan_branches(orphans), ["pr-branch"])
+        self.assertEqual(janitor.orphan_branches(orphans, NOW), ["pr-branch"])
 
 
 class FakeGitHub(janitor.GitHub):
@@ -910,7 +993,7 @@ class FakeGitHub(janitor.GitHub):
 
 class OrphanExecutionTests(unittest.TestCase):
     def run_one(self, **fake_kwargs):
-        ghost = make_run(status="queued", age=60 * 24 * 11)
+        ghost = make_run(status="queued", age=60 * 48)
         sets = {key: ({ghost["id"]} if value else ()) for key, value in fake_kwargs.items()}
         fake = FakeGitHub({ghost["id"]: dict(ghost)}, **sets)
         decisions = orphan_plan(find([ghost], {}))
@@ -945,7 +1028,7 @@ class OrphanExecutionTests(unittest.TestCase):
         self.assertEqual(failures, 0)
 
     def test_a_run_that_finished_meanwhile_is_left_alone(self):
-        ghost = make_run(status="queued", age=60 * 24 * 11)
+        ghost = make_run(status="queued", age=60 * 48)
         fake = FakeGitHub({ghost["id"]: dict(ghost, status="completed")})
         results, _ = janitor.cancel_orphans(fake, orphan_plan(find([ghost], {})), sleep=lambda _: None)
         self.assertIn("skipped", results[ghost["id"]])
@@ -956,9 +1039,11 @@ class OrphanSweepTests(unittest.TestCase):
     def sweep(self, *args, **fake_kwargs):
         stuck = make_run(status="queued", age=340, branch="ci/macos26-app-host-repair")
         busy = make_run(status="in_progress", age=20, branch="busy")
-        ghost = make_run(status="queued", age=60 * 24 * 11, name="CLA Assistant", path=".github/workflows/cla.yml",
+        ghost = make_run(status="queued", age=60 * 48, name="CLA Assistant", path=".github/workflows/cla.yml",
                          event="pull_request_target", branch="old")
-        runs = {r["id"]: dict(r) for r in (stuck, busy, ghost)}
+        sep13 = make_run(status="queued", age=60 * 24 * 11, name="CLA policy guard",
+                         path=".github/workflows/cla-policy-guard.yml", event="pull_request_target", branch="older")
+        runs = {r["id"]: dict(r) for r in (stuck, busy, ghost, sep13)}
         jobs = {stuck["id"]: [linux_job(age=330), orphan_job(age=220)], busy["id"]: [served_job(age=15)]}
         fake = FakeGitHub(runs, jobs, **fake_kwargs)
         with tempfile.TemporaryDirectory() as temp:
@@ -981,6 +1066,7 @@ class OrphanSweepTests(unittest.TestCase):
         self.assertIn(stuck["html_url"], text)
         self.assertIn(ghost["html_url"], text)
         self.assertIn("would cancel", text)
+        self.assertIn("1 run(s) still queued after", text)
 
     def test_live_sweep_cancels_orphans_under_their_own_cap(self):
         code, fake, text, (stuck, ghost) = self.sweep("--max-orphan-cancels", "1", "--max-cancels", "0")

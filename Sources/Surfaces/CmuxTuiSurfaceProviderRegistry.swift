@@ -1,5 +1,7 @@
+import CmuxCloud
 import CmuxFoundation
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Owns one ``CmuxTuiSurfaceProvider`` per cloud machine and keeps the catalog's machine
@@ -36,6 +38,10 @@ final class CmuxTuiSurfaceProviderRegistry {
     let isCloudEnabled: @MainActor () -> Bool
     private let allowsBackgroundWork: @MainActor () -> Bool
     private let listPage: @MainActor () async -> VMListPage?
+    /// Whether an account is signed in. Activation prepares the carrier before
+    /// the fleet read only for a signed-in account; a signed-out Mac must not
+    /// enroll or start a hub from a config a previous account left on disk.
+    private let hasCloudSession: @MainActor () -> Bool
     private let refreshProvider: @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Bool
     private let closeTransports: @MainActor () async -> Void
     private var refreshInFlight: Task<Bool, Never>?
@@ -80,6 +86,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         isCloudEnabled: @escaping @MainActor () -> Bool = { true },
         allowsBackgroundWork: @escaping @MainActor () -> Bool = { true },
         listPage: @escaping @MainActor () async -> VMListPage? = { nil },
+        hasCloudSession: @escaping @MainActor () -> Bool = { true },
         refreshProvider: @escaping @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Bool = { provider, force in
             await provider.refreshCurrentGraph(force: force)
         },
@@ -91,6 +98,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         self.isCloudEnabled = isCloudEnabled
         self.allowsBackgroundWork = allowsBackgroundWork
         self.listPage = listPage
+        self.hasCloudSession = hasCloudSession
         self.refreshProvider = refreshProvider
         self.notificationCenter = notificationCenter
         let forwards = wireGuardHub.map { CloudHubPortForwarder(dialer: CloudWireGuardHubDialer(hub: $0)) }
@@ -139,7 +147,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         guard !isRetired, generation == refreshGeneration, scope == creationScope,
               providers[summary.id] == nil else { return }
         let provider = CmuxTuiSurfaceProvider(
-            summary: summary, links: links, catalog: catalog,
+            summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope, links: links, catalog: catalog,
             portForwards: portForwards, portAccessStore: portAccess
         )
         providers[summary.id] = provider
@@ -299,7 +307,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             pollTask = nil
             return
         }
-        Task { await wireGuardHub?.prepareForCloudUse() }
+        if hasCloudSession() { Task { await wireGuardHub?.prepareForCloudUse() } }
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -507,7 +515,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 provider.update(summary: summary)
             } else {
                 let provider = CmuxTuiSurfaceProvider(
-                    summary: summary, links: links, catalog: catalog,
+                    summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope, links: links, catalog: catalog,
                     portForwards: portForwards, portAccessStore: portAccess
                 )
                 providers[summary.id] = provider

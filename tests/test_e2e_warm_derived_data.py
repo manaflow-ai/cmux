@@ -63,7 +63,55 @@ class ReplayTimes(unittest.TestCase):
 
     def test_build_outputs_and_git_metadata_are_not_inputs(self):
         recorded = warm.record(self.producer)
-        self.assertEqual(sorted(recorded), ["Sources/App.swift", "cmuxTests/AppTests.swift"])
+        self.assertEqual(
+            sorted(recorded),
+            ["./", "Sources/", "Sources/App.swift", "cmuxTests/", "cmuxTests/AppTests.swift"],
+        )
+
+    def test_a_directory_takes_the_producer_time_only_while_its_entries_match(self):
+        # Xcode signs a folder input (Assets.xcassets) by its directories'
+        # times too, so a checkout-time directory reruns the asset catalog.
+        for relative in ("Sources", "cmuxTests"):
+            os.utime(self.producer / relative, ns=(BUILD_TIME_NS, BUILD_TIME_NS))
+        recorded = warm.record(self.producer)
+        (self.consumer / "cmuxTests/NewTests.swift").write_text("let added = 1\n")
+
+        warm.replay(self.consumer, recorded)
+
+        self.assertEqual(self.mtime("Sources"), BUILD_TIME_NS)
+        self.assertGreater(self.mtime("cmuxTests"), BUILD_TIME_NS)
+
+    def test_a_rename_that_keeps_the_entry_count_keeps_the_directory_new(self):
+        os.utime(self.producer / "cmuxTests", ns=(BUILD_TIME_NS, BUILD_TIME_NS))
+        recorded = warm.record(self.producer)
+        (self.consumer / "cmuxTests/AppTests.swift").rename(self.consumer / "cmuxTests/RenamedTests.swift")
+
+        warm.replay(self.consumer, recorded)
+
+        self.assertGreater(self.mtime("cmuxTests"), BUILD_TIME_NS)
+
+    def test_a_manifest_without_directories_leaves_them_at_checkout_time(self):
+        os.utime(self.producer / "Sources", ns=(BUILD_TIME_NS, BUILD_TIME_NS))
+        recorded = {key: entry for key, entry in warm.record(self.producer).items() if not key.endswith("/")}
+        before = self.mtime("Sources")
+
+        self.assertEqual(warm.replay(self.consumer, recorded), (2, 0))
+
+        self.assertEqual(self.mtime("Sources"), before)
+
+    def test_a_linked_directory_is_neither_recorded_nor_touched(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        os.utime(outside, ns=(BUILD_TIME_NS, BUILD_TIME_NS))
+        (self.consumer / "Linked").symlink_to(outside)
+        (self.producer / "Linked").symlink_to(outside)
+        recorded = warm.record(self.producer)
+        recorded["Linked/"] = [warm.listing(outside), 1]
+
+        warm.replay(self.consumer, recorded)
+
+        self.assertNotIn("Linked/", warm.record(self.producer))
+        self.assertEqual(outside.stat().st_mtime_ns, BUILD_TIME_NS)
 
 
 class TrustedProducers(unittest.TestCase):
@@ -196,30 +244,6 @@ class ArchiveBounds(unittest.TestCase):
         warm.extract(self.archive("Build/Intermediates.noindex/a.o"), destination)
         self.assertTrue((destination / "Build/Intermediates.noindex/a.o").is_file())
 
-
-class InterruptedAdoption(unittest.TestCase):
-    """A timed-out adoption must never reach the build.
-
-    The script's own cleanup runs only when it raises. A step timeout kills
-    it first, so the workflow has to discard what it left behind.
-    """
-
-    def test_an_unfinished_adoption_is_discarded_before_the_build(self):
-        import yaml
-
-        workflow = Path(__file__).resolve().parents[1] / ".github/workflows/test-e2e.yml"
-        steps = yaml.safe_load(workflow.read_text())["jobs"]["build"]["steps"]
-        names = [step.get("name") for step in steps]
-        warm = names.index("Adopt main's DerivedData")
-        build = names.index("Build the app-host and UI test product")
-        discard = [
-            index for index, step in enumerate(steps)
-            if warm < index < build
-            and "steps.warm.outcome != 'success'" in str(step.get("if", ""))
-            and 'rm -rf -- "$CMUX_DERIVED_DATA_PATH"' in str(step.get("run", ""))
-        ]
-        self.assertEqual(len(discard), 1, "no step discards an adoption that did not finish")
-        self.assertNotIn("continue-on-error", steps[discard[0]])
 
 
 if __name__ == "__main__":

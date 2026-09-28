@@ -1,4 +1,5 @@
 import CmuxIrohTransport
+import CmuxMobileHost
 import CmuxSimulator
 import CmuxSimulatorStreamKit
 import CmuxSimulatorUI
