@@ -30,6 +30,30 @@ struct TerminalAgentKeyHintViewportState: Equatable {
     }
 }
 
+/// Everything a deferred hint press must still match before it sends input.
+struct TerminalAgentKeyHintDeferredRequest {
+    let terminalSurfaceIdentity: ObjectIdentifier
+    let runtimeSurfaceGeneration: UInt64
+    let panelIdentity: ObjectIdentifier
+    let cell: TerminalAgentKeyHintCell
+    let row: String
+    let viewport: TerminalAgentKeyHintViewportState
+    let click: TerminalPanel.AgentKeyHintClick
+    let modifierFlags: NSEvent.ModifierFlags
+}
+
+/// A fresh read of the state protected by a deferred hint request.
+struct TerminalAgentKeyHintDeferredSnapshot {
+    let terminalSurface: TerminalSurface
+    let runtimeSurfaceGeneration: UInt64
+    let panel: TerminalPanel
+    let cell: TerminalAgentKeyHintCell
+    let row: String
+    let viewport: TerminalAgentKeyHintViewportState
+    let hasSelection: Bool
+    let mouseCaptured: Bool
+}
+
 /// Per-view pointer state for clickable agent key hints (`agentActions.keyHints`).
 @MainActor
 final class TerminalAgentKeyHintPointerState {
@@ -103,7 +127,10 @@ extension GhosttyNSView {
         guard let pressCell, let pressModifierFlags, clickCount == 1,
               agentKeyHintCell(at: point) == pressCell,
               !ghostty_surface_has_selection(surface),
-              let panel = agentKeyHintPanel(),
+              let terminalSurface,
+              terminalSurface.surface == surface else { return nil }
+        let runtimeSurfaceGeneration = terminalSurface.runtimeSurfaceGeneration
+        guard let panel = agentKeyHintPanel(),
               let row = agentKeyHintRow(pressCell.row, surface: surface),
               let click = panel.agentKeyHintClick(
                   line: row.line,
@@ -111,40 +138,98 @@ extension GhosttyNSView {
                   inLiveRegion: row.viewport.liveRegion.contains(row: pressCell.row),
                   mouseCaptured: ghostty_surface_mouse_captured(surface),
                   modifierFlags: pressModifierFlags
-              ) else { return nil }
-        return { [weak self, weak panel] in
+              ),
+              terminalSurface.surface == surface,
+              terminalSurface.runtimeSurfaceGeneration == runtimeSurfaceGeneration else { return nil }
+        let request = TerminalAgentKeyHintDeferredRequest(
+            terminalSurfaceIdentity: ObjectIdentifier(terminalSurface),
+            runtimeSurfaceGeneration: runtimeSurfaceGeneration,
+            panelIdentity: ObjectIdentifier(panel),
+            cell: pressCell,
+            row: row.line,
+            viewport: row.viewport,
+            click: click,
+            modifierFlags: pressModifierFlags
+        )
+        return { [weak self] in
+            self?.deferAgentKeyHintPress(request)
+        }
+    }
+
+    /// Installs the real deferred callback. The injectable reads make the
+    /// callback's stale-row and stale-runtime rejection directly testable
+    /// without passing synthetic pointers through Ghostty's C API.
+    func deferAgentKeyHintPress(
+        _ request: TerminalAgentKeyHintDeferredRequest,
+        currentSnapshot: @escaping () -> TerminalAgentKeyHintDeferredSnapshot?,
+        press: @escaping (TerminalPanel, TerminalPanel.AgentKeyHintClick) -> Void
+    ) {
+        let state = agentKeyHintPointer
+        state.pendingPress = {
+            guard let snapshot = currentSnapshot(),
+                  ObjectIdentifier(snapshot.terminalSurface) == request.terminalSurfaceIdentity,
+                  snapshot.runtimeSurfaceGeneration == request.runtimeSurfaceGeneration,
+                  ObjectIdentifier(snapshot.panel) == request.panelIdentity,
+                  snapshot.cell == request.cell,
+                  snapshot.row == request.row,
+                  snapshot.viewport == request.viewport,
+                  !snapshot.hasSelection,
+                  let currentClick = snapshot.panel.revalidatedAgentKeyHintClick(
+                      request.click,
+                      line: snapshot.row,
+                      column: snapshot.cell.column,
+                      inLiveRegion: snapshot.viewport.liveRegion.contains(row: snapshot.cell.row),
+                      mouseCaptured: snapshot.mouseCaptured,
+                      modifierFlags: request.modifierFlags
+                  )
+            else { return }
+            press(snapshot.panel, currentClick)
+        }
+        let due = state.deferredPress.release(at: ProcessInfo.processInfo.systemUptime)
+        // A little past the deadline, so the timer never finds it not yet due.
+        let delay = max(0, due - ProcessInfo.processInfo.systemUptime) + 0.01
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
             let state = self.agentKeyHintPointer
-            state.pendingPress = { [weak self, weak panel] in
-                guard let self, let panel,
-                      self.agentKeyHintPanel() === panel,
-                      let surface = self.terminalSurface?.surface,
-                      !ghostty_surface_has_selection(surface),
-                      let currentRow = self.agentKeyHintRow(pressCell.row, surface: surface),
-                      currentRow.viewport == row.viewport,
-                      let currentClick = panel.revalidatedAgentKeyHintClick(
-                          click,
-                          line: currentRow.line,
-                          column: pressCell.column,
-                          inLiveRegion: currentRow.viewport.liveRegion.contains(row: pressCell.row),
-                          mouseCaptured: ghostty_surface_mouse_captured(surface),
-                          modifierFlags: pressModifierFlags
-                      )
-                else { return }
-                _ = panel.pressAgentKeyHint(currentClick)
-            }
-            let due = state.deferredPress.release(at: ProcessInfo.processInfo.systemUptime)
-            // A little past the deadline, so the timer never finds it not yet due.
-            let delay = max(0, due - ProcessInfo.processInfo.systemUptime) + 0.01
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self else { return }
-                let state = self.agentKeyHintPointer
-                guard state.deferredPress.fire(at: ProcessInfo.processInfo.systemUptime) else { return }
-                let press = state.pendingPress
-                state.pendingPress = nil
-                press?()
-            }
+            guard state.deferredPress.fire(at: ProcessInfo.processInfo.systemUptime) else { return }
+            let press = state.pendingPress
+            state.pendingPress = nil
+            press?()
         }
+    }
+
+    private func deferAgentKeyHintPress(_ request: TerminalAgentKeyHintDeferredRequest) {
+        deferAgentKeyHintPress(
+            request,
+            currentSnapshot: { [weak self] in
+                self?.agentKeyHintDeferredSnapshot(at: request.cell)
+            },
+            press: { panel, click in
+                _ = panel.pressAgentKeyHint(click)
+            }
+        )
+    }
+
+    private func agentKeyHintDeferredSnapshot(
+        at cell: TerminalAgentKeyHintCell
+    ) -> TerminalAgentKeyHintDeferredSnapshot? {
+        guard let terminalSurface else { return nil }
+        let runtimeSurfaceGeneration = terminalSurface.runtimeSurfaceGeneration
+        guard let surface = terminalSurface.surface,
+              let panel = agentKeyHintPanel(),
+              let row = agentKeyHintRow(cell.row, surface: surface),
+              terminalSurface.surface == surface,
+              terminalSurface.runtimeSurfaceGeneration == runtimeSurfaceGeneration else { return nil }
+        return TerminalAgentKeyHintDeferredSnapshot(
+            terminalSurface: terminalSurface,
+            runtimeSurfaceGeneration: runtimeSurfaceGeneration,
+            panel: panel,
+            cell: cell,
+            row: row.line,
+            viewport: row.viewport,
+            hasSelection: ghostty_surface_has_selection(surface),
+            mouseCaptured: ghostty_surface_mouse_captured(surface)
+        )
     }
 
     // MARK: Hover

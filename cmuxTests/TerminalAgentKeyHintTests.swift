@@ -204,6 +204,89 @@ struct TerminalAgentKeyHintTests {
     }
 
     @Test
+    func deferredClosureRejectsChangedFullRowAndRuntimeGeneration() throws {
+        let fixture = try makeWorkspaceFixture()
+        defer { closeWindow(fixture.windowID) }
+        setting.set(true, in: .standard)
+        defer { setting.removeValue(in: .standard) }
+        fixture.workspace.setAgentLifecycle(key: "claude_code", panelId: fixture.panel.id, lifecycle: .idle)
+        defer { _ = fixture.workspace.clearAgentLifecycle(key: "claude_code", panelId: fixture.panel.id) }
+
+        let cell = TerminalAgentKeyHintCell(row: 12, column: 20)
+        let viewport = TerminalAgentKeyHintViewportState(
+            scrollbarTotal: 24,
+            scrollbarOffset: 0,
+            scrollbarLength: 24,
+            rows: 24,
+            columns: 80,
+            cursorRow: 20,
+            cursorColumn: 0
+        )
+        let click = try #require(fixture.panel.agentKeyHintClick(
+            line: expandLine,
+            column: cell.column,
+            inLiveRegion: true,
+            mouseCaptured: false,
+            modifierFlags: []
+        ))
+        let generation = fixture.panel.surface.runtimeSurfaceGeneration
+        let request = TerminalAgentKeyHintDeferredRequest(
+            terminalSurfaceIdentity: ObjectIdentifier(fixture.panel.surface),
+            runtimeSurfaceGeneration: generation,
+            panelIdentity: ObjectIdentifier(fixture.panel),
+            cell: cell,
+            row: expandLine,
+            viewport: viewport,
+            click: click,
+            modifierFlags: []
+        )
+        let view = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 40))
+        var currentGeneration = generation
+        var currentRow = expandLine
+        var fired = 0
+        func installDeferredClosure() {
+            view.deferAgentKeyHintPress(
+                request,
+                currentSnapshot: {
+                    TerminalAgentKeyHintDeferredSnapshot(
+                        terminalSurface: fixture.panel.surface,
+                        runtimeSurfaceGeneration: currentGeneration,
+                        panel: fixture.panel,
+                        cell: cell,
+                        row: currentRow,
+                        viewport: viewport,
+                        hasSelection: false,
+                        mouseCaptured: false
+                    )
+                },
+                press: { _, _ in fired += 1 }
+            )
+        }
+
+        installDeferredClosure()
+        view.settleAgentKeyHintPendingPress(clickCount: 1)
+        #expect(fired == 1, "The fixture must exercise the real deferred callback")
+
+        currentRow = "x ⎿  … +53 lines (ctrl+o to expand)"
+        #expect(fixture.panel.agentKeyHintClick(
+            line: currentRow,
+            column: cell.column,
+            inLiveRegion: true,
+            mouseCaptured: false,
+            modifierFlags: []
+        ) == click, "The changed row deliberately keeps the same parsed hint and authorization")
+        installDeferredClosure()
+        view.settleAgentKeyHintPendingPress(clickCount: 1)
+        #expect(fired == 1, "Different surrounding row text must cancel even when the same hint stays at the same cells")
+
+        currentRow = expandLine
+        installDeferredClosure()
+        currentGeneration &+= 1
+        view.settleAgentKeyHintPendingPress(clickCount: 1)
+        #expect(fired == 1, "A changed terminal runtime generation must cancel the deferred click")
+    }
+
+    @Test
     func pointerInvalidationCancelsADeferredClick() {
         let view = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 40))
         var fired = false
