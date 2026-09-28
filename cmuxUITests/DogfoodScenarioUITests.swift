@@ -764,7 +764,7 @@ struct DogfoodScenario {
         guard let rawSteps = object["steps"] as? [Any] else { throw DogfoodError("scenario has no steps") }
         let launch = object["launch"] as? [String: Any] ?? [:]
         return DogfoodScenario(
-            steps: try rawSteps.map(DogfoodStep.init(json:)),
+            steps: try rawSteps.map { try DogfoodStep(json: $0) },
             launchArguments: launch["args"] as? [String] ?? [],
             launchEnvironment: launch["env"] as? [String: String] ?? [:],
             language: launch["language"] as? String,
