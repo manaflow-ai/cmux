@@ -1,13 +1,7 @@
-import CmuxCloud
+@testable import CmuxCloud
 import CryptoKit
 import Foundation
 import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
 
 /// The local half of Cloud VM private networking: keys and device identity are
 /// minted once and stay stable, and the server-issued config (blank
