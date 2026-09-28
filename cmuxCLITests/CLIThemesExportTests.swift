@@ -38,6 +38,44 @@ struct CLIThemesExportTests {
         #expect(fixture.writtenFiles().isEmpty)
     }
 
+    @Test func colorsFromConfigFileIncludesApplyLikeTheApp() throws {
+        let fixture = try Fixture()
+        let ghostty = fixture.home.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try "palette = 5=#123456\n".write(
+            to: ghostty.appendingPathComponent("colors.ghostty"), atomically: true, encoding: .utf8
+        )
+        let config = ghostty.appendingPathComponent("config")
+        let contents = try String(contentsOf: config, encoding: .utf8)
+        try (contents + "\nconfig-file = colors.ghostty\n").write(to: config, atomically: true, encoding: .utf8)
+
+        let result = try fixture.run(["themes", "export", "--to", "claude", "--appearance", "dark"])
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let json = try #require(try JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any])
+        let overrides = try #require(json["overrides"] as? [String: String])
+        #expect(overrides["claude"] == "#123456")
+        #expect(overrides["text"] == "#e0e0e0")
+    }
+
+    @Test func printingNeedsNoFileNameForAThemeWithoutASCIILetters() throws {
+        let fixture = try Fixture()
+        let ghostty = fixture.home.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try CLIThemesExportTests.darkTheme.write(
+            to: ghostty.appendingPathComponent("themes/夜"), atomically: true, encoding: .utf8
+        )
+        try "theme = 夜\n".write(to: ghostty.appendingPathComponent("config"), atomically: true, encoding: .utf8)
+
+        let printed = try fixture.run(["themes", "export", "--to", "claude"])
+        #expect(printed.status == 0, Comment(rawValue: printed.stderr))
+        let json = try #require(try JSONSerialization.jsonObject(with: Data(printed.stdout.utf8)) as? [String: Any])
+        #expect(json["name"] as? String == "夜 (cmux)")
+
+        let written = try fixture.run(["themes", "export", "--to", "claude", "--write"])
+        #expect(written.status != 0)
+        #expect(written.stderr.contains("--name"))
+        #expect(fixture.writtenFiles().isEmpty)
+    }
+
     @Test func openCodeExportCarriesBothHalvesOfTheThemePair() throws {
         let fixture = try Fixture()
         let result = try fixture.run(["themes", "export", "--to", "opencode"])
