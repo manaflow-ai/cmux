@@ -565403,6 +565403,65 @@
           }
         }
       }
+    },
+    "socket.terminal.notRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal is not running right now, for example because it is hibernated or still starting. Show it in cmux, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルは現在実行されていません（休止中または起動中など）。cmux で表示してから再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端当前未运行（例如处于休眠状态或仍在启动）。请在 cmux 中显示它，然后重试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal läuft gerade nicht, zum Beispiel weil es im Ruhezustand ist oder noch startet. Zeigen Sie es in cmux an und versuchen Sie es dann erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal ne s’exécute pas pour le moment, par exemple parce qu’il est en veille ou encore en cours de démarrage. Affichez-le dans cmux, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطرفية لا تعمل حالياً، على سبيل المثال لأنها في وضع السبات أو لا تزال قيد التشغيل. اعرضها في cmux ثم أعد المحاولة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La terminal no se está ejecutando ahora mismo, por ejemplo porque está hibernada o todavía se está iniciando. Muéstrela en cmux y vuelva a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機目前未執行（例如處於休眠狀態或仍在啟動中）。請在 cmux 中顯示它，然後重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 현재 실행 중이 아닙니다(예: 최대 절전 상태이거나 아직 시작 중). cmux에서 표시한 후 다시 시도하십시오."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
