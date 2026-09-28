@@ -1,0 +1,27 @@
+{
+  "steps": [
+    {"socket": "workspace.create", "params": {"title": "Deploy checks", "focus": false}, "save": "deploy"},
+    {"socket": "workspace.create", "params": {"title": "Docs pass over the sidebar row copy and truncation", "focus": false}, "save": "docs"},
+    {"socket": "workspace.create", "params": {"title": "API refactor", "focus": false}, "save": "api"},
+    {"socket": "workspace.create", "params": {"title": "Migrations", "focus": false}, "save": "migrations"},
+    {"socket": "workspace.group.create", "params": {"name": "Release 0.42", "child_workspace_ids": ["${deploy.workspace_id}", "${api.workspace_id}"]}, "save": "grp"},
+    {"wait": 1},
+    {"socket": "notification.create_for_caller", "params": {"preferred_workspace_id": "${docs.workspace_id}", "preferred_workspace_is_explicit": true, "title": "Agent finished a turn", "body": "Unread row state for the sidebar tour"}},
+    {"socket": "workspace.create", "params": {"title": "Sidebar weight", "focus": true}, "save": "selected"},
+    {"wait": 2},
+    {"shot": "sidebar-row-states"},
+    {"tree": "sidebar-row-states"},
+    {"key": "escape"},
+    {"wait": 1},
+    {"shot": "sidebar-row-states-settled"},
+    {"hoverAt": {"x": 0.08, "y": 0.2}},
+    {"wait": 0.5},
+    {"shot": "sidebar-row-hover"},
+    {"socket": "workspace.group.collapse", "params": {"group_id": "${grp.group.id}"}},
+    {"wait": 1},
+    {"shot": "sidebar-group-collapsed"},
+    {"socket": "workspace.group.expand", "params": {"group_id": "${grp.group.id}"}},
+    {"wait": 1},
+    {"shot": "sidebar-group-expanded", "screen": true}
+  ]
+}
