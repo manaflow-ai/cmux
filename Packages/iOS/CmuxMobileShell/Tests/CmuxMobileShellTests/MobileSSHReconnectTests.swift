@@ -70,4 +70,46 @@ struct MobileSSHReconnectTests {
         computers.failForTesting(hostID: host.id, MobileSSHRuntimeError.tmuxMissing)
         #expect(computers.canReconnect(hostID: host.id, surfaceID: surface))
     }
+
+    /// Tapping Reconnect while the computer is still unreachable must answer
+    /// in the terminal the user is watching: the chrome already read
+    /// Disconnected before the tap, so a failed attempt that changes nothing
+    /// on screen reads as an ignored tap (v4 edges pass, scenario 1).
+    @Test func reconnectAgainstADownHostShowsTheFailureInTheTerminal() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-reconnect-feedback-\(UUID().uuidString)")
+        let computers = MobileSSHComputers(directory: dir)
+        let sink = RecordingSSHSink()
+        computers.sink = sink
+        // No key: the connect attempt fails at once, without any network.
+        let host = SSHHostRecord(name: "down", endpoint: SSHEndpoint(host: "127.0.0.1", port: 1, username: "nobody"))
+        try await computers.saveHost(host)
+        let surface = MobileSSHIdentifier(host: host.id, local: MobileSSHLocalID.shell("1").rawValue).rawValue
+
+        await computers.reconnect(hostID: host.id, surfaceID: surface)
+
+        guard case .failed(let reason) = computers.statusByHost[host.id] else {
+            Issue.record("expected the reconnect to fail, got \(String(describing: computers.statusByHost[host.id]))")
+            return
+        }
+        #expect(sink.outputs[surface, default: ""].contains(reason))
+        // Still recoverable: the title keeps offering Reconnect.
+        #expect(computers.canReconnect(hostID: host.id, surfaceID: surface))
+    }
+
+    /// The same failed tap without a shown terminal (no surface) has the
+    /// workspace list's own status line to answer it; nothing to deliver.
+    @Test func reconnectWithoutASurfaceDeliversNothing() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-reconnect-nosurface-\(UUID().uuidString)")
+        let computers = MobileSSHComputers(directory: dir)
+        let sink = RecordingSSHSink()
+        computers.sink = sink
+        let host = SSHHostRecord(name: "down", endpoint: SSHEndpoint(host: "127.0.0.1", port: 1, username: "nobody"))
+        try await computers.saveHost(host)
+
+        await computers.reconnect(hostID: host.id, surfaceID: nil)
+
+        #expect(sink.outputs.isEmpty)
+    }
 }
