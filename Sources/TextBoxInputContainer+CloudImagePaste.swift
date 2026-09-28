@@ -17,8 +17,8 @@ extension TextBoxInputContainer {
             .map(\.standardizedFileURL)
         guard !standardizedURLs.isEmpty else { return false }
 
-        Task { @MainActor [weak self, weak textView] in
-            guard let self, let textView else { return }
+        Task { @MainActor [self, weak textView] in
+            guard let textView else { return }
             let target = await self.surface.resolvedImageTransferTargetAsync()
             self.attachFileURLs(
                 standardizedURLs,

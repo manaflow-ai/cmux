@@ -61,13 +61,7 @@ extension TextBoxInputContainer {
             }
             publishComposerContent(from: textView)
         case .attachments(let preparedAttachments):
-            Task { @MainActor [weak self] in
-                guard let self else {
-                    preparationService.cleanupTransferredTemporaryFiles(
-                        preparedContent
-                    )
-                    return
-                }
+            Task { @MainActor in
                 guard self.ownsTextView(textView),
                       textView.canAcceptPendingAttachmentUpload(
                           validationToken: validationToken
