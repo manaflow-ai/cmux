@@ -174,7 +174,8 @@ struct SSHDeepSleepReattachTests {
         #expect(command.contains(customSessionID))
         #expect(!command.contains("--require-existing"))
         #expect(command.contains("workspace.remote.foreground_auth_ready"))
-        #expect(command.contains(foregroundAuthToken))
+        #expect(!command.contains(foregroundAuthToken))
+        #expect(command.contains(SSHForegroundAuthenticationLaunch(token: foregroundAuthToken).commandMarker))
         #expect(command.contains("ssh-session-end"))
         let commandRange = try #require(
             command.range(of: #"--command-b64 [A-Za-z0-9+/=]+"#, options: .regularExpression)

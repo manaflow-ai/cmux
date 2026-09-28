@@ -52,6 +52,17 @@ struct SSHForegroundAuthenticationLaunchTests {
         #expect(payload["control_path"] == "/tmp/cmux-ssh-501-control")
     }
 
+    @Test func launchScriptMarkerMatchesOnlyItsOwnToken() {
+        let launch = SSHForegroundAuthenticationLaunch(token: "foreground-auth-\(UUID().uuidString)")
+        let otherLaunch = SSHForegroundAuthenticationLaunch(token: "foreground-auth-\(UUID().uuidString)")
+        let script = launch.tokenLoadShellLines(into: "cmux_test_token").joined(separator: " ")
+
+        #expect(launch.isExpected(by: script))
+        #expect(!otherLaunch.isExpected(by: script), "A script built for another token must not receive this one")
+        #expect(!launch.isExpected(by: "ssh example.test"))
+        #expect(!launch.commandMarker.contains(launch.token))
+    }
+
     @Test(arguments: [(true, Int32(255)), (false, Int32(0))])
     func missingTokenSkipsReadinessReport(requireSuccess: Bool, expectedStatus: Int32) throws {
         let launch = SSHForegroundAuthenticationLaunch(token: "foreground-auth-\(UUID().uuidString)")

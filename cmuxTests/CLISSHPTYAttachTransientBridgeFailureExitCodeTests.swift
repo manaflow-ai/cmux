@@ -243,6 +243,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_TEST_AUTH_ATTEMPTS"] = authAttempts.path
         environment["CMUX_TEST_ATTACH_ATTEMPTS"] = attachAttempts.path
         environment["CMUX_TEST_SLEEP_ATTEMPTS"] = sleepAttempts.path
+        environment[SSHForegroundAuthenticationLaunch.environmentKey] = "foreground-auth-token"
         environment["CMUX_TEST_CONTROL_PATH"] = "/tmp/cmux-ssh-\(getuid())-\(root.lastPathComponent)"
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
