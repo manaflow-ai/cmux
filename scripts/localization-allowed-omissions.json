@@ -3449,5 +3449,17 @@
     "source": "cmux layout delete <name>",
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "actions.discovery.menuTitle": {
+    "source": "Actions · cmux.json…",
+    "identityLocales": {
+      "fr": "French spells \"Actions\" the same as English, and cmux.json is a file name; the title is correctly translated."
+    }
+  },
+  "actions.discovery.dialogTitle": {
+    "source": "Actions · cmux.json",
+    "identityLocales": {
+      "fr": "French spells \"Actions\" the same as English, and cmux.json is a file name; the title is correctly translated."
+    }
   }
 }
