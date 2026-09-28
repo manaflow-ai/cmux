@@ -57,6 +57,30 @@ struct CloudPortsVPNAffordanceTests {
         }, "VPN guidance must remain visible beside discovered ports")
     }
 
+    /// The outline skips node builds while its inputs are equal, so the VPN state has to be one of them.
+    @Test("Turning Cloud VPN off rebuilds the cached tree with Ports setup guidance")
+    func vpnStateInvalidatesCachedTree() throws {
+        let machine = SurfaceMachineID.cloud("vpn-guidance-cache-vm")
+        let info = SurfaceMachineInfo(id: machine, name: "Test VM", status: "running", image: nil,
+            hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
+            cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil,
+            privateAddress: "10.16.170.174", portDiscoveryState: .available)
+        let port = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 33015,
+            directURL: "http://10.16.170.174:33015")
+        var inputs = CloudTreeBuildInputs(
+            machines: [MachineSnapshot(id: machine.rawValue, provider: "freestyle", image: "base",
+                isDesktop: false, activity: .ready, createdAt: nil, label: nil)],
+            snapshot: SurfaceCatalogSnapshot(machines: [info], resources: [port], projections: []))
+        let guidanceID = "machine:\(machine.rawValue)/ports/vpn-guidance"
+        let cache = CloudTreeNodeCache()
+        let vpnOn = try #require(cache.nodes(ifChanged: inputs, now: .now))
+        #expect(CloudTreeNodeBuilder.flattened(vpnOn).contains { if case .portsGroup = $0.kind { true } else { false } })
+        #expect(!CloudTreeNodeBuilder.flattened(vpnOn).contains { $0.id == guidanceID })
+        inputs.showsCloudVPNWarning = true
+        let vpnOff = try #require(cache.nodes(ifChanged: inputs, now: .now))
+        #expect(CloudTreeNodeBuilder.flattened(vpnOff).contains { $0.id == guidanceID })
+    }
+
     @Test("SSH Ports route over the SSH link and never suggest Cloud VPN setup")
     func sshPortsOmitVPNGuidance() {
         let machine = SurfaceMachineID.ssh("vpn-guidance-ssh")
