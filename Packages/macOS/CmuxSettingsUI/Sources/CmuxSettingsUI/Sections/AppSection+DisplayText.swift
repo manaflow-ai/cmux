@@ -36,7 +36,7 @@ extension AppSection {
         case .comfortable:
             return String(
                 localized: "settings.app.density.comfortable.subtitle",
-                defaultValue: "Larger icons and click targets in the titlebar, sidebar footer, and pane tab bar."
+                defaultValue: "Larger icons and click targets in the titlebar and sidebar footer."
             )
         case .standard:
             return String(

@@ -4398,8 +4398,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     /// Re-applies `app.density` to this workspace's pane tab bars.
+    ///
+    /// Reads the same store the initial appearance did. `closeTabWarningDefaults`
+    /// is the close-warning store and can be a test injection, so reading it
+    /// here let a refresh disagree with the value the appearance was built from.
     func refreshInterfaceDensity() {
-        let foldsActions = Self.paneTabBarActionsFoldBehindHover(defaults: closeTabWarningDefaults)
+        let foldsActions = Self.paneTabBarActionsFoldBehindHover()
         guard bonsplitController.configuration.appearance.splitButtonsOnHover != foldsActions else { return }
         bonsplitController.configuration.appearance.splitButtonsOnHover = foldsActions
     }

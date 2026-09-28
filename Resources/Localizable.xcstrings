@@ -293284,55 +293284,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أيقونات ومناطق نقر أكبر في شريط العنوان وتذييل الشريط الجانبي وشريط علامات تبويب الأجزاء."
+            "value": "أيقونات ومناطق نقر أكبر في شريط العنوان وتذييل الشريط الجانبي."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Größere Symbole und Klickflächen in Titelleiste, Seitenleistenfuß und Pane-Tableiste."
+            "value": "Größere Symbole und Klickflächen in Titelleiste und Seitenleistenfuß."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Larger icons and click targets in the titlebar, sidebar footer, and pane tab bar."
+            "value": "Larger icons and click targets in the titlebar and sidebar footer."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iconos y áreas de clic más grandes en la barra de título, el pie de la barra lateral y la barra de pestañas del panel."
+            "value": "Iconos y áreas de clic más grandes en la barra de título y el pie de la barra lateral."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Icônes et zones de clic plus grandes dans la barre de titre, le pied de la barre latérale et la barre d’onglets des panneaux."
+            "value": "Icônes et zones de clic plus grandes dans la barre de titre et le pied de la barre latérale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タイトルバー、サイドバーのフッター、ペインタブバーのアイコンとクリック領域を大きくします。"
+            "value": "タイトルバーとサイドバーのフッターのアイコンとクリック領域を大きくします。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "제목 표시줄, 사이드바 하단, 창 탭 막대의 아이콘과 클릭 영역을 키웁니다."
+            "value": "제목 표시줄과 사이드바 하단의 아이콘과 클릭 영역을 키웁니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "标题栏、侧边栏底部和窗格标签栏使用更大的图标和点击区域。"
+            "value": "标题栏和侧边栏底部使用更大的图标和点击区域。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "標題列、側邊欄底部和窗格分頁列使用較大的圖示和點擊區域。"
+            "value": "標題列和側邊欄底部使用較大的圖示和點擊區域。"
           }
         }
       }
