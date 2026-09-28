@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -39,9 +40,43 @@ class PlanTests(unittest.TestCase):
         # 5 is unknown to GitHub: a lookup gap never deletes media.
         self.assertEqual(keep, ["3", "4", "5", "README.md", "ui-lab", "fuzz"])
 
+    def test_a_recent_upload_to_a_long_closed_pull_request_is_kept(self) -> None:
+        states = {7: {"state": "MERGED", "closedAt": LONG_AGO}}
+        self.assertEqual(prune.plan(["7"], states, NOW, frozenset({"7"})), (["7"], []))
+
     def test_a_reopened_pull_request_is_kept(self) -> None:
         keep, drop = prune.plan(["7"], {7: {"state": "OPEN", "closedAt": LONG_AGO}}, NOW)
         self.assertEqual((keep, drop), (["7"], []))
+
+
+class PullStatesTests(unittest.TestCase):
+    def answer(self, returncode: int, stdout: str):
+        calls = []
+
+        def run(args, **_):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, returncode, stdout, "boom")
+
+        patcher = mock.patch.object(prune.subprocess, "run", run)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return calls
+
+    def test_a_number_graphql_does_not_know_is_absent(self) -> None:
+        data = {"data": {"repository": {"p1": {"state": "MERGED", "closedAt": LONG_AGO}, "p2": None}},
+                "errors": [{"type": "NOT_FOUND"}]}
+        self.answer(1, json.dumps(data))
+        self.assertEqual(prune.pull_states("o/r", [1, 2]), {1: {"state": "MERGED", "closedAt": LONG_AGO}})
+
+    def test_a_failed_query_raises(self) -> None:
+        self.answer(1, "")
+        with self.assertRaises(RuntimeError):
+            prune.pull_states("o/r", [1])
+
+    def test_numbers_are_batched(self) -> None:
+        calls = self.answer(0, json.dumps({"data": {"repository": {}}}))
+        prune.pull_states("o/r", list(range(1, prune.GRAPHQL_BATCH + 2)))
+        self.assertEqual(len(calls), 2)
 
 
 def git(*args: str, cwd: Path) -> str:
@@ -49,11 +84,13 @@ def git(*args: str, cwd: Path) -> str:
 
 
 class RewriteTests(unittest.TestCase):
-    def test_apply_squashes_the_branch_to_the_kept_entries(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
+    def setup_remote(self, temp: str) -> tuple[Path, Path, Path]:
+        if True:
             remote, work, checkout = Path(temp, "remote.git"), Path(temp, "work"), Path(temp, "checkout")
             env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@e", "GIT_COMMITTER_NAME": "t",
-                   "GIT_COMMITTER_EMAIL": "t@e"}
+                   "GIT_COMMITTER_EMAIL": "t@e",
+                   # Uploaded before the retention window.
+                   "GIT_AUTHOR_DATE": "2026-07-01T00:00:00Z", "GIT_COMMITTER_DATE": "2026-07-01T00:00:00Z"}
             patcher = mock.patch.dict(os.environ, env)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -67,7 +104,11 @@ class RewriteTests(unittest.TestCase):
             git("push", "-q", str(remote), prune.BRANCH, cwd=work)
             subprocess.run(["git", "init", "-q", str(checkout)], check=True)
             git("remote", "add", "origin", str(remote), cwd=checkout)
+            return remote, work, checkout
 
+    def test_apply_squashes_the_branch_to_the_kept_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            remote, _work, checkout = self.setup_remote(temp)
             original = prune.pull_states
             prune.pull_states = lambda _repo, _numbers: {1: {"state": "MERGED", "closedAt": LONG_AGO},
                                                          3: {"state": "OPEN"}}
@@ -78,6 +119,28 @@ class RewriteTests(unittest.TestCase):
             self.assertEqual(git("rev-list", "--count", prune.BRANCH, cwd=remote), "1")
             self.assertEqual(git("ls-tree", "-r", "--name-only", prune.BRANCH, cwd=remote).split(),
                              ["3/b.png", "README.md"])
+            # The squash re-dates every file, but is not read as a fresh upload.
+            prune.pull_states = lambda _repo, _numbers: {3: {"state": "MERGED", "closedAt": LONG_AGO}}
+            prune.prune("o/r", checkout, apply=True, now=NOW)
+            self.assertEqual(git("ls-tree", "-r", "--name-only", prune.BRANCH, cwd=remote).split(), ["README.md"])
+
+    def test_an_upload_during_the_prune_wins(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            remote, work, checkout = self.setup_remote(temp)
+
+            def states_while_uploading(_repo, _numbers):
+                Path(work, "4").mkdir()
+                Path(work, "4/c.png").write_text("c")
+                git("add", "4/c.png", cwd=work)
+                git("commit", "-qm", "4", cwd=work)
+                git("push", "-q", str(remote), prune.BRANCH, cwd=work)
+                return {1: {"state": "MERGED", "closedAt": LONG_AGO}}
+
+            original = prune.pull_states
+            prune.pull_states = states_while_uploading
+            self.addCleanup(setattr, prune, "pull_states", original)
+            self.assertEqual(prune.prune("o/r", checkout, apply=True, now=NOW), 0)
+            self.assertEqual(git("rev-parse", prune.BRANCH, cwd=remote), git("rev-parse", "HEAD", cwd=work))
 
 
 class WorkflowTests(unittest.TestCase):

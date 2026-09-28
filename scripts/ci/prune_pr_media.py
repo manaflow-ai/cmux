@@ -7,8 +7,9 @@ number. Every app push adds a few hundred kilobytes, and a default clone
 fetches every branch, so without pruning each clone pays for years of media.
 
 `prune` keeps every entry that is not a pull request folder (README.md,
-ui-lab/ and the like), the folders of open pull requests, and those of pull
-requests closed within RETAIN_DAYS. It then replaces the branch with one
+ui-lab/ and the like), the folders of open pull requests, those of pull
+requests closed within RETAIN_DAYS, and any folder an upload touched within
+RETAIN_DAYS (media added to an old pull request later). It then replaces the branch with one
 commit of what is kept, so the dropped files leave history too, and pushes
 with a lease: an upload that lands meanwhile makes the push fail, and the
 next run tries again. Without --apply it only reports.
@@ -29,6 +30,7 @@ import subprocess
 import sys
 
 BRANCH = "pr-media"
+PRUNE_SUBJECT = "PR media, pruned"
 RETAIN_DAYS = 30
 PR_FOLDER = re.compile(r"[1-9][0-9]{0,6}")
 GRAPHQL_BATCH = 50
@@ -59,17 +61,17 @@ def pull_states(repository: str, numbers: list[int]) -> dict[int, dict]:
     return found
 
 
-def plan(entries: list[str], states: dict[int, dict], now: dt.datetime,
+def plan(entries: list[str], states: dict[int, dict], now: dt.datetime, touched: frozenset[str] = frozenset(),
          retain_days: int = RETAIN_DAYS) -> tuple[list[str], list[str]]:
     """(keep, drop) of the branch's top-level entries.
 
     A pull request folder GitHub knows nothing about is kept: a lookup gap
-    must never delete media.
+    must never delete media. So is one in `touched`, uploaded to lately.
     """
     keep, drop = [], []
     cutoff = now - dt.timedelta(days=retain_days)
     for entry in entries:
-        if not PR_FOLDER.fullmatch(entry):
+        if not PR_FOLDER.fullmatch(entry) or entry in touched:
             keep.append(entry)
             continue
         state = states.get(int(entry))
@@ -86,25 +88,37 @@ def prune(repository: str, checkout: Path, apply: bool, now: dt.datetime) -> int
     git("fetch", "--no-tags", "origin", f"+refs/heads/{BRANCH}:refs/remotes/origin/{BRANCH}",
         cwd=checkout)
     tip = git("rev-parse", f"refs/remotes/origin/{BRANCH}", cwd=checkout).strip()
-    listing = git("ls-tree", tip, cwd=checkout).splitlines()
+    listing = [line for line in git("ls-tree", "-z", tip, cwd=checkout).split("\0") if line]
     entries = {line.split("\t", 1)[1]: line for line in listing}
     numbers = sorted(int(entry) for entry in entries if PR_FOLDER.fullmatch(entry))
-    keep, drop = plan(list(entries), pull_states(repository, numbers), now)
+    # Uploads since the cutoff; a squash commit re-dates every file, so skip those.
+    cutoff = now - dt.timedelta(days=RETAIN_DAYS)
+    paths = git("log", f"--since={cutoff.isoformat()}", "--invert-grep", f"--grep=^{PRUNE_SUBJECT}",
+                "--name-only", "--format=", tip, cwd=checkout).split()
+    touched = frozenset(path.split("/", 1)[0] for path in paths)
+    keep, drop = plan(list(entries), pull_states(repository, numbers), now, touched)
     print(f"{BRANCH} at {tip[:12]}: {len(entries)} entries; keeping {len(keep)}, "
           f"dropping {len(drop)} (closed over {RETAIN_DAYS} days ago): {' '.join(drop) or 'none'}", flush=True)
     commits = int(git("rev-list", "--count", tip, cwd=checkout).strip())
-    if not drop and commits <= 1:
+    if (not drop and commits <= 1) or not keep:
         return 0
     if not apply:
         print("Dry run; pass --apply to rewrite the branch.", flush=True)
         return 0
     # The kept tree is built from the existing tree entries, so no blob is read.
-    tree = git("mktree", cwd=checkout, input="\n".join(entries[entry] for entry in keep) + "\n").strip()
-    message = (f"PR media, pruned {now:%Y-%m-%d}\n\nKept {len(keep)} entries; dropped media of pull requests "
+    tree = git("mktree", "-z", cwd=checkout, input="".join(entries[entry] + "\0" for entry in keep)).strip()
+    message = (f"{PRUNE_SUBJECT} {now:%Y-%m-%d}\n\nKept {len(keep)} entries; dropped media of pull requests "
                f"closed over {RETAIN_DAYS} days ago: {' '.join(drop) or 'none'}.\n")
     commit = git("commit-tree", tree, "-m", message, cwd=checkout).strip()
-    git("push", f"--force-with-lease=refs/heads/{BRANCH}:{tip}", "origin", f"{commit}:refs/heads/{BRANCH}",
-        cwd=checkout)
+    try:
+        git("push", f"--force-with-lease=refs/heads/{BRANCH}:{tip}", "origin", f"{commit}:refs/heads/{BRANCH}",
+            cwd=checkout)
+    except subprocess.CalledProcessError as error:
+        if "stale info" in error.stderr or "rejected" in error.stderr:
+            print(f"::notice::An upload landed on {BRANCH} meanwhile; the next run prunes it.", flush=True)
+            return 0
+        print(error.stderr, file=sys.stderr, flush=True)
+        raise
     print(f"{BRANCH} is now {commit[:12]}, one commit.", flush=True)
     return 0
 
