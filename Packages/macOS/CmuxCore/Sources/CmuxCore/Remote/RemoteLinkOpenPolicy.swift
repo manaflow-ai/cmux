@@ -34,4 +34,9 @@ public struct RemoteLinkOpenPolicy: Sendable {
         }
         return RemoteLinkDestinations(browserURL: machineRoute, externalURL: remoteInitiated ? nil : url)
     }
+
+    /// Whether a link that resolved to `url` may open a file on this Mac.
+    public func allowsLocalFile(_ url: URL, localContent: Bool, remoteInitiated: Bool) -> Bool {
+        true
+    }
 }
