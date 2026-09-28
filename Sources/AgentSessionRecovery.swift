@@ -288,6 +288,12 @@ extension AppDelegate {
                 bindings: dock.surfaceResumeBindingsByPanelId,
                 deferred: dock.deferredAgentResumeRestoresByPanelId
             )
+            ids.formUnion(
+                dock.managedAgentResumeBindingsByPanelId
+                    .filter { $0.key != excludedPanelId }
+                    .values
+                    .compactMap(\.checkpointId)
+            )
         }
         for manager in managers {
             for workspace in manager.tabs {
