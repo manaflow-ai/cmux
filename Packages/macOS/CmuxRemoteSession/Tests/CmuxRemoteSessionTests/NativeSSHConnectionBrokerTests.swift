@@ -199,7 +199,7 @@ struct NativeSSHConnectionBrokerTests {
         #expect(arguments.contains("ControlPath=/tmp/cmux-ssh-501-%C"))
         #expect(!arguments.contains("ControlMaster=auto"))
         #expect(!arguments.contains("ControlPersist=600"))
-        #expect(arguments.suffix(3) == ["-O", "exit", "alice@example.test"])
+        #expect(arguments.suffix(4) == ["-O", "exit", "--", "alice@example.test"])
     }
 
     @Test("Ownership-blocked cleanup exhausts its bounded retry budget")

@@ -33,7 +33,7 @@ public enum AgentMoveEndpoint: Sendable, Equatable {
             return AgentMoveInvocation(arguments: ["/bin/sh", "-c", script])
         case .ssh(let target):
             return AgentMoveInvocation(
-                arguments: ["ssh"] + target.sshArguments + [target.destination, "sh -s"],
+                arguments: ["ssh"] + target.sshArguments + ["--", target.destination, "sh -s"],
                 standardInput: "{\n\(script)\n} </dev/null\n"
             )
         }

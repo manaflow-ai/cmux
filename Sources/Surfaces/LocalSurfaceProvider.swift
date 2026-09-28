@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxFoundation
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -262,7 +263,7 @@ final class LocalSurfaceProvider: SurfaceProvider {
 
     static func shellQuote(_ value: String) -> String {
         if value.isEmpty { return "''" }
-        if value.range(of: "^[A-Za-z0-9_./:=@%+-]+$", options: .regularExpression) != nil { return value }
+        if POSIXShellWord.isBare(value, punctuation: "_./:=@%+-") { return value }
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

@@ -53,7 +53,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
         #expect(
             arguments == ["-T", "-o", "RemoteCommand=none"]
                 + expectedBatchArguments
-                + ["-o", "RequestTTY=no", "cmux-macmini", expectedCommand]
+                + ["-o", "RequestTTY=no", "--", "cmux-macmini", expectedCommand]
         )
     }
 
@@ -68,7 +68,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
         #expect(
             arguments == ["-T", "-o", "RemoteCommand=none"]
                 + expectedBatchArguments
-                + ["-o", "RequestTTY=no", "cmux-macmini", expectedCommand]
+                + ["-o", "RequestTTY=no", "--", "cmux-macmini", expectedCommand]
         )
     }
 
@@ -105,6 +105,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
                 "-i", "/Users/test/.ssh/id_ed25519",
                 "-o", "ControlPath /tmp/cmux-ssh-%C",
                 "-o", "RequestTTY=no",
+                "--",
                 "cmux-macmini",
                 expectedCommand,
             ]
@@ -136,14 +137,25 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
             remoteSocketPath: "/run/cmuxd-remote.sock"
         )
         #expect(
-            arguments == ["-N", "-T", "-S", "none"]
-                + expectedBatchArguments
-                + [
-                    "-o", "ExitOnForwardFailure=yes",
-                    "-o", "RequestTTY=no",
-                    "-L", "127.0.0.1:64123:/run/cmuxd-remote.sock",
-                    "cmux-macmini",
-                ]
+            arguments == [
+                "-N", "-T", "-S", "none",
+                "-o", "ConnectTimeout=6",
+                "-o", "ServerAliveInterval=20",
+                "-o", "ServerAliveCountMax=2",
+                "-o", "BatchMode=yes",
+                "-o", "ControlMaster=no",
+                "-o", "ForwardAgent=no",
+                "-o", "ForwardX11=no",
+                "-p", "2222",
+                "-i", "/Users/test/.ssh/id_ed25519",
+                "-o", "ControlPath=/tmp/cmux-ssh-%C",
+                "-o", "StrictHostKeyChecking=accept-new",
+                "-o", "ExitOnForwardFailure=yes",
+                "-o", "RequestTTY=no",
+                "-L", "127.0.0.1:64123:/run/cmuxd-remote.sock",
+                "--",
+                "cmux-macmini",
+            ]
         )
     }
 
@@ -162,6 +174,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
                 + [
                     "-O", "forward",
                     "-R", "127.0.0.1:64007:127.0.0.1:54321",
+                    "--",
                     "cmux-macmini",
                 ]
         )
@@ -188,11 +201,15 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
                 "-o", "ServerAliveCountMax=2",
                 "-o", "BatchMode=yes",
                 "-o", "ControlMaster=no",
+                "-o", "ForwardAgent=no",
+                "-o", "ForwardX11=no",
+                "-o", "ClearAllForwardings=yes",
                 "-p", "2222",
                 "-i", "/Users/test/.ssh/id_ed25519",
                 "-o", "ControlPath=/tmp/cmux-ssh-resolved",
                 "-o", "StrictHostKeyChecking=accept-new",
                 "-o", "RequestTTY=no",
+                "--",
                 "cmux-macmini",
                 "printf relay-metadata",
             ]

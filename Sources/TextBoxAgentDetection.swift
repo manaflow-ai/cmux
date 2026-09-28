@@ -348,7 +348,7 @@ enum TextBoxAgentDetection: CaseIterable {
             return nil
         }
         let key = String(token[..<equalsIndex])
-        guard key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil else {
+        guard key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*\z"#, options: .regularExpression) != nil else {
             return nil
         }
         return (key, String(token[token.index(after: equalsIndex)...]))

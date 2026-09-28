@@ -426,9 +426,9 @@ struct SSHConnectionSharingOptionsTests {
             options: owned
         )
 
-        #expect(function?.contains("ssh -p 2222 -G alice@example.test") == true)
+        #expect(function?.contains("ssh -p 2222 -G -- alice@example.test") == true)
         #expect(function?.contains("/tmp/cmux-ssh-501-*") == true)
-        #expect(function?.contains("-O check alice@example.test") == true)
+        #expect(function?.contains("-O check -- alice@example.test") == true)
         #expect(options.controlPathPreflightShellFunction(
             sshArguments: ["ssh"],
             destination: "alice@example.test",

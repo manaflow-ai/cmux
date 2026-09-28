@@ -25,7 +25,7 @@ struct SSHTuiPreflightTests {
         #expect(call.arguments == ["-T", "-o", "BatchMode=yes", "-o", "RemoteCommand=none", "-o", "RequestTTY=no",
                                    "-p", "2222", "-i", "/tmp/key", "-o", "ControlPath=/tmp/cm", "-o", "ConnectTimeout=5",
                                    "-o", "ControlMaster=auto", "-o", "ControlPersist=600",
-                                   "-o", "ConnectTimeout=15", "alice@example.invalid", "true"])
+                                   "-o", "ConnectTimeout=15", "--", "alice@example.invalid", "true"])
     }
 
     @Test("Passes the configured agent socket like the carrier")
