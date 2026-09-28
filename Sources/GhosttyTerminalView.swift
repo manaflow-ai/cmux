@@ -4329,7 +4329,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // see `RenderDemandActivationTracker.makeExternalHoverOwnerCoordinator`'s
     // doc for why a copy-pasted-but-identical closure at this call site
     // and at the test's call site wouldn't actually pin the wiring down.
-    fileprivate lazy var externalHoverOwnerCoordinator = externalHoverDiagnosticsRenderDemandTracker.makeExternalHoverOwnerCoordinator(
+    // The coordinator is deliberately safe to call from any isolation: its
+    // lifetime and mailbox state are lock-protected, and the native surface
+    // lifecycle protocol exposes a synchronous nonisolated retirement hook.
+    // Keep the property nonisolated as well so that hook can seal the current
+    // generation without an asynchronous main-actor hop.
+    fileprivate nonisolated(unsafe) lazy var externalHoverOwnerCoordinator = externalHoverDiagnosticsRenderDemandTracker.makeExternalHoverOwnerCoordinator(
         scheduler: { DispatchQueue.main.async(execute: $0) },
         project: { [weak self] entry in self?.applyExternalHoverProjection(entry) },
         logTransition: { [surfaceSerial = externalHoverSurfaceSerial, externalHoverDiagnosticsGate] verdict in
