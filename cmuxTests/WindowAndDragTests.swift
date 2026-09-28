@@ -3837,7 +3837,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         ])
     }
 
-    func testFileExplorerExternalOpenMenuOffersRevealInCmux() {
+    func testFileExplorerExternalOpenMenuOffersRevealInCmux() throws {
         let fileURL = URL(fileURLWithPath: "/tmp/project/.env")
         let menu = NSMenu()
 
@@ -3847,10 +3847,15 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             action: Selector(("open:"))
         ).add(to: menu)
 
-        XCTAssertTrue(
-            menu.items.contains { $0.title == FileExternalOpenText.revealInCmux },
+        let revealItem = try XCTUnwrap(
+            menu.items.first { $0.title == FileExternalOpenText.revealInCmux },
             "File Explorer's external-open menu should offer a terminal split at the file's directory"
         )
+        let request = try XCTUnwrap(revealItem.representedObject as? FileExplorerExternalOpenRequest)
+        XCTAssertEqual(request.fileURL, fileURL)
+        guard case .revealInCmux = request.action else {
+            return XCTFail("Expected the menu item to dispatch the reveal action")
+        }
     }
 
     func testCmdClickSupportedFileRoutingDefaultsToReadableRegularFilesOnly() throws {
