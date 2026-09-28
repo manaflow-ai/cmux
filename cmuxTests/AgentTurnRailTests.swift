@@ -212,6 +212,21 @@ struct AgentTurnRailModelTests {
         #expect(viewport.scrolls.last?.row == 24)
     }
 
+    @Test("previous from the live bottom moves above prompts already on the last screen")
+    func previousFromBottomMovesUp() async {
+        let source = FakeOutlineSource()
+        let viewport = FakeViewport()
+        viewport.rows = agentScreen([5: "alpha", 25: "beta", 52: "gamma", 55: "delta"])
+        viewport.offset = 50
+        let model = AgentTurnRailModel(surfaceID: UUID())
+        source.publish(["alpha", "beta", "gamma", "delta"])
+        model.start(source: source, viewport: viewport)
+        await waitUntil { model.hasResolvedAnchors }
+
+        #expect(await model.jumpToPreviousTurn())
+        #expect(viewport.scrolls.last?.row == 24)
+    }
+
     @Test("a hidden terminal never reads scrollback in the background, but still jumps on demand")
     func hiddenTerminalResolvesOnDemand() async {
         let source = FakeOutlineSource()

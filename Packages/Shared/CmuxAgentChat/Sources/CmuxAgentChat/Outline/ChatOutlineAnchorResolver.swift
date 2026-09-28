@@ -22,7 +22,8 @@ public struct ChatOutlineAnchorResolver: Sendable {
     /// rows and newer entries on ties, so a prompt repeated in the
     /// conversation or reprinted by the agent's own redraw anchors to its
     /// latest consistent copy, and a newest prompt that is not echoed yet
-    /// can never borrow an older copy's row.
+    /// does not borrow an older copy's row unless every copy has the same
+    /// text (no alignment can tell those apart).
     ///
     /// - Parameters:
     ///   - entries: Outline entries in transcript order.

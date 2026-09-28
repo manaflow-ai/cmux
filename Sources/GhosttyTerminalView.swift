@@ -11251,11 +11251,19 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        // An idle agent pane shown again resolves the turns it deferred while
+        // hidden, even without a layout pass or new output.
+        agentTurnRailHost?.model.resumeDeferredResolve()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
         guard let window else { return }
+        agentTurnRailHost?.model.resumeDeferredResolve()
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,

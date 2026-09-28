@@ -30,9 +30,10 @@ struct ChatOutlineNavigatorTests {
         #expect(navigator.previousTarget(viewportTop: 9, viewportRows: 24) == nil)
     }
 
-    @Test("at the live bottom, previous goes to the newest prompt first")
+    @Test("at the live bottom, previous moves up to the prompt above the viewport top")
     func previousFromBottom() {
-        #expect(navigator.previousTarget(viewportTop: 110, viewportRows: 24, isAtBottom: true) == 4)
+        // Top 110 is the last top row; prompts 120 and 123 are already on screen.
+        #expect(navigator.previousTarget(viewportTop: 110, viewportRows: 24, isAtBottom: true) == 1)
         #expect(navigator.nextTarget(viewportTop: 110, viewportRows: 24, isAtBottom: true) == nil)
     }
 }

@@ -33,14 +33,10 @@ public struct ChatOutlineNavigator: Sendable, Equatable {
     }
 
     /// Where "previous turn" goes: the nearest prompt above the reading line.
-    /// At the live bottom, the newest prompt on screen comes first.
+    /// A jump puts that prompt on the reading line, so the viewport always
+    /// moves up, including from the live bottom.
     public func previousTarget(viewportTop: Int, viewportRows: Int, isAtBottom: Bool = false) -> Int? {
-        if isAtBottom,
-           let newest = currentIndex(viewportTop: viewportTop, viewportRows: viewportRows, isAtBottom: true),
-           let row = anchorRows[newest], row > viewportTop + 1 {
-            return newest
-        }
-        return lastAnchoredIndex { $0 < viewportTop + 1 }
+        lastAnchoredIndex { $0 < viewportTop + 1 }
     }
 
     /// Where "next turn" goes: the nearest prompt below the reading line, or

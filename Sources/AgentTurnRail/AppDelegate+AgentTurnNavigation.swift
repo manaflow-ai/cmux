@@ -65,7 +65,7 @@ extension AppDelegate {
         // Only a focused terminal owns the keys. Text fields (the find bar,
         // the TextBox, sidebar editors) keep their own Command-Shift-arrow
         // selection behavior.
-        guard (event.window?.firstResponder).cmuxTerminalKeyEquivalentOwningGhosttyView() != nil else {
+        guard (event.window?.firstResponder).cmuxStrictOwningGhosttyView() != nil else {
             return false
         }
         let handled = performAgentTurnNavigation(direction, preferredWindow: event.window)
