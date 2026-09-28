@@ -471,7 +471,7 @@ test("a native reply rejected after its budget call leaves no gap in the deliver
     headers: { authorization: `IrohTicket ${ticket}`, "x-cmux-v2-setup": setupHeader(setup) },
   });
   const frames: any[] = [];
-  socket.on("message", value => frames.push(JSON.parse(value.toString())));
+  socket.on("message", (value: { toString(): string }) => frames.push(JSON.parse(value.toString())));
   await new Promise<void>((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject); });
   try {
     await waitFor(() => frames.some(frame => frame.schemaId === "session.ready.v1"), "the session ready frame");

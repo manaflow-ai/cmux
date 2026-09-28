@@ -166,8 +166,22 @@ export class DashboardControl {
     ws.send(next.text);
     // The frame is out, so the accounting has to follow it. Charging first would
     // leave a rejected frame paid for, and the next frame's revision would then
-    // be refused as a conflict, wedging this socket's output path for good.
-    unwrap(await this.services.user(userId).setOutput(userId, attachment.sessionId, outputRevision, next.bytes, next.messages));
+    // be refused as a conflict, stalling this socket's output until the client
+    // reconnects and starts a fresh reservation.
+    //
+    // Once the bytes are on the wire they cannot be recalled, so a rejected
+    // charge is fatal for this connection. Without the close, the caller's catch
+    // would answer with a much smaller error.v1 frame that reuses this unsaved
+    // revision, and that frame can fit the headroom this one just overran: the
+    // socket would stay open and keep delivering large frames that are never
+    // charged. Closing here also makes that error reply a no-op, because send
+    // returns early once the attachment is marked closed.
+    try {
+      unwrap(await this.services.user(userId).setOutput(userId, attachment.sessionId, outputRevision, next.bytes, next.messages));
+    } catch (error) {
+      this.close(ws, "slow_consumer");
+      throw error;
+    }
     if (this.load(ws).closed) return;
     this.save(ws, { ...attachment, delivery: next.state, outputRevision });
   }

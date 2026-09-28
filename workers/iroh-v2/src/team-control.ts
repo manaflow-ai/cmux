@@ -126,8 +126,14 @@ export class TeamControl extends DurableObject<Environment> {
             return; // No ack response and no idle traffic.
           }
           const result = await this.broker(attachment.session.identity.teamId).execute(attachment.session, input);
+          // Same rule as the accounting inside send: nothing is recorded for an
+          // effect that has not happened. Storing the advanced session first
+          // would leave us holding a session the client was never told about if
+          // the send's authority checks reject the frame, so the frame goes out
+          // first and the session is committed after. send still validates
+          // against the advanced session, which is passed in explicitly.
+          await this.send(ws, result.response, result.session ?? attachment.session);
           if (result.session && !this.load(ws).closed) this.save(ws, { ...this.load(ws), session: result.session });
-          await this.send(ws, result.response);
           this.scheduleChanges(result, attachment.session.identity.teamId);
           if (result.close) this.close(ws, "goodbye");
         } catch (error) {
@@ -251,30 +257,47 @@ export class TeamControl extends DurableObject<Environment> {
     unwrap(reserved);
   }
 
-  private async send(ws: WebSocket, response: ControlResponse): Promise<void> {
+  /**
+   * `session` overrides the attachment's copy for the authority checks below.
+   * The caller passes the session its operation just advanced, so the frame is
+   * validated against the session it was built under while the stored copy is
+   * only committed once the frame is actually out.
+   */
+  private async send(ws: WebSocket, response: ControlResponse, session?: Attachment["session"]): Promise<void> {
     const attachment = this.load(ws);
     if (attachment.closed) return;
+    const authority = session ?? attachment.session;
     const next = prepareDelivery(attachment.delivery, response);
     const outputRevision = attachment.outputRevision + 1;
     // Authority is checked with nothing awaited in between, so no event can land
     // between the last check and the send, and private data cannot leave us
     // under authority that was revoked while this reply was being built.
     if (response.schemaId === "session.ready.v1") {
-      const broker = this.broker(attachment.session.identity.teamId);
-      broker.validateSetup(attachment.session, response.challenge !== undefined);
-      if (attachment.session.expiresAt <= Math.floor(Date.now() / 1000)) throw new OperationError("ticket_expired", 401, true);
+      const broker = this.broker(authority.identity.teamId);
+      broker.validateSetup(authority, response.challenge !== undefined);
+      if (authority.expiresAt <= Math.floor(Date.now() / 1000)) throw new OperationError("ticket_expired", 401, true);
     }
     if (["directory.result.v1", "relay.result.v1", "ticket.result.v1", "device.registered.v1"].includes(response.schemaId)) {
-      const broker = this.broker(attachment.session.identity.teamId);
-      broker.requiredDevice(attachment.session);
-      if (attachment.session.expiresAt <= Math.floor(Date.now() / 1000)) throw new OperationError("ticket_expired", 401, true);
+      const broker = this.broker(authority.identity.teamId);
+      broker.requiredDevice(authority);
+      if (authority.expiresAt <= Math.floor(Date.now() / 1000)) throw new OperationError("ticket_expired", 401, true);
       if (response.schemaId === "directory.result.v1" && broker.dependencies.store.readRevision() !== response.directory.revision) throw new OperationError("resync_required", 409, true);
     }
     ws.send(next.text);
     // The frame is out, so the accounting has to follow it. Committing first
     // would spend a sequence number on a frame the client never sees, and at a
     // checkpoint boundary would mint a receipt token it can never return.
-    await this.setOutput(attachment.session, outputRevision, next.bytes, next.messages);
+    //
+    // Once the bytes are on the wire they cannot be recalled, so a rejected
+    // charge is fatal for this connection: see the same guard in
+    // dashboard-control.ts for why leaving the socket open would let the
+    // caller's smaller error reply keep large frames uncharged.
+    try {
+      await this.setOutput(authority, outputRevision, next.bytes, next.messages);
+    } catch (error) {
+      this.close(ws, "slow_consumer");
+      throw error;
+    }
     if (this.load(ws).closed) return;
     this.save(ws, { ...attachment, delivery: next.state, outputRevision });
   }
