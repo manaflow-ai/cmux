@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""Run two real restore CLIs with isolated homes, PTYs, and an app RPC fixture.
+
+Usage: python3 tests_v2/test_restore_launch_lease_contention.py --cli /path/to/cmux
+No running cmux app or real Codex account is accessed. The first restore execs
+a stand-in agent and the real cmux exit watcher holds its launch lease.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import pty
+import select
+import socketserver
+import subprocess
+import tempfile
+import threading
+import time
+import uuid
+
+
+def exercise(cli: Path, reports_owner: bool) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-15111-", dir="/tmp") as temporary:
+        root = Path(temporary).resolve()
+        home = root / "codex-home"
+        sessions = home / "sessions"
+        sessions.mkdir(parents=True)
+        session = str(uuid.uuid4())
+        workspace, surface = str(uuid.uuid4()), str(uuid.uuid4())
+        (sessions / f"rollout-{session}.jsonl").write_text(json.dumps({
+            "type": "session_meta",
+            "payload": {"id": session, "cwd": str(root), "source": "cli", "originator": "codex-tui"},
+        }) + "\n")
+        executable = root / "codex"
+        executable.write_text(
+            "#!/usr/bin/python3\nimport os\n"
+            "print('READY ' + str(os.getpid()), flush=True)\n"
+            "os.read(0, 1)\n"
+        )
+        executable.chmod(0o700)
+        owner_pid: int | None = None
+        requests: list[str] = []
+        record = {
+            "kind": "codex", "mode": "resumeAgent", "checkpoint_id": session,
+            "source": "session-snapshot", "working_directory": str(root),
+            "environment": {"CODEX_HOME": str(home)},
+            "launch_command": {"launcher": "codex", "executable_path": str(executable),
+                               "arguments": [str(executable), "resume", session]},
+        }
+
+        class Handler(socketserver.StreamRequestHandler):
+            def handle(self) -> None:
+                for line in self.rfile:
+                    request = json.loads(line)
+                    method = request["method"]
+                    requests.append(method)
+                    if method == "surface.resume.get":
+                        result = {"workspace_id": workspace, "surface_id": surface,
+                                  "restore_record": record, "agent_restore_admission_supported": True}
+                    elif method == "agent.restore.admit":
+                        if owner_pid is None:
+                            result = {"admitted": True, "claim_id": str(uuid.uuid4())}
+                        else:
+                            # Older apps mark even a known live owner recovering.
+                            result = {"admitted": False, "recovering": True}
+                            if reports_owner:
+                                result["live_owner_pid"] = owner_pid
+                    elif method == "agent.restore.release":
+                        result = {"released": True}
+                    else:
+                        raise AssertionError(method)
+                    self.wfile.write((json.dumps({"id": request.get("id"), "ok": True, "result": result}) + "\n").encode())
+
+        class Server(socketserver.ThreadingUnixStreamServer):
+            daemon_threads = True
+
+        path = root / "app.sock"
+        server = Server(str(path), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        environment = {
+            "HOME": str(root), "CFFIXED_USER_HOME": str(root), "CODEX_HOME": str(home),
+            "CMUX_SOCKET_PATH": str(path), "CMUX_CLI_SENTRY_DISABLED": "1",
+            "SHELL": "/bin/sh", "PATH": "/usr/bin:/bin", "LANG": "en_US.UTF-8",
+        }
+        for key in ("DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH"):
+            if key in os.environ:
+                environment[key] = os.environ[key]
+        command = [str(cli), "restore", "--surface", surface, "codex", session]
+        first_master, first_slave = pty.openpty()
+        second_master, second_slave = pty.openpty()
+        first = second = None
+        try:
+            first = subprocess.Popen(command, env=environment, cwd=root,
+                                     stdin=first_slave, stdout=first_slave, stderr=first_slave)
+            deadline = time.monotonic() + 10
+            output = b""
+            while b"READY " not in output or not output.endswith(b"\n"):
+                remaining = deadline - time.monotonic()
+                assert remaining > 0, f"First restore never launched: {output!r}"
+                assert select.select([first_master], [], [], remaining)[0], output
+                output += os.read(first_master, 4096)
+            owner_pid = int(output.split(b"READY ")[1].split()[0])
+            assert owner_pid == first.pid, "The watcher must track the exec'd restore PID"
+            started = time.monotonic()
+            second = subprocess.Popen(command, env=environment, cwd=root,
+                                      stdin=second_slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                stdout, stderr = second.communicate(timeout=3)
+            except subprocess.TimeoutExpired as error:
+                raise AssertionError("Second restore hung behind a live lease owner for over 3 seconds") from error
+            elapsed = time.monotonic() - started
+            assert second.returncode != 0, (stdout, stderr)
+            expected = f"already running in process {owner_pid}".encode()
+            assert expected in stderr, (stdout, stderr, requests)
+            assert first.poll() is None, "Contender must not stop the live owner"
+            assert b"READY" not in stdout, "Contender launched another writer"
+            print(f"PASS reports_owner={reports_owner}: live owner PID named in {elapsed:.3f}s; no second writer")
+        finally:
+            for process in (second, first):
+                if process is not None and process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=5)
+            for descriptor in (first_master, first_slave, second_master, second_slave):
+                os.close(descriptor)
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cli", type=Path, required=True)
+    arguments = parser.parse_args()
+    for reports_owner in (True, False):
+        exercise(arguments.cli.resolve(), reports_owner)
+
+
+if __name__ == "__main__":
+    main()
