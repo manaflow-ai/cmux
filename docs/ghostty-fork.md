@@ -28,8 +28,9 @@ When we change the fork, update this document and the parent submodule SHA.
   `vt_replay_preserves_blank_tail_after_history`,
   `vt_replay_preserves_codex_composer_before_incremental_redraw`, the
   page-boundary formatter test, and cell-level Cloud replay tests.
-- Artifact and SHA-256 will be recorded after the hosted GhosttyKit build for
-  `6dae1978e` completes.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-6dae1978effbd9812de1c93ea7a938dbde12532d-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `dc9b024dc8ad913ced9a80b1c8e5e8532536d98389cdececcdc8aee233541364`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note: keep the trailing-row count paired with the formatter's
   existing last-cell delimiter; adding a second delimiter reintroduces the
   one-row scroll.
