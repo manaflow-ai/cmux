@@ -76,26 +76,22 @@ struct AgentPermissionRuleMatcherTests {
 
 @Suite("Agent permission grant registry")
 struct AgentPermissionGrantRegistryTests {
-    private func makeStore() -> (AgentPermissionGrantStore, URL) {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("grant-store-\(UUID().uuidString)", isDirectory: true)
-        return (AgentPermissionGrantStore(fileURL: directory.appendingPathComponent("grants.json")), directory)
-    }
-
     @Test func matchesByScopeRecordsUseAndDropsExpired() throws {
-        let (store, directory) = makeStore()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("grant-registry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let now = Date(timeIntervalSince1970: 1_000_000)
-        let registry = AgentPermissionGrantRegistry(store: store, now: now)
+        let registry = AgentPermissionGrantRegistry()
         let project = AgentPermissionGrant(rules: ["Bash(git status)"], scope: .project(root: directory.path),
                                            grantedAt: now, expiresAt: now.addingTimeInterval(3600))
         let session = AgentPermissionGrant(rules: ["Bash(make test)"], scope: .session(id: "s1"),
                                            grantedAt: now, expiresAt: now.addingTimeInterval(3600))
         let expired = AgentPermissionGrant(rules: ["Bash(ls:*)"], scope: .session(id: "s1"),
                                            grantedAt: now, expiresAt: now.addingTimeInterval(-1))
-        try registry.add(project, now: now)
-        try registry.add(session, now: now)
-        try registry.add(expired, now: now.addingTimeInterval(-10))
+        registry.add(project, now: now)
+        registry.add(session, now: now)
+        registry.add(expired, now: now.addingTimeInterval(-10))
 
         let inProject = AgentPermissionRequest(toolName: "Bash", command: "git status",
                                                cwd: directory.appendingPathComponent("sub").path)
@@ -115,34 +111,13 @@ struct AgentPermissionGrantRegistryTests {
         #expect(recorded.lastUsedAt == now)
         #expect(registry.activeGrants(now: now).count == 2)
 
-        // Use counts persist, and a new registry reloads them from disk.
-        let reloaded = AgentPermissionGrantRegistry(store: store, now: now)
-        #expect(reloaded.activeGrants(now: now).first { $0.id == project.id }?.useCount == 2)
-
-        let attributes = try FileManager.default.attributesOfItem(atPath: store.fileURL.path)
-        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
-
-        #expect(try registry.revoke(id: session.id, now: now) == 1)
-        #expect(try registry.revoke(id: nil, now: now) == 1)
+        #expect(registry.revoke(id: session.id, now: now) == 1)
+        #expect(registry.revoke(id: nil, now: now) == 1)
         #expect(registry.activeGrants(now: now).isEmpty)
-        #expect(store.grants(now: now).isEmpty)
-    }
-
-    @Test func editingTheFileWhileRunningGrantsNothing() throws {
-        let (store, directory) = makeStore()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        let registry = AgentPermissionGrantRegistry(store: store, now: now)
-        try store.save([AgentPermissionGrant(rules: ["Bash(make test)"], scope: .session(id: "s1"),
-                                             grantedAt: now, expiresAt: now.addingTimeInterval(60))])
-        let make = AgentPermissionRequest(toolName: "Bash", command: "make test", cwd: "/")
-        #expect(!registry.answer(make, sessionID: "s1", now: now))
     }
 
     @Test func oneApprovalAtATime() {
-        let (store, directory) = makeStore()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let registry = AgentPermissionGrantRegistry(store: store)
+        let registry = AgentPermissionGrantRegistry()
         #expect(registry.beginApproval())
         #expect(!registry.beginApproval())
         registry.endApproval()

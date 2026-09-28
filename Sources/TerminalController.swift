@@ -1162,7 +1162,6 @@ class TerminalController {
         preserveAcceptFailureStreak: Bool = false
     ) {
         self.tabManager = tabManager
-        Self.loadPermissionGrants()
         socketServer.start(
             socketPath: socketPath,
             accessMode: accessMode,

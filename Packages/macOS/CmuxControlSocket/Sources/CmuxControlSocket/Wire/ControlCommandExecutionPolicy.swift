@@ -148,8 +148,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "vault.checkpoints",
         "vault.checkpoint",
         "vault.fork",
-        // permissions.* read and write the agent grant registry and its
-        // store on disk, `permissions.match` answers agent hooks that are
+        // permissions.* use the in-memory agent grant registry behind a lock,
+        // `permissions.match` stats request paths while an agent hook is
         // blocking a tool call, and `permissions.request` waits for the user
         // to answer the approval panel; only the panel hops to the main actor.
         "permissions.request",

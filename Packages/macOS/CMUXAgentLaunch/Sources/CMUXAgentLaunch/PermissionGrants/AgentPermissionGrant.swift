@@ -6,10 +6,11 @@ public import Foundation
 /// Rules use Claude Code's permission-rule syntax (`Bash(git:*)`,
 /// `Edit(//abs/dir/**)`, `WebFetch(domain:example.com)`). Only the cmux app
 /// creates grants, after the user approves them, and only the app answers
-/// permission requests from them.
-public struct AgentPermissionGrant: Codable, Sendable, Equatable, Identifiable {
+/// permission requests from them. Grants live in memory only and end when
+/// cmux quits.
+public struct AgentPermissionGrant: Sendable, Equatable, Identifiable {
     /// Who a grant covers.
-    public enum Scope: Codable, Sendable, Equatable {
+    public enum Scope: Sendable, Equatable {
         /// One agent session, by the session id its hooks report.
         case session(id: String)
         /// Every session whose working directory is `root` or below it.
@@ -61,25 +62,6 @@ public struct AgentPermissionGrant: Codable, Sendable, Equatable, Identifiable {
         case .project(let root):
             guard let cwd else { return false }
             return AgentPermissionPath.isSameOrDescendant(cwd, of: root)
-        }
-    }
-
-    /// Whether a grant read back from disk is one the app could have
-    /// created: unexpired, within the longest duration, with valid rules and
-    /// scope. Anything else was hand-written and is dropped.
-    func isLoadable(matcher: AgentPermissionRuleMatcher, now: Date) -> Bool {
-        guard !isExpired(at: now),
-              expiresAt <= now.addingTimeInterval(Self.maximumDurationSeconds),
-              !rules.isEmpty, rules.count <= AgentPermissionGrantProposal.maximumRuleCount,
-              rules.allSatisfy(matcher.isValid),
-              reason.map({ AgentPermissionText.sanitizedReason($0) == $0 }) ?? true else {
-            return false
-        }
-        switch scope {
-        case .session(let id):
-            return !id.isEmpty && !AgentPermissionText.containsInvisibleOrControl(id)
-        case .project(let root):
-            return root.hasPrefix("/") && root != "/" && !AgentPermissionText.containsInvisibleOrControl(root)
         }
     }
 }

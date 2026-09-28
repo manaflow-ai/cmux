@@ -99,7 +99,7 @@ struct AgentPermissionGrantHardeningTests {
 
     @Test(arguments: [
         ".ssh/id_ed25519", ".ssh/config", ".zshrc", ".zprofile", ".bashrc", ".bash_profile", ".profile",
-        "Library/LaunchAgents/x.plist", ".config/cmux/cmux.json", ".cmuxterm/agent-permission-grants.json",
+        "Library/LaunchAgents/x.plist", ".config/cmux/cmux.json", ".cmuxterm/state.json",
     ])
     func protectedHomePathsNeverMatch(relative: String) {
         let home = NSHomeDirectory()
@@ -203,32 +203,19 @@ struct AgentPermissionGrantHardeningTests {
         #expect(parse(["Bash(git status)"], reason: "trust me\u{202E}") == .failure(.invalidReason))
     }
 
-    // MARK: Persistence
+    // MARK: Memory only
 
-    @Test func handWrittenGrantsWithoutExpiryOrWithInvalidRulesAreDroppedOnLoad() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("grant-load-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appendingPathComponent("grants.json")
+    /// Grants never touch disk, so nothing written to a file can plant one;
+    /// a new registry (a relaunched app) starts empty.
+    @Test func grantsLiveOnlyInTheRegistryThatApprovedThem() {
         let now = Date(timeIntervalSince1970: 1_000_000)
-        let later = ISO8601DateFormatter().string(from: now.addingTimeInterval(3600))
-        let farFuture = ISO8601DateFormatter().string(from: now.addingTimeInterval(365 * 86_400))
-        let granted = ISO8601DateFormatter().string(from: now)
-        func grant(_ rules: String, expires: String) -> String {
-            #"{"id":"\#(UUID().uuidString)","rules":[\#(rules)],"scope":{"session":{"id":"s1"}},"grantedAt":"\#(granted)","useCount":0\#(expires)}"#
-        }
-        let json = #"{"version":1,"grants":["#
-            + [
-                grant(#""Bash(ls:*)""#, expires: #","expiresAt":null"#),
-                grant(#""Bash(ls:*)""#, expires: ""),
-                grant(#""Write""#, expires: #","expiresAt":"\#(later)""#),
-                grant(#""Bash(ls:*)""#, expires: #","expiresAt":"\#(farFuture)""#),
-                grant(#""Bash(make test)""#, expires: #","expiresAt":"\#(later)""#),
-            ].joined(separator: ",")
-            + "]}"
-        try Data(json.utf8).write(to: file)
-        let loaded = AgentPermissionGrantStore(fileURL: file).grants(now: now)
-        #expect(loaded.map(\.rules) == [["Bash(make test)"]])
+        let approved = AgentPermissionGrantRegistry()
+        approved.add(AgentPermissionGrant(rules: ["Bash(make test)"], scope: .session(id: "s1"),
+                                          grantedAt: now, expiresAt: now.addingTimeInterval(60)), now: now)
+        let make = AgentPermissionRequest(toolName: "Bash", command: "make test", cwd: "/")
+        #expect(approved.answer(make, sessionID: "s1", now: now))
+        let relaunched = AgentPermissionGrantRegistry()
+        #expect(relaunched.activeGrants(now: now).isEmpty)
+        #expect(!relaunched.answer(make, sessionID: "s1", now: now))
     }
 }

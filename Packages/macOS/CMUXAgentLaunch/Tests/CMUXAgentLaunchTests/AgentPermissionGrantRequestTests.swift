@@ -132,12 +132,7 @@ struct AgentPermissionClaudeHookTests {
     }
 
     @Test func appAnswersMatchingRequestsAndCountsThem() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("grant-hook-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let registry = AgentPermissionGrantRegistry(
-            store: AgentPermissionGrantStore(fileURL: directory.appendingPathComponent("grants.json"))
-        )
+        let registry = AgentPermissionGrantRegistry()
         let now = Date(timeIntervalSince1970: 1_000_000)
         func answer(_ payload: [String: Any]) throws -> Bool {
             let params = try #require(AgentPermissionRequest.claudeMatchParams(hookPayload: payload))
@@ -147,7 +142,7 @@ struct AgentPermissionClaudeHookTests {
         #expect(try !answer(payload("Bash", ["command": "git status"])), "No grants yet")
         let grant = AgentPermissionGrant(rules: ["Bash(git status)"], scope: .session(id: "s1"),
                                          grantedAt: now, expiresAt: now.addingTimeInterval(60))
-        try registry.add(grant, now: now)
+        registry.add(grant, now: now)
 
         #expect(try answer(payload("Bash", ["command": "git status"])))
         #expect(registry.activeGrants(now: now).first?.useCount == 1)

@@ -3,9 +3,10 @@ import Foundation
 
 /// Socket v2 surface for batch agent permission grants.
 ///
-/// The app is the only authority: it holds approved grants in memory
-/// (``AgentPermissionGrantRegistry``, loaded from its own store at launch),
-/// adds them only when the user clicks Approve in the panel, and answers
+/// The app is the only authority: it holds approved grants in memory only
+/// (``AgentPermissionGrantRegistry``; they never touch disk and end when
+/// cmux quits), adds them only when the user clicks Approve in the panel,
+/// and answers
 /// `permissions.match` for the `PermissionRequest` hook with allow or no
 /// match, never grant contents. `permissions.request` is only a proposal.
 /// All four methods run on the socket worker; only the panel itself runs on
@@ -17,14 +18,7 @@ extension TerminalController {
     /// `cmux permissions request` finishes first.
     nonisolated static let permissionRequestTimeoutSeconds: TimeInterval = 100
 
-    nonisolated static let permissionGrantRegistry = AgentPermissionGrantRegistry(
-        store: AgentPermissionGrantStore(fileURL: AgentPermissionGrantStore.defaultFileURL())
-    )
-
-    /// Loads approved grants off the main actor when the socket starts.
-    nonisolated static func loadPermissionGrants() {
-        Task.detached(priority: .utility) { _ = TerminalController.permissionGrantRegistry }
-    }
+    nonisolated static let permissionGrantRegistry = AgentPermissionGrantRegistry()
 
     // MARK: permissions.match
 
@@ -62,18 +56,7 @@ extension TerminalController {
               let grant = proposal.grant(approving: selected, now: Date()) else {
             return .ok(["denied": true])
         }
-        do {
-            try registry.add(grant)
-        } catch {
-            return .err(
-                code: "internal_error",
-                message: String(
-                    localized: "socket.permissions.saveFailed",
-                    defaultValue: "The grant could not be saved."
-                ),
-                data: nil
-            )
-        }
+        registry.add(grant)
         return .ok(["approved": grant.rules, "grant_id": grant.id.uuidString])
     }
 
@@ -102,19 +85,7 @@ extension TerminalController {
                 data: nil
             )
         }
-        do {
-            let revoked = try Self.permissionGrantRegistry.revoke(id: id)
-            return .ok(["revoked": revoked])
-        } catch {
-            return .err(
-                code: "internal_error",
-                message: String(
-                    localized: "socket.permissions.saveFailed",
-                    defaultValue: "The grant could not be saved."
-                ),
-                data: nil
-            )
-        }
+        return .ok(["revoked": Self.permissionGrantRegistry.revoke(id: id)])
     }
 
     nonisolated static func permissionValidationMessage(

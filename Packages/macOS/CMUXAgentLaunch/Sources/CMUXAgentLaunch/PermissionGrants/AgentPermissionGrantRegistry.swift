@@ -2,25 +2,18 @@ public import Foundation
 
 /// The app's in-memory authority for approved grants.
 ///
-/// It loads the store once, adds grants only from the approval path, and
-/// answers `permissions.match` from memory, counting each use. Editing the
-/// file while the app runs changes nothing; the next launch re-validates it.
-/// It also admits one approval request at a time.
+/// Grants are added only from the approval path and never touch disk: they
+/// last until they expire, are revoked, or cmux quits. The registry answers
+/// `permissions.match` from memory, counting each use, and admits one
+/// approval request at a time.
 public final class AgentPermissionGrantRegistry: @unchecked Sendable {
-    private let store: AgentPermissionGrantStore
     private let matcher: AgentPermissionRuleMatcher
     private let lock = NSLock()
-    private var grants: [AgentPermissionGrant]
+    private var grants: [AgentPermissionGrant] = []
     private var approvalPending = false
 
-    public init(
-        store: AgentPermissionGrantStore,
-        matcher: AgentPermissionRuleMatcher = AgentPermissionRuleMatcher(),
-        now: Date = Date()
-    ) {
-        self.store = store
+    public init(matcher: AgentPermissionRuleMatcher = AgentPermissionRuleMatcher()) {
         self.matcher = matcher
-        self.grants = store.grants(matcher: matcher, now: now)
     }
 
     /// Active grants, oldest first.
@@ -28,25 +21,21 @@ public final class AgentPermissionGrantRegistry: @unchecked Sendable {
         lock.withLock { grants.filter { !$0.isExpired(at: now) } }
     }
 
-    /// Adds an approved grant and saves. Nothing changes when saving fails.
-    public func add(_ grant: AgentPermissionGrant, now: Date = Date()) throws {
-        try lock.withLock {
-            let updated = grants.filter { !$0.isExpired(at: now) } + [grant]
-            try store.save(updated)
-            grants = updated
+    /// Adds an approved grant.
+    public func add(_ grant: AgentPermissionGrant, now: Date = Date()) {
+        lock.withLock {
+            grants = grants.filter { !$0.isExpired(at: now) } + [grant]
         }
     }
 
     /// Removes one grant, or every grant when `id` is `nil`.
-    /// - Returns: How many grants were removed.
+    /// - Returns: How many active grants were removed.
     @discardableResult
-    public func revoke(id: UUID?, now: Date = Date()) throws -> Int {
-        try lock.withLock {
+    public func revoke(id: UUID?, now: Date = Date()) -> Int {
+        lock.withLock {
             let active = grants.filter { !$0.isExpired(at: now) }
-            let updated = active.filter { id != nil && $0.id != id }
-            try store.save(updated)
-            grants = updated
-            return active.count - updated.count
+            grants = active.filter { id != nil && $0.id != id }
+            return active.count - grants.count
         }
     }
 
@@ -63,8 +52,6 @@ public final class AgentPermissionGrantRegistry: @unchecked Sendable {
             }
             grants[index].useCount += 1
             grants[index].lastUsedAt = now
-            // Use counts are an audit aid; a failed save doesn't undo the answer.
-            try? store.save(grants.filter { !$0.isExpired(at: now) })
             return true
         }
     }
