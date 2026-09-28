@@ -59,7 +59,7 @@ final class VoiceDictationCoordinator {
         defaults: UserDefaults = .standard,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         apiKeyStore: VoiceDictationAPIKeyStore = VoiceDictationAPIKeyStore(),
-        focusedTerminalTarget: @escaping () -> VoiceDictationTerminalTarget?
+        focusedTerminalTarget: @escaping @MainActor () -> VoiceDictationTerminalTarget?
     ) {
         self.catalog = catalog
         self.defaults = defaults

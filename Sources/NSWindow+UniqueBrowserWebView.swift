@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 
 extension NSWindow {
     /// The only `CmuxWebView` under `root`, or `nil` when there are none or

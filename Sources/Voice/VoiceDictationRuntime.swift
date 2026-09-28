@@ -14,7 +14,7 @@ final class VoiceDictationRuntime {
     init(
         catalog: SettingCatalog,
         defaults: UserDefaults = .standard,
-        focusedTerminalTarget: @escaping () -> VoiceDictationTerminalTarget? = {
+        focusedTerminalTarget: @escaping @MainActor () -> VoiceDictationTerminalTarget? = {
             AppDelegate.shared?.voiceDictationFocusedTerminalTarget()
         }
     ) {

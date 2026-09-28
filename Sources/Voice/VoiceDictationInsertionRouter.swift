@@ -24,7 +24,7 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
 
     /// Resolves the focused terminal of the active workspace across window
     /// contexts; injected from the composition root.
-    private let focusedTerminalTarget: () -> VoiceDictationTerminalTarget?
+    private let focusedTerminalTarget: @MainActor () -> VoiceDictationTerminalTarget?
     /// Whether agent-prompt cleanup is on; read once per session.
     private let cleanUpAgentPrompts: () -> Bool
     private let resolver = DictationInsertionRouteResolver()
@@ -62,7 +62,7 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
     """
 
     init(
-        focusedTerminalTarget: @escaping () -> VoiceDictationTerminalTarget?,
+        focusedTerminalTarget: @escaping @MainActor () -> VoiceDictationTerminalTarget?,
         cleanUpAgentPrompts: @escaping () -> Bool
     ) {
         self.focusedTerminalTarget = focusedTerminalTarget
