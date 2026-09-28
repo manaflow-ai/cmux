@@ -142,32 +142,35 @@ struct TerminalThemeGalleryModelTests {
         #expect(try file.readContents() == nil)
     }
 
-    @Test("An empty query shows curated themes that exist, matching the slot first")
-    func curatedResultsFollowSlot() {
+    @Test("An empty query lists every theme, those matching the slot first")
+    func emptyQueryListsEveryTheme() {
         let themes = [
+            theme("3024 Night", background: "#090300"),
+            theme("Alabaster", background: "#f7f7f7"),
+            theme("Dracula", background: "#282a36"),
             theme("Nord", background: "#2e3440"),
             theme("Nord Light", background: "#e5e9f0"),
-            theme("Dracula", background: "#282a36"),
-            theme("catppuccin latte", background: "#eff1f5"),
         ]
 
         let light = TerminalThemeGalleryModel.results(in: themes, query: "", slot: .light)
-        #expect(light.themes.map(\.name) == ["catppuccin latte", "Nord Light", "Nord"])
+        #expect(light.matchingSlot.map(\.name) == ["Alabaster", "Nord Light"])
+        #expect(light.otherAppearance.map(\.name) == ["3024 Night", "Dracula", "Nord"])
+
         let dark = TerminalThemeGalleryModel.results(in: themes, query: " ", slot: .dark)
-        #expect(dark.themes.map(\.name) == ["Nord", "catppuccin latte", "Nord Light"])
+        #expect(dark.matchingSlot.map(\.name) == ["3024 Night", "Dracula", "Nord"])
+        #expect(dark.otherAppearance.map(\.name) == ["Alabaster", "Nord Light"])
+        #expect(dark.themes.count == themes.count)
     }
 
-    @Test("A query searches every theme and caps the card count")
-    func searchCapsResults() {
-        let themes = (0..<60).map { theme("Theme \($0)", background: "#000000") } + [theme("Dracula", background: "#282a36")]
+    @Test("A query returns every matching theme without a cap")
+    func searchReturnsEveryMatch() {
+        let themes = (0..<600).map { theme("Theme \($0)", background: "#000000") } + [theme("Dracula", background: "#282a36")]
 
         let dracula = TerminalThemeGalleryModel.results(in: themes, query: "drac", slot: .light)
         #expect(dracula.themes.map(\.name) == ["Dracula"])
-        #expect(!dracula.isTruncated)
 
         let many = TerminalThemeGalleryModel.results(in: themes, query: "theme", slot: .light)
-        #expect(many.themes.count == TerminalThemeGalleryModel.searchResultLimit)
-        #expect(many.isTruncated)
+        #expect(many.themes.count == 600)
     }
 
     private func theme(_ name: String, background: String) -> TerminalThemeGalleryModel.Theme {
