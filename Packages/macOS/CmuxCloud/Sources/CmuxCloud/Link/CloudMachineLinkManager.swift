@@ -71,6 +71,11 @@ public actor CloudMachineLinkManager {
     /// a machine whose route is broken. Only background upkeep waits it out
     /// (``backoffRejects(failedAt:now:backoff:)``).
     private let retryBackoff: TimeInterval = 15
+    /// Marks background upkeep, such as the Cloud sidebar's periodic refresh.
+    /// Only connects made under it wait out ``retryBackoff``; anything a
+    /// person or an agent asked for dials. Work started by upkeep inherits
+    /// the mark through task-local propagation.
+    @TaskLocal public static var isBackgroundUpkeep = false
     /// How long a link may take to report its socket: the daemon accepts a
     /// carrier or enrolled session immediately, so anything slower than this is
     /// a broken route rather than a slow one.
@@ -451,7 +456,7 @@ public actor CloudMachineLinkManager {
     /// person's open always dials, or a machine that just woke would answer
     /// their click with the stale error from a poll a few seconds earlier.
     public static func backoffRejects(failedAt: Date, now: Date, backoff: TimeInterval) -> Bool {
-        CloudLinkUpkeep.isBackground && now.timeIntervalSince(failedAt) < backoff
+        isBackgroundUpkeep && now.timeIntervalSince(failedAt) < backoff
     }
 
     public func status(machineID: String) async -> LinkStatus? {

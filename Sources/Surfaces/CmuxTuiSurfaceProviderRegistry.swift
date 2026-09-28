@@ -313,7 +313,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             while !Task.isCancelled {
                 // The periodic pass is upkeep: a machine whose link just
                 // failed is left alone until its backoff ends.
-                await CloudLinkUpkeep.$isBackground.withValue(true) {
+                await CloudMachineLinkManager.$isBackgroundUpkeep.withValue(true) {
                     await self?.refresh(force: false)
                 }
                 // The poll interval is the intended behavior (the list is not push-driven),

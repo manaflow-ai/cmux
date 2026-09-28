@@ -8,7 +8,7 @@ struct CloudLinkRetryBackoffTests {
 
     @Test("background upkeep waits out the backoff after a failure")
     func upkeepWaits() async {
-        await CloudLinkUpkeep.$isBackground.withValue(true) {
+        await CloudMachineLinkManager.$isBackgroundUpkeep.withValue(true) {
             #expect(CloudMachineLinkManager.backoffRejects(failedAt: failedAt, now: failedAt.addingTimeInterval(5), backoff: 15))
             #expect(!CloudMachineLinkManager.backoffRejects(failedAt: failedAt, now: failedAt.addingTimeInterval(16), backoff: 15))
         }
@@ -16,14 +16,14 @@ struct CloudLinkRetryBackoffTests {
 
     @Test("anything a person or an agent asked for dials inside the backoff")
     func requestsDial() {
-        #expect(!CloudLinkUpkeep.isBackground)
+        #expect(!CloudMachineLinkManager.isBackgroundUpkeep)
         #expect(!CloudMachineLinkManager.backoffRejects(failedAt: failedAt, now: failedAt.addingTimeInterval(1), backoff: 15))
     }
 
     @Test("work started by upkeep inherits the mark")
     func childTasksInherit() async {
-        let inherited = await CloudLinkUpkeep.$isBackground.withValue(true) {
-            await Task { CloudLinkUpkeep.isBackground }.value
+        let inherited = await CloudMachineLinkManager.$isBackgroundUpkeep.withValue(true) {
+            await Task { CloudMachineLinkManager.isBackgroundUpkeep }.value
         }
         #expect(inherited)
     }
