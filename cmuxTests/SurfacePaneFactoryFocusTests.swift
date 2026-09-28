@@ -747,6 +747,9 @@ import SwiftUI
             windowId = appDelegate.createMainWindow()
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             workspace = try #require(manager.selectedWorkspace)
+            workspace.bonsplitController.setContainerFrame(
+                CGRect(x: 0, y: 0, width: 1000, height: 1000)
+            )
         }
 
         func tearDown() {
