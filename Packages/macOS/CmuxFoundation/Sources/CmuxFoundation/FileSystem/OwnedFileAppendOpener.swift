@@ -19,7 +19,8 @@ public import Foundation
 public struct OwnedFileAppendOpener: Sendable, Equatable {
     /// The user ID that must own the opened file.
     public let expectedOwnerID: uid_t
-    /// The permission bits used when the file does not exist yet.
+    /// The permission bits the opened file ends up with, whether it was
+    /// created or already existed.
     public let creationMode: mode_t
 
     /// Creates an opener.
@@ -39,7 +40,8 @@ public struct OwnedFileAppendOpener: Sendable, Equatable {
     /// - Parameter path: The file to append to.
     /// - Returns: A write-only, append-mode, close-on-exec descriptor that the
     ///   caller must close, or `nil` when the path is a symbolic link, is not a
-    ///   regular file, is owned by another user, or has more than one link.
+    ///   regular file, is owned by another user, has more than one link, or
+    ///   cannot be narrowed to ``creationMode``.
     public func openDescriptor(atPath path: String) -> Int32? {
         // O_NONBLOCK makes a planted FIFO fail the open instead of blocking
         // until a reader appears; it has no effect on regular-file writes.
@@ -54,6 +56,12 @@ public struct OwnedFileAppendOpener: Sendable, Equatable {
               (status.st_mode & S_IFMT) == S_IFREG,
               status.st_uid == expectedOwnerID,
               status.st_nlink == 1 else {
+            close(fd)
+            return nil
+        }
+        // open(2) applies the creation mode only to a new file, so narrow a
+        // file that an earlier build or the user left wider.
+        if status.st_mode & 0o7777 != creationMode, fchmod(fd, creationMode) != 0 {
             close(fd)
             return nil
         }
