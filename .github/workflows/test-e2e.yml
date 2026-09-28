@@ -630,7 +630,7 @@ jobs:
           tools="$RUNNER_TEMP/owned-state-tools"
           rm -rf -- "$tools"
           mkdir -p "$tools"
-          for name in owned_build_state.py e2e_warm_derived_data.py parallel_artifact_download.py \
+          for name in owned_build_state.py apfs_clone.py e2e_warm_derived_data.py parallel_artifact_download.py \
             r2-cache.sh seed_derived_data.py; do
             curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
               -o "$tools/$name" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$WORKFLOW_SHA/scripts/ci/$name"
