@@ -159,6 +159,29 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func isAtTopOfUnpinnedTierRequiresAGroupMemberToLeadItsGroup() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [child1, child2, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child1.id,
+            child2.id,
+        ]))
+        let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
+
+        #expect(reorder.isAtTopOfUnpinnedTier(group.anchorWorkspaceId))
+        #expect(reorder.isAtTopOfUnpinnedTier(child1.id))
+        #expect(!reorder.isAtTopOfUnpinnedTier(child2.id))
+        #expect(!reorder.isAtTopOfUnpinnedTier(outside.id))
+        reorder.moveTabToTopForNotification(child2.id)
+        #expect(reorder.isAtTopOfUnpinnedTier(child2.id))
+        #expect(!reorder.isAtTopOfUnpinnedTier(child1.id))
+    }
+
+    @Test
     func reorderWorkspaceClampsUnpinnedAbovePinnedBoundary() {
         let (model, host, _, reorder) = makeWorld()
         _ = host
