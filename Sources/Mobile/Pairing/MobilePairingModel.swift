@@ -208,8 +208,9 @@ final class MobilePairingModel {
         // an indefinite loading spinner.
         state = .preparing
         await coordinator.awaitBootstrapped()
-        guard generation == refreshGeneration else { return }
-        guard state == .preparing else { return }
+        // The preparation deadline limits the spinner, not this refresh's
+        // authority. Auth can finish later, or still need recovery observation.
+        guard generation == refreshGeneration, !Task.isCancelled else { return }
         guard coordinator.isAuthenticated else {
             signedInEmail = nil
             state = .signedOut
@@ -225,7 +226,7 @@ final class MobilePairingModel {
         // sheet or pressing Try Again retries now instead of waiting.
         if coordinator.authenticatedTeamScope == nil {
             await coordinator.revalidateSession()
-            guard generation == refreshGeneration, state == .preparing else { return }
+            guard generation == refreshGeneration, !Task.isCancelled else { return }
             guard coordinator.isAuthenticated else {
                 signedInEmail = nil
                 state = .signedOut
@@ -317,7 +318,10 @@ final class MobilePairingModel {
                 guard let self, !Task.isCancelled, generation == self.refreshGeneration else { return }
                 // A new task: refresh() cancels this observer, and a cancelled
                 // task would cut short the listener readiness wait.
-                Task { await self.refresh() }
+                Task { [weak self] in
+                    guard let self, generation == self.refreshGeneration else { return }
+                    await self.refresh()
+                }
                 return
             }
         }
