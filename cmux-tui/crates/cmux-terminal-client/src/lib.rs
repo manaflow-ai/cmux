@@ -25,7 +25,7 @@ use cmux_remote_protocol::{
     TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
 };
 use cmux_tui_core::apply_terminal_color_overrides;
-use cmux_tui_core::resource::TerminalPublicId;
+use cmux_tui_core::resource::{TerminalPublicId, WorkspacePublicId};
 use cmux_tui_core::terminal_host_protocol::{
     Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MessageKind, RESIZE_ACK_CANONICAL_CHANGED, encode_frame,
 };
@@ -2867,6 +2867,80 @@ pub unsafe extern "C" fn cmux_terminal_client_create_terminal(
     let result = client
         .resource_operation(
             "workspace.create",
+            params,
+            true,
+            timeout_from_millis(timeout_milliseconds),
+        )
+        .and_then(|value| json_to_c_string(&value));
+    match result {
+        Ok(text) => text,
+        Err(error) => {
+            copy_utf8(&error, error_buffer, error_capacity);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Creates a terminal tab inside an existing workspace (`tab.create_terminal`
+/// with only the `workspace` selector) and returns the mutation result JSON
+/// (`MutationResult<CreatedTerminalPath>`), whose `value.terminal_id` names the
+/// terminal to attach.
+///
+/// The daemon adds the tab to the workspace's focused pane (the active pane of
+/// its active screen) and makes it that pane's selected tab; a workspace with
+/// no screen gets a new screen and pane. The session's focused workspace does
+/// not change. `workspace_id` must be an opaque `ws_` id: a name or `current`
+/// is rejected before any request is sent, so it cannot select another
+/// workspace.
+///
+/// # Safety
+///
+/// `client` must be a live handle. `workspace_id` must be a NUL-terminated
+/// string. `name` may be NULL. `error_buffer` follows the connect buffer
+/// contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_create_terminal_in_workspace(
+    client: *mut CmuxTerminalClient,
+    workspace_id: *const c_char,
+    name: *const c_char,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    timeout_milliseconds: u64,
+) -> *mut c_char {
+    if client.is_null() {
+        copy_utf8("client is null", error_buffer, error_capacity);
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the caller guarantees a live handle.
+    let client = unsafe { &*client };
+    let arguments = || -> Result<_, String> {
+        // SAFETY: `workspace_id` is NUL-terminated; `name` is null or
+        // NUL-terminated, per the contract.
+        let (workspace_id, name) = unsafe {
+            (
+                required_str_from_ffi(workspace_id, "workspace_id")?,
+                optional_str_from_ffi(name, "name")?,
+            )
+        };
+        let workspace_id = WorkspacePublicId::parse(workspace_id)
+            .map_err(|error| format!("workspace_id is invalid: {error}"))?;
+        Ok((workspace_id, name))
+    };
+    let (workspace_id, name) = match arguments() {
+        Ok(arguments) => arguments,
+        Err(error) => {
+            copy_utf8(&error, error_buffer, error_capacity);
+            return std::ptr::null_mut();
+        }
+    };
+    let mut params = serde_json::Map::new();
+    params.insert("workspace".into(), json!(workspace_id.as_str()));
+    if let Some(name) = name {
+        params.insert("name".into(), json!(name));
+    }
+    let result = client
+        .resource_operation(
+            "tab.create_terminal",
             params,
             true,
             timeout_from_millis(timeout_milliseconds),

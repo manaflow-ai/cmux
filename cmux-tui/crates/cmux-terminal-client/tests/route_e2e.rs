@@ -28,7 +28,8 @@ use cmux_remote_protocol::{
 use cmux_terminal_client::{
     CmuxTerminalClient, cmux_terminal_client_attach_with_timeout,
     cmux_terminal_client_connect_route, cmux_terminal_client_create_terminal,
-    cmux_terminal_client_detach, cmux_terminal_client_disconnect, cmux_terminal_client_has_exited,
+    cmux_terminal_client_create_terminal_in_workspace, cmux_terminal_client_detach,
+    cmux_terminal_client_disconnect, cmux_terminal_client_has_exited,
     cmux_terminal_client_list_terminals, cmux_terminal_client_session_snapshot,
     cmux_terminal_client_set_output_callback, cmux_terminal_client_set_viewer_size_priority,
     cmux_terminal_client_string_free, cmux_wireguard_net_free, cmux_wireguard_net_start,
@@ -44,6 +45,8 @@ use tokio::net::TcpStream;
 
 const TIMEOUT_MS: u64 = 15_000;
 const TERMINAL_ID: &str = "term_0123456789abcdef0123456789abcdef";
+const WORKSPACE_ID: &str = "ws_00112233445566778899aabbccddeeff";
+const TAB_TERMINAL_ID: &str = "term_fedcba9876543210fedcba9876543210";
 
 fn wg_quick_text(config: &WgConfig) -> String {
     let b64 = base64::engine::general_purpose::STANDARD;
@@ -108,6 +111,8 @@ struct PhoneDaemon {
     rejects_viewer_size_priority: bool,
     terminal_opens: Mutex<Vec<BTreeMap<String, String>>>,
     mux_operations: Mutex<Vec<String>>,
+    /// Every protocol/2 request as received, for asserting exact params.
+    mux_requests: Mutex<Vec<serde_json::Value>>,
 }
 
 /// The daemon side of the services a phone client uses: one TerminalBytes
@@ -195,6 +200,7 @@ async fn mux_responder(stream: Arc<cmux_remote::service::ServiceStream>, phone: 
         assert_eq!(request["params"]["machine"], "current");
         let operation = request["operation"].as_str().unwrap();
         phone.mux_operations.lock().unwrap().push(operation.to_string());
+        phone.mux_requests.lock().unwrap().push(request.clone());
         let result = match operation {
             "terminal.list" => {
                 assert!(request.get("idempotency_key").is_none());
@@ -225,6 +231,22 @@ async fn mux_responder(stream: Arc<cmux_remote::service::ServiceStream>, phone: 
                 assert_eq!(request["params"]["session"], "current");
                 session_snapshot_reply()
             }
+            // The test asserts this request's params from `mux_requests`; the
+            // reply is the daemon's MutationResult<CreatedTerminalPath> for a
+            // tab added to the selected workspace's focused pane.
+            "tab.create_terminal" => serde_json::json!({
+                "generation": "9ded6c40",
+                "replayed": false,
+                "revision": "4",
+                "value": {
+                    "kind": "terminal",
+                    "workspace_id": request["params"]["workspace"],
+                    "screen_id": "screen_1",
+                    "pane_id": "pane_1",
+                    "tab_id": "tab_2",
+                    "terminal_id": TAB_TERMINAL_ID,
+                },
+            }),
             other => panic!("unexpected operation {other}"),
         };
         let reply = serde_json::json!({
@@ -613,6 +635,104 @@ fn session_snapshot_returns_the_daemon_snapshot_over_mux_control() {
     let snapshot: serde_json::Value = serde_json::from_str(&snapshot).unwrap();
     assert_eq!(snapshot, session_snapshot_reply());
     assert_eq!(*phone.mux_operations.lock().unwrap(), ["session.snapshot"]);
+}
+
+#[test]
+fn create_terminal_in_workspace_sends_tab_create_terminal_for_that_workspace() {
+    let phone = Arc::new(PhoneDaemon::default());
+    let created = with_loopback_client(phone.clone(), |client| {
+        let mut error = vec![0 as c_char; 512];
+        let workspace_c = c(WORKSPACE_ID);
+        let name_c = c("phone tab");
+        let mut created = Vec::new();
+        for name in [name_c.as_ptr(), std::ptr::null()] {
+            // SAFETY: live handle, NUL-terminated workspace id, and a name that
+            // is null or NUL-terminated.
+            let text = unsafe {
+                cmux_terminal_client_create_terminal_in_workspace(
+                    client,
+                    workspace_c.as_ptr(),
+                    name,
+                    error.as_mut_ptr(),
+                    error.len(),
+                    TIMEOUT_MS,
+                )
+            };
+            assert!(!text.is_null(), "create in workspace failed: {}", error_text(&error));
+            created.push(serde_json::from_str::<serde_json::Value>(&take_string(text)).unwrap());
+        }
+        created
+    });
+    for result in &created {
+        assert_eq!(result["value"]["kind"], "terminal");
+        assert_eq!(result["value"]["workspace_id"], WORKSPACE_ID);
+        assert_eq!(result["value"]["terminal_id"], TAB_TERMINAL_ID);
+    }
+
+    let requests = phone.mux_requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    for request in requests.iter() {
+        assert_eq!(request["operation"], "tab.create_terminal");
+        assert!(request["idempotency_key"].as_str().is_some_and(|key| !key.is_empty()));
+        let params = request["params"].as_object().unwrap();
+        assert_eq!(params["machine"], "current");
+        assert_eq!(params["session"], "current");
+        assert_eq!(params["workspace"], WORKSPACE_ID);
+        // The workspace alone targets its focused pane; the client never
+        // guesses a pane or screen.
+        assert!(!params.contains_key("pane") && !params.contains_key("screen"), "{params:?}");
+    }
+    assert_eq!(requests[0]["params"]["name"], "phone tab");
+    assert!(requests[1]["params"].get("name").is_none());
+    assert_ne!(requests[0]["idempotency_key"], requests[1]["idempotency_key"]);
+}
+
+#[test]
+fn create_terminal_in_workspace_rejects_anything_but_a_workspace_id_before_sending() {
+    let mut error = vec![0 as c_char; 512];
+    let workspace_c = c(WORKSPACE_ID);
+    // SAFETY: a null client is part of the contract; the other pointers are live.
+    let text = unsafe {
+        cmux_terminal_client_create_terminal_in_workspace(
+            std::ptr::null_mut(),
+            workspace_c.as_ptr(),
+            std::ptr::null(),
+            error.as_mut_ptr(),
+            error.len(),
+            TIMEOUT_MS,
+        )
+    };
+    assert!(text.is_null());
+    assert_eq!(error_text(&error), "client is null");
+
+    let phone = Arc::new(PhoneDaemon::default());
+    let errors = with_loopback_client(phone.clone(), |client| {
+        // A name, `current`, and another resource's id would all resolve as
+        // daemon selectors, so none of them may reach the daemon.
+        [Some("current"), Some("phone"), Some(TERMINAL_ID), None].map(|workspace| {
+            let workspace_c = workspace.map(c);
+            let workspace_ptr = workspace_c.as_ref().map_or(std::ptr::null(), |id| id.as_ptr());
+            let mut error = vec![0 as c_char; 512];
+            // SAFETY: live handle; the workspace id is null or NUL-terminated.
+            let text = unsafe {
+                cmux_terminal_client_create_terminal_in_workspace(
+                    client,
+                    workspace_ptr,
+                    std::ptr::null(),
+                    error.as_mut_ptr(),
+                    error.len(),
+                    TIMEOUT_MS,
+                )
+            };
+            assert!(text.is_null(), "{workspace:?} was accepted");
+            error_text(&error)
+        })
+    });
+    for error in &errors[..3] {
+        assert!(error.starts_with("workspace_id is invalid"), "{error}");
+    }
+    assert_eq!(errors[3], "workspace_id is null");
+    assert!(phone.mux_operations.lock().unwrap().is_empty());
 }
 
 /// Attaches once per entry of `choices` (detaching in between) with that

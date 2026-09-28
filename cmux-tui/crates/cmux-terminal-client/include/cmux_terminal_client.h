@@ -171,6 +171,23 @@ char *cmux_terminal_client_create_terminal(
     char *error_buffer,
     size_t error_capacity,
     uint64_t timeout_milliseconds);
+// Creates a terminal tab inside an existing workspace (tab.create_terminal
+// with only the workspace selector) and returns the mutation result
+// (MutationResult<CreatedTerminalPath>), whose value.terminal_id is the id to
+// attach. The daemon adds the tab to the workspace's focused pane (the active
+// pane of its active screen) and selects it there; a workspace with no screen
+// gets a new screen and pane. The session's focused workspace does not change.
+// workspace_id must be an opaque ws_ id; a name or "current" is rejected before
+// any request is sent. name may be NULL. Returns an owned string to release
+// with cmux_terminal_client_string_free, or NULL with the error written. A
+// timeout of 0 means no deadline.
+char *cmux_terminal_client_create_terminal_in_workspace(
+    CmuxTerminalClient *client,
+    const char *workspace_id,
+    const char *name,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds);
 char *cmux_terminal_client_list_workspaces(
     CmuxTerminalClient *client,
     char *error_buffer,
