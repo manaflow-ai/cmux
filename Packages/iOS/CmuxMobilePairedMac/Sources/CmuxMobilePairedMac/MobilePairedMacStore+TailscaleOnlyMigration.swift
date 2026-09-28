@@ -95,25 +95,25 @@ extension MobilePairedMacStore {
 }
 
 public extension [MobilePairedMacDirectAddress] {
-    /// The label marking a Direct address as derived from a Tailscale
-    /// pairing code, so a later code can replace it.
-    static var tailscaleDerivedLabel: String { "Tailscale" }
-
-    /// Reconciles the code-derived Tailscale subset against a freshly
-    /// authorized route set: stale "Tailscale"-labeled entries the new code
-    /// no longer names are dropped (a replacement scan replaces, so old
+    /// Reconciles the pairing-code-derived subset (entries whose ``origin``
+    /// is ``MobilePairedMacDirectAddress/pairingCodeOrigin``) against a
+    /// freshly authorized route set: stale derived entries the new code no
+    /// longer names are dropped (a replacement scan replaces, so old
     /// endpoints cannot pile up and crowd out the live one), a matching
     /// entry is re-enabled (an authorization naming a disabled endpoint must
-    /// leave something dialable), and new endpoints are appended. Entries
-    /// the user added by hand carry no "Tailscale" label and are never
-    /// touched.
-    func appendingTailscaleAddresses(from routes: [CmxAttachRoute]) -> [MobilePairedMacDirectAddress] {
+    /// leave something dialable), and new endpoints are appended with the
+    /// given transport marker. Entries the user added by hand carry no
+    /// origin and are never touched; the display label carries no meaning.
+    func appendingTailscaleAddresses(
+        from routes: [CmxAttachRoute],
+        transport: String? = nil
+    ) -> [MobilePairedMacDirectAddress] {
         let authorized = routes.compactMap { route -> (host: String, port: Int)? in
             guard route.kind == .tailscale, case let .hostPort(host, port) = route.endpoint else { return nil }
             return (host, port)
         }
         var merged = filter { entry in
-            entry.label != Self.tailscaleDerivedLabel
+            entry.origin != MobilePairedMacDirectAddress.pairingCodeOrigin
                 || authorized.contains { $0.host == entry.address && $0.port == entry.port }
         }
         for (host, port) in authorized {
@@ -122,7 +122,9 @@ public extension [MobilePairedMacDirectAddress] {
                 continue
             }
             merged.append(MobilePairedMacDirectAddress(
-                address: host, port: port, label: Self.tailscaleDerivedLabel))
+                address: host, port: port, label: "Tailscale",
+                transport: transport,
+                origin: MobilePairedMacDirectAddress.pairingCodeOrigin))
         }
         return merged
     }

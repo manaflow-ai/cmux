@@ -75,8 +75,19 @@ import Testing
         let replaced = start.appendingTailscaleAddresses(from: [replacement])
         #expect(replaced == [
             MobilePairedMacDirectAddress(address: "192.168.1.10", port: 58466),
-            MobilePairedMacDirectAddress(address: "100.64.0.20", port: 58466, label: "Tailscale"),
+            MobilePairedMacDirectAddress(
+                address: "100.64.0.20", port: 58466, label: "Tailscale",
+                origin: MobilePairedMacDirectAddress.pairingCodeOrigin),
         ])
+        // A renamed derived entry still reconciles (origin, not label).
+        var renamed = start
+        renamed[1].label = "Office"
+        #expect(renamed.appendingTailscaleAddresses(from: [replacement]).map(\.address)
+            == ["192.168.1.10", "100.64.0.20"])
+        // A hand-added entry labeled "Tailscale" is never touched.
+        let handAdded = [MobilePairedMacDirectAddress(address: "100.64.0.9", port: 58466, label: "Tailscale")]
+        #expect(handAdded.appendingTailscaleAddresses(from: [replacement]).map(\.address)
+            == ["100.64.0.9", "100.64.0.20"])
     }
 
     private static func setUserVersion(_ version: Int32, at url: URL) throws {
