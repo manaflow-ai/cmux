@@ -32,6 +32,10 @@ public struct AgentIntegrationSettingsStore: AgentIntegrationSettingsReading {
         keys.codexHooksEnabled.value(in: defaults)
     }
 
+    public var piHooksEnabled: Bool {
+        keys.piHooksEnabled.value(in: defaults)
+    }
+
     public var customClaudePath: String? {
         let value = keys.claudeCodeCustomClaudePath.value(in: defaults)
             .trimmingCharacters(in: .whitespacesAndNewlines)
