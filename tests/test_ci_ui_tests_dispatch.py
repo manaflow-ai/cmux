@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -230,6 +231,129 @@ class AwaitVerdictTests(unittest.TestCase):
     def test_only_a_default_branch_run_counts(self) -> None:
         gh = FakeGitHub({LIST: [{"workflow_runs": [dispatch_run(branch="other")]}]})
         self.assertIsNone(ui.find_dispatch_run(gh, "100", "1", dt.datetime(2026, 9, 28, tzinfo=dt.timezone.utc)))
+
+
+E2E_LIST = f"repos/{REPO}/actions/workflows/test-e2e.yml/runs"
+E2E_JOBS = f"repos/{REPO}/actions/runs/700/jobs"
+OWN_JOBS = f"repos/{REPO}/actions/runs/100/attempts/1/jobs"
+NOW = dt.datetime(2026, 9, 28, 10, 30, tzinfo=dt.timezone.utc)
+
+
+def e2e_run(title=None, run_id=700):
+    return {"id": run_id, "created_at": "2026-09-28T10:10:00Z", "html_url": f"https://x/{run_id}",
+            "display_title": title or f"cmuxUITests/A,cmuxUITests/B on glaeda-std-xcode-26.6 @ {MERGE} [abc]"}
+
+
+def build_job(status="in_progress", runner="mini", steps=()):
+    return {"name": "build", "status": status, "conclusion": None, "runner_name": runner,
+            "labels": ["glaeda-std-xcode-26.6"], "created_at": "2026-09-28T10:20:00Z",
+            "started_at": "2026-09-28T10:25:00Z" if runner else None, "steps": list(steps)}
+
+
+class ProgressTests(unittest.TestCase):
+    def setUp(self) -> None:
+        every = mock.patch.object(ui, "PROGRESS_EVERY", 1)
+        every.start()
+        self.addCleanup(every.stop)
+
+    def progress(self, routes) -> "ui.Progress":
+        gh = FakeGitHub(routes)
+        return ui.Progress(gh, "100", "1", ["cmuxUITests/A", "cmuxUITests/B"], [MERGE, HEAD],
+                           dt.datetime(2026, 9, 28, 9, 50, tzinfo=dt.timezone.utc), now=lambda: NOW)
+
+    def test_reports_admission_until_the_test_run_appears_then_its_steps(self) -> None:
+        admission = {"name": "macos / macOS compile admission", "status": "in_progress", "runner_name": "mini-7",
+                     "started_at": "2026-09-28T10:27:00Z", "steps": [{"name": "Compile app-host test product", "status": "in_progress"}]}
+        other = e2e_run(title=f"cmuxUITests/A on glaeda-std-xcode-26.6 @ {MERGE} [x]", run_id=701)
+        progress = self.progress({
+            E2E_LIST: [{"workflow_runs": [other]}, {"workflow_runs": [other, e2e_run()]}],
+            OWN_JOBS: [{"jobs": [admission]}],
+            E2E_JOBS: [
+                {"jobs": [build_job(status="queued", runner=None)]},
+                {"jobs": [build_job(steps=[
+                    {"name": "Build the app-host and UI test product", "status": "completed", "conclusion": "skipped"},
+                    {"name": "Run selected tests", "status": "in_progress", "started_at": "2026-09-28T10:28:30Z"}])]},
+                {"jobs": [build_job(status="completed") | {"conclusion": "success"}, {"name": "test", "status": "completed", "conclusion": "skipped"}]},
+            ],
+        })
+        self.assertIsNone(progress.report(), "no run with exactly these selectors yet")
+        self.assertEqual(progress.report(),
+                         "Waiting for compile admission's product: compiling on mini-7 for 3m00s, "
+                         "at 'Compile app-host test product'.")
+        self.assertEqual(progress.report(), "UI test run: https://x/700")
+        self.assertEqual(progress.report(), "UI test run: build is queued for glaeda-std-xcode-26.6 for 10m00s.")
+        self.assertEqual(progress.report(),
+                         "UI test run: build on mini for 5m00s, testing 2 selected classes for 1m30s; "
+                         "adopted the compiled product, no build.")
+        self.assertEqual(progress.report(), "UI test run finished (build success, test skipped); waiting for its verdict.")
+        # One read per report: the listing, the admission job, then the test run's jobs.
+        self.assertEqual(len(progress.gh.calls), 6)
+        self.assertIn("event=workflow_dispatch&created=%3E%3D2026-09-28T09:50:00Z", progress.gh.calls[0])
+
+    def test_reports_a_compile_and_a_queued_admission(self) -> None:
+        progress = self.progress({
+            E2E_LIST: [{"workflow_runs": [e2e_run()]}],
+            E2E_JOBS: [{"jobs": [build_job(steps=[
+                {"name": "Build the app-host and UI test product", "status": "in_progress",
+                 "started_at": "2026-09-28T10:26:00Z"}])]}],
+        })
+        progress.report()
+        self.assertEqual(progress.report(),
+                         "UI test run: build on mini for 5m00s, compiling the app and UI tests for 4m00s.")
+        queued = {"name": "macos / macOS compile admission", "status": "queued", "runner_name": None,
+                  "labels": ["blacksmith-12vcpu-macos-26"], "created_at": "2026-09-28T10:15:00Z"}
+        progress = self.progress({E2E_LIST: [{"workflow_runs": []}], OWN_JOBS: [{"jobs": [queued]}]})
+        progress.report()
+        self.assertEqual(progress.report(), "Waiting for compile admission's product: admission is queued "
+                                            "for blacksmith-12vcpu-macos-26 for 15m00s.")
+
+    def test_a_failed_read_skips_a_line_and_never_raises(self) -> None:
+        def fail():
+            raise subprocess.CalledProcessError(1, "gh", stderr="HTTP 502")
+
+        def fork_failed():
+            raise BlockingIOError(35, "Resource temporarily unavailable")
+        progress = self.progress({E2E_LIST: [fail, fork_failed], OWN_JOBS: [{"unexpected": True}]})
+        self.assertIsNone(progress.report())
+        self.assertEqual(progress.report(), "Waiting for the dispatcher to start a UI test run.")
+        self.assertIsNone(progress.report(), "an OSError from spawning gh is only a skipped line")
+
+    def test_reads_once_every_third_poll(self) -> None:
+        with mock.patch.object(ui, "PROGRESS_EVERY", 3):
+            progress = self.progress({E2E_LIST: [{"workflow_runs": []}], OWN_JOBS: [{"jobs": []}]})
+            for _ in range(6):
+                progress.report()
+        self.assertEqual(len(progress.gh.calls), 2)
+
+    def test_matches_the_same_selectors_in_any_order_and_looks_again_after_a_run_ends(self) -> None:
+        swapped = e2e_run(title=f"cmuxUITests/B,cmuxUITests/A on glaeda-std-xcode-26.6 @ {HEAD} [abc]")
+        newer = e2e_run(run_id=702) | {"created_at": "2026-09-28T10:40:00Z"}
+        progress = self.progress({
+            E2E_LIST: [{"workflow_runs": [swapped]}, {"workflow_runs": [swapped, newer]}],
+            E2E_JOBS: [{"jobs": [build_job(status="completed") | {"conclusion": "failure"}]}],
+        })
+        self.assertEqual(progress.report(), "UI test run: https://x/700")
+        progress.report()
+        self.assertIsNone(progress.e2e)
+        self.assertEqual(progress.report(), "UI test run: https://x/702")
+
+    def test_progress_never_changes_the_verdict(self) -> None:
+        gh = FakeGitHub({
+            RUN: [ci_run()],
+            LIST: [{"workflow_runs": [dispatch_run()]}],
+            f"repos/{REPO}/actions/runs/900/jobs": [jobs("success")],
+            f"repos/{REPO}/actions/runs/900": [dispatch_run(status="in_progress"), dispatch_run()],
+            E2E_LIST: [lambda: (_ for _ in ()).throw(subprocess.TimeoutExpired("gh", 120))],
+        })
+        self.assertEqual(ui.await_verdict(gh, "100", "1", sleep=lambda _: None,
+                                          selectors=["cmuxUITests/A"], revisions=[MERGE, HEAD]), 0)
+        self.assertEqual(sum(call.startswith(E2E_LIST) for call in gh.calls), 1)
+
+    def test_ci_passes_what_names_the_test_run(self) -> None:
+        steps = yaml.safe_load(CI.read_text())["jobs"]["ui-tests"]["steps"]
+        wait = next(step for step in steps if step.get("name") == "Wait for the UI test run")
+        self.assertEqual(wait["env"]["SELECTORS"], "${{ needs.changes.outputs.ui_selectors }}")
+        self.assertEqual(wait["env"]["MERGE_SHA"], "${{ github.sha }}")
 
 
 class DispatchTests(unittest.TestCase):
