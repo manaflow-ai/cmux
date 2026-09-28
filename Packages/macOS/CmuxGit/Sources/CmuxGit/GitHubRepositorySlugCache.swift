@@ -25,7 +25,7 @@ public actor GitHubRepositorySlugCache {
 
     private let discover: @Sendable (String) async -> String?
     private let entryLifetime: Duration
-    private let clock = ContinuousClock()
+    private let now: @Sendable () -> ContinuousClock.Instant
     private var entries: [String: Entry] = [:]
     private var pendingLookups: [String: Task<String?, Never>] = [:]
 
@@ -33,13 +33,19 @@ public actor GitHubRepositorySlugCache {
     ///
     /// - Parameters:
     ///   - entryLifetime: How long a resolved answer stays good.
+    ///   - now: Reads the current instant. Defaults to ``ContinuousClock``.
+    ///     Tests inject a clock they advance by hand so expiry is exercised
+    ///     without sleeping. It comes last so a trailing closure still binds to
+    ///     `discover`.
     ///   - discover: Resolves a directory to its GitHub slug. Defaults to
     ///     ``GitMetadataService``.
     public init(
         entryLifetime: Duration = GitHubRepositorySlugCache.defaultEntryLifetime,
-        discover: (@Sendable (String) async -> String?)? = nil
+        discover: (@Sendable (String) async -> String?)? = nil,
+        now: (@Sendable () -> ContinuousClock.Instant)? = nil
     ) {
         self.entryLifetime = entryLifetime
+        self.now = now ?? { ContinuousClock().now }
         self.discover = discover ?? { directory in
             await GitMetadataService().repositorySlugs(forDirectory: directory).first
         }
@@ -53,7 +59,7 @@ public actor GitHubRepositorySlugCache {
     /// - Returns: The `owner/name` slug, or `nil` when the directory is not in a
     ///   repository with a GitHub remote.
     public func slug(forDirectory directory: String) async -> String? {
-        if let entry = entries[directory], clock.now - entry.resolvedAt < entryLifetime {
+        if let entry = entries[directory], now() - entry.resolvedAt < entryLifetime {
             return entry.slug
         }
 
@@ -69,7 +75,7 @@ public actor GitHubRepositorySlugCache {
 
         let slug = await task.value
         pendingLookups[directory] = nil
-        entries[directory] = Entry(slug: slug, resolvedAt: clock.now)
+        entries[directory] = Entry(slug: slug, resolvedAt: now())
         return slug
     }
 
