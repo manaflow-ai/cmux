@@ -233,17 +233,26 @@ class AdmittedBuildTests(StubbedTest):
         self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}, "1"), {})
 
     def test_only_this_attempts_fingerprint_counts(self) -> None:
-        stub = self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [{"name": "build-inputs-fp1-1"}]}})
+        stub = self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [{"name": "build-inputs-fp1-3"}]}})
         self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "t"}, "2"), {})
         self.assertFalse([call for call in stub.calls if "workflows/ci.yml/runs" in call])
 
-    def test_an_api_error_in_the_lookup_means_no_earlier_build(self) -> None:
+    def test_a_rerun_attempt_uses_the_fingerprint_changes_published_earlier(self) -> None:
+        stub = self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [
+            {"name": "build-inputs-old-1"}, {"name": "build-inputs-new-2"}]},
+            "repos/o/r/actions/workflows/ci.yml/runs": {"workflow_runs": []}})
+        media.admitted_build_run("o/r", {"id": 9, "head_branch": "t"}, "3")
+        self.assertTrue([call for call in stub.calls if "workflows/ci.yml/runs" in call])
+        self.assertFalse([call for call in stub.calls if "build-inputs-old" in call])
+
+    def test_an_api_error_in_the_lookup_is_unknown(self) -> None:
         def refuse():
             raise RuntimeError("HTTP 403")
 
         self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [{"name": "build-inputs-fp1-1"}]},
                    "repos/o/r/actions/workflows/ci.yml/runs": refuse})
-        self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}, "1"), {})
+        # Unknown, not "main's build": that would compile.
+        self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}, "1"), {"unknown": True})
 
     def test_the_section_names_the_build_the_tour_loaded(self) -> None:
         manifest = {"tour": "t", "result": "passed", "build_sha": "c" * 40, "run_url": "https://x"}
@@ -405,7 +414,7 @@ class TourCacheTests(StubbedTest):
         import tempfile
         self.stub({})
         commands = self.commands = []
-        self.stopped = 0
+        self.stopped = self.waits = 0
         test = self
 
         class FakeDispatch:
@@ -425,6 +434,7 @@ class TourCacheTests(StubbedTest):
                 test.stopped += 1
 
             def wait(self):
+                test.waits += 1
                 return {"conclusion": "failure" if refused and self.adopting else conclusion}
 
         originals = (media.Dispatch, media.refused_to_compile, media.tour_media)
@@ -472,6 +482,18 @@ class TourCacheTests(StubbedTest):
         manifest = self.run_tour("success", {}, "fallback", media.UNLOADABLE_PRODUCT_EXIT, compile_tour="other")
         self.assertEqual(len(self.commands), 1)
         self.assertIn("only other compiles", manifest["note"])
+
+    def test_a_moved_head_does_not_compile(self) -> None:
+        original = media.head_moved
+        media.head_moved = lambda *_: True
+        self.addCleanup(setattr, media, "head_moved", original)
+        manifest = self.run_tour("success", {}, "fallback", media.UNLOADABLE_PRODUCT_EXIT)
+        self.assertEqual(len(self.commands), 1)
+        self.assertIn("newer push", manifest["note"])
+
+    def test_the_adopt_run_is_waited_for_once(self) -> None:
+        self.run_tour("success", {"gif": "tour.gif", "shots": []}, "fallback")
+        self.assertEqual(self.waits, 1)
 
     def test_a_compiled_verdict_is_cached_even_without_media(self) -> None:
         manifest = self.run_tour("failure", {"shots": [], "note": "no frames"}, "now")

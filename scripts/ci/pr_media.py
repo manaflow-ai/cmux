@@ -285,9 +285,12 @@ def admitted_build_run(repository: str, run: dict, attempt: str) -> dict:
     by the fingerprint artifact `run` published. {} when there is none, as when
     the pull request changes no app input at all and main's build stands in."""
     listing = gh_json([f"repos/{repository}/actions/runs/{run['id']}/artifacts?per_page=100"]) or {}
-    fingerprints = [match.group(1) for artifact in listing.get("artifacts") or []
-                    if (match := FINGERPRINT_ARTIFACT.fullmatch(str(artifact.get("name", ""))))
-                    and match.group(2) == attempt]
+    # A "re-run failed jobs" attempt does not re-run `changes`, so the newest
+    # fingerprint no later than this attempt is the one it uses.
+    found = sorted((int(match.group(2)), match.group(1)) for artifact in listing.get("artifacts") or []
+                   if (match := FINGERPRINT_ARTIFACT.fullmatch(str(artifact.get("name", ""))))
+                   and int(match.group(2)) <= int(attempt))
+    fingerprints = [found[-1][1]] if found else []
     if not fingerprints:
         return {}
     import importlib.util
@@ -297,13 +300,17 @@ def admitted_build_run(repository: str, run: dict, attempt: str) -> dict:
     sys.modules[spec.name] = finder
     spec.loader.exec_module(finder)
     def read(path: str) -> dict:
-        # The finder's contract: any API error means not found.
+        # The finder's contract is that any API error means not found; here an
+        # error must not pass for "main's build" (which compiles), so it raises.
         try:
             return gh_json([path]) or {}
-        except RuntimeError:
-            return {}
+        except RuntimeError as error:
+            raise LookupError(str(error)) from error
 
-    url = finder.admitted_run(read, repository, run.get("head_branch") or "", fingerprints[0], int(run["id"]))
+    try:
+        url = finder.admitted_run(read, repository, run.get("head_branch") or "", fingerprints[0], int(run["id"]))
+    except LookupError:
+        return {"unknown": True}
     match = re.search(r"/actions/runs/(\d+)", url or "")
     return (gh_json([f"repos/{repository}/actions/runs/{match.group(1)}"]) or {}) if match else {}
 
@@ -353,6 +360,10 @@ def plan(repository: str) -> int:
     # The run whose app a tour loads: this one, or the earlier run of the same
     # build inputs when this push changed no app input (only a tour, say).
     build_run = run if mode == BUILT else admitted_build_run(repository, run, attempt) if mode == REUSED else {}
+    if build_run.get("unknown"):
+        write_outputs({"tours": "[]", "run": "[]"})
+        print("Could not tell which build CI reused for this head; the next CI attempt tries again.", flush=True)
+        return 0
     mains_build = mode == REUSED and not build_run
     if mains_build:
         # CI reused main's build (this pull request changes no build input

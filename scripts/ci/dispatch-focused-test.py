@@ -736,7 +736,8 @@ def ui_product_source(commit: str) -> dict | None:
             if rerun.products_artifact(REPO, str(run["id"]), rerun.gh_api):
                 if usable_product(source):
                     return {**source, "ready": True, "adopted": True}
-                UNLOADABLE_SOURCES.append(source["url"])
+                if unusable_family(source):
+                    UNLOADABLE_SOURCES.append(source["url"])
                 continue
         except (subprocess.CalledProcessError, json.JSONDecodeError):
             continue
@@ -806,6 +807,15 @@ def product_family(source: dict) -> str | None:
             return blacksmith[0] if blacksmith[0] in RUNNERS else FAMILY_RUNNERS["blacksmith"]
         return None if labels else ""
     return ""
+
+
+def unusable_family(source: dict) -> bool:
+    """Whether a CI run's compile admission has a runner whose products no UI
+    run can load; False when unknown (no runner yet, or the API failed)."""
+    try:
+        return product_family(source) is None
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return False
 
 
 def usable_product(source: dict, pending: bool = False) -> bool:
@@ -1209,6 +1219,10 @@ def main() -> int:
             adopted = False
         ui_source["adopted"] = adopted
         if args.adopt_only and not adopted:
+            if unusable_family(ui_source):
+                print(f"{ui_source['url']} compiles on a pool whose products no UI run can load; "
+                      "not compiling (--adopt-only).", flush=True)
+                return UNLOADABLE_PRODUCT_EXIT
             print(f"{ui_source['url']} left no app-host products this run can adopt; "
                   "not compiling (--adopt-only).", flush=True)
             return NO_PRODUCT_EXIT

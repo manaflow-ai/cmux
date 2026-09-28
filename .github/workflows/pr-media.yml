@@ -123,6 +123,8 @@ jobs:
     permissions:
       actions: write
       contents: read
+      # pr_media.head_moved re-reads the pull request once the read token expires.
+      pull-requests: read
     strategy:
       fail-fast: false
       matrix:
