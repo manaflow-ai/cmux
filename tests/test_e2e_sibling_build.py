@@ -104,10 +104,16 @@ class SiblingWaitTests(unittest.TestCase):
         # A build that adopted a product uploads nothing of its own; the run
         # it adopted from already publishes it, so the wait ends at once.
         adopted = [{"name": sibling.COMPILE_STEP, "status": "completed", "conclusion": "skipped"},
+                   {"name": sibling.PACKAGE_STEP, "status": "completed", "conclusion": "success"},
                    {"name": "Run selected tests", "status": "in_progress", "conclusion": None}]
         fake = Fake([run(90)], [("in_progress", None, adopted)])
         self.assertTrue(fake.wait())
         self.assertEqual(fake.sleeps, 0)
+        # A compile skipped because an earlier step failed is no product.
+        broken = [{"name": "Checkout", "status": "completed", "conclusion": "failure"},
+                  {"name": sibling.COMPILE_STEP, "status": "completed", "conclusion": "skipped"},
+                  {"name": sibling.PACKAGE_STEP, "status": "completed", "conclusion": "skipped"}]
+        self.assertFalse(Fake([run(90)], [("completed", "failure", broken)]).wait())
 
     def test_a_failed_compile_is_not_waited_for_again(self) -> None:
         fake = Fake([run(90)], [("in_progress", None), ("completed", "failure")])
@@ -262,6 +268,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(sibling.PUBLISH_STEP, names)
         self.assertIn(sibling.PUBLISH_AFTER_TESTS_STEP, names)
         self.assertIn(sibling.COMPILE_STEP, names)
+        self.assertIn(sibling.PACKAGE_STEP, names)
 
     def test_the_helper_comes_from_the_workflow_revision(self) -> None:
         checkout = self.jobs["sibling"]["steps"][0]

@@ -412,6 +412,9 @@ ADMISSION_JOB = "macOS compile admission"
 E2E_MACOS_JOBS = ("build", "test")
 E2E_COMPILE_STEP = "Build the app-host and UI test product"
 E2E_TESTS_STEP = "Run selected tests"
+# Progress reads once every this many verdict polls (60 s each), so the wait
+# makes a third more REST calls on the job token, not twice as many.
+PROGRESS_EVERY = 3
 
 
 def _seconds(start: str | None, end: dt.datetime) -> int | None:
@@ -449,13 +452,19 @@ class Progress:
         self.since = since
         self.now = now or (lambda: dt.datetime.now(dt.timezone.utc))
         self.e2e: dict | None = None
+        self.polls = 0
         self.ticks = 0
 
     def report(self) -> str | None:
+        """Every PROGRESS_EVERY-th poll: its read then adds a third to the wait's."""
+        self.polls += 1
+        if self.polls % PROGRESS_EVERY:
+            return None
         self.ticks += 1
         try:
             line = self._line()
-        except (*API_ERRORS, KeyError, TypeError, ValueError, AttributeError):
+        except Exception as error:  # noqa: BLE001 - progress must never touch the verdict
+            print(f"(progress unavailable this minute: {type(error).__name__})", flush=True)
             line = None
         if line:
             print(line, flush=True)
@@ -466,7 +475,7 @@ class Progress:
             if self.ticks % 2 == 1:
                 self.e2e = self._find_e2e()
                 if self.e2e is not None:
-                    return f"UI test run started: {self.e2e.get('html_url')}"
+                    return f"UI test run: {self.e2e.get('html_url')}"
                 return None
             return self._admission()
         return self._e2e_state()
@@ -480,9 +489,13 @@ class Progress:
             f"?event=workflow_dispatch&created=%3E%3D{created}&per_page=100"
         ).get("workflow_runs", [])
 
+        wanted = sorted(self.test_filter.split(","))
+
         def ours(run: dict) -> bool:
+            # An identical run already in flight is reused whatever order it
+            # names the same selectors in.
             title = str(run.get("display_title") or "")
-            return (title.split(" on ", 1)[0] == self.test_filter
+            return (sorted(title.split(" on ", 1)[0].split(",")) == wanted
                     and any(f" @ {revision}" in title for revision in self.revisions))
 
         return max((run for run in runs if ours(run)), key=lambda run: run.get("created_at", ""), default=None)
@@ -517,6 +530,8 @@ class Progress:
         if live is None:
             if macos and all(job.get("status") == "completed" for job in macos):
                 done = [f"{job['name']} {job.get('conclusion')}" for job in macos]
+                # Look again next time: the dispatcher may start a newer run.
+                self.e2e = None
                 return f"UI test run finished ({', '.join(done)}); waiting for its verdict."
             pending = [job for job in jobs if job.get("status") != "completed"]
             if pending:

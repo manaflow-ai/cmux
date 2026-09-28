@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -250,6 +251,11 @@ def build_job(status="in_progress", runner="mini", steps=()):
 
 
 class ProgressTests(unittest.TestCase):
+    def setUp(self) -> None:
+        every = mock.patch.object(ui, "PROGRESS_EVERY", 1)
+        every.start()
+        self.addCleanup(every.stop)
+
     def progress(self, routes) -> "ui.Progress":
         gh = FakeGitHub(routes)
         return ui.Progress(gh, "100", "1", ["cmuxUITests/A", "cmuxUITests/B"], [MERGE, HEAD],
@@ -274,7 +280,7 @@ class ProgressTests(unittest.TestCase):
         self.assertEqual(progress.report(),
                          "Waiting for compile admission's product: compiling on mini-7 for 3m00s, "
                          "at 'Compile app-host test product'.")
-        self.assertEqual(progress.report(), "UI test run started: https://x/700")
+        self.assertEqual(progress.report(), "UI test run: https://x/700")
         self.assertEqual(progress.report(), "UI test run: build is queued for glaeda-std-xcode-26.6 for 10m00s.")
         self.assertEqual(progress.report(),
                          "UI test run: build on mini for 5m00s, testing 2 selected classes for 1m30s; "
@@ -304,9 +310,32 @@ class ProgressTests(unittest.TestCase):
     def test_a_failed_read_skips_a_line_and_never_raises(self) -> None:
         def fail():
             raise subprocess.CalledProcessError(1, "gh", stderr="HTTP 502")
-        progress = self.progress({E2E_LIST: [fail], OWN_JOBS: [{"unexpected": True}]})
+
+        def fork_failed():
+            raise BlockingIOError(35, "Resource temporarily unavailable")
+        progress = self.progress({E2E_LIST: [fail, fork_failed], OWN_JOBS: [{"unexpected": True}]})
         self.assertIsNone(progress.report())
         self.assertEqual(progress.report(), "Waiting for the dispatcher to start a UI test run.")
+        self.assertIsNone(progress.report(), "an OSError from spawning gh is only a skipped line")
+
+    def test_reads_once_every_third_poll(self) -> None:
+        with mock.patch.object(ui, "PROGRESS_EVERY", 3):
+            progress = self.progress({E2E_LIST: [{"workflow_runs": []}], OWN_JOBS: [{"jobs": []}]})
+            for _ in range(6):
+                progress.report()
+        self.assertEqual(len(progress.gh.calls), 2)
+
+    def test_matches_the_same_selectors_in_any_order_and_looks_again_after_a_run_ends(self) -> None:
+        swapped = e2e_run(title=f"cmuxUITests/B,cmuxUITests/A on glaeda-std-xcode-26.6 @ {HEAD} [abc]")
+        newer = e2e_run(run_id=702) | {"created_at": "2026-09-28T10:40:00Z"}
+        progress = self.progress({
+            E2E_LIST: [{"workflow_runs": [swapped]}, {"workflow_runs": [swapped, newer]}],
+            E2E_JOBS: [{"jobs": [build_job(status="completed") | {"conclusion": "failure"}]}],
+        })
+        self.assertEqual(progress.report(), "UI test run: https://x/700")
+        progress.report()
+        self.assertIsNone(progress.e2e)
+        self.assertEqual(progress.report(), "UI test run: https://x/702")
 
     def test_progress_never_changes_the_verdict(self) -> None:
         gh = FakeGitHub({
