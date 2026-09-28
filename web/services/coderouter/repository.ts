@@ -27,6 +27,7 @@ import {
 import { accountAccessPredicate, scopedSessionKey, type CoderouterAccountAccess } from "./accountAccess";
 import { signVmAuthorization, verifyVmAuthorization, type VmAuthorizationClaims } from "./vmAuthorization";
 import { createLastUsedWriter } from "./lastUsedWriter";
+import { refreshCompletionRegistry } from "./refreshSignal";
 
 const ROUTE_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 const VAULT_LEASE_MS = 30_000;
@@ -971,21 +972,21 @@ async function sweepExpiredRefreshLeases(
   signal?: AbortSignal,
 ): Promise<void> {
   const now = new Date();
-  await runWithCloudDbQuerySignal(signal, async () => {
-    await cloudDb()
-      .update(coderouterAccounts)
-      .set({
-        state: "active",
-        refreshLeaseId: null,
-        refreshLeaseExpiresAt: null,
-        updatedAt: now,
-      })
-      .where(and(
-        eq(coderouterAccounts.teamId, teamId),
-        eq(coderouterAccounts.state, "refreshing"),
-        lte(coderouterAccounts.refreshLeaseExpiresAt, now),
-      ));
-  });
+  const swept = await runWithCloudDbQuerySignal(signal, async () => await cloudDb()
+    .update(coderouterAccounts)
+    .set({
+      state: "active",
+      refreshLeaseId: null,
+      refreshLeaseExpiresAt: null,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(coderouterAccounts.teamId, teamId),
+      eq(coderouterAccounts.state, "refreshing"),
+      lte(coderouterAccounts.refreshLeaseExpiresAt, now),
+    ))
+    .returning({ id: coderouterAccounts.id }));
+  for (const { id } of swept) refreshCompletionRegistry.settled(id);
 }
 
 /**
@@ -1436,6 +1437,28 @@ export async function completeRefreshLease(input: {
       throw new CodeRouterCredentialRace("credential refresh lost lease");
     }
   }));
+  refreshCompletionRegistry.settled(input.accountId);
+}
+
+/**
+ * True while the account row holds an unexpired refresh lease. Waiters on
+ * other instances re-read this to learn that a refresh has settled.
+ */
+export async function refreshLeaseActive(
+  accountId: string,
+  signal?: AbortSignal,
+  now = new Date(),
+): Promise<boolean> {
+  const [row] = await runWithCloudDbQuerySignal(signal, () => cloudDb()
+    .select({ id: coderouterAccounts.id })
+    .from(coderouterAccounts)
+    .where(and(
+      eq(coderouterAccounts.id, accountId),
+      isNotNull(coderouterAccounts.refreshLeaseId),
+      gt(coderouterAccounts.refreshLeaseExpiresAt, now),
+    ))
+    .limit(1));
+  return row !== undefined;
 }
 
 export async function releaseRefreshLease(
@@ -1456,6 +1479,7 @@ export async function releaseRefreshLease(
       eq(coderouterAccounts.id, accountId),
       eq(coderouterAccounts.refreshLeaseId, leaseId),
     )));
+  refreshCompletionRegistry.settled(accountId);
 }
 
 export async function failRefreshLease(
@@ -1478,6 +1502,7 @@ export async function failRefreshLease(
       eq(coderouterAccounts.id, accountId),
       eq(coderouterAccounts.refreshLeaseId, leaseId),
     )));
+  refreshCompletionRegistry.settled(accountId);
 }
 
 export async function withVaultLease<T>(

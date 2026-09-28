@@ -148,6 +148,11 @@ Give a million developers composable primitives and they'll collectively find th
 
 For more info on how to configure cmux, [head over to our docs](https://cmux.com/docs/getting-started?utm_source=readme).
 
+To theme cmux (colors, fonts, transparency, sidebar, and more), see [Customizing cmux's look](docs/customizing-appearance.md).
+
+For shell watcher churn and managed-Mac process audit volume, see the supported
+[`CMUX_NO_GIT_WATCH=1` mitigation](docs/shell-integration.md) and its Git/PR update trade-offs.
+
 ## Keyboard Shortcuts
 
 ### Workspaces
