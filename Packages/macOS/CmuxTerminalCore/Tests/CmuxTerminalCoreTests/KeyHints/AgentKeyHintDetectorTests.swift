@@ -40,6 +40,19 @@ struct AgentKeyHintDetectorTests {
         #expect(hints("  ctrl+z to suspend").isEmpty)
     }
 
+    @Test(arguments: [
+        "Ctrl+Shift+C to copy", "ctrl+alt+c to cancel", "ctrl+shift+z to redo", "ctrl+shift+d to detach",
+        "ctrl+alt+\\ to quit", "⌃⇧C to copy", "alt+ctrl+z to undo",
+    ])
+    func signalChordsWithExtraModifiersAreNeverClickable(line: String) {
+        // Ghostty still sends 0x03, 0x04, 0x1a or 0x1c for these.
+        #expect(hints(line).isEmpty, "\(line)")
+    }
+
+    @Test func returnIsNotAKeyWord() {
+        #expect(hints("then return to continue the loop").isEmpty)
+    }
+
     @Test func proseIsNotAHint() {
         for line in ["Everything is up to date.", "Run the end to end tests.", "go to the store",
                      "map a to b", "from 1 to 2", "Press enter to the void", "Tab to the left"] {

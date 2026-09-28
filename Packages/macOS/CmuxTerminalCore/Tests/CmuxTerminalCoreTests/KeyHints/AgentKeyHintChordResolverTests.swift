@@ -53,6 +53,16 @@ struct AgentKeyHintChordResolverTests {
         {"bindings": [{"context": "Chat", "bindings": {"escape": null, "ctrl+c": "chat:cancel"}}]}
         """)
         #expect(AgentKeyHintChordResolver(claudeKeybindings: user).keys(for: try hint("esc to interrupt"), agent: .claudeCode) == ["escape"])
+
+        for chord in ["ctrl+shift+c", "ctrl+alt+c", "ctrl+shift+z", "ctrl+alt+d", "ctrl+shift+\\\\"] {
+            let signal = bindings("""
+            {"bindings": [{"context": "Chat", "bindings": {"escape": null, "\(chord)": "chat:cancel"}}]}
+            """)
+            #expect(
+                AgentKeyHintChordResolver(claudeKeybindings: signal).keys(for: try hint("esc to interrupt"), agent: .claudeCode) == ["escape"],
+                "\(chord)"
+            )
+        }
     }
 
     @Test func otherAgentsUseThePrintedChord() throws {
