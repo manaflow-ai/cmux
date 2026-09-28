@@ -1,5 +1,6 @@
 import CmuxCloud
 import AppKit
+import Bonsplit
 import UniformTypeIdentifiers
 
 /// Intercepts only forbidden live surface drags, leaving ordinary hit testing alone.
