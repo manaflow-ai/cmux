@@ -32,12 +32,25 @@ struct LocalZellijCommandBuilder {
     /// Room for the per-release directory zellij creates inside the socket
     /// directory (`0.43.1/`, `contract_version_1/`, ...).
     static let releaseDirectoryAllowance = 24
+    /// `-` plus eight hex digits appended by `zellijSessionName(for:)`.
+    static let ownershipTokenBytes = 9
 
     let zellijPath: String
     let socketDirectory: String
 
+    /// Longest name a user can give a session, after reserving room for the
+    /// release directory and the ownership token.
     var maxSessionNameBytes: Int {
-        Self.maxSocketPathBytes - socketDirectory.utf8.count - 1 - Self.releaseDirectoryAllowance
+        Self.maxSocketPathBytes - socketDirectory.utf8.count - 1
+            - Self.releaseDirectoryAllowance - Self.ownershipTokenBytes
+    }
+
+    /// The zellij session behind a registry record: the user's name plus a
+    /// token from the record's UUID. zellij lists exited sessions from a cache
+    /// shared with the user's other zellij sessions, so a bare name cannot show
+    /// that a listed session was started by this profile; the token can.
+    static func zellijSessionName(for record: LocalTmuxSessionRecord) -> String {
+        "\(record.name)-\(record.id.uuidString.prefix(8).lowercased())"
     }
 
     /// The shell command a cmux surface runs, and the only one session

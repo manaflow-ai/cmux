@@ -566390,65 +566390,6 @@
         }
       }
     },
-    "cli.localZellij.error.nameInUse": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "zellij already has an exited session named %1$@; delete it with `zellij delete-session %1$@` or choose another name"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لدى zellij بالفعل جلسة منتهية باسم %1$@؛ احذفها باستخدام `zellij delete-session %1$@` أو اختر اسمًا آخر"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "zellij hat bereits eine beendete Sitzung namens %1$@; lösche sie mit `zellij delete-session %1$@` oder wähle einen anderen Namen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "zellij ya tiene una sesión finalizada llamada %1$@; elimínala con `zellij delete-session %1$@` o elige otro nombre"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "zellij a déjà une session terminée nommée %1$@ ; supprimez-la avec `zellij delete-session %1$@` ou choisissez un autre nom"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "zellij には %1$@ という名前の終了済みセッションがすでにあります。`zellij delete-session %1$@` で削除するか、別の名前を選んでください"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "zellij에 이미 %1$@ 이름의 종료된 세션이 있습니다. `zellij delete-session %1$@`로 삭제하거나 다른 이름을 선택하세요"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "zellij 已有名为 %1$@ 的已退出会话；请使用 `zellij delete-session %1$@` 删除它，或选择其他名称"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "zellij 已有名為 %1$@ 的已結束工作階段；請以 `zellij delete-session %1$@` 刪除，或改用其他名稱"
-          }
-        }
-      }
-    },
     "cli.localZellij.error.requiresApp": {
       "extractionState": "manual",
       "localizations": {

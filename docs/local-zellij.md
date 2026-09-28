@@ -52,17 +52,27 @@ brings back the layout and commands, not the old process memory, SSH
 connections, or exact scrollback. To keep processes running while this Mac is
 offline, use `cmux ssh-tmux`, `cmux mosh-tmux`, or a persistent cloud VM.
 
-`start` refuses a name that belongs to an exited session. Attach to it or
-`close` it first. An exited session you created with plain zellij, outside
-cmux, is never adopted; `start` names it and asks you to delete it or pick
-another name.
+`start` refuses a name whose session has exited. Attach to it or `close` it
+first.
 
 ## Identity and safety
 
 The registry at `~/.cmux/local-zellij/sessions.json` stores a stable logical
 UUID per session with its name, cwd, and the last workspace and surface cmux
-attached it to. Sessions are identified by name inside the private socket
-directory, which only this profile uses.
+attached it to. The zellij session is named after both: `work` becomes
+`work-3f2a9c1d`, the name plus the first eight hex digits of the UUID
+(`list --json` and `status --json` report it as `zellij_session_name`).
+
+zellij keeps exited sessions in a resurrection cache shared by every zellij
+session you run, not only the ones in cmux's socket directory. The token is
+what shows that an exited `work-3f2a9c1d` came from this profile, so `status`,
+`attach`, `close`, and session restore never act on an unrelated zellij
+session that happens to be called `work`. For the same reason, sessions
+started outside `cmux local-zellij` are never adopted.
+
+`start` and `close` hold a profile-wide lock around both the zellij call and
+the registry update, so a `close` racing a `start` of the same name cannot
+leave a live session without a record.
 
 The state and socket directories are created mode `0700` and the registry
 `0600`; cmux refuses to use them if another user owns them or they are group-
@@ -84,6 +94,6 @@ surface never ends the session.
   leaves too little room.
 - Unlike local-tmux, there is no `detach` or `cleanup` subcommand yet, and the
   Settings panel lists only local-tmux sessions.
-- Sessions are matched by name, not by a server-incarnation marker like
-  local-tmux's, so a session recreated under the same name is treated as the
-  same session.
+- Identity comes from the registry token in the session name, not from a
+  server-incarnation marker like local-tmux's. Anyone who can create zellij
+  sessions as your user can create one with the same name.

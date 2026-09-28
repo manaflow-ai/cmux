@@ -8,12 +8,14 @@ extension CMUXCLI {
     ) throws {
         let records = try runtime.registry.load()
         let listed = try runtime.sessions()
-        let registeredNames = Set(records.map(\.name))
+        let registeredNames = Set(records.map(LocalZellijCommandBuilder.zellijSessionName(for:)))
         var rows: [[String: Any]] = records.map { record in
-            let state = localZellijState(of: record.name, in: listed)
+            let zellijName = LocalZellijCommandBuilder.zellijSessionName(for: record)
+            let state = localZellijState(of: zellijName, in: listed)
             return [
                 "id": record.id.uuidString,
                 "session_name": record.name,
+                "zellij_session_name": zellijName,
                 "socket_path": runtime.builder.socketDirectory,
                 "managed": true,
                 "live": state == "live",
@@ -23,13 +25,14 @@ extension CMUXCLI {
                 "cwd": record.cwd,
             ]
         }
-        // Live sessions in the private socket directory that cmux did not
-        // start. Unregistered exited sessions come from the user's other
-        // zellij sessions and are not listed.
+        // Live sessions in the private socket directory without a record,
+        // shown so they can be found and ended with zellij. Exited sessions
+        // without a record come from the user's other zellij sessions.
         for session in listed where !session.exited && !registeredNames.contains(session.name) {
             rows.append([
                 "id": NSNull(),
                 "session_name": session.name,
+                "zellij_session_name": session.name,
                 "socket_path": runtime.builder.socketDirectory,
                 "managed": false,
                 "live": true,
@@ -72,11 +75,13 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        let state = localZellijState(of: record.name, in: try runtime.sessions())
+        let zellijName = LocalZellijCommandBuilder.zellijSessionName(for: record)
+        let state = localZellijState(of: zellijName, in: try runtime.sessions())
         if jsonOutput {
             let payload: [String: Any] = [
                 "id": record.id.uuidString,
                 "session_name": record.name,
+                "zellij_session_name": zellijName,
                 "socket_path": runtime.builder.socketDirectory,
                 "cwd": record.cwd,
                 "workspace_id": record.workspaceID ?? NSNull(),
@@ -104,9 +109,10 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        if try runtime.sessions().contains(where: { $0.name == record.name }) {
+        let zellijName = LocalZellijCommandBuilder.zellijSessionName(for: record)
+        if try runtime.sessions().contains(where: { $0.name == zellijName }) {
             let result = try runtime.runner.run(
-                arguments: runtime.builder.deleteSessionArguments(sessionName: record.name)
+                arguments: runtime.builder.deleteSessionArguments(sessionName: zellijName)
             )
             let alreadyGone = result.stdout.contains("not found") || result.stderr.contains("not found")
             guard result.succeeded || alreadyGone else {
@@ -137,7 +143,9 @@ extension CMUXCLI {
     ) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: runtime.builder.zellijPath)
-        process.arguments = runtime.builder.attachArguments(sessionName: record.name)
+        process.arguments = runtime.builder.attachArguments(
+            sessionName: LocalZellijCommandBuilder.zellijSessionName(for: record)
+        )
         let environment = ProcessInfo.processInfo.environment
             .filter { !$0.key.hasPrefix("CMUX_") && !$0.key.hasPrefix("CMUXD_") }
         process.environment = runtime.builder.environment(base: environment)
@@ -165,6 +173,7 @@ extension CMUXCLI {
             let payload: [String: Any] = [
                 "id": record.id.uuidString,
                 "session_name": record.name,
+                "zellij_session_name": LocalZellijCommandBuilder.zellijSessionName(for: record),
                 "socket_path": record.socketPath,
                 "cwd": record.cwd,
                 "state": state,

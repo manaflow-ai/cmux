@@ -39,8 +39,10 @@ struct CLILocalZellijLifecycleTests {
             fixture
         )
         #expect(start.status == 0, Comment(rawValue: start.stderr))
+        let zellijName = try #require(try jsonObject(start.stdout)["zellij_session_name"] as? String)
+        #expect(zellijName.range(of: "^work-[0-9a-f]{8}$", options: .regularExpression) != nil, "the zellij name carries the record's token")
         let created = try #require(fixture.invocations().first { $0.contains("--create-background") })
-        let expectedPrefix = "\(fixture.socketDirectory)|attach --create-background work options --default-cwd \(fixture.base.path) --on-force-close detach --default-layout "
+        let expectedPrefix = "\(fixture.socketDirectory)|attach --create-background \(zellijName) options --default-cwd \(fixture.base.path) --on-force-close detach --default-layout "
         #expect(created.hasPrefix(expectedPrefix), Comment(rawValue: created))
         let layout = try String(contentsOf: fixture.layoutCopyURL, encoding: .utf8)
         #expect(layout.contains(#"args "-lc" "npm run \"dev\"""#), Comment(rawValue: layout))
@@ -59,23 +61,23 @@ struct CLILocalZellijLifecycleTests {
     @Test func headlessAttachUsesPrivateSocketAndDetachesOnForceClose() throws {
         let fixture = try makeFixture("attach")
         defer { try? FileManager.default.removeItem(at: fixture.base) }
-        _ = try runCLI(["local-zellij", "start", "work", "--detached", "--cwd", fixture.base.path], fixture)
+        let zellijName = try startSession("work", fixture)
 
         let attach = try runCLI(["local-zellij", "attach", "work", "--headless"], fixture)
 
         #expect(attach.status == 0, Comment(rawValue: attach.stderr))
-        #expect(fixture.invocations().contains("\(fixture.socketDirectory)|attach work options --on-force-close detach"))
+        #expect(fixture.invocations().contains("\(fixture.socketDirectory)|attach \(zellijName) options --on-force-close detach"))
     }
 
     @Test func closeDeletesSessionAndResurrectionEntry() throws {
         let fixture = try makeFixture("close")
         defer { try? FileManager.default.removeItem(at: fixture.base) }
-        _ = try runCLI(["local-zellij", "start", "work", "--detached", "--cwd", fixture.base.path], fixture)
+        let zellijName = try startSession("work", fixture)
 
         let close = try runCLI(["local-zellij", "close", "work"], fixture)
 
         #expect(close.status == 0, Comment(rawValue: close.stderr))
-        #expect(fixture.invocations().contains("\(fixture.socketDirectory)|delete-session --force work"))
+        #expect(fixture.invocations().contains("\(fixture.socketDirectory)|delete-session --force \(zellijName)"))
         let list = try runCLI(["local-zellij", "list", "--json"], fixture)
         #expect(try jsonObject(list.stdout)["count"] as? Int == 0, Comment(rawValue: list.stdout))
     }
@@ -201,6 +203,13 @@ struct CLILocalZellijLifecycleTests {
             sessionsURL: sessionsURL,
             layoutCopyURL: layoutCopyURL
         )
+    }
+
+    /// Starts a detached session and returns its zellij session name.
+    private func startSession(_ name: String, _ fixture: Fixture) throws -> String {
+        let start = try runCLI(["local-zellij", "start", name, "--detached", "--cwd", fixture.base.path, "--json"], fixture)
+        #expect(start.status == 0, Comment(rawValue: start.stderr))
+        return try #require(try jsonObject(start.stdout)["zellij_session_name"] as? String)
     }
 
     private func runCLI(_ arguments: [String], _ fixture: Fixture) throws -> CLIHookProcessRunner.Result {
