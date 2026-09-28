@@ -25,15 +25,6 @@ import CMUXMobileCore
 import IOSurface
 import UniformTypeIdentifiers
 
-/// ABI mirror for Ghostty's three-UInt16 ExternalHover cell range. The bridge
-/// takes this buffer as an opaque pointer so the app does not depend on the
-/// fork-only typedef being exported by every GhosttyKit module cache.
-private struct GhosttyExternalHoverCellRangeBridge {
-    let row: UInt16
-    let startColumn: UInt16
-    let endColumn: UInt16
-}
-
 enum GhosttyStartupAppearancePreviewState {
     #if DEBUG
     // The selected debug preview profile. Backed by the CmuxTerminalCore seam
@@ -299,12 +290,12 @@ class GhosttyApp {
         capacity: Int = 64
     ) -> (entries: [ExternalHoverDiagEntryValue], droppedCountCumulative: UInt64) {
         guard capacity > 0 else { return (entries: [], droppedCountCumulative: 0) }
-        var buffer = [cmux_external_hover_diag_entry_s](
-            repeating: cmux_external_hover_diag_entry_s(), count: capacity
+        var buffer = [ghostty_external_hover_diag_entry_s](
+            repeating: ghostty_external_hover_diag_entry_s(), count: capacity
         )
         var droppedCountCumulative: UInt64 = 0
         let count: Int = buffer.withUnsafeMutableBufferPointer { buffer in
-            Int(cmux_ghostty_surface_drain_external_hover_diagnostics(
+            Int(ghostty_surface_drain_external_hover_diagnostics(
                 surface, buffer.baseAddress, buffer.count, &droppedCountCumulative
             ))
         }
@@ -381,10 +372,10 @@ class GhosttyApp {
         },
         callSetter: { lease, topRow, rowCount, text, ranges, hostEventID in
             let cRanges = ranges.map {
-                GhosttyExternalHoverCellRangeBridge(
+                ghostty_external_hover_cell_range_s(
                     row: $0.row,
-                    startColumn: $0.startColumn,
-                    endColumn: $0.endColumn
+                    start_column: $0.startColumn,
+                    end_column: $0.endColumn
                 )
             }
             let byteCount = text.utf8.count
@@ -392,7 +383,7 @@ class GhosttyApp {
             let minted: Bool = text.withCString { cText in
                 cRanges.withUnsafeBufferPointer { rangesBuf in
                     outTokenBits.withUnsafeMutableBufferPointer { tokenBuf in
-                        cmux_ghostty_surface_set_external_link_hover(
+                        ghostty_surface_set_external_link_hover(
                             lease.surface,
                             topRow,
                             rowCount,
