@@ -1665,7 +1665,13 @@ final class TerminalNotificationStore: ObservableObject {
 #endif
         if effects.desktop || effects.sound || effects.command {
             if shouldSuppressExternalDelivery {
-                suppressedNotificationFeedbackHandler(self, notification, effects)
+                suppressedNotificationFeedbackHandler(
+                    self,
+                    notification,
+                    effects.keepingFocusedPaneQuiet(
+                        soundWhenFocused: NotificationSoundSettings.soundWhenFocused()
+                    )
+                )
             } else {
                 notificationDeliveryHandler(self, notification, effects)
             }
