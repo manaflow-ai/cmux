@@ -860,12 +860,25 @@ public final class MobileSSHComputers {
     private func connectionClosed(hostID: UUID, connection: SSHConnection) {
         guard connections[hostID] === connection else { return }
         connections[hostID] = nil
+        hostConnectionEnded(hostID: hostID)
+    }
+
+    /// Tears a host's connection down after the transport closes.
+    private func hostConnectionEnded(hostID: UUID) {
         providers[hostID] = nil
         attachments = attachments.filter { MobileSSHIdentifier($0.key).hostID != hostID }
         // Browser pumps see the transport close and report `.ended` themselves.
         stopAllPortForwards(hostID: hostID)
         statusByHost[hostID] = .idle
         if let host = hosts.first(where: { $0.id == hostID }) { publish(host: host) }
+    }
+
+    /// Test seam: runs the teardown a dropped transport triggers, without a
+    /// live connection. Mirrors ``connectionClosed(hostID:connection:)`` after
+    /// its identity guard.
+    func endHostConnectionForTesting(hostID: UUID) {
+        connections[hostID] = nil
+        hostConnectionEnded(hostID: hostID)
     }
 
     /// Whether automatic connects are paused for the host (persisted).
