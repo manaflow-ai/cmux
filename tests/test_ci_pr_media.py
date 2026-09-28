@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 import unittest
@@ -100,6 +101,9 @@ class RenderingTests(unittest.TestCase):
         try:
             from PIL import Image
         except ImportError:
+            # CI's guard lane installs it (ci-guards.yml), so there it must run.
+            if os.environ.get("GITHUB_ACTIONS") == "true":
+                raise
             self.skipTest("Pillow is not installed")
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -131,6 +135,7 @@ class GitHubStub:
         self.answers = answers
         self.calls: list[str] = []
         self.writes: list[list[str]] = []
+        self.inputs: list[str | None] = []
 
     def __call__(self, args, **_):
         self.calls.append(args[0])
@@ -149,8 +154,9 @@ class StubbedTest(unittest.TestCase):
         class Done:
             returncode, stdout, stderr = 0, "", ""
 
-        def run(args, **_):
+        def run(args, **kwargs):
             stub.writes.append(args)
+            stub.inputs.append(kwargs.get("input"))
             return Done()
 
         media.subprocess.run = run
@@ -180,8 +186,15 @@ class GateTests(StubbedTest):
 
     def test_a_skipped_macos_caller_reuses_an_earlier_build(self) -> None:
         jobs = [{"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
-                {"name": "macos", "status": "completed", "conclusion": "skipped"}]
+                {"name": "macos", "status": "completed", "conclusion": "skipped"},
+                {"name": "Fast static checks", "status": "completed", "conclusion": "success"}]
         self.assertEqual(self.gate(jobs), media.REUSED)  # at once, though the run is still going
+
+    def test_failed_static_checks_are_no_build_to_reuse(self) -> None:
+        jobs = [{"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
+                {"name": "macos", "status": "completed", "conclusion": "skipped"},
+                {"name": "Fast static checks", "status": "completed", "conclusion": "failure"}]
+        self.assertEqual(self.gate(jobs), media.NO_BUILD)
 
     def test_a_skipped_dogfood_job_means_no_app_change(self) -> None:
         self.assertEqual(self.gate([{"name": "Dogfood build #42", "status": "completed", "conclusion": "skipped"}]),
@@ -220,17 +233,38 @@ class AdmittedBuildTests(StubbedTest):
         self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}, "1"), {})
 
     def test_only_this_attempts_fingerprint_counts(self) -> None:
-        stub = self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [{"name": "build-inputs-fp1-1"}]}})
+        stub = self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [{"name": "build-inputs-fp1-3"}]}})
         self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "t"}, "2"), {})
         self.assertFalse([call for call in stub.calls if "workflows/ci.yml/runs" in call])
 
-    def test_an_api_error_in_the_lookup_means_no_earlier_build(self) -> None:
+    def test_a_rerun_attempt_uses_the_fingerprint_changes_published_earlier(self) -> None:
+        self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [
+            {"name": "build-inputs-new-2"}, {"name": "build-inputs-old-1"}, {"name": "build-inputs-later-4"}]}})
+        asked = []
+        import types
+        finder = types.ModuleType("find_admitted_build")
+        finder.admitted_run = lambda _read, _repo, _branch, fingerprint, _run: asked.append(fingerprint)
+
+        class Loader:
+            @staticmethod
+            def exec_module(module):
+                module.admitted_run = finder.admitted_run
+
+        from unittest import mock
+        with mock.patch.object(importlib.util, "spec_from_file_location", lambda *_: types.SimpleNamespace(
+                                   name="find_admitted_build", loader=Loader)), \
+                mock.patch.object(importlib.util, "module_from_spec", lambda _spec: types.ModuleType("f")):
+            media.admitted_build_run("o/r", {"id": 9, "head_branch": "t"}, "3")
+        self.assertEqual(asked, ["new"])
+
+    def test_an_api_error_in_the_lookup_is_unknown(self) -> None:
         def refuse():
             raise RuntimeError("HTTP 403")
 
         self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [{"name": "build-inputs-fp1-1"}]},
                    "repos/o/r/actions/workflows/ci.yml/runs": refuse})
-        self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}, "1"), {})
+        # Unknown, not "main's build": that would compile.
+        self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}, "1"), {"unknown": True})
 
     def test_the_section_names_the_build_the_tour_loaded(self) -> None:
         manifest = {"tour": "t", "result": "passed", "build_sha": "c" * 40, "run_url": "https://x"}
@@ -275,9 +309,32 @@ class PlanTests(StubbedTest):
         outputs = self.plan({
             "repos/o/r/actions/runs/9/attempts/1/jobs": {"jobs": [
                 {"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
-                {"name": "macos", "status": "completed", "conclusion": "skipped"}]},
+                {"name": "macos", "status": "completed", "conclusion": "skipped"},
+                {"name": "Fast static checks", "status": "completed", "conclusion": "success"}]},
             "repos/o/r/actions/runs/9": run}, {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"})
         self.assertEqual(outputs["build_sha"], self.EARLIER)
+
+    def test_a_pull_request_on_mains_build_compiles_its_head(self) -> None:
+        run = {"id": 9, "run_attempt": 1, "head_sha": HEAD, "head_branch": "topic", "event": "pull_request",
+               "path": media.CI_WORKFLOW_PATH, "head_repository": {"full_name": "o/r"},
+               "pull_requests": [{"number": 42}], "status": "completed"}
+        original = media.admitted_build_run
+        media.admitted_build_run = lambda _repo, _run, _attempt: {}
+        self.addCleanup(setattr, media, "admitted_build_run", original)
+        outputs = self.plan({
+            "repos/o/r/actions/runs/9/attempts/1/jobs": {"jobs": [
+                {"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
+                {"name": "macos", "status": "completed", "conclusion": "skipped"},
+                {"name": "Fast static checks", "status": "completed", "conclusion": "success"}]},
+            "repos/o/r/actions/runs/9": run}, {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"})
+        self.assertEqual((outputs["build_sha"], outputs["compile"]), (HEAD, "now"))
+        self.assertEqual(outputs["compile_tour"], "sidebar-and-chrome-tour")
+        self.assertEqual(json.loads(outputs["run"]), ["sidebar-and-chrome-tour"])
+
+    def test_only_app_changes_may_compile(self) -> None:
+        outputs = self.plan({"repos/o/r/actions/workflows/ci.yml/runs": {"workflow_runs": []},
+                             "repos/o/r/pulls/42/files": [[{"filename": "CLI/cmux.swift"}]]}, {})
+        self.assertEqual(outputs["compile"], "never")
 
     def test_an_automatic_run_without_a_build_tours_nothing(self) -> None:
         run = {"id": 9, "run_attempt": 1, "head_sha": HEAD, "event": "pull_request", "status": "completed",
@@ -329,6 +386,23 @@ class RefusedTests(StubbedTest):
         self.assertIn(f"- name: {media.REFUSE_STEP}", (ROOT / ".github/workflows/test-e2e.yml").read_text())
 
 
+class ReadTokenTests(unittest.TestCase):
+    def test_an_expired_read_token_falls_back_to_the_job_token(self) -> None:
+        from unittest import mock
+        seen = []
+
+        def run(args, env=None, **_):
+            seen.append((env or {}).get("GH_TOKEN"))
+            import subprocess
+            if env:
+                return subprocess.CompletedProcess(args, 1, "", "HTTP 401: Bad credentials")
+            return subprocess.CompletedProcess(args, 0, '{"ok": true}', "")
+
+        with mock.patch.dict(os.environ, {"READ_TOKEN": "app"}), mock.patch.object(media.subprocess, "run", run):
+            self.assertEqual(media.gh_json(["x"]), {"ok": True})
+        self.assertEqual(seen, ["app", None])
+
+
 class UploadRetryTests(unittest.TestCase):
     def test_a_lost_race_is_retried(self) -> None:
         calls = []
@@ -347,26 +421,37 @@ class UploadRetryTests(unittest.TestCase):
 
 
 class TourCacheTests(StubbedTest):
-    def run_tour(self, conclusion: str, media_made: dict) -> dict:
+    def run_tour(self, conclusion: str, media_made: dict, compile_mode: str = "never",
+                 adopt_status: int = 0, refused: bool = False, compile_tour: str = "") -> dict:
         import tempfile
         self.stub({})
+        commands = self.commands = []
+        self.stopped = self.waits = 0
+        test = self
 
         class FakeDispatch:
             def __init__(self, repository):
-                self.run_id, self.tested = "7", None
+                self.run_id, self.tested, self.completed = None, None, None
 
             def start(self, command):
-                return 0
+                commands.append(command)
+                adopting = self.adopting = "--adopt-only" in command
+                self.run_id = None if adopting and adopt_status else "7"
+                return adopt_status if adopting else 0
 
             def cancel(self, *_):
                 pass
 
+            def stop(self):
+                test.stopped += 1
+
             def wait(self):
-                return {"conclusion": conclusion}
+                test.waits += 1
+                return {"conclusion": "failure" if refused and self.adopting else conclusion}
 
         originals = (media.Dispatch, media.refused_to_compile, media.tour_media)
         media.Dispatch = FakeDispatch
-        media.refused_to_compile = lambda *_: False
+        media.refused_to_compile = lambda *_: refused
         media.tour_media = lambda *_: media_made
         self.addCleanup(lambda: (setattr(media, "Dispatch", originals[0]),
                                  setattr(media, "refused_to_compile", originals[1]),
@@ -375,7 +460,8 @@ class TourCacheTests(StubbedTest):
         for signum in (signal.SIGINT, signal.SIGTERM):
             self.addCleanup(signal.signal, signum, signal.getsignal(signum))
         with tempfile.TemporaryDirectory() as tmp:
-            media.tour("o/r", "t", Path(tmp) / "s.json", HEAD, Path(tmp) / "out", False)
+            media.tour("o/r", "t", Path(tmp) / "s.json", HEAD, Path(tmp) / "out", compile_mode,
+                       compile_tour=compile_tour)
             return json.loads((Path(tmp) / "out/manifest.json").read_text())
 
     def test_only_a_verdict_with_media_is_cached(self) -> None:
@@ -387,6 +473,65 @@ class TourCacheTests(StubbedTest):
                 manifest = self.run_tour(conclusion, found)
                 self.assertNotIn("run_url", manifest)
                 self.assertIn("log_url", manifest)
+
+    def test_an_app_pull_request_compiles_when_no_ci_build_loads(self) -> None:
+        made = {"gif": "tour.gif", "shots": [], "failures": []}
+        for adopt_status, refused in ((media.UNLOADABLE_PRODUCT_EXIT, False), (0, True)):
+            with self.subTest(adopt_status=adopt_status, refused=refused):
+                manifest = self.run_tour("success", made, "fallback", adopt_status, refused)
+                self.assertEqual(["--adopt-only" in command for command in self.commands], [True, False])
+                self.assertTrue(manifest["compiled"])
+                self.assertEqual(manifest["result"], "passed")
+                self.assertIn("compiled for the tour", media.section("o/r", 1, HEAD, [manifest]))
+
+    def test_no_ci_build_yet_never_compiles(self) -> None:
+        manifest = self.run_tour("success", {}, "fallback", media.NO_PRODUCT_EXIT)
+        self.assertEqual(len(self.commands), 1)
+        self.assertNotIn("compiled", manifest)
+        self.assertTrue(manifest["note"].startswith("skipped: CI left no app build"))
+
+    def test_only_one_tour_per_head_compiles(self) -> None:
+        manifest = self.run_tour("success", {}, "fallback", media.UNLOADABLE_PRODUCT_EXIT, compile_tour="other")
+        self.assertEqual(len(self.commands), 1)
+        self.assertIn("only other compiles", manifest["note"])
+
+    def test_a_moved_head_does_not_compile(self) -> None:
+        original = media.head_moved
+        media.head_moved = lambda *_: True
+        self.addCleanup(setattr, media, "head_moved", original)
+        manifest = self.run_tour("success", {}, "fallback", media.UNLOADABLE_PRODUCT_EXIT)
+        self.assertEqual(len(self.commands), 1)
+        self.assertIn("newer push", manifest["note"])
+
+    def test_the_adopt_run_is_waited_for_once(self) -> None:
+        self.run_tour("success", {"gif": "tour.gif", "shots": []}, "fallback")
+        self.assertEqual(self.waits, 1)
+
+    def test_a_compiled_verdict_is_cached_even_without_media(self) -> None:
+        manifest = self.run_tour("failure", {"shots": [], "note": "no frames"}, "now")
+        self.assertIn("run_url", manifest)
+
+    def test_losing_track_of_the_adopt_run_stops_it_and_does_not_compile(self) -> None:
+        def boom(*_):
+            raise RuntimeError("HTTP 401")
+
+        original = media.refused_after
+        media.refused_after = boom
+        self.addCleanup(setattr, media, "refused_after", original)
+        manifest = self.run_tour("success", {}, "fallback")
+        self.assertEqual(len(self.commands), 1)
+        self.assertEqual(self.stopped, 1)
+        self.assertTrue(manifest["note"].startswith("skipped: could not follow"))
+
+    def test_a_pull_request_without_app_changes_says_why_it_skipped(self) -> None:
+        manifest = self.run_tour("success", {}, "never", media.UNLOADABLE_PRODUCT_EXIT)
+        self.assertEqual(len(self.commands), 1)
+        self.assertEqual(manifest["result"], "not run")
+        self.assertTrue(manifest["note"].startswith("skipped:"))
+
+    def test_compile_now_skips_the_adopt_attempt(self) -> None:
+        self.run_tour("success", {"gif": "tour.gif", "shots": []}, "now")
+        self.assertEqual(["--adopt-only" in command for command in self.commands], [False])
 
 
 class PublishTests(StubbedTest):
@@ -426,11 +571,27 @@ class PublishTests(StubbedTest):
         self.assertEqual({branch for _, branch, _, _ in stub.uploads}, {"pr-media"})
         self.assertTrue(any(w[:4] == ["gh", "api", "-X", "PATCH"] for w in stub.writes))
 
-    def test_a_tour_that_never_dispatched_stays_out_of_the_comment(self) -> None:
+    @staticmethod
+    def patched_body(stub: GitHubStub) -> str:
+        return next(body for args, body in zip(stub.writes, stub.inputs) if args[:4] == ["gh", "api", "-X", "PATCH"])
+
+    def test_a_tour_that_never_dispatched_still_says_why(self) -> None:
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
-            stub = self.publish(Path(tmp), HEAD, self.comment(f"{media.DOGFOOD_MARKER}\nof `{HEAD}`"))
-        self.assertFalse(any(w[:4] == ["gh", "api", "-X", "PATCH"] for w in stub.writes))
+            stub = self.publish(Path(tmp), HEAD, self.comment(f"{media.DOGFOOD_MARKER}\nof `{HEAD}`"),
+                                note="skipped: because")
+        self.assertIn("<br>skipped: because", self.patched_body(stub))
+
+    def test_a_tour_job_that_left_nothing_gets_a_skip_line(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = self.stub({"repos/o/r/pulls/1": {"head": {"sha": HEAD}},
+                              "repos/o/r/issues/1/comments": self.comment(f"{media.DOGFOOD_MARKER}\nof `{HEAD}`")})
+            original = media.uploader
+            media.uploader = lambda: None
+            self.addCleanup(setattr, media, "uploader", original)
+            media.publish("o/r", 1, HEAD, ["sidebar-and-chrome-tour"], Path(tmp))
+        self.assertIn("<br>skipped: the tour job left no result", self.patched_body(stub))
 
     def test_a_moved_head_or_a_comment_for_another_head_is_left_alone(self) -> None:
         import tempfile
@@ -495,6 +656,13 @@ class WorkflowTests(unittest.TestCase):
         name = yaml.safe_load(CI.read_text())["jobs"]["dogfood-build"]["name"]
         self.assertTrue(name.startswith(media.DOGFOOD_JOB_PREFIX), name)
         self.assertIn(media.DOGFOOD_MARKER, CI.read_text())
+
+    def test_the_guard_lane_renders_with_the_workflows_pillow(self) -> None:
+        import re
+        pins = [re.findall(r"pillow==[0-9.]+", path.read_text())
+                for path in (WORKFLOW, ROOT / ".github/workflows/ci-guards.yml")]
+        self.assertEqual(len(set(pins[0] + pins[1])), 1, pins)
+        self.assertTrue(pins[0] and pins[1])
 
     def test_media_is_never_part_of_the_ci_verdict(self) -> None:
         self.assertNotIn("pr-media", CI.read_text())
