@@ -63,8 +63,17 @@ func runClaudeHookInstall(args []string, stdout io.Writer, stderr io.Writer) int
 		}
 		changed, err = updateClaudeUserSettingsFile(settingsPath, func(settings map[string]any) error {
 			if _, present := settings["hooks"]; present {
-				if _, ok := settings["hooks"].(map[string]any); !ok {
+				hooks, ok := settings["hooks"].(map[string]any)
+				if !ok {
 					return errors.New(`"hooks" is not a JSON object; leaving the settings file unchanged`)
+				}
+				// A non-array event value would be replaced wholesale by the merge.
+				for _, definition := range claudeRelayHookEvents {
+					if value, present := hooks[definition.event]; present {
+						if _, ok := value.([]any); !ok {
+							return fmt.Errorf("hooks.%s is not a JSON array; leaving the settings file unchanged", definition.event)
+						}
+					}
 				}
 			}
 			removeInstalledClaudeHooks(settings)
