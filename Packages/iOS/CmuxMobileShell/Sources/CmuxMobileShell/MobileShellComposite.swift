@@ -3195,8 +3195,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // ignores cancellation.
         let deadlineNanoseconds = runtime?.reconnectAttemptDeadlineNanoseconds
             ?? 30_000_000_000
+        let deadlineSleep: RPCTaskTimeout.Sleep = { [runtime] nanoseconds in
+            if let runtime {
+                try await runtime.sleepUntilReconnectAttemptDeadline(
+                    nanoseconds: nanoseconds
+                )
+            } else {
+                try await RPCTaskTimeout.continuousClockSleep(nanoseconds: nanoseconds)
+            }
+        }
         let race = await Self.raceAgainstDeadline(
-            nanoseconds: deadlineNanoseconds
+            nanoseconds: deadlineNanoseconds,
+            sleep: deadlineSleep
         ) { [weak self] in
             await self?.performReconnectActiveMacAttempt(
                 stackUserID: stackUserID,

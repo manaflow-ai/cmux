@@ -634,27 +634,30 @@ extension ReconnectRouteSelectionTests {
     /// connected. The expiry must report superseded, not a timeout that
     /// tears down the retry's connection.
     @Test func supersededReconnectDeadlineLeavesNewerConnectionAlive() async throws {
+        let deadlines = ReconnectDeadlineGate()
         let fixture = try await makeRecoveryOwnerFixture(
             heldConnectAttempts: [2],
-            // Short enough to expire inside the test, long enough that the
-            // initial connect and the retry (which share it) finish under load.
-            reconnectAttemptDeadlineNanoseconds: 2_000_000_000
+            reconnectDeadlineGate: deadlines
         )
-        defer { fixture.release() }
+        defer {
+            deadlines.expirePending()
+            fixture.release()
+        }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let deadClient = try #require(fixture.store.remoteClient)
         fixture.store.recoverDeadConnection(trigger: .liveness, expectedClient: deadClient)
-        #expect(await fixture.factory.waitForAttemptCount(2, timeout: .seconds(10)))
+        #expect(await fixture.factory.waitForAttemptCount(2))
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         let retryClient = try #require(fixture.store.remoteClient)
 
-        // The held recovery dial is never released; its deadline settles it.
-        #expect(try await pollUntil(attempts: 1_000) {
-            !fixture.store.connectionRecoveryOwner.isActive
-        })
+        // The held recovery dial never answers. Its deadline is the only one
+        // left pending once the retry settled; expire it now.
+        #expect(try await pollUntil { deadlines.pendingCount == 1 })
+        deadlines.expirePending()
+        #expect(try await pollUntil { !fixture.store.connectionRecoveryOwner.isActive })
         #expect(fixture.store.connectionState == .connected)
         #expect(fixture.store.remoteClient === retryClient)
         #expect(!fixture.store.connectionRecoveryFailed)
@@ -793,7 +796,7 @@ extension ReconnectRouteSelectionTests {
         heldConnectAttempts: Set<Int> = [],
         firstTransportCloseGate: LivenessTransportCloseGate? = nil,
         observesTransportLiveness: Bool = false,
-        reconnectAttemptDeadlineNanoseconds: UInt64 = 30 * 1_000_000_000
+        reconnectDeadlineGate: ReconnectDeadlineGate? = nil
     ) async throws -> RecoveryOwnerFixture {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -827,7 +830,7 @@ extension ReconnectRouteSelectionTests {
                 transportFactory: factory,
                 now: { clock.now },
                 supportedRouteKinds: [.iroh, .tailscale],
-                reconnectAttemptDeadlineNanoseconds: reconnectAttemptDeadlineNanoseconds
+                reconnectDeadlineGate: reconnectDeadlineGate
             ),
             isSignedIn: true,
             pairedMacStore: pairedStore,

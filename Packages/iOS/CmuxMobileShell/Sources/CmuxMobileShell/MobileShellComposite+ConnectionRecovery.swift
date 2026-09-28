@@ -1428,6 +1428,7 @@ extension MobileShellComposite {
 
     static func raceAgainstDeadline<Value: Sendable>(
         nanoseconds: UInt64,
+        sleep: @escaping RPCTaskTimeout.Sleep = RPCTaskTimeout.continuousClockSleep,
         _ operation: @escaping @Sendable () async -> Value
     ) async -> DeadlineRaceOutcome<Value> {
         let operationTask = Task { await operation() }
@@ -1442,7 +1443,7 @@ extension MobileShellComposite {
         let didTimeOut: Bool
         let wasCancelled: Bool
         do {
-            value = try await RPCTaskTimeout().value(
+            value = try await RPCTaskTimeout(sleep: sleep).value(
                 deadlineWaiter,
                 timeoutNanoseconds: nanoseconds
             )
