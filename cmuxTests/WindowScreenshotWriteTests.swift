@@ -10,11 +10,21 @@ import Testing
 @testable import cmux
 #endif
 
-private actor CaptureDeadlineRetirementProbe {
-    private(set) var retired = false
+private actor NonCooperativeCaptureOperation {
+    private var continuation: CheckedContinuation<Int, Never>?
 
-    func markRetired() {
-        retired = true
+    var hasStarted: Bool { continuation != nil }
+
+    func run() async -> Int {
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func complete(with value: Int) {
+        let continuation = continuation
+        self.continuation = nil
+        continuation?.resume(returning: value)
     }
 }
 
@@ -82,6 +92,20 @@ private actor CaptureDeadlineRetirementProbe {
     /// the working file is gone rather than only that the output arrived.
     private static func contents(of directory: URL) -> [String] {
         (try? FileManager.default.contentsOfDirectory(atPath: directory.path))?.sorted() ?? []
+    }
+
+    private static func waitUntilStarted(_ operation: NonCooperativeCaptureOperation) async {
+        for _ in 0..<10_000 {
+            if await operation.hasStarted { return }
+            await Task.yield()
+        }
+    }
+
+    private static func waitUntilIdle(_ gate: OwnWindowFrameCapture.OperationGate) async {
+        for _ in 0..<10_000 {
+            if !(await gate.isClaimed) { return }
+            await Task.yield()
+        }
     }
 
     // MARK: Writer
@@ -255,51 +279,77 @@ private actor CaptureDeadlineRetirementProbe {
 
     // MARK: Error codes
 
-    @Test func successfulCaptureRetiresItsDeadlineBeforeReturning() async throws {
-        let probe = CaptureDeadlineRetirementProbe()
+    @Test func successfulCaptureReleasesItsInFlightLeaseBeforeReturning() async throws {
+        let gate = OwnWindowFrameCapture.OperationGate()
         let result = try await OwnWindowFrameCapture.withDeadline(
-            timeoutNanoseconds: 1,
-            operation: { 42 },
-            sleep: { _ in
-                do {
-                    try await Task.sleep(nanoseconds: 10_000_000_000)
-                } catch {
-                    await probe.markRetired()
-                    throw error
-                }
-            }
+            timeoutNanoseconds: 1_000_000_000,
+            gate: gate,
+            operation: { 42 }
         )
 
         #expect(result == 42)
-        #expect(await probe.retired)
+        #expect(!(await gate.isClaimed))
     }
 
-    @Test func timedOutCaptureRetiresItsOperationBeforeReturning() async {
-        let started = CaptureDeadlineRetirementProbe()
-        let retired = CaptureDeadlineRetirementProbe()
-
-        await #expect(throws: OwnWindowFrameCapture.Failure.timedOut) {
+    @Test func nonCooperativeCaptureTimesOutWithoutAllowingAnotherOperation() async throws {
+        let gate = OwnWindowFrameCapture.OperationGate()
+        let operation = NonCooperativeCaptureOperation()
+        let capture = Task {
             try await OwnWindowFrameCapture.withDeadline(
-                timeoutNanoseconds: 1,
-                operation: {
-                    await started.markRetired()
-                    do {
-                        try await Task.sleep(nanoseconds: 10_000_000_000)
-                        return 42
-                    } catch {
-                        await retired.markRetired()
-                        throw error
-                    }
-                },
-                sleep: { _ in
-                    while !(await started.retired) {
-                        await Task.yield()
-                    }
-                }
+                timeoutNanoseconds: 100_000_000,
+                gate: gate,
+                operation: { await operation.run() }
             )
         }
 
-        #expect(await retired.retired)
+        await Self.waitUntilStarted(operation)
+        #expect(await operation.hasStarted)
+        await #expect(throws: OwnWindowFrameCapture.Failure.timedOut) {
+            try await capture.value
+        }
+
+        #expect(await gate.isClaimed)
+        await #expect(throws: OwnWindowFrameCapture.Failure.timedOut) {
+            try await OwnWindowFrameCapture.withDeadline(
+                timeoutNanoseconds: 1_000_000_000,
+                gate: gate,
+                operation: { 99 }
+            )
+        }
+
+        await operation.complete(with: 42)
+        await Self.waitUntilIdle(gate)
+        #expect(!(await gate.isClaimed))
+        let next = try await OwnWindowFrameCapture.withDeadline(
+            timeoutNanoseconds: 1_000_000_000,
+            gate: gate,
+            operation: { 7 }
+        )
+        #expect(next == 7)
+    }
+
+    @Test func outerCancellationReturnsWhileKeepingTheNonCooperativeLease() async {
+        let gate = OwnWindowFrameCapture.OperationGate()
+        let operation = NonCooperativeCaptureOperation()
+        let capture = Task {
+            try await OwnWindowFrameCapture.withDeadline(
+                timeoutNanoseconds: 10_000_000_000,
+                gate: gate,
+                operation: { await operation.run() }
+            )
+        }
+
+        await Self.waitUntilStarted(operation)
+        #expect(await operation.hasStarted)
+        capture.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await capture.value
+        }
+        #expect(await gate.isClaimed)
+
+        await operation.complete(with: 42)
+        await Self.waitUntilIdle(gate)
+        #expect(!(await gate.isClaimed))
     }
 
     @Test func captureFailuresReportWhoseFaultTheyAre() {

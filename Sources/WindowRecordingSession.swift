@@ -182,6 +182,11 @@ actor WindowRecordingSession {
     /// empty file later.
     func start() async throws {
         filter = try await resolveFilter()
+        // `abandon` can run while filter resolution is suspended. Do not start
+        // another ScreenCaptureKit operation after that authoritative stop.
+        guard state == .recording else {
+            throw WindowRecordingSessionError.alreadyFinished
+        }
         let sample = try await sample()
         let planned = try WindowRecordingFrameGeometry.plan(
             windowPixelWidth: sample.image.width,

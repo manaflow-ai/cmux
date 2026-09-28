@@ -33,6 +33,30 @@ struct OwnWindowFrameCapture {
     /// retire before the socket worker gives up.
     static let operationTimeoutNanoseconds: UInt64 = 8_000_000_000
 
+    /// At most one ScreenCaptureKit operation may be physically in flight.
+    /// A timed-out API call can ignore task cancellation; it keeps this lease
+    /// until it really returns, and later requests fail instead of accumulating
+    /// more stuck captures behind it.
+    actor OperationGate {
+        private var activeLease: UUID?
+
+        func claim() -> UUID? {
+            guard activeLease == nil else { return nil }
+            let lease = UUID()
+            activeLease = lease
+            return lease
+        }
+
+        func release(_ lease: UUID) {
+            guard activeLease == lease else { return }
+            activeLease = nil
+        }
+
+        var isClaimed: Bool { activeLease != nil }
+    }
+
+    private static let operationGate = OperationGate()
+
     let windowID: CGWindowID
 
     /// Finds the window and returns a filter for it.
@@ -103,45 +127,117 @@ struct OwnWindowFrameCapture {
         return try await Self.sample(filter: filter)
     }
 
-    /// Gives one ScreenCaptureKit operation its own deadline. A task-group
-    /// scope does not return until all children have finished, so cancelling
-    /// the losing child also retires it before the caller can start another
-    /// capture or report completion.
+    /// Gives one ScreenCaptureKit operation its own hard deadline.
+    ///
+    /// The operation is intentionally unstructured: a task group waits for all
+    /// children when its scope exits, so an API call that ignores cancellation
+    /// would defeat the deadline. The one-shot waiter discards a late result,
+    /// while `gate` remains claimed until that physical operation returns. This
+    /// lets the caller return on time without allowing retries to pile up more
+    /// ScreenCaptureKit work.
     static func withDeadline<T: Sendable>(
         timeoutNanoseconds: UInt64 = operationTimeoutNanoseconds,
-        operation: @escaping @Sendable () async throws -> T,
-        sleep: @escaping @Sendable (UInt64) async throws -> Void = { nanoseconds in
-            try await Task.sleep(nanoseconds: nanoseconds)
-        }
+        gate: OperationGate = operationGate,
+        operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask {
-                try Task.checkCancellation()
-                return try await operation()
-            }
-            group.addTask {
-                try await sleep(timeoutNanoseconds)
-                try Task.checkCancellation()
-                throw Failure.timedOut
-            }
-
-            let winner: Result<T, Error>
-            do {
-                guard let result = try await group.next() else {
-                    throw Failure.timedOut
-                }
-                winner = .success(result)
-            } catch {
-                winner = .failure(error)
-            }
-            group.cancelAll()
-            // Drain the cancelled loser explicitly. This is what makes a
-            // timeout/cancellation a retirement boundary rather than merely a
-            // promise to ignore a ScreenCaptureKit result that arrives later.
-            while !group.isEmpty {
-                _ = try? await group.next()
-            }
-            return try winner.get()
+        try Task.checkCancellation()
+        guard let lease = await gate.claim() else {
+            throw Failure.timedOut
         }
+        do {
+            try Task.checkCancellation()
+        } catch {
+            await gate.release(lease)
+            throw error
+        }
+
+        let waiter = OwnWindowCaptureDeadlineWaiter<T>()
+        let operationTask = Task {
+            let result: Result<T, Error>
+            do {
+                try Task.checkCancellation()
+                result = .success(try await operation())
+            } catch {
+                result = .failure(error)
+            }
+            await gate.release(lease)
+            waiter.finish(result)
+        }
+        waiter.setOperationCancellation {
+            operationTask.cancel()
+        }
+
+        let boundedNanoseconds = min(timeoutNanoseconds, UInt64(Int.max))
+        let deadline = DispatchWorkItem {
+            waiter.finish(.failure(Failure.timedOut), cancelOperation: true)
+        }
+        DispatchQueue.global(qos: .utility).asyncAfter(
+            deadline: .now() + .nanoseconds(Int(boundedNanoseconds)),
+            execute: deadline
+        )
+        defer { deadline.cancel() }
+
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await waiter.wait()
+        } onCancel: {
+            waiter.finish(.failure(CancellationError()), cancelOperation: true)
+        }
+    }
+}
+
+/// Bridges an unstructured capture into one awaiting caller. Exactly one of
+/// operation completion, deadline, or caller cancellation wins; all later
+/// results are discarded. The lock also handles cancellation racing ahead of
+/// continuation installation.
+private final class OwnWindowCaptureDeadlineWaiter<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, Error>?
+    private var storedResult: Result<Value, Error>?
+    private var operationCancellation: (@Sendable () -> Void)?
+    private var finished = false
+
+    func setOperationCancellation(_ cancellation: @escaping @Sendable () -> Void) {
+        lock.lock()
+        if !finished {
+            operationCancellation = cancellation
+        }
+        lock.unlock()
+    }
+
+    func wait() async throws -> Value {
+        try await withCheckedThrowingContinuation { continuation in
+            lock.lock()
+            if let result = storedResult {
+                storedResult = nil
+                lock.unlock()
+                continuation.resume(with: result)
+            } else {
+                self.continuation = continuation
+                lock.unlock()
+            }
+        }
+    }
+
+    func finish(_ result: Result<Value, Error>, cancelOperation: Bool = false) {
+        let continuation: CheckedContinuation<Value, Error>?
+        let cancellation: (@Sendable () -> Void)?
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        continuation = self.continuation
+        self.continuation = nil
+        if continuation == nil {
+            storedResult = result
+        }
+        cancellation = cancelOperation ? operationCancellation : nil
+        operationCancellation = nil
+        lock.unlock()
+
+        cancellation?()
+        continuation?.resume(with: result)
     }
 }
