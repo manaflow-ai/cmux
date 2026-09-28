@@ -304,7 +304,7 @@ class GhosttyApp {
         )
         var droppedCountCumulative: UInt64 = 0
         let count: Int = buffer.withUnsafeMutableBufferPointer { buffer in
-            Int(ghostty_surface_drain_external_hover_diagnostics(
+            Int(cmux_ghostty_surface_drain_external_hover_diagnostics(
                 surface, buffer.baseAddress, buffer.count, &droppedCountCumulative
             ))
         }
@@ -392,7 +392,7 @@ class GhosttyApp {
             let minted: Bool = text.withCString { cText in
                 cRanges.withUnsafeBufferPointer { rangesBuf in
                     outTokenBits.withUnsafeMutableBufferPointer { tokenBuf in
-                        ghostty_surface_set_external_link_hover(
+                        cmux_ghostty_surface_set_external_link_hover(
                             lease.surface,
                             topRow,
                             rowCount,

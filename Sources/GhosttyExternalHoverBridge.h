@@ -48,7 +48,10 @@ bool ghostty_surface_read_text_physical_rows(
     ghostty_selection_s,
     ghostty_text_s*);
 
-bool ghostty_surface_set_external_link_hover(
+// Use a prefixed C declaration with the original linker symbol. This avoids a
+// duplicate declaration when a newer GhosttyKit header exports the native
+// range typedef while still allowing older module caches to call the symbol.
+bool cmux_ghostty_surface_set_external_link_hover(
     ghostty_surface_t,
     uint32_t top_row,
     uint32_t row_count,
@@ -61,16 +64,16 @@ bool ghostty_surface_set_external_link_hover(
     const void* ranges,
     size_t range_count,
     uint64_t out_token_bits[4],
-    uint64_t host_event_id);
+    uint64_t host_event_id) __asm__("ghostty_surface_set_external_link_hover");
 
 void ghostty_surface_clear_external_link_hover(
     ghostty_surface_t,
     const uint64_t token_bits[4]);
 
-size_t ghostty_surface_drain_external_hover_diagnostics(
+size_t cmux_ghostty_surface_drain_external_hover_diagnostics(
     ghostty_surface_t,
     cmux_external_hover_diag_entry_s* out_entries,
     size_t out_capacity,
-    uint64_t* out_dropped_count_cumulative);
+    uint64_t* out_dropped_count_cumulative) __asm__("ghostty_surface_drain_external_hover_diagnostics");
 
 #endif
