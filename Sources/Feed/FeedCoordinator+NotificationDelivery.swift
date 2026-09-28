@@ -17,6 +17,7 @@ extension FeedCoordinator {
         // configure that resolver through ``AppFocusState`` itself rather than
         // coupling this production lane to Feed-only test hooks.
         let appFocused = AppFocusState.isAppFocused()
+        let soundWhenFocused = NotificationSoundSettings.soundWhenFocused()
 
         let resolved = await resolveAttentionTarget(event: event)
         guard let appDelegate = AppDelegate.shared else {
@@ -27,6 +28,7 @@ extension FeedCoordinator {
                 isActiveTab: appFocused,
                 isFocusedSurface: appFocused,
                 isMuted: false,
+                soundWhenFocused: soundWhenFocused,
                 effects: effects
             )
         }
@@ -39,6 +41,7 @@ extension FeedCoordinator {
                 isActiveTab: false,
                 isFocusedSurface: false,
                 isMuted: true,
+                soundWhenFocused: soundWhenFocused,
                 effects: effects
             )
         }
@@ -56,6 +59,7 @@ extension FeedCoordinator {
                 isActiveTab: isKeyWindow,
                 isFocusedSurface: isFocusedSurface,
                 isMuted: false,
+                soundWhenFocused: soundWhenFocused,
                 effects: effects
             )
         }
@@ -75,6 +79,7 @@ extension FeedCoordinator {
             isActiveTab: isActiveTab,
             isFocusedSurface: isFocusedSurface,
             isMuted: isMuted,
+            soundWhenFocused: soundWhenFocused,
             effects: effects
         )
     }

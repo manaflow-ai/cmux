@@ -44,8 +44,8 @@ require_job_contains \
 require_job_contains \
   "$CI_FILE" \
   "release-build" \
-  'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-26'\'' || (github.event_name == '\''pull_request'\'' && github.event.pull_request.head.repo.full_name != github.repository && '\''blacksmith-6vcpu-macos-26'\'' || vars.MACOS_RUNNER_26 || '\''blacksmith-6vcpu-macos-26'\'') }}' \
-  "CI release-build must use GitHub-hosted macOS on forks and the macOS 26 runner variable upstream"
+  'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-26'\'' || (github.event_name == '\''pull_request'\'' && github.event.pull_request.head.repo.full_name != github.repository && '\''blacksmith-6vcpu-macos-26'\'' || (github.event_name == '\''pull_request'\'' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt == 1 || github.triggering_actor != '\''github-actions[bot]'\'') || github.event_name == '\''workflow_dispatch'\'' && github.ref == '\''refs/heads/main'\'' && github.run_attempt == 1) && contains(inputs.pr_owned_jobs, '\'' release-build '\'') && (inputs.pr_side_runner || inputs.pr_runner) || vars.MACOS_RUNNER_26 || '\''blacksmith-6vcpu-macos-26'\'') }}' \
+  "CI release-build must use GitHub-hosted macOS on forks, the picked owned side lane where placed, and the macOS 26 runner variable upstream"
 
 for workflow in "$CI_FILE" "$RELEASE_FILE"; do
   if ! grep -Fq "CMUX_SKIP_ZIG_BUILD=1 xcodebuild" "$workflow"; then
@@ -74,10 +74,11 @@ swift_package_section="$(job_section "$CI_FILE" "swift-package-tests")"
 # job builds the Release Ghostty CLI helper against an SDK 15 Xcode, which only
 # the macos-15 image carries, so it must not follow MACOS_RUNNER_PR onto
 # whatever pool that lane points at. The one exception is a same-repository
-# pull request whose picker placed ' swift-package ' on an owned Mac, which the
+# pull request (or main's full-suite dispatch) whose picker placed
+# ' swift-package ' on an owned Mac, which the
 # picker does only for a run that builds no helper (package_lane_owned()),
 # and the opt-in build-fleet gateway (hq#794), also only without the helper.
-expected_runs_on='runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-15'\'' || (github.event_name == '\''pull_request'\'' && github.event.pull_request.head.repo.full_name != github.repository && '\''blacksmith-6vcpu-macos-15'\'' || github.event_name == '\''pull_request'\'' && !(inputs.full_suite == '\''true'\'' && inputs.release_build == '\''true'\'') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || github.event_name == '\''pull_request'\'' && github.event.pull_request.head.repo.full_name == github.repository && contains(inputs.pr_owned_jobs, '\'' swift-package '\'') && ((github.run_attempt == 1 || github.triggering_actor != '\''github-actions[bot]'\'') && (inputs.pr_side_runner || inputs.pr_runner)) || vars.CI_PAID_MACOS_OVERFLOW == '\''1'\'' && vars.MACOS_RUNNER_DUAL_XCODE || '\''blacksmith-6vcpu-macos-15'\'') }}'
+expected_runs_on='runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-15'\'' || (github.event_name == '\''pull_request'\'' && github.event.pull_request.head.repo.full_name != github.repository && '\''blacksmith-6vcpu-macos-15'\'' || github.event_name == '\''pull_request'\'' && !(inputs.full_suite == '\''true'\'' && inputs.release_build == '\''true'\'') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || (github.event_name == '\''pull_request'\'' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt == 1 || github.triggering_actor != '\''github-actions[bot]'\'') || github.event_name == '\''workflow_dispatch'\'' && github.ref == '\''refs/heads/main'\'' && github.run_attempt == 1) && contains(inputs.pr_owned_jobs, '\'' swift-package '\'') && (inputs.pr_side_runner || inputs.pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '\''1'\'' && vars.MACOS_RUNNER_DUAL_XCODE || '\''blacksmith-6vcpu-macos-15'\'') }}'
 if [[ "$swift_package_section" != *"$expected_runs_on"* ]]; then
   echo "FAIL: CI swift-package-tests must use the dual-Xcode runner lane on every event" >&2
   exit 1
