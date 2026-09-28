@@ -2949,6 +2949,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   let cellHeight = doubleValue(tokenCellMetrics["cellHeight"]),
                   let columns = (tokenCellMetrics["columns"] as? NSNumber)?.intValue ??
                     (tokenCellMetrics["columns"] as? Int),
+                  let tokenStartColumn = (tokenCellMetrics["matchedColumnStart"] as? NSNumber)?.intValue ??
+                    (tokenCellMetrics["matchedColumnStart"] as? Int),
                   offset >= 0, columns > 0 else {
                 return nil
             }
@@ -2957,9 +2959,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // the logical token offset to its physical row and column rather
             // than clamping an out-of-bounds offset into the final visible
             // cell, which turns invalid separator offsets into valid clicks.
-            let rowOffset = offset / columns
-            let column = offset % columns
-            let unclampedX = selectionStart.x + (CGFloat(column) * CGFloat(cellWidth))
+            let absoluteColumn = tokenStartColumn + offset
+            let rowOffset = absoluteColumn / columns - tokenStartColumn / columns
+            let column = absoluteColumn % columns
+            let xInset = doubleValue(tokenCellMetrics["xInset"]) ?? 0
+            let unclampedX = CGFloat(xInset) + (CGFloat(column) * CGFloat(cellWidth)) + CGFloat(cellWidth) / 2
             let unclampedY = selectionStart.y - (CGFloat(rowOffset) * CGFloat(cellHeight))
             guard unclampedX >= 0, unclampedX < terminalPanel.hostedView.bounds.width,
                   unclampedY >= 0, unclampedY < terminalPanel.hostedView.bounds.height else {
