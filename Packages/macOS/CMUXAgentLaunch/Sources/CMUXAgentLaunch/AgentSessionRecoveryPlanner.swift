@@ -195,3 +195,27 @@ public struct AgentSessionRecoveryPlanner: Sendable {
         return result
     }
 }
+
+/// Which recovered sessions start right away and which wait until their
+/// workspace is first shown.
+public struct AgentRecoveryStartPlan: Equatable, Sendable {
+    /// How many recovered sessions start right away by default.
+    public static let defaultImmediateLimit = 3
+
+    /// Sessions whose terminal starts now, in start order.
+    public private(set) var startNow: [AgentRecoveryCandidate] = []
+    /// Sessions whose workspace opens now and whose terminal starts on first visit.
+    public private(set) var startOnVisit: [AgentRecoveryCandidate] = []
+
+    /// - Parameters:
+    ///   - candidates: The sessions to recover.
+    ///   - visibleWorkspaceIds: Workspaces shown in a window right now.
+    ///   - immediateLimit: How many sessions start right away.
+    public init(
+        candidates: [AgentRecoveryCandidate],
+        visibleWorkspaceIds: Set<UUID> = [],
+        immediateLimit: Int = AgentRecoveryStartPlan.defaultImmediateLimit
+    ) {
+        startNow = candidates
+    }
+}
