@@ -122,6 +122,7 @@ import {
   type CloudVmRow,
   type VmRepositoryShape,
   type VmObservedDestroyCleanup,
+  type VmObservedDestroyCleanupCandidate,
   type VmObservedDestroyCleanupStep,
   type VmResizeReservation,
   type VmUsageEventInput,
@@ -780,7 +781,7 @@ function drainObservedDestroyCleanup(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
   modelPlane: VmModelPlaneRevoker | undefined,
-  vm: CloudVmRow,
+  vm: VmObservedDestroyCleanupCandidate,
   cleanup: PendingObservedDestroyCleanup,
 ): Effect.Effect<void, never> {
   return Effect.gen(function* () {
@@ -824,7 +825,7 @@ function reconcileObservedDestroyCleanups(
   return Effect.gen(function* () {
     const candidates = yield* listCandidates({
       limit: Math.min(limit, OBSERVED_DESTROY_CLEANUP_BATCH_LIMIT),
-    }).pipe(Effect.catchAll(() => Effect.succeed([] as CloudVmRow[])));
+    }).pipe(Effect.catchAll(() => Effect.succeed([] as VmObservedDestroyCleanupCandidate[])));
     yield* Effect.forEach(candidates, (vm) => {
       const cleanup = observedDestroyCleanupFromMetadata(vm.providerMetadata);
       return cleanup

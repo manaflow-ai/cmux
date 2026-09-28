@@ -13,6 +13,7 @@ import {
   cloudVmBillingGrants,
   cloudVmLeases,
   cloudVmNetworks,
+  cloudVmObservedDestroyCleanups,
   cloudVmAccessGrants,
   cloudVmAccessGrantSessions,
   cloudVmSessions,
@@ -121,6 +122,10 @@ export type VmObservedDestroyCleanup = {
   readonly homeVolume?: string;
 };
 export type VmObservedDestroyCleanupStep = keyof VmObservedDestroyCleanup;
+export type VmObservedDestroyCleanupCandidate = Pick<
+  CloudVmRow,
+  "id" | "provider" | "providerMetadata" | "updatedAt"
+>;
 // Reaper batches are capped at 100. Keep repository calls bounded even if a
 // future caller passes a malformed or oversized name list.
 const VM_REAPER_REFERENCE_NAME_LIMIT = 100;
@@ -466,7 +471,7 @@ export type VmRepositoryShape = {
   /** Terminal rows whose external credential or owned-volume cleanup is still pending. */
   readonly observedDestroyCleanupCandidates?: (input: {
     readonly limit: number;
-  }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  }) => Effect.Effect<VmObservedDestroyCleanupCandidate[], VmDatabaseError>;
   /** Acknowledge one idempotent cleanup step without disturbing concurrent steps. */
   readonly completeObservedDestroyCleanup?: (input: {
     readonly id: string;
@@ -2834,12 +2839,44 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   observedDestroyCleanupCandidates: (input) =>
     dbEffect("observedDestroyCleanupCandidates", async () => {
       const db = cloudDb();
-      return await db
-        .select()
+      const terminalRows = await db
+        .select({
+          id: cloudVms.id,
+          provider: cloudVms.provider,
+          providerMetadata: cloudVms.providerMetadata,
+          updatedAt: cloudVms.updatedAt,
+        })
         .from(cloudVms)
         .where(OBSERVED_DESTROY_CLEANUP_CANDIDATE_PREDICATE)
         .orderBy(asc(cloudVms.updatedAt), asc(cloudVms.id))
         .limit(input.limit);
+      const transferredRows = await db
+        .select({
+          id: cloudVmObservedDestroyCleanups.vmId,
+          provider: cloudVmObservedDestroyCleanups.provider,
+          cleanup: cloudVmObservedDestroyCleanups.cleanup,
+          updatedAt: cloudVmObservedDestroyCleanups.updatedAt,
+        })
+        .from(cloudVmObservedDestroyCleanups)
+        .orderBy(
+          asc(cloudVmObservedDestroyCleanups.updatedAt),
+          asc(cloudVmObservedDestroyCleanups.vmId),
+        )
+        .limit(input.limit);
+      return [
+        ...terminalRows,
+        ...transferredRows.map((row) => ({
+          id: row.id,
+          provider: row.provider,
+          providerMetadata: { [OBSERVED_DESTROY_CLEANUP_METADATA_KEY]: row.cleanup },
+          updatedAt: row.updatedAt,
+        })),
+      ]
+        .sort((left, right) => {
+          const byTime = left.updatedAt.getTime() - right.updatedAt.getTime();
+          return byTime === 0 ? left.id.localeCompare(right.id) : byTime;
+        })
+        .slice(0, input.limit);
     }),
 
   completeObservedDestroyCleanup: (input) =>
@@ -2867,14 +2904,39 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           sql`${cleanup} ? ${input.step}`,
         ))
         .returning({ id: cloudVms.id });
-      return updated.length > 0;
+      if (updated.length > 0) return true;
+      return await db.transaction(async (tx) => {
+        const removed = await tx
+          .delete(cloudVmObservedDestroyCleanups)
+          .where(and(
+            eq(cloudVmObservedDestroyCleanups.vmId, input.id),
+            sql`${cloudVmObservedDestroyCleanups.cleanup} ? ${input.step}`,
+            sql`jsonb_object_length(${cloudVmObservedDestroyCleanups.cleanup}) = 1`,
+          ))
+          .returning({ id: cloudVmObservedDestroyCleanups.vmId });
+        if (removed.length > 0) return true;
+        const transferred = await tx
+          .update(cloudVmObservedDestroyCleanups)
+          .set({
+            cleanup: sql`${cloudVmObservedDestroyCleanups.cleanup} - ${input.step}`,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(cloudVmObservedDestroyCleanups.vmId, input.id),
+            sql`${cloudVmObservedDestroyCleanups.cleanup} ? ${input.step}`,
+            sql`jsonb_object_length(${cloudVmObservedDestroyCleanups.cleanup}) > 1`,
+          ))
+          .returning({ id: cloudVmObservedDestroyCleanups.vmId });
+        return transferred.length > 0;
+      });
     }),
 
   deferObservedDestroyCleanup: (input) =>
     dbEffect("deferObservedDestroyCleanup", async () => {
       const cleanup = sql`coalesce(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
         ->${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}, '{}'::jsonb)`;
-      const updated = await cloudDb()
+      const db = cloudDb();
+      const updated = await db
         .update(cloudVms)
         .set({ updatedAt: new Date() })
         .where(and(
@@ -2883,7 +2945,16 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           sql`${cleanup} ? ${input.step}`,
         ))
         .returning({ id: cloudVms.id });
-      return updated.length > 0;
+      if (updated.length > 0) return true;
+      const transferred = await db
+        .update(cloudVmObservedDestroyCleanups)
+        .set({ updatedAt: new Date() })
+        .where(and(
+          eq(cloudVmObservedDestroyCleanups.vmId, input.id),
+          sql`${cloudVmObservedDestroyCleanups.cleanup} ? ${input.step}`,
+        ))
+        .returning({ id: cloudVmObservedDestroyCleanups.vmId });
+      return transferred.length > 0;
     }),
 
   abandonedProvisioningCandidates: (input) =>

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import postgres, { type Sql } from "postgres";
-import { cloudVms } from "../db/schema";
+import { cloudVmObservedDestroyCleanups, cloudVms } from "../db/schema";
 import { OBSERVED_DESTROY_CLEANUP_CANDIDATE_PREDICATE } from "../services/vms/repository";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
@@ -55,6 +55,30 @@ describe("Cloud VM database schema", () => {
     expect(normalized).toContain(
       `"cloud_vms"."provider_metadata" ? 'cmuxObservedDestroyCleanup'`,
     );
+  });
+
+  test("keeps transferred cleanup independent from account-owned rows and ordered for retry", () => {
+    const config = getTableConfig(cloudVmObservedDestroyCleanups);
+    expect(config.foreignKeys).toHaveLength(0);
+    const index = config.indexes.find(
+      (candidate) => candidate.config.name === "cloud_vm_observed_destroy_cleanups_updated_idx",
+    );
+    expect(index?.config.columns.map((column) => "name" in column ? column.name : null)).toEqual([
+      "updated_at",
+      "vm_id",
+    ]);
+    expect(config.checks.map((check) => check.name)).toContain(
+      "cloud_vm_observed_destroy_cleanups_pending_step",
+    );
+
+    const migration = readFileSync(new URL(
+      "../db/migrations/20260928123000_cloud_vm_observed_destroy_cleanup_outbox/migration.sql",
+      import.meta.url,
+    ), "utf8").replace(/\s+/g, " ");
+    expect(migration).toContain(
+      'CREATE INDEX "cloud_vm_observed_destroy_cleanups_updated_idx" ON "cloud_vm_observed_destroy_cleanups" ("updated_at", "vm_id")',
+    );
+    expect(migration).not.toContain("REFERENCES");
   });
 
   dbTest("applies migrations and enforces create idempotency by account owner", async () => {

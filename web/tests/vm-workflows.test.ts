@@ -37,6 +37,7 @@ import {
   VmDatabaseError,
   VmLimitExceededError,
   VmNotFoundError,
+  VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
   isVmCreateDisabledError,
@@ -6117,6 +6118,50 @@ describe("VM Effect workflows", () => {
     expect(drained.hasCleanup).toBe(false);
   });
 
+  dbTest("reconciles cleanup transferred out of a deleted account-owned VM row", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_observed_destroy_cleanups, cloud_vms restart identity cascade`;
+    const vmId = "00000000-0000-4000-8000-000000000172";
+    await sql`
+      insert into cloud_vm_observed_destroy_cleanups (vm_id, provider, cleanup, updated_at)
+      values (
+        ${vmId}, 'freestyle',
+        '{"modelPlane":true,"homeVolume":"legacy-home-volume-outbox"}'::jsonb,
+        now() - interval '1 day'
+      )
+    `;
+
+    const candidates = await Effect.runPromise(
+      vmRepositoryLiveShape.observedDestroyCleanupCandidates!({ limit: 1 }),
+    );
+    expect(candidates).toEqual([expect.objectContaining({
+      id: vmId,
+      provider: "freestyle",
+      providerMetadata: {
+        [OBSERVED_DESTROY_CLEANUP_METADATA_KEY]: {
+          modelPlane: true,
+          homeVolume: "legacy-home-volume-outbox",
+        },
+      },
+    })]);
+
+    expect(await Effect.runPromise(vmRepositoryLiveShape.completeObservedDestroyCleanup!({
+      id: vmId, step: "modelPlane",
+    }))).toBe(true);
+    const [volumePending] = await sql<{ cleanup: Record<string, unknown> }[]>`
+      select cleanup from cloud_vm_observed_destroy_cleanups where vm_id = ${vmId}
+    `;
+    expect(volumePending?.cleanup).toEqual({ homeVolume: "legacy-home-volume-outbox" });
+
+    expect(await Effect.runPromise(vmRepositoryLiveShape.completeObservedDestroyCleanup!({
+      id: vmId, step: "homeVolume",
+    }))).toBe(true);
+    const [{ count }] = await sql<{ count: string }[]>`
+      select count(*)::text as count from cloud_vm_observed_destroy_cleanups where vm_id = ${vmId}
+    `;
+    expect(count).toBe("0");
+  });
+
   dbTest("cron reconcile retires missing compute even when a detached home volume remains", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
@@ -8221,6 +8266,66 @@ describe("status read that observes a gone machine", () => {
     await Effect.runPromise(reconcileVmProviderStatuses({ modelPlane }).pipe(Effect.provide(layer)));
     expect(revokeCalls).toBe(2);
     expect(volumeDeleteCalls).toBe(2);
+  });
+
+  test("retained account-deletion cleanup stays pending when legacy volume deletion is unsupported and completes later", async () => {
+    const homeVolume = "legacy-home-volume-retained-after-account-delete";
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000171",
+      userId: "deleted-account",
+      providerVmId: null,
+      status: "destroyed",
+      destroyedAt: new Date(),
+    });
+    let pending = true;
+    let supported = false;
+    let deferCalls = 0;
+    const baseRepo = testWorkflowRepo({ vm });
+    const repo: VmRepositoryShape = {
+      ...baseRepo,
+      observedDestroyCleanupCandidates: () => Effect.succeed(
+        pending
+          ? [{
+            id: vm.id,
+            provider: vm.provider,
+            providerMetadata: {
+              [OBSERVED_DESTROY_CLEANUP_METADATA_KEY]: { homeVolume },
+            },
+            updatedAt: vm.updatedAt,
+          }]
+          : [],
+      ),
+      deferObservedDestroyCleanup: () => Effect.sync(() => {
+        deferCalls += 1;
+        return true;
+      }),
+      completeObservedDestroyCleanup: () => Effect.sync(() => {
+        pending = false;
+        return true;
+      }),
+    };
+    const provider: VmProviderGatewayShape = {
+      ...providerGone,
+      deleteHomeVolume: () => supported
+        ? Effect.void
+        : Effect.fail(new VmProviderOperationError({
+          provider: "freestyle",
+          operation: "deleteHomeVolume",
+          cause: new VmOperationUnsupportedError({
+            provider: "freestyle",
+            operation: "deleteHomeVolume",
+          }),
+        })),
+    };
+    const layer = workflowLayer(repo, provider);
+
+    await Effect.runPromise(reconcileVmProviderStatuses({}).pipe(Effect.provide(layer)));
+    expect(pending).toBe(true);
+    expect(deferCalls).toBe(1);
+
+    supported = true;
+    await Effect.runPromise(reconcileVmProviderStatuses({}).pipe(Effect.provide(layer)));
+    expect(pending).toBe(false);
   });
 
   test("acknowledges an already-missing volume after deletion succeeds before the database ack", async () => {

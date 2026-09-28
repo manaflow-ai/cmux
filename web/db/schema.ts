@@ -128,6 +128,31 @@ export const cloudVms = pgTable(
   ],
 );
 
+/**
+ * External teardown that must outlive its account-owned VM row. Account
+ * deletion moves pending terminal cleanup here in the same transaction that
+ * removes the VM, so no user/team foreign key may be added to this outbox.
+ */
+export const cloudVmObservedDestroyCleanups = pgTable(
+  "cloud_vm_observed_destroy_cleanups",
+  {
+    vmId: uuid("vm_id").primaryKey(),
+    provider: vmProvider("provider").notNull(),
+    cleanup: jsonb("cleanup").$type<{ modelPlane?: true; homeVolume?: string }>().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("cloud_vm_observed_destroy_cleanups_updated_idx").on(table.updatedAt, table.vmId),
+    check(
+      "cloud_vm_observed_destroy_cleanups_pending_step",
+      sql`${table.cleanup} @> '{"modelPlane":true}'::jsonb or (
+        jsonb_typeof(${table.cleanup}->'homeVolume') = 'string'
+        and length(btrim(${table.cleanup}->>'homeVolume')) > 0
+      )`,
+    ),
+  ],
+);
+
 /** Durable Hive identity. VM status and provider addresses remain owned by cloud_vms. */
 export const cloudRuntimes = pgTable("cloud_runtimes", {
   id: uuid("id").defaultRandom().primaryKey(),
