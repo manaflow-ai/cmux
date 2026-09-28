@@ -41,7 +41,7 @@ struct AgentLifecycleActivityTests {
         #expect(AgentLifecycleActivity.classify(event: .turnStarted, from: .idle, to: .running) == .promptSubmitted)
         #expect(AgentLifecycleActivity.classify(event: .childSpawned, from: .idle, to: .running) == nil)
         #expect(AgentLifecycleActivity.classify(event: .turnStarted, from: .error, to: .running) == .promptSubmitted)
-        #expect(AgentLifecycleActivity.classify(event: .turnStarted, from: .needsInput, to: .running) == .promptSubmitted)
+        #expect(AgentLifecycleActivity.classify(event: .turnStarted, from: .needsInput, to: .running) == nil)
         #expect(AgentLifecycleActivity.classify(event: .turnStarted, from: .running, to: .running) == nil)
         #expect(AgentLifecycleActivity.classify(event: .attentionResolved, from: .needsInput, to: .running) == nil)
         #expect(AgentLifecycleActivity.classify(event: .childCompleted, from: .running, to: .idle) == .turnFinished)

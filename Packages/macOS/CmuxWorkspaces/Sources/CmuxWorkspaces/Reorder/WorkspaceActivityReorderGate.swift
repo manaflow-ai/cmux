@@ -19,7 +19,8 @@ public import Foundation
 ///   move is deferred, never dropped, so rows do not jump under the cursor.
 /// - A workspace that moved less than ``cooldown`` ago is deferred until the
 ///   cooldown ends. Deferred requests for one workspace coalesce into a
-///   single pending move.
+///   single pending move. A notification inside the cooldown is dropped
+///   instead, since it restates activity that already moved the row.
 ///
 /// ``drain(mode:now:context:)`` releases pending moves oldest first, so the
 /// most recent activity ends up on top. The gate is a value type with no
@@ -117,6 +118,12 @@ public struct WorkspaceActivityReorderGate: Sendable {
         forgetExpiredMoves(now: now)
         guard !context.isPinned, !context.isSelected, !context.isAtTop else {
             pendingSince.removeValue(forKey: workspaceId)
+            return .ignore
+        }
+        if trigger == .notification, isCoolingDown(workspaceId, now: now) {
+            // The agent event behind this notification already moved the
+            // row; deferring it would lift the row back over newer activity
+            // once the cooldown ends. A pending activity move stays pending.
             return .ignore
         }
         if context.isSidebarInteracting || isCoolingDown(workspaceId, now: now) {

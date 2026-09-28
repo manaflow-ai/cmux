@@ -256,8 +256,6 @@ final class DogfoodScenarioUITests: XCTestCase {
 
     // MARK: Socket
 
-    /// `"${name.key}"` in a param string takes that field of a saved result,
-    /// so a later step can target the workspace or surface an earlier one made.
     /// Resolves `name.key.0.key` against saved results; numeric components
     /// index arrays.
     private func resolve(_ path: [String]) -> Any? {
@@ -289,6 +287,8 @@ final class DogfoodScenarioUITests: XCTestCase {
         return result + rest
     }
 
+    /// `"${name.key}"` in a param string takes that field of a saved result,
+    /// so a later step can target the workspace or surface an earlier one made.
     private func substitute(_ value: Any) -> Any {
         if let string = value as? String,
            string.hasPrefix("${"), string.hasSuffix("}") {

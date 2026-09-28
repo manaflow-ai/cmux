@@ -118,7 +118,7 @@ struct WorkspaceActivityReorderGateTests {
         #expect(gate.admit(workspaceId: id, trigger: .agentActivity, mode: .agentActivity, context: idle, now: start) == .moveNow)
         // Finish, new prompt, finish again inside the window: one pending move.
         #expect(gate.admit(workspaceId: id, trigger: .agentActivity, mode: .agentActivity, context: idle, now: at(1)) == .deferred)
-        #expect(gate.admit(workspaceId: id, trigger: .notification, mode: .agentActivity, context: idle, now: at(2)) == .deferred)
+        #expect(gate.admit(workspaceId: id, trigger: .notification, mode: .agentActivity, context: idle, now: at(2)) == .ignore)
         #expect(gate.admit(workspaceId: id, trigger: .agentActivity, mode: .agentActivity, context: idle, now: at(3)) == .deferred)
         #expect(gate.pendingWorkspaceIds == [id])
         #expect(gate.nextCooldownEnd(after: at(3)) == at(10))
@@ -128,6 +128,19 @@ struct WorkspaceActivityReorderGateTests {
         // The trailing move restarts the cooldown.
         #expect(gate.admit(workspaceId: id, trigger: .agentActivity, mode: .agentActivity, context: idle, now: at(15)) == .deferred)
         #expect(gate.admit(workspaceId: id, trigger: .agentActivity, mode: .agentActivity, context: idle, now: at(21)) == .moveNow)
+    }
+
+    @Test func aNotificationInsideTheCooldownDoesNotLiftTheRowLater() {
+        var gate = WorkspaceActivityReorderGate(cooldown: 10)
+        let a = UUID()
+        let b = UUID()
+        // A's journal event moves A, then B's moves B above it.
+        #expect(gate.admit(workspaceId: a, trigger: .agentActivity, mode: .agentActivity, context: idle, now: start) == .moveNow)
+        #expect(gate.admit(workspaceId: b, trigger: .agentActivity, mode: .agentActivity, context: idle, now: at(1)) == .moveNow)
+        // A's notification for the same event arrives with A no longer on top.
+        #expect(gate.admit(workspaceId: a, trigger: .notification, mode: .agentActivity, context: idle, now: at(2)) == .ignore)
+        #expect(gate.pendingWorkspaceIds.isEmpty)
+        #expect(gate.drain(mode: .agentActivity, now: at(20)) { _ in idle }.isEmpty)
     }
 
     @Test func cooldownIsPerWorkspace() {

@@ -5,7 +5,8 @@
 /// workspace. It is derived from the reducer's combined phase for one surface
 /// and agent before and after a live event, never from event prose.
 public enum AgentLifecycleActivity: String, Sendable, Equatable, CaseIterable {
-    /// A turn started from rest: the user submitted a new prompt.
+    /// A turn started from rest or after an error: the user submitted a new
+    /// prompt.
     case promptSubmitted
     /// The agent finished its turn and is idle.
     case turnFinished
@@ -54,7 +55,8 @@ public enum AgentLifecycleActivity: String, Sendable, Equatable, CaseIterable {
     /// Explicit phase corrections (`stateChanged`) and session bookkeeping
     /// restore or tear down state rather than report new activity, so they
     /// never count, whatever phases they produce. A new prompt counts only
-    /// for a turn start.
+    /// for a turn start from rest or after an error; a turn start that
+    /// resumes a surface waiting on input is the approval resuming work.
     ///
     /// - Parameters:
     ///   - kind: The kind of the event that was reduced.
@@ -70,11 +72,15 @@ public enum AgentLifecycleActivity: String, Sendable, Equatable, CaseIterable {
         case .stateChanged, .sessionStarted, .sessionEnded:
             return nil
         case .turnStarted:
-            // A turn start is the user's new prompt from any resting phase,
-            // including a retry after an error or a reply typed while the
-            // agent waited for input.
-            guard current == .running, previous != .running else { return nil }
-            return .promptSubmitted
+            // A turn start from rest or after an error is the user's new
+            // prompt. Some producers also send a turn start when an approval
+            // resolves, so leaving needsInput stays quiet like
+            // attentionResolved does.
+            guard current == .running else { return nil }
+            switch previous {
+            case nil, .unknown, .idle, .error: return .promptSubmitted
+            case .needsInput, .running: return nil
+            }
         default:
             let activity = classify(from: previous, to: current)
             // Only a turn start is a new prompt; a background child that
