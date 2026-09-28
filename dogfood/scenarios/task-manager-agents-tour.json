@@ -1,22 +1,117 @@
 {
+  "paths": [
+    "Sources/TaskManager*",
+    "Sources/*TaskManager*",
+    "Sources/CmuxTop*",
+    "Sources/TerminalController*ProcessDiagnostics*",
+    "Sources/TerminalControllerTopSupport*"
+  ],
   "steps": [
-    {"socket": "workspace.create", "params": {"title": "Review docs", "initial_input": "cp /bin/sleep /tmp/codex && /tmp/codex 900\n", "focus": false}, "save": "docs"},
-    {"socket": "workspace.create", "params": {"title": "Fix the login flow", "initial_input": "cp /bin/sleep /tmp/claude && /tmp/claude 900\n", "focus": true}, "save": "login"},
-    {"socket": "workspace.create", "params": {"title": "Scratch", "initial_input": "echo scratch\n", "focus": true}, "save": "scratch"},
-    {"wait": 2},
-    {"shot": "workspaces"},
-    {"menu": ["Window", "Task Manager..."]},
-    {"wait": 5},
-    {"shot": "task-manager"},
-    {"tree": "task-manager"},
-    {"click": {"labelContains": "Fix the login flow", "type": "button"}},
-    {"wait": 1.5},
-    {"shot": "after-jump"},
-    {"key": "p", "modifiers": ["command", "shift"]},
-    {"wait": 0.5},
-    {"type": "activity"},
-    {"wait": 0.8},
-    {"shot": "palette-activity"},
-    {"key": "escape"}
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Review docs",
+        "initial_input": "printf 'int main(void){sleep(900);return 0;}' > /tmp/fake-codex.c && cc -include unistd.h -o /tmp/codex /tmp/fake-codex.c && /tmp/codex 900\n",
+        "focus": false
+      },
+      "save": "docs"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Fix the login flow",
+        "initial_input": "printf 'int main(void){sleep(900);return 0;}' > /tmp/fake-claude.c && cc -include unistd.h -o /tmp/claude /tmp/fake-claude.c && /tmp/claude 900\n",
+        "focus": true
+      },
+      "save": "login"
+    },
+    {
+      "wait": 1
+    },
+    {
+      "socketLine": "set_agent_lifecycle codex running --tab=${docs.workspace_id} --panel=${docs.surface_id}"
+    },
+    {
+      "socketLine": "set_agent_lifecycle claude_code idle --tab=${login.workspace_id} --panel=${login.surface_id}"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Scratch",
+        "initial_input": "echo scratch\n",
+        "focus": true
+      },
+      "save": "scratch"
+    },
+    {
+      "wait": 8
+    },
+    {
+      "shot": "workspaces"
+    },
+    {
+      "menu": [
+        "Window",
+        "Task Manager..."
+      ]
+    },
+    {
+      "wait": 5
+    },
+    {
+      "shot": "task-manager"
+    },
+    {
+      "tree": "task-manager"
+    },
+    {
+      "rightClick": {
+        "labelContains": "Fix the login flow",
+        "type": "button"
+      }
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "shot": "agent-context-menu"
+    },
+    {
+      "key": "escape"
+    },
+    {
+      "click": {
+        "labelContains": "Fix the login flow",
+        "type": "button"
+      }
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "shot": "after-jump"
+    },
+    {
+      "key": "p",
+      "modifiers": [
+        "command",
+        "shift"
+      ]
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "type": "activity"
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "shot": "palette-activity"
+    },
+    {
+      "key": "escape"
+    }
   ]
 }
