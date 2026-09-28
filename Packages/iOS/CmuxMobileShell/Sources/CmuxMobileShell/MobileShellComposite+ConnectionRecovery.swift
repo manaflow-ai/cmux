@@ -481,6 +481,8 @@ extension MobileShellComposite {
                 // shared reconnect entry owns the hard deadline after claiming
                 // its generation synchronously, so every lifecycle caller gets
                 // the same wedge protection without a second race here.
+                let reconnectGenerationBeforeAttempt =
+                    self.storedMacReconnectGeneration
                 let reconnectOutcome = await self.reconnectActiveMacOutcome(
                     stackUserID: stackUserID,
                     refreshBackupBeforeDial: false
@@ -490,7 +492,8 @@ extension MobileShellComposite {
                 guard self.settleConnectionRecovery(
                     attempt,
                     outcome: reconnectOutcome,
-                    connectionGeneration: self.connectionGeneration
+                    connectionGeneration: self.connectionGeneration,
+                    reconnectGenerationBeforeAttempt: reconnectGenerationBeforeAttempt
                 ) else { return }
                 if !reconnectOutcome.didConnect {
                     self.connectionState = .disconnected
@@ -573,40 +576,63 @@ extension MobileShellComposite {
     }
 
     @discardableResult
+    /// Settles a recovery attempt from its reconnect outcome. Returns `true`
+    /// when the caller must tear the connection down.
+    ///
+    /// A recovery that did not connect never owns the live connection, so it
+    /// must not tear down one that another path established (a user retry,
+    /// a Mac switch). It stands down instead, and fails only when no newer
+    /// reconnect is left that could still connect.
+    /// `reconnectGenerationBeforeAttempt` separates reconnects started after
+    /// this attempt from older ones; `nil` treats every in-flight reconnect as
+    /// newer.
     func settleConnectionRecovery(
         _ attempt: MobileConnectionRecoveryOwner.Attempt,
         outcome: StoredMacReconnectOutcome,
-        connectionGeneration: UUID
+        connectionGeneration: UUID,
+        reconnectGenerationBeforeAttempt: Int? = nil
     ) -> Bool {
+        let failure: DiagnosticFailureKind
         switch outcome {
         case .connected:
             return settleSuccessfulConnectionRecovery(
                 attempt,
                 connectionGeneration: connectionGeneration
             )
-        case .failed(let failure):
-            return failConnectionRecovery(attempt, failure: failure)
+        case .failed(let kind):
+            failure = kind
         case .superseded:
-            // A superseded reconnect only means the shared generation moved.
-            // When a newer reconnect is connected or still dialing, it owns
-            // the connection: retire without failing, because the caller's
-            // teardown and the failed-recovery state would destroy that newer
-            // session. A bump with no newer attempt (hiding a Computer, a
-            // cleared saved-Mac hint) leaves nothing to settle the UI, so the
-            // recovery still fails and offers Retry.
-            guard newerStoredMacReconnectOwnsConnection(than: nil) else {
-                return failConnectionRecovery(attempt, failure: .superseded)
-            }
-            retireSupersededConnectionRecovery(attempt)
-            return false
+            failure = .superseded
         }
+        guard newerStoredMacReconnectOwnsConnection(
+            than: reconnectGenerationBeforeAttempt
+        ) else {
+            return failConnectionRecovery(attempt, failure: failure)
+        }
+        standDownConnectionRecovery(attempt, failure: failure)
+        return false
     }
 
-    private func retireSupersededConnectionRecovery(
-        _ attempt: MobileConnectionRecoveryOwner.Attempt
+    /// Defers this attempt's verdict to the connection or newer reconnect
+    /// that owns the shell now, without touching either.
+    private func standDownConnectionRecovery(
+        _ attempt: MobileConnectionRecoveryOwner.Attempt,
+        failure: DiagnosticFailureKind
     ) {
-        guard connectionRecoveryOwner.complete(attempt) else { return }
-        recordConnectionRecoveryFailed(attempt, failure: .superseded)
+        guard connectionRecoveryOwner.standDownForNewerOwner(attempt) else { return }
+        recordConnectionRecoveryFailed(attempt, failure: failure)
+        settleStoodDownConnectionRecoveryIfOwnerless()
+        applyConnectionRecoveryOwnerState()
+    }
+
+    /// Resolves a stood-down recovery once no newer reconnect is in flight:
+    /// quietly when a connection is live, otherwise as a failed recovery so
+    /// the UI offers Retry instead of staying at Reconnecting.
+    func settleStoodDownConnectionRecoveryIfOwnerless() {
+        guard case .supersededAwaitingOwner = connectionRecoveryOwner.phase else { return }
+        let connected = hasActiveMacConnection
+        guard connected || storedMacReconnectGenerationsInFlight.isEmpty else { return }
+        _ = connectionRecoveryOwner.settleStoodDownAttempt(connected: connected)
         applyConnectionRecoveryOwnerState()
     }
 
@@ -701,6 +727,10 @@ extension MobileShellComposite {
             isRecoveringConnection = true
             connectionRecoveryFailed = false
             markMacConnectionReconnecting()
+        case .supersededAwaitingOwner:
+            // A newer reconnect owns the visible state until it settles.
+            isRecoveringConnection = true
+            connectionRecoveryFailed = false
         case .failed:
             isRecoveringConnection = false
             connectionRecoveryFailed = true

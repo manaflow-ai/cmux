@@ -3159,7 +3159,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedMacReconnectGeneration &+= 1
         let generation = storedMacReconnectGeneration
         storedMacReconnectGenerationsInFlight.insert(generation)
-        defer { storedMacReconnectGenerationsInFlight.remove(generation) }
+        defer {
+            storedMacReconnectGenerationsInFlight.remove(generation)
+            settleStoodDownConnectionRecoveryIfOwnerless()
+        }
         isReconnectingStoredMac = true
         let restoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         // Bound the complete visible retry window, including scope resolution,

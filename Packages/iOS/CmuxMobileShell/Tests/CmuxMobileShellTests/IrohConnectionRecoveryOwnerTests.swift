@@ -590,14 +590,11 @@ extension ReconnectRouteSelectionTests {
         #expect(fixture.store.macConnectionStatus == .unavailable)
     }
 
-    /// The recovery's reconnect hits its deadline after a user retry already
-    /// connected. The expiry must report superseded, not a timeout that
-    /// tears down the retry's connection.
-    @Test func supersededReconnectDeadlineLeavesNewerConnectionAlive() async throws {
-        let fixture = try await makeRecoveryOwnerFixture(
-            heldConnectAttempts: [2],
-            reconnectAttemptDeadlineNanoseconds: 300_000_000
-        )
+    /// A user retry supersedes the recovery, then a generation bump with no
+    /// newer attempt supersedes the retry too. Once nothing is dialing and
+    /// nothing connected, the stood-down recovery must fail and offer Retry.
+    @Test func stoodDownRecoveryFailsWhenNewerReconnectAlsoGivesUp() async throws {
+        let fixture = try await makeRecoveryOwnerFixture(heldConnectAttempts: [2])
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
@@ -605,15 +602,64 @@ extension ReconnectRouteSelectionTests {
         let deadClient = try #require(fixture.store.remoteClient)
         fixture.store.recoverDeadConnection(trigger: .liveness, expectedClient: deadClient)
         #expect(await fixture.factory.waitForAttemptCount(2))
+        // Park the retry at its host-status exchange so the recovery settles
+        // first, while the retry still owns the reconnect.
+        let nextHostStatus = await fixture.router.count(of: "mobile.host.status") + 1
+        await fixture.router.delayHostStatusRequest(number: nextHostStatus)
+        let retry = Task { @MainActor in
+            await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        #expect(try await pollUntil { await fixture.router.heldRequestCount() == 1 })
+
+        fixture.store.invalidateStoredMacReconnectAttempt()
+        fixture.factory.releaseHeldConnects()
+        #expect(try await pollUntil {
+            if case .supersededAwaitingOwner = fixture.store.connectionRecoveryOwner.phase {
+                return true
+            }
+            return false
+        })
+        await fixture.router.releaseAllHeld()
+
+        #expect(!(await retry.value))
+        #expect(try await pollUntil {
+            if case .failed = fixture.store.connectionRecoveryOwner.phase { return true }
+            return false
+        })
+        #expect(fixture.store.connectionRecoveryFailed)
+        #expect(fixture.store.macConnectionStatus == .unavailable)
+    }
+
+    /// The recovery's reconnect hits its deadline after a user retry already
+    /// connected. The expiry must report superseded, not a timeout that
+    /// tears down the retry's connection.
+    @Test func supersededReconnectDeadlineLeavesNewerConnectionAlive() async throws {
+        let fixture = try await makeRecoveryOwnerFixture(
+            heldConnectAttempts: [2],
+            // Short enough to expire inside the test, long enough that the
+            // initial connect and the retry (which share it) finish under load.
+            reconnectAttemptDeadlineNanoseconds: 2_000_000_000
+        )
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
+        let deadClient = try #require(fixture.store.remoteClient)
+        fixture.store.recoverDeadConnection(trigger: .liveness, expectedClient: deadClient)
+        #expect(await fixture.factory.waitForAttemptCount(2, timeout: .seconds(10)))
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         let retryClient = try #require(fixture.store.remoteClient)
 
         // The held recovery dial is never released; its deadline settles it.
-        #expect(try await pollUntil { !fixture.store.connectionRecoveryOwner.isActive })
+        #expect(try await pollUntil(attempts: 1_000) {
+            !fixture.store.connectionRecoveryOwner.isActive
+        })
         #expect(fixture.store.connectionState == .connected)
         #expect(fixture.store.remoteClient === retryClient)
         #expect(!fixture.store.connectionRecoveryFailed)
+        // The superseded expiry must not pace automatic reconnects either.
+        #expect(!fixture.store.automaticIrohReconnectIsBlocked(accountID: "user-1"))
     }
 
     @Test func replacementStreamDeathRecordsOneTerminalFailure() async throws {
