@@ -16,12 +16,14 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../../Shared/CmuxTerminalSizing"),
     ],
     targets: [
         .target(
             name: "CmuxMobileShellModel",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxTerminalSizing",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -31,7 +33,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxMobileShellModelTests",
-            dependencies: ["CmuxMobileShellModel"],
+            dependencies: ["CmuxMobileShellModel", "CmuxTerminalSizing"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

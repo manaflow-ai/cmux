@@ -728,6 +728,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// container is larger than the render target (i.e., this device is
     /// not the smallest). Added lazily on first letterbox.
     private var letterboxBorderLayer: CAShapeLayer?
+    /// Shared-sizing bounds drawn instead of the plain letterbox border when
+    /// the host publishes a size state. See `GhosttySurfaceView+SharedSizing`.
+    public var sharedSizingDecoration: TerminalSizingBoundsDecoration? {
+        didSet {
+            guard sharedSizingDecoration != oldValue else { return }
+            refreshSharedSizingLayers()
+        }
+    }
+    /// Layers owned by the shared-sizing decoration, created lazily.
+    var sharedSizingLayers: GhosttySurfaceSharedSizingLayers?
+    /// The last letterbox inputs, kept so a decoration change can redraw
+    /// without waiting for the next geometry pass.
+    var lastLetterboxViewportRect: CGRect?
     /// Last render rect used for the Ghostty surface inside the host view's
     /// coordinate space. Kept so the border layer can match it without a
     /// second set_size round-trip.
@@ -1598,7 +1611,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         updateLetterboxBorder(
             renderRect: aligned,
-            isLetterboxed: snapshot.isLetterboxed(renderSize: aligned.size)
+            isLetterboxed: snapshot.isLetterboxed(renderSize: aligned.size),
+            viewportRect: snapshot.layoutViewportRect
         )
         alignVerifiedReplayFrozenPresentationToViewportTop(
             viewportRect: snapshot.layoutViewportRect
@@ -2197,7 +2211,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         updateLetterboxBorder(
             renderRect: renderRect,
-            isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
+            isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size),
+            viewportRect: snapshot.layoutViewportRect
         )
     }
 
@@ -5718,7 +5733,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         updateLetterboxBorder(
             renderRect: renderRect,
-            isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
+            isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size),
+            viewportRect: snapshot.layoutViewportRect
         )
         // UIKit may have delivered another layout pass while libghostty was
         // measuring off-main. Keep this pass internally consistent, then let
@@ -5930,7 +5946,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// attached to the shared PTY). Smallest-device layouts have
     /// `isLetterboxed == false` and the border layer is hidden. Uses a
     /// CAShapeLayer so the stroke doesn't intercept touches / key events.
-    private func updateLetterboxBorder(renderRect: CGRect, isLetterboxed: Bool) {
+    private func updateLetterboxBorder(renderRect: CGRect, isLetterboxed: Bool, viewportRect: CGRect) {
+        lastLetterboxViewportRect = viewportRect
+        if sharedSizingDecoration != nil {
+            // The shared-sizing decoration draws its own owner-color border.
+            letterboxBorderLayer?.isHidden = true
+            refreshSharedSizingLayers()
+            return
+        }
+        sharedSizingLayers?.hide()
         guard isLetterboxed else {
             letterboxBorderLayer?.isHidden = true
             return
