@@ -1,4 +1,5 @@
 import Foundation
+import JavaScriptCore
 import Testing
 
 @testable import CmuxBrowser
@@ -89,6 +90,51 @@ import Testing
         try ChromeExtensionCompatibility.install(into: root)
         let background = try #require(try manifest(root)["background"] as? [String: Any])
         #expect(background["service_worker"] as? String == "../../evil.js")
+    }
+
+    /// Runs the preamble against a `chrome` object shaped like WebKit's:
+    /// runtime, storage (local only), and a partial webNavigation.
+    private func evaluateWithWebKitShapedChrome(_ probe: String) throws -> JSValue {
+        let context = try #require(JSContext())
+        var exception: String?
+        context.exceptionHandler = { _, value in exception = value?.toString() }
+        context.evaluateScript("""
+            var globalThis = this;
+            function event() { return { addListener: function () {}, removeListener: function () {}, hasListener: function () { return false; } }; }
+            var chrome = { runtime: {}, storage: { local: {} }, webNavigation: { onCommitted: event() } };
+            """)
+        context.evaluateScript(ChromeExtensionCompatibility.preambleSource)
+        #expect(exception == nil, "\(exception ?? "")")
+        return try #require(context.evaluateScript(probe))
+    }
+
+    @Test func missingNamespacesExistSoStartupCodeKeepsRunning() throws {
+        // 1Password's worker reads these during startup; any TypeError stops it.
+        let result = try evaluateWithWebKitShapedChrome("""
+            chrome.notifications.onClicked.addListener(function () {});
+            chrome.downloads.onChanged.addListener(function () {});
+            chrome.idle.onStateChanged.addListener(function () {});
+            chrome.webRequest.onAuthRequired.addListener(function () {}, { urls: ["<all_urls>"] }, ["blocking"]);
+            chrome.webNavigation.onCreatedNavigationTarget.addListener(function () {});
+            chrome.storage.managed.onChanged.addListener(function () {});
+            [typeof chrome.privacy.services.passwordSavingEnabled.get,
+             chrome.webNavigation.onCommitted.hasListener(function () {}) === false,
+             chrome.idle.IdleState.LOCKED].join(",")
+            """)
+        #expect(result.toString() == "function,true,locked")
+    }
+
+    @Test func standInsAnswerEmptyAndRefuseActions() throws {
+        let result = try evaluateWithWebKitShapedChrome("""
+            var out = [];
+            chrome.idle.queryState(60, function (state) { out.push(state); });
+            chrome.storage.managed.get(null, function (items) { out.push(JSON.stringify(items)); });
+            chrome.privacy.services.passwordSavingEnabled.get({}, function (d) { out.push(d.levelOfControl); });
+            chrome.notifications.create({}, function () { out.push(chrome.runtime.lastError && chrome.runtime.lastError.message); });
+            out.push(chrome.runtime.lastError === undefined);
+            out.join("|")
+            """)
+        #expect(result.toString() == "active|{}|not_controllable|chrome.notifications.create is not available in cmux|true")
     }
 
     @Test func preambleReportsChromeIdentity() {
