@@ -1,12 +1,6 @@
-import CmuxCloud
+@testable import CmuxCloud
 import Foundation
 import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
 
 /// Nothing the app opens depends on the system-wide VPN (Ports, Desktop, and
 /// terminals ride the user-space hub), so an idle tunnel must not be reported

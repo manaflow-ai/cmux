@@ -1,12 +1,6 @@
-import CmuxCloud
+@testable import CmuxCloud
 import Foundation
 import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
 
 /// The coordinator's state/link fan-out must not accumulate subscribers that
 /// left between yields: `cmux vpn status` polls subscribe and go away without

@@ -1,11 +1,6 @@
-import CmuxCloud
+@testable import CmuxCloud
 import Foundation
 import Testing
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
 
 /// The file delivery protocol's pure half (`cmux vm push --secret` → `vm.file_put` →
 /// the in-VM `cmux file receive`): the receiver argv, what is typed into its PTY, the
