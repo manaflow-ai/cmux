@@ -282,20 +282,43 @@ public final class UpdateStateModel {
         }
     }
 
-    /// The widest title text the pill can show for the current phase, used to reserve layout
-    /// width so the pill does not resize as progress ticks.
-    public var maxWidthText: String {
-        if let detectedText = detectedUpdateText {
-            return detectedText
+    /// The pill's one-word label for the current phase. The pill sits in the sidebar footer
+    /// next to the account and help controls, so it names the phase and leaves the details to
+    /// its tooltip and popover (``text`` and ``description``).
+    public var pillText: String {
+        #if DEBUG
+        if let debugOverrideText { return debugOverrideText }
+        #endif
+        if showsDetectedBackgroundUpdate {
+            return String(localized: "update.pill.update", defaultValue: "Update")
         }
         switch effectiveState {
-        case .downloading:
-            return "Downloading: 100%"
-        case .extracting:
-            return "Preparing: 100%"
-        default:
-            return text
+        case .idle:
+            return ""
+        case .permissionRequest, .updateAvailable:
+            return String(localized: "update.pill.update", defaultValue: "Update")
+        case .preparingCheck, .checking:
+            return String(localized: "update.pill.checking", defaultValue: "Checking…")
+        case .startingDownload, .downloading, .extracting:
+            return String(localized: "update.pill.updating", defaultValue: "Updating…")
+        case .installing(let install):
+            if install.relaunchBlockers != nil {
+                return String(localized: "update.pill.update", defaultValue: "Update")
+            }
+            return install.isAutoUpdate
+                ? String(localized: "update.pill.restart", defaultValue: "Restart")
+                : String(localized: "update.pill.updating", defaultValue: "Updating…")
+        case .notFound:
+            return String(localized: "update.pill.upToDate", defaultValue: "Up to Date")
+        case .error:
+            return String(localized: "update.pill.failed", defaultValue: "Update Failed")
         }
+    }
+
+    /// The width the pill reserves for its label. Labels are fixed per phase (progress shows
+    /// in the badge's ring), so the pill never resizes while an update runs.
+    public var pillMaxWidthText: String {
+        pillText
     }
 
     /// The SF Symbol name for the current phase, or `nil` when idle.
