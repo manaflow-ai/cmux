@@ -88,33 +88,44 @@ struct CloudTreeResourceNameTests {
 
     /// Dragging a row out builds a group whose title names the local workspace
     /// that comes out the other end. The terminal case already reads the tab
-    /// name (`row.displayTitle`); the browser and display cases read
-    /// `resource.title` raw, so a renamed browser dragged out still lands under
-    /// its page title and the rename looks undone.
-    @Test("a dragged row carries the name the row is showing")
+    /// name (`row.displayTitle`); the display case read `resource.title` raw, so
+    /// a renamed desktop dragged out still landed under its bare resource title
+    /// and the rename looked undone.
+    @Test("a dragged display carries the name the row is showing")
     func dragGroupCarriesTheRowsName() throws {
-        let browser = resource(kind: .browser, key: "browser-1", title: "Example Domain")
+        let desktop = resource(kind: .display, key: "screen-1", title: "")
+        let renamed = CloudTreeNode(
+            id: "screen-1",
+            kind: .display(desktop, openIn: nil, remoteView: view(name: "Docs"))
+        )
+        #expect(try #require(renamed.dragGroup).title == "Docs")
+
+        let unnamed = CloudTreeNode(
+            id: "screen-2",
+            kind: .display(resource(kind: .display, key: "screen-2", title: ""), openIn: nil, remoteView: view(name: nil))
+        )
+        // Untitled and unnamed: the drag lands under the same placeholder the
+        // row shows instead of an empty title.
+        #expect(try #require(unnamed.dragGroup).title == "Desktop")
+    }
+
+    /// A browser row has no projection capability, so nothing ever reads its
+    /// drag group. This pins the reason `dragGroup` carries no browser branch:
+    /// `CloudTreeDragRegistration` is its only leaf-row reader and it requires
+    /// `isDragSource` first. Granting browsers the capability is a design change
+    /// and would come with its own behavioral test.
+    @Test("a browser row does not export a pane projection")
+    func browserRowIsNotADragSource() {
         let node = CloudTreeNode(
             id: "browser-1",
             kind: .browser(CloudTreeBrowserRow(
-                resource: browser,
+                resource: resource(kind: .browser, key: "browser-1", title: "Example Domain"),
                 isOpen: false,
                 workspaceTitle: nil,
                 remoteView: view(name: "Docs")
             ))
         )
-        let group = try #require(node.dragGroup)
-        #expect(group.title == "Docs")
-
-        let desktop = resource(kind: .display, key: "screen-1", title: "")
-        let displayNode = CloudTreeNode(
-            id: "screen-1",
-            kind: .display(desktop, openIn: nil, remoteView: view(name: nil))
-        )
-        // Untitled and unnamed: the drag lands under the same placeholder the
-        // row shows instead of an empty title.
-        let displayGroup = try #require(displayNode.dragGroup)
-        #expect(displayGroup.title == "Desktop")
+        #expect(!node.isDragSource)
     }
 
     /// A rename writes to a daemon tab, so a row with no tab has nothing to

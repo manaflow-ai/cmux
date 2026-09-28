@@ -520,6 +520,53 @@ struct CloudTreeMachineMenuTests {
         #expect(!portMenu.items.map(\.title).contains(rename))
     }
 
+    /// The menu builder appends the rename item in both the browser and the
+    /// display case, but only the browser call site was driven end to end, so an
+    /// edit that dropped the display one was caught by nothing.
+    @Test("A cloud display row can be renamed")
+    func displayMenuOffersRename() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-display-rename-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { withExtendedLifetime(container) {} }
+
+        let machine = SurfaceMachineID.cloud(Self.machineID)
+        let desktop = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .display, key: "screen-1"),
+            title: "",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: [],
+            port: nil,
+            url: nil
+        )
+        coordinator.apply(nodes: [
+            CloudTreeNode(
+                id: "display-row",
+                kind: .display(desktop, openIn: nil, remoteView: SurfaceRemoteView(
+                    tabID: "tab-9",
+                    workspace: SurfaceRemoteWorkspace(id: "ws-1", name: "main", index: 0, focused: true),
+                    name: nil
+                ))
+            ),
+        ])
+
+        let menu = try #require(coordinator.contextMenu(forRow: 0))
+        try Self.choose(Self.title("cloudTree.menu.rename", "Rename\u{2026}"), in: menu)
+        #expect(recorder.renamedRemoteViews.count == 1)
+        #expect(recorder.renamedRemoteViews.first?.0 == desktop.id)
+        #expect(recorder.renamedRemoteViews.first?.1 == "tab-9")
+    }
+
     /// Another Mac's browser rows carry a tab, so "does this row have a tab"
     /// lets them through, but the write cannot land: the device provider maps a
     /// tab rename onto the host's terminal rename verb, which resolves the id
