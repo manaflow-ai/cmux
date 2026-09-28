@@ -1358,6 +1358,7 @@
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
+          "tabBarVisibility": "Określa, kiedy panel rysuje swój pasek kart. \"always\" rysuje go nawet w panelu z jedną kartą; \"multiple-tabs\" ukrywa go, dopóki panel ma jedną kartę, i rysuje, gdy otworzy się druga. Tryb minimalny (app.minimalMode) rysuje go zawsze, ponieważ pasek kart górnego panelu pełni tam także rolę paska tytułu okna.",
           "forkConversationDefaultDestination": "Domyślne miejsce docelowe głównej akcji Fork Conversation w menu kontekstowym karty. Podmenu nadal pokazuje wszystkie miejsca docelowe.",
           "globalFontMagnification": "Procentowe powiększenie wszystkiego, co cmux rysuje samodzielnie: tekstu terminala, tytułów kart, pasków bocznych, Settings, nakładek i obramowania okna. Strony internetowe w powierzchniach przeglądarki zachowują własny rozmiar."
         },

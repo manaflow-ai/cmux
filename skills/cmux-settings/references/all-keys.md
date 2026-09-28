@@ -25,7 +25,7 @@ General app preferences from Settings > App.
 | `app.openSupportedFilesInCmux` | boolean | `true` | When enabled, Cmd-clicking readable local files opens supported previews in cmux, including text, code, PDFs, images, audio, video, and Quick Look files. Preview headers include an Open With menu based on the user's default and compatible macOS apps for that file. |
 | `app.openMarkdownInCmuxViewer` | boolean | `true` | When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview. |
 | `app.devWindowDisplay` | string | `""` | DEBUG-only display name used when opening new windows. An empty value uses the system default. |
-| `app.reorderOnNotification` | boolean or `off`, `notifications`, `agentActivity` | `true` | Move workspaces with new notifications toward the top. `agentActivity` also moves them when an agent finishes a turn, needs input, or fails, throttled and never while the pointer is over the sidebar. |
+| `app.reorderOnNotification` | boolean or `off`, `notifications`, `agentActivity` | `true` | Move workspaces with new notifications toward the top. `agentActivity` also moves them when a prompt is sent or an agent finishes a turn, needs input, or fails, throttled and never while the pointer is over the sidebar. |
 | `app.iMessageMode` | boolean | `false` | Move a workspace to the top and show the submitted message when sending an agent prompt. |
 | `app.sendAnonymousTelemetry` | boolean | `true` | Allow anonymous telemetry. |
 | `app.warnBeforeQuit` | boolean | `true` | Show a confirmation before quitting cmux. |
@@ -43,6 +43,7 @@ General app preferences from Settings > App.
 | `app.warnBeforeClosingWorkspace` | boolean | `true` | Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off. |
 | `app.warnBeforeClosingWindow` | boolean | `true` | Show a confirmation before closing a window with a running process, or all of a window's workspaces at once. |
 | `app.hideTabCloseButton` | boolean | `false` | Hide tab close buttons in the pane tab bar. |
+| `app.tabBarVisibility` | `"always"` or `"multiple-tabs"` | `"always"` | Control when each pane's surface tab bar is shown. `"always"` shows it even when the pane has a single tab; `"multiple-tabs"` hides the bar until the pane has two or more tabs. Minimal mode (app.minimalMode) always shows it, because there the top tab bar is the titlebar row. |
 
 ## terminal
 

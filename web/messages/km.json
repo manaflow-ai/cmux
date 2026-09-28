@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "ជម្រើសបម្រុង boolean ចាស់សម្រាប់ការបញ្ជាក់មុនចាកចេញ។ ប្រើ app.confirmQuit សម្រាប់ការកំណត់ថ្មី។",
           "warnBeforeClosingTabXButton": "បង្ហាញការបញ្ជាក់ មុនពេលបិទផ្ទាំងដោយប៊ូតុងបិទផ្ទាំង។",
           "hideTabCloseButton": "លាក់ប៊ូតុងបិទផ្ទាំងនៅក្នុងរបារផ្ទាំងរបស់ផ្ទាំងបង្អួច។",
+          "tabBarVisibility": "កំណត់ពេលដែលបន្ទះគូររបារផ្ទាំងរបស់វា។ \"always\" គូររបារនេះ ទោះបីជាបន្ទះមានផ្ទាំងតែមួយក៏ដោយ។ \"multiple-tabs\" លាក់របារនេះខណៈបន្ទះមានផ្ទាំងតែមួយ ហើយគូរវានៅពេលផ្ទាំងទីពីរត្រូវបានបើក។ របៀបសាមញ្ញ (app.minimalMode) គូរវាជានិច្ច ព្រោះនៅទីនោះ របារផ្ទាំងរបស់បន្ទះខាងលើគេ គឺជារបារចំណងជើងបង្អួចផងដែរ។",
           "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination.",
           "globalFontMagnification": "ការពង្រីកជាភាគរយសម្រាប់អ្វីៗទាំងអស់ដែល cmux គូរដោយខ្លួនឯង៖ អត្ថបទទែមីណល ចំណងជើង tab របារចំហៀង Settings overlay និងស៊ុមបង្អួច។ ទំព័របណ្ដាញនៅក្នុង browser surface រក្សាទំហំផ្ទាល់ខ្លួនរបស់វា។"
         },
