@@ -264,6 +264,10 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
 
         browserLoadRequest(URLRequest(url: pageB), in: panel.webView)
         waitForPage(panel, url: pageB)
+        let historyBeforeScroll = try XCTUnwrap(
+            sessionHistory(of: panel.webView),
+            "WebKit's session state format changed; update sessionHistory(of:)"
+        )
 
         _ = evaluate(
             """
@@ -284,6 +288,12 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         waitUntil("page scrolled before hide") {
             (self.evaluate("window.scrollY", in: panel.webView) as? Double) == 1500
         }
+        // The restore replays the scroll position WebKit saved in the history
+        // item, which it saves 300 ms after scrolling stops. Once page B has
+        // loaded, nothing else changes its item.
+        waitUntil("scroll position saved in the history item") {
+            self.sessionHistory(of: panel.webView) != historyBeforeScroll
+        }
         waitUntil("typed input reported") {
             let values = Set(panel.pageRestoration.liveFormState?.fields.compactMap(\.value) ?? [])
             return values.isSuperset(of: ["typed name", "typed notes"])
@@ -300,6 +310,16 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         XCTAssertTrue(panel.hasRecoverableWebContentTermination)
         XCTAssertTrue(panel.webView === webView)
         return webView
+    }
+
+    /// The back/forward list in the web view's session state, which is a
+    /// 4-byte version followed by a binary property list. The render tree size
+    /// beside it changes on its own, so it is left out.
+    private func sessionHistory(of webView: WKWebView) -> NSDictionary? {
+        guard let data = webView.interactionState as? Data, data.count > 4,
+              let state = try? PropertyListSerialization.propertyList(from: Data(data.dropFirst(4)), format: nil)
+        else { return nil }
+        return (state as? NSDictionary)?["SessionHistory"] as? NSDictionary
     }
 
     private func assertRestoredPageState(
