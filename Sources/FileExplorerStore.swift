@@ -1095,10 +1095,6 @@ final class FileExplorerStore: ObservableObject {
     /// Keeps navigation selection anchored to nodes that remain visible after a reload.
     private func reconcileSelectionAfterReloadIfReady() {
         guard loadingPaths.isEmpty else { return }
-        let hasPendingExpandedLoad = nodesByPath.values.contains {
-            $0.isDirectory && expandedPaths.contains($0.path) && $0.children == nil
-        }
-        guard !hasPendingExpandedLoad else { return }
 
         let visiblePaths = Set(nodesByPath.keys)
         let retainedPaths = selectedPaths.intersection(visiblePaths)
@@ -1151,6 +1147,7 @@ final class FileExplorerStore: ObservableObject {
         guard !rootPath.isEmpty, provider != nil else { return }
         isRootLoading = true
         let path = rootPath
+        loadingPaths.insert(path)
         let task = Task { [weak self] in
             guard let self else { return }
             await self.loadChildren(for: nil, at: path)
@@ -1166,6 +1163,7 @@ final class FileExplorerStore: ObservableObject {
             node.error = nil
             objectWillChange.send()
             let nodePath = node.path
+            loadingPaths.insert(nodePath)
             let task = Task { [weak self] in
                 guard let self else { return }
                 await self.loadChildren(for: node, at: nodePath)
@@ -1255,7 +1253,14 @@ final class FileExplorerStore: ObservableObject {
         // reach provider.listDirectory: the provider may have been replaced, so a stale in-flight load
         // would list the old path through the new transport. Bail before any listing.
         guard !Task.isCancelled else { return }
-        guard let provider else { return }
+        guard let provider else {
+            if !silent {
+                loadingPaths.remove(path)
+                loadTasks.removeValue(forKey: path)
+                reconcileSelectionAfterReloadIfReady()
+            }
+            return
+        }
 
         if !silent {
             loadingPaths.insert(path)
@@ -1310,6 +1315,7 @@ final class FileExplorerStore: ObservableObject {
                 child.isLoading = true
                 objectWillChange.send()
                 let childPath = child.path
+                loadingPaths.insert(childPath)
                 let childTask = Task { [weak self] in
                     guard let self else { return }
                     await self.loadChildren(for: child, at: childPath)
@@ -1329,6 +1335,7 @@ final class FileExplorerStore: ObservableObject {
                 loadingPaths.remove(path)
                 loadTasks.removeValue(forKey: path)
                 objectWillChange.send()
+                reconcileSelectionAfterReloadIfReady()
             }
         }
     }
