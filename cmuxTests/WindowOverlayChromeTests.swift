@@ -111,17 +111,15 @@ struct WindowOverlayChromeTests {
         let browserAnchor = try #require(find("overlay.browser", in: content))
         let terminalAnchor = try #require(find("overlay.terminal", in: content))
         let glassEffect = WindowGlassEffect()
-        if useGlass {
+        // Reduce Transparency is a system-wide accessibility setting. The
+        // window backdrop policy intentionally removes native glass when it is
+        // enabled, so do not install a glass root when the setting disables it.
+        let shouldApplyGlass = useGlass && !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        if shouldApplyGlass {
             glassEffect.apply(to: window)
         }
         let windowRoot = try #require(window.contentView)
-        // Reduce Transparency is a system-wide accessibility setting. The
-        // window backdrop policy intentionally removes native glass when it is
-        // enabled, so only assert the glass-root contract when glass is
-        // actually permitted for this test process.
-        let glassIsExpected = useGlass
-            && glassEffect.isAvailable
-            && !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        let glassIsExpected = shouldApplyGlass && glassEffect.isAvailable
         if glassIsExpected {
             #expect(windowRoot !== content)
             #expect(glassEffect.originalContentView(for: window) === content)
