@@ -352,6 +352,8 @@ runs:
         # relaunched it with the same dialog about two minutes into the tests
         # (seen 2026-09-27, for a panic queued two days earlier). So empty the
         # queues first, then close it; with nothing queued it stays closed.
+        # The owned runners' job-started hook does the same for every job;
+        # this keeps it for a runner without that hook.
         # A queue entry only points at a report (a panic's is a symlink to
         # /Library/Logs/DiagnosticReports/.contents.panic, the summary the
         # dialog shows), so the reports themselves are kept: panic-full-*.panic
@@ -370,7 +372,10 @@ runs:
               # The summary of a panic whose dialog was never answered; the
               # full panic report stays. Best effort: its directory is
               # writable by _analyticsusers, which owned runner users are in.
+              # Only a `.contents.*` file directly in DiagnosticReports: `*`
+              # matches `/` in a case pattern, so reject any deeper path.
               case "$target" in
+                */../*|/Library/Logs/DiagnosticReports/.contents.*/*) ;;
                 /Library/Logs/DiagnosticReports/.contents.*)
                   rm -f "$target" 2>/dev/null || true
                   ;;
