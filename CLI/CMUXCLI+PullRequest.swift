@@ -215,6 +215,22 @@ extension CMUXCLI {
             // marker, including invalid .git artifacts and linked worktrees.
             if FileManager.default.fileExists(atPath: directory.appendingPathComponent(".git").path)
                 || FileManager.default.fileExists(atPath: directory.appendingPathComponent("HEAD").path) {
+                let bareResult = await CommandRunner().run(
+                    directory: cursor, executable: "git", arguments: ["rev-parse", "--is-bare-repository"],
+                    timeout: 2
+                )
+                try Task.checkCancellation()
+                guard !bareResult.timedOut, bareResult.executionError == nil else {
+                    // An incomplete scan cannot establish a unique target.
+                    throw pullRequestAmbiguousWorkspaceError()
+                }
+                if bareResult.exitStatus == 0,
+                   bareResult.stdout?.trimmingCharacters(in: .whitespacesAndNewlines) == "true" {
+                    // A bare repository is a distinct repository boundary even
+                    // when it is nested below the caller's registered worktree.
+                    belongs = false
+                    break
+                }
                 let result = await CommandRunner().run(
                     directory: cursor, executable: "git", arguments: ["rev-parse", "--show-toplevel"],
                     timeout: 2
