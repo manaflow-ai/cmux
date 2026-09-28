@@ -2321,6 +2321,7 @@
 		18A8E29E9BD87E184983527C /* MobilePairingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */; };
 				ABMDPARTRES0000000000001 /* MobilePanelArtifactResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABMDPARTRES0000000000002 /* MobilePanelArtifactResolutionTests.swift */; };
 		EB30348C60CC4F7CA12C0931 /* MobileRemoteControlPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D80AFFF3844843A789F89241 /* MobileRemoteControlPolicy.swift */; };
+		1F06C20D562542BBB3B6DE94 /* MobileRenderGridBinaryExportParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FDFB4EA3DAB061FA7917187 /* MobileRenderGridBinaryExportParityTests.swift */; };
 		F33100000000000000000002 /* MobileSimulatorDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33100000000000000000001 /* MobileSimulatorDiagnostics.swift */; };
 		F33200000000000000000002 /* MobileSimulatorReaderAttachmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33200000000000000000001 /* MobileSimulatorReaderAttachmentTests.swift */; };
 		F33000000000000000000011 /* MobileSimulatorStreamCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33000000000000000000001 /* MobileSimulatorStreamCoordinator.swift */; };
@@ -6355,6 +6356,7 @@
 		5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingWindowController.swift"; sourceTree = "<group>"; };
 		ABMDPARTRES0000000000002 /* MobilePanelArtifactResolutionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobilePanelArtifactResolutionTests.swift; sourceTree = "<group>"; };
 		D80AFFF3844843A789F89241 /* MobileRemoteControlPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileRemoteControlPolicy.swift; sourceTree = "<group>"; };
+		2FDFB4EA3DAB061FA7917187 /* MobileRenderGridBinaryExportParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileRenderGridBinaryExportParityTests.swift"; sourceTree = "<group>"; };
 		F33100000000000000000001 /* MobileSimulatorDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorDiagnostics.swift; sourceTree = "<group>"; };
 		F33200000000000000000001 /* MobileSimulatorReaderAttachmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorReaderAttachmentTests.swift; sourceTree = "<group>"; };
 		F33000000000000000000001 /* MobileSimulatorStreamCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorStreamCoordinator.swift; sourceTree = "<group>"; };
@@ -12308,6 +12310,7 @@
 				23E35F95320CBED308AD98CF /* CloudTreeTogglePerformanceTests.swift */,
 				0C37EA14DE74095FB1BB23E1 /* CloudTreeDisclosureIntentTests.swift */,
 				FFF65532E7CEC81A66A02E5D /* MobileTerminalRenderInterestRegistryTests.swift */,
+				2FDFB4EA3DAB061FA7917187 /* MobileRenderGridBinaryExportParityTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16515,6 +16518,7 @@
 				C0DE73840000000000000001 /* MobileHostWorkspaceTicketAuthorizationTests.swift in Sources */,
 				9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */,
 				ABMDPARTRES0000000000001 /* MobilePanelArtifactResolutionTests.swift in Sources */,
+				1F06C20D562542BBB3B6DE94 /* MobileRenderGridBinaryExportParityTests.swift in Sources */,
 				F33200000000000000000002 /* MobileSimulatorReaderAttachmentTests.swift in Sources */,
 				1055FA010000000000000001 /* MobileSurfaceKindMappingTests.swift in Sources */,
 				D1B800000000000000000005 /* MobileTaskDirectoryListServiceTests.swift in Sources */,
