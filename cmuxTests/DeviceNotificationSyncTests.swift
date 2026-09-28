@@ -143,14 +143,15 @@ struct DeviceNotificationSyncTests {
             if case .terminal(let row) = node.kind { return row.hasUnreadNotification }
             return nil
         }
-        #expect(rows == [true])
+        // The terminal renders under its workspace and in the Terminals pool.
+        #expect(!rows.isEmpty && rows.allSatisfy { $0 })
         let quiet = CloudTreeNodeBuilder.nodes(machines: [], snapshot: snapshot, localWorkspaces: [],
             unreadTerminalIDs: [:], includeLocalMachine: false, source: .devices)
         let quietRows = CloudTreeNodeBuilder.flattened(quiet).compactMap { node -> Bool? in
             if case .terminal(let row) = node.kind { return row.hasUnreadNotification }
             return nil
         }
-        #expect(quietRows == [false])
+        #expect(quietRows.count == rows.count && quietRows.allSatisfy { !$0 })
     }
 
     private func makeAuth(defaults: UserDefaults) -> AuthCoordinator {
