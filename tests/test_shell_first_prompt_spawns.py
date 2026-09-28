@@ -317,8 +317,10 @@ def main() -> int:
         try:
             for shell_name in ("zsh", "bash"):
                 failures += assert_disabled_features_do_not_spawn(shell_name, directory, socket_path)
-                failures += assert_stale_pr_cache_is_still_cleared(shell_name, directory, socket_path)
                 failures += assert_git_watch_still_records_active_pwd(shell_name, directory, socket_path)
+            # Bash's PR poller/cache owner was retired in #15067. Only zsh
+            # still owns these legacy cache files and their cleanup path.
+            failures += assert_stale_pr_cache_is_still_cleared("zsh", directory, socket_path)
             failures += assert_zsh_job_table_guard_scans_once(directory)
             failures += assert_zsh_subshell_cd_does_not_leak_marker(directory, socket_path)
             failures += assert_prompt_survives_err_return("zsh", directory, socket_path)

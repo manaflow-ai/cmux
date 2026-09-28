@@ -71,6 +71,7 @@ extension DockSplitStore {
                     downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
                         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable,
                     detectedResumeBindingIsAmbiguous: surfaceResumeBindingIndex?.hasAmbiguousPanel(panelId) == true,
+                    resumeBindingDetectionUnavailable: surfaceResumeBindingIndex?.isAvailable == false,
                     terminalFontSizeSnapshotProjection:
                         terminalFontSizeSnapshotProjection,
                     notificationStore: notificationStore,
@@ -217,6 +218,7 @@ extension DockSplitStore {
         detectedResumeBinding: SurfaceResumeBindingSnapshot?,
         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool,
         detectedResumeBindingIsAmbiguous: Bool = false,
+        resumeBindingDetectionUnavailable: Bool = false,
         terminalFontSizeSnapshotProjection:
             WorkspaceTerminalFontSizeSnapshotProjection?,
         notificationStore: TerminalNotificationStore?,
@@ -254,7 +256,8 @@ extension DockSplitStore {
                 detected: detectedResumeBinding,
                 downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable:
                     downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable,
-                detectedIsAmbiguous: detectedResumeBindingIsAmbiguous
+                detectedIsAmbiguous: detectedResumeBindingIsAmbiguous,
+                detectionUnavailable: resumeBindingDetectionUnavailable
             )
             let restorableAgent = localTmuxStartCommand == nil
                 ? effectiveSessionRestorableAgent(
@@ -450,7 +453,8 @@ extension DockSplitStore {
         panelId: UUID,
         detected: SurfaceResumeBindingSnapshot?,
         downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable: Bool,
-        detectedIsAmbiguous: Bool
+        detectedIsAmbiguous: Bool,
+        detectionUnavailable: Bool = false
     ) -> SurfaceResumeBindingSnapshot? {
         let stored = surfaceResumeBindingsByPanelId[panelId]
         if let stored,
@@ -472,6 +476,11 @@ extension DockSplitStore {
             stored.autoResume = false
             stored.approvalPolicy = .manual
             stored.approvalRecordId = nil
+            effective = stored
+        } else if detectionUnavailable {
+            // No process scan ran (update relaunch save, or the quit fallback
+            // after a timed-out scan). Missing evidence is not an exit, so keep
+            // the binding the last successful scan stored, including tmux.
             effective = stored
         } else if stored?.isProcessDetected == true {
             effective = detectedIsAmbiguous

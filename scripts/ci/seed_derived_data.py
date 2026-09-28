@@ -9,7 +9,8 @@
     seed_derived_data.py prefetch STORE REVISION
     seed_derived_data.py keep DERIVED_DATA KEY [PREFIX]
 
-nightly.yml `refresh-test-compilation-cache` already compiles main cold on the
+nightly.yml `refresh-test-compilation-cache` (scheduled while CI_PR_POOL_OWNED
+is not 1, or a seed_only dispatch) compiles main cold on the
 runner, Xcode and canonical paths that ci-macos.yml compile admission uses.
 `record` writes the content digest and modification time of every file in the
 canonical source tree into that DerivedData before the build, and `prune`
@@ -73,6 +74,7 @@ but never replace it.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
 from pathlib import Path
@@ -87,6 +89,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import apfs_clone  # noqa: E402
 import e2e_warm_derived_data as warm  # noqa: E402
 
 MANIFEST = "cmux-seed-input-mtimes.json"
@@ -320,10 +323,23 @@ def cached(key: str) -> Path | None:
     return copy if (copy / MANIFEST).is_file() else None
 
 
+def clear_tree(path: Path) -> None:
+    """Remove PATH or fail. A leftover would make the clone fail and the `cp -cR`
+    fallback copy into PATH/<name>, or through PATH when it is a symlink."""
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path, ignore_errors=True)
+    if path.exists() or path.is_symlink():
+        raise OSError(errno.EEXIST, "could not clear", str(path))
+
+
 def clone_tree(source: Path, destination: Path) -> None:
     """An APFS clone of a directory tree, falling back to a copy."""
-    shutil.rmtree(destination, ignore_errors=True)
+    clear_tree(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if apfs_clone.clone_directory(source, destination):
+        return
     if subprocess.run(["cp", "-cR", str(source), str(destination)], capture_output=True).returncode != 0:
         shutil.rmtree(destination, ignore_errors=True)
         shutil.copytree(source, destination, symlinks=True)

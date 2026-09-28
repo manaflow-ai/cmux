@@ -59,6 +59,8 @@ extension TerminalController {
             "mobile.compatible_tags.set",
             "mobile.task.attachment.upload",
             "mobile.task.models.list",
+            "mobile.chat.send",
+            "mobile.chat.interrupt",
             // Socket-reachable panel artifact reads (worker lane); fetch stays
             // behind the authenticated mobile execution context.
             "mobile.panel.artifact.stat",
@@ -223,6 +225,8 @@ extension TerminalController {
             "workspace.remote.terminal_session_connected", "workspace.remote.terminal_session_end",
             "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
             "session.restore_previous",
+            "session.import",
+            "session.export",
             "settings.open",
             "feedback.open",
             "feedback.submit",
