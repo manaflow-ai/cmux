@@ -125,3 +125,76 @@ struct PredictionBreakEngineTests {
         #expect(sixel.drawn == "", "'s' is still drawn after a sixel image moved the cursor")
     }
 }
+
+struct PredictionBreakLatencyTests {
+    /// Typing steadily over a constant link, report how many keys were
+    /// drawn when typed and whether prediction suspended itself.
+    private func steadyTyping(roundTrip: Int, keys: Int = 60, gap: Int = 120) -> (drawn: Int, suspended: Bool) {
+        var engine = TerminalPredictionEngine(isEnabled: true, isRemoteSurface: true)
+        engine.typed(printableASCII: UInt8(ascii: "x"), at: .milliseconds(-10_000))
+        engine.observedOutput([UInt8(ascii: "x")], at: .milliseconds(-10_000 + roundTrip))
+        engine.presentedFrame(at: .milliseconds(-10_000 + roundTrip + 8))
+        var events: [(Int, Int, UInt8)] = []  // time, 0 = echo first, byte
+        for index in 0..<keys {
+            let byte = UInt8(ascii: "a") + UInt8(index % 26)
+            events.append((index * gap, 1, byte))
+            events.append((index * gap + roundTrip, 0, byte))
+        }
+        var drawn = 0
+        var suspended = false
+        for (time, kind, byte) in events.sorted(by: { ($0.0, $0.1) < ($1.0, $1.1) }) {
+            let now = PredictionInstant.milliseconds(time)
+            if kind == 0 {
+                engine.observedOutput([byte], at: now)
+            } else {
+                engine.typed(printableASCII: byte, at: now)
+                if engine.glyphs.contains(where: { $0.standing == .speculative && $0.character == Character(UnicodeScalar(byte)) }) { drawn += 1 }
+            }
+            engine.presentedFrame(at: now + .milliseconds(8))
+            if engine.status(at: now) == .suspended { suspended = true }
+        }
+        return (drawn, suspended)
+    }
+
+    /// `speculativeLifetime` is a fixed 1.5 s. Past that round trip every
+    /// keystroke expires before its echo arrives, so no echo ever matches,
+    /// the run never arms, and the links that need prediction most get none.
+    @Test func aRoundTripLongerThanTheLifetimeStillPredicts() {
+        let result = steadyTyping(roundTrip: 1_600)
+        #expect(result.drawn > 40 && !result.suspended, "1.6 s link: \(result.drawn)/60 drawn, suspended \(result.suspended)")
+    }
+
+    @Test func aSecondRoundTripPredictsEveryKey() {
+        let result = steadyTyping(roundTrip: 1_000)
+        #expect(result.drawn > 55, "1.0 s link: \(result.drawn)/60 drawn")
+    }
+
+    /// One late echo (a 2 s stall on a 300 ms link) withdraws. Every key
+    /// typed within the untracked-echo window pushes the window out again,
+    /// so while the user keeps typing, nothing is drawn for the rest of the
+    /// line.
+    @Test func oneStallDoesNotTurnPredictionOffUntilTheUserPauses() {
+        var engine = TerminalPredictionEngine(isEnabled: true, isRemoteSurface: true)
+        engine.typed(printableASCII: UInt8(ascii: "x"), at: .zero)
+        engine.observedOutput([UInt8(ascii: "x")], at: .milliseconds(300))
+        engine.presentedFrame(at: .milliseconds(308))
+        var events: [(Int, Int, UInt8)] = []
+        for index in 0..<40 {
+            let typedAt = 1_000 + index * 120
+            // The fifth key's echo stalls 2 s; everything behind it queues.
+            let echoAt = index < 4 ? typedAt + 300 : max(1_000 + 4 * 120 + 2_300, typedAt + 300)
+            events.append((typedAt, 1, UInt8(ascii: "a") + UInt8(index % 26)))
+            events.append((echoAt, 0, UInt8(ascii: "a") + UInt8(index % 26)))
+        }
+        var drawnAfterStall = 0
+        for (time, kind, byte) in events.sorted(by: { ($0.0, $0.1) < ($1.0, $1.1) }) {
+            let now = PredictionInstant.milliseconds(time)
+            if kind == 0 { engine.observedOutput([byte], at: now) } else {
+                engine.typed(printableASCII: byte, at: now)
+                if time > 4_500, engine.glyphs.contains(where: { $0.standing == .speculative }) { drawnAfterStall += 1 }
+            }
+            engine.presentedFrame(at: now + .milliseconds(8))
+        }
+        #expect(drawnAfterStall > 0, "no key typed after the stall cleared (from 3.8 s to 5.7 s) was drawn")
+    }
+}
