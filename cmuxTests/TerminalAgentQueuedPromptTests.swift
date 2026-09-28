@@ -51,7 +51,7 @@ struct ClaudeQueuedPromptMonitorTests {
         #expect(ClaudeQueuedPromptMonitor.activeTranscriptPath(surfaceID: UUID(), hookStoreURL: store) == nil)
     }
 
-    @Test func reportsQueuedCountAsTheTranscriptGrows() async throws {
+    @MainActor @Test func reportsQueuedCountAsTheTranscriptGrows() async throws {
         let surface = UUID()
         let (home, transcript, store) = try makeHome(surface: surface)
         defer { try? FileManager.default.removeItem(at: home) }
