@@ -22,6 +22,7 @@ final class AgentJournalLifecycleCenter: Sendable {
         case submit(AgentJournalEventDraft, UUID?)
         case feed(AgentFeedSemanticInput, UUID?)
         case append(AgentJournalEventDraft)
+        case interrupt(surfaceId: String, workspaceId: String, agentKey: String, source: String)
         case recordAliases(workspaces: [String: String], surfaces: [String: String])
         case startupReplay
 
@@ -151,6 +152,17 @@ final class AgentJournalLifecycleCenter: Sendable {
                         await submit(draft, id: id, store: store)
                     } else {
                         admissions.complete(id, accepted: false)
+                    }
+                case .interrupt(let surfaceId, let workspaceId, let agentKey, let source):
+                    // Settle exactly the sessions this consumer's fold has
+                    // running on the surface, then ingest them like appends.
+                    for draft in state.userInterruptDrafts(
+                        surfaceId: surfaceId,
+                        workspaceId: workspaceId,
+                        agentKey: agentKey,
+                        source: source
+                    ) {
+                        operationContinuation.yield(.append(draft))
                     }
                 case .append(let draft):
                     do {
@@ -297,6 +309,17 @@ final class AgentJournalLifecycleCenter: Sendable {
     /// blocking the caller on SQLite I/O.
     func enqueueAppend(_ draft: AgentJournalEventDraft) {
         operations?.yield(.append(draft))
+    }
+
+    /// Journals a user interrupt for every session of `agentKey` the journal
+    /// has running on the surface (see ``AgentJournalEventDraft/userInterrupt``).
+    func recordUserInterrupt(surfaceId: UUID, workspaceId: UUID, agentKey: String, source: String) {
+        operations?.yield(.interrupt(
+            surfaceId: surfaceId.uuidString,
+            workspaceId: workspaceId.uuidString,
+            agentKey: agentKey,
+            source: source
+        ))
     }
 
     /// Records the workspace/panel identity remaps produced by one restored

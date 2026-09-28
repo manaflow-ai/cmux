@@ -11475,6 +11475,10 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func updateKeyboardCopyModeBadgeZOrder(relativeTo overlay: NSView?) {
+        // The find overlay covers the terminal; keep the agent Stop pill clickable above it.
+        if let overlay, overlay.superview === self {
+            addSubview(agentTurnControlView, positioned: .above, relativeTo: overlay)
+        }
         guard !keyboardCopyModeBadgeContainerView.isHidden else { return }
         if let overlay, overlay.superview === self {
             addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)

@@ -1,6 +1,5 @@
 import AppKit
 import CmuxAgentJournal
-import CmuxMobileHost
 import CmuxSettings
 import Testing
 
@@ -12,26 +11,6 @@ import Testing
 
 @Suite("Agent turn interrupt target")
 struct AgentTurnInterruptTargetTests {
-    private let surface = UUID()
-    private let fallbackWorkspace = UUID()
-
-    private func entry(
-        _ sessionID: String,
-        surface: UUID?,
-        workspace: UUID? = nil,
-        updatedAt: TimeInterval
-    ) -> AgentChatHookSessionStore.Entry {
-        AgentChatHookSessionStore.Entry(
-            sessionID: sessionID,
-            workspaceID: workspace?.uuidString,
-            surfaceID: surface?.uuidString,
-            workingDirectory: nil,
-            transcriptPath: nil,
-            pid: nil,
-            updatedAt: Date(timeIntervalSince1970: updatedAt)
-        )
-    }
-
     @Test func resolvesOnlyRunningSupportedAgents() {
         #expect(AgentTurnInterruptTarget.resolve(statusKeyedStates: ["claude_code": .running]) == .claudeCode)
         #expect(AgentTurnInterruptTarget.resolve(statusKeyedStates: ["codex": .running]) == .codex)
@@ -42,34 +21,48 @@ struct AgentTurnInterruptTargetTests {
         #expect(AgentTurnInterruptTarget.resolve(statusKeyedStates: [:]) == nil)
     }
 
-    @Test func interruptSettlesNewestSessionOnTheSurface() throws {
-        let hookWorkspace = UUID()
-        let entries = [
-            entry("old", surface: surface, updatedAt: 10),
-            entry("current", surface: surface, workspace: hookWorkspace, updatedAt: 20),
-            entry("elsewhere", surface: UUID(), updatedAt: 30),
-        ]
-        let draft = try #require(AgentTurnInterruptTarget.claudeCode.interruptDraft(
-            surfaceID: surface,
-            fallbackWorkspaceID: fallbackWorkspace,
-            entries: entries
-        ))
-        #expect(draft.sessionId == "current")
-        #expect(draft.source == "claude")
-        #expect(draft.agentKey == "claude_code")
-        #expect(draft.kind == .turnCompleted)
-        #expect(draft.workspaceId == hookWorkspace.uuidString)
-        #expect(draft.surfaceId == surface.uuidString)
-        #expect(draft.validationProblem() == nil)
+    /// The journal settles the session it has running on the surface, found
+    /// from its own fold rather than the hook store.
+    @Test func journalInterruptSettlesTheRunningSessionOnTheSurface() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-turn-control-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("journal.sqlite3", isDirectory: false)
+        let center = AgentJournalLifecycleCenter(databaseURL: url)
+        let surface = UUID()
+        let workspace = UUID()
+        let started = AgentJournalEventDraft(
+            eventId: "turn-started",
+            kind: .turnStarted,
+            occurredAtMs: 1,
+            source: "claude",
+            agentKey: "claude_code",
+            sessionId: "session-1",
+            workspaceId: workspace.uuidString,
+            surfaceId: surface.uuidString
+        )
+        let json = try #require(String(data: JSONEncoder().encode(started), encoding: .utf8))
+        #expect(center.handleAppendCommand(json) == "OK 1")
+
+        center.recordUserInterrupt(surfaceId: surface, workspaceId: workspace, agentKey: "claude_code", source: "claude")
+
+        var interrupt: AgentJournalEventDraft?
+        for _ in 0..<100 where interrupt == nil {
+            try await Task.sleep(for: .milliseconds(20))
+            let store = try AgentJournalStore(databaseURL: url)
+            interrupt = try store.events(afterSequence: 1, limit: 10)
+                .map(\.draft)
+                .first { $0.nativeEvent == AgentJournalEventDraft.userInterruptNativeEvent }
+            store.close()
+        }
+        let settled = try #require(interrupt, "The interrupt is journaled for the running session")
+        #expect(settled.sessionId == "session-1")
+        #expect(settled.kind == .turnCompleted)
+        #expect(settled.surfaceId == surface.uuidString)
     }
 
-    @Test func interruptWithoutBoundSessionJournalsNothing() {
-        let entries = [entry("elsewhere", surface: UUID(), updatedAt: 30)]
-        #expect(AgentTurnInterruptTarget.codex.interruptDraft(
-            surfaceID: surface,
-            fallbackWorkspaceID: fallbackWorkspace,
-            entries: entries
-        ) == nil)
+    @Test func onlyClaudeSettlesItsTurnInTheJournal() {
+        #expect(AgentTurnInterruptTarget.claudeCode.settlesTurnInJournal)
+        #expect(!AgentTurnInterruptTarget.codex.settlesTurnInJournal)
     }
 }
 
@@ -114,7 +107,7 @@ struct TerminalAgentTurnControlTests {
     }
 
     @Test
-    func clickingStopSendsOneEscapeToTheRunningAgent() throws {
+    func clickingStopTwiceQuicklySendsOneEscape() throws {
         let fixture = try makeWorkspaceFixture()
         defer { closeWindow(fixture.windowID) }
         setting.set(true, in: .standard)
@@ -125,8 +118,10 @@ struct TerminalAgentTurnControlTests {
 
         fixture.panel.hostedView.agentTurnControlView.clickStopForTesting()
 
+        fixture.panel.hostedView.agentTurnControlView.clickStopForTesting()
+
         let after = fixture.panel.surface.debugPendingSocketInputForTesting()
-        #expect(after.keyEvents == before.keyEvents + 1, "Stop sends exactly one Escape")
+        #expect(after.keyEvents == before.keyEvents + 1, "A quick second click sends no second Escape")
     }
 
     @Test
