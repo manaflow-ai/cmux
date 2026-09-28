@@ -1172,7 +1172,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // Group headers intentionally mint their anchor payload: anchor drags
         // route to top-level whole-group plans and are rejected cross-window.
         _ = tableView
-        guard rows.indices.contains(row), let actions else { return nil }
+        guard rows.indices.contains(row), let actions, actions.allowsWorkspaceReorderDrag() else { return nil }
         let rowConfiguration = rows[row]
         // Group headers resolve through the live anchor map captured for the
         // drag. A missing anchor fails closed; workspace rows retain the
@@ -1988,8 +1988,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if rows[row].appKitWorkspaceRowModel != nil {
             guard let workspaceCell else { return }
             if let hitView, workspaceCell.selectionPreviewShouldIgnore(hitView) { return }
-        } else if rows[row].appKitGroupHeaderModel != nil {
-            guard let headerCell else { return }
+        } else if let headerModel = rows[row].appKitGroupHeaderModel {
+            guard let headerCell, !headerModel.isAutomaticSection else { return }
             if let hitView, headerCell.selectionPreviewShouldIgnore(hitView) { return }
         } else {
             return

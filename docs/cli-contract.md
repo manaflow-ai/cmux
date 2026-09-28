@@ -179,6 +179,7 @@ Environment:
 | `clear-log` | Clear sidebar log entries. |
 | `list-log` | List sidebar log entries. |
 | `sidebar-state` | Dump sidebar metadata state. |
+| `sidebar-group-by` | Print or set a window's sidebar Group By mode (`manual`, `host`, `status`). |
 | `claude-hook` | Compatibility alias for Claude Code hook events from stdin JSON. |
 | `set-app-focus` | Override app focus state for tests. |
 | `simulate-app-active` | Trigger app-active handling for tests. |
@@ -973,6 +974,7 @@ the expected text without connecting to a cmux socket.
 - `cmux clear-log --help` -> `Usage: cmux clear-log`
 - `cmux list-log --help` -> `Usage: cmux list-log`
 - `cmux sidebar-state --help` -> `Usage: cmux sidebar-state`
+- `cmux sidebar-group-by --help` -> `Usage: cmux sidebar-group-by`
 - `cmux set-app-focus --help` -> `Usage: cmux set-app-focus`
 - `cmux simulate-app-active --help` -> `Usage: cmux simulate-app-active`
 - `cmux claude-hook --help` -> `Usage: cmux claude-hook`

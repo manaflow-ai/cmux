@@ -24,6 +24,11 @@ extension CMUXCLI {
         if normalizedCommand == "read-screen" || normalizedCommand == "read-selection" || normalizedCommand == "current" {
             return false
         }
+        if normalizedCommand == "sidebar-group-by" {
+            // Routes by window_id itself; changing a window's grouping is not
+            // a reason to bring that window forward.
+            return false
+        }
         if normalizedCommand == "rpc",
            commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 == "surface.read_selection" {

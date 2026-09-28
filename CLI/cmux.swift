@@ -7969,6 +7969,7 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 windowOverride: windowId
             )
+        case "sidebar-group-by": try runSidebarGroupByCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
         case "claude-hook":
             cliTelemetry.breadcrumb("claude-hook.dispatch")
             do {
@@ -20542,6 +20543,7 @@ struct CMUXCLI {
               cmux right-sidebar set custom panel-info
               cmux right-sidebar mode
             """)
+        case "sidebar-group-by": return SidebarGroupByCommand.usage
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
             Usage: cmux sidebar <validate|reload|select|open> [name|--all] [--json]
@@ -20858,9 +20860,7 @@ struct CMUXCLI {
         return nil
     }
 
-    func hasFlag(_ args: [String], name: String) -> Bool {
-        args.contains(name)
-    }
+    func hasFlag(_ args: [String], name: String) -> Bool { args.contains(name) }
 
     /// The first bare positional argument, skipping flags and the values consumed by
     /// the named value-taking options.
@@ -41640,7 +41640,6 @@ export default CMUXSessionRestore;
             return false
         }
     }
-
 
     private func versionSummary() -> String {
         let info = resolvedVersionInfo()

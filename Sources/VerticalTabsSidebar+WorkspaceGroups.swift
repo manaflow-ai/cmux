@@ -14,6 +14,7 @@ extension VerticalTabsSidebar {
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableRowConfiguration {
         let settings = renderContext.tabItemSettings
+        let automaticSectionKey = renderContext.grouping.automaticSectionKeyByGroupId[group.id]
         let anchorId = group.anchorWorkspaceId
         let liveAnchorId = group.liveAnchorWorkspaceId
         // Empty groups use their durable group id as the native drag identity;
@@ -24,7 +25,8 @@ extension VerticalTabsSidebar {
         let isMultiSelected = liveAnchorId.map { selectedTabIds.contains($0) } ?? false
             && selectedTabIds.count > 1
         let anchorCwd = liveAnchorId.flatMap { renderContext.workspaceById[$0]?.currentDirectory }
-        let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
+        // cmux.json group config belongs to manual groups, never to a derived section.
+        let resolvedConfig = automaticSectionKey == nil ? cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd) : nil
         let effectiveColor = group.customColor ?? resolvedConfig?.color
         let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
             explicit: group.iconSymbol,
@@ -63,7 +65,7 @@ extension VerticalTabsSidebar {
         // "Mark all workspaces in group" targets the contained workspaces only,
         // never the anchor: the anchor is the group's own row, whose read status
         // is owned by the separate "Mark Group as Read/Unread" actions.
-        let nonAnchorMemberIds = memberWorkspaceIds.filter { memberId in
+        let nonAnchorMemberIds = automaticSectionKey != nil ? [] : memberWorkspaceIds.filter { memberId in
             liveAnchorId.map { $0 != memberId } ?? true
         }
         let canMarkAllRead = unreadSnapshot.canMarkWorkspaceRead(
@@ -116,9 +118,10 @@ extension VerticalTabsSidebar {
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             colorSchemeIsDark: renderContext.environment.colorScheme == .dark,
             notificationBadgeColorHex: settings.notificationBadgeColorHex,
-            accentColor: settings.accentColor
+            accentColor: settings.accentColor,
+            isAutomaticSection: automaticSectionKey != nil
         )
-        let actions = makeWorkspaceGroupHeaderActions(
+        let actions = automaticSectionKey.map { makeAutomaticSectionHeaderActions(sectionKey: $0) } ?? makeWorkspaceGroupHeaderActions(
             groupId: group.id,
             fallbackGroupName: group.name,
             fallbackAnchorWorkspaceId: group.anchorWorkspaceId,
@@ -174,6 +177,7 @@ extension VerticalTabsSidebar {
         shouldCollectWorkspaceDropTargets: Bool
     ) -> SidebarWorkspaceGroupRowSnapshot {
         let unreadSummariesByWorkspaceId = unreadSnapshot.summaryByWorkspaceId
+        let automaticSectionKey = renderContext.grouping.automaticSectionKeyByGroupId[group.id]
         let settings = renderContext.tabItemSettings
         let anchorId = group.anchorWorkspaceId
         let liveAnchorId = group.liveAnchorWorkspaceId
@@ -182,7 +186,8 @@ extension VerticalTabsSidebar {
         let isMultiSelected = liveAnchorId.map { selectedTabIds.contains($0) } ?? false
             && selectedTabIds.count > 1
         let anchorCwd = liveAnchorId.flatMap { renderContext.workspaceById[$0]?.currentDirectory }
-        let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
+        // cmux.json group config belongs to manual groups, never to a derived section.
+        let resolvedConfig = automaticSectionKey == nil ? cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd) : nil
         let effectiveColor = group.customColor ?? resolvedConfig?.color
         let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
             explicit: group.iconSymbol,
@@ -221,7 +226,7 @@ extension VerticalTabsSidebar {
         // "Mark all workspaces in group" targets the contained workspaces only,
         // never the anchor: the anchor is the group's own row, whose read status
         // is owned by the separate "Mark Group as Read/Unread" actions.
-        let nonAnchorMemberIds = memberWorkspaceIds.filter { memberId in
+        let nonAnchorMemberIds = automaticSectionKey != nil ? [] : memberWorkspaceIds.filter { memberId in
             liveAnchorId.map { $0 != memberId } ?? true
         }
         let canMarkAllRead = unreadSnapshot.canMarkWorkspaceRead(
@@ -278,7 +283,8 @@ extension VerticalTabsSidebar {
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
-            notificationBadgeColorHex: settings.notificationBadgeColorHex
+            notificationBadgeColorHex: settings.notificationBadgeColorHex,
+            automaticSectionKey: automaticSectionKey
         )
     }
 
@@ -289,7 +295,7 @@ extension VerticalTabsSidebar {
         snapshot: SidebarWorkspaceGroupRowSnapshot
     ) -> SidebarWorkspaceGroupRowView {
         let rowId = SidebarWorkspaceRenderItemID.group(snapshot.groupId)
-        let actions = makeWorkspaceGroupHeaderActions(
+        let actions = snapshot.automaticSectionKey.map { makeAutomaticSectionHeaderActions(sectionKey: $0) } ?? makeWorkspaceGroupHeaderActions(
             groupId: snapshot.groupId,
             fallbackGroupName: snapshot.name,
             fallbackAnchorWorkspaceId: snapshot.anchorWorkspaceId,
@@ -330,6 +336,7 @@ extension VerticalTabsSidebar {
             topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
             bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible,
             notificationBadgeColorHex: snapshot.notificationBadgeColorHex,
+            isAutomaticSection: snapshot.automaticSectionKey != nil,
             actions: actions,
             onContextMenuAppear: {},
             onContextMenuDisappear: {}
@@ -525,35 +532,5 @@ extension VerticalTabsSidebar {
         )
         actions.notificationState = resolveNotificationState
         return actions
-    }
-
-    /// Applies one shared group-header selection action to the live anchor.
-    @MainActor
-    static func focusWorkspaceGroupAnchor(
-        groupId: UUID,
-        modifiers: NSEvent.ModifierFlags,
-        tabManager: TabManager,
-        selectedTabIds: Binding<Set<UUID>>,
-        lastSidebarSelectionIndex: Binding<Int?>
-    ) {
-        let anchorId: UUID
-        if modifiers.contains(.command) || modifiers.contains(.shift) {
-            guard let anchor = tabManager.workspaceGroupAnchor(for: groupId) else { return }
-            let selection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
-                current: selectedTabIds.wrappedValue,
-                clickedAnchorId: anchor.id,
-                anchorIds: Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
-            )
-            selectedTabIds.wrappedValue = selection
-            guard let selectedAnchor = tabManager.selectWorkspaceGroupAnchor(for: groupId) else { return }
-            anchorId = selectedAnchor.id
-        } else {
-            guard let selectedAnchor = tabManager.selectWorkspaceGroupAnchor(for: groupId) else { return }
-            anchorId = selectedAnchor.id
-            if selectedTabIds.wrappedValue != [anchorId] {
-                selectedTabIds.wrappedValue = [anchorId]
-            }
-        }
-        lastSidebarSelectionIndex.wrappedValue = tabManager.tabs.firstIndex { $0.id == anchorId }
     }
 }

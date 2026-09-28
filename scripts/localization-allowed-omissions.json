@@ -3449,5 +3449,23 @@
     "source": "cmux layout delete <name>",
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "sidebar.groupBy.mode.manual": {
+    "source": "Manual",
+    "identityLocales": {
+      "es": "Manual is the correct Spanish word for this mode label and is spelled the same as English."
+    }
+  },
+  "sidebar.groupBy.mode.status": {
+    "source": "Status",
+    "identityLocales": {
+      "de": "Status is the standard German word for this grouping label and is spelled the same as English."
+    }
+  },
+  "sidebar.groupBy.section.terminals": {
+    "source": "Terminals",
+    "identityLocales": {
+      "de": "Terminals is the standard German plural of Terminal and is spelled the same as English."
+    }
   }
 }

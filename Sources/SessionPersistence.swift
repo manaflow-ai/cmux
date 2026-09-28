@@ -1825,9 +1825,7 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
 }
 
 extension SessionWorkspaceSnapshot {
-    var hasRestorablePanels: Bool {
-        !panels.isEmpty || dock != nil
-    }
+    var hasRestorablePanels: Bool { !panels.isEmpty || dock != nil }
 }
 
 extension SessionWindowSnapshot {
@@ -1840,6 +1838,7 @@ struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
     var workspaceGroups: [SessionWorkspaceGroupSnapshot]? = nil
+    var sidebarGroupBy: SidebarGroupByMode? = nil // Absent means manual; omitted when manual.
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {

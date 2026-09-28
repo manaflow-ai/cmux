@@ -69,6 +69,9 @@ struct SidebarWorkspaceTableActions {
     /// native drag. The table controller caches it for the whole drag so a
     /// multi-row drag does not rescan all groups for every item.
     var workspaceGroupAnchorIdsForDrag: () -> [UUID: UUID] = { [:] }
+    /// Whether rows may start a reorder drag. False while an automatic Group By
+    /// mode is showing, where drawn positions are not `tabs` order.
+    var allowsWorkspaceReorderDrag: () -> Bool = { true }
     /// Resolves the identity represented by a rendered row. Empty group
     /// headers use the durable group id; grouped members keep their workspace
     /// id so member drags never accidentally move the anchor.

@@ -567592,6 +567592,1068 @@
           }
         }
       }
+    },
+    "cli.sidebarGroupBy.error.argument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by: unexpected argument '%@'. Run 'cmux sidebar-group-by --help'."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by: وسيط غير متوقع '%@'. شغّل 'cmux sidebar-group-by --help'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by: unerwartetes Argument '%@'. Führe 'cmux sidebar-group-by --help' aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by: argumento inesperado '%@'. Ejecuta 'cmux sidebar-group-by --help'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by : argument inattendu '%@'. Exécutez 'cmux sidebar-group-by --help'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by: 予期しない引数 '%@' です。'cmux sidebar-group-by --help' を実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by: 예상하지 못한 인수 '%@'. 'cmux sidebar-group-by --help'를 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by：意外的参数“%@”。请运行 'cmux sidebar-group-by --help'。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by：非預期的引數「%@」。請執行 'cmux sidebar-group-by --help'。"
+          }
+        }
+      }
+    },
+    "cli.sidebarGroupBy.error.window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by: --window requires a window id, ref or index"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by: يتطلب --window معرّف نافذة أو مرجعًا أو فهرسًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by: --window erfordert eine Fenster-ID, -Referenz oder einen Index"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by: --window requiere un id, una referencia o un índice de ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by : --window nécessite un identifiant, une référence ou un index de fenêtre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by: --window にはウィンドウの ID、参照、またはインデックスが必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by: --window에는 창 ID, 참조 또는 인덱스가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by：--window 需要窗口 ID、引用或索引"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar-group-by：--window 需要視窗 ID、參照或索引"
+          }
+        }
+      }
+    },
+    "cli.sidebarGroupBy.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux sidebar-group-by [manual|host|status] [--window <id|ref|index>] [--json]\n\nPrint or set how a window's workspace sidebar is grouped.\n\nModes:\n  manual   Your own order and workspace groups (default)\n  host     One section per machine: this Mac, each SSH host, each Cloud VM\n  status   Needs input, running, unread, idle, then plain terminals\n\nWithout a mode, prints the current mode. Host and Status never change\nyour manual groups or order. The window is not focused.\n\nFlags:\n  --window <id|ref|index>   Target window (default: the caller's window)\n  --json                    Print the window id and mode as JSON\n\nExamples:\n  cmux sidebar-group-by\n  cmux sidebar-group-by host\n  cmux sidebar-group-by manual --window window:2"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux sidebar-group-by [manual|host|status] [--window <id|ref|index>] [--json]\n\nيعرض أو يضبط طريقة تجميع الشريط الجانبي لمساحات العمل في نافذة.\n\nالأوضاع:\n  manual   ترتيبك الخاص ومجموعات مساحات العمل (الافتراضي)\n  host     قسم لكل جهاز: جهاز Mac هذا، وكل مضيف SSH، وكل جهاز افتراضي سحابي\n  status   يحتاج إلى إدخال، قيد التشغيل، غير مقروءة، خاملة، ثم الطرفيات العادية\n\nدون وضع، يعرض الوضع الحالي. لا يغيّر host وstatus أبدًا\nمجموعاتك اليدوية أو ترتيبك. لا يتم التركيز على النافذة.\n\nالخيارات:\n  --window <id|ref|index>   النافذة المستهدفة (الافتراضي: نافذة المستدعي)\n  --json                    طباعة معرّف النافذة والوضع بصيغة JSON\n\nأمثلة:\n  cmux sidebar-group-by\n  cmux sidebar-group-by host\n  cmux sidebar-group-by manual --window window:2"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux sidebar-group-by [manual|host|status] [--window <id|ref|index>] [--json]\n\nZeigt an oder legt fest, wie die Workspace-Seitenleiste eines Fensters gruppiert ist.\n\nModi:\n  manual   Eigene Reihenfolge und Workspace-Gruppen (Standard)\n  host     Ein Abschnitt pro Rechner: dieser Mac, jeder SSH-Host, jede Cloud-VM\n  status   Eingabe erforderlich, ausgeführt, ungelesen, inaktiv, dann reine Terminals\n\nOhne Modus wird der aktuelle Modus ausgegeben. Host und Status ändern\nnie deine manuellen Gruppen oder die Reihenfolge. Das Fenster erhält keinen Fokus.\n\nOptionen:\n  --window <id|ref|index>   Zielfenster (Standard: das Fenster des Aufrufers)\n  --json                    Fenster-ID und Modus als JSON ausgeben\n\nBeispiele:\n  cmux sidebar-group-by\n  cmux sidebar-group-by host\n  cmux sidebar-group-by manual --window window:2"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux sidebar-group-by [manual|host|status] [--window <id|ref|index>] [--json]\n\nMuestra o define cómo se agrupa la barra lateral de espacios de trabajo de una ventana.\n\nModos:\n  manual   Tu propio orden y tus grupos (predeterminado)\n  host     Una sección por equipo: este Mac, cada host SSH, cada VM en la nube\n  status   Necesita entrada, en ejecución, no leídos, inactivos y luego terminales simples\n\nSin modo, muestra el modo actual. Host y Status nunca cambian\ntus grupos manuales ni tu orden. La ventana no recibe el foco.\n\nOpciones:\n  --window <id|ref|index>   Ventana de destino (predeterminado: la ventana de quien llama)\n  --json                    Imprime el id de la ventana y el modo en JSON\n\nEjemplos:\n  cmux sidebar-group-by\n  cmux sidebar-group-by host\n  cmux sidebar-group-by manual --window window:2"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation: cmux sidebar-group-by [manual|host|status] [--window <id|ref|index>] [--json]\n\nAffiche ou définit le regroupement de la barre latérale des espaces de travail d'une fenêtre.\n\nModes:\n  manual   Votre propre ordre et vos groupes (par défaut)\n  host     Une section par machine : ce Mac, chaque hôte SSH, chaque VM cloud\n  status   Saisie requise, en cours, non lus, inactifs, puis terminaux simples\n\nSans mode, affiche le mode actuel. Host et Status ne modifient jamais\nvos groupes manuels ni votre ordre. La fenêtre ne reçoit pas le focus.\n\nOptions:\n  --window <id|ref|index>   Fenêtre cible (par défaut : celle de l'appelant)\n  --json                    Affiche l'identifiant de la fenêtre et le mode en JSON\n\nExemples:\n  cmux sidebar-group-by\n  cmux sidebar-group-by host\n  cmux sidebar-group-by manual --window window:2"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux sidebar-group-by [manual|host|status] [--window <id|ref|index>] [--json]\n\nウィンドウのワークスペースサイドバーのグループ化方法を表示または設定します。\n\nモード:\n  manual   自分で並べた順序とワークスペースグループ（既定）\n  host     マシンごとのセクション: このMac、各 SSH ホスト、各クラウドVM\n  status   入力が必要、実行中、未読、待機中、その後に通常のターミナル\n\nモードを省略すると現在のモードを表示します。Host と Status が\n手動のグループや順序を変更することはありません。ウィンドウにフォーカスは移りません。\n\nフラグ:\n  --window <id|ref|index>   対象ウィンドウ（既定: 呼び出し元のウィンドウ）\n  --json                    ウィンドウ ID とモードを JSON で出力\n\n例:\n  cmux sidebar-group-by\n  cmux sidebar-group-by host\n  cmux sidebar-group-by manual --window window:2"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux sidebar-group-by [manual|host|status] [--window <id|ref|index>] [--json]\n\n창의 워크스페이스 사이드바를 그룹화하는 방식을 표시하거나 설정합니다.\n\n모드:\n  manual   직접 정한 순서와 워크스페이스 그룹(기본값)\n  host     기기별 섹션: 이 Mac, 각 SSH 호스트, 각 클라우드 VM\n  status   입력 필요, 실행 중, 읽지 않음, 대기 중, 그다음 일반 터미널\n\n모드를 지정하지 않으면 현재 모드를 출력합니다. Host와 Status는\n수동 그룹이나 순서를 절대 바꾸지 않습니다. 창에 포커스를 주지 않습니다.\n\n옵션:\n  --window <id|ref|index>   대상 창(기본값: 호출한 창)\n  --json                    창 ID와 모드를 JSON으로 출력\n\n예시:\n  cmux sidebar-group-by\n  cmux sidebar-group-by host\n  cmux sidebar-group-by manual --window window:2"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux sidebar-group-by [manual|host|status] [--window <id|ref|index>] [--json]\n\n显示或设置窗口工作区侧边栏的分组方式。\n\n模式:\n  manual   你自己的顺序和工作区分组（默认）\n  host     每台机器一个分区：这台 Mac、每个 SSH 主机、每台云虚拟机\n  status   需要输入、运行中、未读、空闲，然后是普通终端\n\n未指定模式时，显示当前模式。Host 和 Status 绝不会更改\n你的手动分组或顺序。不会让窗口获得焦点。\n\n选项:\n  --window <id|ref|index>   目标窗口（默认：调用者的窗口）\n  --json                    以 JSON 输出窗口 ID 和模式\n\n示例:\n  cmux sidebar-group-by\n  cmux sidebar-group-by host\n  cmux sidebar-group-by manual --window window:2"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux sidebar-group-by [manual|host|status] [--window <id|ref|index>] [--json]\n\n顯示或設定視窗工作區側邊欄的分組方式。\n\n模式:\n  manual   你自己的順序與工作區群組（預設）\n  host     每台機器一個區段：這台 Mac、每個 SSH 主機、每台雲端虛擬機\n  status   需要輸入、執行中、未讀、閒置，然後是一般終端機\n\n未指定模式時，顯示目前的模式。Host 與 Status 絕不會變更\n你的手動群組或順序。不會讓視窗取得焦點。\n\n選項:\n  --window <id|ref|index>   目標視窗（預設：呼叫者的視窗）\n  --json                    以 JSON 輸出視窗 ID 與模式\n\n範例:\n  cmux sidebar-group-by\n  cmux sidebar-group-by host\n  cmux sidebar-group-by manual --window window:2"
+          }
+        }
+      }
+    },
+    "sidebar.groupBy.menu.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group By"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التجميع حسب"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppieren nach"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrupar por"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regrouper par"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ化"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹화 기준"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分组方式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分組方式"
+          }
+        }
+      }
+    },
+    "command.sidebarGroupBy.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشريط الجانبي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seitenleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre latérale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄"
+          }
+        }
+      }
+    },
+    "command.sidebarGroupByHost.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar: Group by Host"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشريط الجانبي: التجميع حسب المضيف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seitenleiste: Nach Rechner gruppieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra lateral: agrupar por equipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre latérale : regrouper par hôte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー: ホストでグループ化"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바: 호스트별로 그룹화"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏：按主机分组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄：依主機分組"
+          }
+        }
+      }
+    },
+    "command.sidebarGroupByStatus.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar: Group by Status"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشريط الجانبي: التجميع حسب الحالة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seitenleiste: Nach Status gruppieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra lateral: agrupar por estado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre latérale : regrouper par statut"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー: ステータスでグループ化"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바: 상태별로 그룹화"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏：按状态分组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄：依狀態分組"
+          }
+        }
+      }
+    },
+    "command.sidebarGroupManually.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar: Group Manually"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشريط الجانبي: تجميع يدوي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seitenleiste: Manuell gruppieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra lateral: agrupar manualmente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre latérale : regrouper manuellement"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー: 手動でグループ化"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바: 수동으로 그룹화"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏：手动分组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄：手動分組"
+          }
+        }
+      }
+    },
+    "sidebar.groupBy.section.cloudVM": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز افتراضي سحابي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-VM"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquina virtual en la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine virtuelle cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドVM"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 VM"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云虚拟机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端虛擬機"
+          }
+        }
+      }
+    },
+    "sidebar.groupBy.section.thisMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز Mac هذا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac"
+          }
+        }
+      }
+    },
+    "sidebar.groupBy.section.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خاملة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktiv"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactifs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대기 중"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空闲"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閒置"
+          }
+        }
+      }
+    },
+    "sidebar.groupBy.section.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs Input"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج إلى إدخال"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eingabe erforderlich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Necesita entrada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisie requise"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力が必要"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력 필요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要輸入"
+          }
+        }
+      }
+    },
+    "sidebar.groupBy.section.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيد التشغيل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird ausgeführt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En ejecución"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En cours d'exécution"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行中"
+          }
+        }
+      }
+    },
+    "sidebar.groupBy.section.terminals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminals"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطرفيات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminals"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminaux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機"
+          }
+        }
+      }
+    },
+    "sidebar.groupBy.section.unread": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unread"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير مقروءة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungelesen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No leídos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non lus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽지 않음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未读"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未讀"
+          }
+        }
+      }
+    },
+    "sidebar.groupBy.mode.host": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المضيف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hôte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホスト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主機"
+          }
+        }
+      }
+    },
+    "sidebar.groupBy.mode.manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يدوي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuell"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        }
+      }
+    },
+    "sidebar.groupBy.mode.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحالة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statut"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "狀態"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

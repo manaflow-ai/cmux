@@ -460,6 +460,7 @@ class TabManager: ObservableObject {
     let browserModel = BrowserModel<ClosedBrowserPanelRestoreSnapshot>()
     /// Sidebar multi-selection state + sync events (CmuxSidebar).
     let sidebarMultiSelection = SidebarMultiSelectionModel()
+    let sidebarGroupBy = SidebarGroupByState()
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
@@ -852,7 +853,6 @@ class TabManager: ObservableObject {
         pullRequestProbing.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId)
     }
 
-
     private func sweepStaleAgentPIDs() {
         for tab in tabs {
             tab.clearStaleAgentPIDs()
@@ -886,7 +886,6 @@ class TabManager: ObservableObject {
             reason: reason
         )
     }
-
 
     func wireClosedBrowserTracking(for workspace: Workspace) {
         workspace.onClosedBrowserPanel = { [weak self] snapshot in
@@ -5405,7 +5404,6 @@ class TabManager: ObservableObject {
                 tab.focusPanel(bottomRight.id)
                 tab.closePanel(bottomRight.id, force: true)
 
-
                 // Capture final state after Bonsplit/AppKit/Ghostty geometry reconciliation.
                 // We avoid sleep-based timing and converge over a few main-actor turns.
                  @MainActor func collectSplitCloseRightState() -> (data: [String: String], settled: Bool) {
@@ -6683,7 +6681,8 @@ extension TabManager {
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
             workspaces: workspaceSnapshots,
-            workspaceGroups: groupSnapshots
+            workspaceGroups: groupSnapshots,
+            sidebarGroupBy: sidebarGroupBy.mode.isAutomatic ? sidebarGroupBy.mode : nil
         )
     }
 
@@ -6894,6 +6893,7 @@ extension TabManager {
             excludingStableIdentities: excludingStableIdentities,
             deferBrowserPanels: deferBrowserPanels
         )
+        if let mode = snapshot.sidebarGroupBy { sidebarGroupBy.mode = mode }
         let restoredGroups: [WorkspaceGroup] = {
             guard let groupSnapshots = snapshot.workspaceGroups else { return [] }
             let workspaceIdsByGroupId: [UUID: [UUID]] = {

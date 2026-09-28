@@ -42,7 +42,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isBeingDragged == rhs.isBeingDragged &&
             lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
             lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible &&
-            lhs.notificationBadgeColorHex == rhs.notificationBadgeColorHex
+            lhs.notificationBadgeColorHex == rhs.notificationBadgeColorHex &&
+            lhs.isAutomaticSection == rhs.isAutomaticSection
     }
 
     let groupId: UUID
@@ -78,6 +79,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let bottomDropIndicatorVisible: Bool
     /// Notification Badge color setting; nil falls back to the cmux accent.
     let notificationBadgeColorHex: String?
+    /// A derived automatic Group By section: it only collapses, so the plus
+    /// button is hidden and the group-editing menu items are disabled.
+    let isAutomaticSection: Bool
     /// Shared group-header actions used by both the lazy SwiftUI row and the
     /// retained AppKit table cell.
     let actions: SidebarGroupHeaderRowActions
@@ -203,7 +207,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 defaultValue: "Focus the group's anchor workspace"
             )))
 
-            let plusVisible = isPointerHovering && !contextMenuVisible && !showsShortcutHint
+            let plusVisible = !isAutomaticSection && isPointerHovering && !contextMenuVisible && !showsShortcutHint
             Button(action: actions.onTapPlus) {
                 CmuxSystemSymbolImage(
                     systemName: "plus",
@@ -316,6 +320,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 ),
                 action: actions.onTapPlus
             )
+            .disabled(isAutomaticSection)
             .onAppear {
                 contextMenuVisible = true
                 onContextMenuAppear()
@@ -332,6 +337,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 ),
                 action: actions.onRename
             )
+            .disabled(isAutomaticSection)
             Button(
                 isPinned
                     ? String(
@@ -344,6 +350,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     ),
                 action: actions.onTogglePinned
             )
+            .disabled(isAutomaticSection)
             Divider()
             Button(
                 String(
@@ -394,6 +401,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 ),
                 action: actions.onEditConfig
             )
+            .disabled(isAutomaticSection)
             Button(
                 String(
                     localized: "workspaceGroup.contextMenu.openDocs",
@@ -402,7 +410,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 action: actions.onOpenDocs
             )
             Divider()
-            if !isPinned || memberCount > 0 {
+            if !isAutomaticSection && (!isPinned || memberCount > 0) {
                 Button(
                     String(
                         localized: "workspaceGroup.contextMenu.ungroup",
@@ -422,6 +430,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     )
                 )
             }
+            .disabled(isAutomaticSection)
         }
     }
 }

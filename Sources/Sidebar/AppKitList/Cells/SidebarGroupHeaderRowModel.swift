@@ -45,6 +45,9 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let notificationBadgeColorHex: String?
     /// Resolved cmux accent for the badge fallback and drop indicators.
     var accentColor = CmuxAccentColor()
+    /// A derived automatic Group By section: the header only collapses, and
+    /// hides its plus button and group menu.
+    var isAutomaticSection = false
 }
 
 /// Behavior bundle for one group header row; recreated per apply and excluded

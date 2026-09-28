@@ -143,6 +143,33 @@ Resolution order for group new-workspace placement:
 
 `Cmd-N` inside a group uses the active group workspace as the placement reference. The group header `+` button and CLI path use the anchor as the reference, so `afterCurrent` behaves like `top` there.
 
+## Group By (automatic sections)
+
+Each window's sidebar can also group workspaces automatically. Right-click the titlebar sidebar toggle and pick **Group By > Manual / Host / Status**, or run **Sidebar: Group by Host**, **Sidebar: Group by Status** or **Sidebar: Group Manually** from the command palette. Choosing a mode while a custom or extension sidebar view is showing switches back to the workspaces view.
+
+- **Manual** (default): your own order and the workspace groups described above.
+- **Host**: **This Mac** first, then one section per SSH host (`user@` is dropped, so two logins to one host share a section; remote tmux mirrors join their host), then one section per Cloud VM.
+- **Status**, loudest first: **Needs Input**, **Running**, **Unread**, **Idle** (an agent has reported but is quiet), **Terminals** (no agent). Empty sections are hidden.
+
+Inside a section, workspaces keep their manual order. Host and Status only change what the sidebar draws: they never edit your groups or your order, so switching back to Manual restores the exact layout. In an automatic mode:
+
+- A manual group's anchor workspace shows as an ordinary row, and **Move to Group** / **Remove from Group** still act on your manual groups.
+- Section headers only collapse and expand. They have no `+` button, and rename, pin, ungroup, delete and config actions are unavailable.
+- Drag reordering is off, because a drop position in a section does not map to your manual order. Dropping tabs onto a workspace still works.
+- `⌘1`…`⌘9` follow the drawn order.
+
+The mode is saved per window with the session; collapsed sections are not.
+
+From the CLI or socket:
+
+```bash
+cmux sidebar-group-by                        # print the current mode
+cmux sidebar-group-by host                   # manual | host | status
+cmux sidebar-group-by status --window window:2 --json
+```
+
+The v2 method is `sidebar.group_by` with an optional `mode` param and the usual window routing selectors. It replies `{window_id, window_ref, mode}` and never focuses the window.
+
 ## iMessage mode (planned)
 
 When the sidebar is in iMessage mode (latest unread floats to top), the intended behavior for groups is two boolean knobs:
