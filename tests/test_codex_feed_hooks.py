@@ -274,7 +274,7 @@ def monitor_pids_for_session(session_id: str) -> list[int]:
         pid_text, _, command = stripped.partition(" ")
         if (
             " hooks codex monitor " in f" {command} "
-            and f"--session {session_id}" in command
+            and f" --session {session_id} " in f" {command} "
         ):
             pids.append(int(pid_text))
     return pids
