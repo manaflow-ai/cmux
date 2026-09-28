@@ -392,6 +392,11 @@ extension MobileShellComposite {
                                 reason: "connectionRecovery.\(trigger)",
                                 restartEventStream: true
                             )
+                        } else {
+                            // Retaining the terminal subscription must not
+                            // skip foreground notification cleanup. Wait for
+                            // this probe so recovery keeps ownership of dialing.
+                            self.scheduleNotificationReconcile(client: expectedClient)
                         }
                         self.applyConnectionRecoveryOwnerState()
                         return
@@ -416,6 +421,8 @@ extension MobileShellComposite {
                                 reason: "connectionRecovery.\(trigger).transportAlive",
                                 restartEventStream: true
                             )
+                        } else {
+                            self.scheduleNotificationReconcile(client: expectedClient)
                         }
                         self.applyConnectionRecoveryOwnerState()
                         return
