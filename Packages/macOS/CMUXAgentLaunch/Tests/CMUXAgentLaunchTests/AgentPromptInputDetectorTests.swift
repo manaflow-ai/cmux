@@ -112,6 +112,25 @@ struct AgentPromptInputDetectorTests {
         #expect(AgentPromptInputState.dialog.blocksTyping)
     }
 
+    @Test("A hint quoted in the transcript above the input row is not a dialog")
+    func hintAboveInputRowIgnored() {
+        let screen = claudeScreen(
+            input: [[span("\u{276F}\u{00A0}"), span(" ", at: 2)]],
+            above: [[span("\u{25CF} Run the installer, then press enter to confirm the defaults.")]]
+        )
+        #expect(AgentPromptInputDetector.detect(rows: screen) == .empty)
+    }
+
+    @Test("A hint below the input row is a dialog")
+    func hintBelowInputRow() {
+        let screen = [
+            [span("\u{203A} 1. Allow once")],
+            [span("  2. Deny")],
+            [span("  Press enter to confirm or esc to go back")],
+        ]
+        #expect(AgentPromptInputDetector.detect(rows: screen) == .dialog)
+    }
+
     @Test("A shell prompt is not an agent prompt")
     func shellIsUnknown() {
         let screen = [[span("leo@big-red ~ % ls")], [span("a b c")], [span("leo@big-red ~ % ")]]

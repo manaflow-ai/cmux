@@ -295,6 +295,13 @@ extension CMUXCLI {
         case key
     }
 
+    /// The guard for typed text: text that only presses Enter submits what
+    /// is already in the prompt, like `cmux send-key enter`, so it is checked
+    /// as a key.
+    static func terminalInputWriteKind(forTypedText text: String) -> TerminalInputWriteKind {
+        text.unicodeScalars.allSatisfy { $0 == "\r" || $0 == "\n" } ? .key : .text
+    }
+
     /// Removes leading `--force` flags from a command's remaining arguments.
     /// Only flags before the text or key count, so `cmux send echo --force`
     /// still types `--force` as text.
@@ -331,19 +338,18 @@ extension CMUXCLI {
         } catch {
             return
         }
-        let waitingOnHuman = (state["waiting_on_human"] as? Bool) == true
         let dialog = state["state"] as? String == "dialog" && (state["agent"] as? Bool) == true
         let blocks: Bool
         switch kind {
         case .text:
             blocks = (state["blocks_typing"] as? Bool) == true
         case .key:
-            blocks = waitingOnHuman || dialog
+            blocks = dialog
         }
         guard blocks else { return }
 
         let surface = (target["surface_id"] as? String) ?? (state["surface_id"] as? String) ?? "?"
-        if waitingOnHuman || dialog {
+        if dialog {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.send.error.dialogOpen",

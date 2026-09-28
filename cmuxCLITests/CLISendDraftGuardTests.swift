@@ -26,6 +26,13 @@ struct CLISendDraftGuardTests {
         "lifecycle": "idle", "waiting_on_human": false, "blocks_typing": false,
     ]
 
+    /// The lifecycle says the agent waits on a human, but nothing is open on
+    /// screen: after an interrupt or an API error, typing is how to recover.
+    private static let staleWaiting: [String: Any] = [
+        "state": "empty", "agent": true, "terminal": true,
+        "lifecycle": "needsInput", "waiting_on_human": true, "blocks_typing": false,
+    ]
+
     private static let writeMethods: Set<String> = ["surface.send_text", "terminal.paste", "surface.send_key"]
 
     private func writes(_ run: Run) -> [String] {
@@ -107,6 +114,29 @@ struct CLISendDraftGuardTests {
             #expect(run.result.status != 0, Comment(rawValue: arguments.joined(separator: " ")))
             #expect(writes(run).isEmpty)
         }
+    }
+
+    @Test func staleWaitingStateDoesNotBlock() throws {
+        for arguments in [
+            ["send", "--surface", Self.targetSurfaceRef, "continue"],
+            ["send-key", "--surface", Self.targetSurfaceRef, "enter"],
+        ] {
+            let run = try runCLI(arguments: arguments, inputState: Self.staleWaiting)
+            #expect(run.result.status == 0, Comment(rawValue: arguments.joined(separator: " ") + ": " + run.result.stderr))
+            #expect(writes(run).count == 1)
+        }
+    }
+
+    /// `cmux send "text"` then `cmux send "\n"` submits like send-key enter.
+    @Test func sendingOnlyEnterIsCheckedAsAKey() throws {
+        for text in ["\\n", "\\r"] {
+            let run = try runCLI(arguments: ["send", "--surface", Self.targetSurfaceRef, text], inputState: Self.draft)
+            #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+            #expect(writes(run) == ["surface.send_text"])
+        }
+        let intoDialog = try runCLI(arguments: ["send", "--surface", Self.targetSurfaceRef, "\\n"], inputState: Self.dialog)
+        #expect(intoDialog.result.status != 0)
+        #expect(writes(intoDialog).isEmpty)
     }
 
     /// An app without `surface.input_state` (older build, or a relay that

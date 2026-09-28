@@ -263,6 +263,20 @@ extension TerminalController {
             return Self.v2Encoder.response(id: request.id, typedResult)
         }
 
+        if request.method == "surface.input_state" {
+            // Several main-actor hops; run them on a GCD thread rather than
+            // parking a cooperative-pool thread while main is busy.
+            return await runBlockingSocketBody {
+                self.socketWorkerV2Response(
+                    handling: ControlRequest(
+                        id: request.id,
+                        method: request.method,
+                        params: request.params
+                    )
+                )
+            }
+        }
+
         if request.method == "surface.read_text" {
             // Steady-state polling takes the snapshot branch above and never
             // enters this fallback. The body takes its own main-actor hop and,

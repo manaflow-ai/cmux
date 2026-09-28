@@ -240,11 +240,11 @@ their existing owners rather than being duplicated into a second CMUX ledger.
 
 Before writing, `send`, `send-panel` and `paste` (and `send --paste`) ask the
 app for `surface.input_state` and refuse when an agent's prompt holds text
-someone is typing, when a question or permission dialog is open in an agent,
-or when the agent reports it is waiting on a human. `send-key` and
-`send-key-panel` refuse only for the dialog and waiting cases: `cmux send "text"`
-followed by `cmux send-key enter` leaves the sent text in the prompt, and the
-key has to go through. A refusal writes nothing, prints the reason on stderr
+someone is typing, or when a question or permission dialog is open in an
+agent. `send-key` and `send-key-panel`, and `send` of text that only presses
+Enter, refuse only for an open dialog: `cmux send "text"` followed by
+`cmux send-key enter` leaves the sent text in the prompt, and the key has to
+go through. Surfaces without an agent are never blocked. A refusal writes nothing, prints the reason on stderr
 and exits non-zero. `--force`, before the text or key, skips the check. When
 the app can't answer `surface.input_state` (an older build, or a `cmux ssh`
 relay, which doesn't forward it) the commands write as before.
@@ -255,12 +255,12 @@ surface, and returns:
 
 | Field | Meaning |
 | --- | --- |
-| `state` | `empty`, `draft`, `dialog`, or `unknown` when no agent prompt is on screen. Read from the visible screen: Claude Code's and Codex's input rows, ignoring faint placeholder text, and key hints such as "Esc to cancel". |
+| `state` | `empty`, `draft`, `dialog`, or `unknown` when no agent prompt is on screen. Read from the active screen (not the scrolled viewport): Claude Code's and Codex's input rows, ignoring faint placeholder text, and key hints such as "Esc to cancel" below the input row. |
 | `draft_length` | Characters in the draft, when `state` is `draft`. The text itself is not returned. |
 | `agent` | Whether an agent reports lifecycle state for the surface. |
 | `lifecycle` | The agent's lifecycle: `unknown`, `running`, `idle` or `needsInput`. |
-| `waiting_on_human` | `lifecycle` is `needsInput`. |
-| `blocks_typing` | Typing text now could disturb a human: a draft, a dialog in an agent, or `waiting_on_human`. |
+| `waiting_on_human` | `lifecycle` is `needsInput`. Informational: it can stay set after an interrupt or an API error, so it does not block on its own. |
+| `blocks_typing` | Typing text now could disturb a human: a draft or a dialog, on a surface that runs an agent. |
 | `terminal` | Whether the surface is a terminal. |
 
 ## Surface Selection Contract

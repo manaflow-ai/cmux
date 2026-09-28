@@ -7575,7 +7575,12 @@ struct CMUXCLI {
                 let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
                 if let sfId { params["surface_id"] = sfId }
                 if !force {
-                    try ensureAgentPromptIsFree(for: .text, command: "send", target: params, client: client)
+                    try ensureAgentPromptIsFree(
+                        for: Self.terminalInputWriteKind(forTypedText: text),
+                        command: "send",
+                        target: params,
+                        client: client
+                    )
                 }
                 let payload = try client.sendV2(method: "surface.send_text", params: params)
                 printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
@@ -7635,7 +7640,12 @@ struct CMUXCLI {
             let sfId = try normalizeSurfaceHandle(panelArg, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let sfId { params["surface_id"] = sfId }
             if !force {
-                try ensureAgentPromptIsFree(for: .text, command: "send-panel", target: params, client: client)
+                try ensureAgentPromptIsFree(
+                    for: Self.terminalInputWriteKind(forTypedText: text),
+                    command: "send-panel",
+                    target: params,
+                    client: client
+                )
             }
             let payload = try client.sendV2(method: "surface.send_text", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))

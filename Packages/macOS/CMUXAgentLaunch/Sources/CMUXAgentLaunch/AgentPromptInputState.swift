@@ -49,14 +49,18 @@ public struct AgentPromptScreenSpan: Equatable, Sendable {
 /// A draft is any non-faint text after the prompt glyph on the input row or
 /// its continuation rows. Menus and confirmation dialogs (permission asks,
 /// questions, trust prompts) end with a key hint such as "Esc to cancel" or
-/// "Press enter to continue".
+/// "Press enter to continue". When an input row is on screen, only hints
+/// below it count, so an agent's reply that quotes such a hint in the
+/// transcript above is not a dialog.
+///
+/// Both glyphs can appear in other programs' output, so callers should only
+/// act on the result for a surface known to run an agent.
 public enum AgentPromptInputDetector {
     static let claudePromptPrefix = "\u{276F}\u{00A0}"
     static let codexPromptPrefix = "\u{203A} "
     static let dialogHints = [
         "esc to cancel",
         "esc to go back",
-        "esc to interrupt and",
         "press enter to",
         "enter to confirm",
         "enter to select",
@@ -68,8 +72,10 @@ public enum AgentPromptInputDetector {
     ///   in column order.
     public static func detect(rows: [[AgentPromptScreenSpan]]) -> AgentPromptInputState {
         let plainRows = rows.map(plainText)
+        let promptRow = plainRows.lastIndex(where: { promptPrefix(in: $0) != nil })
 
-        let bottomRows = plainRows.reversed()
+        let hintSearchStart = promptRow.map { $0 + 1 } ?? 0
+        let bottomRows = plainRows[hintSearchStart...].reversed()
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             .prefix(dialogHintRowWindow)
         if bottomRows.contains(where: { row in
@@ -79,8 +85,7 @@ public enum AgentPromptInputDetector {
             return .dialog
         }
 
-        guard let promptRow = plainRows.lastIndex(where: { promptPrefix(in: $0) != nil }),
-              let prefix = promptPrefix(in: plainRows[promptRow]) else {
+        guard let promptRow, let prefix = promptPrefix(in: plainRows[promptRow]) else {
             return .unknown
         }
 

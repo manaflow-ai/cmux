@@ -53,10 +53,11 @@ extension TerminalController {
             }
             payload["terminal"] = true
             let screen = Self.agentPromptInputState(of: panel.surface)
-            // A dialog hint on a surface with no agent is ordinary program
-            // output, not a reason to refuse typing.
-            let waitingOnHuman = lifecycle == .needsInput
-            var blocks = waitingOnHuman
+            // Only the screen decides, and only for a surface that runs an
+            // agent: the prompt glyphs and key hints also show up in other
+            // programs' output, and the lifecycle can stay `needsInput` after
+            // an interrupt or an API error, when typing is how to recover.
+            var blocks = false
             switch screen {
             case .unknown:
                 payload["state"] = "unknown"
@@ -65,10 +66,10 @@ extension TerminalController {
             case .draft(let text):
                 payload["state"] = "draft"
                 payload["draft_length"] = text.count
-                blocks = true
+                blocks = hasAgent
             case .dialog:
                 payload["state"] = "dialog"
-                blocks = blocks || hasAgent
+                blocks = hasAgent
             }
             payload["blocks_typing"] = blocks
             return .ok(payload)
@@ -79,7 +80,13 @@ extension TerminalController {
     /// span's faint attribute so placeholders don't read as drafts.
     @MainActor
     static func agentPromptInputState(of surface: TerminalSurface) -> AgentPromptInputState {
-        guard let frame = surface.mobileRenderGridFrame(stateSeq: 0, includeTheme: false)?.frame else {
+        // The active screen, not the viewport: a human scrolled up in the
+        // pane still has their draft at the bottom.
+        guard let frame = surface.mobileRenderGridFrame(
+            stateSeq: 0,
+            includeTheme: false,
+            anchor: .screen
+        )?.frame else {
             return .unknown
         }
         var faintStyles = Set<Int>()
