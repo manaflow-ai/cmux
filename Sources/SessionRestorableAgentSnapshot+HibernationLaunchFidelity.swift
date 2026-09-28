@@ -17,7 +17,13 @@ extension SessionRestorableAgentSnapshot {
     /// or `nil` when it can. Hibernation refuses such panes: tearing down an
     /// agent is only safe when the wake brings back the same agent.
     var hibernationLaunchFidelityProblem: AgentHibernationLaunchFidelityProblem? {
-        if kind == .claude, launchCommand?.arguments.isEmpty ?? true {
+        if kind == .claude, launchCommand?.arguments.isEmpty ?? true,
+           !SubrouterClaudeResumeRouting().provesRoutedLaunch(
+               launcher: launchCommand?.launcher,
+               environment: launchCommand?.environment
+           ) {
+            // A proven Subrouter launch wakes through its launcher even without
+            // a captured argv.
             return .missingClaudeLaunchCapture
         }
         if let launcherID = launchCommand?.externalLauncher,
@@ -26,7 +32,8 @@ extension SessionRestorableAgentSnapshot {
                kind: kind,
                sessionId: sessionId,
                launchCommand: launchCommand,
-               workingDirectory: workingDirectory
+               // Match `cmux restore`, which searches from the launch directory.
+               workingDirectory: launchCommand?.workingDirectory ?? workingDirectory
            ) == nil,
            !AgentResumeArgv().resumeRoutesThroughOwnedLauncher(
                launcher: launchCommand?.launcher,

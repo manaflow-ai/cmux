@@ -58,6 +58,23 @@ struct AgentHibernationLaunchFidelityTests {
     }
 
     @Test
+    func provenSubrouterLaunchWithoutArgvIsEligible() throws {
+        let marker = "sr claude proxy"
+        let launch = AgentLaunchCommandSnapshot(
+            launcher: "claude",
+            executablePath: "/usr/local/bin/claude",
+            arguments: [],
+            workingDirectory: cwd,
+            environment: [
+                "SUBROUTER_CLAUDE_RESUME_COMMAND": marker,
+                "CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND": marker,
+            ],
+            source: "environment"
+        )
+        #expect(try gate(kind: .claude, launch: launch) != nil)
+    }
+
+    @Test
     func agentWhoseDeclaredLauncherNoLongerResolvesIsNotHibernated() throws {
         let launch = AgentLaunchCommandSnapshot(
             launcher: "claude",
