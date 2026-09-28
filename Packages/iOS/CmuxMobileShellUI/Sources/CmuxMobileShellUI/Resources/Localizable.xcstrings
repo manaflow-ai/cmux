@@ -14566,29 +14566,29 @@
     "mobile.connectionsUpdate.tailscale.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Tailscale, on your terms"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "Tailscaleは自分のペースで"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Tailscale, zu Ihren Bedingungen"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Tailscale, selon vos conditions"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "Tailscale ، وفقًا لشروطك"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Tailscale, según tus condiciones"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Tailscale，依照您的條件"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Tailscale，按照您的条件"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "Tailscale, 원하는 대로"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Tailscale is now part of Direct"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Tailscaleは「ダイレクト」の一部になりました"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Tailscale ist jetzt Teil von Direct"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Tailscale fait désormais partie de Direct"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أصبح Tailscale جزءًا من Direct"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tailscale ahora es parte de Direct"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Tailscale 現已併入 Direct"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Tailscale 现已并入 Direct"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Tailscale은 이제 Direct의 일부입니다"}}
       }
     },
     "mobile.connectionsUpdate.tailscale.detail": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "「Tailscaleのみ」を選ぶと、足りない設定とペアリングコードのスキャンをその場で案内します。勝手に画面が開くことはありません。"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Wenn Sie sich für „Nur Tailscale“ entscheiden, wird genau angezeigt, was fehlt, und der Pairing-Code-Scan wird direkt dort angeboten. Nichts öffnet sich von alleine."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Choisir Tailscale Only montre exactement ce qui manque et propose l'analyse du code d'appariement directement sur place. Rien ne s'ouvre tout seul."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "يؤدي اختيار Tailscale فقط إلى عرض ما هو مفقود بالضبط ويوفر فحص رمز الاقتران هناك. لا شيء يفتح من تلقاء نفسه."}},
-        "es": {"stringUnit": {"state": "translated", "value": "Elegir Tailscale Only muestra exactamente lo que falta y ofrece el escaneo del código de emparejamiento allí mismo. Nada se abre por sí solo."}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "選擇“Tailscale Only”會準確顯示缺少的內容，並在此處提供配對碼掃描。没有什么是可以自行打开的。"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "选择“Tailscale Only”会准确显示缺少的内容，并在此处提供配对码扫描。没有什么是可以自行打开的。"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "Tailscale Only를 선택하면 누락된 내용이 정확히 표시되고 바로 페어링 코드 스캔이 제공됩니다. 저절로 열리는 것은 없습니다."}}
+        "en": {"stringUnit": {"state": "translated", "value": "Tailscale Only is now a subset of Direct: tap Add Tailscale Connection to add your Mac's Tailscale address. Computers set to Tailscale Only moved over automatically."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「Tailscaleのみ」は「ダイレクト」に統合されました。「Tailscale接続を追加」からMacのTailscaleアドレスを追加できます。「Tailscaleのみ」に設定していたコンピュータは自動的に移行されます。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "„Nur Tailscale“ ist jetzt Teil von Direct: Tippen Sie auf „Tailscale-Verbindung hinzufügen“, um die Tailscale-Adresse Ihres Mac hinzuzufügen. Computer mit „Nur Tailscale“ wurden automatisch umgestellt."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Tailscale Only fait désormais partie de Direct : touchez Ajouter une connexion Tailscale pour ajouter l'adresse Tailscale de votre Mac. Les ordinateurs réglés sur Tailscale Only ont été migrés automatiquement."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أصبح وضع Tailscale Only جزءًا من Direct: اضغط على إضافة اتصال Tailscale لإضافة عنوان Tailscale الخاص بجهاز Mac. انتقلت أجهزة الكمبيوتر المضبوطة على Tailscale Only تلقائيًا."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tailscale Only ahora es parte de Direct: toque Agregar conexión Tailscale para añadir la dirección Tailscale de su Mac. Las computadoras configuradas en Tailscale Only se migraron automáticamente."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Tailscale Only 已併入 Direct：點按「新增 Tailscale 連線」即可新增 Mac 的 Tailscale 位址。設定為 Tailscale Only 的電腦已自動遷移。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Tailscale Only 已并入 Direct：点按“添加 Tailscale 连接”即可添加 Mac 的 Tailscale 地址。设置为 Tailscale Only 的计算机已自动迁移。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Tailscale Only는 이제 Direct에 통합되었습니다. Tailscale 연결 추가를 눌러 Mac의 Tailscale 주소를 추가하세요. Tailscale Only로 설정된 컴퓨터는 자동으로 이전되었습니다."}}
       }
     },
     "mobile.pairingOptInUpdate.title": {
