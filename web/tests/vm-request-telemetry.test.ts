@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import type { Span } from "@opentelemetry/api";
 
 import {
@@ -11,9 +11,11 @@ import {
 } from "../services/telemetry";
 import {
   captureVmRequestOutcome,
+  isOperatorFaultVmError,
   VM_ERROR_CODE_HEADER,
   VM_REQUEST_POSTHOG_EVENT,
 } from "../services/vms/observability";
+import * as report from "../services/observability/report";
 import {
   currentVmRequestContext,
   runWithVmRequestContext,
@@ -355,5 +357,59 @@ describe("cloud_vm_request capture", () => {
     const { body } = capture(ctx, new Response("{}", { status: 500 }));
     expect(body?.batch[0].properties.trace_id).toBeUndefined();
     expect(body?.batch[0].properties.client_trace_id).toBe("c".repeat(32));
+  });
+});
+
+describe("cmux-vm-error attribution", () => {
+  test("permanent client-state errors are never operator faults, even when answered with a 5xx", () => {
+    for (const error of [
+      "vm_not_found",
+      "vm_snapshot_not_found",
+      "vm_tunnel_not_found",
+      "vm_access_revoked",
+      "vm_access_grant_not_found",
+      "vm_attach_transport_unsupported",
+      "vm_memory_size_unknown",
+      "vm_operation_unsupported",
+    ]) {
+      expect({ error, fault: isOperatorFaultVmError({ error, status: 503 }) }).toEqual({ error, fault: false });
+      expect({ error, fault: isOperatorFaultVmError({ error, status: 404 }) }).toEqual({ error, fault: false });
+    }
+    // Deployment and dependency failures stay operator faults.
+    expect(isOperatorFaultVmError({ error: "vm_cloud_state_unavailable", status: 503 })).toBe(true);
+    expect(isOperatorFaultVmError({ error: "vm_image_config_error", status: 400 })).toBe(true);
+    expect(isOperatorFaultVmError({ error: "", status: 500 })).toBe(true);
+  });
+
+  test("a per-machine failure carries the stable vm_id and client_request_id on every sink", () => {
+    const ctx = context({
+      route: "/api/vm/[id]/attach-endpoint",
+      operation: "open_attach",
+      vmId: "vm-abc",
+      client: { name: "cmux-mac", version: "1.2.3", channel: "nightly", requestId: "client-req-7" },
+    });
+    const { span, attributes } = fakeSpan();
+    const reported = spyOn(report, "reportError").mockImplementation(() => undefined);
+    let response: Response;
+    try {
+      response = runWithVmRequestContext(ctx, () => vmErrorResponse({
+        error: "vm_cloud_state_unavailable",
+        status: 503,
+        message: "Cloud VM state is temporarily unavailable.",
+        action: "retry",
+        phase: "attach",
+      }));
+      const options = reported.mock.calls[0]?.[2] as { tags?: Record<string, unknown> } | undefined;
+      expect(options?.tags).toMatchObject({ vm_id: "vm-abc", "client.request_id": "client-req-7" });
+    } finally {
+      reported.mockRestore();
+    }
+    const { body } = capture(ctx, response, span);
+    const [request, exception] = body!.batch;
+    for (const entry of [request, exception]) {
+      expect(entry.properties).toMatchObject({ vm_id: "vm-abc", client_request_id: "client-req-7" });
+    }
+    expect(exception.properties.$exception_fingerprint).toBe("cmux-vm-error:vm_cloud_state_unavailable");
+    expect(attributes["cmux.vm.id"]).toBe("vm-abc");
   });
 });
