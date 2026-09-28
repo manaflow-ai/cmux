@@ -1,4 +1,4 @@
-import { inArray } from "drizzle-orm";
+import { and, inArray, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { runWithCloudDbQuerySignal } from "../../db/queryScope";
@@ -17,7 +17,8 @@ import { stackIdentitySnapshots } from "../../db/schema";
  * resolves an account with a complete team list, and it is deleted when that
  * account revokes a lease or is tombstoned for deletion. So a teammate who
  * just revoked a lease reads as "Unknown" on every one of their machines
- * until they next sign in.
+ * until they next sign in, and someone who has left the owning team reads as
+ * "Unknown" there for good.
  */
 export type VmCreator = {
   readonly userId: string;
@@ -52,7 +53,9 @@ type CreatorDb = Pick<ReturnType<typeof cloudDb>, "select">;
 export const CREATOR_LOOKUP_TIMEOUT_MS = 2_000;
 
 /**
- * Display names for the accounts that made these machines.
+ * Display names for the accounts that made these machines, limited to accounts
+ * whose snapshot shows current membership of `teamId`, the team that owns the
+ * machines.
  *
  * This reads `stack_identity_snapshots` with no freshness bound, unlike
  * `readIdentitySnapshot`. That function's TTL is a security parameter: it
@@ -62,46 +65,53 @@ export const CREATOR_LOOKUP_TIMEOUT_MS = 2_000;
  * whereas a ten-minute bound would leave almost every row anonymous. Only the
  * display name is read; the stored email stays on the server.
  *
- * What the TTL did buy, and this gives up: `cloud_vms.owner_team_id` is
- * immutable by trigger, so a machine someone made in a team stays in that team
- * after they leave it, and the team keeps seeing that account's *current* name
- * indefinitely. If they rename themselves afterwards, the team learns the new
- * name. That is a display name on an artifact they left behind in that team,
- * which is why this is written down rather than bounded.
+ * The membership filter is what keeps that trade-off small. A machine someone
+ * made in a team stays in that team after they leave it (`owner_team_id` is
+ * immutable by trigger), but once their snapshot no longer lists the team,
+ * the team stops receiving their name, including any name they set later.
+ * Their machines then read as "Unknown", the same as an account with no name.
+ * A null `teamId` (a personal list, which holds only the caller's own
+ * machines) reads nothing.
  *
- * A read failure returns an empty map. A list without authors is the behavior
- * that shipped before this, so it is never worth failing the request over.
- * The same holds for a slow read: the lookup is bounded by `timeoutMs`, after
- * which the query is cancelled through the driver and the request continues
- * with no names. The wait is raced against the deadline as well as cancelled,
- * because a cancel packet on a stalled connection does not settle the query
- * promptly on its own.
- * The caller records how many names came back as a span attribute, because a
- * migration lagging in one environment is otherwise indistinguishable from
- * nobody having set a name.
+ * A read failure returns an empty map and reports the error to `onFailure`.
+ * A list without authors is the behavior that shipped before this, so it is
+ * never worth failing the request over. The same holds for a slow read: the
+ * lookup is bounded by `timeoutMs`, after which the query is cancelled
+ * through the driver and the request continues with no names. The wait is
+ * raced against the deadline as well as cancelled, because a cancel packet on
+ * a stalled connection does not settle the query promptly on its own.
  */
 export async function readCreatorDisplayNames(
   userIds: readonly string[],
-  db?: CreatorDb,
-  timeoutMs: number = CREATOR_LOOKUP_TIMEOUT_MS,
+  options: {
+    readonly teamId: string | null | undefined;
+    readonly db?: CreatorDb;
+    readonly timeoutMs?: number;
+    readonly onFailure?: (error: unknown) => void;
+  },
 ): Promise<Map<string, string>> {
   const names = new Map<string, string>();
-  if (userIds.length === 0) return names;
-  const signal = AbortSignal.timeout(timeoutMs);
+  const teamId = options.teamId?.trim();
+  if (userIds.length === 0 || !teamId) return names;
+  const signal = AbortSignal.timeout(options.timeoutMs ?? CREATOR_LOOKUP_TIMEOUT_MS);
   let onAbort: (() => void) | undefined;
   const deadline = new Promise<never>((_, reject) => {
     onAbort = () => reject(signal.reason);
     signal.addEventListener("abort", onAbort, { once: true });
   });
+  const membership = JSON.stringify([{ id: teamId }]);
   try {
     const query = runWithCloudDbQuerySignal(signal, async () =>
-      (db ?? cloudDb())
+      (options.db ?? cloudDb())
         .select({
           userId: stackIdentitySnapshots.userId,
           displayName: stackIdentitySnapshots.displayName,
         })
         .from(stackIdentitySnapshots)
-        .where(inArray(stackIdentitySnapshots.userId, [...userIds])),
+        .where(and(
+          inArray(stackIdentitySnapshots.userId, [...userIds]),
+          sql`${stackIdentitySnapshots.teams} @> ${membership}::jsonb`,
+        )),
     );
     // The losing side of the race must not surface as an unhandled rejection.
     query.catch(() => undefined);
@@ -110,7 +120,8 @@ export async function readCreatorDisplayNames(
       const name = row.displayName?.trim();
       if (name) names.set(row.userId, name);
     }
-  } catch {
+  } catch (error) {
+    options.onFailure?.(error);
     return new Map();
   } finally {
     if (onAbort) signal.removeEventListener("abort", onAbort);
@@ -118,6 +129,24 @@ export async function readCreatorDisplayNames(
   return names;
 }
 
+/**
+ * The name map a response needs for machines owned by `teamId`: the caller's
+ * own name from the session, and a snapshot read for everyone else. The
+ * caller is left out of the read, so a personal list, or a team list of only
+ * the caller's machines, costs no query at all.
+ */
+export async function readCreatorNames(input: {
+  readonly userIds: readonly string[];
+  readonly teamId: string | null | undefined;
+  readonly caller: { readonly id: string; readonly displayName: string | null };
+  readonly onFailure?: (error: unknown) => void;
+}): Promise<Map<string, string>> {
+  const others = input.userIds.filter((id) => id !== input.caller.id);
+  return withCallerName(
+    await readCreatorDisplayNames(others, { teamId: input.teamId, onFailure: input.onFailure }),
+    input.caller,
+  );
+}
 
 /**
  * Adds the caller's own name to a name map.

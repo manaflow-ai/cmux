@@ -1,7 +1,7 @@
 import {
   creatorFor,
   creatorUserIds,
-  readCreatorDisplayNames,
+  readCreatorNames,
   withCallerName,
 } from "../../../services/vms/creators";
 import { normalizedDisplayName } from "../../../services/vms/displayName";
@@ -148,13 +148,17 @@ export async function GET(request: Request): Promise<Response> {
         : 0;
       // Who made each machine. A team list is scoped by owner team, so this is
       // the only thing separating one member's machines from another's.
-      const creatorNames = withCallerName(
-        await readCreatorDisplayNames(creatorUserIds(entries)),
-        user,
-      );
+      const creatorNames = await readCreatorNames({
+        userIds: creatorUserIds(entries),
+        teamId: billingTeamId,
+        caller: user,
+        onFailure: (error) => setSpanAttributes(span, {
+          "cmux.vm.creator_lookup_error": error instanceof Error ? error.name : "unknown",
+        }),
+      });
       // A migration lagging in one environment turns every row into "Unknown"
-      // with nothing else to show for it. This separates that from nobody
-      // having set a name.
+      // with nothing else to show for it. This, with the lookup error above,
+      // separates that from nobody having set a name.
       setSpanAttributes(span, { "cmux.vm.creator_names": creatorNames.size });
       const vms = entries.map((entry) => ({
         id: entry.providerVmId,
