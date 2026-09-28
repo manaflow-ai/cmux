@@ -539,7 +539,7 @@ enum TerminalSSHSessionDetector {
         )
     }
 
-    private static func normalizeTTYName(_ ttyName: String) -> String {
+    static func normalizeTTYName(_ ttyName: String) -> String {
         let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
         if let lastComponent = trimmed.split(separator: "/").last {
@@ -548,7 +548,7 @@ enum TerminalSSHSessionDetector {
         return trimmed
     }
 
-    private static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
+    static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
         normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
             RemoteShellTransport(executableName: process.executableName) != nil &&
             process.pgid > 0 &&
