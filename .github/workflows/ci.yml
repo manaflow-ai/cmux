@@ -39,7 +39,9 @@ env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Adding dev-build gets its own group, so a later label event cannot replace
+  # the pending run that asks for the dogfood build.
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name == 'dev-build' && '-dev-build' || '' }}
   # A label-only rerun can escalate the same head to full-ci. Let the current
   # compile finish and publish its app-host product so the queued run can reuse
   # it instead of throwing away a long compile and starting from zero.
@@ -1678,8 +1680,9 @@ jobs:
           fi
           range=""
           if [ -n "$previous" ] && [ "$previous" != "$HEAD_SHA" ]; then
-            commits=$(gh api "repos/$GH_REPO/compare/$previous...$HEAD_SHA" --jq '.total_commits' 2>/dev/null || echo "?")
-            range="Covers \`${previous:0:8}..${HEAD_SHA:0:8}\` ([$commits commits](https://github.com/$GH_REPO/compare/$previous...$HEAD_SHA)) since the previous link, [cmux DEV pr-$PR-${previous:0:8}.app](http://127.0.0.1:17320/pr-$PR-${previous:0:8}); if that push was skipped, its page names the newer build. To build a commit in between: \`cmux-ci build cmux --ref <sha> --tag bisect-<sha8> --workspace https://github.com/$GH_REPO/pull/$PR\`."
+            commits=$(gh api "repos/$GH_REPO/compare/$previous...$HEAD_SHA" --jq '.total_commits' 2>/dev/null) || true
+            [[ "$commits" =~ ^[0-9]+$ ]] || commits="?"
+            range="Covers \`${previous:0:8}..${HEAD_SHA:0:8}\` ([commits: $commits](https://github.com/$GH_REPO/compare/$previous...$HEAD_SHA)) since the previous link, [cmux DEV pr-$PR-${previous:0:8}.app](http://127.0.0.1:17320/pr-$PR-${previous:0:8}); if that push was skipped, its page names the newer build. To build a commit in between: \`cmux-ci build cmux --ref <sha> --tag bisect-<sha8> --workspace https://github.com/$GH_REPO/pull/$PR\`."
           fi
           cat > body.md <<EOF
           $marker
