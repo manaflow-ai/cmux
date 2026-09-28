@@ -13,7 +13,8 @@ import Foundation
 /// and pending paths:
 /// `CMUX_UITEST_AUTH_FIXTURE_REJECT_TEAM_NAME` fails creates with that name,
 /// `CMUX_UITEST_AUTH_FIXTURE_REJECT_TEAM_ID` fails switches to that team, and
-/// `CMUX_UITEST_AUTH_FIXTURE_TEAM_SWITCH_DELAY_MS` holds each switch pending.
+/// `CMUX_UITEST_AUTH_FIXTURE_TEAM_SWITCH_GATE` holds each switch pending until
+/// the test creates a file at that path.
 actor UITestFixtureTeamsAuthClient: AuthClient {
     private let base: any AuthClient
     private var teams: [CMUXAuthTeam]
@@ -21,7 +22,7 @@ actor UITestFixtureTeamsAuthClient: AuthClient {
     private var createdCount = 0
     private let rejectedCreateName: String?
     private let rejectedSwitchID: String?
-    private let switchDelay: Duration
+    private let switchGate: URL?
 
     /// Returns `base` unchanged unless the launch opted in to fixture teams.
     /// A malformed team list serves no teams rather than the live ones, since
@@ -33,13 +34,12 @@ actor UITestFixtureTeamsAuthClient: AuthClient {
             return base
         }
         let teams = (try? JSONDecoder().decode([CMUXAuthTeam].self, from: Data(json.utf8))) ?? []
-        let delay = environment["CMUX_UITEST_AUTH_FIXTURE_TEAM_SWITCH_DELAY_MS"].flatMap(Int.init) ?? 0
         return UITestFixtureTeamsAuthClient(
             base: base,
             teams: teams,
             rejectedCreateName: environment["CMUX_UITEST_AUTH_FIXTURE_REJECT_TEAM_NAME"],
             rejectedSwitchID: environment["CMUX_UITEST_AUTH_FIXTURE_REJECT_TEAM_ID"],
-            switchDelay: .milliseconds(max(0, delay))
+            switchGate: environment["CMUX_UITEST_AUTH_FIXTURE_TEAM_SWITCH_GATE"].map { URL(fileURLWithPath: $0) }
         )
     }
 
@@ -48,14 +48,14 @@ actor UITestFixtureTeamsAuthClient: AuthClient {
         teams: [CMUXAuthTeam],
         rejectedCreateName: String?,
         rejectedSwitchID: String?,
-        switchDelay: Duration
+        switchGate: URL?
     ) {
         self.base = base
         self.teams = teams
         selectedID = teams.first?.id
         self.rejectedCreateName = rejectedCreateName
         self.rejectedSwitchID = rejectedSwitchID
-        self.switchDelay = switchDelay
+        self.switchGate = switchGate
     }
 
     func listTeams() async throws -> [CMUXAuthTeam] { teams }
@@ -63,8 +63,10 @@ actor UITestFixtureTeamsAuthClient: AuthClient {
     func selectedTeamID() async throws -> String? { selectedID }
 
     func setSelectedTeam(id: String?) async throws {
-        if switchDelay > .zero {
-            try await Task.sleep(for: switchDelay)
+        if let switchGate {
+            while !FileManager.default.fileExists(atPath: switchGate.path) {
+                try await Task.sleep(for: .milliseconds(50))
+            }
         }
         if let id, id == rejectedSwitchID {
             throw AuthClientError.unsupported

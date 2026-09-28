@@ -122,10 +122,12 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
     }
 
     func testPendingSwitchDisablesMenuAndFailedSwitchReportsError() {
-        // Long enough that the switch is still pending after the menu reopens
-        // on a slow runner; the error wait below outlasts it.
+        // The switch stays pending until the test creates this file, then fails.
+        let switchGate = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-team-switch-gate-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: switchGate) }
         let app = launchSignedInApp(teams: Self.fixtureTeams, environment: [
-            "CMUX_UITEST_AUTH_FIXTURE_TEAM_SWITCH_DELAY_MS": "8000",
+            "CMUX_UITEST_AUTH_FIXTURE_TEAM_SWITCH_GATE": switchGate.path,
             "CMUX_UITEST_AUTH_FIXTURE_REJECT_TEAM_ID": "team-alpha",
         ])
         defer { app.terminate() }
@@ -153,12 +155,13 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         capture("team-dropdown-pending")
         app.typeKey(.escape, modifierFlags: [])
         XCTAssertTrue(switching.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(FileManager.default.createFile(atPath: switchGate.path, contents: Data()))
 
         let error = app.staticTexts.matching(NSPredicate(
             format: "identifier == %@ OR label == %@",
             "CloudTeamPickerSwitchError", "Could not switch teams. Try again."
         )).firstMatch
-        XCTAssertTrue(error.waitForExistence(timeout: 20), "A rejected switch reports its failure.")
+        XCTAssertTrue(error.waitForExistence(timeout: 10), "A rejected switch reports its failure.")
         waitForLabel(of: trigger, containing: Self.longTeamName)
         capture("team-dropdown-switch-failed")
     }
