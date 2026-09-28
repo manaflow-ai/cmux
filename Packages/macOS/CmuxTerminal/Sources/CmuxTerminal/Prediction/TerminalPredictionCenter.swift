@@ -48,6 +48,7 @@ public final class TerminalPredictionCenter {
     private var settingObserver: (any NSObjectProtocol)?
     private var settingKey: String?
     private var settingDefaults: UserDefaults?
+    private var settingDefaultValue = false
 
     nonisolated private init() {}
 
@@ -61,8 +62,12 @@ public final class TerminalPredictionCenter {
     ///
     /// The key is passed in rather than read from the setting catalog because
     /// this package does not depend on it; the app owns the catalog.
+    ///
+    /// - Parameter defaultValue: The catalog default, used while the key is
+    ///   unset. `UserDefaults.bool(forKey:)` would read an unset key as off.
     public func bindEnabledSetting(
         userDefaultsKey: String,
+        defaultValue: Bool,
         defaults: UserDefaults = .standard
     ) {
         if let settingObserver {
@@ -70,6 +75,7 @@ public final class TerminalPredictionCenter {
         }
         settingKey = userDefaultsKey
         settingDefaults = defaults
+        settingDefaultValue = defaultValue
         refreshEnabledFromSetting()
         // The closure captures nothing but the singleton: `UserDefaults` is not
         // Sendable, so the store stays main-actor state and is read there.
@@ -86,7 +92,7 @@ public final class TerminalPredictionCenter {
 
     private func refreshEnabledFromSetting() {
         guard let settingKey, let settingDefaults else { return }
-        setEnabled(settingDefaults.bool(forKey: settingKey))
+        setEnabled(settingDefaults.object(forKey: settingKey) as? Bool ?? settingDefaultValue)
     }
 
     // MARK: Lifecycle

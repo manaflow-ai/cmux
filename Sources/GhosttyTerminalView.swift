@@ -7499,6 +7499,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             var bindingFlags = ghostty_binding_flags_e(0)
             if !ghostty_surface_key_is_binding(surface, keyEvent, &bindingFlags) {
                 if terminalSurface?.enqueueManualInputNamedKey(keyName) == true {
+                    // A transport-named key (an arrow in a remote tmux pane)
+                    // moves the cursor somewhere prediction cannot follow.
+                    if let surfaceID = terminalSurface?.id {
+                        TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: surfaceID)
+                    }
                     if let keyCode = UInt16(exactly: keyEvent.keycode) {
                         manualNamedKeyConsumedKeyUps.insert(keyCode)
                     }
