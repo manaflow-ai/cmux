@@ -58,6 +58,27 @@ struct CloudMachinesHeaderCountTests {
         #expect(count.help == Self.genericHelp)
     }
 
+    @Test("A confirmed delete takes its machine out of the count before the next list read")
+    func deletedMachinesLeaveTheCount() throws {
+        let fleet = ["a", "b", "c", "d"].map {
+            MachineSnapshot(id: $0, provider: "freestyle", image: "base", isDesktop: false, activity: .ready)
+        }
+        let usage = CloudMachinesUsage(activeCount: fleet.count, maxActiveVms: 50, isPaidPlan: false)
+        let visible = try #require(MachinesPanelViewModel.usage(usage, machines: fleet, hiding: ["d"]))
+        #expect(visible.compactCount == "3/50")
+        #expect(visible.countLabel == "3 of 50 machines")
+
+        // A free plan's only machine: no orange "1/1" beside "No machines yet".
+        let freeUsage = CloudMachinesUsage(activeCount: 1, maxActiveVms: 1, isPaidPlan: false)
+        let empty = try #require(MachinesPanelViewModel.usage(freeUsage, machines: [fleet[0]], hiding: ["a"]))
+        #expect(empty.compactCount == "0/1")
+        #expect(!empty.isAtLimit)
+
+        // Only hidden machines the list still counts come off.
+        #expect(MachinesPanelViewModel.usage(usage, machines: fleet, hiding: ["gone"]) == usage)
+        #expect(MachinesPanelViewModel.usage(nil, machines: fleet, hiding: ["d"]) == nil)
+    }
+
     @Test("VoiceOver reads the header with its spelled-out usage")
     func headerCellSpeaksTheUsage() {
         let cell = headerCell(usage: CloudMachinesUsage(activeCount: 1, maxActiveVms: 50, isPaidPlan: false))

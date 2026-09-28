@@ -491,7 +491,7 @@ struct MachinesPanelView: View {
                 incomingAccessManaged: incomingAccessManaged
             ),
             canCreateCloudMachine: includesCloud,
-            cloudMachinesUsage: includesCloud ? viewModel.plan?.usage : nil,
+            cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
             reveal: devicesModel.revealRequest
         )
         .accessibilityIdentifier("CloudMachinesTree")
