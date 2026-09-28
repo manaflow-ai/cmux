@@ -4308,6 +4308,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     /// Whether this is Ctrl-U, Ctrl-W or Option-Backspace, which line editors
     /// bind to deleting back by a word or to the start of the line.
+    ///
+    /// Ctrl-U and Ctrl-W match on the layout's character, not the physical
+    /// key, so Dvorak's physical U (Ctrl-G) is not taken for a line erase.
     private static func isLineErase(_ keyEvent: ghostty_input_key_s) -> Bool {
         guard !keyEvent.composing else { return false }
         let mods = keyEvent.mods.rawValue & (
@@ -4320,12 +4323,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return mods == GHOSTTY_MODS_ALT.rawValue
         }
         guard mods == GHOSTTY_MODS_CTRL.rawValue else { return false }
-        if keyEvent.keycode == UInt32(kVK_ANSI_U) || keyEvent.keycode == UInt32(kVK_ANSI_W) {
-            return true
-        }
-        guard let text = keyEvent.text else { return false }
-        let first = UInt8(bitPattern: text[0])
-        return (first == 0x15 || first == 0x17) && text[1] == 0
+        let character = keyEvent.unshifted_codepoint
+        return character == UInt32(UInt8(ascii: "u")) || character == UInt32(UInt8(ascii: "w"))
     }
 
     /// The single printable byte a key sends, or `nil` when its effect on the
@@ -4348,6 +4347,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func syncPredictionOverlay() {
         guard let surfaceID = terminalSurface?.id else {
             hidePredictionOverlay()
+            return
+        }
+        // Output removed blanks that the frame on screen still needs: keep
+        // the overlay where it was until the next presented frame.
+        if TerminalPredictionCenter.shared.holdsLayoutUntilFrame(surfaceID: surfaceID),
+           predictionOverlayView.isShowingGlyphs {
             return
         }
         let glyphs = TerminalPredictionCenter.shared.expiring(surfaceID: surfaceID)

@@ -371,22 +371,30 @@ struct PredictionSimulation {
 
         case .drain:
             isDrainScheduled = false
-            var changed = false
-            for batch in inbox {
-                screenSeenByEngine.apply(batch.bytes)
-                changed = engine.observedOutput(batch.bytes, at: Self.instant(batch.time)) || changed
-            }
-            inbox.removeAll()
-            trace.append("\(time)µs drain\(changed ? " (redraw)" : "")")
-            if changed { sync(at: time) }
+            let changed = drainInbox()
+            trace.append("\(time)µs drain\(changed ? " (redraw)" : "")\(engine.holdsLayoutUntilFrame ? " (held)" : "")")
+            if changed, !engine.holdsLayoutUntilFrame { sync(at: time) }
 
         case .frame:
             isFrameScheduled = false
             guard isTrackingFrames else { return }
+            // The host drains what the parser already applied before it
+            // retires and re-anchors, so the engine matches the grid.
+            _ = drainInbox()
             _ = engine.presentedFrame(at: now)
             trace.append("\(time)µs frame")
             sync(at: time)
         }
+    }
+
+    private mutating func drainInbox() -> Bool {
+        var changed = false
+        for batch in inbox {
+            screenSeenByEngine.apply(batch.bytes)
+            changed = engine.observedOutput(batch.bytes, at: Self.instant(batch.time)) || changed
+        }
+        inbox.removeAll()
+        return changed
     }
 
     /// The host's `syncPredictionOverlay`: re-anchor on the live cursor.
@@ -611,6 +619,11 @@ enum SimulationCases {
             ))
         }
 
+        // Two keys echoed one at a time first: the run arms only after two
+        // echoes in a row, and this case is about what happens once it has.
+        for _ in 0..<2 {
+            add(.character(alphabet.randomElement(using: &random)!), gap: roundTrip * 3)
+        }
         for _ in 0..<Int.random(in: 1...3, using: &random) {
             let burst = Int.random(in: 1...12, using: &random)
             for _ in 0..<burst {

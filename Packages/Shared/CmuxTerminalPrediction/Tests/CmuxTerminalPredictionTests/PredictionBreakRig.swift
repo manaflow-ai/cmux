@@ -86,9 +86,25 @@ struct RigFinding: CustomStringConvertible {
 struct PredictionBreakRig {
     private enum Event {
         case key(Int)
+        /// The tee's copy reaches the engine (the main-actor drain).
         case output([UInt8])
+        /// Ghostty's parser applies the same bytes to the grid.
+        case parse([UInt8])
         case frame
     }
+
+    /// How long after the drain ghostty's parser applies a read. The tee
+    /// fires before the IO thread takes the renderer mutex, so a main-actor
+    /// drain can run first; zero models the parser always winning.
+    var parseLagMicros = 0
+    /// Characters drawn over cells that hold, or will hold, something else.
+    private(set) var wrongText: [String] = []
+    /// Microseconds during which a typed character the grid already showed
+    /// was blank on screen.
+    private(set) var blankedMicros = 0
+    private var blankedNow = false
+    /// A typed character that was on screen went blank before it was deleted.
+    private(set) var blankings: [String] = []
 
     var engine: TerminalPredictionEngine
     private(set) var screen = SimulatedScreen()
@@ -129,15 +145,26 @@ struct PredictionBreakRig {
     static var promptWidth: Int { SimulatedLineEditor.prompt.count }
 
     /// What the user sees: the grid with the overlay painted over it.
+    /// The last frame ghostty presented, and the overlay as the host last
+    /// anchored it. Neither follows the grid between their own updates.
+    private var presentedRow: [UInt8] = SimulatedLineEditor.prompt
+    private var overlay: [(column: Int, byte: UInt8)] = []
+    private var isTrackingFrames = false
+
     func visibleRow() -> [UInt8] {
-        var row = screen.row
-        for glyph in engine.glyphs {
-            let column = screen.cursor + glyph.offset
-            guard column >= 0 else { continue }
+        var row = presentedRow
+        for (column, byte) in overlay where column >= 0 {
             while row.count <= column { row.append(0x20) }
-            row[column] = glyph.character.asciiValue ?? 0x3F
+            row[column] = byte
         }
         return row
+    }
+
+    /// `syncPredictionOverlay`: re-anchor on the cursor ghostty has parsed.
+    private mutating func sync() {
+        let glyphs = engine.glyphs
+        overlay = glyphs.map { (screen.cursor + $0.offset, $0.character.asciiValue ?? 0x3F) }
+        isTrackingFrames = !glyphs.isEmpty
     }
 
     private mutating func applyTyped(_ key: RigKey) {
@@ -156,6 +183,28 @@ struct PredictionBreakRig {
         let visible = visibleRow()
         let typedEnd = Self.promptWidth + typed.count
         if resurrectedNow { resurrectedMicros += time - lastVisibleCheck }
+        if blankedNow { blankedMicros += time - lastVisibleCheck }
+        blankedNow = false
+        let prompt = SimulatedLineEditor.prompt
+        for column in 0..<min(prompt.count, visible.count) where visible[column] != prompt[column] {
+            if wrongText.count < 20 {
+                wrongText.append("\(time / 1000) ms: '\(Character(UnicodeScalar(visible[column])))' drawn over prompt column \(column) ('\(Character(UnicodeScalar(prompt[column])))')")
+            }
+        }
+        for (index, expected) in typed.enumerated() {
+            let column = prompt.count + index
+            let shown = column < visible.count ? visible[column] : 0x20
+            let wasShown = column < lastVisible.count && lastVisible[column] == expected
+            if shown != expected && shown != 0x20 && wrongText.count < 20 {
+                wrongText.append("\(time / 1000) ms: '\(Character(UnicodeScalar(shown)))' drawn at column \(column), typed '\(Character(UnicodeScalar(expected)))'")
+            }
+            if shown == 0x20 && wasShown && expected != 0x20 {
+                blankedNow = true
+                if blankings.count < 20 {
+                    blankings.append("\(time / 1000) ms: typed '\(Character(UnicodeScalar(expected)))' at column \(column) went blank")
+                }
+            }
+        }
         lastVisibleCheck = time
         resurrectedNow = false
         hiddenAfterDelete = hiddenAfterDelete.filter { $0 >= typedEnd }
@@ -191,7 +240,12 @@ struct PredictionBreakRig {
             readAt = max(readAt, keystroke.at + keystroke.uplink)
             let reply = remoteModel.read(keystroke.key)
             repliedAt = max(repliedAt, readAt + keystroke.downlink)
-            if !reply.isEmpty { schedule(.output(reply), at: repliedAt) }
+            if !reply.isEmpty {
+                // At equal times the parse is scheduled first, so a zero lag
+                // is the parser winning, as the engine assumes.
+                schedule(.parse(reply), at: repliedAt + parseLagMicros)
+                schedule(.output(reply), at: repliedAt)
+            }
         }
         remote = remoteModel
         let end = (events.map(\.time).max() ?? 0) + 2_000_000
@@ -207,20 +261,30 @@ struct PredictionBreakRig {
             case .key(let index):
                 let key = keystrokes[index].key
                 applyTyped(key)
+                let changed: Bool
                 switch key {
-                case .character(let byte): engine.typed(printableASCII: byte, at: now)
-                case .backspace: engine.typedBackspace(at: now)
-                case .killLine, .killWord: engine.typedLineErase(at: now)
-                case .paste: engine.sentUntrackedInput(at: now)
+                case .character(let byte): changed = engine.typed(printableASCII: byte, at: now)
+                case .backspace: changed = engine.typedBackspace(at: now)
+                case .killLine, .killWord: changed = engine.typedLineErase(at: now)
+                case .paste: changed = engine.sentUntrackedInput(at: now)
                 }
+                if changed { sync() }
                 trace.append("\(time / 1000)ms type \(key) -> overlay \(engine.glyphs.map { "\($0.character)@\($0.offset)" })")
-            case .output(let bytes):
+            case .parse(let bytes):
                 screen.apply(bytes)
-                engine.observedOutput(bytes, at: now)
+                trace.append("\(time / 1000)ms parse \(bytes.count)B cursor \(screen.cursor)")
+            case .output(let bytes):
+                if engine.observedOutput(bytes, at: now), !engine.holdsLayoutUntilFrame { sync() }
                 trace.append("\(time / 1000)ms echo \(bytes.count)B -> overlay \(engine.glyphs.map { "\($0.character)@\($0.offset)" })")
             case .frame:
-                engine.tick(at: now)
-                engine.presentedFrame(at: now)
+                presentedRow = screen.row
+                let expired = engine.tick(at: now)
+                if isTrackingFrames {
+                    engine.presentedFrame(at: now)
+                    sync()
+                } else if expired {
+                    sync()
+                }
             }
             check(at: time)
         }
@@ -260,9 +324,13 @@ struct RigScript {
         }
     }
 
-    /// One echoed keystroke so the run is armed, then a pause.
+    /// Two echoed keystrokes so the run is armed, then a pause. (One is not
+    /// enough: a tty in cooked mode echoes the first key typed ahead of a
+    /// password prompt.)
     mutating func arm() {
         type("l", gapMilliseconds: 10)
+        wait(1_000)
+        type("s", gapMilliseconds: 10)
         wait(1_000)
     }
 }

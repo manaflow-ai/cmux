@@ -238,7 +238,9 @@ public final class TerminalPredictionCenter {
         guard isEnabled, engines[surfaceID] != nil else { return }
         seedIfNeeded(surfaceID: surfaceID)
         guard engines[surfaceID]?.isRemoteSurface == true else { return }
-        if engines[surfaceID]?.typed(printableASCII: byte, at: now) == true {
+        let changed = engines[surfaceID]?.typed(printableASCII: byte, at: now) == true
+        trace(surfaceID: surfaceID, "key \(byte.map { Self.escaped([$0]) } ?? "(untracked)")", changed: changed)
+        if changed {
             redrawHandlers[surfaceID]?()
         }
         scheduleExpiry(surfaceID: surfaceID)
@@ -250,7 +252,9 @@ public final class TerminalPredictionCenter {
         guard isEnabled, engines[surfaceID] != nil else { return }
         seedIfNeeded(surfaceID: surfaceID)
         guard engines[surfaceID]?.isRemoteSurface == true else { return }
-        if engines[surfaceID]?.typedBackspace(at: now) == true {
+        let changed = engines[surfaceID]?.typedBackspace(at: now) == true
+        trace(surfaceID: surfaceID, "backspace", changed: changed)
+        if changed {
             redrawHandlers[surfaceID]?()
         }
         scheduleExpiry(surfaceID: surfaceID)
@@ -263,7 +267,9 @@ public final class TerminalPredictionCenter {
         guard isEnabled, engines[surfaceID] != nil else { return }
         seedIfNeeded(surfaceID: surfaceID)
         guard engines[surfaceID]?.isRemoteSurface == true else { return }
-        if engines[surfaceID]?.typedLineErase(at: now) == true {
+        let changed = engines[surfaceID]?.typedLineErase(at: now) == true
+        trace(surfaceID: surfaceID, "line erase", changed: changed)
+        if changed {
             redrawHandlers[surfaceID]?()
         }
         scheduleExpiry(surfaceID: surfaceID)
@@ -275,7 +281,9 @@ public final class TerminalPredictionCenter {
     /// the cursor by an amount the engine cannot know.
     public func sentUntrackedInput(surfaceID: UUID) {
         guard isEnabled, engines[surfaceID]?.isRemoteSurface == true else { return }
-        if engines[surfaceID]?.sentUntrackedInput(at: now) == true {
+        let changed = engines[surfaceID]?.sentUntrackedInput(at: now) == true
+        trace(surfaceID: surfaceID, "untracked input", changed: changed)
+        if changed {
             redrawHandlers[surfaceID]?()
         }
         scheduleExpiry(surfaceID: surfaceID)
@@ -303,22 +311,105 @@ public final class TerminalPredictionCenter {
     private func drainOutput() {
         for (surfaceID, arrivals) in inbox.drain() {
             guard engines[surfaceID] != nil else { continue }
-            var changed = false
-            for arrival in arrivals {
-                changed = engines[surfaceID]?.observedOutput(
-                    arrival.bytes,
-                    at: arrival.instant
-                ) == true || changed
-            }
-            if changed { redrawHandlers[surfaceID]?() }
+            let changed = observe(arrivals, surfaceID: surfaceID)
+            // Output that took blanks away is not on screen until the next
+            // frame; the overlay stays as it is until then.
+            if changed, !holdsLayoutUntilFrame(surfaceID: surfaceID) { redrawHandlers[surfaceID]?() }
             scheduleExpiry(surfaceID: surfaceID)
         }
+    }
+
+    private func observe(_ arrivals: [PredictionOutputBatch], surfaceID: UUID) -> Bool {
+        var changed = false
+        for arrival in arrivals {
+            if arrival.followsDroppedOutput {
+                changed = engines[surfaceID]?.missedOutput(at: arrival.instant) == true || changed
+                trace(surfaceID: surfaceID, "dropped output before this batch", changed: changed)
+            }
+            let redraws = engines[surfaceID]?.observedOutput(
+                arrival.bytes,
+                at: arrival.instant
+            ) == true
+            trace(surfaceID: surfaceID, "out \(Self.escaped(arrival.bytes))", changed: redraws)
+            changed = redraws || changed
+        }
+        return changed
+    }
+
+    /// Whether the overlay should stay exactly where it is until the next
+    /// presented frame, because output the frame on screen predates took
+    /// blanks away.
+    public func holdsLayoutUntilFrame(surfaceID: UUID) -> Bool {
+        engines[surfaceID]?.holdsLayoutUntilFrame == true
+    }
+
+    #if DEBUG
+    /// Dev builds append every keystroke and output batch a remote surface's
+    /// engine sees to /tmp/cmux-prediction-trace.log while
+    /// /tmp/cmux-prediction-trace.on exists, with the glyphs drawn after it.
+    /// That is how a withdrawal seen on screen is traced to the bytes behind it.
+    private let traceFlagPath = "/tmp/cmux-prediction-trace.on"
+    private lazy var traceHandle: FileHandle? = {
+        let path = "/tmp/cmux-prediction-trace.log"
+        if !FileManager.default.fileExists(atPath: path) {
+            FileManager.default.createFile(atPath: path, contents: nil)
+        }
+        let handle = FileHandle(forWritingAtPath: path)
+        handle?.seekToEndOfFile()
+        return handle
+    }()
+    #endif
+
+    private func trace(surfaceID: UUID, _ event: @autoclosure () -> String, changed: Bool) {
+        #if DEBUG
+        guard FileManager.default.fileExists(atPath: traceFlagPath),
+              let engine = engines[surfaceID] else { return }
+        let glyphs = engine.glyphs.map { glyph -> String in
+            switch glyph.standing {
+            case .speculative: "\(glyph.character)"
+            case .confirmed: "\(glyph.character)!"
+            case .erased: "_"
+            }
+        }.joined()
+        let line = String(
+            format: "%.3f %@ %@%@ -> [%@] %@\n",
+            Date().timeIntervalSince1970,
+            String(surfaceID.uuidString.prefix(8)),
+            event(),
+            changed ? " (redraw)" : "",
+            glyphs,
+            String(describing: engine.status(at: now))
+        )
+        traceHandle?.write(Data(line.utf8))
+        #endif
+    }
+
+    nonisolated private static func escaped(_ bytes: some Sequence<UInt8>) -> String {
+        var text = ""
+        for byte in bytes {
+            switch byte {
+            case 0x20...0x7E where byte != UInt8(ascii: "\\"): text.append(Character(UnicodeScalar(byte)))
+            case 0x1B: text += "\\e"
+            case 0x0D: text += "\\r"
+            case 0x0A: text += "\\n"
+            case 0x08: text += "\\b"
+            case 0x07: text += "\\a"
+            default: text += String(format: "\\x%02x", byte)
+            }
+            if text.count > 400 { text += "..."; break }
+        }
+        return text
     }
 
     /// A rendered frame reached the screen, so confirmed glyphs can retire.
     public func presentedFrame(surfaceID: UUID) {
         guard isEnabled, engines[surfaceID] != nil else { return }
-        if engines[surfaceID]?.presentedFrame(at: now) == true {
+        // Catch up on output the parser has already applied first, so the
+        // engine and the grid the frame showed agree before anything
+        // retires or the overlay re-anchors.
+        let caughtUp = observe(inbox.drain(surfaceID: surfaceID), surfaceID: surfaceID)
+        let retired = engines[surfaceID]?.presentedFrame(at: now) == true
+        if caughtUp || retired {
             redrawHandlers[surfaceID]?()
         }
         scheduleExpiry(surfaceID: surfaceID)

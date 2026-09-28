@@ -147,6 +147,9 @@ public final class TerminalPredictionOverlayView: NSView {
         return true
     }
 
+    /// Whether a run is on screen.
+    public var isShowingGlyphs: Bool { !isHidden && layout != nil }
+
     /// Hides the run and forgets it.
     public func withdraw() {
         layout = nil
