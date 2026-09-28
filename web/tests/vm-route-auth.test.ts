@@ -1936,6 +1936,7 @@ describe("VM REST auth", () => {
       clientCapabilities: ["direct-ws-user-agent"],
       callerPlanId: "pro",
       maxActiveVms: 50,
+      modelPlane: expect.objectContaining({}),
     });
     expect(openAttachEndpoint).not.toHaveBeenCalled();
     const payload = await response.json();
@@ -2155,6 +2156,7 @@ describe("VM REST auth", () => {
       command: "true",
       maxActiveVms: 50,
       timeoutMs: 30_000,
+      modelPlane: expect.objectContaining({}),
     });
   });
 

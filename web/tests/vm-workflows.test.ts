@@ -73,6 +73,7 @@ import {
   reconcileVmProviderStatuses,
   resizeVm,
   snapshotVm,
+  type VmModelPlaneProvisioner,
 } from "../services/vms/workflows";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
@@ -2846,7 +2847,7 @@ describe("VM Effect workflows", () => {
     expect(error).toBeInstanceOf(VmNotFoundError);
     expect(attachCalls).toBe(0);
     expect(resumeCalls).toBe(0);
-    expect(observedStatuses).toEqual([
+    expect(observedStatuses).toMatchObject([
       { id: vm.id, providerVmId: "provider-vm-remote-destroyed", status: "destroyed" },
     ]);
   });
@@ -3680,6 +3681,11 @@ describe("VM Effect workflows", () => {
         }),
     };
     const layer = providerLayer(provider);
+    const revokedModelPlaneIds: string[] = [];
+    const modelPlane: VmModelPlaneProvisioner = {
+      provision: async () => ({ edgeRules: [] }),
+      revoke: async (cloudVmId) => { revokedModelPlaneIds.push(cloudVmId); },
+    };
 
     const first = await Effect.runPromise(openBaseVm({
       userId: "user-base-reopen-deleted",
@@ -3690,6 +3696,7 @@ describe("VM Effect workflows", () => {
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: "test-version",
+      modelPlane,
     }).pipe(Effect.provide(layer)));
     const reopened = await Effect.runPromise(openBaseVm({
       userId: "user-base-reopen-deleted",
@@ -3700,6 +3707,7 @@ describe("VM Effect workflows", () => {
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: "test-version",
+      modelPlane,
     }).pipe(Effect.provide(layer)));
 
     expect(first.providerVmId).toBe("provider-vm-base-reopen-1");
@@ -3708,8 +3716,8 @@ describe("VM Effect workflows", () => {
     expect(createCalls).toBe(2);
     expect(statusCalls).toBe(1);
 
-    const vms = await sql<{ providerVmId: string; status: string; destroyedAt: Date | null }[]>`
-      select provider_vm_id as "providerVmId", status, destroyed_at as "destroyedAt"
+    const vms = await sql<{ id: string; providerVmId: string; status: string; destroyedAt: Date | null }[]>`
+      select id, provider_vm_id as "providerVmId", status, destroyed_at as "destroyedAt"
       from cloud_vms
       where billing_team_id = 'team-base-reopen-deleted'
       order by provider_vm_id
@@ -3717,7 +3725,8 @@ describe("VM Effect workflows", () => {
     expect(vms[0]?.providerVmId).toBe("provider-vm-base-reopen-1");
     expect(vms[0]?.status).toBe("destroyed");
     expect(vms[0]?.destroyedAt).toBeInstanceOf(Date);
-    expect(vms[1]).toEqual({
+    expect(revokedModelPlaneIds).toEqual([vms[0]?.id]);
+    expect(vms[1]).toMatchObject({
       providerVmId: "provider-vm-base-reopen-2",
       status: "running",
       destroyedAt: null,
@@ -6022,7 +6031,7 @@ describe("VM Effect workflows", () => {
     expect(oldVm?.destroyedAt).toBeInstanceOf(Date);
   });
 
-  dbTest("cron reconcile keeps a volume-backed machine paused, not destroyed, when its compute is gone", async () => {
+  dbTest("cron reconcile retires missing compute even when a detached home volume remains", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
@@ -6051,7 +6060,7 @@ describe("VM Effect workflows", () => {
     );
 
     expect(result.checked).toBe(2);
-    expect(result.destroyed).toBe(1);
+    expect(result.destroyed).toBe(2);
 
     const rows = await sql<{ providerVmId: string; status: string; destroyedAt: Date | null }[]>`
       select provider_vm_id as "providerVmId", status, destroyed_at as "destroyedAt" from cloud_vms
@@ -6059,8 +6068,8 @@ describe("VM Effect workflows", () => {
     `;
     const home = rows.find((r) => r.providerVmId === "provider-vm-reconcile-home");
     const nohome = rows.find((r) => r.providerVmId === "provider-vm-reconcile-nohome");
-    expect(home?.status).toBe("paused");
-    expect(home?.destroyedAt).toBeNull();
+    expect(home?.status).toBe("destroyed");
+    expect(home?.destroyedAt).toBeInstanceOf(Date);
     expect(nohome?.status).toBe("destroyed");
     expect(nohome?.destroyedAt).toBeInstanceOf(Date);
 
@@ -6069,7 +6078,7 @@ describe("VM Effect workflows", () => {
       from cloud_vm_usage_events
       where event_type = 'vm.destroyed'
     `;
-    expect(destroyedUsageCount).toBe("1");
+    expect(destroyedUsageCount).toBe("2");
   });
 
   dbTest("cron reconcile updates drifted rows from provider status", async () => {
@@ -7440,6 +7449,7 @@ function testWorkflowRepo(input: {
         ? input.markProviderObservedStatus(update)
         : Effect.sync(() => {
           input.observedStatuses?.push(update);
+          if (update.usageEvent) input.usageEvents?.push(update.usageEvent);
           return true;
         }),
     markCreateRunning: () => unusedDatabaseEffect("markCreateRunning"),
@@ -7854,9 +7864,6 @@ describe("status read that observes a gone machine", () => {
   };
 
   function goneMachine(userId: string, id: string): CloudVmRow {
-    // No `homeVolume`, so observedDbStatus maps a provider 404 straight to the
-    // terminal status. A row with a durable home maps to `paused` instead, on
-    // every entrypoint: see the stats case in vm-stats-not-found.test.ts.
     return testCloudVmRow({
       id,
       userId,
@@ -8003,9 +8010,14 @@ describe("status read that observes a gone machine", () => {
     const usageEvents: RecordedUsageEvent[] = [];
     const observedStatuses: ObservedStatusUpdate[] = [];
     const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    const revokedVmIds: string[] = [];
 
     const error = await Effect.runPromise(
-      openVmCmuxRemote({ userId, providerVmId: "noble-wren" }).pipe(
+      openVmCmuxRemote({
+        userId,
+        providerVmId: "noble-wren",
+        modelPlane: { revoke: async (cloudVmId) => { revokedVmIds.push(cloudVmId); } },
+      }).pipe(
         Effect.flip,
         Effect.provide(workflowLayer(repo, {
           ...providerGone,
@@ -8020,6 +8032,38 @@ describe("status read that observes a gone machine", () => {
     expect(observedStatuses.map((update) => update.status)).toEqual(["destroyed"]);
     expect(usageEvents.map((event) => event.eventType)).toEqual(["vm.destroyed"]);
     expect(usageEvents[0]).toMatchObject({ metadata: { source: "provider_status_access" } });
+    expect(revokedVmIds).toEqual([vm.id]);
+  });
+
+  test("keeps a volume-backed machine live when the provider reports paused", async () => {
+    const userId = "user-status-read-volume-paused";
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000154",
+      userId,
+      providerVmId: "noble-wren",
+      status: "running",
+      providerMetadata: { homeVolume: "cmux-home-volume-paused" },
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    const revokedVmIds: string[] = [];
+
+    const entry = await Effect.runPromise(
+      getVm({
+        userId,
+        providerVmId: "noble-wren",
+        modelPlane: { revoke: async (cloudVmId) => { revokedVmIds.push(cloudVmId); } },
+      }).pipe(Effect.provide(workflowLayer(repo, {
+        ...providerGone,
+        getStatus: () => Effect.succeed("paused" as const),
+      }))),
+    );
+
+    expect(entry.status).toBe("paused");
+    expect(observedStatuses.map((update) => update.status)).toEqual(["paused"]);
+    expect(usageEvents).toEqual([]);
+    expect(revokedVmIds).toEqual([]);
   });
 });
 

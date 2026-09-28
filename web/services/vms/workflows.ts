@@ -355,7 +355,7 @@ export function getVm(input: {
       ),
     );
     if (providerStatus !== "creating") {
-      const dbStatus = observedDbStatus(vm, providerStatus);
+      const dbStatus = observedDbStatus(providerStatus);
       if (dbStatus !== vm.status) {
         const didUpdate = yield* applyObservedProviderStatus(repo, vm, {
           providerVmId,
@@ -1465,7 +1465,11 @@ function finishBaseCreate(
 function reopenBaseIfProviderDeleted(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
-  input: Parameters<VmRepositoryShape["beginBaseOpen"]>[0] & { readonly timing?: VmTimingSink; readonly imageSize?: CreateOptions["imageSize"] },
+  input: Parameters<VmRepositoryShape["beginBaseOpen"]>[0] & {
+    readonly timing?: VmTimingSink;
+    readonly imageSize?: CreateOptions["imageSize"];
+    readonly modelPlane?: VmModelPlaneRevoker;
+  },
   create: Extract<BeginBaseCreateResult, { readonly kind: "existing" }>,
   existing: CloudVmRow,
   providerVmId: string,
@@ -1477,23 +1481,11 @@ function reopenBaseIfProviderDeleted(
     Effect.catchAll((err) =>
       isProviderNotFoundError(err)
         ? Effect.gen(function* () {
-          // forceStatus, the one caller that overrides the mapping. Everywhere
-          // else a 404 on a volume-backed machine means `paused`, on the
-          // grounds that only the compute is gone. Here it must not: this row
-          // is the Base's
-          // active generation, and beginBaseOpen below only allocates a
-          // replacement generation once this row has stopped being a machine
-          // the Base could still open. Leaving it `paused` would hand the same
-          // dead provider id back on the next open, forever.
-          //
-          // The home volume is not lost by this. beginBaseOpen retains the old
-          // generation rather than deleting it, which is the same place a
-          // normal reset leaves it.
           const markedDestroyed = yield* applyObservedProviderStatus(repo, existing, {
             providerVmId,
             providerStatus: "destroyed",
-            forceStatus: "destroyed",
             usageEventSource: "base_open_provider_missing",
+            modelPlane: input.modelPlane,
             usageEventMetadata: {
               baseName: input.baseName ?? "base",
               generation: create.generation.generation,
@@ -1748,6 +1740,7 @@ export function resumeVm(input: {
   readonly providerVmId: string;
   readonly maxActiveVms?: number | null;
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -1767,7 +1760,7 @@ export function resumeVm(input: {
       vm,
       providerVmId,
       "user",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane },
     );
     return { id: providerVmId, status: "running" } satisfies VmPauseResumeResult;
   });
@@ -2043,7 +2036,7 @@ export function forkVm(input: {
       source,
       input.providerVmId,
       "fork",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane },
     );
 
     // A native fork has no way to accept the new row's edge rules. Use the
@@ -2664,17 +2657,9 @@ function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"):
   return status;
 }
 
-// A provider 404 on a machine with a persistent home volume means the compute is gone but
-// the machine is still resurrectable on the next attach — it is asleep, not destroyed.
-// Only machines without a durable home actually die with their sandbox.
 function observedDbStatus(
-  vm: Pick<CloudVmRow, "providerMetadata">,
   providerStatus: "running" | "paused" | "destroyed",
 ): CloudVmStatus {
-  if (providerStatus === "destroyed") {
-    const homeVolume = vm.providerMetadata?.["homeVolume"];
-    if (typeof homeVolume === "string" && homeVolume.length > 0) return "paused";
-  }
   return dbStatusFromProviderStatus(providerStatus);
 }
 
@@ -2688,17 +2673,11 @@ function observedDbStatus(
  * they are.
  *
  * The status is derived here rather than taken from the caller, so every
- * entrypoint agrees about what a provider 404 means. It does not always mean
- * `destroyed`: observedDbStatus maps a 404 on a machine with a persistent home
- * volume to `paused`, on the grounds that the compute is gone and the volume
- * is not. A caller that hardcoded `destroyed` would both terminalize such a
- * row and bill a `vm.destroyed` for a machine the provider never destroyed,
- * and nothing can revisit a terminal row to take either back. Note that
- * `paused` is a live status for credentials as well as for the UI; see the
- * access preflight for what that means.
- *
- * `forceStatus` is the one deliberate exception and has exactly one caller;
- * see reopenBaseIfProviderDeleted for why.
+ * entrypoint agrees about what the provider observed. A provider-reported
+ * pause remains recoverable. Missing or destroyed compute is terminal even
+ * when a detached home volume remains; there is no workflow that can attach
+ * that volume to a replacement machine, so keeping the row live would strand
+ * quota and credentials indefinitely.
  */
 function applyObservedProviderStatus(
   repo: VmRepositoryShape,
@@ -2709,29 +2688,31 @@ function applyObservedProviderStatus(
     readonly usageEventSource: VmDestroySource;
     readonly modelPlane?: VmModelPlaneRevoker;
     readonly usageEventMetadata?: Record<string, string | number | boolean | null>;
-    readonly forceStatus?: CloudVmStatus;
   },
 ): Effect.Effect<boolean, VmDatabaseError> {
   return Effect.gen(function* () {
-    const status = input.forceStatus ?? observedDbStatus(vm, input.providerStatus);
+    const status = observedDbStatus(input.providerStatus);
+    const usageEvent: VmUsageEventInput | undefined = status === "destroyed"
+      ? {
+        userId: vm.userId,
+        billingTeamId: vm.billingTeamId,
+        billingPlanId: vm.billingPlanId,
+        vmId: vm.id,
+        eventType: "vm.destroyed",
+        provider: vm.provider,
+        imageId: vm.imageId,
+        vmCreatedAt: vm.createdAt,
+        metadata: { source: input.usageEventSource, ...input.usageEventMetadata },
+      }
+      : undefined;
     const didUpdate = yield* repo.markProviderObservedStatus({
       id: vm.id,
       providerVmId: input.providerVmId,
       status,
+      ...(usageEvent ? { usageEvent } : {}),
     });
     if (!didUpdate || status !== "destroyed") return didUpdate;
     yield* revokeModelPlane(input.modelPlane, vm.id);
-    yield* repo.recordUsageEvent({
-      userId: vm.userId,
-      billingTeamId: vm.billingTeamId,
-      billingPlanId: vm.billingPlanId,
-      vmId: vm.id,
-      eventType: "vm.destroyed",
-      provider: vm.provider,
-      imageId: vm.imageId,
-      vmCreatedAt: vm.createdAt,
-      metadata: { source: input.usageEventSource, ...input.usageEventMetadata },
-    }).pipe(Effect.catchAll(() => Effect.void));
     return true;
   });
 }
@@ -2756,7 +2737,7 @@ function reconcileObservedProviderStatus(
       ),
     );
     if (!providerStatus || providerStatus === "creating") return "skipped" as const;
-    const dbStatus = observedDbStatus(vm, providerStatus);
+    const dbStatus = observedDbStatus(providerStatus);
     if (dbStatus === vm.status) return "unchanged" as const;
     const didUpdate = yield* applyObservedProviderStatus(repo, vm, {
       providerVmId,
@@ -2782,6 +2763,8 @@ type VmResumeSource = "exec" | "attach" | "ssh" | "scp" | "fork" | "open_port" |
 type ResumePreflightOptions = {
   /** Resolved billing-scope allowance; null is unlimited, undefined uses the plan default. */
   readonly maxActiveVms?: number | null;
+  /** Revokes coderouter tokens if the provider reports that compute is gone. */
+  readonly modelPlane?: VmModelPlaneRevoker;
   /**
    * Probe the provider even when Postgres still says `running`. Providers may
    * pause a VM independently (for example after an idle timeout), so an
@@ -2992,24 +2975,14 @@ function preflightResumeIfSuspended(
       // already removed; record what the probe saw and return the same
       // not-found contract as ownership checks.
       //
-      // What the row becomes is observedDbStatus's call, not this branch's: a
-      // machine with a persistent home volume lands on `paused`, not
-      // `destroyed`. That is deliberate and it is what getVm and the
-      // reconcile cron have always written for the same observation; this
-      // preflight used to disagree with both.
-      //
-      // Note what `paused` means for credentials: authenticateRouteToken and
-      // authenticateVmAuthorization both accept `provisioning`, `running` and
-      // `paused` (services/coderouter/repository.ts), so route tokens issued
-      // for this machine stay valid, exactly as they do for any sleeping
-      // machine. No revoker is threaded here because revoking would put this
-      // one of eight call sites at odds with every other reader of the same
-      // provider state. A volume-backed row that must lose its tokens has to
-      // be destroyed, by the user or by account deletion, which does revoke.
+      // A detached home volume does not make missing compute resumable: no
+      // workflow can create replacement compute around it. Retire the row so
+      // it stops consuming quota, and revoke its model-plane credentials.
       yield* applyObservedProviderStatus(repo, vm, {
         providerVmId,
         providerStatus: "destroyed",
         usageEventSource: "provider_status_access",
+        modelPlane: options.modelPlane,
       }).pipe(Effect.catchAll(() => Effect.succeed(false)));
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
     }
@@ -3377,6 +3350,7 @@ export function execVm(input: {
   readonly timeoutMs: number;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -3388,7 +3362,7 @@ export function execVm(input: {
       vm,
       input.providerVmId,
       "exec",
-      { maxActiveVms: input.maxActiveVms },
+      { maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane },
     );
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
@@ -3480,6 +3454,7 @@ export function resizeVm(input: {
   readonly billingPlanId?: string | null;
   /** Current machine-count allowance, also used when resuming a paused VM. */
   readonly maxActiveVms?: number | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }): VmWorkflowProgram<VMStats> {
   // oxlint-disable-next-line complexity -- Resize orchestration must keep reservation, provider, rollback, and confirmation order explicit.
   return Effect.gen(function* () {
@@ -3508,6 +3483,7 @@ export function resizeVm(input: {
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "resize", {
       forceProviderProbe: true,
       maxActiveVms: input.maxActiveVms,
+      modelPlane: input.modelPlane,
     });
     const current = yield* providers.getStats(vm.provider, input.providerVmId);
     for (const [resource, requested, previous, max] of [
@@ -3748,6 +3724,7 @@ export function openVmPort(input: {
   readonly port: number;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -3771,7 +3748,7 @@ export function openVmPort(input: {
       vm,
       input.providerVmId,
       "open_port",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane },
     );
     const endpoint = yield* providers.openPort(vm.provider, input.providerVmId, input.port);
     // Keep the preview token in the same revocation ledger as terminal/RPC
@@ -3825,6 +3802,7 @@ export function openVmCmuxRemote(input: {
   readonly clientCapabilities?: readonly string[];
   /** Caller's CURRENT billing plan; the free access window applies to cmux-tui attaches too. */
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -3854,7 +3832,7 @@ export function openVmCmuxRemote(input: {
       vm,
       input.providerVmId,
       "attach",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane },
     );
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
@@ -3989,6 +3967,7 @@ type OpenAttachEndpointInput = {
   readonly sessionTitle?: string | null;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 };
 
 export function openAttachEndpoint(input: OpenAttachEndpointInput) {
@@ -4006,6 +3985,7 @@ export function prepareScpEndpoint(input: {
   readonly providerVmId: string;
   readonly callerPlanId?: string | null;
   readonly maxActiveVms?: number | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -4014,7 +3994,7 @@ export function prepareScpEndpoint(input: {
     if (!providers.prepareSCP) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "prepareSCP" }));
     if (vm.status === "destroyed") return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "scp", {
-      forceProviderProbe: true, maxActiveVms: input.maxActiveVms,
+      forceProviderProbe: true, maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane,
     });
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
@@ -4051,6 +4031,7 @@ export function openVmSession(input: {
   readonly title?: string | null;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   const sessionId = input.sessionId?.trim() || `session-${randomUUID()}`;
   const attachmentId = input.attachmentId?.trim() || `attach-${randomUUID()}`;
@@ -4061,6 +4042,7 @@ export function openVmSession(input: {
     providerVmId: input.providerVmId,
     callerPlanId: input.callerPlanId,
     maxActiveVms: input.maxActiveVms,
+    modelPlane: input.modelPlane,
     sessionTitle: input.title,
     options: {
       requireDaemon: true,
@@ -4109,7 +4091,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
       vm,
       input.providerVmId,
       "attach",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane },
     );
     // Once preflight records the VM as running, that state is externally
     // visible to concurrent attach/SSH requests. Later cleanup failures must

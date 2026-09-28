@@ -496,6 +496,8 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly providerVmId: string;
     readonly status: CloudVmStatus;
+    /** Inserted atomically with a winning status transition. */
+    readonly usageEvent?: VmUsageEventInput;
   }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly setDisplayName: (input: {
     readonly id: string;
@@ -3091,22 +3093,37 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   markProviderObservedStatus: (input) =>
     dbEffect("markProviderObservedStatus", async () => {
       const db = cloudDb();
-      const updated = await db
-        .update(cloudVms)
-        .set({
-          status: input.status,
-          destroyedAt: input.status === "destroyed" ? new Date() : null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(cloudVms.id, input.id),
-            eq(cloudVms.providerVmId, input.providerVmId),
-            ne(cloudVms.status, "destroyed"),
-          ),
-        )
-        .returning({ id: cloudVms.id });
-      return updated.length > 0;
+      return await db.transaction(async (tx) => {
+        const updated = await tx
+          .update(cloudVms)
+          .set({
+            status: input.status,
+            destroyedAt: input.status === "destroyed" ? new Date() : null,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(cloudVms.id, input.id),
+              eq(cloudVms.providerVmId, input.providerVmId),
+              ne(cloudVms.status, "destroyed"),
+            ),
+          )
+          .returning({ id: cloudVms.id });
+        if (updated.length === 0) return false;
+        if (input.usageEvent) {
+          await tx.insert(cloudVmUsageEvents).values({
+            userId: input.usageEvent.userId,
+            billingTeamId: input.usageEvent.billingTeamId ?? null,
+            billingPlanId: input.usageEvent.billingPlanId ?? null,
+            vmId: input.usageEvent.vmId ?? null,
+            eventType: input.usageEvent.eventType,
+            provider: input.usageEvent.provider,
+            imageId: input.usageEvent.imageId,
+            metadata: input.usageEvent.metadata ?? {},
+          });
+        }
+        return true;
+      });
     }),
 
   setDisplayName: (input) =>
