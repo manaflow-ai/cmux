@@ -1805,7 +1805,6 @@
       "browserAutomation": "Automatizacija preglednika",
       "skills": "Vještine",
       "notifications": "Notifikacije",
-      "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Zapisnik promjena",
@@ -1820,7 +1819,13 @@
       "cloudWorkspaces": "Radni prostori i agenti",
       "cloudNetworking": "Datoteke i mreža",
       "cloudCli": "Cloud CLI referenca",
-      "cloudTroubleshooting": "Sigurnost i rješavanje problema"
+      "cloudTroubleshooting": "Sigurnost i rješavanje problema",
+      "workspacesSection": "Radni prostori",
+      "agentsSection": "Agenti",
+      "automationSection": "Automatizacija",
+      "remoteSection": "Udaljeni pristup",
+      "customizeSection": "Prilagođavanje i administracija",
+      "basicsSection": "Osnove"
     },
     "dock": {
       "metaTitle": "Dock",

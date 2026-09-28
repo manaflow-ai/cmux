@@ -1804,7 +1804,6 @@
       "browserAutomation": "أتمتة المتصفح",
       "skills": "المهارات",
       "notifications": "الإشعارات",
-      "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
       "changelog": "سجل التغييرات",
@@ -1819,7 +1818,13 @@
       "cloudWorkspaces": "مساحات العمل والوكلاء",
       "cloudNetworking": "الملفات والشبكات",
       "cloudCli": "مرجع CLI للسحابة",
-      "cloudTroubleshooting": "الأمان واستكشاف الأخطاء"
+      "cloudTroubleshooting": "الأمان واستكشاف الأخطاء",
+      "workspacesSection": "مساحات العمل",
+      "agentsSection": "الوكلاء",
+      "automationSection": "الأتمتة",
+      "remoteSection": "الوصول عن بُعد",
+      "customizeSection": "التخصيص والإدارة",
+      "basicsSection": "الأساسيات"
     },
     "dock": {
       "metaTitle": "Dock",
