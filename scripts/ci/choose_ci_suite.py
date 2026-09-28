@@ -38,6 +38,7 @@ from cmux_unit_test_shard import (  # noqa: E402
     load_timings,
     reweight_selectors,
 )
+from ui_tests_dispatch import FUZZ_REGRESSIONS_SELECTOR, fuzz_regression_path  # noqa: E402
 
 COMPILE_ONLY_POLICY = "compile-only"
 FULL_SUITE_LABEL = "full-ci"
@@ -512,6 +513,31 @@ def labels_from_event(event_path: str | Path) -> list[str] | None:
     return labels
 
 
+def same_repository_from_event(event_path: str | Path) -> bool:
+    """Whether this run's pull request comes from a branch of the repository itself, not a fork."""
+    try:
+        with Path(event_path).open(encoding="utf-8") as handle:
+            payload = json.load(handle)
+        head = payload["pull_request"]["head"]["repo"]["full_name"]
+        base = payload["repository"]["full_name"]
+    except (OSError, json.JSONDecodeError, TypeError, KeyError):
+        return False
+    return isinstance(head, str) and isinstance(base, str) and head.casefold() == base.casefold()
+
+
+def fuzz_regression_selectors(paths: Iterable[str] | None) -> list[str]:
+    """The UI fuzzer's regression replays, when the diff touches what its repros exercise.
+
+    ui_tests_dispatch.FUZZ_REGRESSION_PATHS names those paths: the sidebar,
+    splits and panes, the main window's size, and the fuzzer itself. The
+    `ui-tests` job runs the replays in the UI test lane (test-e2e.yml), next to
+    any changed UI test classes, against the app that lane already adopts.
+    """
+    if any(fuzz_regression_path(path.strip()) for path in paths or ()):
+        return [FUZZ_REGRESSIONS_SELECTOR]
+    return []
+
+
 def ui_class_graph(root: Path) -> dict[str, str]:
     """Every class cmuxUITests/ declares, mapped to the first type it inherits from."""
     parents: dict[str, str] = {}
@@ -523,7 +549,7 @@ def ui_class_graph(root: Path) -> dict[str, str]:
     return parents
 
 
-def changed_ui_selectors(root: Path, paths: Iterable[str] | None) -> list[str] | None:
+def changed_ui_selectors(root: Path, paths: Iterable[str] | None, reserve: Iterable[str] = ()) -> list[str] | None:
     """The UI test classes a cmuxUITests/ diff changes, as test-e2e selectors.
 
     A test class is one that inherits XCTestCase, directly or through a base
@@ -532,8 +558,10 @@ def changed_ui_selectors(root: Path, paths: Iterable[str] | None) -> list[str] |
     those instead, since it holds no test of its own to run. A deleted file
     adds nothing. None when a changed file selects no test class (a helper or
     a resource), or when the selection is more than one focused run takes:
-    no focused run judges those.
+    no focused run judges those. `reserve` names selectors the same run also
+    takes, which count toward its limits.
     """
+    reserve = list(reserve)
     changed = [path.strip() for path in paths or () if path.strip().startswith(UNJUDGED_BY_ANY_PR_JOB_PREFIXES)]
     if not changed:
         return []
@@ -572,7 +600,7 @@ def changed_ui_selectors(root: Path, paths: Iterable[str] | None) -> list[str] |
         for name in tests:
             if f"cmuxUITests/{name}" not in selectors:
                 selectors.append(f"cmuxUITests/{name}")
-    if len(selectors) > MAX_UI_SELECTORS or len(",".join(selectors)) > MAX_UI_FILTER_LENGTH:
+    if len(selectors) + len(reserve) > MAX_UI_SELECTORS or len(",".join(selectors + reserve)) > MAX_UI_FILTER_LENGTH:
         return None
     return selectors
 
@@ -668,8 +696,15 @@ def main(argv: list[str]) -> int:
     layout = shard_layout_changed(args.root, paths, diff)
     unit = layout or wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
     opted_out = SUITE_OPT_OUT_LABEL in {label.strip() for label in labels or ()}
-    ui_selectors = changed_ui_selectors(args.root, paths) if args.event_name == "pull_request" and not opted_out else []
-    gap = coverage_gap(args.event_name, full, paths, labels, unit_suite=unit, ui_suite=bool(ui_selectors))
+    ui_run = args.event_name == "pull_request" and not opted_out
+    # A fork's `ui-tests` job refuses to run anything, so a fork gets no replays
+    # it could not run; its own UI test classes still close a gap only there.
+    fuzz = fuzz_regression_selectors(paths) if ui_run and args.event_path and same_repository_from_event(
+        args.event_path) else []
+    class_selectors = changed_ui_selectors(args.root, paths, reserve=fuzz) if ui_run else []
+    # Only the changed classes judge a cmuxUITests/ diff; the replays never do.
+    gap = coverage_gap(args.event_name, full, paths, labels, unit_suite=unit, ui_suite=bool(class_selectors))
+    ui_selectors = (class_selectors or []) + fuzz
     # Only a unit run the diff asked for narrows. `full-ci` and `unit-ci` are
     # explicit requests for every suite, and a shard layout change needs every
     # suite in its new order.

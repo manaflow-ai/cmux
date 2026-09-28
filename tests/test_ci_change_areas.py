@@ -4451,6 +4451,64 @@ def test_a_cmux_ui_tests_diff_runs_its_classes_without_a_label() -> None:
         assert coverage_gap("pull_request", True, ui_diff, [], ui_suite=True) is False
 
 
+def test_a_diff_the_fuzz_repros_exercise_asks_for_their_replays() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import MAX_UI_SELECTORS, changed_ui_selectors, fuzz_regression_selectors
+    from ui_tests_dispatch import FUZZ_REGRESSIONS_SELECTOR
+
+    assert fuzz_regression_selectors(["Sources/Sidebar/SidebarState.swift"]) == [FUZZ_REGRESSIONS_SELECTOR]
+    assert fuzz_regression_selectors(["dogfood/fuzz/regressions/x.json", "README.md"]) == [FUZZ_REGRESSIONS_SELECTOR]
+    assert fuzz_regression_selectors(["Sources/Workspace.swift", "README.md"]) == []
+    assert fuzz_regression_selectors(None) == []
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        (root / "cmuxUITests").mkdir()
+        many = "".join(f"class C{index}UITests: XCTestCase {{}}\n" for index in range(MAX_UI_SELECTORS))
+        (root / "cmuxUITests/Many.swift").write_text(many)
+        # The replays count toward one focused run's limit.
+        assert len(changed_ui_selectors(root, ["cmuxUITests/Many.swift"])) == MAX_UI_SELECTORS
+        assert changed_ui_selectors(root, ["cmuxUITests/Many.swift"], reserve=[FUZZ_REGRESSIONS_SELECTOR]) is None
+
+    script = ROOT / "scripts/ci/choose_ci_suite.py"
+    with tempfile.TemporaryDirectory() as directory:
+        changed = Path(directory) / "changed.txt"
+        event = Path(directory) / "event.json"
+
+        def outputs(files: str, head: str = "manaflow-ai/cmux", labels: tuple[str, ...] = ()) -> dict[str, str]:
+            changed.write_text(files)
+            event.write_text(json.dumps({
+                "repository": {"full_name": "manaflow-ai/cmux"},
+                "pull_request": {"head": {"repo": {"full_name": head}},
+                                 "labels": [{"name": label} for label in labels]},
+            }))
+            run = subprocess.run(
+                [sys.executable, str(script), "--event-name", "pull_request",
+                 "--pull-request-policy", "compile-only", "--event-path", str(event),
+                 "--files-from", str(changed), "--root", str(ROOT)],
+                capture_output=True, text=True, check=True,
+            )
+            return dict(line.split("=", 1) for line in run.stdout.splitlines() if "=" in line)
+
+        values = outputs("Sources/Sidebar/SidebarState.swift\n")
+        assert values["ui_selectors"] == FUZZ_REGRESSIONS_SELECTOR
+        assert values["coverage_gap"] == "false"
+        assert outputs("Sources/Workspace.swift\n")["ui_selectors"] == ""
+        # A fork's ui-tests job refuses to run anything, and no-full-ci opts out.
+        assert outputs("Sources/Sidebar/SidebarState.swift\n", head="someone/cmux")["ui_selectors"] == ""
+        assert outputs("Sources/Sidebar/SidebarState.swift\n", labels=("no-full-ci",))["ui_selectors"] == ""
+        # Next to a changed class, after it; a helper change stays a gap the replays do not close.
+        classes = changed_ui_selectors(ROOT, ["cmuxUITests/BonsplitTabDragUITests.swift"])
+        assert classes
+        values = outputs("cmuxUITests/BonsplitTabDragUITests.swift\nvendor/bonsplit\n")
+        assert values["ui_selectors"] == " ".join([*classes, FUZZ_REGRESSIONS_SELECTOR])
+        assert values["coverage_gap"] == "false"
+        helper = next(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "cmuxUITests").rglob("*"))
+                      if path.is_file() and changed_ui_selectors(ROOT, [path.relative_to(ROOT).as_posix()]) is None)
+        values = outputs(f"{helper}\nSources/Sidebar/SidebarState.swift\n")
+        assert values["ui_selectors"] == FUZZ_REGRESSIONS_SELECTOR
+        assert values["coverage_gap"] == "true"
+
+
 def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from choose_ci_suite import changed_unit_selectors, strict_steps
