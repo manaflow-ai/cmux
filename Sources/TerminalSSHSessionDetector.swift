@@ -417,7 +417,9 @@ struct DetectedSSHSession: Equatable, Sendable {
 }
 
 enum TerminalSSHSessionDetector {
-    static let detectionLimiter = TerminalSSHSessionDetectionLimiter()
+    private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
+    private static let nonInteractiveFlags = Set("nTGV")
+    private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
 
     struct ProcessSnapshot: Equatable {
         let pid: Int32

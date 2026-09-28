@@ -29,6 +29,7 @@ extension GhosttyNSView {
                     onCancel: onCancel
                 )
             }
+            let runtimeGeneration = terminalSurface.runtimeSurfaceGeneration
             let task = Task { @MainActor [weak self, weak terminalSurface] in
                 guard let self, let terminalSurface else {
                     preparedContent.cleanupTransferredTemporaryFiles(
@@ -38,7 +39,8 @@ extension GhosttyNSView {
                 }
                 let target = await terminalSurface
                     .resolvedImageTransferTargetAsync(mode: mode)
-                guard self.terminalSurface === terminalSurface else {
+                guard self.terminalSurface === terminalSurface,
+                      terminalSurface.runtimeSurfaceGeneration == runtimeGeneration else {
                     preparedContent.cleanupTransferredTemporaryFiles(
                         using: GhosttyApp.terminalPasteboard
                     )

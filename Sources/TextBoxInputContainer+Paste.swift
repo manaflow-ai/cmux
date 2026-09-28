@@ -75,9 +75,11 @@ extension TextBoxInputContainer {
                     )
                     return
                 }
+                let runtimeGeneration = self.surface.runtimeSurfaceGeneration
                 let target = await self.surface
                     .resolvedImageTransferTargetAsync()
-                guard self.ownsTextView(textView),
+                guard self.surface.runtimeSurfaceGeneration == runtimeGeneration,
+                      self.ownsTextView(textView),
                       textView.canAcceptPendingAttachmentUpload(
                           validationToken: validationToken
                       ) else {

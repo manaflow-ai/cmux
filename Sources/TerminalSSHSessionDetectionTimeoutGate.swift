@@ -1,19 +1,5 @@
 import Foundation
 
-actor TerminalSSHSessionDetectionLimiter {
-    private var isActive = false
-
-    func start() -> Bool {
-        guard !isActive else { return false }
-        isActive = true
-        return true
-    }
-
-    func finish() {
-        isActive = false
-    }
-}
-
 /// Owns the one-shot result of a bounded SSH process lookup.
 actor TerminalSSHSessionDetectionTimeoutGate {
     private var completed = false

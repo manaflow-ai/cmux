@@ -26,14 +26,11 @@ extension TerminalSSHSessionDetector {
             await defaultDetectionTimeoutSleep(timeout)
         }
     ) async -> DetectedSSHSession? {
-        guard await detectionLimiter.start() else { return nil }
         let gate = TerminalSSHSessionDetectionTimeoutGate()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 let worker = Task.detached(priority: .utility) {
-                    let result = detector(ttyName)
-                    await detectionLimiter.finish()
-                    await gate.finish(result)
+                    await gate.finish(detector(ttyName))
                 }
                 let timeoutTask = Task.detached(priority: .utility) {
                     await timeoutSleep(timeout)

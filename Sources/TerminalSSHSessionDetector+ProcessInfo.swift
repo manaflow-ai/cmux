@@ -21,7 +21,11 @@ extension TerminalSSHSessionDetector {
             guard byteCount > 0 else { return [] }
             let count = min(Int(byteCount) / MemoryLayout<pid_t>.stride, pids.count)
             let snapshots = pids.prefix(count).compactMap { pid in
-                processSnapshot(for: pid, ttyName: ttyName)
+                processSnapshot(
+                    for: pid,
+                    ttyName: ttyName,
+                    ttyDevice: UInt32(ttyDevice)
+                )
             }
             if byteCount < Int32(pids.count * MemoryLayout<pid_t>.stride) {
                 return snapshots
@@ -33,7 +37,8 @@ extension TerminalSSHSessionDetector {
 
     private static func processSnapshot(
         for pid: pid_t,
-        ttyName: String
+        ttyName: String,
+        ttyDevice: UInt32
     ) -> ProcessSnapshot? {
         guard pid > 0 else { return nil }
         var info = proc_bsdinfo()
@@ -46,7 +51,7 @@ extension TerminalSSHSessionDetector {
             Int32(expectedSize)
         )
         guard size == expectedSize,
-              info.e_tdev > 0,
+              info.e_tdev == ttyDevice,
               info.e_tpgid > 0,
               info.pbi_pgid > 0 else {
             return nil
