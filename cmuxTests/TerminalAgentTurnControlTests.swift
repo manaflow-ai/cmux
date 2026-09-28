@@ -135,6 +135,66 @@ struct AgentTurnInterruptTargetTests {
         )
     }
 
+    @Test func committedPreToolUseWithoutIngressPreventsInterruptCompletion() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-turn-control-commit-gap-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("journal.sqlite3", isDirectory: false)
+        let gate = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let center = AgentJournalLifecycleCenter(databaseURL: url, consumerStart: {
+            for await _ in gate.stream { return }
+        })
+        let surface = UUID()
+        let workspace = UUID()
+        func draft(id: String, occurredAtMs: Int64, nativeEvent: String) -> AgentJournalEventDraft {
+            AgentJournalEventDraft(
+                eventId: id,
+                kind: .turnStarted,
+                occurredAtMs: occurredAtMs,
+                source: "claude",
+                agentKey: "claude_code",
+                sessionId: "session-1",
+                workspaceId: workspace.uuidString,
+                surfaceId: surface.uuidString,
+                nativeEvent: nativeEvent
+            )
+        }
+        let started = draft(id: "turn-started", occurredAtMs: 1_000, nativeEvent: "UserPromptSubmit")
+        let startedJSON = try #require(String(data: JSONEncoder().encode(started), encoding: .utf8))
+        #expect(center.handleAppendCommand(startedJSON) == "OK 1")
+        center.recordUserInterrupt(
+            surfaceId: surface,
+            workspaceId: workspace,
+            agentKey: "claude_code",
+            source: "claude"
+        )
+
+        // This is the socket-worker commit/enqueue gap: sequence 2 is durable,
+        // but its `.ingest` operation has not reached the consumer yet.
+        let hookStore = try AgentJournalStore(databaseURL: url)
+        _ = try hookStore.append(
+            draft(id: "pre-tool-use", occurredAtMs: 1_001, nativeEvent: "PreToolUse")
+        )
+        hookStore.close()
+        gate.continuation.yield(())
+        gate.continuation.finish()
+        await center.waitForPendingOperationsForTesting()
+
+        let store = try AgentJournalStore(databaseURL: url)
+        let events = try store.events(afterSequence: 0, limit: 10)
+        store.close()
+        #expect(events.map(\.draft.nativeEvent) == ["UserPromptSubmit", "PreToolUse"])
+
+        let reducer = AgentLifecycleReducer()
+        var state = AgentLifecycleReducerState()
+        for event in events {
+            reducer.apply(event, to: &state)
+        }
+        #expect(
+            state.combinedPhase(surfaceId: surface.uuidString, agentKey: "claude_code") == .running,
+            "a committed hook must win even while its consumer ingress is delayed"
+        )
+    }
+
     @Test func onlyClaudeSettlesItsTurnInTheJournal() {
         #expect(AgentTurnInterruptTarget.claudeCode.settlesTurnInJournal)
         #expect(!AgentTurnInterruptTarget.codex.settlesTurnInJournal)
