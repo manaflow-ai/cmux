@@ -10,8 +10,13 @@ public enum RuntimeClipboardReadContent: Equatable, Sendable {
 
     /// The content a read with this input admission may take.
     ///
+    /// A reserved request comes from a native paste gesture: a key binding,
+    /// the Paste menu item or a middle click. An unsequenced one was started
+    /// by the terminal program, for example with OSC 52, so it gets plain
+    /// text only.
+    ///
     /// - Parameter admission: The request's input admission.
     public init(admission: RuntimeClipboardInputAdmission) {
-        self = .pasteboard
+        self = admission.reservesInput ? .pasteboard : .plainText
     }
 }
