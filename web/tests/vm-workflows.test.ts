@@ -3848,6 +3848,120 @@ describe("VM Effect workflows", () => {
     expect(secondBegin).toBeGreaterThan(firstBegin);
   });
 
+  test("a Base create refused for credits releases the Base generation", async () => {
+    // reserveCreateCredit is shared with createVm and forkVm, whose rows own no
+    // Base. When the Base flow borrows it, a refused reservation has to roll the
+    // Base back too: markCreateFailed only fails the cloud_vms row, so the base
+    // row keeps state "resetting" and its generation keeps state "creating".
+    // Every later open and reset then trips the in-flight guard and 409s, and
+    // the abandonment sweeper cannot recover it because that sweeper matches
+    // only status "provisioning" rows with a null failure_code, both of which
+    // marking the row failed has already overwritten.
+    const now = new Date();
+    const requested = testCloudVmRow({
+      id: "00000000-0000-4000-8000-0000000001a1",
+      userId: "user-workflow-base-credit",
+      billingTeamId: "team-workflow-base-credit",
+      billingPlanId: "pro",
+      status: "provisioning",
+      providerVmId: null,
+    });
+    const base = {
+      id: "00000000-0000-4000-8000-0000000001a2",
+      scopeType: "team",
+      scopeId: requested.billingTeamId!,
+      name: "default",
+      activeGeneration: 2,
+      activeVmId: requested.id,
+      activeProvider: "freestyle",
+      activeProviderVmId: null,
+      state: "resetting",
+      createdByUserId: requested.userId,
+      lastOpenedByUserId: requested.userId,
+      createdAt: now,
+      updatedAt: now,
+    } as CloudVmBaseRow;
+    const generation = {
+      id: "00000000-0000-4000-8000-0000000001a3",
+      baseId: base.id,
+      generation: 2,
+      vmId: requested.id,
+      provider: "freestyle",
+      providerVmId: null,
+      state: "creating",
+      createdByUserId: requested.userId,
+      retainedAt: null,
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    } as CloudVmBaseGenerationRow;
+
+    const adHocMarks: unknown[] = [];
+    const baseMarks: unknown[] = [];
+    const repo = {
+      ...testWorkflowRepo({ vm: requested }),
+      beginBaseOpen: () => Effect.succeed({
+        kind: "create" as const,
+        base,
+        generation,
+        vm: requested,
+        previousGeneration: null,
+        previousVm: null,
+      }),
+      markCreateFailed: (mark: unknown) => Effect.sync(() => {
+        adHocMarks.push(mark);
+        return true;
+      }),
+      markBaseCreateFailed: (mark: unknown) => Effect.sync(() => {
+        baseMarks.push(mark);
+        return true;
+      }),
+    } as unknown as VmRepositoryShape;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      create: () => Effect.sync(() => {
+        throw new Error("provider must not be called once credits are refused");
+      }),
+    };
+    const billing: VmBillingGatewayShape = {
+      ...noOpVmBillingGateway(),
+      reserveCreate: () => Effect.fail(new VmCreateCreditsInsufficientError({
+        itemId: "cmux-vm-create-credit",
+        billingCustomerId: requested.billingTeamId!,
+        amount: 1,
+      })),
+      refundCreate: () => Effect.void,
+    };
+
+    const error = await Effect.runPromise(
+      openBaseVm({
+        userId: requested.userId,
+        billingCustomerType: "team",
+        billingTeamId: requested.billingTeamId!,
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+        provider: "freestyle",
+        image: requested.imageId,
+        baseName: "default",
+      }).pipe(Effect.provide(workflowLayer(repo, provider, billing)), Effect.flip),
+    );
+
+    expect(error).toBeInstanceOf(VmCreateCreditsInsufficientError);
+    // The Base-aware mark is the only one that also runs
+    // restoreBaseAfterCreateFailure, which fails the generation row and
+    // promotes the retained generation back onto the base.
+    expect(baseMarks).toEqual([{
+      baseId: base.id,
+      generation: generation.generation,
+      vmId: requested.id,
+      userId: requested.userId,
+      code: "billing_credits_insufficient",
+      message: expect.any(String),
+    }]);
+    expect(adHocMarks).toEqual([]);
+  });
+
+
   dbTest("does not stamp an unmeasured reservation on a free VM row", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
