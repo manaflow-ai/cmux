@@ -142,6 +142,11 @@ struct CloudTreeCreationRevealTests {
         #expect(presentation.update(request: reveal, selectedNodeID: baseline) { _ in true } == .select(id))
         #expect(presentation.update(request: reveal, selectedNodeID: baseline) { _ in true } == .select(id),
                 "An unresolved row must not end the reveal")
+        presentation.didSelect(id)
+        #expect(presentation.update(request: reveal, selectedNodeID: id) { _ in true } == nil)
+        var withdrawn = reveal
+        withdrawn.isWithdrawn = true
+        #expect(presentation.update(request: withdrawn, selectedNodeID: id) { _ in true } == .restore(baseline))
     }
 
     @MainActor

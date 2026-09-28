@@ -44,7 +44,6 @@ struct CloudTreeCreationRevealPresentation {
                 return nil
             }
             guard let id = request.nodeID, contains(id) else { return nil }
-            phase = .revealed(id, baseline: baseline)
             return .select(id)
         case .revealed(let id, let baseline):
             guard selectedNodeID == id else {
@@ -55,5 +54,13 @@ struct CloudTreeCreationRevealPresentation {
             phase = .idle
             return .restore(baseline)
         }
+    }
+
+    /// Records that the tree selected the row a `.select` asked for. Until it
+    /// does, the reveal keeps waiting, so a row the outline view could not
+    /// resolve yet is retried on the next update.
+    mutating func didSelect(_ id: String) {
+        guard case .waiting(let baseline) = phase else { return }
+        phase = .revealed(id, baseline: baseline)
     }
 }

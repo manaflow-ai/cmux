@@ -44,6 +44,7 @@ extension CloudTreeOutlineView.Coordinator {
             // A regular selection change records the row, so reloads restore it.
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             outlineView.scrollRowToVisible(row)
+            creationRevealPresentation.didSelect(id)
         case .restore(let baseline)?:
             selectedNodeID = baseline
             withProgrammaticUpdate { restoreSelection(in: outlineView) }
