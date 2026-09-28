@@ -23,6 +23,8 @@ struct DarwinResourceSamplingTests {
         ).capture()
         #expect(!listing.isComplete)
         #expect(listing.missingProcessCount == 1)
+        // The PID list was whole: 43 exited before it was read, it was not unseen.
+        #expect(listing.pidListIsComplete)
     }
 
     @Test("Truncated PID buffers remain incomplete after bounded retries")
@@ -45,6 +47,7 @@ struct DarwinResourceSamplingTests {
         ).capture()
         #expect(readCount == 3)
         #expect(!listing.isComplete)
+        #expect(!listing.pidListIsComplete)
         #expect(!listing.processes.isEmpty)
     }
 

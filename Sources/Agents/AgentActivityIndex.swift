@@ -170,7 +170,7 @@ struct AgentActivityIndex {
     }
 
     /// Reads one census off the main actor. `complete` is false when the census
-    /// was unavailable or partial: then a missing command proves nothing.
+    /// was unavailable or its PID list truncated: then a missing command proves nothing.
     private nonisolated static func foregroundCommands(
         _ probes: [ForegroundProbe],
         census: @Sendable () async -> CmuxTopProcessSnapshot
@@ -201,6 +201,9 @@ struct AgentActivityIndex {
             let arguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process)?.arguments ?? []
             commands[probe.index] = AgentProcessTree.describe(arguments: arguments) ?? process.name
         }
-        return (commands, snapshot.enumerationIsComplete)
+        // A listed process that exited before it was read no longer runs, so
+        // only a truncated PID list leaves a command unaccounted for. Build
+        // hosts churn through short-lived processes on every sample.
+        return (commands, snapshot.pidListIsComplete)
     }
 }

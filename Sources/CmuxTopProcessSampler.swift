@@ -18,7 +18,8 @@ struct CmuxTopProcessSampler: Sendable {
             processes: records, sampledAt: startedAt,
             includesProcessDetails: false, includesCMUXScope: false, includesResources: false,
             enumerationIsComplete: listing.isComplete && missing == 0,
-            enumerationMissingProcessCount: missing
+            enumerationMissingProcessCount: missing,
+            pidListIsComplete: listing.pidListIsComplete
         )
         return CmuxTopProcessCapture(listing: listing, snapshot: snapshot, fields: [])
     }
