@@ -64,20 +64,27 @@ struct AuthCoordinatorTeamActionsTests {
     }
 
     #if DEBUG
+    private func makeFixtureCoordinator(client: FakeAuthClient, environment: [String: String]) -> AuthCoordinator {
+        makeCoordinator(
+            client: client,
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false,
+                mockDataEnabled: false,
+                environment: environment.merging(["CMUX_UITEST_AUTH_FIXTURE": "1"]) { current, _ in current },
+                includesDevAuth: false
+            )
+        )
+    }
+
     @Test func fixtureSessionLoadsTeamsFromInjectedClient() async {
         let client = FakeAuthClient()
         await client.setTeams([
             CMUXAuthTeam(id: "team-a", displayName: "Alpha"),
             CMUXAuthTeam(id: "team-b", displayName: "Beta")
         ])
-        let coordinator = makeCoordinator(
+        let coordinator = makeFixtureCoordinator(
             client: client,
-            launch: AuthLaunchOptions(
-                clearAuthRequested: false,
-                mockDataEnabled: false,
-                environment: ["CMUX_UITEST_AUTH_FIXTURE": "1"],
-                includesDevAuth: false
-            )
+            environment: ["CMUX_UITEST_AUTH_FIXTURE_TEAMS": "[]"]
         )
 
         await coordinator.checkExistingSession()
@@ -86,6 +93,20 @@ struct AuthCoordinatorTeamActionsTests {
         #expect(coordinator.availableTeams.map(\.id) == ["team-a", "team-b"])
         #expect(coordinator.resolvedTeamID == "team-a")
         #expect(coordinator.authenticatedTeamScope?.teamID == "team-a")
+    }
+
+    /// Fixture launches that don't ask for fixture teams must not wait on a
+    /// team lookup through the live client.
+    @Test func fixtureSessionWithoutFixtureTeamsSkipsTeamLookup() async {
+        let client = FakeAuthClient()
+        await client.setTeams([CMUXAuthTeam(id: "team-a", displayName: "Alpha")])
+        let coordinator = makeFixtureCoordinator(client: client, environment: [:])
+
+        await coordinator.checkExistingSession()
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.availableTeams.isEmpty)
+        #expect(coordinator.authenticatedTeamScope == nil)
     }
     #endif
 }
