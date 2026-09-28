@@ -26,7 +26,11 @@ final class WorkspaceNavigationBarController: UIViewController {
 
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
-        applyConfiguration()
+        if parent == nil {
+            restoreConfiguration()
+        } else {
+            applyConfiguration()
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -113,7 +117,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         if owner !== target {
             restoreConfiguration()
             owner = target
-            originalItem = OriginalItem(item: target.navigationItem)
+            originalItem = OriginalItem(item: target.navigationItem, navigationBar: navigation.navigationBar)
         }
         let item = target.navigationItem
         navigation.navigationBar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
@@ -182,6 +186,10 @@ final class WorkspaceNavigationBarController: UIViewController {
         if item.pinnedTrailingGroup === installedPinnedGroup {
             item.pinnedTrailingGroup = originalItem.trailingGroup
         }
+        if let navigation = owner.navigationController,
+           navigation.navigationBar.accessibilityIdentifier == "MobileWorkspaceNavigationBar" {
+            navigation.navigationBar.accessibilityIdentifier = originalItem.navigationBarAccessibilityIdentifier
+        }
         installedLeadingGroups = []
         installedTrailingGroups = []
         installedPinnedGroup = nil
@@ -203,8 +211,9 @@ final class WorkspaceNavigationBarController: UIViewController {
         let trailingGroups: [UIBarButtonItemGroup]
         let trailingGroup: UIBarButtonItemGroup?
         let additionalOverflowItems: UIDeferredMenuElement?
+        let navigationBarAccessibilityIdentifier: String?
 
-        init(item: UINavigationItem) {
+        init(item: UINavigationItem, navigationBar: UINavigationBar) {
             titleView = item.titleView
             style = item.style
             largeTitleDisplayMode = item.largeTitleDisplayMode
@@ -212,6 +221,7 @@ final class WorkspaceNavigationBarController: UIViewController {
             trailingGroups = item.trailingItemGroups
             trailingGroup = item.pinnedTrailingGroup
             additionalOverflowItems = item.additionalOverflowItems
+            navigationBarAccessibilityIdentifier = navigationBar.accessibilityIdentifier
         }
     }
 }
