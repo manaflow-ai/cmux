@@ -203,7 +203,7 @@ extension MobileShellComposite {
         if agentFeedReadRowKeys.count > 1_500 {
             // The unread rule only needs recent rows; a coarse trim bounds
             // the persisted set without tracking order.
-            agentFeedReadRowKeys.removeFirst(agentFeedReadRowKeys.count - 1_000)
+            agentFeedReadRowKeys = Set(agentFeedReadRowKeys.prefix(1_000))
         }
         agentFeedPersistUnreadState()
         return true
