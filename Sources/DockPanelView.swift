@@ -172,6 +172,7 @@ struct DockEmptyPaneView: View {
                         systemImage: "terminal.fill"
                     )
                 }
+                .backport.pointerStyle(.link)
                 if BrowserAvailabilitySettings.offersBrowserAffordance(isEnabled: browserAvailable) {
                     Button(action: onNewBrowser) {
                         Label(
@@ -179,10 +180,10 @@ struct DockEmptyPaneView: View {
                             systemImage: "globe"
                         )
                     }
+                    .backport.pointerStyle(.link)
                 }
             }
             .buttonStyle(.bordered)
-            .backport.pointerStyle(.link)
             .controlSize(.small)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
