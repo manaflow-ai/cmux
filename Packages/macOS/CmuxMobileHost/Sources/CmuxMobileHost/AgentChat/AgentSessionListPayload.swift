@@ -75,16 +75,17 @@ public struct AgentSessionListPayload {
     public func list(records: [AgentChatSessionRecord], now: Date) -> [String: Any] {
         let ordered = records.orderedByAttention()
         let counts = ordered.attentionCounts()
+        // Built from the ranks themselves so the wire names here cannot drift
+        // from ``AgentSessionAttentionRank/wireName``, which is what `state`
+        // reports on each session and what the CLI's `--state` accepts.
+        var stateCounts: [String: Int] = ["total": counts.total]
+        for rank in AgentSessionAttentionRank.allCases {
+            stateCounts[rank.wireName] = counts[rank]
+        }
         return [
             "sessions": ordered.map { json($0, now: now) },
             "count": ordered.count,
-            "state_counts": [
-                "needs_input": counts.needsInput,
-                "working": counts.working,
-                "idle": counts.idle,
-                "ended": counts.ended,
-                "total": counts.total,
-            ],
+            "state_counts": stateCounts,
             "generated_at": formatter.string(from: now),
         ]
     }

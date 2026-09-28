@@ -216,6 +216,29 @@ struct AgentSessionAttentionTests {
         #expect(payload["generated_at"] as? String != nil)
     }
 
+    @Test("state_counts is keyed by the same names a session's state reports")
+    func payloadStateCountKeysMatchWireNames() {
+        let payload = AgentSessionListPayload().list(
+            records: [
+                record("a", state: .needsInput(since: at(10)), lastActivity: 10),
+                record("b", state: .working(since: at(20)), lastActivity: 20),
+                record("c", state: .idle, lastActivity: 30),
+                record("d", state: .ended, lastActivity: 40),
+            ],
+            now: at(600)
+        )
+        let counts = payload["state_counts"] as? [String: Int]
+        // Every bucket is present under its wire name, and nothing else is: a
+        // client can read `state_counts[session["state"]]` without a mapping
+        // table, and a renamed rank cannot quietly drop a key here.
+        let expected = AgentSessionAttentionRank.allCases.map(\.wireName) + ["total"]
+        #expect(counts?.keys.sorted() == expected.sorted())
+        for rank in AgentSessionAttentionRank.allCases {
+            #expect(counts?[rank.wireName] == 1)
+        }
+        #expect(counts?["total"] == 4)
+    }
+
     @Test("Payload carries state age and attention for a timed state")
     func payloadTimedState() {
         let json = AgentSessionListPayload().json(
