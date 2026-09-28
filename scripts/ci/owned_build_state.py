@@ -169,6 +169,7 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import apfs_clone  # noqa: E402
 import seed_derived_data as seed  # noqa: E402
 
 STAMP = "stamp.json"
@@ -259,6 +260,8 @@ def clone(source: Path, destination: Path) -> None:
     """An APFS clone of a directory tree, falling back to a copy."""
     clear(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if apfs_clone.clone_directory(source, destination):
+        return
     if subprocess.run(["cp", "-cR", str(source), str(destination)], capture_output=True).returncode != 0:
         remove(destination)
         shutil.copytree(source, destination, symlinks=True)
