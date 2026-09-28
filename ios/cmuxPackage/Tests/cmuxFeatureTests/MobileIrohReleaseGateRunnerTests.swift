@@ -316,7 +316,17 @@ struct MobileIrohReleaseGateRunnerTests {
         ))
         #expect(configuration.mode == .relayOnly)
         #expect(configuration.scenario == .standard)
+        #expect(configuration.startupPath == "stored_pairing")
         #expect(configuration.reportURL.lastPathComponent == "cmux-iroh-release-gate.json")
+
+        let injected = try #require(MobileIrohReleaseGateRunner.Configuration(
+            environment: [
+                "CMUX_IROH_RELEASE_GATE_MODE": "relayOnly",
+                "CMUX_DOGFOOD_ATTACH_URL": "https://example.test/pair",
+            ],
+            cachesDirectory: cache
+        ))
+        #expect(injected.startupPath == "injected_pairing")
 
         let rollover = try #require(MobileIrohReleaseGateRunner.Configuration(
             environment: [
