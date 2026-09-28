@@ -1,5 +1,14 @@
 import Foundation
 
+/// What a running agent is working on, as the sidebar's `set_status --work`
+/// option spells it. The CLI does not link the sidebar package, so these raw
+/// values are the wire contract with the app's `SidebarAgentWorkState`.
+enum AgentSidebarWorkState: String {
+    case running
+    case subagents
+    case waiting
+}
+
 extension CMUXCLI {
     /// Restores the shared needs-input status after a completion Stop that
     /// followed an attention request in the same turn.

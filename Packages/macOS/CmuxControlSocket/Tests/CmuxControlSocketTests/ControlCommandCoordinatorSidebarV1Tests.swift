@@ -42,6 +42,50 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.statusClearCall?.panelID == panelID)
     }
 
+    @Test func statusUpsertForwardsAgentWorkState() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args: "claude_code Running subagents --icon=bolt.fill --work=SUBAGENTS --tab=\(workspaceID.uuidString)"
+        )
+
+        #expect(response == "OK")
+        #expect(context.statusUpsertCall?.key == "claude_code")
+        #expect(context.statusUpsertCall?.value == "Running subagents")
+        #expect(context.statusUpsertCall?.workState == .subagents)
+    }
+
+    /// Every existing reporter omits `--work`, and those rows must keep
+    /// resolving the way they did before the option existed.
+    @Test func statusUpsertWithoutWorkOptionForwardsNoWorkState() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args: "claude_code Running --icon=bolt.fill --tab=\(UUID().uuidString)"
+        )
+
+        #expect(response == "OK")
+        #expect(context.statusUpsertCall?.workState == nil)
+    }
+
+    @Test func statusUpsertRejectsUnknownWorkStateBeforeMutation() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args: "claude_code Thinking --work=thinking --tab=\(UUID().uuidString)"
+        )
+
+        #expect(response.hasPrefix("ERROR: Invalid work state 'thinking'"))
+        #expect(context.statusUpsertCall == nil)
+    }
+
     @Test func workspaceLoadingFailureReasonReturnsErrorLine() {
         let context = FakeSidebarV1ControlCommandContext()
         context.workspaceLoadingResult = ControlSidebarWorkspaceLoadingState(

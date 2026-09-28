@@ -223,7 +223,9 @@ The glyph shows the loudest state that applies:
 | --- | --- |
 | An agent reported an error | red warning triangle |
 | An agent needs input | amber dot |
+| An agent is running through subagents | pulsing gray connected-points glyph |
 | An agent is running | pulsing gray dot, in place of the loading spinner |
+| An agent is waiting on a background command, a scheduled wakeup or a CI run | gray hourglass |
 | An agent is starting (no state reported yet) | dashed ring |
 | Unread notifications | blue dot, in place of the unread count badge |
 | Open pull request | gray pull request glyph |
@@ -235,7 +237,7 @@ The glyph shows the loudest state that applies:
 
 cmux does not fetch a pull request's checks or mergeability, so an open pull request is gray whatever CI says. A pull request whose state repeated refresh failures could not confirm does not set the glyph at all.
 
-Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF Symbol](https://developer.apple.com/sf-symbols/) name. The states are `error`, `needsInput`, `running`, `starting`, `unseen`, `pullRequestOpen`, `pullRequestMerged`, `pullRequestClosed`, `idle`, `branch` and `terminal`. Colors stay the same; a configured symbol replaces the badge too, draws at full size, and a name that does not render falls back to the built-in symbol. The built-in pull request and merge glyphs are drawn by cmux, since the SF Symbols ones are too narrow at sidebar size; name them `cmux.pullrequest` and `cmux.merge` to use them for another state.
+Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF Symbol](https://developer.apple.com/sf-symbols/) name. The states are `error`, `needsInput`, `subagents`, `running`, `waiting`, `starting`, `unseen`, `pullRequestOpen`, `pullRequestMerged`, `pullRequestClosed`, `idle`, `branch` and `terminal`. Colors stay the same; a configured symbol replaces the badge too, draws at full size, and a name that does not render falls back to the built-in symbol. The built-in pull request and merge glyphs are drawn by cmux, since the SF Symbols ones are too narrow at sidebar size; name them `cmux.pullrequest` and `cmux.merge` to use them for another state.
 
 ```json
 {

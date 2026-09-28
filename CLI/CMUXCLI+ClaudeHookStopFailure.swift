@@ -10,7 +10,8 @@ extension CMUXCLI {
         icon: String,
         color: String,
         pid: Int? = nil,
-        priority: Int? = nil
+        priority: Int? = nil,
+        workState: AgentSidebarWorkState? = nil
     ) throws {
         // The socket tokenizer opens a quoted token at a bare ' or ", so a
         // localized value such as "Erreur d'API" would swallow every option
@@ -21,6 +22,9 @@ extension CMUXCLI {
         var cmd = "set_status \(Self.claudeCodeStatusKey) \(wireValue) --icon=\(icon) --color=\(color)"
         if let priority {
             cmd += " --priority=\(priority)"
+        }
+        if let workState {
+            cmd += " --work=\(workState.rawValue)"
         }
         cmd += " --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
         if let pid,

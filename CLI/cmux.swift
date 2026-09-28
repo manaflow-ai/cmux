@@ -4343,6 +4343,9 @@ struct CMUXCLI {
     }
 
     static let claudeCodeStatusKey = "claude_code"
+    /// The SF Symbol a running-with-subagents row shows: several connected
+    /// points, distinct from the git-branch symbol the sidebar already uses.
+    static let subagentsStatusIcon = "point.3.filled.connected.trianglepath.dotted"
 
     private static func agentNotificationMeta(
         category: AgentHookNotifyCategory,
@@ -28662,13 +28665,21 @@ struct CMUXCLI {
                     // still live, so the pane is not idle — show it as still
                     // running rather than the misleading "Idle". Reuse the shared
                     // generic-agent status strings so the pill stays localized.
+                    //
+                    // A background task or cron is a deterministic wakeup the pane
+                    // is parked on, which reads as Waiting. A re-entrant Stop
+                    // (`stop_hook_active`) is not: the agent itself is still going.
+                    let isWaitingOnBackgroundWork = hasPendingBackgroundWork
                     try? setClaudeStatus(
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
-                        icon: "bolt.fill",
-                        color: "#4C8DFF"
+                        value: isWaitingOnBackgroundWork
+                            ? String(localized: "agent.generic.status.waiting", defaultValue: "Waiting")
+                            : String(localized: "agent.generic.status.running", defaultValue: "Running"),
+                        icon: isWaitingOnBackgroundWork ? "hourglass" : "bolt.fill",
+                        color: isWaitingOnBackgroundWork ? "#8E8E93" : "#4C8DFF",
+                        workState: isWaitingOnBackgroundWork ? .waiting : .running
                     )
                 } else {
                     try? setClaudeStatus(
@@ -28863,7 +28874,8 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: "Running",
                 icon: "bolt.fill",
-                color: "#4C8DFF"
+                color: "#4C8DFF",
+                workState: .running
             )
             printClaudeHookAck()
 
@@ -29558,10 +29570,20 @@ struct CMUXCLI {
                 telemetry: telemetry
             )
 
+            // A `Task` call blocks the parent inside the tool until its
+            // subagents finish, so no other parent hook can fire meanwhile:
+            // the subagent state holds for exactly that span, and the next
+            // parent PreToolUse or Stop clears it. No counter to drift.
+            let runsSubagents = (parsedInput.object?["tool_name"] as? String) == "Task"
             let statusValue: String
             if UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus"),
                let toolStatus = describeToolUse(parsedInput.object) {
                 statusValue = toolStatus
+            } else if runsSubagents {
+                statusValue = String(
+                    localized: "agent.generic.status.runningSubagents",
+                    defaultValue: "Running subagents"
+                )
             } else {
                 statusValue = "Running"
             }
@@ -29570,9 +29592,10 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 value: statusValue,
-                icon: "bolt.fill",
+                icon: runsSubagents ? Self.subagentsStatusIcon : "bolt.fill",
                 color: "#4C8DFF",
-                pid: claudePid
+                pid: claudePid,
+                workState: runsSubagents ? .subagents : .running
             )
             printClaudeHookAck()
 
