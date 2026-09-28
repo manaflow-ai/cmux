@@ -34,4 +34,23 @@ public struct RemoteLinkOpenPolicy: Sendable {
         }
         return RemoteLinkDestinations(browserURL: machineRoute, externalURL: remoteInitiated ? nil : url)
     }
+
+    /// Whether a link that resolved to `url` may open a file on this Mac.
+    ///
+    /// Only a click on content that came from this Mac opens a local file. A
+    /// path in a remote or unplaced terminal names a file on another machine,
+    /// so it never falls back to this Mac's filesystem. A remote machine can't
+    /// ask this Mac to open a local file either, so apps and scripts on this
+    /// Mac never launch without a click here.
+    ///
+    /// - Parameters:
+    ///   - url: The link after path resolution.
+    ///   - localContent: Whether the link came from a terminal known to run on
+    ///     this Mac, or from a file this Mac's terminal wrote.
+    ///   - remoteInitiated: Whether the remote machine asked for the open
+    ///     without a click on this Mac.
+    public func allowsLocalFile(_ url: URL, localContent: Bool, remoteInitiated: Bool) -> Bool {
+        guard url.scheme?.lowercased() == "file" else { return true }
+        return localContent && !remoteInitiated
+    }
 }
