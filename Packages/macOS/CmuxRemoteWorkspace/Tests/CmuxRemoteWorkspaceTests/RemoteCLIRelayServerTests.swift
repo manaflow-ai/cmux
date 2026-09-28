@@ -91,15 +91,19 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
         Thread.detachNewThread { [weak self] in
             let client = accept(fd, nil, nil)
             guard client >= 0 else { return }
+            // Darwin refuses socket options with EINVAL once a client has
+            // hung up before accept, so a write there would raise SIGPIPE and
+            // kill the test process. Only a socket that took SO_NOSIGPIPE is
+            // written to; the other has no reader left.
             var noSigPipe: Int32 = 1
-            withUnsafePointer(to: &noSigPipe) { pointer in
-                _ = setsockopt(
+            let canWrite = withUnsafePointer(to: &noSigPipe) { pointer in
+                setsockopt(
                     client,
                     SOL_SOCKET,
                     SO_NOSIGPIPE,
                     pointer,
                     socklen_t(MemoryLayout<Int32>.size)
-                )
+                ) == 0
             }
             var scratch = [UInt8](repeating: 0, count: 4096)
             while true {
@@ -114,15 +118,17 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
             }
             self?.requestReceived.signal()
             if let response = self?.response {
-                response.withUnsafeBytes { raw in
-                    _ = Darwin.write(client, raw.baseAddress, raw.count)
+                if canWrite {
+                    response.withUnsafeBytes { raw in
+                        _ = Darwin.write(client, raw.baseAddress, raw.count)
+                    }
                 }
             } else {
                 self?.clientHangupProbe.wait()
                 let deadline = Date().addingTimeInterval(2)
                 while Date() < deadline {
                     var probe: UInt8 = 0
-                    if Darwin.write(client, &probe, 1) <= 0 {
+                    if !canWrite || Darwin.write(client, &probe, 1) <= 0 {
                         self?.clientHungUp.signal()
                         break
                     }

@@ -52,8 +52,14 @@ private final class RecordingLocalSocketServer: @unchecked Sendable {
             let client = accept(fd, nil, nil)
             guard client >= 0 else { return }
             defer { Darwin.close(client) }
+            // Darwin refuses socket options with EINVAL once a client has
+            // hung up before accept, so a write there would raise SIGPIPE and
+            // kill the test process. Only a socket that took SO_NOSIGPIPE is
+            // answered; the other has no reader left.
             var noSigPipe: Int32 = 1
-            _ = setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+            let canWrite = setsockopt(
+                client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size)
+            ) == 0
             var answeredAuth = false
             var scratch = [UInt8](repeating: 0, count: 4096)
             while true {
@@ -63,12 +69,14 @@ private final class RecordingLocalSocketServer: @unchecked Sendable {
                 _received.append(scratch, count: count)
                 let sawLine = _received.contains(0x0A)
                 lock.unlock()
-                if sawLine, !answeredAuth {
+                if sawLine, !answeredAuth, canWrite {
                     answeredAuth = true
                     Self.write("{\"ok\":true}\n", to: client)
                 }
             }
-            Self.write("{\"ok\":true,\"result\":{}}\n", to: client)
+            if canWrite {
+                Self.write("{\"ok\":true,\"result\":{}}\n", to: client)
+            }
         }
     }
 
