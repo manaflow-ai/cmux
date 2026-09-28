@@ -44,6 +44,7 @@ extension TerminalSurface {
     var debugTransferReconciliationTokenStorageCount: Int {
         transferReconciledFontSizeChangeTokens.count
     }
+
     /// Marks that a higher-level batched font-size request already contributed
     /// to this surface's lineage. New descendants can carry the same request
     /// provenance without inferring ownership from a colliding point value.
@@ -51,6 +52,7 @@ extension TerminalSurface {
     public func markFontSizeChangeApplied(token: UUID) {
         lastAppliedFontSizeChangeToken = token
     }
+
     /// Records transient request provenance while this live panel transfers
     /// between containers. The owning coordinator retires the token when its
     /// coalesced event batch finishes, so this set is bounded by in-flight work.
@@ -330,20 +332,16 @@ extension TerminalSurface {
         let observedRuntimePoints =
             GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(
                 runtimeSurface
-            ) {
-            let nativeIsExplicitOverride = ghostty_surface_font_size_adjusted(runtimeSurface)
-            if !nativeIsExplicitOverride, !followsConfiguredFontSize,
-               let lineage = lastKnownFontSizeLineage, lineage.isExplicitOverride {
-                return (CmuxSurfaceConfigTemplate.runtimeFontSize(fromBasePoints: lineage.basePoints, percent: percent), lineage)
-            }
-            if let observedLineage = recordObservedFontSizeLineage(
-                runtimePoints: observedRuntimePoints,
-                isExplicitOverride: nativeIsExplicitOverride,
-                globalFontMagnificationPercent: percent
-            ) {
-                return (observedRuntimePoints, observedLineage)
-            }
+            ),
+        let observedLineage = recordObservedFontSizeLineage(
+            runtimePoints: observedRuntimePoints,
+            isExplicitOverride:
+                ghostty_surface_font_size_adjusted(runtimeSurface),
+            globalFontMagnificationPercent: percent
+        ) {
+            return (observedRuntimePoints, observedLineage)
         }
+
         if !followsConfiguredFontSize,
            let lineage = lastKnownFontSizeLineage,
            lineage.isExplicitOverride || runtimeSurfaceGeneration == 0 {
@@ -355,6 +353,7 @@ extension TerminalSurface {
                 lineage
             )
         }
+
         guard let fallbackRuntimePoints,
               fallbackRuntimePoints.isFinite,
               fallbackRuntimePoints > 0 else {
@@ -420,6 +419,7 @@ extension TerminalSurface {
             ),
             isExplicitOverride: false
         )
+
         if let runtimeSurface = liveSurfaceForGhosttyAccess(reason: "fontSize.reset") {
             if let mobileFitResult = resetDurableMobileViewportFontSize(
                 to: targetRuntimePoints,
