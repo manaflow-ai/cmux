@@ -2,6 +2,20 @@ import AppKit
 import CmuxTerminalCore
 import GhosttyKit
 
+/// Carries both spellings of the link from the menu item to its action: the
+/// raw text for the open coordinator, the resolved URL for the pasteboard.
+private final class TerminalLinkMenuPayload: NSObject {
+    let rawValue: String
+    let url: URL
+    let workingDirectory: String?
+
+    init(rawValue: String, url: URL, workingDirectory: String?) {
+        self.rawValue = rawValue
+        self.url = url
+        self.workingDirectory = workingDirectory
+    }
+}
+
 extension GhosttyNSView {
     /// Adds the link items when the pointer is over a link.
     ///
@@ -18,20 +32,53 @@ extension GhosttyNSView {
     /// offering to open ordinary prose because it happened to contain a dot is
     /// worse than offering nothing.
     ///
+    /// That has a cost worth stating plainly. Ghostty only reports a hovered
+    /// link while the link modifier is held, so these items appear on
+    /// Cmd-right-click and not on a bare right-click. It is the same gesture
+    /// that makes the link clickable in the first place, but it is a gesture,
+    /// and a menu that reads the link under the pointer without one needs a
+    /// hit-test cmux cannot ask ghostty for yet.
+    ///
     /// - Parameters:
     ///   - menu: The context menu being built.
     ///   - pointerLocation: The right-click point in view coordinates, or `nil`
     ///     when the menu was opened from pane chrome outside the terminal
-    ///     viewport. `nil` adds nothing: no pointer, no link under it.
+    ///     viewport. `nil` adds nothing: no pointer, no link under it. The
+    ///     point itself is not used; ghostty already resolved the link under
+    ///     it, and this mirrors ``addRevealInFinderMenuItem(to:surface:pointerLocation:)``.
     func addLinkContextMenuItems(to menu: NSMenu, pointerLocation: NSPoint?) {
-        guard pointerLocation != nil,
-              let terminalSurface,
-              let offer = TerminalLinkContextMenuPolicy(
-                  router: TerminalLinkRouter(hostNormalizer: TerminalBrowserHostNormalizer())
-              ).offer(forCandidate: terminalSurface.hostedView.linkHoverIndicatorView.url) else {
+        guard pointerLocation != nil, let terminalSurface else { return }
+
+        let workspace = terminalSurface.owningWorkspace()
+        let cwd = workspace.flatMap {
+            CommandClickFileOpenRouter.resolveWorkingDirectory(
+                workspace: $0,
+                surfaceId: terminalSurface.id
+            )
+        }
+        // A path printed by a remote shell names a file on that host. Probing
+        // it here would either miss or, worse, hit an unrelated local file.
+        let fileResolution: TerminalLinkContextMenuPolicy.FileResolution =
+            workspace?.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: terminalSurface.id) == true
+            ? .localFilesystem(cwd: cwd)
+            : .remoteHost
+
+        let policy = TerminalLinkContextMenuPolicy(
+            router: TerminalLinkRouter(hostNormalizer: TerminalBrowserHostNormalizer()),
+            embeddedBrowserIsAvailable: BrowserAvailabilitySettings.isEnabled()
+        )
+        guard let offer = policy.offer(
+            forCandidate: terminalSurface.hostedView.linkHoverIndicatorView.url,
+            fileResolution: fileResolution
+        ) else {
             return
         }
 
+        let payload = TerminalLinkMenuPayload(
+            rawValue: offer.rawValue,
+            url: offer.url,
+            workingDirectory: cwd
+        )
         for item in offer.items {
             let menuItem = menu.addItem(
                 withTitle: title(for: item),
@@ -39,7 +86,7 @@ extension GhosttyNSView {
                 keyEquivalent: ""
             )
             menuItem.target = self
-            menuItem.representedObject = offer.url
+            menuItem.representedObject = payload
             menuItem.image = NSImage(systemSymbolName: symbolName(for: item), accessibilityDescription: nil)
         }
         menu.addItem(.separator())
@@ -55,28 +102,36 @@ extension GhosttyNSView {
         openContextMenuLink(sender, destination: .systemBrowser)
     }
 
-    /// Puts the menu item's link on the general pasteboard.
+    /// Puts the menu item's link on the pasteboard.
+    ///
+    /// The resolved URL, not the raw text: a user who copies `example.com/docs`
+    /// wants something they can paste into an address bar or a message.
     @objc func copyContextMenuLink(_ sender: NSMenuItem) {
-        guard let url = sender.representedObject as? URL else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        guard let payload = sender.representedObject as? TerminalLinkMenuPayload else { return }
+        // Through the terminal pasteboard service like every other copy in this
+        // view, so it serializes with ghostty's own clipboard reads.
+        GhosttyApp.terminalPasteboard.writeString(
+            payload.url.absoluteString,
+            to: GHOSTTY_CLIPBOARD_STANDARD
+        )
     }
 
     private func openContextMenuLink(
         _ sender: NSMenuItem,
         destination: TerminalLinkOpenRequest.Destination
     ) {
-        guard let url = sender.representedObject as? URL,
+        guard let payload = sender.representedObject as? TerminalLinkMenuPayload,
               let terminalSurface else { return }
-        // Through the shared coordinator, not `NSWorkspace.open` directly, so
-        // the cloud-terminal URL rewrite and the embedded browser's own
-        // fallbacks apply here exactly as they do to a click.
+        // The raw hovered text through the shared coordinator, not the resolved
+        // URL and not `NSWorkspace.open`, so the remote-file guard, the
+        // cloud-terminal URL rewrite and the embedded browser's own fallbacks
+        // all apply here exactly as they do to a click.
         _ = TerminalLinkOpenCoordinator().open(
             TerminalLinkOpenRequest(
-                rawValue: url.absoluteString,
+                rawValue: payload.rawValue,
                 sourceWorkspaceId: tabId,
                 sourcePanelId: terminalSurface.id,
-                workingDirectory: nil,
+                workingDirectory: payload.workingDirectory,
                 destination: destination
             )
         )
