@@ -11,6 +11,7 @@ public struct AutomationSection: View {
     @State private var modeModel: DefaultsValueModel<SocketControlMode>
     @State private var claudeCodeModel: DefaultsValueModel<Bool>
     @State private var codexModel: DefaultsValueModel<Bool>
+    @State private var piModel: DefaultsValueModel<Bool>
     @State private var claudePathModel: DefaultsValueModel<String>
     @State private var autoNamingModel: DefaultsValueModel<Bool>
     @State private var autoNamingAgentModel: DefaultsValueModel<String>
@@ -34,7 +35,6 @@ public struct AutomationSection: View {
     @State private var automationRulesActionMessage: String?
     @State private var automationRulesActionIsError = false
     @State private var automationRulesRefreshID = 0
-
     private struct SocketPasswordStatus: Equatable {
         let message: String
         let isError: Bool
@@ -60,6 +60,7 @@ public struct AutomationSection: View {
         _modeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.socketControlMode))
         _claudeCodeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeHooksEnabled))
         _codexModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.codexHooksEnabled))
+        _piModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.piHooksEnabled))
         _claudePathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeCustomClaudePath))
         _autoNamingModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.workspaceAutoNaming))
         _autoNamingAgentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.autoNamingAgent))
@@ -89,6 +90,7 @@ public struct AutomationSection: View {
             automationRulesCard
             claudeCodeCard
             codexCard
+            PiIntegrationCard(isEnabled: piModel.current, setEnabled: { piModel.set($0) })
             claudePathCard
             autoNamingCard
             ripgrepPathCard
@@ -130,7 +132,7 @@ public struct AutomationSection: View {
             ))
         }
         .task {
-            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
+            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
         }
         .task(id: automationRulesRefreshID) {
             await refreshAutomationRulesStatus()
@@ -141,7 +143,6 @@ public struct AutomationSection: View {
             }
         }
     }
-
     /// Thin native exposure of the existing JSON-backed automation engine.
     @ViewBuilder
     private var automationRulesCard: some View {
@@ -160,7 +161,6 @@ public struct AutomationSection: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsAutomationRulesEditButton")
-
                     Button(String(localized: "settings.automation.rules.reload", defaultValue: "Reload", bundle: .module)) {
                         let didRequestReload = hostActions.reloadAutomationRules()
                         automationRulesActionIsError = !didRequestReload
