@@ -152,6 +152,11 @@ path = "tests/test_claude_wrapper_subrouter_resume_marker.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_claude_wrapper_generated_settings_fast_path.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_claude_teams_test_utils.py"
 lane = "macos-cli-no-socket"
 
@@ -241,6 +246,12 @@ path = "tests/test_issue_10926_watcher_pid_reuse_guard.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_issue_15066_zsh_watcher_sleep.py"
+lane = "macos-cli-no-socket"
+# This test starts disowned watcher processes and verifies their teardown; run it alone.
+serial = true
+
+[[test]]
 path = "tests/test_issue_15067_bash_watcher_churn.py"
 lane = "linux-guard"
 
@@ -281,6 +292,10 @@ path = "tests/test_shell_no_git_watch.py"
 lane = "macos-shell"
 
 [[test]]
+path = "tests/test_workspace_initial_command_shim_root_owner.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_claude_hook_stop_last_assistant.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
@@ -304,6 +319,10 @@ requirements = ["cmux-cli"]
 path = "tests/test_pi_extension_dispatch.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_pi_wrapper.py"
+lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_pi_compacted_feed.py"
@@ -1380,4 +1399,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_config_schema_embed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ui_tests_dispatch.py"
 lane = "linux-guard"

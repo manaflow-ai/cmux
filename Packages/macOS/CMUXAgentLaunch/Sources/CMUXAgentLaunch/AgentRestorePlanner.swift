@@ -234,7 +234,8 @@ public struct AgentRestorePlanner: Sendable {
             launcher: launch.launcher,
             sessionID: checkpointID,
             launchArguments: launch.arguments,
-            environment: launch.environment
+            environment: launch.environment,
+            launcherPrefix: launch.launcherPrefix
         ), let launcherExecutable = routed.first,
         isResolvableOnRestorePath(launcherExecutable, ambientEnvironment: ambientEnvironment) else {
             return nil
@@ -509,9 +510,11 @@ public struct AgentRestorePlanner: Sendable {
                launcher: request.launchCommand?.launcher,
                sessionID: checkpointID,
                launchArguments: request.launchCommand?.arguments ?? [],
-               environment: request.launchCommand?.environment
+               environment: request.launchCommand?.environment,
+               launcherPrefix: request.launchCommand?.launcherPrefix
            ),
-           arguments.starts(with: routedPrefix.prefix(5)) {
+           let sessionIndex = routedPrefix.firstIndex(of: checkpointID),
+           arguments.starts(with: routedPrefix.prefix(through: sessionIndex)) {
             if let capturedExecutable = normalized(request.launchCommand?.executablePath) {
                 environment[restoreLaunch.customExecutablePathEnvironmentKey] = capturedExecutable
             }
