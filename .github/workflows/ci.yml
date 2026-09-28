@@ -1633,6 +1633,10 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          # Only to find the test run and print what it is doing each minute.
+          SELECTORS: ${{ needs.changes.outputs.ui_selectors }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_SHA: ${{ github.sha }}
         run: python3 scripts/ci/ui_tests_dispatch.py await-verdict
 
   dogfood-build:

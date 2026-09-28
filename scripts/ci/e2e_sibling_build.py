@@ -41,6 +41,10 @@ BUILD_JOB = "build"
 PUBLISH_STEP = "Upload the compiled test product"
 # On an owned Mac the build job tests first and uploads after, under this name.
 PUBLISH_AFTER_TESTS_STEP = "Upload the compiled test product after the tests"
+# A build job that adopted a product skips this step, and uploads nothing when
+# it tests itself: the product is already published by the run it adopted, so
+# a waiter adopts it from there at once instead of waiting for these tests.
+COMPILE_STEP = "Build the app-host and UI test product"
 UNFINISHED = frozenset({"queued", "in_progress", "waiting", "requested", "pending"})
 # "<selectors> on <runner> @ <ref> [<dispatch id>]"; run-e2e.sh passes a full SHA.
 TITLE = re.compile(r" on (\S+) @ ([0-9a-f]{40})(?: \[[^\]]*\])?$")
@@ -122,8 +126,9 @@ def build_state(jobs: list[dict]) -> str:
         return "running"
     steps = job.get("steps")
     if isinstance(steps, list) and any(
-        isinstance(step, dict) and step.get("name") in (PUBLISH_STEP, PUBLISH_AFTER_TESTS_STEP)
-        and step.get("conclusion") == "success"
+        isinstance(step, dict) and (
+            step.get("name") in (PUBLISH_STEP, PUBLISH_AFTER_TESTS_STEP) and step.get("conclusion") == "success"
+            or step.get("name") == COMPILE_STEP and step.get("conclusion") == "skipped")
         for step in steps
     ):
         return "success"
