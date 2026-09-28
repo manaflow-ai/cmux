@@ -396,8 +396,17 @@ struct DockSocketLifecycleTests {
     @MainActor
     func dockPlacementRemainsAvailableWithoutBetaSetting() throws {
         try withSocketAppContext { _, workspace, windowID in
-            UserDefaults.standard.set(false, forKey: "rightSidebar.beta.dock.enabled")
-            defer { UserDefaults.standard.removeObject(forKey: "rightSidebar.beta.dock.enabled") }
+            let defaults = UserDefaults.standard
+            let legacyDockBetaKey = "rightSidebar.beta.dock.enabled"
+            let previousLegacyDockBeta = defaults.object(forKey: legacyDockBetaKey)
+            defaults.set(false, forKey: legacyDockBetaKey)
+            defer {
+                if let previousLegacyDockBeta {
+                    defaults.set(previousLegacyDockBeta, forKey: legacyDockBetaKey)
+                } else {
+                    defaults.removeObject(forKey: legacyDockBetaKey)
+                }
+            }
             for method in ["surface.create", "pane.create"] {
                 var params = ["placement": "dock", "type": "terminal", "focus": true]
                 if method == "pane.create" {
