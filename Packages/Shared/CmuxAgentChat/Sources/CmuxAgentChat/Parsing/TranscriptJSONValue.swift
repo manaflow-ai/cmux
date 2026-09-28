@@ -88,10 +88,16 @@ enum TranscriptJSONValue: Sendable, Equatable, Codable {
         return nil
     }
 
-    /// The numeric payload as an integer, or `nil` when not a number.
+    /// The numeric payload as an integer, or `nil` when not a number and
+    /// when a number cannot be one.
+    ///
+    /// Truncates toward zero, and answers `nil` rather than trapping for a
+    /// value no `Int` can hold. Transcripts are written by remote and cloud
+    /// hosts, so `1e30` in a count field is untrusted input and must not
+    /// take the process down.
     var int: Int? {
         guard let double else { return nil }
-        return Int(double)
+        return Int(exactly: double.rounded(.towardZero))
     }
 
     /// The object payload, or `nil` when this is not an object.

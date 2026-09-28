@@ -114,25 +114,101 @@ public struct ChatTokenUsage: Sendable, Equatable {
 /// for Claude sessions; the absence is the honest answer rather than a
 /// zero.
 public struct ChatUsageRateLimit: Sendable, Equatable {
-    /// Percentage of the window's allowance used, 0 to 100.
-    public var usedPercent: Double
+    /// One rolling allowance window.
+    public struct Window: Sendable, Equatable {
+        /// Percentage of the window's allowance used, 0 to 100.
+        public var usedPercent: Double
 
-    /// Length of the rolling window in minutes.
-    public var windowMinutes: Int?
+        /// Length of the rolling window in minutes.
+        public var windowMinutes: Int?
 
-    /// When the window resets, when the provider says.
-    public var resetsAt: Date?
+        /// When the window resets, when the provider says.
+        public var resetsAt: Date?
 
-    /// Creates a rate limit reading.
+        /// Creates a window reading.
+        ///
+        /// - Parameters:
+        ///   - usedPercent: Percentage of the allowance used.
+        ///   - windowMinutes: Window length in minutes.
+        ///   - resetsAt: When the window resets.
+        public init(usedPercent: Double, windowMinutes: Int? = nil, resetsAt: Date? = nil) {
+            self.usedPercent = usedPercent
+            self.windowMinutes = windowMinutes
+            self.resetsAt = resetsAt
+        }
+    }
+
+    /// The short window, the one that throttles a burst of work.
+    public var primary: Window
+
+    /// The long window, when the provider reports one.
+    ///
+    /// Codex sends two windows: a roughly five-hour `primary` and a weekly
+    /// `secondary`. The weekly one is usually what actually stops a day of
+    /// work, and it is the one a session hits without warning, so dropping
+    /// it would hide the limit that matters.
+    public var secondary: Window?
+
+    /// Whether the provider says a spend control has already cut the
+    /// session off.
+    public var spendControlReached: Bool
+
+    /// Percentage of the ``primary`` window's allowance used.
+    public var usedPercent: Double {
+        get { primary.usedPercent }
+        set { primary.usedPercent = newValue }
+    }
+
+    /// Length of the ``primary`` window in minutes.
+    public var windowMinutes: Int? {
+        get { primary.windowMinutes }
+        set { primary.windowMinutes = newValue }
+    }
+
+    /// When the ``primary`` window resets.
+    public var resetsAt: Date? {
+        get { primary.resetsAt }
+        set { primary.resetsAt = newValue }
+    }
+
+    /// Whichever reported window is closest to its limit.
+    ///
+    /// This is what a caller showing one number should show. Picking the
+    /// primary window instead reads "12% used" on a session that is at 96%
+    /// of its weekly allowance.
+    public var tightestWindow: Window {
+        guard let secondary, secondary.usedPercent > primary.usedPercent else {
+            return primary
+        }
+        return secondary
+    }
+
+    /// Creates a rate limit reading from its windows.
+    ///
+    /// - Parameters:
+    ///   - primary: The short window.
+    ///   - secondary: The long window, when reported.
+    ///   - spendControlReached: Whether a spend control has cut the session off.
+    public init(primary: Window, secondary: Window? = nil, spendControlReached: Bool = false) {
+        self.primary = primary
+        self.secondary = secondary
+        self.spendControlReached = spendControlReached
+    }
+
+    /// Creates a rate limit reading with only a primary window.
     ///
     /// - Parameters:
     ///   - usedPercent: Percentage of the allowance used.
     ///   - windowMinutes: Window length in minutes.
     ///   - resetsAt: When the window resets.
     public init(usedPercent: Double, windowMinutes: Int? = nil, resetsAt: Date? = nil) {
-        self.usedPercent = usedPercent
-        self.windowMinutes = windowMinutes
-        self.resetsAt = resetsAt
+        self.init(
+            primary: Window(
+                usedPercent: usedPercent,
+                windowMinutes: windowMinutes,
+                resetsAt: resetsAt
+            )
+        )
     }
 }
 
@@ -156,11 +232,14 @@ public struct ChatUsageTotals: Sendable, Equatable {
     /// Distinct API responses counted.
     public var responses: Int
 
-    /// Repeated reports of an already-counted response that were skipped.
+    /// Repeated reports of a response that was already counted.
     ///
     /// Non-zero is normal, not a warning: both providers repeat usage by
     /// design. A caller that wants to prove deduplication is working can
-    /// watch this climb.
+    /// watch this climb. A repeat is usually dropped, but a Claude repeat
+    /// carrying larger counts than the copy already counted replaces it,
+    /// because a streaming response's early lines carry placeholder
+    /// output counts. Either way it counts here.
     public var duplicateReports: Int
 
     /// Usage blocks skipped because they carried no response identity.
@@ -169,8 +248,13 @@ public struct ChatUsageTotals: Sendable, Equatable {
     /// undercount. That is the deliberate direction to be wrong in: without
     /// an identity there is no way to tell a fresh response from the same
     /// one reported again, and counting it risks the large overstatement
-    /// deduplication exists to prevent. In practice this stays zero; a
-    /// climbing value means a provider changed its format.
+    /// deduplication exists to prevent.
+    ///
+    /// Also counts a usage block that carries no count field this parser
+    /// recognizes, which is the one format change it can notice. In
+    /// practice both stay zero. It is not a general format alarm: a
+    /// provider that renames only *some* count keys, or adds a new kind of
+    /// token, leaves this at zero and quietly undercounts.
     public var unidentifiedReports: Int
 
     /// Tokens currently occupying the context window, when the provider
