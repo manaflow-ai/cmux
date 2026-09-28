@@ -3002,6 +3002,64 @@ class IOSRouting(unittest.TestCase):
         self.assertEqual(charged(run(2, 30), partial, NOW), 2)
         self.assertEqual(charged(run(8, 10), partial, NOW), 0)
 
+    def test_a_young_run_whose_picker_finished_without_a_marker_holds_nothing(self):
+        # 2026-09-28: a burst of pull request runs, each sent to Blacksmith within a minute, was charged
+        # two simulators and two machines apiece until PLACEMENT_GRACE_MINUTES passed, so the picker read
+        # "-2 glaeda-ios-sim free" and a pool of -1 with std runners idle, and overflowed the runs behind.
+        title = "iOS tests · 15141/merge · simulator · full suite · both · iOS default · on auto"
+
+        def run(run_id, minutes, attempt=1, display=title, status="queued"):
+            return {"id": run_id, "run_attempt": attempt, "display_title": display, "status": status,
+                    "created_at": pool.iso(NOW - dt.timedelta(minutes=minutes))}
+
+        class Client:
+            def __init__(self, jobs):
+                self.jobs, self.paths = jobs, []
+
+            def get(self, path):
+                self.paths.append(path)
+                run_id = int(path.split("/actions/runs/", 1)[1].split("/", 1)[0])
+                if self.jobs.get(run_id) is None:
+                    raise RuntimeError(f"GET {path} failed (500)")
+                return {"jobs": self.jobs[run_id]}
+
+        done = [{"name": "runner", "status": "completed"}, {"name": "detect-ios-changes", "status": "queued"}]
+        picking = [{"name": "runner", "status": "in_progress"}]
+        runs = [run(1, 1), run(2, 2), run(3, 1), run(4, 1), run(5, 30), run(6, 1, attempt=2),
+                run(7, 1, display=title.replace("on auto", "on owned")), run(8, 1, display="iOS screenshots"),
+                run(9, 1, status="completed")]
+        client = Client({1: done, 2: picking, 3: done, 4: None})
+        with unittest.mock.patch("sys.stderr", io.StringIO()):
+            picked = ios_pool.picked_runs(client, runs, NOW)
+        # Only young attempt-1 `auto` runs are read, one request each; an unread run is left out.
+        self.assertEqual(picked, frozenset({1, 3}))
+        self.assertEqual(sorted(int(path.split("/")[3]) for path in client.paths), [1, 2, 3, 4])
+        # Run 3 took the fleet: its marker was listed after its picker finished, so it is charged.
+        placed = ios_pool.Placements(frozenset({3}), picked=picked)
+        charged = [(ios_pool.charged_sim_jobs(item, placed, NOW), ios_pool.charged_jobs(item, placed, NOW))
+                   for item in runs[:4]]
+        self.assertEqual(charged, [(0, 0), (2, 2), (2, 2), (2, 2)])
+        # Without placements the machine count keeps the full charge.
+        self.assertEqual(ios_pool.charged_jobs(runs[0]), 2)
+        # At most MAX_PICKER_READS runs are read, the newest first.
+        many = [run(n, n / 100) for n in range(1, ios_pool.MAX_PICKER_READS + 4)]
+        client = Client({n: done for n in range(1, ios_pool.MAX_PICKER_READS + 4)})
+        self.assertEqual(ios_pool.picked_runs(client, many, NOW),
+                         frozenset(range(1, ios_pool.MAX_PICKER_READS + 1)))
+
+    def test_live_free_does_not_charge_runs_the_picker_sent_to_blacksmith(self):
+        runners = [{"name": f"mini-{n}-glaeda", "status": "online", "busy": False,
+                    "labels": [{"name": MINI}, {"name": IOS_SIM}]} for n in range(4)]
+        title = "iOS tests · main · simulator · full suite · both · iOS default · on auto"
+        fresh = pool.iso(NOW - dt.timedelta(minutes=1))
+        recent = [{"id": n, "run_attempt": 1, "display_title": title, "created_at": fresh} for n in (1, 2, 3)]
+        self.assertEqual(ios_pool.live_free(runners, MINI, recent, now=NOW, capacity=4),
+                         ios_pool.LiveFree(pool=4 - 6, sim=4 - 6))
+        # Runs 1 and 2 finished picking without a marker; run 3 took the fleet.
+        placed = ios_pool.Placements(frozenset({3}), picked=frozenset({1, 2}))
+        self.assertEqual(ios_pool.live_free(runners, MINI, recent, now=NOW, capacity=4, placements=placed),
+                         ios_pool.LiveFree(pool=4 - 2, sim=4 - 2))
+
     def test_owned_placements_reads_one_page_of_watch_markers(self):
         def marker(run_id, minutes):
             return {"name": "owned-pool-watch", "workflow_run": {"id": run_id},
