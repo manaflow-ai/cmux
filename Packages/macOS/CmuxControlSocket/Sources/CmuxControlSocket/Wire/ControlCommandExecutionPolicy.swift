@@ -148,6 +148,14 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "vault.checkpoints",
         "vault.checkpoint",
         "vault.fork",
+        // permissions.* use the in-memory agent grant registry behind a lock,
+        // `permissions.match` stats request paths while an agent hook is
+        // blocking a tool call, and `permissions.request` waits for the user
+        // to answer the approval panel; only the panel hops to the main actor.
+        "permissions.request",
+        "permissions.match",
+        "permissions.list",
+        "permissions.revoke",
         // `surface.read_text` reads a terminal's visible or full-scrollback
         // text and formats it (line tailing, candidate scoring, base64
         // encoding). On the main actor that formatting stalls the run loop

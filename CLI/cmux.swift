@@ -3013,7 +3013,7 @@ final class SocketClient {
         let relayToken: Data
     }
 
-    private let path: String
+    let path: String
     private(set) var socketFD: Int32 = -1
     private var streamReadBuffer = Data()
     private var lastConfiguredReceiveTimeout: TimeInterval?
@@ -6980,6 +6980,13 @@ struct CMUXCLI {
 
         case "vault":
             try runVaultNamespace(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput
+            )
+
+        case "permissions":
+            try runPermissionsNamespace(
                 commandArgs: commandArgs,
                 client: client,
                 jsonOutput: jsonOutput
@@ -18589,6 +18596,8 @@ struct CMUXCLI {
             return Self.reviewUsage
         case "vault":
             return Self.vaultUsage
+        case "permissions":
+            return Self.permissionsUsage
         case "ai-accounts":
             return Self.aiAccountsUsage
         case "coderouter":
@@ -40493,6 +40502,16 @@ export default CMUXSessionRestore;
         )
         let hookEventName = classification.hookEventName
         let isActionable = classification.isActionable
+        if let grantedOutput = agentPermissionGrantAnswer(
+            source: source,
+            hookEventName: hookEventName,
+            payload: stdinObj,
+            socketPath: socketPath ?? client?.path,
+            socketPassword: socketPassword
+        ) {
+            print(grantedOutput)
+            return
+        }
         let env = ProcessInfo.processInfo.environment
         if Self.shouldSuppressKiroFeedEvent(
             source: source,

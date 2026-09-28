@@ -24,6 +24,17 @@ struct RemoteRelayCoreRPCPolicyTests {
         }
     }
 
+    @Test("agent permission grant methods never pass a remote relay", arguments: [
+        "permissions.request", "permissions.match", "permissions.list", "permissions.revoke"
+    ])
+    func permissionGrantMethodsAreLocalOnly(method: String) {
+        let policy = RemoteRelayCommandPolicy()
+        #expect(policy.permittedMethods(from: [method]).isEmpty)
+        let line = Data(#"{"id":"1","method":"\#(method)","params":{"rules":["Bash(*)"],"scope":"session","session_id":"s"}}"#.utf8)
+        #expect(policy.evaluate(commandLine: line, workspaceAliases: [:], surfaceAliases: [:])
+            == .deny(reason: "method '\(method)' is not permitted through a remote relay"))
+    }
+
     @Test("capabilities filter exact method names without adding unsupported grants")
     func capabilityDiscovery() {
         let methods = RemoteRelayCommandPolicy().permittedMethods(from: [
