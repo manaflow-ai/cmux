@@ -18,7 +18,7 @@ struct AgentAutoResumePolicyTests {
         "api_error: API Error: 500 Internal Server Error",
     ])
     func retryableFailures(detail: String) {
-        #expect(AgentRetryableFailure.isRetryable(detail: detail))
+        #expect(AgentRetryableFailureClassifier().isRetryable(detail: detail))
     }
 
     @Test(arguments: [
@@ -35,7 +35,7 @@ struct AgentAutoResumePolicyTests {
         "The task wrote 15000 lines",
     ])
     func permanentOrUnknownFailures(detail: String?) {
-        #expect(!AgentRetryableFailure.isRetryable(detail: detail))
+        #expect(!AgentRetryableFailureClassifier().isRetryable(detail: detail))
     }
 
     @Test func retryableErrorSchedulesWithBackoffUntilTheStreakEnds() {

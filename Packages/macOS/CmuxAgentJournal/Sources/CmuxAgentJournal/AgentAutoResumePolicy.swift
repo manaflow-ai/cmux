@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// Decides whether an agent turn that ended in an error should be resumed
 /// automatically, and when.
@@ -37,6 +37,7 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
     }
 
     public let delays: [Duration]
+    private let classifier = AgentRetryableFailureClassifier()
     private var surfaces: [String: SurfaceState] = [:]
     private var nextToken: UInt64 = 0
 
@@ -71,7 +72,7 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             // no detail says nothing new, so it neither schedules nor cancels.
             guard let detail, !detail.isEmpty else { return .none }
             var state = surfaces[surfaceId] ?? SurfaceState()
-            guard AgentRetryableFailure.isRetryable(detail: detail), state.streak < delays.count else {
+            guard classifier.isRetryable(detail: detail), state.streak < delays.count else {
                 let hadPending = state.pendingToken != nil
                 state.pendingToken = nil
                 surfaces[surfaceId] = state
@@ -134,7 +135,9 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
 
 /// Classifies an agent's reported turn failure as retryable (an upstream
 /// capacity or transport problem that clears on its own) or not.
-public enum AgentRetryableFailure {
+public struct AgentRetryableFailureClassifier: Sendable, Equatable {
+    public init() {}
+
     /// Failures a retry cannot fix: credentials, billing, quota, and
     /// request errors. Checked first so "rate limit" wording inside a quota
     /// message does not count as transient.
@@ -155,16 +158,16 @@ public enum AgentRetryableFailure {
         "service unavailable", "bad gateway", "internal server error", "try again",
     ]
 
-    public static func isRetryable(detail: String?) -> Bool {
+    public func isRetryable(detail: String?) -> Bool {
         guard let detail, !detail.isEmpty else { return false }
         let text = detail.lowercased()
-        if permanentMarkers.contains(where: text.contains) { return false }
-        return retryableMarkers.contains(where: text.contains) || containsRetryableStatus(text)
+        if Self.permanentMarkers.contains(where: text.contains) { return false }
+        return Self.retryableMarkers.contains(where: text.contains) || containsRetryableStatus(text)
     }
 
     /// HTTP statuses that mean "try again", matched as whole numbers so a
     /// token count such as `15000` never reads as a 500.
-    static func containsRetryableStatus(_ text: String) -> Bool {
+    func containsRetryableStatus(_ text: String) -> Bool {
         var digits = ""
         for character in text + " " {
             if character.isASCII, character.isNumber {
