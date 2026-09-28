@@ -1688,6 +1688,76 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertEqual(output.components(separatedBy: "\n"), [expectedTitle, "Focused subtitle", "Focused body"])
     }
 
+    /// An agent turn ending in the pane the user is looking at shows the ring;
+    /// it must not also play the "default" sound, which is the system alert.
+    func testFocusedTerminalNotificationPlaysNoSoundByDefault() throws {
+        XCTAssertEqual(try focusedTerminalNotificationSoundEffect(soundWhenFocused: nil), false)
+    }
+
+    func testFocusedTerminalNotificationPlaysSoundWhenOptedIn() throws {
+        XCTAssertEqual(try focusedTerminalNotificationSoundEffect(soundWhenFocused: true), true)
+    }
+
+    /// Posts one notification to the focused terminal pane and returns the
+    /// `sound` effect its suppressed local feedback receives.
+    private func focusedTerminalNotificationSoundEffect(soundWhenFocused: Bool?) throws -> Bool? {
+        let appDelegate = try XCTUnwrap(AppDelegate.shared, "AppDelegate.shared must be set for this test")
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let defaults = UserDefaults.standard
+        let soundWhenFocusedKey = "notificationSoundWhenFocused"
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalSoundWhenFocused = defaults.object(forKey: soundWhenFocusedKey)
+
+        var soundEffects: [Bool] = []
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in
+            XCTFail("A focused-pane notification must not use external delivery")
+        }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _, effects in
+            soundEffects.append(effects.sound)
+        }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+        if let soundWhenFocused {
+            defaults.set(soundWhenFocused, forKey: soundWhenFocusedKey)
+        } else {
+            defaults.removeObject(forKey: soundWhenFocusedKey)
+        }
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalSoundWhenFocused {
+                defaults.set(originalSoundWhenFocused, forKey: soundWhenFocusedKey)
+            } else {
+                defaults.removeObject(forKey: soundWhenFocusedKey)
+            }
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            title: "Claude Code",
+            subtitle: "",
+            body: "Turn complete"
+        )
+
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
+        XCTAssertEqual(soundEffects.count, 1)
+        return soundEffects.first
+    }
+
     func testNotificationAuthorizationStateMappingCoversKnownUNAuthorizationStatuses() {
         XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .notDetermined), .notDetermined)
         XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .denied), .denied)

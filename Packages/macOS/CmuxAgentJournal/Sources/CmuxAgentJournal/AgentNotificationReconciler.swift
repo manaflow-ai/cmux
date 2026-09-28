@@ -99,9 +99,12 @@ public struct AgentNotificationReconciler: Sendable {
             }
             if !session.attentionIdentities.isEmpty {
                 session.phase = .needsInput
-            } else if let declaredPhase = draft.declaredPhase {
-                session.phase = declaredPhase
-                session.rootStopped = declaredPhase == .idle
+            } else if draft.declaredPhase == .idle {
+                // Only an idle declaration (a dismissed idle dialog) settles the
+                // turn. Feed declares every tool result `.running`, which must not
+                // reopen a turn that already completed.
+                session.phase = .idle
+                session.rootStopped = true
             } else if session.rootStopped && session.children.isEmpty {
                 session.phase = .idle
             } else if session.phase == .needsInput {
