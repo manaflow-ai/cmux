@@ -123,8 +123,10 @@ extension TerminalSurface {
     ) -> MobileTerminalRenderGridFrame? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
         let surfaceID = id.uuidString
+        // Ghostty writes the binary wire frame directly: no JSON is written
+        // on the Zig side or parsed here.
         let exported = surfaceID.withCString { ptr in
-            ghostty_surface_render_grid_json_v2(
+            ghostty_surface_render_grid_binary(
                 surface,
                 ptr,
                 UInt(surfaceID.utf8.count),
@@ -138,14 +140,15 @@ extension TerminalSurface {
         guard let ptr = exported.ptr, exported.len > 0 else { return nil }
 
         let data = Data(bytes: ptr, count: Int(exported.len))
-        guard var fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
+        guard var fullFrame = try? MobileTerminalRenderGridFrame.decodeBinary(data) else {
             return nil
         }
         fullFrame.renderEpoch = renderEpoch
         fullFrame.renderRevision = renderRevision
         if fullFrame.modes.contains(where: { !$0.ansi && $0.code == 5 && $0.on }) {
-            // Ghostty exports renderer-effective defaults. Keep the v1 outer
-            // fields raw because older iOS clients replay DEC reverse separately.
+            // Ghostty exports renderer-effective defaults. The wire carries the
+            // raw defaults: the phone swaps them back itself and restores DEC
+            // reverse video (`?5h`) from `modes`.
             let foreground = fullFrame.terminalForeground
             fullFrame.terminalForeground = fullFrame.terminalBackground
             fullFrame.terminalBackground = foreground
