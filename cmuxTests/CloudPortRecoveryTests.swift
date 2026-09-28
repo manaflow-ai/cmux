@@ -73,6 +73,47 @@ struct CloudPortRecoveryTests {
         await provider.stop()
     }
 
+    /// The machines panel cancels its refreshes when it goes away, which can land during the metadata read.
+    @Test("A refresh cancelled before its scan starts does not leave Ports discovering")
+    func cancelledRefreshSettlesDiscovery() async {
+        let catalog = SurfaceCatalog()
+        let links = CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil })
+        let started = CloudLinkFirstValue<Bool>()
+        let resume = CloudLinkFirstValue<Bool>()
+        let provider = CmuxTuiSurfaceProvider(summary: summary(address: "10.0.0.7"), links: links, catalog: catalog,
+            loadPortSummary: { _ in
+                started.resolve(true)
+                _ = await resume.result
+                return summary(address: "10.0.0.7")
+            })
+        catalog.register(provider)
+        let refresh = Task { await catalog.refreshPortDiscovery(machine: provider.machine) }
+        _ = await started.result
+        #expect(provider.info.portDiscoveryState == .loading)
+        refresh.cancel()
+        resume.resolve(true)
+        await refresh.value
+        #expect(provider.info.portDiscoveryState == .notRequested)
+        #expect(provider.portDiscovery.mayScan)
+        await provider.stop()
+    }
+
+    @Test("Refreshing an SSH machine's Ports never sends its id to the Cloud API")
+    func sshRefreshSkipsCloudMetadata() async {
+        let catalog = SurfaceCatalog()
+        var requested: [String] = []
+        let provider = CmuxTuiSurfaceProvider(summary: .ssh(sshConnection()), links: UnreachableLinks(), catalog: catalog,
+            loadPortSummary: { id in
+                requested.append(id)
+                throw URLError(.badServerResponse)
+            })
+        catalog.register(provider)
+        await catalog.refreshPortDiscovery(machine: provider.machine)
+        #expect(requested.isEmpty)
+        #expect(provider.info.portDiscoveryState == .unavailable(.link))
+        await provider.stop()
+    }
+
     /// The cached pass retires the rescan's refresh, but the rescan still owns the Ports request.
     @Test("A rescan's inventory publishes its rows after a cached refresh retires its pass")
     func rescanRowsSurviveCachedRefresh() async throws {
