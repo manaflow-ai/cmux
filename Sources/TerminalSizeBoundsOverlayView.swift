@@ -223,9 +223,8 @@ final class TerminalSizeBoundsOverlayView: NSView {
             : NSRect(x: gridRect.minX, y: gridRect.maxY - depth, width: gridRect.width, height: depth)
         let gradient = NSGradient(starting: Self.amber.withAlphaComponent(0), ending: Self.amber.withAlphaComponent(0.28))
         gradient?.draw(in: fadeRect, angle: edge == .maxX ? 0 : 90)
-        let text = edge == .maxX
-            ? String(format: String(localized: "terminalSharing.crop.columns", defaultValue: "+%lld cols"), Int64(hidden))
-            : String(format: String(localized: "terminalSharing.crop.rows", defaultValue: "+%lld rows"), Int64(hidden))
+        // Numbers and arrows only, so the pill needs no plural catalog entry.
+        let text = edge == .maxX ? "+\(hidden) →" : "+\(hidden) ↓"
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11, weight: .medium),
             .foregroundColor: NSColor(red: 0.953, green: 0.804, blue: 0.494, alpha: 1),

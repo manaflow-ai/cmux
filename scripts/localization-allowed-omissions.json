@@ -3449,5 +3449,27 @@
     "source": "cmux layout delete <name>",
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "terminalSharing.device.mac": {
+    "class": "brand",
+    "source": "Mac"
+  },
+  "terminalSharing.device.iphone": {
+    "class": "brand",
+    "source": "iPhone"
+  },
+  "terminalSharing.device.ipad": {
+    "class": "brand",
+    "source": "iPad"
+  },
+  "terminalSharing.participant.personDevice": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
+  },
+  "terminalSharing.device.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "Browser is the standard German UI term with the same spelling; a translated entry is still required."
+    }
   }
 }
