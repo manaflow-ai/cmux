@@ -31,11 +31,14 @@ struct CloudTeamPickerRow: View {
                     .cmuxFont(size: 11, weight: .medium)
                     .lineLimit(1)
                     .layoutPriority(1)
+                // A symbol, not ProgressView: a hosted progress indicator
+                // splits the button's accessibility element, so VoiceOver and
+                // UI tests lose the trigger while a switch is pending.
                 if accountFlow.isSelectingTeam {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .scaleEffect(0.7)
-                        .frame(width: 10, height: 10)
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .symbolEffect(.pulse)
                 } else {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
@@ -58,7 +61,13 @@ struct CloudTeamPickerRow: View {
         .layoutPriority(1)
         .safeHelp(helpText)
         .accessibilityLabel(teamPickerAccessibilityLabel)
+        .accessibilityValue(switchingValue)
         .accessibilityIdentifier("CloudTeamPickerButton")
+    }
+
+    private var switchingValue: String {
+        guard accountFlow.isSelectingTeam else { return "" }
+        return String(localized: "cloud.teamPicker.switching", defaultValue: "Switching teams…")
     }
 
     /// Built from the state at open time. A switch finishing while the menu is
