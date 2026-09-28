@@ -250,7 +250,7 @@ final class CloudVMActionLauncher {
             presentsFailureAlert: false,
             allowDuringAuthTransition: true,
             onCompletion: { _ in MachineDeleteCoordinator.shared.launchEnded(id) }
-        ) { MachineDeleteCoordinator.shared.begin(id) }
+        ) { MachineDeleteCoordinator.shared.beginCleanup(id) }
     }
 
     @discardableResult

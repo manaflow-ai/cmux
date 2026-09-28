@@ -19,6 +19,7 @@ final class MachineDeleteCoordinator {
     private let didHide: @MainActor (String) -> Void
     private let didRetire: @MainActor (String) -> Void
     private let didRestore: @MainActor (String) -> Void
+    private let runLater: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
     private var requests: [String: Request] = [:]
     private var accountEpoch: UInt64 = 0
     private var accessDidEndObserver: NSObjectProtocol?
@@ -29,17 +30,22 @@ final class MachineDeleteCoordinator {
     ///   - didHide: Detaches the machine's local presentations once it is hidden.
     ///   - didRetire: Closes the machine's registrations once its delete is confirmed.
     ///   - didRestore: Lets creates keep the machine once its failed delete lists it again.
+    ///   - runLater: Runs work on a later main-actor turn.
     init(
         notificationCenter: NotificationCenter = .default,
         destroyMachine: @escaping @MainActor (String) async throws -> Void = { try await VMClient.shared.destroy(id: $0) },
         didHide: @escaping @MainActor (String) -> Void = { MachineDeleteCoordinator.detachLocalPresentations(of: $0) },
         didRetire: @escaping @MainActor (String) -> Void = { AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: $0) },
-        didRestore: @escaping @MainActor (String) -> Void = { MachineCreateCoordinator.shared.machineDeletionFailed($0) }
+        didRestore: @escaping @MainActor (String) -> Void = { MachineCreateCoordinator.shared.machineDeletionFailed($0) },
+        runLater: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
+            Task { @MainActor in work() }
+        }
     ) {
         self.destroyMachine = destroyMachine
         self.didHide = didHide
         self.didRetire = didRetire
         self.didRestore = didRestore
+        self.runLater = runLater
         accessDidEndObserver = notificationCenter.addObserver(
             forName: .cmuxCloudVMAccessDidEnd, object: nil, queue: .main
         ) { [weak self] _ in
@@ -75,6 +81,12 @@ final class MachineDeleteCoordinator {
         guard deletions.begin(machineID) else { return false }
         didHide(machineID)
         return true
+    }
+
+    /// Hides the machine a cancelled create announced, for that create's cleanup.
+    /// - Parameter machineID: The exact provider machine identifier.
+    func beginCleanup(_ machineID: String) {
+        begin(machineID)
     }
 
     /// Stops the machine's creates, then closes its local workspaces and

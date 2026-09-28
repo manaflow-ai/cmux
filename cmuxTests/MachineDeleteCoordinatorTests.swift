@@ -63,6 +63,49 @@ struct MachineDeleteCoordinatorTests {
         #expect(retiredWorkspaceIDs == [workspaceID])
     }
 
+    @Test func createCleanupDetachesOnlyAfterTheTransitionThatRequestedIt() throws {
+        var steps: [String] = []
+        var later: [@MainActor () -> Void] = []
+        let deletions = MachineDeleteCoordinator(
+            notificationCenter: NotificationCenter(),
+            destroyMachine: { _ in },
+            didHide: { steps.append("detach \($0)") },
+            didRetire: { _ in },
+            didRestore: { _ in },
+            runLater: { later.append($0) }
+        )
+        let launches = MachineCreateCoordinatorTests.LaunchRecorder()
+        let creates = MachineCreateCoordinator(
+            notifier: { _ in },
+            notificationCenter: NotificationCenter(),
+            cancelCreatedMachine: { steps.append("clean up \($0)"); deletions.beginCleanup($0) },
+            cancelOperation: { _ in steps.append("close card") }
+        )
+        func startCreate(producing machineID: String) -> UUID {
+            let workspaceID = UUID()
+            let request = MachineCreateCoordinatorTests.newMachineRequest().targetingReservedWorkspace(workspaceID)
+            #expect(creates.start(request, cancellableLaunch: launches.cancellableLaunch))
+            launches.progressHandlers.last?("OK machine=\(machineID)\n")
+            return workspaceID
+        }
+
+        _ = startCreate(producing: "m1")
+        creates.cancel(try #require(creates.operations.first).id)
+        // Closing the card first unbinds any pane the person added; detaching
+        // the machine first would close that workspace whole.
+        #expect(steps == ["clean up m1", "close card"])
+        #expect(deletions.hiddenMachineIDs == ["m1"], "The machine hides at once")
+
+        steps.removeAll()
+        let closingWorkspaceID = startCreate(producing: "m2")
+        // A workspace close cancels its creates while the workspace is still listed.
+        creates.cancelOperations(forPresentationWorkspace: closingWorkspaceID)
+        #expect(steps == ["clean up m2"], "Detaching inside the close would close the workspace again")
+
+        later.forEach { $0() }
+        #expect(steps == ["clean up m2", "detach m1", "detach m2"])
+    }
+
     @Test func notFoundRetiresTheMachineAndOtherFailuresRestoreIt() async throws {
         let fixture = MachineDeleteFixture()
         let coordinator = fixture.makeCoordinator()
