@@ -235,6 +235,14 @@ public final class CloudSessionController {
         connectionRetryGeneration &+= 1
     }
 
+    /// The user asked to reconnect one machine: a failed tunnel re-enrolls,
+    /// and that machine's link is re-dialed from scratch even if it has not
+    /// failed, since what it is showing may be stale.
+    public func retryConnection(for machineID: String) {
+        retryTunnel()
+        connections.removeValue(forKey: machineID)?.close()
+    }
+
     private var wantsTunnel: Bool { (sectionIsVisible || shellLeaseActive) && isForeground }
 
     private func reconcile() {

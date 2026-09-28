@@ -124,6 +124,12 @@ extension MobileShellComposite {
         // workspace), so the action must redial the foreground too — not the
         // aggregate recovery, which a healthy secondary Mac would divert.
         let targetMacDeviceID = (macDeviceID?.isEmpty == false) ? macDeviceID : nil
+        // A Cloud machine is reconnected by its own source; the Mac
+        // connection neither serves it nor should be redialed for it.
+        if let targetMacDeviceID, let source = externalHostSource(owningHost: targetMacDeviceID) {
+            source.externalHostReconnect(targetMacDeviceID)
+            return
+        }
         // Include the retained recovery target: automatic recovery nils
         // foregroundMacDeviceID, and retrying that same Mac must take the
         // foreground-redial branch below (whose teardown preserves secondary

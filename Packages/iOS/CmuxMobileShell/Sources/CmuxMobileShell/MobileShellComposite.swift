@@ -4457,6 +4457,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             _ = demonstrationSessionForInteraction()
             return true
         }
+        // An external host (a Cloud machine) is reached over its own link, so
+        // choosing it switches nothing, and the Mac the user holds stays the
+        // foreground connection.
+        if externalHostOwnsHost(macDeviceID) {
+            recordAppEvent(.computerSelected, correlationID: macDeviceID)
+            return true
+        }
         let startedAt = appDiagnosticNow()
         recordAppEvent(.computerSelected, correlationID: macDeviceID)
         recordAppEvent(.computerSwitchStarted, correlationID: macDeviceID)

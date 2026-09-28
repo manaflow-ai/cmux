@@ -55,7 +55,9 @@ struct CloudReconnectTests {
     private final class Provider: CloudMachineLinkProviding {
         let link = MachineLink()
         var isReady = true
+        var resets: [String] = []
         func link(for machine: CloudMachine) -> (any CloudMachineLinking)? { isReady ? link : nil }
+        func resetLink(for machine: CloudMachine) { resets.append(machine.id) }
     }
 
     private static let machine = CloudMachine(id: "vm-1", provider: "freestyle", status: "running", slug: "sleepy-teal-otter")
@@ -138,5 +140,26 @@ struct CloudReconnectTests {
         bridge.refreshCatalog(for: Self.machine)
         await settle(until: { provider.link.attaches.count == 1 })
         #expect(provider.link.attaches == ["t-1"])
+    }
+
+    @Test("Reconnect on a Cloud workspace re-dials its machine and repaints the open terminal")
+    func reconnectRedialsAndRepaints() async {
+        let (bridge, provider, store) = await makeBridge()
+        bridge.externalHostRequestReplay(surfaceID: Self.surfaceID)
+        await settle(until: { provider.link.attaches.count == 1 })
+
+        await store.reconnectToMac(macDeviceID: CloudAddress(machineID: "vm-1").identifier)
+        await settle(until: { provider.link.attaches.count == 2 })
+
+        // The paired-Mac path would have tried to switch its foreground
+        // connection to a machine it does not know.
+        #expect(provider.resets == ["vm-1"])
+        #expect(provider.link.attaches == ["t-1", "t-1"])
+    }
+
+    @Test("Choosing a Cloud machine switches no Mac connection")
+    func choosingACloudMachineSwitchesNothing() async {
+        let (_, _, store) = await makeBridge()
+        #expect(await store.switchToMac(macDeviceID: CloudAddress(machineID: "vm-1").identifier))
     }
 }

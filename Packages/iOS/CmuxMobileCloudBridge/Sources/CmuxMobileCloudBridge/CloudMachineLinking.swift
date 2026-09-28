@@ -41,6 +41,8 @@ public protocol CloudMachineLinking: Sendable {
 public protocol CloudMachineLinkProviding {
     /// The link for `machine`, or `nil` while the tunnel is not ready.
     func link(for machine: CloudMachine) -> (any CloudMachineLinking)?
+    /// Drops `machine`'s link so the next ``link(for:)`` dials it afresh.
+    func resetLink(for machine: CloudMachine)
 }
 
 /// Where the user's choice to hide a Cloud machine is persisted.
@@ -66,6 +68,10 @@ extension CloudMachineConnection: CloudMachineLinking {
 }
 
 extension CloudSessionController: CloudMachineLinkProviding {
+    public func resetLink(for machine: CloudMachine) {
+        retryConnection(for: machine.id)
+    }
+
     public func link(for machine: CloudMachine) -> (any CloudMachineLinking)? {
         connection(for: machine)
     }

@@ -67,6 +67,7 @@ struct CloudCreateTests {
     private final class Provider: CloudMachineLinkProviding {
         let link = MachineLink()
         func link(for machine: CloudMachine) -> (any CloudMachineLinking)? { link }
+        func resetLink(for machine: CloudMachine) {}
     }
 
     private static let machine = CloudMachine(id: "vm-1", provider: "freestyle", status: "running", slug: "sleepy-teal-otter")

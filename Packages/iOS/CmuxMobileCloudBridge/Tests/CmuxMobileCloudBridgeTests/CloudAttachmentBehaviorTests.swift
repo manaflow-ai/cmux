@@ -76,6 +76,7 @@ struct CloudAttachmentBehaviorTests {
 
     private final class FakeLinkProvider: CloudMachineLinkProviding {
         var linksByMachineID: [String: FakeMachineLink] = [:]
+        func resetLink(for machine: CloudMachine) {}
         /// When false, the tunnel is treated as not ready.
         var isReady = true
 
@@ -272,6 +273,7 @@ struct CloudAttachmentBehaviorTests {
 struct CloudBridgeStoreLifetimeTests {
     private final class NoLinks: CloudMachineLinkProviding {
         func link(for machine: CloudMachine) -> (any CloudMachineLinking)? { nil }
+        func resetLink(for machine: CloudMachine) {}
     }
 
     private static let machine = CloudMachine(
@@ -299,6 +301,7 @@ struct CloudBridgeStoreLifetimeTests {
     func pausedMachineIsNotDialed() {
         final class CountingLinks: CloudMachineLinkProviding {
             var requests = 0
+            func resetLink(for machine: CloudMachine) {}
             func link(for machine: CloudMachine) -> (any CloudMachineLinking)? {
                 requests += 1
                 return nil
@@ -338,6 +341,7 @@ struct CloudBridgeStoreLifetimeTests {
 struct CloudVisibilityPersistenceTests {
     private final class NoLinks: CloudMachineLinkProviding {
         func link(for machine: CloudMachine) -> (any CloudMachineLinking)? { nil }
+        func resetLink(for machine: CloudMachine) {}
     }
 
     private final class MemoryVisibility: CloudMachineVisibilityStoring {

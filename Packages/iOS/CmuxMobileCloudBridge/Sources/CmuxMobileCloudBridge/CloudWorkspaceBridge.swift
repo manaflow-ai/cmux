@@ -321,6 +321,21 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         return admittedMachines.contains { $0.id == address.machineID }
     }
 
+    public func externalHostReconnect(_ hostID: String) {
+        guard let address = CloudAddress(parsing: hostID), address.component == nil,
+              let machine = admittedMachines.first(where: { $0.id == address.machineID }) else { return }
+        bridgeLog.notice("reconnect machine=\(machine.id, privacy: .public)")
+        // Keep the open terminal wanted, so the fresh link repaints it once
+        // the catalog read confirms it still exists.
+        if let surfaceID = attachedSurfaceIDsByMachine.removeValue(forKey: machine.id) {
+            wantedSurfaceIDsByMachine[machine.id] = surfaceID
+        }
+        teardownAttachment(machineID: machine.id)
+        catalogFailureCounts.removeValue(forKey: machine.id)
+        links.resetLink(for: machine)
+        refreshCatalog(for: machine)
+    }
+
     public func externalHostVisibilityDidChange(_ hostID: String, hidden: Bool) {
         guard let address = CloudAddress(parsing: hostID), address.component == nil else { return }
         visibility?.setMachine(id: address.machineID, hidden: hidden)

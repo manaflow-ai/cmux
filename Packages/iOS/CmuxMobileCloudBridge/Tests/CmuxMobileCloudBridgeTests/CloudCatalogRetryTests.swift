@@ -54,6 +54,7 @@ struct CloudCatalogRetryTests {
         var isReady = true
         init(link: FlakyMachineLink) { self.link = link }
         func link(for machine: CloudMachine) -> (any CloudMachineLinking)? { isReady ? link : nil }
+        func resetLink(for machine: CloudMachine) {}
     }
 
     private static let machine = CloudMachine(

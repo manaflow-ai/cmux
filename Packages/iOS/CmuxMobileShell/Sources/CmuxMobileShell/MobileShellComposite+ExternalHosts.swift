@@ -55,12 +55,17 @@ public protocol MobileExternalHostSource: AnyObject {
     /// source published, and returns the terminal's surface id once it is
     /// published, or nil when the host refused.
     func externalHostCreateTerminal(inWorkspace workspaceID: MobileWorkspacePreview.ID) async -> String?
+
+    /// The user asked to reconnect an owned host: re-dial it and repaint the
+    /// terminal it is showing.
+    func externalHostReconnect(_ hostID: String)
 }
 
 extension MobileExternalHostSource {
     public func externalHostVisibilityDidChange(_ hostID: String, hidden: Bool) {}
     public func externalHostCreateWorkspace(onHost hostID: String) async -> MobileWorkspacePreview.ID? { nil }
     public func externalHostCreateTerminal(inWorkspace workspaceID: MobileWorkspacePreview.ID) async -> String? { nil }
+    public func externalHostReconnect(_ hostID: String) {}
 }
 
 @MainActor
