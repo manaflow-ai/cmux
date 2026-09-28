@@ -1500,7 +1500,7 @@ extension CMUXCLI {
 
     static var vmAgentUsage: String {
         """
-        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>
+        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--focus|--no-focus] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>
 
         Short forms:
           cmux agent <claude|codex|opencode|pi> [vm-agent-options] -- <prompt or args...>
@@ -1524,6 +1524,9 @@ extension CMUXCLI {
           --cwd <dir>      Local directory to route for (and sync with --sync).
           --name <name>    Terminal name in the tree (default: "<agent>: <prompt…>").
           --no-open        Do not open a pane in this app; just start it.
+          --focus, --no-focus
+                           Focus the opened pane, or open it in the background.
+                           \(openFocusDefaultHelp)
           --remote-workspace <ws>
                            Land the agent's terminal in this machine workspace
                            (a `ws_…` id from `vm tree`, e.g. one staged with
@@ -1693,6 +1696,7 @@ extension CMUXCLI {
         var cwdOption: String?
         var nameOption: String?
         var noOpen = false
+        var focus: Bool?
         var remoteWorkspaceOption: String?
         var forceNew = false
         var sizeOption: String?
@@ -1716,6 +1720,8 @@ extension CMUXCLI {
             case "--cwd": cwdOption = try takeValue()
             case "--name": nameOption = try takeValue()
             case "--no-open": noOpen = true
+            case "--focus": focus = true
+            case "--no-focus": focus = false
             case "--remote-workspace": remoteWorkspaceOption = try takeValue()
             case "--new": forceNew = true
             case "--size": sizeOption = try takeValue()
@@ -1796,7 +1802,13 @@ extension CMUXCLI {
             "command": vmAgentShellCommand(argv: argv, workDirectory: syncedRemoteDir),
             "name": name,
             "open": !noOpen,
+            "focus": focus ?? Self.defaultFocusForUserOpen(),
         ]
+        // The pane opens beside the caller (its own workspace and pane when run inside
+        // cmux), not in whichever workspace happens to be selected.
+        if !noOpen {
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
+        }
         // --remote-workspace: land the agent's terminal in a staged machine
         // workspace (from `vm workspace new --no-open` or `vm tree`), so it joins
         // that group instead of the detached pool.

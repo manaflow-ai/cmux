@@ -43,7 +43,7 @@ enum CmuxTuiRemoteRouting {
 
         // Boolean `cmux vm agent` options; `--wait` and `--output` are the
         // until-done flags, which must reach the VM parser rather than the agent.
-        let flagOptions: Set<String> = ["--sync", "--no-open", "--new", "--json", "--wait", "--output", "--help", "-h"]
+        let flagOptions: Set<String> = ["--sync", "--no-open", "--focus", "--no-focus", "--new", "--json", "--wait", "--output", "--help", "-h"]
         var index = 0
         while index < tail.count {
             let token = tail[index]

@@ -653,6 +653,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             CMUXCLI.vmAgentAliasArgs(["codex", "--", "exec", "summarize"]),
             ["--agent", "codex", "--", "exec", "summarize"]
         )
+        // Focus flags belong to `vm agent`, not to the agent's prompt.
+        XCTAssertEqual(
+            CMUXCLI.vmAgentAliasArgs(["claude", "--no-focus", "reply exactly pong"]),
+            ["--agent", "claude", "--no-focus", "--", "reply exactly pong"]
+        )
     }
 
     func testCoderouterStatusCombinesAuthAndAccounts() throws {
