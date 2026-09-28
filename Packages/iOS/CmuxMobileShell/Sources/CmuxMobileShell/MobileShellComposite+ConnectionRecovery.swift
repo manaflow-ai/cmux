@@ -587,10 +587,16 @@ extension MobileShellComposite {
         case .failed(let failure):
             return failConnectionRecovery(attempt, failure: failure)
         case .superseded:
-            // A newer reconnect claimed the shared generation and owns the
-            // connection that exists now. This attempt lost ownership, so it
-            // retires without failing: the caller's teardown and the failed
-            // recovery state would otherwise destroy the newer session.
+            // A superseded reconnect only means the shared generation moved.
+            // When a newer reconnect is connected or still dialing, it owns
+            // the connection: retire without failing, because the caller's
+            // teardown and the failed-recovery state would destroy that newer
+            // session. A bump with no newer attempt (hiding a Computer, a
+            // cleared saved-Mac hint) leaves nothing to settle the UI, so the
+            // recovery still fails and offers Retry.
+            guard newerStoredMacReconnectOwnsConnection(than: nil) else {
+                return failConnectionRecovery(attempt, failure: .superseded)
+            }
             retireSupersededConnectionRecovery(attempt)
             return false
         }

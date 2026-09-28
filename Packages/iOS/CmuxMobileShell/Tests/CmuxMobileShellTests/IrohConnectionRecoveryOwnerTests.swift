@@ -519,15 +519,13 @@ extension ReconnectRouteSelectionTests {
             probing: false
         ))
 
-        // Superseded is not a failure of the connection: the attempt retires
-        // without failing the owner, so the caller skips its teardown.
-        #expect(!store.settleConnectionRecovery(
+        #expect(store.settleConnectionRecovery(
             attempt,
             outcome: .superseded,
             connectionGeneration: generation
         ))
-        #expect(store.connectionRecoveryOwner.phase == .idle)
-        #expect(!store.connectionRecoveryFailed)
+        #expect(store.connectionRecoveryOwner.phase == .failed(attempt))
+        #expect(!store.connectionRecoveryOwner.isActive)
         #expect(store.connectionRecoveryOwner.begin(
             trigger: "replacement",
             sourceConnectionGeneration: generation,
@@ -565,6 +563,53 @@ extension ReconnectRouteSelectionTests {
         #expect(retryClient !== deadClient)
 
         fixture.factory.releaseHeldConnects()
+        #expect(try await pollUntil { !fixture.store.connectionRecoveryOwner.isActive })
+        #expect(fixture.store.connectionState == .connected)
+        #expect(fixture.store.remoteClient === retryClient)
+        #expect(!fixture.store.connectionRecoveryFailed)
+    }
+
+    /// A generation bump that starts no newer reconnect (hiding another
+    /// Computer) must not strand the UI at Reconnecting: with nothing newer to
+    /// settle it, the superseded recovery still fails and offers Retry.
+    @Test func supersededRecoveryWithoutNewerOwnerStillFails() async throws {
+        let fixture = try await makeRecoveryOwnerFixture(heldConnectAttempts: [2])
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
+        let deadClient = try #require(fixture.store.remoteClient)
+        fixture.store.recoverDeadConnection(trigger: .liveness, expectedClient: deadClient)
+        #expect(await fixture.factory.waitForAttemptCount(2))
+
+        fixture.store.invalidateStoredMacReconnectAttempt()
+        fixture.factory.releaseHeldConnects()
+
+        #expect(try await pollUntil { !fixture.store.connectionRecoveryOwner.isActive })
+        #expect(fixture.store.connectionRecoveryFailed)
+        #expect(fixture.store.macConnectionStatus == .unavailable)
+    }
+
+    /// The recovery's reconnect hits its deadline after a user retry already
+    /// connected. The expiry must report superseded, not a timeout that
+    /// tears down the retry's connection.
+    @Test func supersededReconnectDeadlineLeavesNewerConnectionAlive() async throws {
+        let fixture = try await makeRecoveryOwnerFixture(
+            heldConnectAttempts: [2],
+            reconnectAttemptDeadlineNanoseconds: 300_000_000
+        )
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
+        let deadClient = try #require(fixture.store.remoteClient)
+        fixture.store.recoverDeadConnection(trigger: .liveness, expectedClient: deadClient)
+        #expect(await fixture.factory.waitForAttemptCount(2))
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        let retryClient = try #require(fixture.store.remoteClient)
+
+        // The held recovery dial is never released; its deadline settles it.
         #expect(try await pollUntil { !fixture.store.connectionRecoveryOwner.isActive })
         #expect(fixture.store.connectionState == .connected)
         #expect(fixture.store.remoteClient === retryClient)
@@ -701,7 +746,8 @@ extension ReconnectRouteSelectionTests {
         backup: (any PairedMacBackingUp)? = nil,
         heldConnectAttempts: Set<Int> = [],
         firstTransportCloseGate: LivenessTransportCloseGate? = nil,
-        observesTransportLiveness: Bool = false
+        observesTransportLiveness: Bool = false,
+        reconnectAttemptDeadlineNanoseconds: UInt64 = 30 * 1_000_000_000
     ) async throws -> RecoveryOwnerFixture {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -734,7 +780,8 @@ extension ReconnectRouteSelectionTests {
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
                 now: { clock.now },
-                supportedRouteKinds: [.iroh, .tailscale]
+                supportedRouteKinds: [.iroh, .tailscale],
+                reconnectAttemptDeadlineNanoseconds: reconnectAttemptDeadlineNanoseconds
             ),
             isSignedIn: true,
             pairedMacStore: pairedStore,
