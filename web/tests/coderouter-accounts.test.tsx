@@ -1,9 +1,14 @@
 import { describe, expect, mock, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type React from "react";
 import enMessages from "../messages/en.json";
+import { coderouterApiKeysQueryKey } from "../dashboard-app/queries/coderouter";
 
-const routerRefresh = mock(() => undefined);
+/** Accounts mutate through TanStack Query, so every render needs a client. */
+function renderToStaticMarkup(element: React.ReactElement, queryClient = new QueryClient()) {
+  return renderMarkup(<QueryClientProvider client={queryClient}>{element}</QueryClientProvider>);
+}
 
 mock.module("next-intl", () => ({
   useTranslations: (namespace: string) => translator(namespace),
@@ -12,10 +17,6 @@ mock.module("next-intl", () => ({
     relativeTime: () => "2 hours ago",
   }),
   useNow: () => new Date("2026-09-07T12:00:00.000Z"),
-}));
-
-mock.module("../i18n/navigation", () => ({
-  useRouter: () => ({ refresh: routerRefresh }),
 }));
 
 mock.module("@base-ui-components/react/dialog", () => ({
@@ -33,7 +34,7 @@ mock.module("@base-ui-components/react/dialog", () => ({
 }));
 
 const { CoderouterAccountsSection, requestNativeAccountTransfer, transferErrorKey } = await import(
-  "../app/[locale]/dashboard/components/coderouter-accounts"
+  "../dashboard-app/screens/coderouter/coderouter-accounts"
 );
 
 const claudeAccount = {
@@ -322,6 +323,47 @@ describe("coderouter accounts section", () => {
 
     expect(html).toContain("Shared accounts temporarily unavailable");
     expect(html).toContain("Claude Code OAuth");
+  });
+
+  test("shows a loading line until the team's API keys arrive, then lists them", () => {
+    const render = (queryClient: QueryClient) => renderToStaticMarkup(
+      <CoderouterAccountsSection
+        teamId="team-1"
+        canManage
+        canManageApiKeys
+        claude={{ kind: "ok", accounts: [] }}
+        native={{ kind: "ok", accounts: [] }}
+        shared={{ kind: "ok", accounts: [] }}
+      />,
+      queryClient,
+    );
+    expect(render(new QueryClient())).toContain("Loading API keys");
+
+    const seeded = new QueryClient();
+    seeded.setQueryData(coderouterApiKeysQueryKey("team-1"), [{
+      id: "key-1",
+      keyPrefix: "cr_live_ab12",
+      label: "ci",
+      createdAt: "2026-09-01T00:00:00.000Z",
+      lastUsedAt: null,
+      revokedAt: null,
+      usage: null,
+    }]);
+    // Another team's cached keys never render for this team.
+    seeded.setQueryData(coderouterApiKeysQueryKey("team-2"), [{
+      id: "key-2",
+      keyPrefix: "cr_live_zz99",
+      label: "other",
+      createdAt: "2026-09-01T00:00:00.000Z",
+      lastUsedAt: null,
+      revokedAt: null,
+      usage: null,
+    }]);
+    const html = render(seeded);
+    expect(html).not.toContain("Loading API keys");
+    expect(html).toContain("cr_live_ab12");
+    expect(html).toContain("1 key");
+    expect(html).not.toContain("cr_live_zz99");
   });
 });
 

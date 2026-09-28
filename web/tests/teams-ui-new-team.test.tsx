@@ -1,27 +1,21 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import type React from "react";
+import type { ReactNode } from "react";
+import { withDashboardRouter } from "./helpers/dashboard-router";
 import { teamsNextIntlMock } from "./helpers/teams-ui-intl";
 
 mock.module("next-intl", teamsNextIntlMock);
-mock.module("../i18n/navigation", () => ({
-  Link: ({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) => (
-    <a href={href} className={className}>{children}</a>
-  ),
-  useRouter: () => ({ push: () => undefined }),
-}));
-mock.module("@tanstack/react-query", () => ({
-  useMutation: () => ({ mutate: () => undefined, isPending: false, isError: false }),
-  useQueryClient: () => ({}),
-  useQuery: () => ({}),
-}));
 
-const { NewTeamFlow, newTeamFlowReducer } = await import("../app/[locale]/dashboard/teams/new/new-team-flow");
+const { NewTeamFlow, newTeamFlowReducer } = await import("../dashboard-app/screens/teams/new-team-flow");
 const { validateTeamName, teamCheckoutHref, TEAM_NAME_MAX_LENGTH } = await import(
-  "../app/[locale]/dashboard/teams/team-logic"
+  "../dashboard-app/screens/teams/team-logic"
 );
 
 const team = { id: "team 1", displayName: "Acme" };
+
+async function render(element: ReactNode): Promise<string> {
+  return renderToStaticMarkup((await withDashboardRouter(element, "/dashboard/teams/new")).element);
+}
 
 describe("new team flow steps", () => {
   test("moves name -> plan -> invite and back to plan only", () => {
@@ -48,15 +42,16 @@ describe("new team flow steps", () => {
     expect(validateTeamName("x".repeat(TEAM_NAME_MAX_LENGTH + 1))).toEqual({ ok: false, reason: "tooLong" });
   });
 
-  test("renders the name step first", () => {
-    const html = renderToStaticMarkup(<NewTeamFlow />);
+  test("renders the name step first", async () => {
+    const html = await render(<NewTeamFlow />);
     expect(html).toContain("Name your team");
     expect(html).toContain('aria-current="step"');
     expect(html).not.toContain("Choose a plan");
+    expect(html).toContain('href="/dashboard/teams"');
   });
 
-  test("offers Free and a full-navigation Team checkout for the created team", () => {
-    const html = renderToStaticMarkup(<NewTeamFlow initialState={{ step: "plan", team }} />);
+  test("offers Free and a full-navigation Team checkout for the created team", async () => {
+    const html = await render(<NewTeamFlow initialState={{ step: "plan", team }} />);
     expect(html).toContain("Choose a plan for Acme");
     expect(html).toContain("Continue with Free");
     expect(html).toContain("$60 per seat per month");
@@ -64,8 +59,8 @@ describe("new team flow steps", () => {
     expect(html).toContain('href="/api/billing/checkout?plan=team&amp;teamId=team+1"');
   });
 
-  test("the invite step can finish without inviting anyone", () => {
-    const html = renderToStaticMarkup(<NewTeamFlow initialState={{ step: "invite", team }} />);
+  test("the invite step can finish without inviting anyone", async () => {
+    const html = await render(<NewTeamFlow initialState={{ step: "invite", team }} />);
     expect(html).toContain("Invite people to Acme");
     expect(html).toContain("Send invitations");
     expect(html).toContain("Create link");

@@ -10,7 +10,7 @@ import {
   isEffectivelyNever,
   sortApiKeys,
   type ApiKeyFacts,
-} from "../app/[locale]/dashboard/settings/lib/api-keys";
+} from "../dashboard-app/screens/settings/lib/api-keys";
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 8, 27);

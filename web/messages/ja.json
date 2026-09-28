@@ -413,6 +413,20 @@
         "empty": "過去{days}日間に coderouter を使用したマシンはありません。",
         "unavailable": "マシン別の使用状況は現在利用できません。",
         "estimateNote": "API換算額は公開定価による推定で、実際の請求額ではありません。"
+      },
+      "metrics": {
+        "title": "30日間の使用状況",
+        "scope": "{team} のチーム集計",
+        "period": "過去{days}日間",
+        "inputTokens": "入力トークン",
+        "outputTokens": "出力トークン",
+        "tokens": "合計トークン",
+        "apiEquivalent": "API換算額",
+        "unpriced": "全トークンの {share} は価格が不明なモデルのもので、換算額に含まれていません。",
+        "chartLabel": "日別のCodeRouterトークン使用量",
+        "privacy": "プロンプト、出力、アカウントラベル、メンバーIDは記録・表示しません。",
+        "estimate": "API換算額は、同じトークンを公開定価（レート表 {version}）で API 利用した場合の推定額で、実際の請求額ではありません。",
+        "unavailable": "チーム使用状況は現在利用できません。"
       }
     },
     "coderouterAccounts": {

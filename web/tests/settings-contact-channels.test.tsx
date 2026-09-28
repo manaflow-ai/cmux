@@ -7,7 +7,7 @@ import {
   sortEmailChannels,
   validateNewEmail,
   type EmailChannelFacts,
-} from "../app/[locale]/dashboard/settings/lib/contact-channels";
+} from "../dashboard-app/screens/settings/lib/contact-channels";
 
 function channel(overrides: Partial<EmailChannelFacts> & { id: string }): EmailChannelFacts {
   return {

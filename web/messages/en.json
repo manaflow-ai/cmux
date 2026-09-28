@@ -413,6 +413,20 @@
         "empty": "No machines have used coderouter in the last {days} days.",
         "unavailable": "Machine usage is temporarily unavailable.",
         "estimateNote": "API-equivalent value is an estimate using public list prices, not actual spend."
+      },
+      "metrics": {
+        "title": "30-day usage",
+        "scope": "Team aggregate for {team}",
+        "period": "Last {days} days",
+        "inputTokens": "Input tokens",
+        "outputTokens": "Output tokens",
+        "tokens": "Total tokens",
+        "apiEquivalent": "API-equivalent value",
+        "unpriced": "{share} of these tokens came from models without a list price and are left out of that value.",
+        "chartLabel": "Daily CodeRouter token usage",
+        "privacy": "No prompts, outputs, account labels, or member identities are recorded or shown.",
+        "estimate": "API-equivalent value is what these tokens would have cost at public API list prices (rate card {version}). It is not what you paid.",
+        "unavailable": "Team usage is temporarily unavailable."
       }
     },
     "coderouterAccounts": {

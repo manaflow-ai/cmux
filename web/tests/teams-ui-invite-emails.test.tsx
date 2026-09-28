@@ -11,8 +11,8 @@ const {
   removeEmailChip,
   sendableEmails,
   splitEmailInput,
-} = await import("../app/[locale]/dashboard/teams/team-logic");
-const { EmailChipInput } = await import("../app/[locale]/dashboard/teams/invite-panel");
+} = await import("../dashboard-app/screens/teams/team-logic");
+const { EmailChipInput } = await import("../dashboard-app/screens/teams/invite-panel");
 
 describe("invite email chips", () => {
   test("splits pasted text on commas, semicolons, spaces, and newlines", () => {

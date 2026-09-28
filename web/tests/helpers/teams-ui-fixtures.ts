@@ -1,4 +1,4 @@
-import type { TeamDetail } from "../../app/[locale]/dashboard/teams/team-api";
+import type { TeamDetail } from "../../dashboard-app/queries/teams";
 
 export function teamDetailFixture(overrides: Partial<TeamDetail> = {}): TeamDetail {
   return {

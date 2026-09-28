@@ -7,7 +7,7 @@ import {
   type TeamDetail,
   TeamApiError,
   teamQueryKeys,
-} from "../app/[locale]/dashboard/teams/team-api";
+} from "../dashboard-app/queries/teams";
 import { teamDetailFixture } from "./helpers/teams-ui-fixtures";
 
 const originalFetch = globalThis.fetch;

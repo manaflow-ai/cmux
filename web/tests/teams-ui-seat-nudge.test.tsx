@@ -1,24 +1,22 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import type React from "react";
+import type { ReactNode } from "react";
+import { withDashboardRouter } from "./helpers/dashboard-router";
 import { teamDetailFixture } from "./helpers/teams-ui-fixtures";
 import { teamsNextIntlMock } from "./helpers/teams-ui-intl";
 
 mock.module("next-intl", teamsNextIntlMock);
-mock.module("../i18n/navigation", () => ({
-  Link: ({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) => (
-    <a href={href} className={className}>{children}</a>
-  ),
-  usePathname: () => "/dashboard/teams/team-1/members",
-  useRouter: () => ({ push: () => undefined, refresh: () => undefined }),
-}));
 mock.module("@hexclave/next", () => ({
   useStackApp: () => ({ useProject: () => ({ config: { allowTeamApiKeys: true } }) }),
   useUser: () => null,
 }));
 
-const { seatOverage } = await import("../app/[locale]/dashboard/teams/team-logic");
-const { SeatNudge } = await import("../app/[locale]/dashboard/teams/[teamId]/members/team-members");
+const { seatOverage } = await import("../dashboard-app/screens/teams/team-logic");
+const { SeatNudge } = await import("../dashboard-app/screens/teams/team-members");
+
+async function render(element: ReactNode): Promise<string> {
+  return renderToStaticMarkup((await withDashboardRouter(element, "/dashboard/teams/team-1/members")).element);
+}
 
 describe("seat nudge math", () => {
   test("counts members plus pending invitations against paid seats", () => {
@@ -33,13 +31,19 @@ describe("seat nudge math", () => {
 });
 
 describe("seat nudge notice", () => {
-  test("shows admins the overage with a link to team billing", () => {
+  test("shows admins the overage with a link to team billing", async () => {
     // Two members plus two pending invitations against three seats.
-    const html = renderToStaticMarkup(<SeatNudge detail={teamDetailFixture()} />);
+    const html = await render(<SeatNudge detail={teamDetailFixture()} />);
     expect(html).toContain('data-testid="seat-nudge"');
     expect(html).toContain("4 people are members or invited, but the plan has 3 seats");
     expect(html).toContain("add 1 seat");
     expect(html).toContain('href="/dashboard/teams/team-1/billing"');
+  });
+
+  test("encodes the team id in the billing link", async () => {
+    const base = teamDetailFixture();
+    const html = await render(<SeatNudge detail={{ ...base, team: { ...base.team, id: "team 1" } }} />);
+    expect(html).toContain('href="/dashboard/teams/team%201/billing"');
   });
 
   test("hides the billing link from admins who cannot manage billing", () => {

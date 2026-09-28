@@ -4,7 +4,7 @@ import type { AuthedUser } from "../services/vms/auth";
 import { billingCatalogTeams } from "../services/billing/teamCatalog";
 import { resolveTeamBillingAccess } from "../services/billing/teamBillingAccess";
 import { selectedBillingTeamId } from "../services/billing/teamBillingView";
-import { parseTeamCatalog } from "../app/[locale]/dashboard/dashboard-team-scope";
+import { parseTeamCatalog } from "../dashboard-app/shell/dashboard-team-scope";
 import { fixtureStackUser, fixtureTeam } from "./helpers/billing-team-fixtures";
 
 function authedUser(): AuthedUser {

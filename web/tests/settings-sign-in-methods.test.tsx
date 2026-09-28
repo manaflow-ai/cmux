@@ -1,20 +1,13 @@
 import { describe, expect, mock, test } from "bun:test";
-import type React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { isOnlySignInMethod, type SignInFacts } from "../app/[locale]/dashboard/settings/lib/sign-in-methods";
+import { isOnlySignInMethod, type SignInFacts } from "../dashboard-app/screens/settings/lib/sign-in-methods";
 
 mock.module("next-intl", () => ({
   useTranslations: () => (key: string) => key,
 }));
 
-mock.module("@/i18n/navigation", () => ({
-  Link: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
-  usePathname: () => "/dashboard/settings/auth",
-  useRouter: () => ({ replace: () => undefined, refresh: () => undefined }),
-}));
-
-const { PasskeySection } = await import("../app/[locale]/dashboard/settings/components/auth/passkey-section");
-const { OtpSection } = await import("../app/[locale]/dashboard/settings/components/auth/otp-section");
+const { PasskeySection } = await import("../dashboard-app/screens/settings/components/auth/passkey-section");
+const { OtpSection } = await import("../dashboard-app/screens/settings/components/auth/otp-section");
 
 const none: SignInFacts = { hasPassword: false, otpAuthEnabled: false, passkeyAuthEnabled: false, oauthSignInCount: 0 };
 

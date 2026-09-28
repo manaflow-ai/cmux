@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { hasPasswordErrors, validatePasswordForm } from "../app/[locale]/dashboard/settings/lib/password";
+import { hasPasswordErrors, validatePasswordForm } from "../dashboard-app/screens/settings/lib/password";
 
 describe("password form validation", () => {
   test("requires the old password only when one is set", () => {
