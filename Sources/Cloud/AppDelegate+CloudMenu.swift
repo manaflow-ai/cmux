@@ -8,7 +8,8 @@ import Foundation
 extension AppDelegate {
     /// What a Cloud menu should show right now.
     @MainActor
-    func cloudMenuContext(model: CloudMenuModel = .shared) -> CloudMenuContext {
+    func cloudMenuContext(model: CloudMenuModel? = nil) -> CloudMenuContext {
+        let model = model ?? .shared
         guard CloudMachinesFeature.isEnabled, let flow = auth?.accountFlow else {
             return CloudMenuContext(account: .unavailable)
         }
@@ -30,7 +31,8 @@ extension AppDelegate {
     /// status item click leaves the app inactive and Cloud creation only
     /// navigates a window that is key when it finishes.
     @MainActor
-    func cloudMenuActions(model: CloudMenuModel = .shared, fromStatusItem: Bool) -> CloudMenuActions {
+    func cloudMenuActions(model: CloudMenuModel? = nil, fromStatusItem: Bool) -> CloudMenuActions {
+        let model = model ?? .shared
         let source = fromStatusItem ? "menuBarExtra.cloud" : "mainMenu.cloud"
         let window: @MainActor () -> NSWindow? = { [weak self] in
             if fromStatusItem { return self?.showMainWindowFromMenuBar() }

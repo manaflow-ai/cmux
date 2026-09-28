@@ -168,7 +168,7 @@ struct CloudMenuContentTests {
         #expect(row.attributedTitle?.string.hasPrefix("m0") == true)
         let open = try #require(row.submenu?.items.first { $0.identifier?.rawValue == "machine.m0.openShell" })
         let target = try #require(open.target as? NSObject)
-        _ = target.perform(try #require(open.action), with: open)
+        _ = target.perform(open.action, with: open)
         #expect(recorder.log == ["shell:m0"])
     }
 
