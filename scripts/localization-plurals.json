@@ -704,14 +704,14 @@
       1
     ]
   },
-  "update.autoInstall.waitingAgents": {
-    "source": "Installs after %lld agents finish and you step away. Workspaces and agents resume where they left off.",
+  "update.relaunch.resumesMidTask": {
+    "source": "%lld agents will be resumed mid-task.",
     "arguments": [
       1
     ]
   },
-  "update.autoInstall.waitingCommands": {
-    "source": "Installs after %lld running commands finish and you step away. Install Now stops them.",
+  "update.relaunch.runningCommands": {
+    "source": "%lld running commands",
     "arguments": [
       1
     ]
