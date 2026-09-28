@@ -17,6 +17,20 @@ import Testing
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
     }
 
+    @Test func narrowsAnExistingOwnedFileToTheCreationMode() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let path = directory.path("debug.log")
+        try Data("old\n".utf8).write(to: URL(fileURLWithPath: path))
+        try #require(chmod(path, 0o644) == 0)
+
+        try append("new\n", to: path)
+
+        #expect(try String(contentsOfFile: path, encoding: .utf8) == "old\nnew\n")
+        let attributes = try FileManager.default.attributesOfItem(atPath: path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+    }
+
     @Test func refusesASymbolicLink() throws {
         let directory = try TemporaryDirectory()
         defer { directory.remove() }
