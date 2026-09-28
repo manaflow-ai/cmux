@@ -64,6 +64,15 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "suppressSubagentNotifications"
     )
 
+    /// Sends `continue` to a cmux-launched agent whose turn ended on a
+    /// retryable upstream error (model at capacity, overloaded, connection
+    /// lost), with backoff. Turns waiting on a human are never resumed.
+    public let agentAutoResume = DefaultsKey<Bool>(
+        id: "automation.agentAutoResume",
+        defaultValue: true,
+        userDefaultsKey: "agentAutoResumeEnabled"
+    )
+
     // Several agent-integration toggles are intentionally exposed under both
     // `automation.*` (this catalog) and `integrations.*` (IntegrationsCatalogSection)
     // with the same `userDefaultsKey`, so writes through either namespace land
