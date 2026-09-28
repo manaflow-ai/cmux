@@ -919,6 +919,56 @@ import Testing
         #expect(factory.attemptedPins() == [nil, [CmxIrohDirectDialCandidate(address: "100.82.214.112", port: 50906)]])
     }
 
+    /// An account-wide automatic-Iroh backoff (armed by a failed Automatic
+    /// attempt) must not strip a Tailscale pairing's pinned identity route:
+    /// the exact user-selected dial is attempted, not failed unseen.
+    @Test func automaticIrohBackoffDoesNotBlockPinnedTailscaleReconnect() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "test-mac", instanceTag: "default", displayName: "Test Mac"
+        )
+        let factory = KindRecordingTransportFactory(router: router, box: TransportBox())
+        let tailscale = try tailscale()
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac", displayName: "Test Mac",
+            routes: [tailscale, try iroh()], instanceTag: "default", markActive: true,
+            stackUserID: "user-1", teamID: nil, now: clock.now
+        )
+        try await pairedStore.authorizeUserTailscaleRoutes(
+            macDeviceID: "test-mac", instanceTag: "default",
+            stackUserID: "user-1", teamID: nil, routes: [tailscale]
+        )
+        try await pairedStore.setConnectionMethod(
+            macDeviceID: "test-mac", instanceTag: "default",
+            rawValue: MobileConnectionMethod.tailscale.rawValue, stackUserID: "user-1"
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory, now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(suiteName: "backoff-pin-\(UUID().uuidString)")!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        store.recordTransientAutomaticReconnectBackoff(accountID: "user-1")
+        #expect(store.automaticIrohReconnectIsBlocked(accountID: "user-1"))
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(store.connectionState == .connected)
+        #expect(factory.attemptedKinds() == [.iroh])
+        #expect(factory.attemptedPins() == [
+            [CmxIrohDirectDialCandidate(address: "100.82.214.112", port: 50906)],
+        ])
+    }
+
     /// A selected Tailscale route is strict. If its pinned dial fails, the
     /// old Iroh session stays closed and no unpinned Iroh retry is allowed to
     /// mask the failure.

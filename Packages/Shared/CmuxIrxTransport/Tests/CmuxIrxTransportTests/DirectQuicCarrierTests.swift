@@ -114,6 +114,60 @@ struct DirectQuicCarrierTests {
         #expect(ContinuousClock.now - closedAt < .seconds(2))
         #expect(await client.termination() == IrxTermination(origin: .remote, code: IrxCloseCode.revoked.rawValue))
     }
+
+    /// F3 regression: a canceled inbox waiter must not swallow the next lane.
+    @Test func cancelledLaneWaiterDoesNotStealTheNextLane() async throws {
+        let mac = Self.identity("mac"), phone = Self.identity("phone")
+        guard let (listener, port) = try await Self.listener(mac) else { return }
+        defer { listener.cancel() }
+        let accepted = Task { await listener.connections.first { _ in true } }
+        let client = try await DirectQuicCarrierConnection.dial(
+            host: "127.0.0.1", port: port, identity: phone, expectedEndpointIDHex: mac.endpointIDHex)
+        let server = try #require(await accepted.value)
+
+        let abandoned = Task { try await client.acceptUni() }
+        try await Task.sleep(for: .milliseconds(50))
+        abandoned.cancel()
+        await #expect(throws: (any Error).self) { _ = try await abandoned.value }
+
+        let events = try await server.openUni()
+        try await events.writeAll(Data([9]))
+        // The canceled waiter is gone; a live waiter receives the lane.
+        let received = try await client.acceptUni()
+        #expect(try await received.read(sizeLimit: 8) == Data([9]))
+        client.close(errorCode: 1, reason: IrxCloseCode.userRequested.reasonData)
+    }
+
+    /// F2 regression: a connection occupies an admission slot until its irx
+    /// verdict settles it, so unjudged dialers cannot pile up unbounded.
+    @Test func admissionSlotHeldUntilVerdictBoundsUnjudgedConnections() async throws {
+        let mac = Self.identity("mac")
+        guard #available(macOS 15.0, *) else { return }
+        let listener = try DirectQuicListener(port: 0, identity: mac, maximumPendingAdmissions: 1)
+        let port = try await listener.start()
+        defer { listener.cancel() }
+        let accepted = Task { await listener.connections.first { _ in true } }
+
+        let first = try await DirectQuicCarrierConnection.dial(
+            host: "127.0.0.1", port: port, identity: Self.identity("phone-1"),
+            expectedEndpointIDHex: mac.endpointIDHex)
+        let serverSide = try #require(await accepted.value)
+
+        // The slot is still held: a second dial cannot complete its handshake.
+        await #expect(throws: (any Error).self) {
+            _ = try await DirectQuicCarrierConnection.dial(
+                host: "127.0.0.1", port: port, identity: Self.identity("phone-2"),
+                expectedEndpointIDHex: mac.endpointIDHex, deadline: .seconds(2))
+        }
+
+        serverSide.settleAdmission()
+        let third = try await DirectQuicCarrierConnection.dial(
+            host: "127.0.0.1", port: port, identity: Self.identity("phone-3"),
+            expectedEndpointIDHex: mac.endpointIDHex)
+        #expect(third.remoteEndpointIDHex == mac.endpointIDHex)
+        first.close(errorCode: 1, reason: IrxCloseCode.userRequested.reasonData)
+        third.close(errorCode: 1, reason: IrxCloseCode.userRequested.reasonData)
+    }
 }
 
 private final class IrxJudgedKeys: @unchecked Sendable {

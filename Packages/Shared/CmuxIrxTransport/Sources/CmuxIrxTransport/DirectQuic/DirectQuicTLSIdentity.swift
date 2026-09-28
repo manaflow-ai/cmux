@@ -38,18 +38,48 @@ IwYJKoZIhvcNAQkVMRYEFM/1wrX80DNk6FKz9Tt59LTtIqE3MEEwMTANBglghkgBZQMEAgEFAAQg
 vAfNkYbr+46FJXF5FyNCVVtth3LvefO6QfLf/WfnIbsECDvvGihiV7xGAgIIAA==
 """
 
-    /// Imports the identity without touching the keychain. In-memory import
-    /// needs macOS 15; iOS never serves Direct QUIC.
+    /// Loads the listener identity: in memory on macOS 15+, and through a
+    /// one-time import into the default keychain on macOS 14, which has no
+    /// in-memory PKCS#12 import. Both paths yield the same shared identity;
+    /// peers never trust it (see above), so where it is stored is only a
+    /// bookkeeping difference.
     static func load() -> sec_identity_t? {
-        guard #available(macOS 15.0, iOS 17.0, *),
-              let data = Data(base64Encoded: pkcs12Base64, options: .ignoreUnknownCharacters) else {
+        guard let data = Data(base64Encoded: pkcs12Base64, options: .ignoreUnknownCharacters) else {
             return nil
         }
-        var items: CFArray?
-        var options: [String: Any] = [kSecImportExportPassphrase as String: passphrase]
         #if os(macOS)
-        options[kSecImportToMemoryOnly as String] = true
+        if #available(macOS 15.0, *) {
+            return importIdentity(data, options: [
+                kSecImportExportPassphrase as String: passphrase,
+                kSecImportToMemoryOnly as String: true,
+            ])
+        }
+        // macOS 14: a fresh import lands in the default keychain; a relaunch
+        // finds the already-imported identity by its certificate subject.
+        if let imported = importIdentity(data, options: [kSecImportExportPassphrase as String: passphrase]) {
+            return imported
+        }
+        var item: CFTypeRef?
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassIdentity,
+            kSecMatchSubjectWholeString as String: "cmux-direct-quic",
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnRef as String: true,
+        ]
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let item, CFGetTypeID(item) == SecIdentityGetTypeID() else {
+            return nil
+        }
+        // swiftlint:disable:next force_cast
+        return sec_identity_create(item as! SecIdentity)
+        #else
+        // iOS never serves Direct QUIC; the phone is always the dialer.
+        return nil
         #endif
+    }
+
+    private static func importIdentity(_ data: Data, options: [String: Any]) -> sec_identity_t? {
+        var items: CFArray?
         guard SecPKCS12Import(data as CFData, options as CFDictionary, &items) == errSecSuccess,
               let entries = items as? [[String: Any]],
               let identity = entries.first?[kSecImportItemIdentity as String] else {

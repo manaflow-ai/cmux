@@ -26,6 +26,8 @@ public final class DirectQuicCarrierConnection: IrxCarrierConnection, @unchecked
     private let handshakeStreams = DirectQuicInbox()
 
     public let stableID = UInt64.random(in: 1 ... UInt64.max)
+    private var onAdmissionSettled: (@Sendable () -> Void)?
+    private var admissionSettled = false
 
     public var remoteEndpointIDHex: String { lock.withLock { peerEndpointIDHex } }
 
@@ -267,6 +269,31 @@ public final class DirectQuicCarrierConnection: IrxCarrierConnection, @unchecked
         try await unidirectional.next()
     }
 
+    /// Registers the exactly-once release of this connection's listener
+    /// admission slot. Fires immediately when the connection already settled
+    /// (it died between accept and registration), so a slot can never leak.
+    func setOnAdmissionSettled(_ callback: @escaping @Sendable () -> Void) {
+        let fireNow = lock.withLock { () -> Bool in
+            if admissionSettled { return true }
+            onAdmissionSettled = callback
+            return false
+        }
+        if fireNow { callback() }
+    }
+
+    /// Releases the listener admission slot held since accept: called on the
+    /// irx admission verdict, and by connection teardown so a dead
+    /// connection frees its slot. Idempotent.
+    public func settleAdmission() {
+        let fire = lock.withLock { () -> (@Sendable () -> Void)?? in
+            guard !admissionSettled else { return nil }
+            admissionSettled = true
+            defer { onAdmissionSettled = nil }
+            return .some(onAdmissionSettled)
+        }
+        if case let .some(callback) = fire { callback?() }
+    }
+
     public func closeReason() -> String? { lock.withLock { cause } }
 
     public func closed() async -> String {
@@ -324,6 +351,7 @@ public final class DirectQuicCarrierConnection: IrxCarrierConnection, @unchecked
         }
         readyWaiter?.resume(throwing: DirectQuicError.connectionClosed(published))
         for waiter in waiters { waiter.resume(returning: published) }
+        settleAdmission()
         bidirectional.finish()
         unidirectional.finish()
         handshakeStreams.finish()
@@ -331,10 +359,13 @@ public final class DirectQuicCarrierConnection: IrxCarrierConnection, @unchecked
 }
 
 /// A single-consumer queue of accepted streams that fails waiters on close.
+/// A canceled `next()` removes its own waiter, so a stream can never be
+/// delivered to a task that stopped listening.
 final class DirectQuicInbox: @unchecked Sendable {
     private let lock = NSLock()
     private var pending: [DirectQuicStream] = []
-    private var waiters: [CheckedContinuation<DirectQuicStream, any Error>] = []
+    private var waiters: [(id: UUID, continuation: CheckedContinuation<DirectQuicStream, any Error>)] = []
+    private var cancelledWaiterIDs: Set<UUID> = []
     private var finished = false
     private static let maximumPending = DirectQuicProtocol.maximumStreams
 
@@ -342,7 +373,7 @@ final class DirectQuicInbox: @unchecked Sendable {
     func offer(_ stream: DirectQuicStream) -> Bool {
         let waiter = lock.withLock { () -> CheckedContinuation<DirectQuicStream, any Error>?? in
             guard !finished else { return .none }
-            if !waiters.isEmpty { return .some(waiters.removeFirst()) }
+            if !waiters.isEmpty { return .some(waiters.removeFirst().continuation) }
             guard pending.count < Self.maximumPending else { return .none }
             pending.append(stream)
             return .some(nil)
@@ -357,14 +388,27 @@ final class DirectQuicInbox: @unchecked Sendable {
     }
 
     func next() async throws -> DirectQuicStream {
-        try await withCheckedThrowingContinuation { continuation in
-            let resolved: Result<DirectQuicStream, any Error>? = lock.withLock {
-                if !pending.isEmpty { return .success(pending.removeFirst()) }
-                if finished { return .failure(DirectQuicError.connectionClosed("closed")) }
-                waiters.append(continuation)
+        let id = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let resolved: Result<DirectQuicStream, any Error>? = lock.withLock {
+                    if cancelledWaiterIDs.remove(id) != nil { return .failure(CancellationError()) }
+                    if !pending.isEmpty { return .success(pending.removeFirst()) }
+                    if finished { return .failure(DirectQuicError.connectionClosed("closed")) }
+                    waiters.append((id, continuation))
+                    return nil
+                }
+                if let resolved { continuation.resume(with: resolved) }
+            }
+        } onCancel: {
+            let continuation = lock.withLock { () -> CheckedContinuation<DirectQuicStream, any Error>? in
+                if let index = waiters.firstIndex(where: { $0.id == id }) {
+                    return waiters.remove(at: index).continuation
+                }
+                cancelledWaiterIDs.insert(id)
                 return nil
             }
-            if let resolved { continuation.resume(with: resolved) }
+            continuation?.resume(throwing: CancellationError())
         }
     }
 
@@ -373,9 +417,10 @@ final class DirectQuicInbox: @unchecked Sendable {
             finished = true
             defer {
                 self.waiters.removeAll()
+                cancelledWaiterIDs.removeAll()
                 pending.removeAll()
             }
-            return (self.waiters, pending)
+            return (self.waiters.map(\.continuation), pending)
         }
         for waiter in waiters { waiter.resume(throwing: DirectQuicError.connectionClosed("closed")) }
         for stream in dropped { Task { try? await stream.reset(errorCode: 0) } }

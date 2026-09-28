@@ -928,7 +928,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 Task { [weak self] in
                     await self?.superviseConnection(connection, judgment: judgment,
                         admission: admission, legacyCurrent: legacyCurrent,
-                        registry: registry, token: token)
+                        registry: registry, token: token,
+                        onAdmissionSettled: { carrier.settleAdmission() })
                 }
             }
         }
@@ -972,20 +973,24 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         admission: V2InboundAdmissionAuthority,
         legacyCurrent: IrxDeviceListCurrent?,
         registry: IrxServerSessionRegistry,
-        token: UUID
+        token: UUID,
+        onAdmissionSettled: (@Sendable () -> Void)? = nil
     ) async {
         let journal = Self.journal
         guard pairingEnabled() else {
             await irx.close(code: .hostShutdown, origin: .local)
+            onAdmissionSettled?()
             return
         }
-        guard
-            let (peer, control, sessionID) = await IrxAdmission().performServer(
-                connection: irx,
-                judgment: judgment,
-                journal: journal
-            )
-        else { return }
+        let admissionOutcome = await IrxAdmission().performServer(
+            connection: irx,
+            judgment: judgment,
+            journal: journal
+        )
+        // The Direct QUIC listener holds an admission slot until the verdict;
+        // release it on both outcomes so unauthorized dials stay bounded.
+        onAdmissionSettled?()
+        guard let (peer, control, sessionID) = admissionOutcome else { return }
         let isMac = cachedState?.directory?.inboundPeers?.first {
             $0.device.descriptor.endpointID == peer.endpointIDHex
         }?.device.descriptor.metadata.platform == .mac

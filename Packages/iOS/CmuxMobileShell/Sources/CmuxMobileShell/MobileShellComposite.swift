@@ -3411,13 +3411,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   ) else { break }
             // The identity route carries every method: Automatic dials it over
             // Iroh, while Direct and Tailscale Only pin it to Direct QUIC at
-            // their allowlisted addresses (`connectStoredMacOutcome`).
-            let irohReconnectIsBlocked = automaticIrohReconnectIsBlocked(accountID: scope.userID)
+            // their allowlisted addresses (`connectStoredMacOutcome`). The
+            // account-wide automatic-Iroh backoff therefore only applies to
+            // Automatic candidates; stripping a pinned method's identity
+            // route would fail it without ever attempting its exact dial.
+            let candidateMethod = connectionMethod(for: mac)
+            let candidateIrohBackoffApplies = candidateMethod == .automatic
+                && automaticIrohReconnectIsBlocked(accountID: scope.userID)
             // An explicit Tailscale selection never falls back to a refreshed
             // route set or another saved Mac when its pinned dial fails.
-            let candidateUsesStrictTailscale = connectionMethod(for: mac) == .tailscale
+            let candidateUsesStrictTailscale = candidateMethod == .tailscale
             let localRoutes = storedReconnectRoutes(mac).filter {
-                !irohReconnectIsBlocked || $0.kind != .iroh
+                !candidateIrohBackoffApplies || $0.kind != .iroh
             }
             let localHasIroh = localRoutes.contains { $0.kind == .iroh }
             let localCanConnectSecurely = localHasIroh
