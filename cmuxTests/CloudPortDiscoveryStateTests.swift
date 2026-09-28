@@ -98,6 +98,19 @@ struct CloudPortDiscoveryStateTests {
         #expect(discovery.state == .available)
     }
 
+    /// A refresh cancelled while another refresh's scan runs must leave that scan's loading state alone.
+    @Test("Abandoning a request never hides a scan that is still running")
+    func abandonKeepsRunningScan() {
+        var discovery = readyDiscovery()
+        discovery.request()
+        let scan = discovery.beginScan()
+        discovery.abandonRequest(discovery.request())
+        #expect(discovery.state == .loading)
+        let completed = discovery.complete(CloudPortScanResult(ports: [3000]), request: scan, at: now, socketPath: "first")
+        #expect(completed)
+        #expect(discovery.state == .available)
+    }
+
     @Test("Capabilities and private-route prerequisites outrank link errors")
     func blockerMatrix() {
         var discovery = CloudPortDiscovery()

@@ -98,6 +98,34 @@ struct CloudPortRecoveryTests {
         await provider.stop()
     }
 
+    /// The cancel can also land while a forced refresh is still reading the guest's displays.
+    @Test("A refresh cancelled during display discovery does not leave Ports discovering")
+    func cancelledDisplayRefreshSettlesDiscovery() async {
+        let catalog = SurfaceCatalog()
+        let started = CloudLinkFirstValue<Bool>()
+        let resume = CloudLinkFirstValue<Bool>()
+        let displays = CloudDisplayCoordinator { _, _ in
+            started.resolve(true)
+            _ = await resume.result
+            return VMExecResult(exitCode: 1, stdout: "", stderr: "")
+        }
+        var desktop = summary(address: "10.0.0.7")
+        desktop.kind = .desktop
+        let provider = CmuxTuiSurfaceProvider(summary: desktop,
+            links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }), catalog: catalog,
+            displayCoordinator: displays, loadPortSummary: { _ in desktop })
+        catalog.register(provider)
+        let refresh = Task { await catalog.refreshPortDiscovery(machine: provider.machine) }
+        _ = await started.result
+        #expect(provider.info.portDiscoveryState == .loading)
+        refresh.cancel()
+        resume.resolve(true)
+        await refresh.value
+        #expect(provider.info.portDiscoveryState == .notRequested)
+        #expect(provider.portDiscovery.mayScan)
+        await provider.stop()
+    }
+
     @Test("Refreshing an SSH machine's Ports never sends its id to the Cloud API")
     func sshRefreshSkipsCloudMetadata() async {
         let catalog = SurfaceCatalog()
