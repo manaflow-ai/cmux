@@ -8,7 +8,6 @@ import * as Effect from "effect/Effect";
 import { preconnectCloudDb } from "../../../db/client";
 import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
-  unauthorized,
   verifyRequest,
   type AuthedUser,
 } from "../../../services/vms/auth";
@@ -61,6 +60,7 @@ import {
   vmMemoryRequiresPlanResponse,
   vmMemoryUnavailableResponse,
   resolveVmProvisioningAccountScope,
+  reverifyVmRequestForTeam,
   runAfterResponse,
   type VmWorkflowErrorOverrides,
 } from "../../../services/vms/routeHelpers";
@@ -77,7 +77,6 @@ import {
   measureVmAsync,
   VmTimingRecorder,
 } from "../../../services/vms/timings";
-import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 
 
@@ -572,20 +571,16 @@ async function resolveCreateAccount(input: {
   readonly body: CreateBody;
 }): Promise<CreateAccountScope> {
   const { request, span, timing } = input;
-  let user = input.user;
   const requestedBillingTeamId = input.body.billingTeamId || requestedVmTeamIdFromRequest(request);
-  if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-    let refreshedUser: AuthedUser | null;
-    try {
-      refreshedUser = await measureVmAsync(timing, "auth", () =>
-        verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
-      );
-    } catch (error) {
-      return { ok: false, response: authProviderErrorResponse(error, "/api/vm.create.team-auth") };
-    }
-    if (!refreshedUser) return { ok: false, response: unauthorized() };
-    user = refreshedUser;
-  }
+  const reverified = await reverifyVmRequestForTeam({
+    request,
+    user: input.user,
+    requestedBillingTeamId,
+    authErrorLabel: "/api/vm.create.team-auth",
+    measure: (run) => measureVmAsync(timing, "auth", run),
+  });
+  if (!reverified.ok) return reverified;
+  let user = reverified.user;
   // Read-time reconcile: a Stripe subscription change is corrected here
   // right before paid limits apply. Best-effort — billing reads must
   // not block VM creation, so the whole reconcile races a hard
