@@ -1147,6 +1147,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var pairingAttemptStartedAt: Date?
     /// The method (`qr`/`manual`/`attach_url`) of the in-flight pairing attempt.
     private var pairingAttemptMethod: String?
+    /// The unfinished pairing attempt that superseded the foreground connection
+    /// in ``preparePairingConnectionAttempt()``. Only while one exists does
+    /// ``cancelPairing()`` own the connection teardown; cancelling an idle Add
+    /// Computer sheet must leave the active Mac connected.
+    private var connectionOwningPairingAttemptID: UUID?
     /// Whether this install had no known paired Mac at the *start* of the in-flight
     /// attempt. Snapshotted in ``beginPairingAttempt(method:)`` and reused for the
     /// started/succeeded/failed events, because a successful `connect(ticket:)`
@@ -2737,6 +2742,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         let attemptID = beginPairingAttempt()
+        defer { finishConnectionOwningPairingAttempt(attemptID) }
         replaceRemoteClient(with: nil)
         clearPairingError()
         activeTicket = nil
@@ -2976,6 +2982,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ? beginPairingAttempt(method: "manual")
                 : beginPairingValidationAttempt()
         }
+        defer { finishConnectionOwningPairingAttempt(attemptID) }
         // Fast offline preflight: fail immediately instead of stacking
         // per-route timeouts into the opaque ~60s blob.
         let manualRoutes = [directRoute]
@@ -5314,6 +5321,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         let attemptID = beginPairingAttempt(method: "qr")
+        defer { finishConnectionOwningPairingAttempt(attemptID) }
 
         // A pairing attempt begins with fresh interactive auth (a QR scan, or
         // the injected dev attach that fires only after sign-in completes), so
@@ -5408,6 +5416,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 failure: .cancelled
             )
         }
+        let pairingOwnsConnection = connectionOwningPairingAttemptID != nil
         invalidatePairingAttempt()
         clearPairingError()
         if pairingVersionWarning != nil || pendingPairingVersionWarningURL != nil {
@@ -5415,6 +5424,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         clearPairingVersionWarning()
+        // Without an in-flight attempt the foreground connection belongs to the
+        // active Mac, not to the pairing sheet being dismissed.
+        guard pairingOwnsConnection else { return }
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
@@ -11792,12 +11804,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         invalidateStoredMacReconnectAttempt()
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
+        connectionOwningPairingAttemptID = pairingAttemptID
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
         terminalInputRPCPipeline.clear()
         resumeRawTerminalInputDrainWaiters()
         clearPairingError()
         clearPairingVersionWarning()
+    }
+
+    /// Releases connection ownership when `attemptID` returns, whatever the
+    /// outcome. A newer attempt's ownership is left untouched.
+    private func finishConnectionOwningPairingAttempt(_ attemptID: UUID) {
+        guard connectionOwningPairingAttemptID == attemptID else { return }
+        connectionOwningPairingAttemptID = nil
     }
 
     private func beginPairingValidationAttempt(method: String? = nil) -> UUID {
@@ -11942,6 +11962,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairingAttemptID = UUID()
         pairingAttemptStartedAt = nil
         pairingAttemptMethod = nil
+        connectionOwningPairingAttemptID = nil
     }
 
     /// Apply a classified pairing failure to the user-visible error surface and
