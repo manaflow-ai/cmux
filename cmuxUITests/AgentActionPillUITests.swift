@@ -56,21 +56,26 @@ final class AgentActionPillUITests: BrowserFixtureSocketTestCase {
         let surfaceID: String
     }
 
+    /// Opens a focused terminal workspace and returns its ids.
     private func focusedTerminal() throws -> Terminal {
-        let deadline = Date().addingTimeInterval(15.0)
+        let params: [String: Any] = ["title": "Agent Stop pill", "focus": true]
+        let request: [String: Any] = ["id": UUID().uuidString, "method": "workspace.create", "params": params]
+        var last: [String: Any]?
+        let deadline = Date().addingTimeInterval(20.0)
         repeat {
-            if let envelope = socketEnvelope(method: "surface.current", params: [:], responseTimeout: 2.0),
-               envelope["ok"] as? Bool == true,
-               let result = envelope["result"] as? [String: Any],
+            // The netcat path is the fallback for hosted runners where the
+            // in-process socket client cannot connect.
+            last = socketEnvelope(method: "workspace.create", params: params, responseTimeout: 12.0)
+                ?? controlSocketJSONViaNetcat(request, socketPath: socketPath, responseTimeout: 12.0)
+            if last?["ok"] as? Bool == true,
+               let result = last?["result"] as? [String: Any],
                let workspaceID = result["workspace_id"] as? String,
-               let surfaceID = result["surface_id"] as? String,
-               UUID(uuidString: workspaceID) != nil,
-               UUID(uuidString: surfaceID) != nil {
+               let surfaceID = result["surface_id"] as? String {
                 return Terminal(workspaceID: workspaceID, surfaceID: surfaceID)
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         } while Date() < deadline
-        return try XCTUnwrap(nil as Terminal?, "surface.current never reported a focused terminal")
+        return try XCTUnwrap(nil as Terminal?, "workspace.create never returned a terminal: \(String(describing: last)) socket=\(socketPath)")
     }
 
     /// Journals `agent.turn.started` for a fake Claude Code session on the
