@@ -352,20 +352,31 @@ extension AppDelegate {
 
     /// A conservative pre-check for whether `event` could trigger `action`.
     ///
-    /// Only key-down events can trigger a clause-gated action here; media
-    /// keys arrive as `.systemDefined` and never carry a key code.
+    /// Whether `event` could reach `action`, used only to skip the viewport
+    /// read when it plainly cannot.
+    ///
+    /// This must over-approximate. A `false` result writes `false` into the
+    /// clause context rather than omitting the key, so a negated clause like
+    /// `!terminalAlternateScreen` evaluates to true. Under-approximating here
+    /// therefore does not lose an optimization, it makes a negated clause
+    /// silently permissive: `closeTab` would fire while vim is focused, which
+    /// is the exact case the clause exists to prevent. Anything this cannot
+    /// rule out has to fall through to the read.
     ///
     /// Every matcher (plain, numbered digit, directional, Tab) requires the
     /// event's modifiers to equal the relevant stroke's, so that is checked
-    /// first. Numbered-digit actions then fall back to that modifier check,
-    /// which can only over-approximate. Everything else uses the real stroke
-    /// matcher, which already matches arrow and Tab strokes by physical key
-    /// code, so an unrelated Control+arrow never pays for the viewport read.
+    /// first. Numbered-digit actions then fall back to that modifier check.
+    /// Everything else uses the real stroke matcher, which matches arrow and
+    /// Tab strokes by physical key code, so an unrelated Control+arrow never
+    /// pays for the viewport read.
     private func shortcutEventMayTriggerAction(
         _ event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> Bool {
-        guard event.type == .keyDown else { return false }
+        // Media keys arrive as `.systemDefined` and carry no key code, so no
+        // matcher below can judge them. Over-approximate instead of claiming
+        // the terminal is not on the alternate screen.
+        guard event.type == .keyDown else { return true }
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
         guard !shortcut.isUnbound else { return false }
         let stroke: ShortcutStroke
@@ -381,6 +392,11 @@ extension AppDelegate {
             return false
         }
         if action.usesNumberedDigitMatching {
+            return true
+        }
+        // `matchesTab` matches key code 48 whatever the stroke's key says, so a
+        // Tab event can reach a matcher the stroke matcher below would reject.
+        if event.keyCode == 48 {
             return true
         }
         return matchShortcutStroke(event: event, stroke: stroke)
@@ -580,9 +596,19 @@ extension AppDelegate {
     }
 
     private func shortcutResolvedEventWindow(_ event: NSEvent) -> NSWindow? {
-        if event.windowNumber > 0,
-           let window = NSApp.window(withWindowNumber: event.windowNumber) {
-            return window
+        if event.windowNumber > 0 {
+            if let window = NSApp.window(withWindowNumber: event.windowNumber) {
+                return window
+            }
+#if DEBUG
+            // Honor the routing override the same way `resolvedShortcutEventWindow`
+            // does, so a synthesized event in a test resolves to the test's
+            // window and the when-clause context is reachable.
+            if let window = debugShortcutRoutingFocusedWindowOverrideForTesting.window,
+               window.windowNumber == event.windowNumber {
+                return window
+            }
+#endif
         }
         return event.window
     }

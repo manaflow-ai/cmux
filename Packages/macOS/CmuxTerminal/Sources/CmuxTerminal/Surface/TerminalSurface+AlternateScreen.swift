@@ -6,9 +6,15 @@ extension TerminalSurface {
     /// in the alternate screen right now.
     ///
     /// libghostty exposes the active screen only through the render-grid
-    /// export, so this serializes the viewport. It is meant for occasional
-    /// reads, such as when predictive echo starts for a surface, not for a
-    /// per-keystroke or per-frame path.
+    /// export, so every call serializes the viewport to a JSON string. Reading
+    /// the marker skips the Swift-side decode but not that serialization.
+    ///
+    /// Keystroke callers are expected, since `terminalAlternateScreen` gates
+    /// shortcuts and can only be answered when the key is pressed. They must
+    /// memoize: the shortcut dispatcher caches per event, and the text-editing
+    /// gestures cache per held key, so the cost is one read per distinct press
+    /// rather than per repeat or per frame. A caller that reads this on every
+    /// frame, or on every repeat of a held key, is a bug.
     ///
     /// - Returns: `false` when the surface has no live runtime or the export
     ///   fails, which is also the state a new terminal starts in.
