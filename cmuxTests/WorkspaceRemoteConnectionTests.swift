@@ -6389,6 +6389,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 "--identity", "/Users/test/.ssh/id_ed25519",
                 "--ssh-option", "StrictHostKeyChecking=accept-new",
                 "--window", windowID,
+                "--focus",
                 "cmux-macmini",
             ],
             workspaceRef: workspaceRef
@@ -6407,7 +6408,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(openParams["identity_file"] as? String, "/Users/test/.ssh/id_ed25519")
         XCTAssertEqual(openParams["title"] as? String, "SSH Workspace")
         XCTAssertEqual(openParams["window_id"] as? String, windowID)
-        // `cmux ssh` should land the user in the new SSH workspace immediately.
+        // `--focus` lands the user in the new SSH workspace immediately (the default
+        // for an interactive run; this mock runs as a script).
         XCTAssertEqual(openParams["focus"] as? Bool, true)
         XCTAssertEqual(openParams["terminal_profile"] as? String, "shell")
         XCTAssertNil(openParams["initial_command"])

@@ -10,6 +10,9 @@ struct MachinesCloudStatus: View {
     let treeError: String?
     let plan: MachinePlanSnapshot?
     let onDismissStale: (String) -> Void
+    /// Runs the fix the status names. The notice and the empty state route the
+    /// same three actions through it, so the toolbar row is not a dead end.
+    let performListStatusAction: (MachineListStatusPresentation.Action) -> Void
 
     var body: some View {
         Group {
@@ -23,7 +26,12 @@ struct MachinesCloudStatus: View {
                         .truncationMode(.tail)
                 }
             } else if let listStatus {
-                MachinesListStatusToolbarRow(status: listStatus, error: listError, onDismiss: onDismissStale)
+                MachinesListStatusToolbarRow(
+                    status: listStatus,
+                    error: listError,
+                    onDismiss: onDismissStale,
+                    perform: performListStatusAction
+                )
             } else if let error = treeError {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                     Image(systemName: "exclamationmark.triangle")

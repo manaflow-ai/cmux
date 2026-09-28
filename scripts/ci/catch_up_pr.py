@@ -93,15 +93,18 @@ MIN_GIT = (2, 46)
 # Every git call pins the settings that change what a merge produces or what
 # runs during it. Hooks are off: this tree may be untrusted, and the
 # generators already did what the pbxproj pre-commit hook would. The
-# .xcstrings merge driver is replaced by `false` so git leaves those files
-# unmerged for the trusted key-wise merge below; a clone configured by
+# .xcstrings and .pbxproj merge drivers are replaced by `false` so git leaves
+# those files unmerged for the trusted merges below; a clone configured by
 # scripts/install-git-hooks.sh would otherwise run the driver from the tree
-# being merged.
+# being merged, which on a fork head is untrusted code.
 GIT = [
     "git",
     "-c", "core.hooksPath=/dev/null",
     "-c", "merge.conflictStyle=diff3",
     "-c", "merge.xcstrings.driver=false",
+    "-c", "merge.xcstrings-v2.driver=false",
+    "-c", "merge.pbxproj.driver=false",
+    "-c", "merge.pbxproj-v1.driver=false",
     "-c", "rerere.enabled=false",
     "-c", "maintenance.auto=false",
     "-c", "gc.auto=0",
