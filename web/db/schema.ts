@@ -103,6 +103,18 @@ export const cloudVms = pgTable(
     index("cloud_vms_owner_team_status_idx").on(table.ownerTeamId, table.status),
     index("cloud_vms_user_status_idx").on(table.userId, table.status),
     index("cloud_vms_billing_team_status_idx").on(table.billingTeamId, table.status),
+    index("cloud_vms_observed_destroy_cleanup_idx")
+      .on(table.updatedAt, table.id)
+      .where(sql`${table.status} = 'destroyed'
+        and ${table.providerMetadata} ? 'cmuxObservedDestroyCleanup'
+        and jsonb_typeof(${table.providerMetadata}->'cmuxObservedDestroyCleanup') = 'object'
+        and (
+          ${table.providerMetadata}->'cmuxObservedDestroyCleanup' @> '{"modelPlane":true}'::jsonb
+          or (
+            jsonb_typeof(${table.providerMetadata}->'cmuxObservedDestroyCleanup'->'homeVolume') = 'string'
+            and length(btrim(${table.providerMetadata}->'cmuxObservedDestroyCleanup'->>'homeVolume')) > 0
+          )
+        )`),
     uniqueIndex("cloud_vms_billing_team_idempotency_key_unique")
       .on(table.billingTeamId, table.idempotencyKey)
       .where(sql`${table.billingTeamId} is not null and ${table.idempotencyKey} is not null`),

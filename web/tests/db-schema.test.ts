@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { getTableConfig } from "drizzle-orm/pg-core";
 import postgres, { type Sql } from "postgres";
+import { cloudVms } from "../db/schema";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -20,6 +23,28 @@ afterAll(async () => {
 });
 
 describe("Cloud VM database schema", () => {
+  test("declares the ordered partial index used by observed-destroy cleanup", () => {
+    const index = getTableConfig(cloudVms).indexes.find(
+      (candidate) => candidate.config.name === "cloud_vms_observed_destroy_cleanup_idx",
+    );
+    expect(index?.config.columns.map((column) => "name" in column ? column.name : null)).toEqual(["updated_at", "id"]);
+    expect(index?.config.where).toBeDefined();
+
+    const migration = readFileSync(new URL(
+      "../db/migrations/20260928120000_cloud_vm_observed_destroy_cleanup_index/migration.sql",
+      import.meta.url,
+    ), "utf8").replace(/\s+/g, " ");
+    expect(migration).toContain(
+      'ON "cloud_vms" ("updated_at", "id") WHERE "status" = \'destroyed\' AND "provider_metadata" ? \'cmuxObservedDestroyCleanup\'',
+    );
+    expect(migration).toContain(
+      'jsonb_typeof("provider_metadata"->\'cmuxObservedDestroyCleanup\') = \'object\'',
+    );
+    expect(migration).toContain(
+      '"provider_metadata"->\'cmuxObservedDestroyCleanup\' @> \'{"modelPlane":true}\'::jsonb',
+    );
+  });
+
   dbTest("applies migrations and enforces create idempotency by account owner", async () => {
     if (!sql) throw new Error("test database not initialized");
 

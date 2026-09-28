@@ -994,6 +994,7 @@ function providerMetadataPatchForPersistence(
       key !== VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY &&
       key !== VM_RESOURCE_RESIZE_PENDING_METADATA_KEY &&
       key !== VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY &&
+      key !== OBSERVED_DESTROY_CLEANUP_METADATA_KEY &&
       key !== CREATE_CLEANUP_PROVIDER_VM_ID_KEY &&
       key !== CREATE_CLEANUP_ATTEMPT_KEY &&
       key !== CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY &&
@@ -2812,19 +2813,23 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   observedDestroyCleanupCandidates: (input) =>
     dbEffect("observedDestroyCleanupCandidates", async () => {
       const db = cloudDb();
+      const cleanup = sql`${cloudVms.providerMetadata}->${sql.raw(`'${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}'`)}`;
       return await db
         .select()
         .from(cloudVms)
         .where(and(
           eq(cloudVms.status, "destroyed"),
-          sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}`,
+          // Keep the reserved key literal so PostgreSQL can prove the query
+          // implies the partial-index predicate even under prepared plans.
+          sql`${cloudVms.providerMetadata} ? ${sql.raw(`'${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}'`)}`,
+          sql`jsonb_typeof(${cleanup}) = 'object'`,
+          or(
+            sql`${cleanup} @> '{"modelPlane":true}'::jsonb`,
+            sql`jsonb_typeof(${cleanup}->'homeVolume') = 'string'
+              and length(btrim(${cleanup}->>'homeVolume')) > 0`,
+          ),
         ))
-        .orderBy(
-          desc(sql`case when coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
-            ->${OBSERVED_DESTROY_CLEANUP_METADATA_KEY} ? 'modelPlane' then 1 else 0 end`),
-          asc(cloudVms.updatedAt),
-          asc(cloudVms.id),
-        )
+        .orderBy(asc(cloudVms.updatedAt), asc(cloudVms.id))
         .limit(input.limit);
     }),
 

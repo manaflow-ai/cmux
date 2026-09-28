@@ -4404,18 +4404,21 @@ describe("VM Effect workflows", () => {
           requestedDiskMb: 131072,
           previousDiskMb: 65536,
         },
+        [OBSERVED_DESTROY_CLEANUP_METADATA_KEY]: { modelPlane: true },
       },
     }));
-    const [protectedMarker] = await sql<{ operationId: string; networkId: string }[]>`
+    const [protectedMarker] = await sql<{ operationId: string; networkId: string; hasObservedCleanup: boolean }[]>`
       select
         provider_metadata->'cmuxResourceResizePending'->>'operationId' as "operationId",
-        provider_metadata->>'networkId' as "networkId"
+        provider_metadata->>'networkId' as "networkId",
+        provider_metadata ? ${OBSERVED_DESTROY_CLEANUP_METADATA_KEY} as "hasObservedCleanup"
       from cloud_vms
       where id = ${vmId}
     `;
     expect(protectedMarker).toEqual({
       operationId: first!.operationId,
       networkId: "provider-network",
+      hasObservedCleanup: false,
     });
 
     await sql`
@@ -6075,6 +6078,22 @@ describe("VM Effect workflows", () => {
       cleanup: { modelPlane: true, homeVolume: "cmux-home-observed-cleanup-db" },
       events: "1",
     });
+
+    await sql`
+      insert into cloud_vms (
+        id, user_id, provider, provider_vm_id, image_id, status, provider_metadata, updated_at
+      ) values
+        ('00000000-0000-4000-8000-000000000160', 'user-invalid-cleanup-empty', 'freestyle',
+          'provider-invalid-cleanup-empty', 'snapshot-test', 'destroyed',
+          '{"cmuxObservedDestroyCleanup":{}}'::jsonb, now() - interval '2 days'),
+        ('00000000-0000-4000-8000-000000000161', 'user-invalid-cleanup-scalar', 'freestyle',
+          'provider-invalid-cleanup-scalar', 'snapshot-test', 'destroyed',
+          '{"cmuxObservedDestroyCleanup":"collision"}'::jsonb, now() - interval '1 day')
+    `;
+    const cleanupCandidates = await Effect.runPromise(
+      vmRepositoryLiveShape.observedDestroyCleanupCandidates!({ limit: 1 }),
+    );
+    expect(cleanupCandidates.map((candidate) => candidate.id)).toEqual([vmId]);
 
     expect(await Effect.runPromise(vmRepositoryLiveShape.completeObservedDestroyCleanup!({
       id: vmId, step: "modelPlane",
@@ -8202,6 +8221,83 @@ describe("status read that observes a gone machine", () => {
     await Effect.runPromise(reconcileVmProviderStatuses({ modelPlane }).pipe(Effect.provide(layer)));
     expect(revokeCalls).toBe(2);
     expect(volumeDeleteCalls).toBe(2);
+  });
+
+  test("a full batch of failing model-plane work cannot starve older-first volume cleanup", async () => {
+    const modelRows = [
+      testCloudVmRow({
+        id: "00000000-0000-4000-8000-000000000157",
+        providerVmId: "provider-model-cleanup-1",
+        status: "destroyed",
+        destroyedAt: new Date(),
+      }),
+      testCloudVmRow({
+        id: "00000000-0000-4000-8000-000000000158",
+        providerVmId: "provider-model-cleanup-2",
+        status: "destroyed",
+        destroyedAt: new Date(),
+      }),
+    ];
+    const volumeRow = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000159",
+      providerVmId: "provider-volume-cleanup",
+      status: "destroyed",
+      destroyedAt: new Date(),
+    });
+    const rows = [...modelRows, volumeRow];
+    const pending = new Map<string, Record<string, unknown>>([
+      [modelRows[0]!.id, { modelPlane: true }],
+      [modelRows[1]!.id, { modelPlane: true }],
+      [volumeRow.id, { homeVolume: "cmux-home-volume-fairness" }],
+    ]);
+    const order = new Map(rows.map((row, index) => [row.id, index]));
+    let nextOrder = rows.length;
+    const baseRepo = testWorkflowRepo({ vm: volumeRow });
+    const repo: VmRepositoryShape = {
+      ...baseRepo,
+      observedDestroyCleanupCandidates: ({ limit }) => Effect.sync(() =>
+        rows
+          .filter((row) => pending.has(row.id))
+          .sort((left, right) => order.get(left.id)! - order.get(right.id)!)
+          .slice(0, limit)
+          .map((row) => ({
+            ...row,
+            providerMetadata: {
+              ...row.providerMetadata,
+              [OBSERVED_DESTROY_CLEANUP_METADATA_KEY]: pending.get(row.id),
+            },
+          })),
+      ),
+      deferObservedDestroyCleanup: ({ id }) => Effect.sync(() => {
+        if (!pending.has(id)) return false;
+        order.set(id, nextOrder);
+        nextOrder += 1;
+        return true;
+      }),
+      completeObservedDestroyCleanup: ({ id, step }) => Effect.sync(() => {
+        const marker = pending.get(id);
+        if (!marker || !(step in marker)) return false;
+        const next = { ...marker };
+        delete next[step];
+        if (Object.keys(next).length === 0) pending.delete(id);
+        else pending.set(id, next);
+        return true;
+      }),
+    };
+    let volumeDeleteCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...providerGone,
+      deleteHomeVolume: () => Effect.sync(() => { volumeDeleteCalls += 1; }),
+    };
+    const modelPlane = { revoke: async () => { throw new Error("sustained outage"); } };
+    const layer = workflowLayer(repo, provider);
+
+    await Effect.runPromise(reconcileVmProviderStatuses({ limit: 2, modelPlane }).pipe(Effect.provide(layer)));
+    expect(volumeDeleteCalls).toBe(0);
+    await Effect.runPromise(reconcileVmProviderStatuses({ limit: 2, modelPlane }).pipe(Effect.provide(layer)));
+
+    expect(volumeDeleteCalls).toBe(1);
+    expect(pending.has(volumeRow.id)).toBe(false);
   });
 });
 
