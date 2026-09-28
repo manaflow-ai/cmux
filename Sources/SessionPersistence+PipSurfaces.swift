@@ -82,6 +82,27 @@ extension SessionWorkspaceSnapshot {
         guard !panels.contains(where: { $0.id == panel.id }) else { return }
         panels.append(panel)
         layout = layout.appendingPanelToFirstPane(panel.id)
+        if let canvasPanes {
+            var updatedPanes = canvasPanes
+            guard !updatedPanes.isEmpty else {
+                self.canvasPanes = canvasPanes
+                if focusedPanelId == nil {
+                    focusedPanelId = panel.id
+                }
+                return
+            }
+            var firstPane = updatedPanes[0]
+            var panelIds = firstPane.panelIds ?? [firstPane.panelId]
+            if !panelIds.contains(panel.id) {
+                panelIds.append(panel.id)
+            }
+            firstPane.panelIds = panelIds
+            if firstPane.selectedPanelId == nil {
+                firstPane.selectedPanelId = panel.id
+            }
+            updatedPanes[0] = firstPane
+            self.canvasPanes = updatedPanes
+        }
         if focusedPanelId == nil {
             focusedPanelId = panel.id
         }

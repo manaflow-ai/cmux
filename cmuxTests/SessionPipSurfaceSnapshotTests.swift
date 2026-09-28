@@ -101,6 +101,39 @@ final class SessionPipSurfaceSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.windows.count, SessionPersistencePolicy.maxWindowsPerSnapshot)
     }
 
+    func testRestoringPipSurfaceAddsPanelToExistingCanvasPaneTabs() throws {
+        let existingPanelId = UUID()
+        let pipPanelId = UUID()
+        let workspaceId = UUID()
+        var workspace = Self.makeWorkspace(workspaceId: workspaceId)
+        workspace.layoutMode = WorkspaceLayoutMode.canvas.rawValue
+        workspace.panels = [Self.pipTerminalPanelSnapshot(id: existingPanelId)]
+        workspace.layout = .pane(SessionPaneLayoutSnapshot(
+            panelIds: [existingPanelId], selectedPanelId: existingPanelId
+        ))
+        workspace.canvasPanes = [SessionCanvasPaneSnapshot(
+            panelId: existingPanelId,
+            x: 10, y: 20, width: 480, height: 320,
+            panelIds: [existingPanelId], selectedPanelId: existingPanelId
+        )]
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [Self.makeWindow(workspaces: [workspace], selectedWorkspaceIndex: 0)],
+            pipSurfaces: [SessionPipSurfaceSnapshot(
+                panel: Self.pipTerminalPanelSnapshot(id: pipPanelId),
+                frame: SessionRectSnapshot(x: 100, y: 120, width: 480, height: 320),
+                homeWorkspaceId: workspaceId
+            )]
+        )
+
+        let restored = snapshot.restoringPipSurfacesAsWorkspaceTabs()
+        let restoredWorkspace = try XCTUnwrap(restored.windows.first?.tabManager.workspaces.first)
+        let canvasPane = try XCTUnwrap(restoredWorkspace.canvasPanes?.first)
+        XCTAssertEqual(canvasPane.panelIds, [existingPanelId, pipPanelId])
+        XCTAssertEqual(canvasPane.selectedPanelId, existingPanelId)
+    }
+
     func testRestoringPipSurfaceCapsWindowsBeforeMergingDetachedSurface() throws {
         let panelId = UUID()
         let homeWorkspaceId = UUID()
@@ -136,7 +169,12 @@ final class SessionPipSurfaceSnapshotTests: XCTestCase {
 
     private static func makeWindow(workspaceIds: [UUID], selectedWorkspaceIndex: Int?) -> SessionWindowSnapshot {
         let workspaces = workspaceIds.map { makeWorkspace(workspaceId: $0) }
-        let tabManager = SessionTabManagerSnapshot(selectedWorkspaceIndex: selectedWorkspaceIndex, workspaces: workspaces)
+        return makeWindow(workspaces: workspaces, selectedWorkspaceIndex: selectedWorkspaceIndex)
+    }
+
+    private static func makeWindow(
+        workspaces: [SessionWorkspaceSnapshot], selectedWorkspaceIndex: Int?
+    ) -> SessionWindowSnapshot {
         return SessionWindowSnapshot(
             frame: SessionRectSnapshot(x: 10, y: 20, width: 900, height: 700),
             display: SessionDisplaySnapshot(
@@ -144,7 +182,7 @@ final class SessionPipSurfaceSnapshotTests: XCTestCase {
                 frame: SessionRectSnapshot(x: 0, y: 0, width: 1920, height: 1200),
                 visibleFrame: SessionRectSnapshot(x: 0, y: 25, width: 1920, height: 1175)
             ),
-            tabManager: tabManager,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: selectedWorkspaceIndex, workspaces: workspaces),
             sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
         )
     }
