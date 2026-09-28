@@ -7928,6 +7928,75 @@ describe("status read that observes a gone machine", () => {
     expect(usageEvents).toEqual([]);
   });
 
+  test("retries a destroy observation when its atomic ledger write fails", async () => {
+    const userId = "user-status-read-ledger-retry";
+    const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000153");
+    const usageEvents: RecordedUsageEvent[] = [];
+    let status: CloudVmRow["status"] = "running";
+    let firstLedgerWrite = true;
+    const baseRepo = testWorkflowRepo({ vm });
+    const repo: VmRepositoryShape = {
+      ...baseRepo,
+      findUserVm: ({ userId: candidateUserId, providerVmId }) =>
+        Effect.succeed(
+          candidateUserId === userId && providerVmId === vm.providerVmId && status !== "destroyed"
+            ? { ...vm, status }
+            : null,
+        ),
+      markProviderObservedStatus: (update) => {
+        const usageEvent = (update as ObservedStatusUpdate & {
+          readonly usageEvent?: RecordedUsageEvent;
+        }).usageEvent;
+        if (usageEvent) {
+          if (firstLedgerWrite) {
+            firstLedgerWrite = false;
+            return Effect.fail(new VmDatabaseError({
+              operation: "markProviderObservedStatus",
+              cause: new Error("usage ledger unavailable"),
+            }));
+          }
+          return Effect.sync(() => {
+            status = update.status;
+            usageEvents.push(usageEvent);
+            return true;
+          });
+        }
+        status = update.status;
+        return Effect.succeed(true);
+      },
+      recordUsageEvent: (event) => {
+        if (firstLedgerWrite) {
+          firstLedgerWrite = false;
+          return Effect.fail(new VmDatabaseError({
+            operation: "recordUsageEvent",
+            cause: new Error("usage ledger unavailable"),
+          }));
+        }
+        return Effect.sync(() => {
+          usageEvents.push(event);
+        });
+      },
+    };
+    const layer = workflowLayer(repo, providerGone);
+
+    const first = await Effect.runPromise(Effect.either(
+      getVm({ userId, providerVmId: "noble-wren" }).pipe(Effect.provide(layer)),
+    ));
+    const retried = await Effect.runPromise(Effect.either(
+      getVm({ userId, providerVmId: "noble-wren" }).pipe(Effect.provide(layer)),
+    ));
+
+    expect(first._tag).toBe("Left");
+    expect(retried._tag).toBe("Right");
+    if (retried._tag === "Right") expect(retried.right.status).toBe("destroyed");
+    expect(status).toBe("destroyed");
+    expect(usageEvents).toHaveLength(1);
+    expect(usageEvents[0]).toMatchObject({
+      eventType: "vm.destroyed",
+      metadata: { source: "provider_status_read" },
+    });
+  });
+
   test("an access preflight that retires the row records vm.destroyed too", async () => {
     const userId = "user-access-preflight-gone";
     const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000152");
