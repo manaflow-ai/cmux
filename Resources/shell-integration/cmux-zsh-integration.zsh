@@ -1381,14 +1381,36 @@ _cmux_github_repo_slug_for_path() {
     print -r -- "$path_part"
 }
 
+# Sets REPLY to the PR watcher's state directory. Pass 1 to create it when
+# missing. Fails unless the path is a real directory that this user owns and
+# nobody else can write, so no state file lands in a place another local
+# account prepared, as the shared /tmp allows.
+_cmux_pr_state_dir() {
+    builtin emulate -L zsh
+    local dir="${${TMPDIR:-/tmp}%/}/cmux-pr-${EUID}"
+    if [[ "${1:-0}" == 1 && ! -e "$dir" && ! -L "$dir" ]]; then
+        /bin/mkdir -m 700 -- "$dir" >/dev/null 2>&1 || true
+    fi
+    # Glob qualifiers inspect the link itself: a directory, owned by this
+    # user, without group or other write permission.
+    local -a private_dir
+    private_dir=( "$dir"(N/Uf:go-w:) )
+    (( ${#private_dir} )) || return 1
+    REPLY="$dir"
+}
+
 _cmux_pr_cache_prefix() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 1
-    print -r -- "/tmp/cmux-pr-cache-${CMUX_PANEL_ID}"
+    local REPLY
+    _cmux_pr_state_dir 1 || return 1
+    print -r -- "$REPLY/cache-${CMUX_PANEL_ID}"
 }
 
 _cmux_pr_force_signal_path() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 1
-    print -r -- "/tmp/cmux-pr-force-${CMUX_PANEL_ID}"
+    local REPLY
+    _cmux_pr_state_dir 1 || return 1
+    print -r -- "$REPLY/force-${CMUX_PANEL_ID}"
 }
 
 _cmux_pr_debug_log() {
@@ -1397,14 +1419,17 @@ _cmux_pr_debug_log() {
     local branch="$1"
     local event="$2"
     local now="${EPOCHSECONDS:-$SECONDS}"
-    printf '%s\tbranch=%s\tevent=%s\n' "$now" "$branch" "$event" >> /tmp/cmux-pr-debug.log
+    local REPLY
+    _cmux_pr_state_dir 1 || return 0
+    printf '%s\tbranch=%s\tevent=%s\n' "$now" "$branch" "$event" >> "$REPLY/debug.log"
 }
 
 _cmux_pr_cache_clear() {
     # Runs on every prompt while git watching is off, so only spawn rm when a
     # cache file is actually there (it only exists while PR watching is on).
-    if [[ -n "$CMUX_PANEL_ID" ]]; then
-        local prefix="/tmp/cmux-pr-cache-${CMUX_PANEL_ID}"
+    local REPLY
+    if [[ -n "$CMUX_PANEL_ID" ]] && _cmux_pr_state_dir; then
+        local prefix="$REPLY/cache-${CMUX_PANEL_ID}"
         local cache_file
         local -a cache_files
         for cache_file in \
@@ -1775,8 +1800,8 @@ _cmux_halt_pr_poll_loop() {
     # negative PID kills the loop + all descendants (gh, sleep) without
     # the synchronous /bin/ps + awk of tree-kill (~5-13ms).
     [[ -z "$_CMUX_PR_POLL_PID" ]] || kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
-    local signal_path=""
-    [[ -n "$CMUX_PANEL_ID" ]] && signal_path="/tmp/cmux-pr-force-${CMUX_PANEL_ID}"
+    local signal_path="" REPLY
+    [[ -n "$CMUX_PANEL_ID" ]] && _cmux_pr_state_dir && signal_path="$REPLY/force-${CMUX_PANEL_ID}"
     # preexec runs this before every command; only spawn rm when there is a file.
     [[ -n "$signal_path" && -e "$signal_path" ]] && { /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true; }
     _CMUX_PR_POLL_PID=""
