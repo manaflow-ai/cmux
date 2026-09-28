@@ -31,9 +31,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
-    /// Shows the Cloud Machines header's New Machine "+".
+    /// The Cloud Machines header's New Machine "+" and its plan count (nil until the plan loads).
     var canCreateCloudMachine: Bool = false
-    /// The Cloud Machines header's inline count; nil until the plan loads.
     var cloudMachinesUsage: CloudMachinesUsage? = nil
     var reveal: CloudTreeRevealRequest? = nil
     var nodeBuilder: ((CloudTreeBuildInputs) -> [CloudTreeNode])? = nil
@@ -68,10 +67,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
             unreadTerminalIDs: unreadTerminalIDs,
-            source: source,
-            devicesSection: devicesSection,
-            canCreateCloudMachine: canCreateCloudMachine,
-            cloudMachinesUsage: cloudMachinesUsage
+            source: source, devicesSection: devicesSection,
+            canCreateCloudMachine: canCreateCloudMachine, cloudMachinesUsage: cloudMachinesUsage
         ))
         context.coordinator.reveal(reveal)
     }
