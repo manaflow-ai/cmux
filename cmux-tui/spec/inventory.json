@@ -157,6 +157,7 @@
       "focus-direction",
       "focus-pane",
       "get-frontend-projection",
+      "get-size-state",
       "identify",
       "ids",
       "journal-frontend-event",
@@ -176,6 +177,7 @@
       "new-screen",
       "new-tab",
       "new-workspace",
+      "note-size-activity",
       "notify",
       "pane-neighbor",
       "paste-image",
@@ -205,6 +207,8 @@
       "set-client-sizing",
       "set-default-colors",
       "set-ratio",
+      "set-size-counts",
+      "set-size-policy",
       "set-split-ratio",
       "set-viewport-pane-width",
       "set-window-title",
@@ -455,6 +459,14 @@
         "attach-byte",
         "attach-render",
         "attach-browser"
+      ]
+    },
+    {
+      "name": "size-state",
+      "streams": [
+        "subscribe",
+        "attach-byte",
+        "attach-render"
       ]
     },
     {

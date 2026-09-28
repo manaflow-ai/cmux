@@ -44,6 +44,7 @@ mod resource_selector;
 mod resource_tab;
 mod short_id;
 mod sidebar_resource;
+pub mod sizing_policy;
 mod surface;
 mod terminal_metadata;
 mod workspace_registry;
