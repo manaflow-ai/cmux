@@ -3339,8 +3339,7 @@ impl Terminal {
         let Some(title) = self.title() else {
             return Vec::new();
         };
-        let title: String =
-            title.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+        let title: String = title.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
         format!("\x1b]2;{title}\x1b\\").into_bytes()
     }
 

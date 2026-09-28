@@ -889,6 +889,7 @@ export const cloudVmLeases = pgTable(
     index("cloud_vm_leases_identity_cleanup_idx")
       .on(table.expiresAt, table.createdAt, table.id)
       .where(sql`${table.providerIdentityHandle} is not null and ${table.revokedAt} is null`),
+    index("cloud_vm_leases_kind_expiry_idx").on(table.kind, table.expiresAt, table.id),
     index("cloud_vm_leases_user_expires_idx").on(table.userId, table.expiresAt),
     uniqueIndex("cloud_vm_leases_token_hash_unique").on(table.tokenHash),
   ],
@@ -2176,6 +2177,19 @@ export const rateLimitAlertReports = pgTable("rate_limit_alert_reports", {
   alertKey: text("alert_key").primaryKey(),
   reportedAt: timestamp("reported_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Durable state for state-change and reminder delivery of operator alerts. */
+export const cloudVmAlertStates = pgTable("cloud_vm_alert_states", {
+  alertKey: text("alert_key").primaryKey(),
+  active: boolean("active").notNull().default(false),
+  severity: text("severity").notNull().default("warning"),
+  lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+  deliveryLeaseId: text("delivery_lease_id"),
+  deliveryLeaseUntil: timestamp("delivery_lease_until", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("cloud_vm_alert_states_severity_check", sql`${table.severity} in ('critical', 'warning')`),
+]);
 
 /** Sanitized Cloud diagnostics. The receipt and export lease survive server restarts. */
 export const cloudDiagnosticEvents = pgTable("cloud_diagnostic_events", {
