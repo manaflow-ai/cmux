@@ -1,6 +1,7 @@
 import CmuxCloudBannerCore
 import CmuxCloud
 import Foundation
+import GhosttyKit
 import CmuxAppKitSupportUI
 import CmuxTerminal
 import CmuxFoundation
