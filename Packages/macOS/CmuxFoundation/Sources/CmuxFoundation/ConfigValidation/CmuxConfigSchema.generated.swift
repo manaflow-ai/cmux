@@ -657,9 +657,17 @@ enum CmuxEmbeddedConfigSchema {
           "description": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "reorderOnNotification": {
-          "type": "boolean",
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "enum": ["off", "notifications", "agentActivity"]
+            }
+          ],
           "default": true,
-          "description": "Move workspaces with new notifications toward the top."
+          "description": "Automatic workspace reordering. true or \"notifications\" moves workspaces with new notifications toward the top. \"agentActivity\" also moves them when an agent finishes a turn, needs input, or fails, at most once per burst and never while the pointer is over the sidebar. false or \"off\" keeps the order stable."
         },
         "iMessageMode": {
           "type": "boolean",
@@ -1125,6 +1133,13 @@ enum CmuxEmbeddedConfigSchema {
           "default": false,
           "descriptionKey": "schemaDescriptions.notifications.suppressOnlyFocusedSurface",
           "description": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw."
+        },
+        "suppressWhenAppFocused": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.notifications.suppressWhenAppFocused",
+          "description": "When enabled, cmux skips the desktop banner for every notification while cmux is the active app, not only for the focused pane. Notifications still appear in the sidebar, the sound and custom command still run, and phone forwarding is unchanged. Off keeps showing banners for other workspaces and panes while cmux is focused."
         },
         "agentPermissionPrompt": {
           "x-cmux-scopes": ["global"],
