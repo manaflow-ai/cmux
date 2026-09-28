@@ -284,6 +284,80 @@ class LocalizeChangesTests(unittest.TestCase):
                 self.assertEqual(entries["hello"]["comment"], "Greeting (shown at launch)")
                 self.assertEqual(entries["other"]["comment"], "Other context")
 
+    def test_multiline_help_default_reaches_the_catalog(self):
+        # A CLI help string is written as a Swift multi-line literal. Reading
+        # only single-line literals put an empty English source in the catalog,
+        # which then rejected every translation of it.
+        text = (
+            '    static var help: String {\n'
+            '        String(localized: "cli.help.demo", defaultValue: """\n'
+            '        Usage: cmux demo [flags]\n'
+            '\n'
+            '        Flags:\n'
+            '          --loud   Be loud (default: no)\n'
+            '\n'
+            '        Example:\n'
+            '          cmux demo --loud\n'
+            '        """)\n'
+            '    }\n'
+            'String(localized: "after", defaultValue: "After")\n'
+        )
+        expected = (
+            "Usage: cmux demo [flags]\n"
+            "\n"
+            "Flags:\n"
+            "  --loud   Be loud (default: no)\n"
+            "\n"
+            "Example:\n"
+            "  cmux demo --loud"
+        )
+
+        messages, attention = MODULE.parse_swift_messages("CLI/Demo.swift", text)
+
+        self.assertEqual(attention, [])
+        self.assertEqual(messages["cli.help.demo"].source, expected)
+        # The parenthesis and quotes inside the help text must not end the call
+        # early, so the next call site is still found.
+        self.assertEqual(messages["after"].source, "After")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = write_catalog(root, {})
+            MODULE.prepare_macos(root, list(messages.values()), None, {})
+            entries = json.loads(path.read_text())["strings"]
+            self.assertEqual(
+                entries["cli.help.demo"]["localizations"]["en"]["stringUnit"]["value"],
+                expected,
+            )
+
+    def test_multiline_default_with_a_quoted_example_keeps_its_quotes(self):
+        text = (
+            'String(localized: "cli.help.quote", defaultValue: """\n'
+            '    cmux record note "dragging the workspace"\n'
+            '    """)\n'
+        )
+
+        messages, attention = MODULE.parse_swift_messages("CLI/Demo.swift", text)
+
+        self.assertEqual(attention, [])
+        self.assertEqual(
+            messages["cli.help.quote"].source,
+            'cmux record note "dragging the workspace"',
+        )
+
+    def test_multiline_interpolation_still_needs_manual_review(self):
+        text = (
+            'String(localized: "cli.help.interp", defaultValue: """\n'
+            '    Usage: \\(Self.usage)\n'
+            '    """)\n'
+        )
+
+        messages, attention = MODULE.parse_swift_messages("CLI/Demo.swift", text)
+
+        self.assertEqual(messages, {})
+        self.assertTrue(
+            any("interpolated defaultValue" in item for item in attention), attention
+        )
+
     def test_packet_targets_validated_before_any_writes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
