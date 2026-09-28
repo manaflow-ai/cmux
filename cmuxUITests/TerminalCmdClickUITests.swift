@@ -969,19 +969,23 @@ final class TerminalCmdClickUITests: XCTestCase {
 
     func testSSHCmdClickDownloadsSpacedPathIntoPreview() throws {
         let socketPath = "/tmp/cmux-ui-ssh-preview-\(UUID().uuidString).sock"
-        let hostKey = fixtureDirectoryURL.appendingPathComponent("host-key").path
-        let clientKey = fixtureDirectoryURL.appendingPathComponent("client-key").path
+        // Keep SSH credentials and daemon state in the per-test harness
+        // directory. The fixture itself stays under /tmp so the app and the
+        // loopback SSH server observe the same remote path, while key
+        // generation does not depend on /tmp's platform-specific policy.
+        let hostKey = harnessDirectoryURL.appendingPathComponent("host-key").path
+        let clientKey = harnessDirectoryURL.appendingPathComponent("client-key").path
         _ = try runSSHPreviewFixtureTool("/usr/bin/ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", hostKey])
         _ = try runSSHPreviewFixtureTool("/usr/bin/ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", clientKey])
         let port = try XCTUnwrap(Int(try runSSHPreviewFixtureTool("/usr/bin/python3", [
             "-c", "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); print(s.getsockname()[1])"
         ]).trimmingCharacters(in: .whitespacesAndNewlines)))
-        let config = fixtureDirectoryURL.appendingPathComponent("sshd-config")
+        let config = harnessDirectoryURL.appendingPathComponent("sshd-config")
         try """
         Port \(port)
         ListenAddress 127.0.0.1
         HostKey \(hostKey)
-        PidFile \(fixtureDirectoryURL.appendingPathComponent("sshd.pid").path)
+        PidFile \(harnessDirectoryURL.appendingPathComponent("sshd.pid").path)
         AuthorizedKeysFile \(clientKey).pub
         PasswordAuthentication no
         KbdInteractiveAuthentication no
@@ -1003,7 +1007,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         }
         let sshOptions = [
             "BatchMode=yes", "ConnectTimeout=1", "StrictHostKeyChecking=accept-new",
-            "UserKnownHostsFile=\(fixtureDirectoryURL.appendingPathComponent("known-hosts").path)"
+            "UserKnownHostsFile=\(harnessDirectoryURL.appendingPathComponent("known-hosts").path)"
         ]
         let sshArgs = ["-p", String(port), "-i", clientKey]
             + sshOptions.flatMap { ["-o", $0] }
@@ -1083,13 +1087,21 @@ final class TerminalCmdClickUITests: XCTestCase {
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         let output = Pipe()
+        let errorOutput = Pipe()
         process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
+        process.standardError = errorOutput
         try process.run()
         let data = output.fileHandleForReading.readDataToEndOfFile()
+        let errorData = errorOutput.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
-            throw NSError(domain: "SSHPreviewFixture", code: Int(process.terminationStatus))
+            let stderr = String(decoding: errorData, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            throw NSError(
+                domain: "SSHPreviewFixture",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: "\(executable) failed: \(stderr)"]
+            )
         }
         return String(decoding: data, as: UTF8.self)
     }
