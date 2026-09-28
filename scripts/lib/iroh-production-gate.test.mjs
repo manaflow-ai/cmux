@@ -389,3 +389,32 @@ test("Mac reload accepts an immutable cmux-tui manifest pin", () => {
     /--manifest-url "\$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"/u,
   );
 });
+
+for (const fallback of ["", "5"]) {
+  test(`Mac reload requires exact TUI inputs with inherited fallback ${fallback || "unset"}`, (t) => {
+    const directory = fixtureDirectory();
+    t.after(() => rmSync(directory, { recursive: true, force: true }));
+    const resolverDirectory = path.join(directory, "scripts", "ci");
+    mkdirSync(resolverDirectory, { recursive: true });
+    const argumentLog = path.join(directory, "resolver-arguments");
+    const sha = "a".repeat(40);
+    writeFileSync(path.join(resolverDirectory, "resolve-cmux-tui-client-commit.sh"),
+      `#!/bin/bash\nprintf '%s\\n' "$@" > "$RESOLVER_ARGUMENT_LOG"\nprintf '%s\\n' '${sha}'\n`,
+      { mode: 0o755 });
+    const source = readFileSync(path.join(repositoryRoot, "scripts/reload.sh"), "utf8");
+    const start = source.indexOf("resolve_cmux_tui_client_commit() {");
+    assert.notEqual(start, -1);
+    const end = source.indexOf("\n}\n", start);
+    assert.notEqual(end, -1);
+    const result = spawnSync("/bin/bash", ["-uc",
+      `${source.slice(start, end + 2)}\nresolve_cmux_tui_client_commit`], {
+      cwd: directory,
+      encoding: "utf8",
+      env: { ...process.env, CMUX_TUI_CLIENT_MAX_FALLBACK: fallback,
+        RESOLVER_ARGUMENT_LOG: argumentLog },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), sha);
+    assert.equal(readFileSync(argumentLog, "utf8"), "--max-fallback\n0\n");
+  });
+}
