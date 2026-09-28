@@ -15,15 +15,15 @@ struct ClaudeStopFailureTests {
             "hook_event_name": event,
             "session_id": "session-1",
         ]
-        if let errorType { payload["error_type"] = errorType }
-        if let message { payload["error_message"] = message }
+        if let errorType { payload["error"] = errorType }
+        if let message { payload["last_assistant_message"] = message }
         return ClaudeStopFailure(hookPayload: payload)
     }
 
     @Test("Only StopFailure payloads classify")
     func onlyStopFailure() {
         #expect(failure(errorType: "rate_limit", message: "limit", event: "Stop") == nil)
-        #expect(ClaudeStopFailure(hookPayload: ["error_type": "rate_limit"]) == nil)
+        #expect(ClaudeStopFailure(hookPayload: ["error": "rate_limit"]) == nil)
         #expect(ClaudeStopFailure(hookPayload: nil) == nil)
         #expect(failure(errorType: nil, message: nil, event: "stop_failure")?.reason == .apiError)
         #expect(ClaudeStopFailure.isStopFailureEvent("StopFailure"))
@@ -34,7 +34,7 @@ struct ClaudeStopFailureTests {
     func usageLimitResetTime() {
         let weekly = failure(
             errorType: "rate_limit",
-            message: "You've hit your weekly limit · resets Oct 3 at 9am"
+            message: "You've hit your weekly limit · resets Oct 3 at 9am (America/Toronto)"
         )
         #expect(weekly?.reason == .usageLimit)
         #expect(weekly?.resetsAt == "Oct 3 at 9am")
@@ -56,6 +56,7 @@ struct ClaudeStopFailureTests {
         let result = failure(errorType: "rate_limit", message: "Rate limited, please retry")
         #expect(result?.reason == .rateLimited)
         #expect(result?.resetsAt == nil)
+        #expect(failure(errorType: "rate_limit", message: "API Error: Rate limit reached")?.reason == .rateLimited)
     }
 
     @Test("Dropped connections classify from the message")
@@ -64,7 +65,12 @@ struct ClaudeStopFailureTests {
             failure(errorType: "server_error", message: "API Error: Connection dropped (ECONNRESET)")?.reason
                 == .connectionDropped
         )
-        #expect(failure(errorType: "server_error", message: "Connection lost mid-response")?.reason == .connectionDropped)
+        #expect(
+            failure(
+                errorType: "server_error",
+                message: "API Error: Connection lost mid-response. The response above may be incomplete."
+            )?.reason == .connectionDropped
+        )
         #expect(failure(errorType: "unknown", message: "socket hang up")?.reason == .connectionDropped)
         #expect(failure(errorType: "server_error", message: "Internal server error")?.reason == .apiError)
     }
@@ -79,14 +85,31 @@ struct ClaudeStopFailureTests {
         #expect(failure(errorType: "unknown", message: "API Error: 529 overloaded")?.reason == .overloaded)
     }
 
-    @Test("The message falls back to the last assistant message on one line")
-    func messageFallback() {
+    @Test("The message is the rendered error text on one line")
+    func messageSingleLine() {
         let result = ClaudeStopFailure(hookPayload: [
             "hook_event_name": "StopFailure",
-            "error_type": "server_error",
+            "error": "server_error",
+            "error_details": "socket closed",
             "last_assistant_message": "API Error:\n  Connection dropped (ECONNRESET)",
         ])
         #expect(result?.reason == .connectionDropped)
         #expect(result?.message == "API Error: Connection dropped (ECONNRESET)")
+    }
+
+    @Test("The error type never becomes the message")
+    func errorTypeIsNotTheMessage() {
+        let result = ClaudeStopFailure(hookPayload: [
+            "hook_event_name": "StopFailure",
+            "error": "overloaded",
+        ])
+        #expect(result?.reason == .overloaded)
+        #expect(result?.message == nil)
+        let details = ClaudeStopFailure(hookPayload: [
+            "hook_event_name": "StopFailure",
+            "error": "server_error",
+            "error_details": "500 Internal Server Error",
+        ])
+        #expect(details?.message == "500 Internal Server Error")
     }
 }

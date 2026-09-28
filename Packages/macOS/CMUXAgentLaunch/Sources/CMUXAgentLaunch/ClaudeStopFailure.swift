@@ -4,17 +4,18 @@ import Foundation
 /// hook payload.
 ///
 /// Claude Code fires `StopFailure` instead of `Stop` when a turn ends on an
-/// API error. The payload carries `error_type` (`rate_limit`, `overloaded`,
-/// `authentication_failed`, `server_error`, ...) and a human-readable
-/// `error_message`. The session is still alive at its prompt but no longer
+/// API error. The payload carries `error` (`rate_limit`, `overloaded`,
+/// `authentication_failed`, `server_error`, ...), an optional
+/// `error_details`, and `last_assistant_message`, which for this event is the
+/// rendered API error text. The session is still alive at its prompt but no longer
 /// working, so cmux must neither keep it "Running" nor call it a completed
 /// turn.
 ///
 /// ```swift
 /// let failure = ClaudeStopFailure(hookPayload: [
 ///     "hook_event_name": "StopFailure",
-///     "error_type": "rate_limit",
-///     "error_message": "You've hit your weekly limit · resets Oct 3 at 9am",
+///     "error": "rate_limit",
+///     "last_assistant_message": "You've hit your weekly limit · resets Oct 3 at 9am",
 /// ])
 /// // failure?.reason == .usageLimit, failure?.resetsAt == "Oct 3 at 9am"
 /// ```
@@ -62,10 +63,13 @@ public struct ClaudeStopFailure: Equatable, Sendable {
               Self.normalizedEventName(event) == "stopfailure" else {
             return nil
         }
-        let errorType = Self.string(hookPayload, keys: ["error_type", "errorType"])
+        let errorType = Self.string(hookPayload, keys: ["error", "error_type", "errorType"])
         let message = Self.string(
             hookPayload,
-            keys: ["error_message", "errorMessage", "error", "last_assistant_message", "lastAssistantMessage"]
+            keys: [
+                "last_assistant_message", "lastAssistantMessage", "error_message", "errorMessage",
+                "error_details", "errorDetails",
+            ]
         ).map(Self.singleLine)
         let reason = Self.classify(errorType: errorType, message: message)
         self.init(
@@ -119,8 +123,11 @@ public struct ClaudeStopFailure: Equatable, Sendable {
     }
 
     private static func isUsageLimitMessage(_ text: String) -> Bool {
-        text.contains("resets") || text.contains("usage limit") || text.contains("hit your")
-            || text.contains("limit reached")
+        // Account usage limits name the window ("5-hour limit", "weekly
+        // limit") or quote a reset time. A bare "Rate limit reached" is a
+        // transient 429, not an exhausted plan.
+        ["resets", "usage limit", "hit your", "hour limit", "weekly limit", "session limit"]
+            .contains { text.contains($0) }
     }
 
     private static func isConnectionMessage(_ text: String) -> Bool {

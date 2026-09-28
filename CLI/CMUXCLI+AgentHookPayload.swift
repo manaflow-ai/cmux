@@ -82,7 +82,7 @@ extension CMUXCLI {
             "permission_mode", "permissionMode",
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
-            "title", "summary", "message", "body", "text", "prompt", "error", "error_type", "error_message", "codex_error_info", "codexErrorInfo",
+            "title", "summary", "message", "body", "text", "prompt", "error", "error_details", "codex_error_info", "codexErrorInfo",
             "agent_state", "turn_outcome",
             "additional_details", "additionalDetails", "description",
             "campfire_event_type", "campfireEventType", "display_name", "displayName", "capability",

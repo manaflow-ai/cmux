@@ -59,7 +59,7 @@ struct ClaudeStopFailureStatusTests {
         let session = "stop-failure-usage"
         let (snapshot, store) = try run(name: "sf-usage", hooks: [(
             "stop",
-            #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"StopFailure","error_type":"rate_limit","error_message":"You've hit your weekly limit · resets Oct 3 at 9am","last_assistant_message":"You've hit your weekly limit · resets Oct 3 at 9am"}"#
+            #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"StopFailure","error":"rate_limit","last_assistant_message":"You've hit your weekly limit · resets Oct 3 at 9am (America/Toronto)"}"#
         )])
         let statuses = statusLines(snapshot)
         #expect(statuses.contains { line in
@@ -80,7 +80,7 @@ struct ClaudeStopFailureStatusTests {
     @Test func droppedConnectionClassifiesFromTheAssistantMessage() throws {
         let (snapshot, _) = try run(name: "sf-conn", hooks: [(
             "stop",
-            #"{"session_id":"stop-failure-conn","cwd":"/tmp/x","hook_event_name":"StopFailure","error_type":"server_error","last_assistant_message":"API Error: Connection dropped (ECONNRESET)"}"#
+            #"{"session_id":"stop-failure-conn","cwd":"/tmp/x","hook_event_name":"StopFailure","error":"server_error","last_assistant_message":"API Error: Connection dropped (ECONNRESET)"}"#
         )])
         #expect(statusLines(snapshot).contains { $0.hasPrefix("set_status claude_code Connection dropped ") },
                 "A dropped connection must name the reason; saw \(snapshot)")
@@ -92,7 +92,7 @@ struct ClaudeStopFailureStatusTests {
         let (snapshot, _) = try run(name: "sf-idle", hooks: [
             (
                 "stop",
-                #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"StopFailure","error_type":"overloaded","error_message":"Overloaded"}"#
+                #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"StopFailure","error":"overloaded","last_assistant_message":"API Error: Overloaded"}"#
             ),
             (
                 "notification",
