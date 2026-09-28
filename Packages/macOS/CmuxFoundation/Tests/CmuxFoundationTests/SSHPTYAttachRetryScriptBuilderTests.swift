@@ -111,7 +111,6 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "cmux_ssh_attach_register_attempt() { return 0; }",
             "cmux_ssh_attach_attempt() { cmux_ssh_attach_begin_attempt || return \"$?\"; printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return \(SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue); }",
             "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
-            "sleep() { :; }",
         ] + registrationLines + retryLines).joined(separator: "\n")
 
         let result = try run(script, environment: ["CMUX_TEST_LOG": log.path])
