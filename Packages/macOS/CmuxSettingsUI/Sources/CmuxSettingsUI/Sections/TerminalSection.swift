@@ -29,6 +29,7 @@ public struct TerminalSection: View {
     @State private var passwordInputIndicator: DefaultsValueModel<Bool>
     @State private var passwordInputDots: DefaultsValueModel<Bool>
     @State private var agentTurnControl: DefaultsValueModel<Bool>
+    @State private var agentPromptEditing: DefaultsValueModel<Bool>
     @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
@@ -62,6 +63,7 @@ public struct TerminalSection: View {
         _passwordInputIndicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputIndicator))
         _passwordInputDots = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputDots))
         _agentTurnControl = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.agentActions.turnControl))
+        _agentPromptEditing = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.agentActions.promptEditing))
         _adaptiveDefaultTheme = State(
             initialValue: DefaultsValueModel(
                 store: defaultsStore,
@@ -104,6 +106,7 @@ public struct TerminalSection: View {
             passwordInputIndicator,
             passwordInputDots,
             agentTurnControl,
+            agentPromptEditing,
             adaptiveDefaultTheme,
             autoResume,
             hibernation,
@@ -499,6 +502,17 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsAgentActionsTurnControlToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("agentActions.promptEditing"),
+                String(localized: "settings.agentActions.promptEditing", defaultValue: "Agent Edit Queued Button"),
+                subtitle: String(localized: "settings.agentActions.promptEditing.subtitle", defaultValue: "Shows an Edit Queued button over a terminal while Claude Code has prompts waiting in its queue. Clicking it moves them back into the input, like pressing Up.")
+            ) {
+                Toggle("", isOn: Binding(get: { agentPromptEditing.current }, set: { agentPromptEditing.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAgentActionsPromptEditingToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

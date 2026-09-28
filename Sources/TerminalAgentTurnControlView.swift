@@ -1,22 +1,32 @@
 import AppKit
 import CmuxSettings
 
-/// Stop button shown in the terminal's bottom-trailing corner while a
-/// supported agent is working on a turn in this pane (`agentActions.turnControl`).
+/// Agent action pill in the terminal's bottom-trailing corner while a
+/// supported agent is working on a turn in this pane: Stop
+/// (`agentActions.turnControl`) and, while Claude Code has prompts queued,
+/// Edit Queued (`agentActions.promptEditing`).
 ///
 /// The view covers the terminal but only the button takes clicks; everywhere
 /// else hit-testing falls through to the terminal.
 final class TerminalAgentTurnControlView: NSView {
     /// Called with the running agent when the user clicks Stop.
     var onInterrupt: ((AgentTurnInterruptTarget) -> Void)?
+    /// Called when the user clicks Edit Queued.
+    var onEditQueued: (() -> Void)?
+    /// Called when either agent action setting changes while an agent runs.
+    var onSettingsChange: (() -> Void)?
 
     private let backdrop = NSVisualEffectView(frame: .zero)
     private let stopButton = TerminalAgentTurnControlButton(frame: .zero)
+    private let editQueuedButton = TerminalAgentTurnControlButton(frame: .zero)
+    private let buttonStack = NSStackView(frame: .zero)
     private(set) var target: AgentTurnInterruptTarget?
     /// How long Stop stays disabled after a click.
     static let stopHoldInterval: TimeInterval = 1.5
     private var stopHoldGeneration: UInt64 = 0
     private var isEnabledBySetting = false
+    private(set) var isPromptEditingEnabled = false
+    private(set) var queuedPromptCount = 0
     /// Registered only while an agent is running, so toggling the setting
     /// mid-turn applies at once without every idle terminal observing defaults.
     private var settingsObserver: NSObjectProtocol?
@@ -25,7 +35,8 @@ final class TerminalAgentTurnControlView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, let hit = super.hitTest(point) else { return nil }
-        return hit === stopButton || hit.isDescendant(of: stopButton) ? hit : nil
+        let isButton = [stopButton, editQueuedButton].contains { hit === $0 || hit.isDescendant(of: $0) }
+        return isButton ? hit : nil
     }
 
     override init(frame frameRect: NSRect) {
@@ -43,28 +54,42 @@ final class TerminalAgentTurnControlView: NSView {
         backdrop.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
         backdrop.alphaValue = 0.96
 
-        stopButton.translatesAutoresizingMaskIntoConstraints = false
-        stopButton.isBordered = false
-        stopButton.imagePosition = .imageLeading
-        stopButton.imageHugsTitle = true
-        stopButton.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: nil)
-        stopButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
-        stopButton.font = .systemFont(ofSize: 11, weight: .medium)
-        stopButton.title = String(localized: "terminal.agentTurnControl.stop", defaultValue: "Stop")
-        stopButton.contentTintColor = .labelColor
-        stopButton.target = self
-        stopButton.action = #selector(handleStop)
+        configure(
+            stopButton,
+            symbol: "stop.fill",
+            title: String(localized: "terminal.agentTurnControl.stop", defaultValue: "Stop"),
+            action: #selector(handleStop)
+        )
+        configure(
+            editQueuedButton,
+            symbol: "arrow.up.message",
+            title: String(localized: "terminal.agentTurnControl.editQueued", defaultValue: "Edit Queued"),
+            action: #selector(handleEditQueued)
+        )
+        let editQueuedHelp = String(
+            localized: "terminal.agentTurnControl.editQueued.help",
+            defaultValue: "Move queued prompts back into Claude's input (Up)"
+        )
+        editQueuedButton.toolTip = editQueuedHelp
+        editQueuedButton.setAccessibilityLabel(editQueuedHelp)
+
+        buttonStack.translatesAutoresizingMaskIntoConstraints = false
+        buttonStack.orientation = .horizontal
+        buttonStack.alignment = .centerY
+        buttonStack.spacing = 10
+        buttonStack.addArrangedSubview(editQueuedButton)
+        buttonStack.addArrangedSubview(stopButton)
 
         addSubview(backdrop)
-        backdrop.addSubview(stopButton)
+        backdrop.addSubview(buttonStack)
         NSLayoutConstraint.activate([
             backdrop.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
             backdrop.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
             backdrop.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
-            stopButton.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor, constant: 8),
-            stopButton.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor, constant: -8),
-            stopButton.topAnchor.constraint(equalTo: backdrop.topAnchor, constant: 3),
-            stopButton.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor, constant: -3),
+            buttonStack.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor, constant: 8),
+            buttonStack.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor, constant: -8),
+            buttonStack.topAnchor.constraint(equalTo: backdrop.topAnchor, constant: 3),
+            buttonStack.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor, constant: -3),
         ])
     }
 
@@ -76,6 +101,26 @@ final class TerminalAgentTurnControlView: NSView {
         if let settingsObserver {
             NotificationCenter.default.removeObserver(settingsObserver)
         }
+    }
+
+    private func configure(_ button: NSButton, symbol: String, title: String, action: Selector) {
+        button.isBordered = false
+        button.imagePosition = .imageLeading
+        button.imageHugsTitle = true
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+        button.font = .systemFont(ofSize: 11, weight: .medium)
+        button.title = title
+        button.contentTintColor = .labelColor
+        button.target = self
+        button.action = action
+    }
+
+    /// Applies how many prompts Claude has queued in this pane.
+    func setQueuedPromptCount(_ count: Int) {
+        guard count != queuedPromptCount else { return }
+        queuedPromptCount = count
+        render()
     }
 
     /// Applies the agent currently running in this pane, or `nil` when none is.
@@ -94,9 +139,12 @@ final class TerminalAgentTurnControlView: NSView {
 
     @discardableResult
     private func reloadSetting() -> Bool {
-        let enabled = AgentActionsCatalogSection().turnControl.value(in: .standard)
-        guard enabled != isEnabledBySetting else { return false }
+        let settings = AgentActionsCatalogSection()
+        let enabled = settings.turnControl.value(in: .standard)
+        let promptEditing = settings.promptEditing.value(in: .standard)
+        guard enabled != isEnabledBySetting || promptEditing != isPromptEditingEnabled else { return false }
         isEnabledBySetting = enabled
+        isPromptEditingEnabled = promptEditing
         return true
     }
 
@@ -111,6 +159,7 @@ final class TerminalAgentTurnControlView: NSView {
                 MainActor.assumeIsolated {
                     guard let self, self.reloadSetting() else { return }
                     self.render()
+                    self.onSettingsChange?()
                 }
             }
         } else if let settingsObserver {
@@ -120,7 +169,15 @@ final class TerminalAgentTurnControlView: NSView {
     }
 
     private func render() {
-        guard let target, isEnabledBySetting else {
+        guard let target else {
+            isHidden = true
+            return
+        }
+        let showsStop = isEnabledBySetting
+        let showsEditQueued = isPromptEditingEnabled && target == .claudeCode && queuedPromptCount > 0
+        stopButton.isHidden = !showsStop
+        editQueuedButton.isHidden = !showsEditQueued
+        guard showsStop || showsEditQueued else {
             isHidden = true
             return
         }
@@ -138,6 +195,13 @@ final class TerminalAgentTurnControlView: NSView {
         stopButton.performClick(nil)
     }
 
+    /// Clicks Edit Queued the way the user would, for tests.
+    func clickEditQueuedForTesting() {
+        editQueuedButton.performClick(nil)
+    }
+
+    var isEditQueuedVisible: Bool { !isHidden && !editQueuedButton.isHidden }
+
     @objc private func handleStop() {
         guard let target, isEnabledBySetting, stopButton.isEnabled else { return }
         // One Escape per click: a second Escape at Claude's idle prompt opens
@@ -150,6 +214,14 @@ final class TerminalAgentTurnControlView: NSView {
             self.stopButton.isEnabled = true
         }
         onInterrupt?(target)
+    }
+
+    @objc private func handleEditQueued() {
+        guard target == .claudeCode, isPromptEditingEnabled, queuedPromptCount > 0 else { return }
+        // Up pops the whole queue; hide at once rather than wait for the transcript.
+        queuedPromptCount = 0
+        render()
+        onEditQueued?()
     }
 }
 

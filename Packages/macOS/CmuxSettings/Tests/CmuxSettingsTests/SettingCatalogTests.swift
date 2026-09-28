@@ -137,6 +137,7 @@ struct SettingCatalogTests {
 
     @Test func agentTurnControlDefaultsOff() {
         #expect(!SettingCatalog().agentActions.turnControl.defaultValue)
+        #expect(!SettingCatalog().agentActions.promptEditing.defaultValue)
     }
 
     @Test func keyIdsMatchTheirSectionPrefix() {

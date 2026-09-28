@@ -576,6 +576,7 @@
 		A5D41220A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */; };
 		CC7FDF58CBB0EDDE5DADE167 /* ClaudeHookSurfaceSocketState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1136E25CD5300988F9F2162 /* ClaudeHookSurfaceSocketState.swift */; };
 		A5D41222A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */; };
+		389B8D346FEB62C1F39780F2 /* ClaudeQueuedPromptMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 408F8B6128F5BF1EB64AEE1E /* ClaudeQueuedPromptMonitor.swift */; };
 		A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */; };
 		C1175700000000000000003A /* ClaudeWrapperResumeEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000021 /* ClaudeWrapperResumeEnvironmentTests.swift */; };
 		9758A0000000000000000004 /* CLIAmpLifecycleIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758A0000000000000000003 /* CLIAmpLifecycleIntegrationTests.swift */; };
@@ -3345,6 +3346,7 @@
 		0044CBDD567D9CD29E6A6F12 /* TelemetrySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 257DFD20F0961FE0BDAF70F2 /* TelemetrySettings.swift */; };
 		A10199010000000000000001 /* TerminalAdaptiveDefaultThemeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10199010000000000000002 /* TerminalAdaptiveDefaultThemeSettings.swift */; };
 		C10190010000000000000002 /* TerminalAgentPanelInitialTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10190010000000000000001 /* TerminalAgentPanelInitialTitleTests.swift */; };
+		08DD11F73F914650F0BF4818 /* TerminalAgentQueuedPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF70C3911C87CB1FE8FDF244 /* TerminalAgentQueuedPromptTests.swift */; };
 		D63A5534840D8E39C2CB9D48 /* TerminalAgentTurnControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29C4A4BD09A65729D5CABC98 /* TerminalAgentTurnControlTests.swift */; };
 		2319F780FDCBC34F942CCC28 /* TerminalAgentTurnControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36C1F9C28D7E37CC4A1583D3 /* TerminalAgentTurnControlView.swift */; };
 		46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */; };
@@ -4757,6 +4759,7 @@
 		A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookSurfaceResolutionSwiftTests.swift; sourceTree = "<group>"; };
 		D1136E25CD5300988F9F2162 /* ClaudeHookSurfaceSocketState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeHookSurfaceSocketState.swift"; sourceTree = "<group>"; };
 		A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeNotificationStatusLifecycleTests.swift; sourceTree = "<group>"; };
+		408F8B6128F5BF1EB64AEE1E /* ClaudeQueuedPromptMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeQueuedPromptMonitor.swift; sourceTree = "<group>"; };
 		A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ClaudeStreamJSONAccumulator.swift; sourceTree = "<group>"; };
 		C11757000000000000000021 /* ClaudeWrapperResumeEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWrapperResumeEnvironmentTests.swift; sourceTree = "<group>"; };
 		9758A0000000000000000003 /* CLIAmpLifecycleIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAmpLifecycleIntegrationTests.swift; sourceTree = "<group>"; };
@@ -7367,6 +7370,7 @@
 		257DFD20F0961FE0BDAF70F2 /* TelemetrySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TelemetrySettings.swift"; sourceTree = "<group>"; };
 		A10199010000000000000002 /* TerminalAdaptiveDefaultThemeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdaptiveDefaultThemeSettings.swift; sourceTree = "<group>"; };
 		C10190010000000000000001 /* TerminalAgentPanelInitialTitleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAgentPanelInitialTitleTests.swift; sourceTree = "<group>"; };
+		BF70C3911C87CB1FE8FDF244 /* TerminalAgentQueuedPromptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalAgentQueuedPromptTests.swift"; sourceTree = "<group>"; };
 		29C4A4BD09A65729D5CABC98 /* TerminalAgentTurnControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalAgentTurnControlTests.swift"; sourceTree = "<group>"; };
 		36C1F9C28D7E37CC4A1583D3 /* TerminalAgentTurnControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAgentTurnControlView.swift; sourceTree = "<group>"; };
 		02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAndGhosttyTests.swift; sourceTree = "<group>"; };
@@ -10927,6 +10931,7 @@
 				A619DA008330BDD9908F4236 /* AgentTurnInterruptTarget.swift */,
 				36C1F9C28D7E37CC4A1583D3 /* TerminalAgentTurnControlView.swift */,
 				047C063C25C9A02B00F4619E /* TerminalPanel+AgentTurnControl.swift */,
+				408F8B6128F5BF1EB64AEE1E /* ClaudeQueuedPromptMonitor.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -12320,6 +12325,7 @@
 				23E35F95320CBED308AD98CF /* CloudTreeTogglePerformanceTests.swift */,
 				0C37EA14DE74095FB1BB23E1 /* CloudTreeDisclosureIntentTests.swift */,
 				29C4A4BD09A65729D5CABC98 /* TerminalAgentTurnControlTests.swift */,
+				BF70C3911C87CB1FE8FDF244 /* TerminalAgentQueuedPromptTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -13460,6 +13466,7 @@
 				081696D3A66545C50AD0598E /* ChecklistInputField.swift in Sources */,
 				D78129DCAE6C4D919AE20FF9 /* ChecklistPopoverPointerTracking.swift in Sources */,
 				ED226C59A21547BB962DB2A5 /* ChecklistSummaryPopoverModifier.swift in Sources */,
+				389B8D346FEB62C1F39780F2 /* ClaudeQueuedPromptMonitor.swift in Sources */,
 				A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */,
 				C46790000000000000000003 /* CLIForwardingLaunchRouter.swift in Sources */,
 				C51A73000000000000000101 /* ClosedItemHistory+PanelTitle.swift in Sources */,
@@ -16831,6 +16838,7 @@
 				C7A507000000000000000002 /* TaskManagerResourcesTests.swift in Sources */,
 				C7A507000000000000004529 /* TaskManagerViewSnapshotBoundaryTests.swift in Sources */,
 				C10190010000000000000002 /* TerminalAgentPanelInitialTitleTests.swift in Sources */,
+				08DD11F73F914650F0BF4818 /* TerminalAgentQueuedPromptTests.swift in Sources */,
 				D63A5534840D8E39C2CB9D48 /* TerminalAgentTurnControlTests.swift in Sources */,
 				46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */,
 				8362B0010000000000000001 /* TerminalCallerTTYResolverTests.swift in Sources */,

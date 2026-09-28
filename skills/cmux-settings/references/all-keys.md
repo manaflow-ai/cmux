@@ -183,6 +183,7 @@ Clickable agent actions, one toggle per category.
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `agentActions.turnControl` | boolean | `false` | Show a Stop button over a terminal while Claude Code or Codex is working on a turn. Clicking it sends Escape, the agent's own interrupt key, and marks the turn stopped. |
+| `agentActions.promptEditing` | boolean | `false` | While Claude Code has prompts waiting in its input queue, show an Edit Queued button over the terminal. Clicking it sends Up, which moves the queued prompts back into Claude's input for editing. |
 
 ## browser
 
