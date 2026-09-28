@@ -101,7 +101,7 @@ final class CmuxEventBusTests: XCTestCase {
 
         secondBus.publish(name: "three", category: "test", source: "second")
         secondBus.flushEventLogForTesting()
-        XCTAssertEqual(secondBus.latestSequence, 3)
+        XCTAssertEqual(secondBus.latestSequence, CmuxEventSequenceStore.defaultBlockSize + 1)
     }
 
     func testDurableReplayRebasesSequenceAfterAnOlderBootSegment() async throws {
