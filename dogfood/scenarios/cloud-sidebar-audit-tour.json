@@ -1,5 +1,5 @@
 {
-  "launch": {"zoom": true},
+  "launch": {"args": ["-fileExplorer.isVisible", "YES"]},
   "steps": [
     {"wait": 1.5},
     {"click": "RightSidebarModeButton.files"},

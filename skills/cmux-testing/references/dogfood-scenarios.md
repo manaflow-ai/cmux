@@ -50,7 +50,7 @@ A tour is a steps array, or an object with `steps` and an optional `launch`:
 | `{"type": "echo hi\n"}` | Types text into the focused view. |
 | `{"click": target}`, `doubleClick`, `rightClick`, `hover` | Acts on an element. |
 | `{"clickAt": {"x": 0.1, "y": 0.2}}`, `hoverAt` | Acts on a point in the main window, 0 to 1 from the top left. |
-| `{"menu": ["File", "New Workspace"]}` | Clicks through the menu bar. |
+| `{"menu": ["File", "New Workspace"]}` | Clicks through the menu bar. Each element after the first names a direct child of the menu the one before it opened, so a submenu item needs its submenu in the path (`["File", "Workspace", "Rename Workspace…"]`). Titles repeat across menus and at different depths inside one menu, and only the full path tells them apart. |
 | `{"socket": "method", "params": {...}, "save": "name"}` | A v2 control socket request. The reply is attached; `save` keeps its `result`, and a later param `"${name.workspace_id}"` reads a field from it. |
 | `{"expect": target, "exists": false}` | Checks that an element exists (or not). |
 

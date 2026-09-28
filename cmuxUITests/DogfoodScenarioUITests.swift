@@ -203,25 +203,45 @@ final class DogfoodScenarioUITests: XCTestCase {
         return element
     }
 
-    /// Each item is looked up inside the menu the step before it opened, not
-    /// across the whole app. Two top-level menus can carry the same title, and
-    /// an app-wide `menuItems[title]` then raises "Multiple matching elements"
-    /// instead of clicking the one the path asked for.
+    /// One step of a menu path: the item directly under `owner`'s menu.
+    ///
+    /// `menus` and `menuItems` are descendant queries, so `owner.menuItems[x]`
+    /// matches anywhere in that menu's whole subtree. The File menu alone has
+    /// two `New Window` items and two `Close Workspace` items at different
+    /// depths, so a descendant lookup raises "Multiple matching elements" for
+    /// a path that names exactly one of them. Taking the direct children of
+    /// the one open `Menu` makes each path element mean what it reads as.
+    private func menuChild(_ title: String, of owner: XCUIElement) -> XCUIElement {
+        owner.menus.firstMatch.children(matching: .menuItem)[title]
+    }
+
+    /// Each item is looked up among the direct children of the menu the step
+    /// before it opened. Two top-level menus can carry the same title, and a
+    /// menu can carry the same title twice at different depths; an app-wide
+    /// `menuItems[title]` raises "Multiple matching elements" for both instead
+    /// of clicking the one the path asked for.
     private func clickMenu(_ path: [String], in app: XCUIApplication) throws {
         guard let top = path.first else { throw DogfoodError("empty menu path") }
         let bar = app.menuBars.menuBarItems[top]
         guard bar.waitForExistence(timeout: 5) else { throw DogfoodError("no menu \(top)") }
         bar.click()
         var opened = bar
+        var reached: [String] = [top]
         for item in path.dropFirst() {
-            let menuItem = opened.menus.menuItems[item]
+            let menuItem = menuChild(item, of: opened)
             guard menuItem.waitForExistence(timeout: 3) else {
                 app.typeKey(.escape, modifierFlags: [])
-                throw DogfoodError("no menu item \(item) under \(path.joined(separator: " > "))")
+                // Name the prefix that resolved, not the whole path: a middle
+                // element with no submenu fails here, and blaming the last
+                // element for that points at the wrong step.
+                throw DogfoodError(
+                    "no menu item \(item) under \(reached.joined(separator: " > "))"
+                )
             }
             menuItem.click()
             // A submenu's own items hang off the item that opened it.
             opened = menuItem
+            reached.append(item)
         }
     }
 
@@ -281,7 +301,10 @@ final class DogfoodScenarioUITests: XCTestCase {
         let windowMenu = app.menuBars.menuBarItems["Window"]
         guard windowMenu.waitForExistence(timeout: 3) else { return }
         windowMenu.click()
-        let zoom = app.menuItems["Zoom"]
+        // Scoped like `clickMenu`: `Zoom` is unique app-wide today, but this
+        // runs before every tour, so one new duplicate title would break all
+        // of them at step zero.
+        let zoom = menuChild("Zoom", of: windowMenu)
         if zoom.waitForExistence(timeout: 2) {
             zoom.click()
             RunLoop.current.run(until: Date().addingTimeInterval(0.5))
