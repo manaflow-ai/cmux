@@ -74,7 +74,7 @@ final class VoiceDictationCoordinator {
         self.sessionEngine = sessionEngine
         let cleanupKey = catalog.voice.cleanUpAgentPrompts
         let languageKey = catalog.voice.dictationLanguage
-        let dictationLocale = { [defaults] in
+        let dictationLocale: @MainActor @Sendable () -> Locale = { [defaults] in
             let identifier = languageKey.value(in: defaults)
             return identifier.isEmpty ? Locale.current : Locale(identifier: identifier)
         }
