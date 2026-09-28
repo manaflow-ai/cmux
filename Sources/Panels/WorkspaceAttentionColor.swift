@@ -4,6 +4,10 @@ import SwiftUI
 
 /// The resolved color shared by pane flashes and unread notification rings.
 ///
+/// A configured color paints both. Without one, unread rings use the cmux
+/// accent and flashes use the terminal theme's foreground, so the flash stays
+/// quiet against whatever theme is active.
+///
 /// The setting store remains the only owner of the configured string. This
 /// value validates one immutable snapshot before it reaches a renderer, so
 /// AppKit layers and SwiftUI canvases never read ambient defaults or parse the
@@ -12,21 +16,43 @@ struct WorkspaceAttentionColor: Hashable, Sendable {
     private let rgb: UInt32?
     /// The resolved cmux accent used when no valid color is configured.
     private let accent: CmuxAccentColor
+    /// The terminal theme foreground used by flashes when no color is configured.
+    private let themeForegroundRGB: UInt32?
 
-    init(configuredHex: String?, accent: CmuxAccentColor = CmuxAccentColor()) {
+    init(
+        configuredHex: String?,
+        accent: CmuxAccentColor = CmuxAccentColor(),
+        themeForeground: NSColor? = nil
+    ) {
         self.rgb = Self.strictRGB(configuredHex)
         self.accent = accent
+        self.themeForegroundRGB = themeForeground.flatMap { Self.strictRGB($0.hexString()) }
     }
 
     var nsColor: NSColor {
         guard let rgb else {
             return WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor(accent: accent)
         }
-        return NSColor(
+        return Self.color(rgb: rgb, alpha: 1)
+    }
+
+    /// The pane flash color: the configured color, else the theme foreground
+    /// slightly softened, else the unread ring color.
+    var flashNSColor: NSColor {
+        if rgb == nil, let themeForegroundRGB {
+            return Self.color(rgb: themeForegroundRGB, alpha: Self.themeForegroundFlashAlpha)
+        }
+        return nsColor
+    }
+
+    static let themeForegroundFlashAlpha: CGFloat = 0.85
+
+    private static func color(rgb: UInt32, alpha: CGFloat) -> NSColor {
+        NSColor(
             red: CGFloat((rgb >> 16) & 0xFF) / 255,
             green: CGFloat((rgb >> 8) & 0xFF) / 255,
             blue: CGFloat(rgb & 0xFF) / 255,
-            alpha: 1
+            alpha: alpha
         )
     }
 
