@@ -1096,6 +1096,9 @@ func currentRelayAuth(socketPath string) *relayAuthState {
 	return readRelayAuthFile(socketPath)
 }
 
+// cliSocketPeerUserID reports the user serving a dialed Unix socket.
+var cliSocketPeerUserID = cloudCLIConnectionUserID
+
 // dialSocket connects to the cmux socket. If addr contains a colon and doesn't
 // start with '/', it's treated as a TCP address (host:port); otherwise Unix socket.
 // For TCP connections, refreshAddr is used only to recover from a stale socket_addr

@@ -79,6 +79,45 @@ func TestCloudCLIBridgeAuthenticatesPeerBeforeForwarding(t *testing.T) {
 	}
 }
 
+// The bridge path sits in shared /tmp, so another user can bind it once the
+// bridge removes it. The CLI must not send requests to that server.
+func TestCLIRefusesSocketAnotherUserServes(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		lookup  func(net.Conn) (uint32, error)
+		allowed bool
+	}{
+		{name: "native same user", allowed: true},
+		{name: "another user", lookup: func(net.Conn) (uint32, error) { return uint32(os.Geteuid()) + 1, nil }},
+		{name: "credential lookup failure", lookup: func(net.Conn) (uint32, error) { return uint32(os.Geteuid()), errors.New("lookup failed") }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.lookup != nil {
+				previous := cliSocketPeerUserID
+				cliSocketPeerUserID = test.lookup
+				t.Cleanup(func() { cliSocketPeerUserID = previous })
+			}
+			path, requests := startMockV2SocketWithRequestCapture(t)
+			_, err := socketRoundTripV2(path, "system.ping", nil, nil)
+			if test.allowed {
+				if err != nil {
+					t.Fatalf("same-user request failed: %v", err)
+				}
+				receiveRequest(t, requests)
+				return
+			}
+			if err == nil {
+				t.Fatal("CLI sent a request to a socket another user serves")
+			}
+			select {
+			case request := <-requests:
+				t.Fatalf("request reached a socket another user serves: %v", request)
+			default:
+			}
+		})
+	}
+}
+
 func TestCloudCLIBridgeFallbackUsesOnlyThisUsersSocket(t *testing.T) {
 	path := makeShortUnixSocketPath(t)
 	listener, err := net.Listen("unix", path)
