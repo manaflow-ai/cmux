@@ -1,5 +1,5 @@
 {
-  "note": "The terminal half of the app.chromeFont pair. It passes no launch argument on purpose, so the frames show the shipping default rather than a value the tour set.",
+  "note": "The terminal half of the app.chromeFont pair. The launch arguments pin app.chromeFont to terminal, which is also the shipping default, so the frames do not depend on whatever the machine had stored from an earlier run. The sidebar arguments pin the rest of the row layout to its defaults for the same reason, and they match chrome-font-system-tour, so the two sets of frames differ only in the interface font.",
   "paths": [
     "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ChromeFont/*",
     "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/CmuxFontModifier.swift",
@@ -7,6 +7,20 @@
     "Sources/ChromeFont/*",
     "Sources/SidebarTabItemSettingsSnapshot.swift"
   ],
+  "launch": {
+    "args": [
+      "-appChromeFont",
+      "terminal",
+      "-sidebarTwoLineWorkspaceTitles",
+      "<false/>",
+      "-sidebarWrapWorkspaceTitles",
+      "<false/>",
+      "-sidebarCompactAgentStatus",
+      "<false/>",
+      "-workspacePresentationMode",
+      "standard"
+    ]
+  },
   "steps": [
     {
       "socket": "workspace.create",

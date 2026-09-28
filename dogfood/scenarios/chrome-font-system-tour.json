@@ -1,5 +1,5 @@
 {
-  "note": "The system half of the app.chromeFont pair. The launch argument pins the setting to system, so this tour and chrome-font-terminal-tour differ only in the setting and their frames can be read side by side.",
+  "note": "The system half of the app.chromeFont pair. The launch arguments pin app.chromeFont to system and pin the rest of the sidebar row layout to its defaults, matching chrome-font-terminal-tour, so the two sets of frames differ only in the interface font and neither depends on settings a machine kept from an earlier run.",
   "paths": [
     "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ChromeFont/*",
     "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/CmuxFontModifier.swift",
@@ -10,7 +10,15 @@
   "launch": {
     "args": [
       "-appChromeFont",
-      "system"
+      "system",
+      "-sidebarTwoLineWorkspaceTitles",
+      "<false/>",
+      "-sidebarWrapWorkspaceTitles",
+      "<false/>",
+      "-sidebarCompactAgentStatus",
+      "<false/>",
+      "-workspacePresentationMode",
+      "standard"
     ]
   },
   "steps": [
