@@ -95940,6 +95940,65 @@
         }
       }
     },
+    "mobile.ssh.empty.allComputers.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a computer from the menu at the top, or add one from the Computers screen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle oben im Menü einen Computer aus oder füge im Bildschirm „Computer“ einen hinzu."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez un ordinateur dans le menu en haut, ou ajoutez-en un depuis l'écran Ordinateurs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر كمبيوتر من القائمة في الأعلى، أو أضف واحدًا من شاشة أجهزة الكمبيوتر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una computadora en el menú de arriba o agrega una desde la pantalla Computadoras."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從上方選單選擇電腦，或在「電腦」畫面中新增。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从上方菜单选择电脑，或在“电脑”屏幕中添加。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상단 메뉴에서 컴퓨터를 선택하거나 컴퓨터 화면에서 추가하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上部のメニューからコンピュータを選択するか、「コンピュータ」画面から追加してください。"
+          }
+        }
+      }
+    },
     "mobile.ssh.empty.pullToConnect": {
       "extractionState": "manual",
       "localizations": {

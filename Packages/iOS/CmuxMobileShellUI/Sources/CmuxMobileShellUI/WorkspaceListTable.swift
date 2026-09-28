@@ -31,6 +31,9 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     var workspaceOwnerID: String? = nil
     var workspaceOwnerInstanceTag: String? = nil
     var showsWorkspaceEmptyState = true
+    /// Which copy the aggregated empty state gives (Mac pairing, or the
+    /// user's SSH computers when no Mac gives the pairing copy context).
+    var emptyStateGuidance: WorkspaceListEmptyGuidance = .macPairing
     /// Whether the connected Mac advertises `workspace.changes.v1`.
     let workspaceChangesCapable: Bool
     /// Changes chips keyed by the workspace's RPC identifier

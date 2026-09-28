@@ -691,7 +691,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
                 filter: filter,
                 showAll: { [weak self] in self?.configuration.showAll() }
             )
-        case .emptyWorkspaceList:
+        case .emptyWorkspaceList(let empty):
             MobileWorkspaceListEmptyRow(
                 retry: configuration.refresh,
                 cancelRetry: configuration.cancelRefresh,
@@ -700,7 +700,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
                 isRetryOwnerCurrentOnDisappear: configuration.isRetryOwnerCurrentOnDisappear,
                 beginRetry: configuration.beginRefresh,
                 cancelRetryAttempt: configuration.cancelRefreshAttempt,
-                cancelRetryOnDisappear: configuration.cancelRefreshAttemptOnDisappear
+                cancelRetryOnDisappear: configuration.cancelRefreshAttemptOnDisappear,
+                guidance: empty.guidance
             )
         case .missing:
             EmptyView()
