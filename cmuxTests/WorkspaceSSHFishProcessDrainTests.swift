@@ -24,9 +24,8 @@ struct WorkspaceSSHFishProcessDrainTests {
             executablePath: "/bin/sh",
             arguments: ["-c", "trap '' TERM; printf ready >&2; exec /bin/sleep 60"],
             environment: ProcessInfo.processInfo.environment,
-            // The child ignores TERM forever, so any deadline proves the kill once
-            // the shell has installed its trap.
-            timeout: 2
+            timeout: 2,
+            readinessMarker: Data("ready".utf8)
         )
         #expect(result.timedOut)
         #expect(result.status == SIGKILL)
@@ -85,7 +84,8 @@ enum SSHFishProcessRunner {
         arguments: [String],
         environment: [String: String],
         timeout: TimeInterval,
-        drainTimeout: TimeInterval = 2
+        drainTimeout: TimeInterval = 2,
+        readinessMarker: Data? = nil
     ) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
@@ -118,6 +118,7 @@ enum SSHFishProcessRunner {
         // after exit deadlocks a child that writes more than the pipe buffer:
         // it blocks on write while we block on its exit.
         let capturedStderr = CapturedOutput()
+        let readiness = DispatchSemaphore(value: 0)
         let drains = DispatchGroup()
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
@@ -129,9 +130,18 @@ enum SSHFishProcessRunner {
                 let chunk = stderrHandle.availableData
                 if chunk.isEmpty { break }
                 capturedStderr.append(chunk)
+                if let readinessMarker, capturedStderr.value.range(of: readinessMarker) != nil {
+                    readiness.signal()
+                }
             }
         }
 
+        // Readiness is emitted after the child installs its termination trap.
+        // The watchdog bounds setup failure, but startup does not spend the kill budget.
+        if readinessMarker != nil {
+            #expect(readiness.wait(timeout: .now() + 30) == .success,
+                    "the child must become ready before the kill deadline begins")
+        }
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()

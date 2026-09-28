@@ -145,16 +145,23 @@ struct CloudPrivateRouteSelectionTests {
         let hub = try CloudLoopbackPortForwardTests.FakeSocksHub(unixSocketPath: path)
         try await hub.start()
         defer { hub.stop() }
-        // Both families refuse, so the probe runs until its deadline; a short
-        // one proves the same failure without waiting out the production 15 s.
-        let manager = manager(privateRouteConnector: CloudHubConnector(timeout: .seconds(2)))
+        let clock = SidebarTestManualClock()
+        let manager = manager(privateRouteConnector: CloudHubConnector(fallbackDelay: .zero, clock: clock))
         await manager.setPrivateAddresses(["10.16.0.2", "fd00::2"], for: "vm-test")
         let ready = CloudWireGuardHub.Ready(socketPath: path, routes: ["10.16.0.0/24", "fd00::/8"])
         hub.refusedHosts = ["10.16.0.2", "fd00::2"]
 
-        await #expect(throws: (any Error).self) {
-            try await manager.resolvedPrivateRoute(machineID: "vm-test", through: ready)
+        let failedProbe = Task {
+            await #expect(throws: (any Error).self) {
+                try await manager.resolvedPrivateRoute(machineID: "vm-test", through: ready)
+            }
         }
+        #expect(await CloudLoopbackPortForwardTests.waitUntil {
+            Set(hub.connectTargets.map(\.host)) == Set(["10.16.0.2", "fd00::2"])
+        })
+        await clock.waitUntilSleeping(for: .seconds(15))
+        clock.advance(by: .seconds(15))
+        await failedProbe.value
         hub.refusedHosts = ["10.16.0.2"]
         #expect(try await manager.resolvedPrivateRoute(machineID: "vm-test", through: ready)
                 == "ws://[fd00::2]:1337/v1/link")
