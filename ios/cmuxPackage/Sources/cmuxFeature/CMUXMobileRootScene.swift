@@ -36,7 +36,7 @@ private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mo
 public struct CMUXMobileRootScene: View {
     private let runtime: CMUXMobileRuntime
     private let macListAuthState: MobileMacListAuthState
-    private let auth: MobileAuthComposition
+    let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
     private let analyticsClientID: String?
@@ -534,7 +534,7 @@ public struct CMUXMobileRootScene: View {
             deviceRegistry: deviceRegistry,
             personalIrohDiscovery: personalIrohDiscovery,
             personalIrohForget: resolvedPersonalIrohForget,
-            presence: nil,
+            presence: nil, workspacePresenceAnnouncer: makeWorkspacePresenceAnnouncer(),
             identityProvider: identityProvider,
             phonePushKeyExchangeHooks: makePhonePushKeyExchangeHooks(),
             teamIDProvider: { await coordinator.resolvedTeamID },

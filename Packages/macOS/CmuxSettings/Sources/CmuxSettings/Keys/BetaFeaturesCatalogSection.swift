@@ -96,5 +96,18 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "remoteTmux.beta.enabled"
     )
 
+    /// Predictive local echo: draw typed characters over a remote terminal
+    /// before the remote echoes them, and withdraw them if the remote
+    /// disagrees. Only engages at a shell prompt on a link slow enough to
+    /// notice, never in a full-screen application, and never until the remote
+    /// has been seen echoing -- so a password prompt displays nothing.
+    /// Defaults off; while off the terminal input and output paths are
+    /// unchanged.
+    public let predictedEcho = DefaultsKey<Bool>(
+        id: "terminal.beta.predictedEcho.enabled",
+        defaultValue: false,
+        userDefaultsKey: "terminal.beta.predictedEcho.enabled"
+    )
+
     public init() {}
 }

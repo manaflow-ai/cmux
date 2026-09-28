@@ -46,6 +46,10 @@ let package = Package(
             ],
             // The files moved out of the app target unchanged; keep its language mode.
             swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "CmuxCloudTests",
+            dependencies: ["CmuxCloud"]
         )
     ]
 )

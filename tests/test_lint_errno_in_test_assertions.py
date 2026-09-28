@@ -16,6 +16,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MODULE_PATH = REPO_ROOT / "scripts" / "lint-errno-in-test-assertions.py"

@@ -7,7 +7,7 @@ import { canonicalJSON, hash } from "./crypto";
 import { DASHBOARD_AUTHORITY_HEADER, DashboardClaimsSchema, type DashboardClaims } from "./dashboard-auth";
 import { acknowledgeDelivery, DeliveryStateSchema, deliveryUsage, emptyDeliveryState, prepareDelivery } from "./delivery";
 import type { Environment } from "./environment";
-import { OperationError } from "./errors";
+import { failureDiagnostics, OperationError } from "./errors";
 import { observe } from "./observability";
 import { unwrap, type UserUsage } from "./user-usage-object";
 
@@ -66,7 +66,7 @@ export class DashboardControl {
       } finally { this.services.opening.delete(sessionId); }
     } catch (error) {
       const failure = errorResponse(error, requestId).failure;
-      observe(this.ctx, this.env, { event: "iroh.dashboard.failure", requestId, code: failure.code, status: failure.status });
+      observe(this.ctx, this.env, { event: "iroh.dashboard.failure", requestId, code: failure.code, status: failure.status, ...failureDiagnostics(error) });
       return httpFailure(error, requestId);
     }
   }

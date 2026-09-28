@@ -50,11 +50,24 @@ UNIT_SUITE_LABEL = "unit-ci"
 # They differ in what could observe them. `app-host unit tests` runs cmuxTests/
 # against the product compile admission already built, so asking for that one
 # job is enough to judge a cmuxTests/ diff. No pull request job runs
-# cmuxUITests/ at all -- only the dispatch-only test-e2e lane does -- so those
-# stay unobserved until someone takes the full suite or records the skip.
+# cmuxUITests/ at all -- only the dispatch-only test-e2e lane does -- so ci.yml's
+# `ui-tests` job dispatches that lane for the test classes a diff changes
+# (changed_ui_selectors()). A change it cannot map to classes stays a gap.
 UNIT_JUDGED_PREFIXES = ("cmuxTests/",)
 UNJUDGED_BY_ANY_PR_JOB_PREFIXES = ("cmuxUITests/",)
 UNJUDGED_BY_COMPILE_PREFIXES = UNIT_JUDGED_PREFIXES + UNJUDGED_BY_ANY_PR_JOB_PREFIXES
+# A class declaration and the first type it inherits from, attributes and
+# modifiers allowed on the same line; and an extension of a type.
+UI_CLASS = re.compile(
+    r"^[ \t]*(?:@\w+(?:\([^)\n]*\))?\s+)*(?:(?:final|public|internal|open|private|fileprivate)\s+)*"
+    r"class\s+(\w+)\s*(?:<[^>\n]*>)?\s*:\s*(\w+)", re.M)
+UI_EXTENSION = re.compile(r"^[ \t]*(?:@\w+\s+)*(?:(?:public|internal|private|fileprivate)\s+)*extension\s+(\w+)\b", re.M)
+# More changed classes than this is a sweep one focused run should not take,
+# and the dispatch's concurrency group, which names every selector, must stay
+# within GitHub's 400 characters (dispatch-focused-test.py's MAX_CONCURRENCY_GROUP):
+# about 85 go to the runner label and the SHA.
+MAX_UI_SELECTORS = 8
+MAX_UI_FILTER_LENGTH = 300
 
 # Measured serial test time a changed-suites run may hold. One runner executes
 # it as a single batch, so it has to fit comfortably inside the batch timeout
@@ -90,6 +103,7 @@ APP_HOST_CONSUMER_PATHS = (
     "scripts/ci/enable-xctest-automation-mode.sh",
     "scripts/ci/enumerate-app-host-tests.sh",
     "scripts/ci/prepare-app-host-home.sh",
+    "scripts/ci/relocate_package_framework_rpaths.py",
     "scripts/ci/require_selected_test_execution.sh",
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/run-and-capture.sh",
@@ -103,6 +117,20 @@ APP_HOST_CONSUMER_PATHS = (
 # proves the product restored, the app host launched, and selected tests
 # executed and were accounted for, which is what a consumer edit can break.
 CONSUMER_CANARY_SELECTOR = "cmuxTests/CmuxSSHURLRequestTests"
+
+# What decides which suites share a worker and in what order they run. A new
+# layout can put one suite after another that leaves state behind, and only
+# running every shard shows that: #14393 took the canary, merged, and main
+# failed four suites that only fail in the new order. These run every unit
+# suite, as `unit-ci` does, but not the rest of the full suite.
+# generate_test_timings.py is left out: no CI job runs it, and its layout
+# change arrives as the timings file it writes.
+SHARD_LAYOUT_PATHS = (
+    MACOS_WORKFLOW_PATH,  # only shard_layout_lines() count
+    "scripts/ci/cmux-unit-test-timings.json",
+    "scripts/ci/cmux_unit_test_shard.py",
+    "scripts/ci/run-app-host-unit-batches.sh",
+)
 
 
 def diff_needs_the_suite(paths: Iterable[str] | None) -> bool:
@@ -361,6 +389,79 @@ def consumer_canary_selectors(
     return []
 
 
+SHARD_LAYOUT_SETTING_RE = re.compile(r"^      CMUX_APP_HOST_[A-Z_]*(SHARD|RESERVED_WALL_SECONDS):")
+SHARD_MATRIX_ENTRY_RE = re.compile(r'^\s*\{"shard":')
+
+
+def shard_layout_lines(workflow: str) -> set[int]:
+    """1-based lines of `app-host unit tests` that lay out its shards.
+
+    Its `strategy:` block (the shard matrix) and the job env that places a
+    strict step on a shard or reserves its time there.
+    """
+    job = job_lines(workflow, APP_HOST_CONSUMER_JOB)
+    if job is None:
+        return set()
+    lines = workflow.splitlines()
+    layout: set[int] = set()
+    in_strategy = False
+    for number in job:
+        text = lines[number - 1]
+        if re.match(r"^    [A-Za-z_-]+:", text):
+            in_strategy = text.startswith("    strategy:")
+        if in_strategy or SHARD_LAYOUT_SETTING_RE.match(text):
+            layout.add(number)
+    return layout
+
+
+def removed_shard_layout_setting(diff: str) -> bool:
+    """True when a ci-macos.yml hunk removes a line that set the shard layout.
+
+    changed_lines() reports new-side lines only, so a shard setting that an
+    edit deletes or renames to another key would not show up in
+    shard_layout_lines() of the new workflow.
+    """
+    path: str | None = None
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            target = line[4:].strip()
+            path = target[2:] if target.startswith("b/") else None
+            continue
+        if line.startswith("--- "):
+            continue
+        if path == MACOS_WORKFLOW_PATH and line.startswith("-"):
+            removed = line[1:]
+            if SHARD_LAYOUT_SETTING_RE.match(removed) or SHARD_MATRIX_ENTRY_RE.match(removed):
+                return True
+    return False
+
+
+def shard_layout_changed(root: Path, paths: Iterable[str] | None, diff: str | None) -> bool:
+    """True when the diff changes how app-host unit suites are laid out over shards.
+
+    A ci-macos.yml edit counts only when a hunk touches shard_layout_lines(),
+    or when its hunks are missing and the edit cannot be placed. An unreadable
+    file list returns False because the caller already runs every unit suite.
+    """
+    if paths is None:
+        return False
+    stripped = {path.strip() for path in paths}
+    if stripped & set(SHARD_LAYOUT_PATHS[1:]):
+        return True
+    if MACOS_WORKFLOW_PATH not in stripped:
+        return False
+    hunks = changed_lines(diff).get(MACOS_WORKFLOW_PATH) if diff else None
+    if not hunks:
+        return True
+    if removed_shard_layout_setting(diff):
+        return True
+    try:
+        workflow = (root / MACOS_WORKFLOW_PATH).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return True
+    return bool(hunks & shard_layout_lines(workflow))
+
+
 def runs_in_admission(
     root: Path,
     paths: Iterable[str] | None,
@@ -411,12 +512,78 @@ def labels_from_event(event_path: str | Path) -> list[str] | None:
     return labels
 
 
+def ui_class_graph(root: Path) -> dict[str, str]:
+    """Every class cmuxUITests/ declares, mapped to the first type it inherits from."""
+    parents: dict[str, str] = {}
+    for file in sorted((root / "cmuxUITests").rglob("*.swift")):
+        try:
+            parents.update(UI_CLASS.findall(file.read_text(encoding="utf-8")))
+        except (OSError, UnicodeError):
+            continue
+    return parents
+
+
+def changed_ui_selectors(root: Path, paths: Iterable[str] | None) -> list[str] | None:
+    """The UI test classes a cmuxUITests/ diff changes, as test-e2e selectors.
+
+    A test class is one that inherits XCTestCase, directly or through a base
+    class the suite declares. A changed file selects the test classes it
+    declares or extends; a base class other test classes inherit selects
+    those instead, since it holds no test of its own to run. A deleted file
+    adds nothing. None when a changed file selects no test class (a helper or
+    a resource), or when the selection is more than one focused run takes:
+    no focused run judges those.
+    """
+    changed = [path.strip() for path in paths or () if path.strip().startswith(UNJUDGED_BY_ANY_PR_JOB_PREFIXES)]
+    if not changed:
+        return []
+    parents = ui_class_graph(root)
+
+    def is_test(name: str) -> bool:
+        seen = set()
+        while name in parents and name not in seen:
+            seen.add(name)
+            name = parents[name]
+        return name == "XCTestCase"
+
+    children: dict[str, list[str]] = {}
+    for name, parent in parents.items():
+        children.setdefault(parent, []).append(name)
+
+    def leaves(name: str) -> list[str]:
+        below = [leaf for child in sorted(children.get(name, ())) for leaf in leaves(child)]
+        return below or [name]
+
+    selectors: list[str] = []
+    for path in changed:
+        file = root / path
+        if not file.exists():
+            continue
+        try:
+            text = file.read_text(encoding="utf-8") if file.suffix == ".swift" else ""
+        except (OSError, UnicodeError):
+            return None
+        # An extension of XCTestCase itself is a helper for every class.
+        named = [name for name, _ in UI_CLASS.findall(text)] + [
+            name for name in UI_EXTENSION.findall(text) if name != "XCTestCase"]
+        tests = [leaf for name in named if is_test(name) for leaf in leaves(name)]
+        if not tests:
+            return None
+        for name in tests:
+            if f"cmuxUITests/{name}" not in selectors:
+                selectors.append(f"cmuxUITests/{name}")
+    if len(selectors) > MAX_UI_SELECTORS or len(",".join(selectors)) > MAX_UI_FILTER_LENGTH:
+        return None
+    return selectors
+
+
 def coverage_gap(
     event_name: str,
     full_suite: bool,
     paths: Iterable[str] | None,
     labels: Iterable[str] | None,
     unit_suite: bool = False,
+    ui_suite: bool = False,
 ) -> bool:
     """True when this run skips the only check that could judge its diff.
 
@@ -424,19 +591,20 @@ def coverage_gap(
     is the point: the skip stops being silent.
 
     `unit_suite` closes the gap only for the paths `app-host unit tests` can
-    actually judge. A cmuxUITests/ diff stays a gap however this run is routed,
-    because no pull request job executes it.
+    actually judge. A cmuxUITests/ diff is closed only by `ui_suite`, ci.yml's
+    `ui-tests` job running the classes it changed: the full suite never
+    executes cmuxUITests/, so `full-ci` does not close it.
     """
-    if full_suite or event_name != "pull_request":
+    if event_name != "pull_request":
         return False
     if labels is not None and SUITE_OPT_OUT_LABEL in {label.strip() for label in labels}:
         return False
     if paths is None:
-        return True
+        return not full_suite
     stripped = [path.strip() for path in paths]
-    if any(path.startswith(UNJUDGED_BY_ANY_PR_JOB_PREFIXES) for path in stripped):
+    if any(path.startswith(UNJUDGED_BY_ANY_PR_JOB_PREFIXES) for path in stripped) and not ui_suite:
         return True
-    if unit_suite:
+    if full_suite or unit_suite:
         return False
     return any(path.startswith(UNIT_JUDGED_PREFIXES) for path in stripped)
 
@@ -497,11 +665,15 @@ def main(argv: list[str]) -> int:
             app_diff = None
 
     full = wants_full_suite(args.event_name, args.pull_request_policy, labels)
-    unit = wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
-    gap = coverage_gap(args.event_name, full, paths, labels, unit_suite=unit)
+    layout = shard_layout_changed(args.root, paths, diff)
+    unit = layout or wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
+    opted_out = SUITE_OPT_OUT_LABEL in {label.strip() for label in labels or ()}
+    ui_selectors = changed_ui_selectors(args.root, paths) if args.event_name == "pull_request" and not opted_out else []
+    gap = coverage_gap(args.event_name, full, paths, labels, unit_suite=unit, ui_suite=bool(ui_selectors))
     # Only a unit run the diff asked for narrows. `full-ci` and `unit-ci` are
-    # explicit requests for every suite.
-    asked_for_every_suite = full or UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
+    # explicit requests for every suite, and a shard layout change needs every
+    # suite in its new order.
+    asked_for_every_suite = full or layout or UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
     selectors = [] if not unit or asked_for_every_suite else changed_unit_selectors(args.root, paths, diff)
     canary = False
     reached: list[str] = []
@@ -542,6 +714,7 @@ def main(argv: list[str]) -> int:
         f"unit_selectors={' '.join(selectors)}",
         f"unit_strict_steps={''.join(f'|{step}' for step in steps) + '|' if steps else ''}",
         f"coverage_gap={'true' if gap else 'false'}",
+        f"ui_selectors={' '.join(ui_selectors or ())}",
         f"unit_canary={'true' if canary else 'false'}",
         f"unit_in_admission={'true' if in_admission else 'false'}",
     ]

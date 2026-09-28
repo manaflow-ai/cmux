@@ -6,7 +6,7 @@ cmux list-panes
 cmux list-pane-surfaces --pane pane:1
 
 # create
-cmux new-split right --panel pane:1
+cmux new-split right --surface surface:1
 cmux new-split down --command "npm run dev"
 cmux new-pane --type terminal --direction right --command "tail -f logs/dev.log"
 cmux new-surface --type terminal --pane pane:1
