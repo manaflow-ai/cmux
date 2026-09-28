@@ -1,6 +1,7 @@
 import CmuxBrowser
 import CmuxControlSocket
 import Foundation
+import WebKit
 
 extension TerminalController {
     /// Returns the native-replay action represented by a browser keyboard method.
@@ -50,7 +51,7 @@ extension TerminalController {
         // Snapshot work is dispatched to the established blocking worker seam
         // after native delivery; the cooperative socket task never performs
         // v2BrowserAppendPostSnapshot directly.
-        return await v2BrowserKeyboardResponseWithWorkerSnapshot(
+        return await v2BrowserResponseWithWorkerSnapshot(
             encodedResponse: Self.v2Encoder.response(id: request.id, result),
             request: request
         )
@@ -58,7 +59,7 @@ extension TerminalController {
 
     /// Adds an optional post-action snapshot on a dedicated blocking worker,
     /// keeping WebKit callback waits off the cooperative executor and main actor.
-    private nonisolated func v2BrowserKeyboardResponseWithWorkerSnapshot(
+    private nonisolated func v2BrowserResponseWithWorkerSnapshot(
         encodedResponse: String,
         request: ControlRequest
     ) async -> String {
@@ -322,5 +323,496 @@ extension TerminalController {
         start: (@escaping (T) -> Void) -> Void
     ) -> T? {
         socketAwaitCallback(timeout: timeout, start: start)
+    }
+}
+
+extension TerminalController {
+    /// Returns a native text-input response for `browser.type`/`browser.fill`,
+    /// or `nil` when the target is a control whose value must use the existing
+    /// DOM compatibility path (for example date and range inputs).
+    nonisolated func v2BrowserTextInputResponse(
+        request: ControlRequest,
+        replaceSelection: Bool
+    ) async -> String? {
+        let params = request.params.mapValues(\.foundationObject)
+        let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(
+            commandKey: request.method,
+            isV2: true,
+            params: params
+        )
+        let encodedResponse = await CmuxAutomationInvocationContext.$focusAllowed.withValue(allowsFocusMutation) {
+            let task: Task<String?, Never> = Task { @MainActor [weak self] in
+                guard let self else { return nil }
+                return await self.v2BrowserTextInputResult(
+                    request: request,
+                    replaceSelection: replaceSelection
+                )
+            }
+            return await withTaskCancellationHandler {
+                await task.value
+            } onCancel: {
+                task.cancel()
+            }
+        }
+        guard let encodedResponse else { return nil }
+        return await v2BrowserResponseWithWorkerSnapshot(
+            encodedResponse: encodedResponse,
+            request: request
+        )
+    }
+
+    /// Synchronous adapter for in-process socket callers. The native text path
+    /// is async because WebKit readiness and key delivery are main-actor work;
+    /// preserve nil as the explicit signal that the legacy DOM compatibility
+    /// path should handle this control.
+    nonisolated func v2BrowserTextInputResponseSync(
+        request: ControlRequest,
+        replaceSelection: Bool
+    ) -> String? {
+        let params = request.params.mapValues(\.foundationObject)
+        let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(
+            commandKey: request.method,
+            isV2: true,
+            params: params
+        )
+        let nativeTask = Task {
+            let response = await self.v2BrowserTextInputResponse(
+                request: request,
+                replaceSelection: replaceSelection
+            )
+            return response.map(BrowserTextInputSyncOutcome.response) ?? .fallback
+        }
+        let outcome: BrowserTextInputSyncOutcome? = CmuxAutomationInvocationContext.$focusAllowed.withValue(allowsFocusMutation) {
+            v2AwaitCallback(timeout: 15) { finish in
+                Task {
+                    finish(await nativeTask.value)
+                }
+            }
+        }
+        guard let outcome else {
+            nativeTask.cancel()
+            return Self.v2Encoder.error(
+                id: request.id,
+                code: "timeout",
+                message: String(
+                    localized: "cli.browser.error.requestTimedOut",
+                    defaultValue: "Browser request timed out"
+                ),
+                data: nil
+            )
+        }
+        switch outcome {
+        case .response(let response):
+            return response
+        case .fallback:
+            return nil
+        }
+    }
+
+    /// Performs one text action after focusing the target through the page's
+    /// open shadow-root-aware DOM. Each character then travels through the
+    /// same AppKit/WebKit native seam as `browser.press`, so framework code
+    /// observes trusted key and input events instead of a DOM mutation.
+    @MainActor
+    private func v2BrowserTextInputResult(
+        request: ControlRequest,
+        replaceSelection: Bool
+    ) async -> String? {
+        v2RefreshKnownRefs()
+        let params = request.params.mapValues(\.foundationObject)
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return Self.v2Encoder.response(
+                id: request.id,
+                .err(
+                    code: "unavailable",
+                    message: String(
+                        localized: "cli.browser.error.tabManagerUnavailable",
+                        defaultValue: "Browser controls are unavailable"
+                    ),
+                    data: nil
+                )
+            )
+        }
+
+        let resolved = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
+        if let error = resolved.error,
+           case let .err(code, message, data) = error {
+            return Self.v2Encoder.response(
+                id: request.id,
+                .err(code: code, message: message, data: data.flatMap(JSONValue.init(foundationObject:)))
+            )
+        }
+        guard let context = resolved.context else {
+            return Self.v2Encoder.response(
+                id: request.id,
+                .err(
+                    code: "not_found",
+                    message: String(
+                        localized: "cli.browser.error.noFocusedSurface",
+                        defaultValue: "No focused browser surface"
+                    ),
+                    data: nil
+                )
+            )
+        }
+
+        let rawSelector = (params["selector"] as? String)
+            ?? (params["sel"] as? String)
+            ?? (params["element_ref"] as? String)
+            ?? (params["ref"] as? String)
+        let selector = rawSelector.flatMap {
+            v2BrowserResolveSelector($0, surfaceId: context.surfaceId)
+        }
+        if rawSelector != nil, selector == nil {
+            return Self.v2Encoder.response(
+                id: request.id,
+                .err(
+                    code: "not_found",
+                    message: String(
+                        localized: "cli.browser.error.elementReferenceNotFound",
+                        defaultValue: "Element reference not found"
+                    ),
+                    data: nil
+                )
+            )
+        }
+
+        guard let text = params["text"] as? String
+                ?? params["value"] as? String else {
+            return Self.v2Encoder.response(
+                id: request.id,
+                .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "cli.browser.error.missingTextValue",
+                        defaultValue: "Missing text/value"
+                    ),
+                    data: nil
+                )
+            )
+        }
+
+        let browserControl = BrowserControlService()
+        let selectorLiteral = selector.map(browserControl.jsonLiteral) ?? "null"
+        var frameAwarePrelude = """
+            var document = globalThis.document;
+            \(browserControl.elementQueryPrelude)
+            let __cmuxFrameReady = true;
+            """
+        if let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: context.surfaceId) {
+            frameAwarePrelude = """
+                var document = globalThis.document;
+                \(browserControl.elementQueryPrelude)
+                let __cmuxFrameReady = (() => {
+                  try {
+                    const frame = __cmuxQuery(\(browserControl.jsonLiteral(frameSelector)));
+                    if (!frame || !frame.contentDocument) return false;
+                    document = frame.contentDocument;
+                    return true;
+                  } catch (_) {
+                    return false;
+                  }
+                })();
+                """
+        }
+        let focusScript = """
+            (() => {
+              \(frameAwarePrelude)
+              if (!__cmuxFrameReady) return { ok: false, error: 'frame_not_found' };
+              const el = \(selectorLiteral) === null
+                ? __cmuxDeepActiveElement()
+                : __cmuxQuery(\(selectorLiteral));
+              if (!el) return { ok: false, error: 'not_found' };
+              if (\(selectorLiteral) !== null && typeof el.focus === 'function') {
+                try { el.focus({ preventScroll: true }); } catch (_) { try { el.focus(); } catch (_) {} }
+              }
+              const active = __cmuxDeepActiveElement();
+              const activeTarget = active === el;
+              const tag = String(el.tagName || '').toLowerCase();
+              const type = String(el.type || 'text').toLowerCase();
+              const disabled = el.disabled === true || el.readOnly === true
+                || el.hasAttribute('disabled') || el.hasAttribute('readonly');
+              const editable = activeTarget && !disabled && (!!el.isContentEditable
+                || tag === 'textarea'
+                || (tag === 'input' && !['button','checkbox','color','date','datetime-local','file','hidden','image','month','number','radio','range','reset','submit','time','week'].includes(type)));
+              return { ok: true, editable, activeTarget, disabled, value: ('value' in el) ? String(el.value || '') : String(el.textContent || '') };
+            })()
+            """
+        let focusResult = await evaluateBrowserTextInputScript(
+            focusScript,
+            in: context.webView,
+            panel: context.browserPanel
+        )
+        guard case .success(let rawFocus) = focusResult,
+              let focus = rawFocus as? [String: Any],
+              focus["ok"] as? Bool == true else {
+            if selector != nil { return nil }
+            return Self.v2Encoder.response(
+                id: request.id,
+                .err(
+                    code: "not_found",
+                    message: String(
+                        localized: "cli.browser.error.noFocusedSurface",
+                        defaultValue: "No focused browser surface"
+                    ),
+                    data: nil
+                )
+            )
+        }
+        guard context.browserPanel.webView === context.webView else {
+            return Self.v2Encoder.response(
+                id: request.id,
+                .err(
+                    code: "stale_state",
+                    message: String(
+                        localized: "browser.automation.error.superseded",
+                        defaultValue: "The browser surface was already recovered. Retry the command."
+                    ),
+                    data: .object(["surface_id": .string(context.surfaceId.uuidString)])
+                )
+            )
+        }
+        guard focus["editable"] as? Bool == true else {
+            // Native key replay is intentionally limited to text-capable
+            // controls. Existing JS value handling remains correct for date,
+            // range, and other specialized form controls.
+            return selector == nil
+                ? Self.v2Encoder.response(
+                    id: request.id,
+                    .err(
+                        code: "invalid_params",
+                        message: String(
+                            localized: "cli.browser.error.focusedElementNotEditable",
+                            defaultValue: "Focused browser element is not editable"
+                        ),
+                        data: nil
+                    )
+                )
+                : nil
+        }
+
+        let nativeCharacters = text.map(String.init)
+        guard nativeCharacters.allSatisfy({ BrowserKeyboardEvent(rawKey: $0)?.nativeKey != nil }) else {
+            return nil
+        }
+
+        guard !Task.isCancelled else {
+            return Self.v2Encoder.error(
+                id: request.id,
+                code: "cancelled",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: nil
+            )
+        }
+        if replaceSelection {
+            let metaDown = replayTextInputKey("Meta", in: context.webView, action: .keyDown)
+            let selectAll = metaDown && replayTextInputKey("a", in: context.webView, action: .press)
+            let metaUp = metaDown && replayTextInputKey("Meta", in: context.webView, action: .keyUp)
+            guard metaDown, selectAll, metaUp else {
+                return Self.v2Encoder.response(
+                    id: request.id,
+                    .err(
+                        code: "internal_error",
+                        message: String(
+                            localized: "cli.browser.error.operationFailed",
+                            defaultValue: "Browser operation failed"
+                        ),
+                        data: nil
+                    )
+                )
+            }
+            let selectionScript = """
+                (() => {
+                  \(frameAwarePrelude)
+                  if (!__cmuxFrameReady) return { selected: false };
+                  const el = \(selectorLiteral) === null
+                    ? __cmuxDeepActiveElement()
+                    : __cmuxQuery(\(selectorLiteral));
+                  if (!el || __cmuxDeepActiveElement() !== el) return { selected: false };
+                  if ('value' in el) {
+                    const value = String(el.value || '');
+                    return { selected: Number(el.selectionStart) === 0 && Number(el.selectionEnd) === value.length };
+                  }
+                  if (el.isContentEditable) {
+                    const selection = document.defaultView && document.defaultView.getSelection
+                      ? document.defaultView.getSelection() : null;
+                    return { selected: !!selection && !selection.isCollapsed };
+                  }
+                  return { selected: true };
+                })()
+                """
+            let selectionResult = await evaluateBrowserTextInputScript(
+                selectionScript,
+                in: context.webView,
+                panel: context.browserPanel
+            )
+            guard case .success(let rawSelection) = selectionResult,
+                  let selection = rawSelection as? [String: Any],
+                  selection["selected"] as? Bool == true else {
+                // Cmd+A can be intercepted by a web component. Returning nil
+                // preserves fill's replacement semantics through the legacy
+                // DOM compatibility implementation.
+                return nil
+            }
+            if nativeCharacters.isEmpty {
+                guard replayTextInputKey("Backspace", in: context.webView, action: .press) else {
+                    return Self.v2Encoder.response(
+                        id: request.id,
+                        .err(
+                            code: "internal_error",
+                            message: String(
+                                localized: "cli.browser.error.operationFailed",
+                                defaultValue: "Browser operation failed"
+                            ),
+                            data: nil
+                        )
+                    )
+                }
+            }
+        }
+
+        for character in nativeCharacters {
+            guard !Task.isCancelled else {
+                return Self.v2Encoder.error(
+                    id: request.id,
+                    code: "cancelled",
+                    message: String(
+                        localized: "cli.browser.error.operationFailed",
+                        defaultValue: "Browser operation failed"
+                    ),
+                    data: nil
+                )
+            }
+            guard replayTextInputKey(character, in: context.webView, action: .press) else {
+                return Self.v2Encoder.response(
+                    id: request.id,
+                    .err(
+                        code: "internal_error",
+                        message: String(
+                            localized: "cli.browser.error.operationFailed",
+                            defaultValue: "Browser operation failed"
+                        ),
+                        data: nil
+                    )
+                )
+            }
+        }
+
+        let surfaceID = context.surfaceId
+        let payload: [String: Any] = [
+            "workspace_id": context.workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: context.workspaceId),
+            "surface_id": surfaceID.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceID),
+            "action": replaceSelection ? "fill" : "type"
+        ]
+        guard let jsonPayload = JSONValue(foundationObject: payload) else { return nil }
+        return Self.v2Encoder.response(id: request.id, .ok(jsonPayload))
+    }
+
+    @MainActor
+    private func evaluateBrowserTextInputScript(
+        _ script: String,
+        in webView: WKWebView,
+        panel: BrowserPanel
+    ) async -> Result<Any, Error> {
+        let expectedWebViewIdentifier = ObjectIdentifier(webView)
+        guard await panel.ensureAutomationDocumentReady(
+            expectedWebViewIdentifier: expectedWebViewIdentifier,
+            reason: "automation-text-input"
+        ) == .committed else {
+            return .failure(BrowserTextInputError.documentNotReady)
+        }
+        let gate = BrowserTextInputEvaluationGate()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Result<Any, Error>, Never>) in
+                gate.install(continuation)
+                webView.callAsyncJavaScript(
+                    "return \(script)",
+                    arguments: [:],
+                    in: nil,
+                    in: .page
+                ) { result in
+                    gate.finish(result)
+                }
+                Task { [gate] in
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    gate.finish(.failure(BrowserTextInputError.evaluationTimedOut))
+                }
+            }
+        } onCancel: {
+            gate.finish(.failure(BrowserTextInputError.cancelled))
+        }
+    }
+
+    @MainActor
+    private func replayTextInputKey(
+        _ rawKey: String,
+        in webView: WKWebView,
+        action: BrowserKeyboardAction
+    ) -> Bool {
+        guard let event = BrowserKeyboardEvent(rawKey: rawKey) else { return false }
+        switch webView.replayBrowserKeyboardEvent(event, action: action) {
+        case .delivered: return true
+        case .unsupported, .eventCreationFailed: return false
+        }
+    }
+}
+
+private enum BrowserTextInputSyncOutcome: Sendable {
+    case response(String)
+    case fallback
+}
+
+private enum BrowserTextInputError: Error {
+    case documentNotReady
+    case evaluationTimedOut
+    case cancelled
+}
+
+/// Delivers a WebKit text-input evaluation result exactly once. WebKit may
+/// invoke its callback after the timeout or task cancellation, so the
+/// continuation cannot be resumed directly from either completion path.
+///
+/// The lock is the intentional synchronous callback/timeout compare-and-set
+/// carve-out for this WebKit bridge. @unchecked Sendable is safe here because
+/// the lock protects every continuation and result access, and no WebKit object
+/// crosses the gate.
+private final class BrowserTextInputEvaluationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Result<Any, Error>, Never>?
+    private var isFinished = false
+    private var finishedResult: Result<Any, Error>?
+
+    func install(_ continuation: CheckedContinuation<Result<Any, Error>, Never>) {
+        lock.lock()
+        let result = finishedResult
+        if !isFinished {
+            self.continuation = continuation
+        }
+        lock.unlock()
+
+        if let result {
+            continuation.resume(returning: result)
+        }
+    }
+
+    func finish(_ result: Result<Any, Error>) {
+        lock.lock()
+        guard !isFinished else {
+            lock.unlock()
+            return
+        }
+        isFinished = true
+        finishedResult = result
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+
+        continuation?.resume(returning: result)
     }
 }

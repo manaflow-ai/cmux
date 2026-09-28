@@ -100,6 +100,24 @@ struct BrowserControlServiceTests {
 
         let nth = service.findNthScript(selector: ".row", index: -1)
         #expect(nth.contains("let idx = -1;"))
-        #expect(nth.contains("document.querySelectorAll(\".row\")"))
+        #expect(nth.contains("__cmuxQueryAll(\".row\")"))
+
+        let queryPrelude = service.elementQueryPrelude
+        #expect(queryPrelude.contains("const __cmuxSelectorParts"))
+        #expect(queryPrelude.contains("escapedOutsideQuote"))
+        #expect(queryPrelude.contains("const __cmuxCollectMatches"))
+        #expect(queryPrelude.contains("crossesShadowRoot"))
+    }
+
+    @Test("evaluationScript binds the selected same-origin frame document")
+    func evaluationScriptFrameBinding() {
+        let script = service.evaluationScript(
+            script: "document.activeElement",
+            useEval: false,
+            frameSelector: "iframe[data-test=\"selected\"]"
+        )
+        #expect(script.contains("const __cmuxFrame = document.querySelector(\"iframe[data-test=\\\"selected\\\"]\")"))
+        #expect(script.contains("const document = __cmuxDoc"))
+        #expect(script.contains("const __cmuxEvalInFrame"))
     }
 }

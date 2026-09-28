@@ -425,11 +425,9 @@ class BrowserFixtureSocketTestCase: XCTestCase {
 /// failure turns into a test failure, prompting an assertion upgrade.
 final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
 
-    /// browser.click delivers a click and browser.fill delivers the final
-    /// value, but fill is a single value assignment + one synthetic `input`
-    /// event: there are no per-character keydown/keyup events, so the
-    /// fixture's strict ordering check (3 inputs, each preceded by its
-    /// keydown) can never flip #status to PASS. Assert the log instead.
+    /// browser.click remains a DOM gesture while browser.fill uses native
+    /// WebKit key delivery for text controls. The fixture verifies that each
+    /// character reaches the page in trusted keydown/input order.
     func testEventTrustAndOrder() throws {
         try launchApp()
         let sid = try openFixture("event-trust-and-order")
@@ -456,29 +454,27 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
             ),
             "fill should dispatch an input event carrying the final value"
         )
-        // Synthetic events are not trusted (el.click() / dispatchEvent).
-        XCTAssertFalse(
-            try evalBool("window.__cmuxLog.some(e => e.isTrusted === true)", surfaceID: sid),
-            "socket-driven events should be untrusted synthetic events"
+        XCTAssertTrue(
+            try evalBool(
+                "window.__cmuxLog.filter(e => e.target === '#field').length > 0 && " +
+                    "window.__cmuxLog.filter(e => e.target === '#field').every(e => e.isTrusted === true)",
+                surfaceID: sid
+            ),
+            "native fill events should be trusted"
         )
-        // fill emits exactly one input and zero keydowns: per-key ordering is unachievable.
-        XCTAssertFalse(
-            try evalBool("window.__cmuxLog.some(e => e.type === 'keydown')", surfaceID: sid),
-            "fill should not synthesize keydown events (documents the gap below)"
+        XCTAssertTrue(
+            try evalBool(
+                "window.__cmuxLog.filter(e => e.type === 'keydown' && e.target === '#field').map(e => e.key).slice(-3).join('') === 'abc'",
+                surfaceID: sid
+            ),
+            "fill should deliver one native keydown per character"
         )
-        XCTExpectFailure(
-            "browser.fill sets the value once and dispatches a single untrusted input event " +
-            "with no per-character keydown/keyup, so the fixture's per-keystroke ordering check " +
-            "(3 inputs, each preceded by a matching keydown) cannot reach PASS"
-        ) {
-            XCTAssertEqual(try? statusText(surfaceID: sid), "PASS")
-        }
+        XCTAssertEqual(try statusText(surfaceID: sid), "PASS")
     }
 
-    /// browser.click/fill resolve selectors with `document.querySelector`,
-    /// which cannot pierce shadow roots (even open ones), and there is no
-    /// piercing selector syntax. The failure mode is a `not_found` error
-    /// envelope ("Element not found") for elements inside the shadow root.
+    /// Selectors should resolve controls in an open shadow root just like
+    /// controls in the light DOM. The Apple Developer portal uses this
+    /// web-component pattern for its account forms.
     func testShadowOpen() throws {
         try launchApp()
         let sid = try openFixture("shadow-open")
@@ -493,27 +489,53 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
             "fixture should expose an open shadow root with #s-btn"
         )
 
-        XCTExpectFailure("shadow DOM selectors not yet supported") {
-            let clickEnvelope = socketEnvelope(
-                method: "browser.click",
-                params: ["surface_id": sid, "selector": "#s-btn"]
+        try socketResult(method: "browser.click", params: ["surface_id": sid, "selector": "#s-btn"])
+        try socketResult(
+            method: "browser.fill",
+            params: ["surface_id": sid, "selector": "#s-input", "text": "shadow-ok"]
+        )
+        XCTAssertEqual(try statusText(surfaceID: sid), "PASS")
+    }
+
+    func testSelectorScrollFindsLightAndShadowControls() throws {
+        try launchApp()
+        let sid = try openFixture("shadow-open")
+        for selector in ["#light-scroller", "#shadow-scroller"] {
+            try socketResult(
+                method: "browser.scroll",
+                params: ["surface_id": sid, "selector": selector, "dy": 120]
             )
-            XCTAssertEqual(
-                clickEnvelope?["ok"] as? Bool,
-                true,
-                "browser.click cannot reach #s-btn inside the open shadow root: \(String(describing: clickEnvelope))"
-            )
-            let fillEnvelope = socketEnvelope(
-                method: "browser.fill",
-                params: ["surface_id": sid, "selector": "#s-input", "text": "shadow-ok"]
-            )
-            XCTAssertEqual(
-                fillEnvelope?["ok"] as? Bool,
-                true,
-                "browser.fill cannot reach #s-input inside the open shadow root: \(String(describing: fillEnvelope))"
-            )
-            XCTAssertEqual(try? statusText(surfaceID: sid), "PASS")
         }
+        XCTAssertTrue(try evalBool(
+            "document.getElementById('light-scroller').scrollTop === 120 && " +
+                "document.getElementById('host').shadowRoot.getElementById('shadow-scroller').scrollTop === 120",
+            surfaceID: sid
+        ))
+    }
+
+    /// Framework-controlled inputs need real WebKit key events. A focused
+    /// element is a valid target for `type`, so callers do not need to invent
+    /// a selector that cannot describe a shadow-DOM node.
+    func testFocusedTypeUsesNativeWebKitInput() throws {
+        try launchApp()
+        let sid = try openFixture("shadow-open")
+
+        try socketResult(method: "browser.click", params: ["surface_id": sid, "selector": "#s-btn"])
+        try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#s-input"])
+        try socketResult(method: "browser.type", params: ["surface_id": sid, "text": "shadow-ok"])
+
+        XCTAssertEqual(
+            try evalString("document.getElementById('host').shadowRoot.getElementById('s-input').value", surfaceID: sid),
+            "shadow-ok"
+        )
+        XCTAssertTrue(
+            try evalBool(
+                "window.__cmuxLog.filter(e => e.target === '#s-input' && e.type === 'input').map(e => e.value).join(',') === 's,sh,sha,shad,shado,shadow,shadow-,shadow-o,shadow-ok' && " +
+                    "window.__cmuxLog.filter(e => e.target === '#s-input').every(e => e.isTrusted === true)",
+                surfaceID: sid
+            ),
+            "selector-free shadow type should deliver trusted input events"
+        )
     }
 
     /// One level of `browser.frame.select` works (the click script's
@@ -785,36 +807,42 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
         XCTAssertEqual(try statusText(surfaceID: sid), "PASS")
     }
 
-    /// The fixture's hostile listeners revert the first two input events and
-    /// rewrite the value on the first change event, so a single fill is
-    /// deliberately defeated. Each step below asserts the documented
-    /// per-attempt behavior; three fills converge to the final value.
+    /// The fixture's hostile listeners revert the first two trusted input
+    /// events and rewrite the value on the first native change event. Native
+    /// fill leaves change delivery to the browser's normal blur behavior, so
+    /// each attempt explicitly moves focus before checking the result.
     func testStickyInput() throws {
         try launchApp()
         let sid = try openFixture("sticky-input")
         let valueScript = "document.getElementById('sticky').value"
 
-        // Fill 1: input revert #1 eats the value, then the change handler
-        // rewrites it once.
+        // Fill 1: the first two trusted input events are reverted, then blur
+        // lets the change handler rewrite the value once.
         try socketResult(method: "browser.fill", params: ["surface_id": sid, "selector": "#sticky", "text": "final-text"])
+        try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#blur-target"])
         XCTAssertEqual(
             try evalString(valueScript, surfaceID: sid),
             "rewritten-once",
-            "a single fill is defeated by the hostile input/change listeners"
+            "the hostile input listener defeats the first native fill"
         )
 
-        // Fill 2: input revert #2 eats the value again.
+        // Fill 2: the reverts are exhausted, so the native input reaches the
+        // requested value; the second blur leaves the rewrite untouched.
         try socketResult(method: "browser.fill", params: ["surface_id": sid, "selector": "#sticky", "text": "final-text"])
-        XCTAssertEqual(try evalString(valueScript, surfaceID: sid), "rewritten-once")
-
-        // Fill 3: reverts exhausted; the value finally sticks.
-        try socketResult(method: "browser.fill", params: ["surface_id": sid, "selector": "#sticky", "text": "final-text"])
+        try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#blur-target"])
         XCTAssertEqual(
             try evalString(valueScript, surfaceID: sid),
             "final-text",
             "fill should stick once the hostile listeners are exhausted"
         )
         XCTAssertEqual(try statusText(surfaceID: sid), "PASS")
+        XCTAssertTrue(
+            try evalBool(
+                "window.__cmuxLog.filter(e => e.type === 'input').every(e => e.isTrusted === true)",
+                surfaceID: sid
+            ),
+            "native fill input events should remain trusted"
+        )
     }
 
     func testDatetimeRange() throws {
