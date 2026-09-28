@@ -91,6 +91,7 @@ NOT_IN_CMUX_JSON = frozenset({
     "integrations.claudeCode.customClaudePath",
     "integrations.claudeCode.hooksEnabled",
     "integrations.codex.hooksEnabled",
+    "integrations.pi.hooksEnabled",
     "integrations.cursor.hooksEnabled",
     "integrations.gemini.hooksEnabled",
     "integrations.kiro.hooksEnabled",
