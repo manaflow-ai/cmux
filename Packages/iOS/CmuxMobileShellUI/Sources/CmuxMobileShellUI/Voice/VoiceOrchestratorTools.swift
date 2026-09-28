@@ -1082,6 +1082,16 @@ public struct VoiceOrchestratorToolExecutor {
         _ query: String,
         workspaces: [MobileWorkspacePreview]
     ) -> String {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let partial = workspaces.filter { $0.name.lowercased().contains(needle) }
+        if !needle.isEmpty, partial.count > 1 {
+            // Ambiguity, not absence: hand back the candidates with ids so
+            // the model can disambiguate with the user in one turn.
+            let candidates = partial.prefix(8)
+                .map { "\($0.name) (id \($0.id.rawValue))" }
+                .joined(separator: ", ")
+            return "\"\(query)\" matches more than one workspace; ask the user which one and retry with its id. Candidates: \(candidates)."
+        }
         let names = workspaces.prefix(15).map(\.name).joined(separator: ", ")
         return "No workspace matches \"\(query)\". Available workspaces: \(names)."
     }
