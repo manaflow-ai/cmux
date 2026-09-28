@@ -14,8 +14,7 @@ extension Array where Element == CuratedSettingEntry {
     static var voiceEntries: [CuratedSettingEntry] {
         [
             .init(section: .voice, id: "dictationEnabled", title: String(localized: "settings.voice.dictationEnabled", defaultValue: "Voice Dictation"), synonyms: "Voice Dictation voice dictation speech microphone mic speak transcribe shortcut hotkey"),
-            .init(section: .voice, id: "engine", title: String(localized: "settings.voice.engine", defaultValue: "Speech Engine"), synonyms: "Speech Engine voice dictation engine openai cloud on-device whisper transcription model"),
-            .init(section: .voice, id: "openAIKey", title: String(localized: "settings.voice.openAIKey", defaultValue: "OpenAI API Key"), synonyms: "OpenAI API Key voice dictation cloud key token keychain"),
+            .init(section: .voice, id: "engine", title: String(localized: "settings.voice.engine", defaultValue: "Speech Engine"), synonyms: "Speech Engine voice dictation engine openai cloud on-device whisper transcription model api key token keychain"),
             .init(section: .voice, id: "dictationLanguage", title: String(localized: "settings.voice.dictationLanguage", defaultValue: "Dictation Language"), synonyms: "Dictation Language voice dictation language locale speech recognition model"),
             .init(section: .voice, id: "hotkeyMode", title: String(localized: "settings.voice.hotkeyMode", defaultValue: "Shortcut Behavior"), synonyms: "Shortcut Behavior voice dictation hold to talk push to talk toggle hotkey"),
             .init(section: .voice, id: "cleanUpAgentPrompts", title: String(localized: "settings.voice.cleanUpAgentPrompts", defaultValue: "Clean Up Agent Prompts"), synonyms: "Clean Up Agent Prompts voice dictation filler um uh cleanup agent"),

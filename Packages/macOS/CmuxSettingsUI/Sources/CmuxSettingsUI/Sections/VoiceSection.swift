@@ -134,7 +134,6 @@ extension VoiceSection {
     var apiKeyRow: some View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
-            searchAnchorID: "setting:voice:openAIKey",
             String(localized: "settings.voice.openAIKey", defaultValue: "OpenAI API Key", bundle: .module),
             subtitle: hasAPIKey
                 ? String(localized: "settings.voice.openAIKey.saved", defaultValue: "Saved in your Keychain.", bundle: .module)
