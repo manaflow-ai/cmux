@@ -1930,6 +1930,48 @@ class CIProductReuseTests(unittest.TestCase):
             self.assertIsNone(self.reuse())
         self.run_command.assert_not_called()
 
+    def test_ci_whose_compile_admission_ended_without_products_is_not_awaited(self):
+        # PR 15160's run 36435812903: the fleet refused compile admission at 14:30,
+        # and the UI dispatch kept waiting for products that run could never make.
+        # The run stayed in progress on its own ui-tests job, which waited for this
+        # dispatch, so the owned-pool rescue could not re-run the refused job.
+        for conclusion in ("failure", "cancelled", "success"):
+            with self.subTest(conclusion):
+                ci = {"id": 500, "path": ".github/workflows/ci.yml", "status": "in_progress",
+                      "event": "workflow_dispatch", "html_url": "https://x/runs/500", "head_sha": HEAD}
+                rerun = self.dispatch.rerun
+                rerun.gh_api.side_effect = lambda path, ci=ci, conclusion=conclusion: (
+                    {"workflow_runs": [ci]} if "head_sha=" in path
+                    else {"jobs": [{"name": "macos / macOS compile admission", "status": "completed",
+                                    "conclusion": conclusion}]} if "/jobs" in path
+                    else {"status": "in_progress"}
+                )
+                with mock.patch.object(self.dispatch, "planned_products", return_value=None), \
+                        mock.patch.object(rerun, "built_revision", return_value=HEAD), \
+                        mock.patch.object(rerun, "non_test_changes", return_value=[]), \
+                        mock.patch.object(rerun, "products_artifact", return_value=None), \
+                        mock.patch.object(self.dispatch, "wait_for_retry", side_effect=AssertionError("waited")):
+                    self.assertIsNone(self.reuse())
+                self.run_command.assert_not_called()
+
+    def test_ci_whose_compile_admission_is_still_running_is_awaited(self):
+        ci = {"id": 500, "path": ".github/workflows/ci.yml", "status": "in_progress",
+              "event": "workflow_dispatch", "html_url": "https://x/runs/500", "head_sha": HEAD}
+        rerun = self.dispatch.rerun
+        rerun.gh_api.side_effect = lambda path: (
+            {"workflow_runs": [ci]} if "head_sha=" in path
+            else {"jobs": [{"name": "macos / macOS compile admission", "status": "in_progress",
+                            "conclusion": None}]} if "/jobs" in path
+            else {"status": "in_progress"}
+        )
+        with mock.patch.object(self.dispatch, "planned_products", return_value=None), \
+                mock.patch.object(rerun, "built_revision", return_value=HEAD), \
+                mock.patch.object(rerun, "non_test_changes", return_value=[]), \
+                mock.patch.object(rerun, "products_artifact", return_value=None), \
+                mock.patch.object(self.dispatch, "wait_for_retry", side_effect=AssertionError("waited")):
+            with self.assertRaisesRegex(AssertionError, "waited"):
+                self.reuse()
+
     def test_a_refused_rerun_dispatch_falls_back_to_a_full_build(self):
         self.run_command.side_effect = subprocess.CalledProcessError(1, ["gh"])
         with mock.patch.object(self.dispatch, "planned_products", return_value=self.PLAN):
