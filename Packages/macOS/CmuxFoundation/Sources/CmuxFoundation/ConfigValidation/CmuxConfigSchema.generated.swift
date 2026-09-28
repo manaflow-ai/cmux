@@ -1508,7 +1508,7 @@ enum CmuxEmbeddedConfigSchema {
       "properties": {
         "matchTerminalBackground": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Use the terminal background instead of the sidebar tint."
         },
         "tintColor": {

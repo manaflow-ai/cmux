@@ -2049,7 +2049,7 @@ struct ContentView: View {
     }
 
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
-    @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
+    @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = SidebarAppearanceCatalogSection().matchTerminalBackground.defaultValue
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults().opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults().hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
@@ -11546,7 +11546,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     @AppStorage("sidebarMatchTerminalBackground")
-    private var sidebarMatchTerminalBackground = false
+    private var sidebarMatchTerminalBackground = SidebarAppearanceCatalogSection().matchTerminalBackground.defaultValue
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
     private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
