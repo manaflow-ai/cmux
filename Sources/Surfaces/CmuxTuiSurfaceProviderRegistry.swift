@@ -87,7 +87,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         isCloudEnabled: @escaping @MainActor () -> Bool = { true },
         allowsBackgroundWork: @escaping @MainActor () -> Bool = { true },
         listPage: @escaping @MainActor () async -> VMListPage? = { nil },
-        listPageWithError: (@escaping @MainActor () async throws -> VMListPage)? = nil,
+        listPageWithError: (@MainActor () async throws -> VMListPage)? = nil,
         hasCloudSession: @escaping @MainActor () -> Bool = { true },
         refreshProvider: @escaping @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Bool = { provider, force in
             await provider.refreshCurrentGraph(force: force)
