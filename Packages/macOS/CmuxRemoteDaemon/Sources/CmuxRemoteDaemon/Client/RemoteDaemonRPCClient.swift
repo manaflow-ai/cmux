@@ -14,8 +14,9 @@ public import CmuxCore
 ///
 /// Isolation design (two serial queues + blocking semaphores, deliberately
 /// not an actor):
-/// - **Who mutates:** all transport state (`process`, pipes/handles,
-///   websocket task/session/delegate, `isClosed`, `shouldReportTermination`,
+/// - **Who mutates:** all transport state (`process`, pipes/handles, the
+///   socket-forward directory, websocket task/session/delegate, `isClosed`,
+///   `shouldReportTermination`,
 ///   `stdoutBuffer`, `stderrBuffer`, and both subscription maps) is confined
 ///   to `stateQueue`; readability/termination/receive callbacks hop onto it
 ///   with `stateQueue.async`, and synchronous paths enter with
@@ -40,6 +41,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     static let maxStdoutBufferBytes = 256 * 1024
     static let bakedVMDaemonSocketPath = "/run/cmuxd-remote.sock"
     static let socketForwardStartupGracePeriod: TimeInterval = 0.75
+    static let socketForwardConnectTimeout: TimeInterval = 5.0
     static let webSocketKeepaliveInterval: TimeInterval = 5.0
     static let ptyAttachCancellationWriteTimeout: TimeInterval = 1.0
     /// Wire capability required for push-based proxy streaming
@@ -128,6 +130,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var stdinHandle: FileHandle?
     var stdoutHandle: FileHandle?
     var stderrHandle: FileHandle?
+    var forwardSocketDirectory: RemoteDaemonForwardSocketDirectory?
     var webSocketSession: URLSession?
     var webSocketTask: URLSessionWebSocketTask?
     var webSocketDelegate: RemoteDaemonWebSocketDelegate?
@@ -282,6 +285,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             let detail = Self.bestErrorLine(stderr: stderrBuffer) ?? "daemon transport stopped"
             let shouldNotify = !suppressTerminationCallback && !isClosed
             shouldReportTermination = !suppressTerminationCallback
+            removeForwardSocketDirectoryLocked()
             if isClosed {
                 return (nil, nil, nil, nil, nil, nil, false, detail)
             }
@@ -338,5 +342,10 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
 
     func signalPendingFailureLocked(_ message: String) {
         pendingCalls.failAll(message)
+    }
+
+    func removeForwardSocketDirectoryLocked() {
+        forwardSocketDirectory?.remove()
+        forwardSocketDirectory = nil
     }
 }

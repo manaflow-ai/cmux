@@ -688,16 +688,20 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let arguments = configuration.daemonSocketForwardArguments(
-            localPort: 64123,
+            localSocketPath: "/private/tmp/cmuxd.AbC123/d.sock",
             remoteSocketPath: "/run/cmuxd-remote.sock"
         )
 
-        XCTAssertEqual(Array(arguments.prefix(4)), ["-N", "-T", "-S", "none"])
+        XCTAssertEqual(Array(arguments.prefix(8)), [
+            "-N", "-T", "-S", "none",
+            "-o", "StreamLocalBindMask=0177",
+            "-o", "StreamLocalBindUnlink=yes",
+        ])
         XCTAssertTrue(arguments.contains("-p"))
         XCTAssertTrue(arguments.contains("2222"))
         XCTAssertTrue(arguments.contains("-i"))
         XCTAssertTrue(arguments.contains("/Users/test/.ssh/id_ed25519"))
-        XCTAssertTrue(arguments.contains("127.0.0.1:64123:/run/cmuxd-remote.sock"))
+        XCTAssertTrue(arguments.contains("/private/tmp/cmuxd.AbC123/d.sock:/run/cmuxd-remote.sock"))
         XCTAssertEqual(arguments.last, "cmux-macmini")
     }
 

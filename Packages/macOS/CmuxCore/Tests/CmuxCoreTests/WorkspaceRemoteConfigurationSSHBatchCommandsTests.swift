@@ -132,19 +132,42 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
     @Test("daemonSocketForwardArguments shape")
     func daemonSocketForwardArguments() {
         let arguments = configuration().daemonSocketForwardArguments(
-            localPort: 64123,
+            localSocketPath: "/private/tmp/cmuxd.AbC123/d.sock",
             remoteSocketPath: "/run/cmuxd-remote.sock"
         )
         #expect(
-            arguments == ["-N", "-T", "-S", "none"]
+            arguments == [
+                "-N", "-T", "-S", "none",
+                "-o", "StreamLocalBindMask=0177",
+                "-o", "StreamLocalBindUnlink=yes",
+            ]
                 + expectedBatchArguments
                 + [
                     "-o", "ExitOnForwardFailure=yes",
                     "-o", "RequestTTY=no",
-                    "-L", "127.0.0.1:64123:/run/cmuxd-remote.sock",
+                    "-L", "/private/tmp/cmuxd.AbC123/d.sock:/run/cmuxd-remote.sock",
                     "cmux-macmini",
                 ]
         )
+    }
+
+    /// OpenSSH keeps the first value of an option, so a configured
+    /// `StreamLocalBindMask` must not be able to widen the socket's mode.
+    @Test("daemonSocketForwardArguments bind options precede configured options")
+    func daemonSocketForwardBindOptionsLead() {
+        let arguments = configuration(sshOptions: [
+            "StreamLocalBindMask=0000",
+            "StreamLocalBindUnlink=no",
+            "StrictHostKeyChecking=accept-new",
+        ]).daemonSocketForwardArguments(
+            localSocketPath: "/private/tmp/cmuxd.AbC123/d.sock",
+            remoteSocketPath: "/run/cmuxd-remote.sock"
+        )
+        let optionValues = arguments.indices.dropLast()
+            .filter { arguments[$0] == "-o" }
+            .map { arguments[$0 + 1].lowercased() }
+        #expect(optionValues.first { $0.hasPrefix("streamlocalbindmask") } == "streamlocalbindmask=0177")
+        #expect(optionValues.first { $0.hasPrefix("streamlocalbindunlink") } == "streamlocalbindunlink=yes")
     }
 
     @Test("reverseRelayControlMasterArguments uses the configured ControlPath")
