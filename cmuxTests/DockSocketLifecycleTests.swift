@@ -149,15 +149,6 @@ struct DockSocketLifecycleTests {
         #expect(createdBrowser.bypassesRemoteWorkspaceProxyForTabDuplication)
     }
 
-    private func restoreUserDefault(_ value: Any?, forKey key: String) {
-        let defaults = UserDefaults.standard
-        if let value {
-            defaults.set(value, forKey: key)
-        } else {
-            defaults.removeObject(forKey: key)
-        }
-    }
-
     @MainActor
     func withDockAvailable(_ body: () throws -> Void) rethrows {
         try body()
