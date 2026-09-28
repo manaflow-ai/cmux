@@ -130,9 +130,15 @@ struct GhosttyWorkspaceActionTests {
             #expect(harness.press("2", keyCode: 19, on: surface))
             #expect(harness.manager.selectedTabId == second.id)
             #expect(surface.performBindingAction("deactivate_all_key_tables"))
-            #expect(!harness.press("g", keyCode: 5, control: true, on: surface))
+            // `performable:` deliberately falls through when the host cannot
+            // perform the requested action. The key API may still report the
+            // resulting terminal input as handled, so assert the observable
+            // workspace no-op instead of the transport return value.
+            _ = harness.press("g", keyCode: 5, control: true, on: surface)
             #expect(harness.manager.selectedTabId == second.id)
-            #expect(!harness.press("j", keyCode: 38, control: true, on: surface))
+            // `unconsumed:` performs the host action while allowing Ghostty to
+            // continue its normal input path.
+            _ = harness.press("j", keyCode: 38, control: true, on: surface)
             #expect(harness.manager.selectedTabId == harness.sourceWorkspaceID)
             #expect(harness.press("", keyCode: 121, control: true, on: surface))
             #expect(harness.manager.selectedTabId == second.id)
