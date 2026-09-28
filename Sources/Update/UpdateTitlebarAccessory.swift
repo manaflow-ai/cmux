@@ -1152,6 +1152,14 @@ struct TitlebarControlsView: View {
             // Faded controls are not hit-testable, so their own hover never
             // fires. This clear layer keeps tracking the row's frame while
             // it is folded.
+            //
+            // The position of this modifier is load-bearing: it has to stay
+            // below `.allowsHitTesting(shouldShowControls)` so the clear layer
+            // keeps accepting the pointer while the controls above it do not.
+            // Moving it above that line still compiles and still draws the same
+            // pixels, but the folded row stops revealing on hover, because the
+            // only hover source in the compact layout has been disabled along
+            // with the controls.
             .background(
                 Color.clear
                     .contentShape(Rectangle())

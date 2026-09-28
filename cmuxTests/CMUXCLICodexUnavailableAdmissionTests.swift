@@ -98,10 +98,13 @@ struct CMUXCLICodexUnavailableAdmissionTests {
             responses += [admissionResponse, claimResponse]
             expectedMethods += ["agent.restore.admit", "surface.resume.get"]
         case .recovering:
-            responses += [recoveryResponse, ownerResponse, admissionResponse, claimResponse]
+            responses += [recoveryResponse, recoveryResponse, admissionResponse, claimResponse]
             expectedMethods += ["agent.restore.admit", "agent.restore.admit", "agent.restore.admit", "surface.resume.get"]
-        case .liveOwner, .targetRemoved:
-            responses += [scenario == .liveOwner ? ownerResponse : recoveryResponse, targetRemovedResponse]
+        case .liveOwner:
+            responses += [ownerResponse]
+            expectedMethods += ["agent.restore.admit"]
+        case .targetRemoved:
+            responses += [recoveryResponse, targetRemovedResponse]
             expectedMethods += ["agent.restore.admit", "agent.restore.admit"]
         case .missing, .rejectedChild:
             responses += [try jsonResponse(result: ["cleared": true])]
@@ -159,6 +162,9 @@ struct CMUXCLICodexUnavailableAdmissionTests {
         } else {
             #expect(result.status != 0, Comment(rawValue: diagnostics))
             #expect(markerContents == nil, "Rejected or unadmitted restores must not launch")
+            if scenario == .liveOwner {
+                #expect(result.stderr.contains("already running in process 4242"), Comment(rawValue: diagnostics))
+            }
         }
         let admissions = requests.filter { $0["method"] as? String == "agent.restore.admit" }
         for (index, request) in admissions.enumerated() {

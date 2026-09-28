@@ -342,10 +342,51 @@ runs:
             echo "Closed $process (its dialogs are cancelled; launchd restarts it on demand)"
           fi
         done
-        # Diagnostics Reporter draws "cmux DEV cannot be opened because of a
-        # problem" after a crashed launch; on owned macOS runners (2026-09-27)
-        # one sat over UI tests from boot. Its name is longer than the 16
-        # bytes -x compares, so match the executable path.
+        # Diagnostics Reporter draws "Your computer was restarted because of a
+        # problem" after a kernel panic and "cmux DEV cannot be opened because
+        # of a problem" after a crashed launch; on owned macOS runners
+        # (2026-09-27) one sat over UI tests from boot. launchd starts it
+        # whenever one of its QueueDirectories (/var/db/PanicReporter,
+        # /var/db/DiagnosticsReporter) holds an entry, and an entry stays
+        # until someone answers the dialog. Killing it alone therefore only
+        # relaunched it with the same dialog about two minutes into the tests
+        # (seen 2026-09-27, for a panic queued two days earlier). So empty the
+        # queues first, then close it; with nothing queued it stays closed.
+        # The owned runners' job-started hook does the same for every job;
+        # this keeps it for a runner without that hook.
+        # A queue entry only points at a report (a panic's is a symlink to
+        # /Library/Logs/DiagnosticReports/.contents.panic, the summary the
+        # dialog shows), so the reports themselves are kept: panic-full-*.panic
+        # and every crash report stay. The queue directories are
+        # world-writable, so this needs no sudo.
+        for queue in /var/db/PanicReporter /var/db/DiagnosticsReporter; do
+          [ -d "$queue" ] || continue
+          for entry in "$queue"/* "$queue"/.[!.]*; do
+            [ -e "$entry" ] || [ -L "$entry" ] || continue
+            target=""
+            if [ -L "$entry" ]; then
+              target="$(readlink "$entry" 2>/dev/null || true)"
+            fi
+            if rm -rf "$entry" 2>/dev/null && [ ! -e "$entry" ] && [ ! -L "$entry" ]; then
+              echo "Dequeued $entry${target:+ -> $target} (Diagnostics Reporter would redraw its dialog for it)"
+              # The summary of a panic whose dialog was never answered; the
+              # full panic report stays. Best effort: its directory is
+              # writable by _analyticsusers, which owned runner users are in.
+              # Only a `.contents.*` file directly in DiagnosticReports: `*`
+              # matches `/` in a case pattern, so reject any deeper path.
+              case "$target" in
+                */../*|/Library/Logs/DiagnosticReports/.contents.*/*) ;;
+                /Library/Logs/DiagnosticReports/.contents.*)
+                  rm -f "$target" 2>/dev/null || true
+                  ;;
+              esac
+            else
+              echo "::warning title=Diagnostics Reporter queue::Could not remove $entry, so its dialog may reappear during the tests."
+            fi
+          done
+        done
+        # Its name is longer than the 16 bytes -x compares, so match the
+        # executable path.
         if pkill -KILL -u "$uid" -f "/Diagnostics Reporter.app/Contents/MacOS/" 2>/dev/null; then
           echo "Closed Diagnostics Reporter (its crash dialogs are dismissed)"
         fi
@@ -495,7 +536,7 @@ runs:
             -xctestrun "$XCTESTRUN_PATH"
             -destination "platform=macOS"
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
-            "${ONLY_TESTING[@]}"
+            ${ONLY_TESTING[@]+"${ONLY_TESTING[@]}"}
             test-without-building
           )
         else
@@ -507,7 +548,7 @@ runs:
             -resultBundlePath "$RUNNER_TEMP/cmux-app-host-xcresults/cmuxUITests.xcresult"
             -destination "platform=macOS"
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
-            "${ONLY_TESTING[@]}"
+            ${ONLY_TESTING[@]+"${ONLY_TESTING[@]}"}
             test-without-building
           )
         fi
