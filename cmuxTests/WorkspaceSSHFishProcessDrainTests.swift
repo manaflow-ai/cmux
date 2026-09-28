@@ -24,8 +24,9 @@ struct WorkspaceSSHFishProcessDrainTests {
             executablePath: "/bin/sh",
             arguments: ["-c", "trap '' TERM; printf ready >&2; exec /bin/sleep 60"],
             environment: ProcessInfo.processInfo.environment,
-            // The child ignores TERM forever, so any deadline proves the kill.
-            timeout: 1
+            // The child ignores TERM forever, so any deadline proves the kill once
+            // the shell has installed its trap.
+            timeout: 2
         )
         #expect(result.timedOut)
         #expect(result.status == SIGKILL)

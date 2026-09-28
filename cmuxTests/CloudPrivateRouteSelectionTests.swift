@@ -147,7 +147,7 @@ struct CloudPrivateRouteSelectionTests {
         defer { hub.stop() }
         // Both families refuse, so the probe runs until its deadline; a short
         // one proves the same failure without waiting out the production 15 s.
-        let manager = manager(privateRouteConnector: CloudHubConnector(timeout: .seconds(1)))
+        let manager = manager(privateRouteConnector: CloudHubConnector(timeout: .seconds(2)))
         await manager.setPrivateAddresses(["10.16.0.2", "fd00::2"], for: "vm-test")
         let ready = CloudWireGuardHub.Ready(socketPath: path, routes: ["10.16.0.0/24", "fd00::/8"])
         hub.refusedHosts = ["10.16.0.2", "fd00::2"]
