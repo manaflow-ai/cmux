@@ -1777,7 +1777,9 @@ if [[ -z "$cmux_claude_hook_cmux_bin" ]]; then
 fi
 export CMUX_CLAUDE_HOOK_CMUX_BIN="$cmux_claude_hook_cmux_bin"
 
-claude_launch_has_subrouter_private_settings() {
+# Prints the routed launcher's private `--settings` file when the argv carries
+# one that still exists.
+claude_launch_subrouter_private_settings_path() {
     local argument value expects_value=0
     for argument in "$@"; do
         [[ "$argument" == "--" ]] && break
@@ -1794,7 +1796,10 @@ claude_launch_has_subrouter_private_settings() {
         fi
         case "$value" in
             */subrouter-claude-settings-*/settings.json)
-                [[ -f "$value" ]] && return 0
+                if [[ -f "$value" ]]; then
+                    printf '%s\n' "$value"
+                    return 0
+                fi
                 ;;
         esac
     done
@@ -1807,8 +1812,25 @@ bind_subrouter_claude_resume_marker() {
         "sr claude proxy --resume"|"subrouter claude proxy --resume") ;;
         *) return 0 ;;
     esac
-    claude_launch_has_subrouter_private_settings "$@" || return 0
+    claude_launch_subrouter_private_settings_path "$@" >/dev/null || return 0
     export CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND="$SUBROUTER_CLAUDE_RESUME_COMMAND"
+}
+
+# Records the account a routed launch was pinned to, so a restore keeps it.
+# The pin is read from the routing headers the launcher wrote into its private
+# settings file for this launch (the file is gone once the launcher exits), so
+# it holds however the launcher was invoked or what it appended to the argv it
+# forwarded. A pooled launch has no pin header and records nothing.
+bind_routed_claude_account() {
+    unset CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT
+    local settings_path account
+    settings_path="$(claude_launch_subrouter_private_settings_path "$@")" || return 0
+    # The headers are one JSON string whose lines are joined by an escaped
+    # newline, so the id ends at `\n` or at the closing quote. An id with any
+    # other character is left unrecorded rather than cut short.
+    account="$(LC_ALL=C sed -nE 's/.*X-Subrouter-Account-ID: ([A-Za-z0-9._@+:=-]+)(\\n|").*/\1/p' "$settings_path" 2>/dev/null | head -n 1)"
+    [[ -n "$account" && "$account" != -* && ${#account} -le 256 ]] || return 0
+    export CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT="$account"
 }
 
 if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
@@ -1816,6 +1838,7 @@ if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
     export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
     export CMUX_AGENT_LAUNCH_CWD="$PWD"
     bind_subrouter_claude_resume_marker "$@"
+    bind_routed_claude_account "$@"
 fi
 install_cmux_node_options "$REAL_CLAUDE"
 
