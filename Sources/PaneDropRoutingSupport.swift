@@ -239,8 +239,8 @@ final class PaneDropZoneOverlayAnimator {
     private static let slideDuration: CFTimeInterval = 0.16
     private static let slideKeyPrefix = "paneDropZone.slide."
 
-    /// Pins Reduce Motion for tests; nil reads the system setting.
-    static var reduceMotionOverrideForTesting: Bool?
+    /// Whether a new zone snaps instead of sliding; defaults to Reduce Motion.
+    var reducesMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
     private let overlayView: NSView
     private var displayedZone: DropZone?
@@ -328,7 +328,7 @@ final class PaneDropZoneOverlayAnimator {
         }
 
         // A new zone slides; a reframe of the same zone follows layout at once.
-        if zoneChanged && overlayView.window != nil && !Self.reducesMotion {
+        if zoneChanged && overlayView.window != nil && !reducesMotion() {
             slide(to: targetFrame)
         } else {
             snapFrame(targetFrame)
@@ -397,10 +397,6 @@ final class PaneDropZoneOverlayAnimator {
         animation.duration = Self.slideDuration
         animation.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
         layer.add(animation, forKey: "\(Self.slideKeyPrefix)\(keyPath).\(animationGeneration)")
-    }
-
-    private static var reducesMotion: Bool {
-        reduceMotionOverrideForTesting ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
     private static func rectApproximatelyEqual(_ lhs: CGRect, _ rhs: CGRect, epsilon: CGFloat = 0.5) -> Bool {

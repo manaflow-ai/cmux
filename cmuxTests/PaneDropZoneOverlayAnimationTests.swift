@@ -79,15 +79,13 @@ enum DropZoneOverlaySlideProbe {
 }
 
 /// A borderless, never-ordered-in window whose content view hosts the overlay:
-/// the overlay only slides while it is in a window. Reduce Motion is pinned
-/// while the host is open, so results don't depend on the Mac running them.
+/// the overlay only slides while it is in a window.
 @MainActor
 private final class OverlayWindowHost {
     let window: NSWindow
     let container: NSView
 
-    init(size: CGSize, reduceMotion: Bool = false) {
-        PaneDropZoneOverlayAnimator.reduceMotionOverrideForTesting = reduceMotion
+    init(size: CGSize) {
         window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless],
@@ -103,10 +101,11 @@ private final class OverlayWindowHost {
     func close() {
         window.orderOut(nil)
         window.contentView = nil
-        PaneDropZoneOverlayAnimator.reduceMotionOverrideForTesting = nil
     }
 }
 
+/// Hosts a shared animator. Reduce Motion is pinned per animator, so results
+/// don't depend on the Mac running them.
 @MainActor
 private final class OverlayAnimatorHost {
     private let windowHost: OverlayWindowHost?
@@ -116,9 +115,10 @@ private final class OverlayAnimatorHost {
 
     init(reduceMotion: Bool = false, inWindow: Bool = true) {
         let size = CGSize(width: 200, height: 100)
-        windowHost = inWindow ? OverlayWindowHost(size: size, reduceMotion: reduceMotion) : nil
+        windowHost = inWindow ? OverlayWindowHost(size: size) : nil
         container = windowHost?.container ?? NSView(frame: NSRect(origin: .zero, size: size))
         animator = PaneDropZoneOverlayAnimator(overlayView: overlay)
+        animator.reducesMotion = { reduceMotion }
         container.addSubview(overlay)
     }
 
@@ -259,6 +259,7 @@ struct PaneDropZoneOverlayAnimationTests {
         defer { host.close() }
         let container = host.container
         let slot = WindowBrowserSlotView(frame: container.bounds)
+        slot.dropZoneOverlayAnimator.reducesMotion = { false }
         container.addSubview(slot)
 
         slot.setDropZoneOverlay(zone: .right)
@@ -278,6 +279,7 @@ struct PaneDropZoneOverlayAnimationTests {
         let container = host.container
         let hostedView = GhosttySurfaceScrollView(surfaceView: GhosttyNSView(frame: .zero))
         hostedView.frame = container.bounds
+        hostedView.dropZoneOverlayAnimator.reducesMotion = { false }
         container.addSubview(hostedView)
 
         hostedView.setDropZoneOverlay(zone: .right)

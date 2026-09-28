@@ -10200,7 +10200,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var inactiveOverlayColor: NSColor = .clear
     private var inactiveOverlayOpacity: CGFloat = 0
     private let dropZoneOverlayView: GhosttyFlashOverlayView
-    private lazy var dropZoneOverlayAnimator = PaneDropZoneOverlayAnimator(overlayView: dropZoneOverlayView)
+    lazy var dropZoneOverlayAnimator = PaneDropZoneOverlayAnimator(overlayView: dropZoneOverlayView)
     private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
     private let notificationRingOverlayView: GhosttyFlashOverlayView
     private let notificationRingLayer: CAShapeLayer

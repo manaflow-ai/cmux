@@ -1263,7 +1263,7 @@ final class WindowBrowserSlotView: NSView {
     }
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
-    private lazy var dropZoneOverlayAnimator = PaneDropZoneOverlayAnimator(overlayView: dropZoneOverlayView)
+    lazy var dropZoneOverlayAnimator = PaneDropZoneOverlayAnimator(overlayView: dropZoneOverlayView)
     private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlayRoot>?
     private var designComposerHostingView: BrowserDesignModeComposerHostingView?
     private var designComposerPanelId: UUID?
