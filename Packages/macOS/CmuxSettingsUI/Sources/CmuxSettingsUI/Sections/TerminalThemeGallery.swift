@@ -2,7 +2,7 @@ import AppKit
 import CmuxFoundation
 import SwiftUI
 
-/// The Terminal section's theme rows: the current light and dark themes, a
+/// The Themes section's terminal theme rows: the current light and dark themes, a
 /// Revert button while a pick is being previewed, the `cmux themes` terminal
 /// picker as a secondary path, and a gallery of theme cards below.
 @MainActor
@@ -14,7 +14,8 @@ struct TerminalThemeSettingsRows: View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsCardRow(
                 configurationReview: .settingsOnly,
-                String(localized: "settings.app.theme", defaultValue: "Theme"),
+                searchAnchorID: "setting:themes:terminal-theme",
+                String(localized: "settings.terminal.theme", defaultValue: "Terminal Theme"),
                 subtitle: model.map { Self.subtitle(for: $0.selection) }
             ) {
                 HStack(spacing: 8) {
@@ -133,28 +134,8 @@ private struct TerminalThemeGalleryView: View {
                     .cmuxFont(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-                    ForEach(results.themes) { theme in
-                        TerminalThemeCard(
-                            theme: theme,
-                            isSelected: Self.matches(theme.name, selectedName),
-                            usedInLight: Self.matches(theme.name, model.selection.light),
-                            usedInDark: Self.matches(theme.name, model.selection.dark),
-                            onSelect: { model.select(theme.name) }
-                        )
-                    }
-                }
-                if results.isTruncated {
-                    Text(
-                        String(
-                            localized: "settings.terminal.themeGallery.truncated",
-                            defaultValue: "More themes match. Keep typing to narrow the list.",
-                            bundle: .module
-                        )
-                    )
-                    .cmuxFont(.caption)
-                    .foregroundStyle(.secondary)
-                }
+                themeGroup(results.matchingSlot, isDark: model.slot == .dark, selectedName: selectedName)
+                themeGroup(results.otherAppearance, isDark: model.slot != .dark, selectedName: selectedName)
             }
 
             if model.writeFailed {
@@ -170,6 +151,38 @@ private struct TerminalThemeGalleryView: View {
             }
         }
         .accessibilityIdentifier("SettingsTerminalThemeGallery")
+    }
+
+    /// One appearance's cards under a "Dark Themes" or "Light Themes" heading.
+    @ViewBuilder
+    private func themeGroup(
+        _ themes: [TerminalThemeGalleryModel.Theme],
+        isDark: Bool,
+        selectedName: String?
+    ) -> some View {
+        if !themes.isEmpty {
+            Text(Self.groupTitle(isDark: isDark))
+                .cmuxFont(.caption, weight: .semibold)
+                .foregroundStyle(.secondary)
+                .padding(.top, 4)
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                ForEach(themes) { theme in
+                    TerminalThemeCard(
+                        theme: theme,
+                        isSelected: Self.matches(theme.name, selectedName),
+                        usedInLight: Self.matches(theme.name, model.selection.light),
+                        usedInDark: Self.matches(theme.name, model.selection.dark),
+                        onSelect: { model.select(theme.name) }
+                    )
+                }
+            }
+        }
+    }
+
+    private static func groupTitle(isDark: Bool) -> String {
+        isDark
+            ? String(localized: "settings.terminal.themeGallery.darkGroup", defaultValue: "Dark Themes", bundle: .module)
+            : String(localized: "settings.terminal.themeGallery.lightGroup", defaultValue: "Light Themes", bundle: .module)
     }
 
     private static func matches(_ name: String, _ other: String?) -> Bool {

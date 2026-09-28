@@ -3449,5 +3449,14 @@
     "source": "cmux layout delete <name>",
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "settings.section.textBox": {
+    "source": "TextBox",
+    "identityLocales": {
+      "fr": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "ko": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
+    }
   }
 }

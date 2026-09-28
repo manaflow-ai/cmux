@@ -25,30 +25,22 @@ final class TerminalThemeGalleryModel {
         var id: String { name }
     }
 
-    /// The cards shown for a query, and whether more themes matched than fit.
+    /// The cards shown for a query, split by appearance: themes that suit
+    /// the slot being edited first, then the rest.
     struct Results: Equatable {
-        let themes: [Theme]
-        let isTruncated: Bool
+        /// Themes whose background matches the slot (unknown counts as matching).
+        let matchingSlot: [Theme]
+        /// Themes built for the other appearance.
+        let otherAppearance: [Theme]
+
+        /// Every card, in display order.
+        var themes: [Theme] { matchingSlot + otherAppearance }
     }
 
     /// The managed block's theme before the first pick (`nil`: no block).
     private struct Snapshot {
         let managedThemeValue: String?
     }
-
-    /// Shown when the search field is empty: light and dark variants of
-    /// popular families, so either slot has six good starting points.
-    nonisolated static let curatedThemeNames = [
-        "Catppuccin Latte", "Catppuccin Mocha",
-        "GitHub Light Default", "GitHub Dark Default",
-        "Rose Pine Dawn", "Rose Pine",
-        "Gruvbox Light", "Gruvbox Dark",
-        "TokyoNight Day", "TokyoNight",
-        "Nord Light", "Nord",
-    ]
-
-    /// Caps search results so a one-letter query does not build hundreds of cards.
-    nonisolated static let searchResultLimit = 48
 
     @ObservationIgnored private let context: TerminalThemeGalleryContext
     @ObservationIgnored private let reload: @MainActor (TerminalThemeReloadPhase) -> Void
@@ -179,26 +171,21 @@ final class TerminalThemeGalleryModel {
         }
     }
 
-    /// With an empty query, the curated themes that exist, those matching the
-    /// slot's appearance first. Otherwise, every name containing the query.
+    /// Every theme whose name contains the query (all themes when the query
+    /// is empty), in catalog order, those matching the slot's appearance first.
     nonisolated static func results(in themes: [Theme], query: String, slot: Slot) -> Results {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard query.isEmpty else {
-            let matches = themes.filter { $0.name.localizedCaseInsensitiveContains(query) }
-            return Results(
-                themes: Array(matches.prefix(searchResultLimit)),
-                isTruncated: matches.count > searchResultLimit
-            )
-        }
-
-        var byName: [String: Theme] = [:]
-        for theme in themes {
-            byName[theme.name.lowercased()] = theme
-        }
-        let curated = curatedThemeNames.compactMap { byName[$0.lowercased()] }
+        let matches = query.isEmpty ? themes : themes.filter { $0.name.localizedCaseInsensitiveContains(query) }
         let wantsDark = slot == .dark
-        let matching = curated.filter { ($0.colors.isDark ?? wantsDark) == wantsDark }
-        let others = curated.filter { ($0.colors.isDark ?? wantsDark) != wantsDark }
-        return Results(themes: matching + others, isTruncated: false)
+        var matchingSlot: [Theme] = []
+        var otherAppearance: [Theme] = []
+        for theme in matches {
+            if (theme.colors.isDark ?? wantsDark) == wantsDark {
+                matchingSlot.append(theme)
+            } else {
+                otherAppearance.append(theme)
+            }
+        }
+        return Results(matchingSlot: matchingSlot, otherAppearance: otherAppearance)
     }
 }

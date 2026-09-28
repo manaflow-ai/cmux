@@ -343781,7 +343781,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "textbox text box rich input prompt beta focus composer compose attachments"
+            "value": "textbox text box rich input prompt focus composer compose attachments"
           }
         },
         "es": {
@@ -343872,6 +343872,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "textbox text box rich input prompt beta focus composer compose attachments 文字方塊 富文字 輸入 提示 測試版 焦點 編輯器 撰寫 附件"
+          }
+        }
+      }
+    },
+    "settings.search.alias.section.themes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent design designs farbschema farben palette hell dunkel akzent"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent thème thèmes couleurs palette clair sombre accent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent سمة سمات ألوان لوحة فاتح داكن تمييز"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent tema temas colores paleta claro oscuro acento"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent 主題 配色 顏色 調色盤 淺色 深色 強調色"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent 主题 配色 颜色 调色板 浅色 深色 强调色"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent 테마 색상 팔레트 라이트 다크 강조색"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "theme themes color scheme colors palette ghostty light dark mode accent テーマ 配色 カラー パレット ライト ダーク アクセント"
           }
         }
       }
@@ -356316,7 +356375,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta"
+            "value": "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab"
           }
         },
         "es": {
@@ -356441,7 +356500,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta"
+            "value": "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab"
           }
         },
         "es": {
@@ -356566,7 +356625,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta"
+            "value": "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll"
           }
         },
         "es": {
@@ -358594,121 +358653,180 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مربع النص (تجريبي)"
+            "value": "مربع النص"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (Beta)"
+            "value": "TextBox"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (beta)"
+            "value": "TextBox"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Textbox (Beta)"
+            "value": "Textbox"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextBox (Beta)"
+            "value": "TextBox"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuadro de texto (Beta)"
+            "value": "Cuadro de texto"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextBox (Bêta)"
+            "value": "TextBox"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (Beta)"
+            "value": "TextBox"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextBox（ベータ）"
+            "value": "TextBox"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (បេតា)"
+            "value": "TextBox"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextBox (베타)"
+            "value": "TextBox"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (beta)"
+            "value": "TextBox"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (Beta)"
+            "value": "TextBox"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (Beta)"
+            "value": "TextBox"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (бета)"
+            "value": "TextBox"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (เบต้า)"
+            "value": "TextBox"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (Beta)"
+            "value": "TextBox"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TextBox (бета)"
+            "value": "TextBox"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextBox（测试版）"
+            "value": "TextBox"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "文字框 (Beta)"
+            "value": "文字框"
+          }
+        }
+      }
+    },
+    "settings.section.themes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Themes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السمات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Designs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thèmes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테마"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主題"
           }
         }
       }
@@ -366276,127 +366394,61 @@
         }
       }
     },
-    "settings.textBox.betaWarning": {
+    "settings.terminal.theme": {
       "extractionState": "manual",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Theme"
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مربع النص ميزة تجريبية. قد تتغير إعداداته الافتراضية وسلوكه أثناء اختباره."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox je beta funkcija. Zadane vrijednosti i ponašanje mogu se promijeniti tokom testiranja."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox er en beta-funktion. Standarder og adfærd kan ændre sig under test."
+            "value": "سمة الطرفية"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextBox ist eine Beta-Funktion. Standardwerte und Verhalten können sich während der Testphase ändern."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TextBox is a beta feature. Its defaults and behavior may change while it is being tested."
+            "value": "Terminal-Design"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextBox es una característica beta. Sus valores predeterminados y comportamiento pueden cambiar mientras se prueba."
+            "value": "Tema del terminal"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La TextBox est une fonctionnalité bêta. Ses valeurs par défaut et son comportement peuvent changer pendant sa phase de test."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox è una funzionalità beta. Valori predefiniti e comportamento possono cambiare durante i test."
+            "value": "Thème du terminal"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextBox はベータ機能です。テスト中のため、既定値や動作が変わる場合があります。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox គឺជាមុខងារបេតា។ តម្លៃលំនាំដើម និងឥរិយាបថអាចផ្លាស់ប្តូរនៅពេលកំពុងសាកល្បង។"
+            "value": "ターミナルテーマ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextBox는 베타 기능입니다. 테스트되는 동안 기본값 및 동작이 변경될 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox er en betafunksjon. Standardverdier og oppførsel kan endres mens den testes."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox jest funkcją beta. Domyślne ustawienia i zachowanie mogą się zmienić podczas testów."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox é um recurso beta. Seus padrões e comportamento podem mudar durante os testes."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox — бета-функция. Во время тестирования значения по умолчанию и поведение могут измениться."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox เป็นฟีเจอร์เบต้า ค่าเริ่มต้นและพฤติกรรมอาจเปลี่ยนแปลงระหว่างการทดสอบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox bir beta özelliğidir. Varsayılanlar ve davranış test süresince değişebilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox — бета-функція. Під час тестування типові значення й поведінка можуть змінюватися."
+            "value": "터미널 테마"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextBox 是测试版功能。在测试期间，默认值和行为可能会变化。"
+            "value": "终端主题"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "文字框是一項 Beta 功能。在測試期間，其預設值與行為可能會發生變更。"
+            "value": "終端機主題"
           }
         }
       }

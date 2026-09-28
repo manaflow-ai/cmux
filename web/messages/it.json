@@ -1320,8 +1320,8 @@
           "sessionContentAlignment": "Posizionamento orizzontale del contenuto del terminale e della chat agente integrata quando sessionContentMaxWidth è abilitato.",
           "copyOnSelect": "Quando è true, il testo selezionato nel terminale viene copiato negli appunti di sistema quando la selezione viene confermata. Quando è false, cmux non emette un override Ghostty copy-on-select; configurazione e valori predefiniti di Ghostty controllano il comportamento degli appunti di selezione.",
           "scrollSpeed": "Moltiplicatore applicato agli spostamenti della rotellina di scorrimento e del trackpad nel terminale. Valori più alti scorrono più velocemente, valori più bassi più lentamente.",
-          "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
-          "focusTextBoxOnNewTerminals": "Mette a fuoco l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati. Il focus mostra anche TextBox."
+          "showTextBoxOnNewTerminals": "Mostra l'input TextBox per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
+          "focusTextBoxOnNewTerminals": "Mette a fuoco l'input TextBox per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati. Il focus mostra anche TextBox."
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "Quando è attivo, un banner di notifica viene ritirato automaticamente solo quando la sua superficie è esattamente la superficie con il focus. Un banner mostrato per una superficie senza focus nel workspace attualmente visibile resta visibile finché non porti il focus su quella superficie (o ci fai clic/la chiudi), invece di essere ritirato quando il workspace diventa visibile. Disattivato mantiene il vecchio ritiro basato sulla visibilità del workspace.",
@@ -1811,7 +1811,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)",
+      "textBox": "TextBox",
       "ios": "App per iOS"
     },
     "dock": {
@@ -1958,11 +1958,10 @@
       "daemonPath": "Il binario del daemon è archiviato in ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote sull'host remoto e verificato rispetto a un manifest SHA-256 incorporato nell'app."
     },
     "textBox": {
-      "title": "TextBox (Beta)",
-      "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Configura l'input TextBox beta di cmux per nuove schede, divisioni e workspace del terminale.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Configura l'input TextBox di cmux per nuove schede, divisioni e workspace del terminale.",
       "intro": "TextBox è la superficie di input avanzata di cmux per comporre prompt prima di inviarli a un terminale.",
-      "betaCallout": "TextBox è una funzionalità beta. Valori predefiniti e comportamento possono cambiare durante i test.",
       "defaultsTitle": "Valori predefiniti",
       "defaultsDesc": "Le impostazioni di TextBox sono in Settings > TextBox:",
       "showSetting": "Show TextBox on New Terminals apre nuovi workspace, schede e divisioni del terminale con TextBox visibile, mantenendo il focus nel terminale.",
