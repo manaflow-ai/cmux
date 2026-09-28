@@ -88,12 +88,16 @@ final class MobileTerminalInputRoutingTests: XCTestCase {
         params.merge(delivery.rpcParameters) { current, _ in current }
 
         let first = try acknowledgement(await send("terminal.input", params))
+        // One write can queue several input items (text plus submit key), so
+        // the invariant is that the resend adds none, whatever the count.
+        let writtenOnce = queuedInputCount(panel)
+        XCTAssertGreaterThan(writtenOnce, 0)
         let resent = try acknowledgement(await send("terminal.input", params))
 
         XCTAssertEqual(first.status, .applied)
         XCTAssertEqual(resent.status, .duplicate)
         XCTAssertEqual(resent.sequence, 1)
-        XCTAssertEqual(queuedInputCount(panel), 1)
+        XCTAssertEqual(queuedInputCount(panel), writtenOnce)
     }
 
     func testIdentifiedInputThatArrivesBeforeItsPredecessorIsNotWritten() async throws {
