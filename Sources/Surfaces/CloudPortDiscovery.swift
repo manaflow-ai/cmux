@@ -27,6 +27,8 @@ struct CloudPortDiscovery: Sendable {
             socketPath = nil
             self.privateAddress = privateAddress
             blocker = nextBlocker
+            // Unchecked even when requested: a refresh still scans via `mayScan`, and a visible Ports group
+            // re-requests `.notRequested`, which a summary update clearing the blocker needs (no refresh follows it).
             state = nextBlocker ?? .notRequested
         } else if let blocker {
             state = blocker

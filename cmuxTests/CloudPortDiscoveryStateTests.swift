@@ -114,6 +114,25 @@ struct CloudPortDiscoveryStateTests {
         #expect(discovery.state == .unavailable(.machineAsleep) && !discovery.mayScan)
     }
 
+    /// `.notRequested` is what makes a visible Ports group request again after a summary update clears the blocker.
+    @Test("A requested machine that gains port support or a new address scans and stays re-requestable")
+    func requestedMachineGainingRouteScans() {
+        var discovery = CloudPortDiscovery()
+        discovery.reconcile(supportsPreviews: false, isAwake: true, privateAddress: "10.0.0.7")
+        discovery.request()
+        #expect(discovery.state == .unsupported && !discovery.mayScan)
+        discovery.reconcile(supportsPreviews: true, isAwake: true, privateAddress: "10.0.0.7")
+        #expect(discovery.state == .notRequested && discovery.mayScan)
+        _ = discovery.beginScan()
+        #expect(discovery.state == .loading)
+        discovery.reconcile(supportsPreviews: true, isAwake: true, privateAddress: "10.0.0.8")
+        #expect(discovery.state == .notRequested && discovery.mayScan)
+        var idle = CloudPortDiscovery()
+        idle.reconcile(supportsPreviews: false, isAwake: true, privateAddress: "10.0.0.7")
+        idle.reconcile(supportsPreviews: true, isAwake: true, privateAddress: "10.0.0.7")
+        #expect(idle.state == .notRequested && !idle.mayScan)
+    }
+
     @Test("A routine link failure before any demand keeps Ports not checked yet")
     func linkFailureWithoutDemandKeepsNotRequested() {
         var discovery = readyDiscovery()
