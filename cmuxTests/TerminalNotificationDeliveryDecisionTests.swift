@@ -15,6 +15,7 @@ struct TerminalNotificationDeliveryDecisionTests {
             isActiveTab: true,
             isFocusedSurface: true,
             isMuted: false,
+            soundWhenFocused: false,
             effects: TerminalNotificationPolicyEffects()
         )
         #expect(decision.disposition == .focusedInline)
@@ -25,6 +26,27 @@ struct TerminalNotificationDeliveryDecisionTests {
         #expect(decision.effects.record)
         #expect(decision.effects.markUnread)
         #expect(decision.effects.command)
+    }
+
+    /// `notifications.soundWhenFocused` restores the sound for the focused
+    /// pane only; banners and pane flash stay off.
+    @Test func focusedPaneSoundFollowsOptIn() {
+        let decision = TerminalNotificationDeliveryDecision.resolve(
+            isAppFocused: true,
+            isActiveTab: true,
+            isFocusedSurface: true,
+            isMuted: false,
+            soundWhenFocused: true,
+            effects: TerminalNotificationPolicyEffects()
+        )
+        #expect(decision.disposition == .focusedInline)
+        #expect(decision.effects.sound)
+        #expect(!decision.effects.desktop)
+        #expect(!decision.effects.paneFlash)
+
+        var silent = TerminalNotificationPolicyEffects()
+        silent.sound = false
+        #expect(!silent.keepingFocusedPaneQuiet(soundWhenFocused: true).sound)
     }
 
     @Test(arguments: [
@@ -38,6 +60,7 @@ struct TerminalNotificationDeliveryDecisionTests {
             isActiveTab: activeTab,
             isFocusedSurface: focusedSurface,
             isMuted: false,
+            soundWhenFocused: false,
             effects: TerminalNotificationPolicyEffects()
         )
         #expect(decision.disposition == .externalDelivery)

@@ -1966,6 +1966,11 @@ class TabManager: ObservableObject {
         workspaceReordering.moveTabToTopForNotification(tabId)
     }
 
+    /// Whether a notification bump would leave this workspace where it is.
+    func isAtTopOfUnpinnedTier(_ tabId: UUID) -> Bool {
+        workspaceReordering.isAtTopOfUnpinnedTier(tabId)
+    }
+
     @discardableResult
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int, isDragOperation: Bool = false) -> Bool {
         workspaceReordering.reorderWorkspace(tabId: tabId, toIndex: targetIndex, isDragOperation: isDragOperation)
