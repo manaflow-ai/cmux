@@ -40,9 +40,9 @@ struct TerminalScrollBarGutterStabilityTests {
             )
             window.contentView?.addSubview(hostedView)
             hostedView.frame = window.contentView?.bounds ?? .zero
-            // The hosted view leaves the style to AppKit, which derives it from
-            // the system preference; pin it on the scroll view itself, the
-            // object AppKit tiles by, so the test is the same on every Mac.
+            // The hosted view derives the style from the system preference;
+            // pin it on the scroll view itself, the object AppKit tiles by,
+            // so the test is the same on every Mac.
             let scrollView = hostedView.subviews.compactMap { $0 as? NSScrollView }.first
             scrollView?.scrollerStyle = scrollerStyle
             hostedView.needsLayout = true
@@ -95,9 +95,8 @@ struct TerminalScrollBarGutterStabilityTests {
 
     @Test("AppKit's legacy scroller remains visible")
     func legacyPresentationRespectsAppKit() throws {
-        // Automatic can select legacy for a connected mouse. The resolved
-        // AppKit style, rather than our interpretation of the preference
-        // string, owns presentation. Pin only this scroll view's style so
+        // "Show scroll bars: Always" selects legacy. Once selected, AppKit
+        // owns its presentation. Pin only this scroll view's style so
         // concurrent tests retain the process's unmodified preferences.
         let harness = Harness(scrollerStyle: .legacy)
         let scrollView = try #require(harness.hostedView.subviews.compactMap { $0 as? NSScrollView }.first)
