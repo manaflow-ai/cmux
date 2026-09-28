@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Decides what a right-click over a terminal link may offer.
 ///
