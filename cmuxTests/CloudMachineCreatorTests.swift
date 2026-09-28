@@ -14,7 +14,13 @@ import Testing
 /// the response and the row: the list decode and the snapshot the row renders
 /// from. The socket payload is the third place the same facts are published,
 /// to the CLI and remote clients rather than to the sidebar.
-@Suite("Cloud machine creator metadata")
+/// `.serialized` because the network tests here drive the same process-global
+/// `CloudRefreshURLProtocol.responses` as `VMClientReadCoalescingTests`, which
+/// carries the trait for the same reason: a `reset()` landing between another
+/// test's `configure` and its request start serves the wrong body. The trait
+/// only orders this suite's own tests; the two suites do not overlap because CI
+/// runs with `-parallel-testing-enabled NO`.
+@Suite("Cloud machine creator metadata", .serialized)
 struct CloudMachineCreatorTests {
     @MainActor
     @Test("the machine list decodes the author the backend sends")
@@ -41,11 +47,12 @@ struct CloudMachineCreatorTests {
         #expect(byID["fixture-2"]?.createdBy == nil)
     }
 
-    /// The panel appends a create receipt to the list it is already showing
-    /// and replaces a listed row with a status read. Either one that dropped
-    /// the author would make a machine go anonymous on the person looking at
-    /// it, which is the exact bug the review of the backend change caught
-    /// there. Same bug, same fix, this side of the wire.
+    /// `create` and `status(id:)` each have exactly one caller, the matching
+    /// socket method, so what they decode is what `cmux vm new --json` and
+    /// `cmux vm status --json` print. Neither feeds the sidebar: the panel only
+    /// ever assigns a whole list result. Pinned so the two endpoints stay
+    /// consistent with the list rather than each carrying a different subset of
+    /// the response.
     @MainActor
     @Test("the single-machine endpoints carry the author too")
     func singleMachineReadsCarryCreator() async throws {
@@ -118,8 +125,9 @@ struct CloudMachineCreatorTests {
         #expect(createdBy["userId"] as? String == "user-a")
         #expect(createdBy["displayName"] as? String == "Ada Lovelace")
 
-        // No author means no key, matching what the backend omits, so a
-        // relayed decode cannot tell the two apart from a direct one.
+        // No author sends no key. The backend sends an explicit null here, and
+        // both readers treat absent and null alike, so this is the narrower of
+        // the two shapes rather than a different meaning.
         let anonymous = TerminalController.socketWorkerVMSummaryPayload(
             VMSummary(id: "vm-2", provider: "fixture", status: "running", image: "desktop-vnc", createdAt: 0)
         )
