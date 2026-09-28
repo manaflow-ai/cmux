@@ -1805,7 +1805,6 @@
       "browserAutomation": "浏览器自动化",
       "skills": "技能",
       "notifications": "通知",
-      "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
       "changelog": "更新日志",
@@ -1820,7 +1819,13 @@
       "cloudWorkspaces": "工作区与代理",
       "cloudNetworking": "文件与网络",
       "cloudCli": "Cloud CLI 参考",
-      "cloudTroubleshooting": "安全与故障排除"
+      "cloudTroubleshooting": "安全与故障排除",
+      "workspacesSection": "工作区",
+      "agentsSection": "代理",
+      "automationSection": "自动化",
+      "remoteSection": "远程访问",
+      "customizeSection": "自定义与管理",
+      "basicsSection": "基础"
     },
     "dock": {
       "metaTitle": "Dock",

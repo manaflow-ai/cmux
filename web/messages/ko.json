@@ -1804,7 +1804,6 @@
       "browserAutomation": "브라우저 자동화",
       "skills": "스킬",
       "notifications": "알림",
-      "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
       "changelog": "변경 로그",
@@ -1819,7 +1818,13 @@
       "cloudWorkspaces": "워크스페이스와 에이전트",
       "cloudNetworking": "파일과 네트워킹",
       "cloudCli": "Cloud CLI 레퍼런스",
-      "cloudTroubleshooting": "보안 및 문제 해결"
+      "cloudTroubleshooting": "보안 및 문제 해결",
+      "workspacesSection": "워크스페이스",
+      "agentsSection": "에이전트",
+      "automationSection": "자동화",
+      "remoteSection": "원격 액세스",
+      "customizeSection": "사용자 지정 및 관리",
+      "basicsSection": "기본"
     },
     "dock": {
       "metaTitle": "Dock",

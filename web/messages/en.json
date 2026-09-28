@@ -3446,7 +3446,6 @@
       "ssh": "SSH",
       "managedPolicies": "Managed Policies (MDM)",
       "remoteTmux": "Remote tmux",
-      "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
       "ohMyCodex": "oh-my-codex",
@@ -3464,7 +3463,13 @@
       "cloudWorkspaces": "Workspaces and Agents",
       "cloudNetworking": "Files and Networking",
       "cloudCli": "Cloud CLI Reference",
-      "cloudTroubleshooting": "Security and Troubleshooting"
+      "cloudTroubleshooting": "Security and Troubleshooting",
+      "workspacesSection": "Workspaces",
+      "agentsSection": "Agents",
+      "automationSection": "Automation",
+      "remoteSection": "Remote Access",
+      "customizeSection": "Customize and Admin",
+      "basicsSection": "Basics"
     },
     "dock": {
       "metaTitle": "Dock",
