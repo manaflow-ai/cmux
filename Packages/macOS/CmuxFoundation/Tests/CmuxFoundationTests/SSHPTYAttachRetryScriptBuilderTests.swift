@@ -63,7 +63,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         #expect(try String(contentsOf: root.appendingPathComponent("launch-count"), encoding: .utf8) == "4")
     }
 
-    @Test func nonTimeoutRegistrationFailureIsTerminal() throws {
+    @Test func nonTimeoutRegistrationFailureRetainsBoundedRetry() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-launch-failure-\(UUID().uuidString)")
         let fakeCLI = root.appendingPathComponent("cmux")
@@ -93,7 +93,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         )
 
         #expect(result.status == 1, Comment(rawValue: result.stderr))
-        #expect(try String(contentsOf: count, encoding: .utf8) == "1")
+        #expect(try String(contentsOf: count, encoding: .utf8) == "3")
     }
 
     @Test func attachExitCodeMatchingLaunchTimeoutIsNotRetried() throws {
