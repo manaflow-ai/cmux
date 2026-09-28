@@ -52,12 +52,47 @@ A tour is a steps array, or an object with `steps` and an optional `launch`:
 | `{"clickAt": {"x": 0.1, "y": 0.2}}`, `hoverAt` | Acts on a point in the main window, 0 to 1 from the top left. |
 | `{"menu": ["File", "New Workspace"]}` | Clicks through the menu bar. |
 | `{"socket": "method", "params": {...}, "save": "name"}` | A v2 control socket request. The reply is attached; `save` keeps its `result`, and a later param `"${name.workspace_id}"` reads a field from it. |
+| `{"record": "name", "steps": [...]}` | Records the window while the nested steps run and attaches the clip. See below. |
+| `{"note": "dragging the workspace"}` | Draws a caption into the clip being recorded. |
 | `{"expect": target, "exists": false}` | Checks that an element exists (or not). |
 
 A target is an accessibility identifier string, or an object with `id`,
 `label`, or `labelContains`, plus optional `type` (`button`, `textField`,
 `staticText`, `menuItem`, `checkBox`, `image`, `group`, `cell`, `tab`, `window`,
 `popover`) and `index`.
+
+## Record a clip
+
+A screenshot cannot show a drag, an animation or the order two views settle in.
+Wrap the steps that matter in a `record` step and the tour attaches a clip of
+them:
+
+```json
+{"record": "sidebar-drag", "format": "gif", "maxSeconds": 30, "fps": 8, "scale": 0.5, "steps": [
+  {"note": "dragging the workspace"},
+  {"clickAt": {"x": 0.08, "y": 0.12}},
+  {"wait": 1},
+  {"shot": "mid-drag"}
+]}
+```
+
+- Options: `format` (`mp4` or `gif`), `fps`, `maxSeconds`, `scale`, `maxWidth`,
+  `region` (`"x,y,w,h"` in window points), `captions` and `label`. They are the
+  flags of `cmux record start` and the app owns their limits, so an out of range
+  value is refused by name. An unknown option is a typo and fails the step.
+- A `gif` at `fps` 8 and `scale` 0.5 is the one to paste into a PR; an `mp4` is
+  sharper and needs a click to play. `scripts/pr-media.py` uploads either and
+  converts an mp4 to a gif on the way.
+- Nested steps behave as they do at the top level, including `shot`, and a nested
+  failure still lets the rest run so the recording is always stopped and the clip
+  of the failure survives. Nested steps are numbered `03.1`, `03.2` in `steps.log`.
+- `note` draws a caption into the clip. It is worth one before each thing you
+  want a reviewer to notice, because a clip has no step list beside it.
+- The clip lands in `attachments/` next to the trees and socket replies, named
+  after the step and the tour's name for it.
+- The app records only its own windows, one at a time, and stops by itself at
+  `maxSeconds` (default 15, max 120). Keep `maxSeconds` above the time the nested
+  steps take, or the clip ends early.
 
 The window is zoomed to fill the display at launch (`"zoom": false` keeps the
 default size). Every tour starts with `00-launched` and ends with `99-final` plus

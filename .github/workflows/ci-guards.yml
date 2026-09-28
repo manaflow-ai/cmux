@@ -598,6 +598,7 @@ jobs:
         if: ${{ matrix.group == 'app-host-execution' }}
         run: |
           python3 tests/test_run_e2e.py
+          python3 tests/test_dogfood_scenarios.py
           python3 tests/test_ci_e2e_compilation_cache.py
           python3 tests/test_ci_focused_test_selectors.py
 

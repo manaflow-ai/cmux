@@ -164,17 +164,14 @@ final class DogfoodScenarioUITests: XCTestCase {
         case .menu(let path):
             try clickMenu(path, in: app)
         case .socket(let method, let params, let saveAs):
-            let resolved = substitute(params)
-            guard let response = socketRequest(method: method, params: resolved) else {
-                throw DogfoodError("no reply from \(method): \(lastSocketError)")
-            }
-            attachText(prettyJSON(response), name: "\(label)-\(method).json")
-            guard response["ok"] as? Bool == true else {
-                throw DogfoodError("\(method) failed: \(prettyJSON(response["error"] ?? response))")
-            }
+            let result = try callSocket(method: method, params: params, label: label)
             if let saveAs {
-                saved[saveAs] = response["result"] ?? [:]
+                saved[saveAs] = result
             }
+        case .record(let name, let params, let steps):
+            try runRecording(name: name, params: params, steps: steps, label: label, app: app)
+        case .note(let text):
+            _ = try callSocket(method: "window.record.note", params: ["text": text], label: label)
         case .expect(let target, let exists):
             let matches = query(target, in: app)
             let element = target.index.map { matches.element(boundBy: $0) } ?? matches.firstMatch
@@ -183,6 +180,89 @@ final class DogfoodScenarioUITests: XCTestCase {
                 throw DogfoodError("expected \(target) to \(exists ? "exist" : "be absent")")
             }
         }
+    }
+
+    /// A v2 request whose reply is attached and whose failure stops the step.
+    @discardableResult
+    private func callSocket(method: String, params: Any, label: String,
+                            suffix: String = "") throws -> [String: Any] {
+        guard let response = socketRequest(method: method, params: substitute(params)) else {
+            throw DogfoodError("no reply from \(method): \(lastSocketError)")
+        }
+        attachText(prettyJSON(response), name: "\(label)\(suffix)-\(method).json")
+        guard response["ok"] as? Bool == true else {
+            throw DogfoodError("\(method) failed: \(prettyJSON(response["error"] ?? response))")
+        }
+        return response["result"] as? [String: Any] ?? [:]
+    }
+
+    // MARK: Recording
+
+    /// Records the window while the nested steps run, and attaches the clip.
+    ///
+    /// A nested step that fails is recorded and the rest still run, as at the
+    /// top level, so the recording always gets stopped and a clip of the
+    /// failure is kept rather than lost with it.
+    private func runRecording(name: String, params: [String: Any], steps: [DogfoodStep],
+                              label: String, app: XCUIApplication) throws {
+        let format = (params["format"] as? String)?.lowercased() == "gif" ? "gif" : "mp4"
+        let clipName = "\(label)-\(Self.fileSafe(name))"
+        // The app writes the clip and this process reads it: its own temporary
+        // directory is the one place both sides can reach, as with the socket.
+        let clip = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(clipName).\(format)")
+        try? FileManager.default.removeItem(at: clip)
+
+        var start = params
+        start["out"] = clip.path
+        let started = try callSocket(method: "window.record.start", params: start, label: label)
+        let id = started["id"] as? String
+        log.append("\(label) recording \(name) as \(id ?? "?") to \(clip.lastPathComponent)")
+
+        for (index, step) in steps.enumerated() {
+            let nested = "\(label).\(index + 1)"
+            do {
+                try run(step, label: nested, app: app)
+                log.append("\(nested) ok \(step.summary)")
+            } catch {
+                record(failure: "step \(nested) \(step.summary): \(error)")
+                shot("\(nested)-failed", app: app)
+            }
+        }
+
+        let stopped = try callSocket(method: "window.record.stop",
+                                     params: id.map { ["id": $0] } ?? [:],
+                                     label: label, suffix: "-stop")
+        attachClip(named: clipName, format: format, fallback: clip, status: stopped)
+    }
+
+    /// The clip itself, so the run page carries the motion and not just frames.
+    private func attachClip(named name: String, format: String, fallback: URL,
+                            status: [String: Any]) {
+        let url = (status["path"] as? String).map { URL(fileURLWithPath: $0) } ?? fallback
+        let described = "state \(status["state"] as? String ?? "?"), frames \(status["frames"] as? Int ?? -1)"
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else {
+            record(failure: "recording \(name) left no readable clip at \(url.lastPathComponent) (\(described))")
+            return
+        }
+        let attachment = XCTAttachment(
+            data: data,
+            uniformTypeIdentifier: format == "gif" ? "com.compuserve.gif" : "public.mpeg-4"
+        )
+        attachment.name = "\(name).\(format)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        log.append("\(name).\(format): \(described), \(data.count) bytes")
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    private static func fileSafe(_ name: String) -> String {
+        let kept = name.map { character -> Character in
+            character.isLetter || character.isNumber || character == "-" || character == "_"
+                ? character : "-"
+        }
+        let joined = String(kept).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return joined.isEmpty ? "clip" : joined
     }
 
     private func query(_ target: DogfoodTarget, in app: XCUIApplication) -> XCUIElementQuery {
@@ -449,6 +529,8 @@ enum DogfoodStep {
     case hoverAt(Double, Double)
     case menu([String])
     case socket(method: String, params: Any, saveAs: String?)
+    case record(name: String, params: [String: Any], steps: [DogfoodStep])
+    case note(String)
     case expect(DogfoodTarget, exists: Bool)
 
     var summary: String {
@@ -466,12 +548,21 @@ enum DogfoodStep {
         case .hoverAt(let x, let y): return "hoverAt \(x),\(y)"
         case .menu(let path): return "menu \(path.joined(separator: " > "))"
         case .socket(let method, _, _): return "socket \(method)"
+        case .record(let name, _, let steps): return "record \(name) around \(steps.count) steps"
+        case .note(let text): return "note \(text.debugDescription)"
         case .expect(let target, let exists): return "expect \(target) exists=\(exists)"
         }
     }
 
     var usesSocket: Bool {
-        if case .socket = self { return true }
+        switch self {
+        case .socket, .record, .note: return true
+        default: return false
+        }
+    }
+
+    var isRecord: Bool {
+        if case .record = self { return true }
         return false
     }
 
@@ -506,6 +597,20 @@ enum DogfoodStep {
         case "socket":
             guard let method = value as? String else { throw DogfoodError("socket takes a method name") }
             self = .socket(method: method, params: object["params"] ?? [String: Any](), saveAs: object["save"] as? String)
+        case "record":
+            guard let name = value as? String, !name.isEmpty else {
+                throw DogfoodError("record takes a name for the clip")
+            }
+            let nested = try (object["steps"] as? [Any] ?? []).map(DogfoodStep.init(json:))
+            guard !nested.contains(where: { $0.isRecord }) else {
+                throw DogfoodError("record cannot contain another record: the app records one window at a time")
+            }
+            self = .record(name: name, params: try Self.recordParams(object), steps: nested)
+        case "note":
+            guard let text = value as? String, !text.isEmpty else {
+                throw DogfoodError("note takes the caption to draw into the clip")
+            }
+            self = .note(text)
         case "expect":
             self = .expect(try DogfoodTarget(json: value), exists: object["exists"] as? Bool ?? true)
         default:
@@ -515,8 +620,29 @@ enum DogfoodStep {
 
     private static let kinds: Set<String> = [
         "shot", "tree", "wait", "type", "key", "click", "doubleClick", "rightClick",
-        "hover", "clickAt", "hoverAt", "menu", "socket", "expect",
+        "hover", "clickAt", "hoverAt", "menu", "socket", "record", "note", "expect",
     ]
+
+    /// Recording options, named as the tour spells them and passed to the app
+    /// as they were given: the app owns the limits, so the tour cannot disagree
+    /// with it about what a valid frame rate is. An unknown key is a typo, and
+    /// a silently dropped `maxseconds` would cut a tour's clip short.
+    private static let recordOptions: [String: String] = [
+        "format": "format", "fps": "fps", "maxSeconds": "max_seconds", "scale": "scale",
+        "maxWidth": "max_width", "region": "region", "captions": "captions", "label": "label",
+    ]
+
+    private static func recordParams(_ object: [String: Any]) throws -> [String: Any] {
+        var params: [String: Any] = [:]
+        for (key, value) in object where key != "record" && key != "steps" {
+            guard let name = recordOptions[key] else {
+                throw DogfoodError("unknown record option \(key); use one of "
+                                   + recordOptions.keys.sorted().joined(separator: ", "))
+            }
+            params[name] = value
+        }
+        return params
+    }
 
     private static func key(named name: String) -> String {
         switch name.lowercased() {
