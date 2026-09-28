@@ -1344,18 +1344,18 @@ jobs:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
 
   # The unsigned Release app, reported on the pull request but not required:
-  # neither ci-status nor tests waits for it. It runs under the same
-  # conditions as when it lived in ci-macos.yml (a full suite whose router
-  # selected release_build, after compile admission, the package lane that
-  # builds its Ghostty helper, and linux-preflight pass). Main's full suite
-  # runs it on every run, so a Release break is red there too.
+  # neither ci-status nor tests waits for it. It runs on a full suite whose
+  # router selected release_build, once the macOS workflow is done and its
+  # package lane built the Ghostty helper, and linux-preflight passed. A red
+  # app-host shard does not skip it, as it did not in ci-macos.yml. Main's
+  # full suite runs it on every run, so a Release break is red there too.
   release:
     needs:
       - changes
       - static-preflight
       - linux-preflight
       - macos
-    if: ${{ !cancelled() && needs.macos.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true' && needs.changes.outputs.release_build == 'true' }}
+    if: ${{ !cancelled() && needs.macos.outputs.ghostty_helper_sha256 != '' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true' && needs.changes.outputs.release_build == 'true' }}
     permissions:
       actions: read
       attestations: read

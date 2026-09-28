@@ -625,16 +625,17 @@ def test_release_build_follows_the_other_areas_when_macos_is_skipped_or_forced()
 
 def test_release_build_reports_without_gating_ci_status() -> None:
     # release-build left the `macos` call ci-status and tests wait for. It
-    # runs under its old conditions: after the macOS workflow (compile
-    # admission and the package lane that builds its helper) and
-    # linux-preflight pass, on a full suite with release_build.
+    # runs on a full suite with release_build, after the macOS workflow built
+    # its helper and linux-preflight passed.
     workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
     jobs = workflow["jobs"]
     release = jobs["release"]
     assert release["uses"] == "./.github/workflows/ci-release.yml"
     assert set(release["needs"]) == {"changes", "static-preflight", "linux-preflight", "macos"}
     for condition in (
-        "needs.macos.result == 'success'",
+        # The helper exists only when the package lane built it; a red
+        # app-host shard elsewhere in the call does not skip the build.
+        "needs.macos.outputs.ghostty_helper_sha256 != ''",
         "needs.linux-preflight.result == 'success'",
         "needs.changes.outputs.macos == 'true'",
         "needs.changes.outputs.full_suite == 'true'",
