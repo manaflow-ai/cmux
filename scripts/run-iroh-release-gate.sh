@@ -817,20 +817,40 @@ REPORT_READY_NOTIFICATION="$REPORT_READY_NOTIFICATION" \
 REPORT_TIMEOUT="$REPORT_TIMEOUT" \
 /usr/bin/python3 <<'PY' &
 import os
+import signal
 import subprocess
+import time
 
+command = [
+    "xcrun", "simctl", "spawn", os.environ["SIMULATOR_ID"],
+    "notifyutil", "-1", os.environ["REPORT_READY_NOTIFICATION"],
+]
+process = subprocess.Popen(
+    command,
+    start_new_session=True,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+)
 try:
-    subprocess.run(
-        [
-            "xcrun", "simctl", "spawn", os.environ["SIMULATOR_ID"],
-            "notifyutil", "-1", os.environ["REPORT_READY_NOTIFICATION"],
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        timeout=int(os.environ["REPORT_TIMEOUT"]),
-    )
+    process.wait(timeout=int(os.environ["REPORT_TIMEOUT"]))
 except subprocess.TimeoutExpired:
+    # notifyutil is an iOS Simulator child. Own its process group so a stalled
+    # notification cannot keep the release-gate job alive after its deadline.
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
     raise SystemExit("Iroh release gate report signal timed out")
+if process.returncode != 0:
+    raise SystemExit(f"Iroh release gate report waiter exited with {process.returncode}")
 PY
 REPORT_WAITER_PID=$!
 

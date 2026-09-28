@@ -8,6 +8,7 @@ import CmuxFoundation
 final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
     lazy var reorderPresentation = CloudTreeReorderPresentation(outline: self)
+    let disclosureScope = CloudTreeDisclosureScope()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -200,7 +201,6 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     var onOpenSelection: (() -> Void)?
-    let ownershipFeedback = SurfaceDropFeedback()
     var onMoveSelection: ((Int) -> Void)?
     var onMoveMachine: ((Int) -> Bool)?
     var onDisclosure: ((RightSidebarKeyboardNavigation.DisclosureAction) -> Void)?
@@ -230,28 +230,24 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
-        ownershipFeedback.clear()
         guard reorderPresentation.isCurrent(sender) else { return }
         super.draggingExited(sender)
         reorderPresentation.clear(sequence: sender?.draggingSequenceNumber)
     }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
-        ownershipFeedback.clear()
         guard reorderPresentation.isCurrent(sender) else { return }
         // NSOutlineView may not implement this optional destination notification.
         reorderPresentation.ended(sender)
     }
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
-        ownershipFeedback.clear()
         guard reorderPresentation.isCurrent(sender) else { return }
         super.concludeDragOperation(sender)
         reorderPresentation.clear(sequence: sender?.draggingSequenceNumber)
     }
 
     override func viewDidHide() {
-        ownershipFeedback.clear()
         super.viewDidHide()
         reorderPresentation.clear()
     }
@@ -351,19 +347,23 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     override func expandItem(_ item: Any?, expandChildren: Bool) {
-        NSAnimationContext.beginGrouping()
-        NSAnimationContext.current.duration = 0
-        super.expandItem(item, expandChildren: expandChildren)
-        NSAnimationContext.endGrouping()
-        onDocumentContentChanged?()
+        disclosureScope.perform(item: item, recursive: expandChildren) {
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0
+            super.expandItem(item, expandChildren: expandChildren)
+            NSAnimationContext.endGrouping()
+            onDocumentContentChanged?()
+        }
     }
 
     override func collapseItem(_ item: Any?, collapseChildren: Bool) {
-        NSAnimationContext.beginGrouping()
-        NSAnimationContext.current.duration = 0
-        super.collapseItem(item, collapseChildren: collapseChildren)
-        NSAnimationContext.endGrouping()
-        onDocumentContentChanged?()
+        disclosureScope.perform(item: item, recursive: collapseChildren) {
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0
+            super.collapseItem(item, collapseChildren: collapseChildren)
+            NSAnimationContext.endGrouping()
+            onDocumentContentChanged?()
+        }
     }
 
     override func reloadData() {

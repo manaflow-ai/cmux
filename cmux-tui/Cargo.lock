@@ -701,6 +701,7 @@ dependencies = [
  "cmux-tui-source-watch",
  "cmux-wg",
  "diffy",
+ "flate2",
  "fs4",
  "futures-util",
  "getrandom 0.3.4",
