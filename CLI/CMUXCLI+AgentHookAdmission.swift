@@ -10,6 +10,12 @@ import CMUXAgentLaunch
 /// it printed, so past the budget the process answers with the neutral `{}`
 /// the shell fallback would print and exits. Exactly one response is written:
 /// the command's own output and the watchdog both go through ``respond(_:)``.
+///
+/// A spooled record is unlinked when a drainer claims it, so the process must
+/// not exit between that claim and the record's admission request. Such a
+/// claim runs between ``beginClaim()`` and ``endClaim()``; a budget that
+/// expires meanwhile answers and exits when the claim ends, and no further
+/// claim starts.
 final class AgentHookEnqueueWallClock: @unchecked Sendable {
     static let shared = AgentHookEnqueueWallClock()
 
@@ -18,6 +24,8 @@ final class AgentHookEnqueueWallClock: @unchecked Sendable {
 
     private let lock = NSLock()
     private var responded = false
+    private var claimsInFlight = 0
+    private var exitPending = false
     private var timer: DispatchSourceTimer?
 
     static func budgetSeconds(
@@ -57,12 +65,45 @@ final class AgentHookEnqueueWallClock: @unchecked Sendable {
         write()
     }
 
+    /// Starts claiming one spooled record.
+    ///
+    /// - Returns: `false` once the budget expired, in which case the caller
+    ///   leaves the record for the forwarder or the next drainer.
+    func beginClaim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !responded, !exitPending else { return false }
+        claimsInFlight += 1
+        return true
+    }
+
+    /// Ends a claim started by ``beginClaim()``, exiting if the budget
+    /// expired while it was in flight.
+    func endClaim() {
+        lock.lock()
+        claimsInFlight -= 1
+        guard exitPending, claimsInFlight == 0, !responded else {
+            lock.unlock()
+            return
+        }
+        answerAndExitHoldingLock()
+    }
+
     private func expire() {
         lock.lock()
         guard !responded else {
             lock.unlock()
             return
         }
+        guard claimsInFlight == 0 else {
+            exitPending = true
+            lock.unlock()
+            return
+        }
+        answerAndExitHoldingLock()
+    }
+
+    private func answerAndExitHoldingLock() {
         responded = true
         // Keep the lock: a racing respond(_:) must not write a second answer
         // while this process exits.
