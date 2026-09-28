@@ -3,12 +3,12 @@
  * Upgrades cmux-tui in place on running Freestyle machines without ending a
  * terminal. docs/cloud-guest-upgrades.md is the contract and the runbook.
  *
- * Each machine gets two files in /var/lib/cmux-tui-upgrade: the pinned install
- * command (`cmuxTuiInstallCommand`, the exact command the image bake runs)
- * and the guest script `scripts/cloud-vm/cmux-tui-upgrade.sh`, which
- * runs detached as root and writes one result line. This runner only starts
- * the script and polls the result; the guest script owns every safety check
- * and the rollback.
+ * Each machine gets a fresh run directory under /var/lib/cmux-tui-upgrade with
+ * the pinned install command (`cmuxTuiInstallCommand`, the exact command the
+ * image bake runs) and the guest script `scripts/cloud-vm/cmux-tui-upgrade.sh`,
+ * which runs detached as root, holds a per-machine lock, and writes one result
+ * line. This runner only starts the script and polls the result; the guest
+ * script owns every safety check and the rollback.
  *
  * The target defaults to the cmux-tui build the default image bakes, so an
  * upgraded machine runs what a new machine runs. It never changes database
@@ -56,14 +56,17 @@ function defaultImageCommit(): string {
   return [...commits][0];
 }
 
+/** Every entry must be a machine id: a typo must stop the run, not shrink it. */
 function machineIds(): string[] {
   const fromFile = argValue("--vms-file");
-  const ids = [
+  const entries = [
     ...argValues("--vm"),
-    ...(fromFile ? readFileSync(fromFile, "utf8").split("\n").map((line) => line.split(/\s/)[0]) : []),
-  ].filter((id) => /^vm-[0-9a-f]{32}$/.test(id));
-  if (ids.length === 0) throw new Error("no machines: pass --vm <id> or --vms-file <file>");
-  return [...new Set(ids)];
+    ...(fromFile ? readFileSync(fromFile, "utf8").split("\n").map((line) => line.trim().split(/\s+/)[0] ?? "") : []),
+  ].map((entry) => entry.trim()).filter((entry) => entry !== "");
+  const invalid = entries.filter((entry) => !/^vm-[0-9a-f]{32}$/.test(entry));
+  if (invalid.length > 0) throw new Error(`not machine ids: ${invalid.join(", ")}`);
+  if (entries.length === 0) throw new Error("no machines: pass --vm <id> or --vms-file <file>");
+  return [...new Set(entries)];
 }
 
 /** `echo <base64> | base64 -d`: the provider exec body carries no quoting of its own. */
@@ -85,12 +88,13 @@ const apiKey = process.env.FREESTYLE_API_KEY;
 if (!apiKey) throw new Error("FREESTYLE_API_KEY is required");
 const freestyle = new Freestyle({ apiKey, ...(process.env.FREESTYLE_API_URL ? { baseUrl: process.env.FREESTYLE_API_URL } : {}) });
 
+// One directory per run: concurrent runs never share an install command or result.
+const runDir = `${GUEST_DIR}/run-${new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14)}-${source.commit.slice(0, 12)}`;
 const launch = [
-  `mkdir -p ${GUEST_DIR}`,
-  writeFileCommand(`${GUEST_DIR}/install.cmd`, cmuxTuiInstallCommand(source)),
-  writeFileCommand(`${GUEST_DIR}/upgrade.sh`, guestScript),
-  `rm -f ${GUEST_DIR}/result`,
-  `(setsid nohup sh ${GUEST_DIR}/upgrade.sh ${source.sha256} ${source.commit} </dev/null >/dev/null 2>&1 &)`,
+  `mkdir -p ${runDir}`,
+  writeFileCommand(`${runDir}/install.cmd`, cmuxTuiInstallCommand(source)),
+  writeFileCommand(`${runDir}/upgrade.sh`, guestScript),
+  `(setsid nohup sh ${runDir}/upgrade.sh ${source.sha256} ${source.commit} ${runDir} </dev/null >/dev/null 2>&1 &)`,
   "echo launched",
 ].join(" && ");
 
@@ -113,7 +117,7 @@ const deadline = Date.now() + POLL_DEADLINE_MS;
 while (results.size < ids.length && Date.now() < deadline) {
   await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   await Promise.all(ids.filter((id) => !results.has(id)).map(async (id) => {
-    const line = await run(id, `cat ${GUEST_DIR}/result 2>/dev/null || echo running`);
+    const line = await run(id, `cat ${runDir}/result 2>/dev/null || echo running`);
     if (!/^(running|ERR)/.test(line)) results.set(id, line);
   }));
 }

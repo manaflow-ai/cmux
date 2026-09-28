@@ -115,7 +115,7 @@ The target is the cmux-tui build the default image bakes (the manifest's
     where provider_vm_id = any($1)
       and destroyed_at is null
       and coalesce(provider_metadata->>'cmuxTuiContract', '') = ''
-      and provider_metadata ? 'networkIpv4'
+      and (provider_metadata ? 'networkIpv4' or provider_metadata ? 'networkIpv6')
    returning provider_vm_id;
    ```
 
@@ -123,21 +123,28 @@ The target is the cmux-tui build the default image bakes (the manifest's
    for each machine returns 200 (Axiom `cmux-prod-otel-traces`, span
    `POST /api/vm/[id]/attach-endpoint`).
 
-What the guest script (`web/scripts/cloud-vm/cmux-tui-upgrade.sh`)
-does per machine, detached as root, one result line in
-`/var/lib/cmux-tui-upgrade/result`:
+What the guest script (`web/scripts/cloud-vm/cmux-tui-upgrade.sh`) does per
+machine: it runs detached as root from its own run directory
+(`/var/lib/cmux-tui-upgrade/run-<time>-<commit>/`, with `result` and `log`),
+and holds a per-machine lock, so a second run reports `SKIP busy`.
 
 - `SKIP no-trusted-carrier`: the supervisor starts a pre-carrier daemon. A new
   binary would not make it attachable; the machine is image-only (below).
-- `SKIP disk-free=<n>MB`, `SKIP no-daemon`: nothing changed. A no-daemon
-  machine usually crash-loops or has a full disk; inspect it.
-- Otherwise it backs up the binary to `cmux-tui.pre-<commit>`, runs the
-  pinned install command the bake uses (sha256-verified, atomic rename), waits
-  for the current daemon to listen, sends it SIGTERM, and waits up to 10
-  minutes for the supervisor's new daemon to listen. `OK upgraded` reports
-  terminal counts before and after and any host that died.
-- `ROLLBACK`: the new daemon crashed or never listened; the old binary is
-  restored and the daemon restarted. Read `/var/lib/cmux-tui-upgrade/log`.
+- `SKIP disk-free=<n>MB`, `SKIP no-daemon`, `SKIP daemon-not-listening`:
+  nothing changed. A no-daemon machine usually crash-loops or has a full
+  disk; inspect it.
+- Otherwise it saves the running binary into the run directory, runs the
+  pinned install command the bake uses (sha256-verified, atomic rename), sends
+  the listening daemon SIGTERM, and waits up to 10 minutes for the
+  supervisor's new daemon to listen. `OK upgraded` means the new daemon serves,
+  no terminal host died, and the terminal count did not drop; either loss is
+  `FAIL` instead.
+- When the new daemon crashes or never listens, the script restores the saved
+  binary and restarts the daemon. The new daemon may already have migrated
+  on-disk state that the old binary cannot open, so the restore is trusted
+  only when the old daemon serves again: `ROLLBACK` means it does,
+  `FAIL rollback-daemon-unhealthy` means it does not and the machine needs a
+  person (reinstall the target and debug it, or recreate the machine).
 
 A connected Mac sees one daemon restart per upgraded machine: its link drops
 and resumes; the terminals and their processes do not restart.
