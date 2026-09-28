@@ -2,10 +2,98 @@ import CmuxSidebar
 import Foundation
 
 extension Workspace {
+    /// The workspace row is an aggregate of every pane: each visible key shows
+    /// its most urgent pane's entry (see `mostUrgentPanelStatusEntry`), not
+    /// whichever pane wrote last or the focused one.
     func sidebarStatusEntriesVisibleForDisplay() -> [SidebarStatusEntry] {
         let visibleStructuredStatusKeys = visibleStructuredAgentStatusKeysByPanel()
-        return statusEntries.values.filter { entry in
-            shouldDisplaySidebarStatusEntry(entry, visibleStructuredStatusKeys: visibleStructuredStatusKeys)
+        return statusEntries.values.compactMap { entry in
+            guard shouldDisplaySidebarStatusEntry(entry, visibleStructuredStatusKeys: visibleStructuredStatusKeys) else {
+                return nil
+            }
+            return mostUrgentPanelStatusEntry(forKey: entry.key) ?? entry
+        }
+    }
+
+    /// Keys with at least one live pane waiting on the person; the row sorts
+    /// them ahead of other entries of the same priority.
+    func sidebarStatusKeysNeedingInput() -> Set<String> {
+        var keys = Set<String>()
+        for (panelId, lifecycleStates) in agentLifecycleStatesByPanelId where panels[panelId] != nil {
+            for (key, lifecycle) in lifecycleStates where lifecycle == .needsInput {
+                keys.insert(key)
+            }
+        }
+        return keys
+    }
+
+    /// A pane's own last-reported entry for `key`, while the workspace still
+    /// shows that key at all.
+    func agentStatusEntry(key: String, panelId: UUID) -> SidebarStatusEntry? {
+        guard statusEntries[key] != nil else { return nil }
+        return agentStatusEntriesByPanelId[panelId]?[key]
+    }
+
+    func setStatusEntry(_ entry: SidebarStatusEntry, key: String, panelId: UUID?) {
+        statusEntries[key] = entry
+        if let panelId, panels[panelId] != nil {
+            agentStatusEntriesByPanelId[panelId, default: [:]][key] = entry
+        }
+    }
+
+    /// Clearing one pane's status leaves the key showing while another pane
+    /// still owns it (a second Claude pane keeps running after the first ends).
+    func clearStatusEntry(key: String, panelId: UUID?) {
+        if let panelId {
+            agentStatusEntriesByPanelId[panelId]?.removeValue(forKey: key)
+            if agentStatusEntriesByPanelId[panelId]?.isEmpty == true {
+                agentStatusEntriesByPanelId.removeValue(forKey: panelId)
+            }
+            if let remaining = mostUrgentPanelStatusEntry(forKey: key) {
+                statusEntries[key] = remaining
+                return
+            }
+        }
+        statusEntries.removeValue(forKey: key)
+        for panelId in Array(agentStatusEntriesByPanelId.keys) {
+            agentStatusEntriesByPanelId[panelId]?.removeValue(forKey: key)
+            if agentStatusEntriesByPanelId[panelId]?.isEmpty == true {
+                agentStatusEntriesByPanelId.removeValue(forKey: panelId)
+            }
+        }
+    }
+
+    /// Several panes can report the same agent key (two Claude panes share
+    /// `claude_code`). The pane that most needs the person wins: needs input,
+    /// then running, then unknown, then idle; the newest report breaks ties.
+    /// Only live panes that still own the agent (a lifecycle state or an agent
+    /// PID for the key) count, so an ended pane's last report never lingers.
+    /// Nil when no pane-scoped report exists; callers fall back to the
+    /// workspace entry.
+    func mostUrgentPanelStatusEntry(forKey key: String) -> SidebarStatusEntry? {
+        var winner: (rank: Int, entry: SidebarStatusEntry)?
+        for (panelId, entries) in agentStatusEntriesByPanelId where panels[panelId] != nil {
+            guard let entry = entries[key], panelOwnsAgentStatus(key: key, panelId: panelId) else { continue }
+            let rank = Self.sidebarStatusUrgencyRank(agentLifecycleStatesByPanelId[panelId]?[key])
+            if let current = winner, (current.rank, current.entry.timestamp) >= (rank, entry.timestamp) {
+                continue
+            }
+            winner = (rank, entry)
+        }
+        return winner?.entry
+    }
+
+    private func panelOwnsAgentStatus(key: String, panelId: UUID) -> Bool {
+        if agentLifecycleStatesByPanelId[panelId]?[key] != nil { return true }
+        return agentPIDKeysByPanelId[panelId]?.contains { agentStatusKey(forAgentPIDKey: $0) == key } ?? false
+    }
+
+    private static func sidebarStatusUrgencyRank(_ lifecycle: AgentHibernationLifecycleState?) -> Int {
+        switch lifecycle {
+        case .needsInput: 3
+        case .running: 2
+        case .unknown, nil: 1
+        case .idle: 0
         }
     }
 

@@ -417,6 +417,67 @@ struct WorkspaceSidebarObservationTests {
             ) == 2
         )
     }
+
+    /// Two panes running the same agent share one status key. The row is a
+    /// workspace aggregate: the pane waiting on the person wins over a pane
+    /// that reported Running later, and ending one pane keeps the other's.
+    @Test func sharedAgentStatusKeyShowsTheMostUrgentPane() throws {
+        let workspace = Workspace()
+        let waitingPanelId = try #require(workspace.focusedPanelId)
+        let runningPanelId = try #require(
+            workspace.newTerminalSplit(from: waitingPanelId, orientation: .horizontal, focus: false)?.id
+        )
+        let owner = ControlSidebarPanelOwner.workspace(workspace)
+        workspace.recordAgentPID(key: "claude_code.a", pid: 12_401, panelId: waitingPanelId, refreshPorts: false)
+        workspace.recordAgentPID(key: "claude_code.b", pid: 12_402, panelId: runningPanelId, refreshPorts: false)
+
+        owner.setStatusEntry(
+            SidebarStatusEntry(key: "claude_code", value: "Needs input", timestamp: Date(timeIntervalSince1970: 1_000)),
+            key: "claude_code",
+            panelId: waitingPanelId
+        )
+        workspace.setAgentLifecycle(key: "claude_code", panelId: waitingPanelId, lifecycle: .needsInput)
+        owner.setStatusEntry(
+            SidebarStatusEntry(key: "claude_code", value: "Running", timestamp: Date(timeIntervalSince1970: 2_000)),
+            key: "claude_code",
+            panelId: runningPanelId
+        )
+        workspace.setAgentLifecycle(key: "claude_code", panelId: runningPanelId, lifecycle: .running)
+
+        #expect(
+            workspace.sidebarStatusEntriesInDisplayOrder().first { $0.key == "claude_code" }?.value == "Needs input",
+            "A later Running report from another pane must not hide the pane waiting on the person."
+        )
+
+        owner.clearStatusEntry(key: "claude_code", panelId: waitingPanelId)
+        _ = workspace.clearAgentLifecycle(key: "claude_code", panelId: waitingPanelId)
+        #expect(
+            workspace.sidebarStatusEntriesInDisplayOrder().first { $0.key == "claude_code" }?.value == "Running",
+            "Clearing one pane's status keeps the key showing for the pane that still runs the agent."
+        )
+    }
+
+    /// Across different agents of the same priority, one waiting on the person
+    /// sorts first even when another reported more recently.
+    @Test func needsInputStatusSortsAheadOfNewerEntries() throws {
+        let workspace = Workspace()
+        let codexPanelId = try #require(workspace.focusedPanelId)
+        let claudePanelId = try #require(
+            workspace.newTerminalSplit(from: codexPanelId, orientation: .horizontal, focus: false)?.id
+        )
+        workspace.recordAgentPID(key: "codex.a", pid: 12_403, panelId: codexPanelId, refreshPorts: false)
+        workspace.recordAgentPID(key: "claude_code.a", pid: 12_404, panelId: claudePanelId, refreshPorts: false)
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code", value: "Needs input", timestamp: Date(timeIntervalSince1970: 1_000)
+        )
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex", value: "Running", timestamp: Date(timeIntervalSince1970: 2_000)
+        )
+        workspace.setAgentLifecycle(key: "claude_code", panelId: claudePanelId, lifecycle: .needsInput)
+        workspace.setAgentLifecycle(key: "codex", panelId: codexPanelId, lifecycle: .running)
+
+        #expect(workspace.sidebarStatusEntriesInDisplayOrder().map(\.key) == ["claude_code", "codex"])
+    }
 }
 
 // Mutable flag captured by Observation's Sendable onChange closure in this test.
