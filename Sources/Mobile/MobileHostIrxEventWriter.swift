@@ -1,5 +1,6 @@
 import CmuxIrxTransport
 import Foundation
+import os
 
 /// Server-events lane writer over irx: opened lazily at priority 50, reset on
 /// stall so the host service can renegotiate, mirroring the legacy contract.
@@ -7,11 +8,16 @@ import Foundation
 /// When the phone negotiated surface lanes, each terminal's render-grid frames
 /// go on their own uni stream (``IrxSurfaceEventLanes``) instead of this
 /// shared lane, so a burst for one terminal cannot delay another's echo.
+///
+/// Once the phone lists an ``IrxLaneEncoding`` on subscribe, every lane opened
+/// afterwards compresses its whole byte stream; lanes already open keep the
+/// identity encoding their descriptor declared.
 actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
     private let connection: IrxConnection
     private let journal: IrxJournal
     private let surfaceLanes: IrxSurfaceEventLanes
-    private var writer: IrxStreamWriter?
+    private let laneEncoding: OSAllocatedUnfairLock<IrxLaneEncoding?>
+    private var writer: (any IrxEventLaneWriting)?
 
     nonisolated let maximumSurfaceEventLaneCount: Int
 
@@ -22,14 +28,41 @@ actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
     ) {
         self.connection = connection
         self.journal = journal
+        let laneEncoding = OSAllocatedUnfairLock<IrxLaneEncoding?>(initialState: nil)
+        self.laneEncoding = laneEncoding
         maximumSurfaceEventLaneCount = surfaceLaneConfiguration.maximumLaneCount
         surfaceLanes = IrxSurfaceEventLanes(
             configuration: surfaceLaneConfiguration,
             journal: journal,
             open: { descriptor in
-                try await connection.openUniLane(descriptor)
+                try await Self.openLane(
+                    descriptor,
+                    encoding: laneEncoding.withLock { $0 },
+                    on: connection
+                )
             }
         )
+    }
+
+    nonisolated func setLaneEncoding(_ encoding: IrxLaneEncoding?) {
+        laneEncoding.withLock { $0 = encoding }
+    }
+
+    private static func openLane(
+        _ descriptor: IrxLaneDescriptor,
+        encoding: IrxLaneEncoding?,
+        on connection: IrxConnection
+    ) async throws -> any IrxEventLaneWriting {
+        var descriptor = descriptor
+        descriptor.encoding = encoding?.rawValue
+        let opened = try await connection.openUniLane(descriptor)
+        guard let encoding else { return opened }
+        do {
+            return try IrxEncodingLaneWriter(opened, encoding: encoding)
+        } catch {
+            await opened.reset(errorCode: IrxSurfaceEventLanes.writeFailedResetCode)
+            throw error
+        }
     }
 
     func probe(_ framedData: Data) async -> Bool {
@@ -75,9 +108,13 @@ actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
         await surfaceLanes.noteFocused(surfaceID: surfaceID)
     }
 
-    private func openedWriter() async throws -> IrxStreamWriter {
+    private func openedWriter() async throws -> any IrxEventLaneWriting {
         if let writer { return writer }
-        let opened = try await connection.openUniLane(IrxLaneDescriptor(lane: .events))
+        let opened = try await Self.openLane(
+            IrxLaneDescriptor(lane: .events),
+            encoding: laneEncoding.withLock { $0 },
+            on: connection
+        )
         try? await opened.setPriority(50)
         writer = opened
         journal.record("host-events", "writer-opened")

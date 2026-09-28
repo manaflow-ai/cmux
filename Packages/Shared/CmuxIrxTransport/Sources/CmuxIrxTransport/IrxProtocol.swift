@@ -121,18 +121,24 @@ public struct IrxLaneDescriptor: Codable, Equatable, Sendable {
     public var cursor: UInt64?
     /// Artifact byte offset.
     public var offset: UInt64?
+    /// ``IrxLaneEncoding`` raw value applied to every byte after this
+    /// descriptor; nil for identity. A string so a reader that meets a newer
+    /// encoding can refuse that one lane instead of failing descriptor decode.
+    public var encoding: String?
 
     public init(
         lane: IrxLaneKind,
         resource: String? = nil,
         cursor: UInt64? = nil,
-        offset: UInt64? = nil
+        offset: UInt64? = nil,
+        encoding: IrxLaneEncoding? = nil
     ) {
         v = IrxProtocol().version
         self.lane = lane
         self.resource = resource
         self.cursor = cursor
         self.offset = offset
+        self.encoding = encoding?.rawValue
     }
 }
 

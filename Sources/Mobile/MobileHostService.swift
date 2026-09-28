@@ -1966,6 +1966,13 @@ actor MobileHostConnection {
             let existingSubscription = subscriptions[streamID]
             let alreadySubscribed = existingSubscription != nil
             let requestedTransport = request.params["event_transport"] as? String
+            // Must precede lane negotiation: the probe below opens the shared
+            // events lane, and a lane's encoding is fixed when it opens.
+            if let laneEncoding = IrxLaneEncoding.negotiated(
+                fromSubscribeParameter: request.params[IrxLaneEncoding.subscribeParameterKey]
+            ) {
+                independentEventWriter?.setLaneEncoding(laneEncoding)
+            }
             let selectedTransport: MobileHostEventTransport
             if let existingSubscription {
                 // An idempotent subscribe proves the authenticated control

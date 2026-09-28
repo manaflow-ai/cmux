@@ -112,14 +112,26 @@ public actor IrxServerEventLaneHub {
         }
     }
 
-    private func admit(descriptor: IrxLaneDescriptor, reader: any IrxEventLaneReading) async {
+    private func admit(descriptor: IrxLaneDescriptor, reader rawReader: any IrxEventLaneReading) async {
         guard !isFinished else {
-            await reader.stop(errorCode: 0)
+            await rawReader.stop(errorCode: 0)
             return
         }
         guard descriptor.lane == .events else {
-            await reader.stop(errorCode: Self.unsupportedLaneStopCode)
+            await rawReader.stop(errorCode: Self.unsupportedLaneStopCode)
             return
+        }
+        let reader: any IrxEventLaneReading
+        if let encodingName = descriptor.encoding {
+            guard let encoding = IrxLaneEncoding(rawValue: encodingName),
+                  let decoding = try? IrxDecodingLaneReader(rawReader, encoding: encoding) else {
+                journal?.record("client-events", "lane-refused", ["reason": "encoding"])
+                await rawReader.stop(errorCode: Self.unsupportedLaneStopCode)
+                return
+            }
+            reader = decoding
+        } else {
+            reader = rawReader
         }
         let surfaceID = IrxSurfaceEventLaneProtocol().surfaceID(of: descriptor)
         if surfaceID != nil, surfaceLaneIDs.count >= limits.maximumSurfaceLaneCount {
@@ -149,6 +161,8 @@ public actor IrxServerEventLaneHub {
                     await self?.deliver(frames)
                 }
             } catch is IrxEventFrameAligner.Failure {
+                stopCode = Self.malformedFrameStopCode
+            } catch is IrxLaneCompressionError {
                 stopCode = Self.malformedFrameStopCode
             } catch {
                 // A reset lane only loses its own unfinished frame.
