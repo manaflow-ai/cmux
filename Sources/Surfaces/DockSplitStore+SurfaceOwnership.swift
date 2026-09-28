@@ -1,4 +1,5 @@
 import CmuxCloud
+import Bonsplit
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -18,8 +19,10 @@ extension DockSplitStore {
         case .surfaceResources(let group):
             return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: surfaceOwnershipPolicy)
         case .surface:
-            let machine = transfer.isFromCurrentProcess ? AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId) : nil
-            return surfaceOwnershipPolicy.rejection(for: machine)
+            guard transfer.isFromCurrentProcess else { return surfaceOwnershipPolicy.rejection(for: nil) }
+            // A Dock surface split or reordered within this Dock stays on its machine.
+            if surfaceIdToPanelId[TabID(uuid: transfer.tabId)] != nil { return nil }
+            return surfaceOwnershipPolicy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
         case .vaultSession, .filePreview, .rightSidebarTool:
             return surfaceOwnershipPolicy.rejection(for: .local)
         }
