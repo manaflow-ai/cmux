@@ -336975,6 +336975,124 @@
         }
       }
     },
+    "settings.notifications.soundWhenFocused.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play the notification sound even when the pane that notified is already focused. When off, a focused pane shows its ring without a sound."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شغّل صوت الإشعار حتى عندما تكون اللوحة التي أرسلت الإشعار في موضع التركيز بالفعل. عند إيقافه، تعرض اللوحة المُركَّز عليها حلقتها دون صوت."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den Benachrichtigungston auch abspielen, wenn der benachrichtigende Bereich bereits fokussiert ist. Wenn aus, zeigt ein fokussierter Bereich seinen Ring ohne Ton."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduce el sonido de notificación incluso cuando el panel que notificó ya tiene el foco. Si está desactivado, un panel con foco muestra su anillo sin sonido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jouer le son de notification même lorsque le panneau à l’origine de la notification a déjà le focus. Désactivé, un panneau actif affiche son anneau sans son."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を送ったペインがすでにフォーカスされている場合でも通知音を鳴らします。オフの場合、フォーカス中のペインは音を鳴らさずにリングを表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림을 보낸 패널이 이미 포커스된 상태여도 알림음을 재생합니다. 끄면 포커스된 패널은 소리 없이 링만 표시합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使发出通知的窗格已处于焦点状态，也播放通知声音。关闭时，处于焦点的窗格会显示光环但不发出声音。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使發出通知的窗格已在焦點中，也播放通知聲音。關閉時，焦點中的窗格會顯示光環但不發出聲音。"
+          }
+        }
+      }
+    },
+    "settings.notifications.soundWhenFocused.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sound for Focused Pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صوت للوحة المُركَّز عليها"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ton für fokussierten Bereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonido para el panel con foco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son pour le panneau actif"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のペインの通知音"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포커스된 패널 소리"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "焦点窗格的声音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "焦點窗格的聲音"
+          }
+        }
+      }
+    },
     "settings.notifications.soundOverrides.subtitle": {
       "extractionState": "manual",
       "localizations": {

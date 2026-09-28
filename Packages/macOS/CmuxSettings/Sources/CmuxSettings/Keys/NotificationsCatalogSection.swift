@@ -40,6 +40,15 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationSound"
     )
 
+    /// Plays the notification sound even when the notifying pane is already
+    /// focused. Off by default: the focused pane shows the ring and flash only,
+    /// since its "default" sound is the system alert that also marks errors.
+    public let soundWhenFocused = DefaultsKey<Bool>(
+        id: "notifications.soundWhenFocused",
+        defaultValue: false,
+        userDefaultsKey: "notificationSoundWhenFocused"
+    )
+
     public let customSoundFilePath = DefaultsKey<String>(
         id: "notifications.customSoundFilePath",
         defaultValue: "",
