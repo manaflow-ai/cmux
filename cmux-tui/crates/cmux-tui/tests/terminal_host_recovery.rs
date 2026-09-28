@@ -4801,7 +4801,15 @@ fn adopted_template_terminal_is_restored_in_place_after_a_daemon_restart() {
 
     harness.signal_daemon(libc::SIGTERM);
     let mut daemon = harness.child.take().unwrap();
-    daemon.wait().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(5));
+    while daemon.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            let _ = daemon.kill();
+            let _ = daemon.wait();
+            panic!("daemon did not exit after SIGTERM");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
     let _ = fs::remove_file(&harness.socket);
     harness.restart();
 
@@ -4834,4 +4842,17 @@ fn adopted_template_terminal_is_restored_in_place_after_a_daemon_restart() {
             .iter()
             .any(|(_, record)| record.host_pid == parked.host_pid)
     );
+    // The warm shell itself survived both restarts.
+    let resolved = request_response(
+        &harness.socket,
+        serde_json::json!({"id": 3, "cmd": "resolve-terminal", "terminal_id": parked.terminal_id}),
+    );
+    assert_eq!(resolved["data"]["lifecycle"], "running", "{resolved}");
+    assert_eq!(
+        resolved["data"]["terminal_incarnation"].as_str(),
+        Some(parked.incarnation.as_str()),
+        "{resolved}"
+    );
+    let surface = resolved["data"]["surface"].as_u64().unwrap();
+    assert!(wait_for_screen(&harness.socket, surface, &parked.marker).contains(&parked.marker));
 }
