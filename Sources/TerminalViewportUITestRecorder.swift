@@ -212,8 +212,11 @@ final class TerminalViewportUITestRecorder {
 
         return [
             "terminalViewportPanelId": terminalPanel.id.uuidString,
-            "terminalViewportPanelWidth": format(hostedSuperviewBounds.width),
-            "terminalViewportPanelHeight": format(hostedSuperviewBounds.height),
+            // The portal's superview spans the whole window. The terminal's
+            // bounds are the actual panel viewport and exclude the tab-bar
+            // lane that sits above it.
+            "terminalViewportPanelWidth": format(hostedBounds.width),
+            "terminalViewportPanelHeight": format(hostedBounds.height),
             "terminalViewportHostedFrameMinX": format(hostedFrame.minX),
             "terminalViewportHostedFrameMinY": format(hostedFrame.minY),
             "terminalViewportHostedFrameMaxX": format(hostedFrame.maxX),

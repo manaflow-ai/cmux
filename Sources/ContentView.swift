@@ -10914,9 +10914,34 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         if let accessibilityIdentifier {
-            content.accessibilityIdentifier(accessibilityIdentifier)
+            content
+                // A clear shape with a gesture is otherwise omitted from the
+                // accessibility tree. Expose the hit target as one element so
+                // keyboard and assistive-technology users can locate the
+                // divider, while preserving the existing drag handling.
+                .accessibilityElement(children: .ignore)
+                .modifier(SidebarResizerAccessibilityLabelModifier(isRightSidebar: accessibilityIdentifier == "RightSidebarResizer"))
+                .accessibilityAddTraits(.allowsDirectInteraction)
+                .accessibilityIdentifier(accessibilityIdentifier)
         } else {
             content
+        }
+    }
+}
+
+private struct SidebarResizerAccessibilityLabelModifier: ViewModifier {
+    let isRightSidebar: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isRightSidebar {
+            content.accessibilityLabel(
+                String(localized: "rightSidebar.resizer.accessibilityLabel", defaultValue: "Resize right sidebar")
+            )
+        } else {
+            content.accessibilityLabel(
+                String(localized: "sidebar.resizer.accessibilityLabel", defaultValue: "Resize sidebar")
+            )
         }
     }
 }

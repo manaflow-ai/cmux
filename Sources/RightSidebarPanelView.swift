@@ -190,6 +190,9 @@ struct RightSidebarPanelView: View {
             }
             .frame(width: 0, height: 0)
         )
+        // This view is an accessibility container. Without an explicit
+        // boundary AppKit can inherit its identifier onto every descendant.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebar")
         .onAppear {
             startShortcutHintMonitorsIfNeeded()

@@ -69,6 +69,9 @@ struct ReviewPaneView: View {
             Spacer(minLength: 0)
         }
         .padding(12)
+        // Keep the pane's identifier on its own accessibility container so
+        // descendants (including the refresh button) retain their identifiers.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("review.pane")
         .task(id: request) {
             await model.load(directory: directory, selection: selectedID, includeAll: includeAll)
