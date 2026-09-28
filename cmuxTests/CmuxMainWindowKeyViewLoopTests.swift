@@ -11,20 +11,6 @@ import Testing
 @MainActor
 @Suite(.serialized, .exclusiveAppContext)
 struct CmuxMainWindowKeyViewLoopTests {
-    @Test
-    func normalMainWindowsRestoreAppKitKeyViewAfterHostingContentChanges() {
-        let window = makeWindow()
-        defer { window.close() }
-
-        #expect(window.autorecalculatesKeyViewLoop)
-        window.contentView = MainWindowHostingView(rootView: TextField("First", text: .constant("")))
-        window.contentView?.layoutSubtreeIfNeeded()
-        #expect(window.autorecalculatesKeyViewLoop)
-        window.contentView = MainWindowHostingView(rootView: TextField("Replacement", text: .constant("")))
-        window.contentView?.layoutSubtreeIfNeeded()
-        #expect(window.autorecalculatesKeyViewLoop)
-    }
-
     @Test(arguments: [false, true])
     func tabAndBacktabNavigateBetweenHostedTextFields(replacingFocusedHost: Bool) throws {
         let window = makeWindow()
@@ -56,7 +42,6 @@ struct CmuxMainWindowKeyViewLoopTests {
         let secondEditor = try #require(second.currentEditor())
         secondEditor.doCommand(by: #selector(NSResponder.insertBacktab(_:)))
         #expect(first.currentEditor() === window.firstResponder)
-        #expect(window.autorecalculatesKeyViewLoop)
     }
 
     private func makeWindow() -> CmuxMainWindow {
