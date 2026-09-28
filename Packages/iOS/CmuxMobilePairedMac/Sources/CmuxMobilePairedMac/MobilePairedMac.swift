@@ -179,6 +179,9 @@ public struct MobilePairedMacDirectAddress: Codable, Equatable, Sendable, Identi
     /// The ``origin`` value marking a pairing-code-derived entry.
     public static let pairingCodeOrigin = "pairing_code"
 
+    /// Creates one saved Direct address. `transport` and `origin` are the
+    /// optional provenance markers (``directQuicTransport``,
+    /// ``pairingCodeOrigin``); hand-entered entries leave both nil.
     public init(
         address: String, port: Int? = nil, enabled: Bool = true,
         label: String? = nil, transport: String? = nil, origin: String? = nil

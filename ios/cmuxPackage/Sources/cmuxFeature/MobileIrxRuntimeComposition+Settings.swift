@@ -53,7 +53,9 @@ extension MobileIrxRuntimeComposition {
             if description.hasPrefix("relay:") {
                 return .managedRelay(provider: "cmux", region: "")
             }
-            if description.hasPrefix("direct:") {
+            // The Iroh carrier reports "direct:<addr>"; the Direct QUIC
+            // carrier reports "direct-quic:<endpoint>". Both are direct paths.
+            if description.hasPrefix("direct:") || description.hasPrefix("direct-quic:") {
                 return .direct
             }
         }
