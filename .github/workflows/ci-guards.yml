@@ -195,6 +195,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_write_sidebar_extension_point.py
 
+      - name: Test btop agent sidebar example bounds
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_btop_agents_sidebar.py
+
       - name: Validate settings rows advertise supported cmux.json paths
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_settings_configuration_review_paths.py
@@ -218,6 +222,10 @@ jobs:
       - name: Validate .xcstrings merge driver
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_merge_xcstrings.py
+
+      - name: Validate project.pbxproj merge driver
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_merge_pbxproj.py
 
 
       - name: "Validate Swift Testing #require is not nested"
@@ -779,6 +787,10 @@ jobs:
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/tagged-device-entitlements.test.mjs
+
+      - name: Validate cached iOS release-gate launch contract
+        if: ${{ matrix.group == 'release-ios' }}
+        run: node --test ios/tests/iroh-cached-launch.test.mjs
 
       - name: Validate manual iOS workflow ref resolution
         if: ${{ matrix.group == 'release-ios' }}

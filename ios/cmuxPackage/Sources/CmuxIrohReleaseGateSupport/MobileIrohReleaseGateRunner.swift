@@ -30,6 +30,7 @@ final class MobileIrohReleaseGateRunner {
         let scenario: MobileIrohReleaseGateScenario
         let reportURL: URL
         let soakProfile: MobileIrohSoakRunner.Profile?
+        let startupPath: String
 
         init?(
             environment: [String: String],
@@ -59,6 +60,9 @@ final class MobileIrohReleaseGateRunner {
             }
             self.mode = mode
             self.scenario = scenario
+            self.startupPath = ["CMUX_DOGFOOD_ATTACH_URL", "CMUX_UITEST_ATTACH_URL"].contains {
+                !(environment[$0] ?? "").isEmpty
+            } ? "injected_pairing" : "stored_pairing"
             self.reportURL = cachesDirectory.appendingPathComponent(Self.reportFilename)
         }
 
@@ -101,6 +105,7 @@ final class MobileIrohReleaseGateRunner {
         let selectedPath: String?
         var failure: String?
         var uiLatencies: [String: Double]? = nil
+        var startupPath: String? = nil
         /// Last privacy-safe transport diagnostic observed when readiness timed out.
         /// Raw values belong to the stable ``DiagnosticEventCode`` vocabulary.
         let lastDiagnosticEventCode: UInt16?
@@ -201,13 +206,18 @@ final class MobileIrohReleaseGateRunner {
         self.configuration = configuration
         self.fileManager = fileManager
         let soakRunner = configuration.soakProfile.map {
-            MobileIrohSoakRunner(profile: $0, requiresRelay: configuration.mode == .relayOnly)
+            MobileIrohSoakRunner(
+                profile: $0,
+                requiresRelay: configuration.mode == .relayOnly,
+                allowForcedReconnect: false
+            )
         }
         self.soakRunner = soakRunner
         self.dependencies = Dependencies(
             readinessUpdates: nil,
             runProbe: { store, marker in
                 if let soakRunner {
+                    uiProbe.record(.authenticatedWorkspacesReady)
                     guard let identity = store.irohSoakUIIdentity() else {
                         throw MobileReleaseGateUIProbe.Failure.unavailable
                     }
@@ -320,6 +330,7 @@ final class MobileIrohReleaseGateRunner {
         var report = await boundedReport(store: store)
         report.soak = soakRunner?.evidence
         report.uiLatencies = uiProbe?.latencies()
+        report.startupPath = configuration.startupPath
         do {
             try dependencies.writeReport(report, configuration.reportURL)
             dependencies.postReportReady()
