@@ -51,6 +51,7 @@ extension CmuxTuiSurfaceProvider {
         info.linkFailure = nil
         info.linkError = nil
         info.linkState = .connecting
+        attachmentRetry.reset()
         catalog.updateMachine(info, from: self)
     }
 
