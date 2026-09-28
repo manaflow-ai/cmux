@@ -836,6 +836,65 @@ import Testing
         ])
     }
 
+    /// Direct with no enabled address fails closed by design, but the surfaced
+    /// copy must name the missing address. The untrusted-route pairing error
+    /// misdirects the user to QR scanning while the remedy is this Computer's
+    /// own address list (or switching the method back to Iroh).
+    @Test(arguments: [false, true])
+    func directWithNoEnabledAddressNamesTheMissingAddress(savesDisabledEntry: Bool) async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "test-mac", instanceTag: "default", displayName: "Test Mac"
+        )
+        let factory = KindRecordingTransportFactory(router: router, box: TransportBox())
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac", displayName: "Test Mac",
+            routes: [try iroh()], instanceTag: "default", markActive: true,
+            stackUserID: "user-1", teamID: nil, now: clock.now
+        )
+        // `teamID` omitted so these resolve to the store's own setters.
+        try await pairedStore.setConnectionMethod(
+            macDeviceID: "test-mac", instanceTag: "default",
+            rawValue: MobileConnectionMethod.direct.rawValue, stackUserID: "user-1"
+        )
+        if savesDisabledEntry {
+            try await pairedStore.setDirectAddresses(
+                macDeviceID: "test-mac", instanceTag: "default",
+                rawJSON: MobilePairedMac.encodeDirectAddresses([
+                    MobilePairedMacDirectAddress(
+                        address: "100.82.214.112", port: 50906, enabled: false
+                    ),
+                ]),
+                stackUserID: "user-1"
+            )
+        }
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory, now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(suiteName: "direct-empty-\(UUID().uuidString)")!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1") == false)
+        #expect(store.connectionState == .disconnected)
+        #expect(factory.attemptedKinds().isEmpty)
+        let message = try #require(store.connectionError)
+        #expect(!message.localizedCaseInsensitiveContains("not trusted"))
+        #expect(message.localizedCaseInsensitiveContains("address"))
+        let guidance = try #require(store.connectionErrorGuidance)
+        #expect(guidance.localizedCaseInsensitiveContains("iroh"))
+    }
+
     /// Direct is strict. If its pinned dial fails, the old Iroh session stays
     /// closed and no unpinned Iroh retry is allowed to mask the failure.
     @Test func failingDirectAfterMethodChangeDoesNotFallbackToIroh() async throws {
