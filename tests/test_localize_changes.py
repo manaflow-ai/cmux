@@ -59,6 +59,20 @@ class LocalizeChangesTests(unittest.TestCase):
         self.assertEqual({key: value.source for key, value in messages.items()}, {"other": "Other"})
         self.assertTrue(any("cannot safely prepare" in item for item in attention))
 
+    def test_multiline_default_is_read_whole_and_deindented(self):
+        source = (
+            'let usage = String(localized: "cli.help", defaultValue: """\n'
+            '        Usage: cmux thing\n'
+            '\n'
+            '          --json  Output JSON\n'
+            '        """)\n'
+            'let next = String(localized: "cli.next", defaultValue: "Next")'
+        )
+        messages, attention = MODULE.parse_swift_messages("CLI/Thing.swift", source)
+        self.assertEqual(messages["cli.help"].source, "Usage: cmux thing\n\n  --json  Output JSON")
+        self.assertEqual(messages["cli.next"].source, "Next")
+        self.assertEqual(attention, [])
+
     def test_import_validates_all_catalog_locale_groups_before_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

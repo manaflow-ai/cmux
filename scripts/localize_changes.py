@@ -28,7 +28,7 @@ SWIFT_CALL = re.compile(
     r'(?P<key>"(?:\\.|[^"\\])*")'
 
 )
-SWIFT_DEFAULT = re.compile(r'defaultValue\s*:\s*(?P<value>"(?:\\.|[^"\\])*")')
+SWIFT_DEFAULT = re.compile(r'defaultValue\s*:\s*(?P<value>"""\n[\s\S]*?\n[ \t]*"""|"(?:\\.|[^"\\])*")')
 SWIFT_COMMENT = re.compile(r'comment\s*:\s*(?P<comment>"(?:\\.|[^"\\])*")')
 WEB_LOCALES = re.compile(r"export\s+const\s+locales\s*=\s*\[(?P<body>[\s\S]*?)\]\s*as\s+const")
 QUOTED = re.compile(r'"((?:\\.|[^"\\])*)"|\'((?:\\.|[^\'\\])*)\'')
@@ -107,9 +107,12 @@ def base_text(root: Path, base: str, path: str) -> str:
 
 
 def decode_swift_string(literal: str) -> str:
-    if not (literal.startswith('"') and literal.endswith('"')):
+    if literal.startswith('"""'):
+        value = multiline_swift_body(literal)
+    elif literal.startswith('"') and literal.endswith('"'):
+        value = literal[1:-1]
+    else:
         raise ValueError("unsupported Swift string literal")
-    value = literal[1:-1]
     if "\\(" in value:
         raise ValueError("interpolated defaultValue requires manual catalog review")
     result: list[str] = []
@@ -128,12 +131,38 @@ def decode_swift_string(literal: str) -> str:
     return "".join(result)
 
 
+def multiline_swift_body(literal: str) -> str:
+    """Strip a multi-line literal's delimiters and the closing delimiter's indentation, as Swift does."""
+    lines = literal.split("\n")
+    indent = lines[-1][: -len('"""')]
+    if lines[0] != '"""' or indent.strip():
+        raise ValueError("unsupported Swift string literal")
+    body = []
+    for line in lines[1:-1]:
+        if line.strip() and not line.startswith(indent):
+            raise ValueError("unsupported Swift string literal")
+        if line.endswith("\\"):
+            raise ValueError("unsupported Swift escape in defaultValue")
+        body.append(line[len(indent):] if line.strip() else "")
+    return "\n".join(body)
+
+
 def swift_call_suffix(text: str, start: int) -> str:
     """Read through the closing call parenthesis, respecting nested calls and strings."""
     depth = 1
     quoted = escaped = False
+    skip = 0
     for index in range(start, len(text)):
         char = text[index]
+        if skip:
+            skip -= 1
+            continue
+        if not quoted and text.startswith('"""', index):
+            end = text.find('"""', index + 3)
+            if end < 0:
+                return ""
+            skip = end + 2 - index
+            continue
         if quoted:
             if escaped:
                 escaped = False
