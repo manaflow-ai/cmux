@@ -477,8 +477,8 @@ def main() -> int:
                 f"cmux ssh without --name should still include control path defaults: {ssh_command_without_name!r}",
             )
             _must(
-                _extract_control_path(ssh_command) != _extract_control_path(ssh_command_without_name),
-                f"distinct cmux ssh workspaces should get distinct control paths: {ssh_command!r} vs {ssh_command_without_name!r}",
+                _extract_control_path(ssh_command) == _extract_control_path(ssh_command_without_name),
+                f"cmux ssh workspaces for the same host and port should share one %C control path: {ssh_command!r} vs {ssh_command_without_name!r}",
             )
             row2 = None
             listed2 = client._call("workspace.list", {}) or {}
