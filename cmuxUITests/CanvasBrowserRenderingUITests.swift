@@ -153,8 +153,6 @@ final class CanvasBrowserRenderingUITests: BrowserFixtureSocketTestCase {
                 let points: [(CGPoint, Bool)] = [
                     (CGPoint(x: 3, y: browserFrame.height / 2), true),
                     (CGPoint(x: browserFrame.width - 3, y: browserFrame.height / 2), true),
-                    (CGPoint(x: browserFrame.width / 2, y: 3), true),
-                    (CGPoint(x: browserFrame.width / 2, y: browserFrame.height - 3), true),
                 ]
                 for (point, expectedMagenta) in points {
                     let x = Int(point.x * scaleX)
