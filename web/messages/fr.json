@@ -1807,7 +1807,6 @@
       "browserAutomation": "Automatisation du navigateur",
       "skills": "Compétences",
       "notifications": "Notifications",
-      "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Changelog",
@@ -1822,7 +1821,13 @@
       "cloudWorkspaces": "Espaces de travail et agents",
       "cloudNetworking": "Fichiers et réseau",
       "cloudCli": "Référence CLI Cloud",
-      "cloudTroubleshooting": "Sécurité et dépannage"
+      "cloudTroubleshooting": "Sécurité et dépannage",
+      "workspacesSection": "Espaces de travail",
+      "agentsSection": "Agents",
+      "automationSection": "Automatisation",
+      "remoteSection": "Accès à distance",
+      "customizeSection": "Personnalisation et administration",
+      "basicsSection": "Les bases"
     },
     "dock": {
       "metaTitle": "Dock",

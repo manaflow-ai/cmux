@@ -1809,7 +1809,6 @@
       "browserAutomation": "Browser Automation",
       "skills": "ทักษะ",
       "notifications": "การแจ้งเตือน",
-      "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Changelog",
@@ -1824,7 +1823,13 @@
       "cloudWorkspaces": "Workspace และเอเจนต์",
       "cloudNetworking": "ไฟล์และเครือข่าย",
       "cloudCli": "เอกสาร CLI ของ Cloud",
-      "cloudTroubleshooting": "ความปลอดภัยและการแก้ปัญหา"
+      "cloudTroubleshooting": "ความปลอดภัยและการแก้ปัญหา",
+      "workspacesSection": "เวิร์กสเปซ",
+      "agentsSection": "เอเจนต์",
+      "automationSection": "ระบบอัตโนมัติ",
+      "remoteSection": "การเข้าถึงระยะไกล",
+      "customizeSection": "การปรับแต่งและการดูแลระบบ",
+      "basicsSection": "พื้นฐาน"
     },
     "dock": {
       "metaTitle": "Dock สำหรับ workspace และเอเจนต์ใน cmux",
