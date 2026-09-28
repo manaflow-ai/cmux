@@ -223,8 +223,8 @@ class Checker:
         if not oracles.has_window(s.sock):
             self.ended = "every window was closed"
             return None
-        log_fail = oracles.scan_log(s.new_log_lines())
-        if log_fail and log_fail.signature.key not in self.disabled:
+        log_fail = oracles.scan_log(s.new_log_lines(), ignore=self.disabled)
+        if log_fail:
             return log_fail
         time.sleep(SETTLE_S)
         problems = [p for p in self._layout_problems() if p[0] not in self.disabled]
@@ -433,6 +433,7 @@ class Fuzzer:
             summary["stopped"] = True
         finally:
             self._cleanup()
+        summary["stopped"] = summary["stopped"] or self.stopping  # a stop during capture ends the loop quietly
         (self.out / "summary.json").write_text(json.dumps(summary, indent=1))
         return summary
 
@@ -578,13 +579,15 @@ class Fuzzer:
 def replay(app: Path, repro: dict, out: Path, *, use_pointer: bool = True, tag: str = "fuzz") -> SessionResult:
     fz = Fuzzer(app=app, out=out, seed=0, area_weights={}, use_pointer=use_pointer, tag=tag)
     session, ctx = fz.new_session(out)
+    result: SessionResult | None = None
     try:
         checker = Checker(session)
         checker.baseline()
         ring: deque = deque()
-        return run_steps(ctx, repro["steps"], checker=checker, shots=ring)
+        result = run_steps(ctx, repro["steps"], checker=checker, shots=ring)
+        return result
     finally:
-        fz._evidence(session, out, None)
+        fz._evidence(session, out, result)
         session.stop()
 
 

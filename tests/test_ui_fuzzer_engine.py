@@ -75,6 +75,15 @@ class LayoutOracleTest(unittest.TestCase):
         self.assertEqual(self.problems(tree(), lay), set())
 
 
+class LogScanTest(unittest.TestCase):
+    def test_a_known_startup_line_does_not_hide_a_later_fatal_one(self) -> None:
+        stall = "runloop.stall gapMs=9000"
+        known = oracles.scan_log([stall]).signature.key
+        hit = oracles.scan_log([stall, "Fatal error: Index out of range"], ignore={known})
+        self.assertIsNotNone(hit)
+        self.assertIn("Index out of range", hit.detail)
+
+
 class WindowChoiceTest(unittest.TestCase):
     def test_the_tree_window_that_holds_debug_layouts_panes_is_compared(self) -> None:
         other = {"key": False, "workspaces": [{"selected": True, "panes": [

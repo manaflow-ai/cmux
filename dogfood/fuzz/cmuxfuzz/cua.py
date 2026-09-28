@@ -52,7 +52,8 @@ class CuaDriver:
         if "is running" in status.stdout:
             return
         # LaunchServices start keeps the daemon's own TCC identity (com.trycua.driver).
-        subprocess.run(["open", "-g", "-a", str(Path(self.binary).parents[2]), "--args", "serve"], check=False)
+        bundle = Path(self.binary).resolve().parents[2]  # the binary on PATH is often a symlink into the .app
+        subprocess.run(["open", "-g", "-a", str(bundle), "--args", "serve"], check=False, timeout=30)
         for _ in range(20):
             status = subprocess.run([self.binary, "status"], capture_output=True, text=True, timeout=10)
             if "is running" in status.stdout:

@@ -54,7 +54,10 @@ class CmuxSocket:
         line = buf.split(b"\n", 1)[0]
         if not line:
             raise SocketError(method, "connection closed without a reply")
-        reply = json.loads(line)
+        try:
+            reply = json.loads(line)
+        except ValueError as error:  # the connection closed partway through a reply
+            raise SocketError(method, f"malformed reply ({error})") from error
         if not reply.get("ok"):
             raise SocketError(method, reply.get("error") or reply)
         return reply.get("result") or {}

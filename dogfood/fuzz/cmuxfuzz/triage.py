@@ -145,7 +145,7 @@ def issue_body(finding: dict, frame_urls: list[str], maybe_related: list[dict],
         f"in {len(steps)} step(s). The fuzzer drives the app through its control socket and synthesized "
         "pointer input on a Mac nobody is using, checks it after every step, and minimizes each failure.",
         "",
-        f"**What broke:** {scrub(finding.get('detail') or sig['title'])}",
+        f"**What broke:** {scrub(finding.get('detail') or sig['title'], redact)}",
         "",
         "## Steps",
         "",

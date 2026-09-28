@@ -28,7 +28,8 @@ LOG_PATTERNS = [
 STALL_REPORT_MS = 8000
 
 
-def scan_log(lines: list[str]) -> Failure | None:
+def scan_log(lines: list[str], ignore: set[str] | frozenset[str] = frozenset()) -> Failure | None:
+    """The first fatal line whose key is not in `ignore` (keys a fresh app already logs)."""
     for line in lines:
         for pattern in LOG_PATTERNS:
             m = pattern.search(line)
@@ -37,7 +38,10 @@ def scan_log(lines: list[str]) -> Failure | None:
             if m.groups() and m.group(1).isdigit() and int(m.group(1)) < STALL_REPORT_MS:
                 continue
             key = "runloop.stall" if "runloop.stall" in line else line
-            return Failure(log_signature(key), line.strip()[:500])
+            failure = Failure(log_signature(key), line.strip()[:500])
+            if failure.signature.key in ignore:
+                continue
+            return failure
     return None
 
 
@@ -120,9 +124,9 @@ def layout_problems(tree: dict, layout: dict) -> list[tuple[str, str]]:
         problems.append(("focused-pane-count", f"{len(focused)} of {len(panes)} panes focused"))
     for p in panes:
         ids = p.get("surface_ids") or []
-        if not ids:
-            problems.append(("pane-without-tabs", p.get("ref", "")))
-        elif p.get("selected_surface_id") not in ids:
+        if not ids:  # moving a pane's last tab away leaves a supported empty pane
+            continue
+        if p.get("selected_surface_id") not in ids:
             problems.append(("selected-tab-not-in-pane", p.get("ref", "")))
 
     tree_ids = {str(p.get("id", "")).lower() for p in panes}

@@ -58,7 +58,7 @@ CHECK_INPUTS = {
                          "scripts/normalize-pbxproj.py", "tests/fixtures/pbxproj-test-wiring/*"),
     "wire-app-sources": ("scripts/wire-app-sources.py", "cmux.xcodeproj/project.pbxproj", "Sources/**/*.swift"),
     "ui-lab": ("scripts/ui-lab/**", "tests/test_ui_lab.py"),
-    "ui-fuzzer": ("dogfood/fuzz/**", "scripts/fuzz"),
+    "ui-fuzzer": ("dogfood/fuzz/**", "scripts/fuzz", "tests/test_ui_fuzzer_engine.py"),
     "launch-policy": (
         "scripts/claude-launch-environment-policy.json",
         "Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/ClaudeSessionEnvironmentPolicy+Generated.swift",
