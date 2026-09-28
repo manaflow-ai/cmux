@@ -40,6 +40,15 @@ import CmuxCloudTui
         #expect(fidelity.needsRepair(local: remote))
     }
 
+    @Test func gridChangeAwayAndBackBeforeReplayCompletionIsNotFaithful() {
+        var fidelity = CloudTuiReplayFidelity()
+        let token = fidelity.replayQueued(remote: remote, local: remote)
+        fidelity.localGridChanged(to: hidden)
+        fidelity.localGridChanged(to: remote)
+        fidelity.replayApplied(token: token, local: remote)
+        #expect(fidelity.needsRepair(local: remote))
+    }
+
     @Test func localResizeAfterAFaithfulParseInvalidatesIt() {
         var fidelity = CloudTuiReplayFidelity()
         let token = fidelity.replayQueued(remote: remote, local: remote)
