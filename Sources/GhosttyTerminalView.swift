@@ -10186,7 +10186,6 @@ final class GhosttySurfaceScrollView: NSView {
     /// Shared-terminal bounds (docs/shared-terminal-sizing.md); supersedes the
     /// legacy phone border while a snapshot is shown.
     let terminalSizeBoundsOverlayView = TerminalSizeBoundsOverlayView()
-    private var terminalSizePanelPopover: NSPopover?
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private var inactiveOverlayColor: NSColor = .clear
     private var inactiveOverlayOpacity: CGFloat = 0
@@ -11062,7 +11061,7 @@ final class GhosttySurfaceScrollView: NSView {
     func setTerminalSharingSnapshot(
         _ snapshot: TerminalSharingSnapshot?,
         surface: TerminalSurface?,
-        onShowSizePanel: @escaping (NSRect) -> Void,
+        onShowSizePanel: @escaping () -> Void,
         onReattach: @escaping (Bool) -> Void
     ) {
         let overlay = terminalSizeBoundsOverlayView
@@ -11074,23 +11073,6 @@ final class GhosttySurfaceScrollView: NSView {
             mobileViewportBorderOverlayView.isHidden = true
         } else if mobileViewportBorderOverlayView.drawsVisibleAreaBorder {
             mobileViewportBorderOverlayView.isHidden = false
-        }
-        if snapshot == nil { terminalSizePanelPopover?.close() }
-    }
-
-    /// Presents the size panel anchored at `rect` in the bounds overlay, or at
-    /// the pane's top-right corner when `rect` is nil.
-    func presentTerminalSizePanel(_ content: NSViewController, anchor rect: NSRect?) {
-        terminalSizePanelPopover?.close()
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.contentViewController = content
-        terminalSizePanelPopover = popover
-        if let rect, !terminalSizeBoundsOverlayView.isHidden {
-            popover.show(relativeTo: rect, of: terminalSizeBoundsOverlayView, preferredEdge: .maxY)
-        } else {
-            let corner = NSRect(x: bounds.maxX - 24, y: isFlipped ? 0 : bounds.maxY - 4, width: 20, height: 4)
-            popover.show(relativeTo: corner, of: self, preferredEdge: .maxY)
         }
     }
 

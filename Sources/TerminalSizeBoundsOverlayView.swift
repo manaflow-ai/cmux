@@ -3,42 +3,47 @@ import CmuxTerminal
 import CmuxTerminalSharing
 import CmuxTerminalSizing
 import GhosttyKit
+import QuartzCore
 import SwiftUI
 
-/// Draws a shared terminal's grid bounds over a pane (local and Cloud alike):
-/// a 1.5 pt owner-colored border, a hatch outside the grid, a corner chip that
-/// opens the size panel, an amber crop fade with a `+N cols` pill when the grid
-/// is larger than the pane, and on each change a border flash plus a size HUD.
-/// A `disconnected-by` detach of this Mac shows a card with Reattach.
+/// Draws a shared terminal's grid bounds over a pane (local and Cloud alike)
+/// when this view's grid differs: a 1 pt owner-colored border, a faint hatch
+/// outside the grid, a 16 pt fade on a cut edge, and one small chip
+/// (`118×38 · Lawrence's Mac`) that opens the size panel at the tab. A
+/// `disconnected-by` detach of this Mac shows a card with Reattach.
 ///
 /// Only the chip and the card take mouse events; everything else passes
-/// through to the terminal. HUD and flash durations run on the injected clock.
+/// through to the terminal. A size change animates the border to the new grid.
 @MainActor
 final class TerminalSizeBoundsOverlayView: NSView {
-    private static let hudDuration: Duration = .milliseconds(1400)
-    private static let flashDuration: Duration = .milliseconds(700)
     private static let amber = NSColor(red: 0.914, green: 0.706, blue: 0.298, alpha: 1)
+    private static let borderAlpha: CGFloat = 0.7
+    private static let cropFadeDepth: CGFloat = 16
 
     private(set) var snapshot: TerminalSharingSnapshot?
     weak var terminalSurface: TerminalSurface?
-    /// Opens the size panel anchored at a rect in this view.
-    var onShowSizePanel: ((NSRect) -> Void)?
+    /// Opens the size panel (anchored at the terminal's tab).
+    var onShowSizePanel: (() -> Void)?
     /// Reattaches this Mac (`true` = as a viewer).
     var onReattach: ((Bool) -> Void)?
 
-    private let clock: any Clock<Duration>
-    private var hudTask: Task<Void, Never>?
-    private var hudText: (size: String, owner: String)?
-    private var isFlashing = false
-    private var lastChangeKey: String?
-    private var chipRect: NSRect = .zero
+    private let borderLayer = CAShapeLayer()
+    private let chip = TerminalSizeBoundsChipView()
+    private var lastGridKey: String?
+    private var animateNextBorderChange = false
     private var detachedCardHost: NSHostingView<TerminalSharingDetachedCard>?
 
-    init(clock: any Clock<Duration> = ContinuousClock()) {
-        self.clock = clock
+    init() {
         super.init(frame: .zero)
         wantsLayer = true
         isHidden = true
+        borderLayer.fillColor = nil
+        borderLayer.lineWidth = 1
+        borderLayer.actions = ["path": NSNull(), "strokeColor": NSNull(), "hidden": NSNull()]
+        layer?.addSublayer(borderLayer)
+        chip.isHidden = true
+        chip.onPress = { [weak self] in self?.onShowSizePanel?() }
+        addSubview(chip)
     }
 
     @available(*, unavailable)
@@ -51,48 +56,21 @@ final class TerminalSizeBoundsOverlayView: NSView {
     var isPresentingSharing: Bool { snapshot?.showsSizingChrome == true }
 
     func update(snapshot: TerminalSharingSnapshot?) {
-        let previous = self.snapshot
         self.snapshot = snapshot
         updateDetachedCard()
-        noteChange(previous: previous)
+        let key = snapshot.map { "\($0.state.cols)x\($0.state.rows)" }
+        if let key, let lastGridKey, key != lastGridKey { animateNextBorderChange = true }
+        lastGridKey = key
         isHidden = !(snapshot?.showsSizingChrome ?? false)
         needsDisplay = true
+        needsLayout = true
     }
 
     /// Re-reads the surface geometry (pane resized or font changed).
     func refreshGeometry() {
         guard !isHidden else { return }
         needsDisplay = true
-    }
-
-    // MARK: Change feedback
-
-    private func noteChange(previous: TerminalSharingSnapshot?) {
-        guard let snapshot, snapshot.showsSizingChrome else {
-            lastChangeKey = nil
-            return
-        }
-        let key = "\(snapshot.state.cols)x\(snapshot.state.rows)|\(snapshot.state.owners.joined(separator: ","))"
-        defer { lastChangeKey = key }
-        guard let lastChangeKey, lastChangeKey != key, let previous else { return }
-        // Resizing your own window while you own the grid is not news; an
-        // ownership change or someone else's resize is.
-        let ownersChanged = previous.state.owners != snapshot.state.owners
-        let selfOwns = snapshot.selfParticipantID.map { snapshot.state.owners == [$0] } ?? false
-        guard ownersChanged || !selfOwns else { return }
-        let display = TerminalSharingDisplay(snapshot: snapshot)
-        hudText = (TerminalSharingDisplay.gridLabel(snapshot.state.size), display.ownerLabel)
-        isFlashing = true
-        hudTask?.cancel()
-        let clock = clock
-        hudTask = Task { @MainActor [weak self] in
-            do { try await clock.sleep(for: Self.flashDuration) } catch { return }
-            self?.isFlashing = false
-            self?.needsDisplay = true
-            do { try await clock.sleep(for: Self.hudDuration - Self.flashDuration) } catch { return }
-            self?.hudText = nil
-            self?.needsDisplay = true
-        }
+        needsLayout = true
     }
 
     // MARK: Detached card
@@ -116,6 +94,8 @@ final class TerminalSizeBoundsOverlayView: NSView {
         needsLayout = true
     }
 
+    // MARK: Layout
+
     override func layout() {
         super.layout()
         if let host = detachedCardHost {
@@ -127,6 +107,63 @@ final class TerminalSizeBoundsOverlayView: NSView {
                 height: min(size.height, bounds.height)
             )
         }
+        layoutBoundsChrome()
+    }
+
+    private func layoutBoundsChrome() {
+        borderLayer.frame = layer?.bounds ?? bounds
+        guard let snapshot, snapshot.showsSizingChrome, snapshot.detachment == nil,
+              let geometry = currentGeometry(for: snapshot), geometry.needsDecoration else {
+            borderLayer.isHidden = true
+            chip.isHidden = true
+            return
+        }
+        let display = TerminalSharingDisplay(snapshot: snapshot)
+        updateBorder(geometry: geometry, color: display.ownerNSColor)
+        chip.text = display.presentation.chipText(hiddenColumns: geometry.hiddenColumns)
+        chip.frame = chipFrame(size: chip.fittingSize, gridRect: geometry.gridRect)
+        chip.isHidden = false
+    }
+
+    private func updateBorder(geometry: TerminalSizeBoundsGeometry, color: NSColor) {
+        guard geometry.showsBounds else {
+            borderLayer.isHidden = true
+            return
+        }
+        let rect = layerRect(geometry.gridRect.insetBy(dx: 0.5, dy: 0.5))
+        let path = CGPath(rect: rect, transform: nil)
+        let previous = borderLayer.presentation()?.path ?? borderLayer.path
+        let wasHidden = borderLayer.isHidden
+        borderLayer.isHidden = false
+        borderLayer.strokeColor = color.withAlphaComponent(Self.borderAlpha).cgColor
+        borderLayer.path = path
+        if animateNextBorderChange, !wasHidden, let previous, previous != path {
+            let animation = CABasicAnimation(keyPath: "path")
+            animation.fromValue = previous
+            animation.toValue = path
+            animation.duration = 0.2
+            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            borderLayer.add(animation, forKey: "path")
+        }
+        animateNextBorderChange = false
+    }
+
+    /// Converts a rect in this flipped view to the border layer's space.
+    private func layerRect(_ rect: NSRect) -> CGRect {
+        if borderLayer.contentsAreFlipped() { return rect }
+        return CGRect(x: rect.minX, y: bounds.height - rect.maxY, width: rect.width, height: rect.height)
+    }
+
+    /// Outside the grid's bottom-right corner when there is room, else inside it.
+    private func chipFrame(size: NSSize, gridRect: NSRect) -> NSRect {
+        let margin: CGFloat = 4
+        let width = min(size.width, max(40, bounds.width - 2 * margin))
+        var origin = NSPoint(x: gridRect.maxX - width, y: gridRect.maxY + margin)
+        if origin.y + size.height > bounds.height - margin {
+            origin.y = min(gridRect.maxY, bounds.height) - size.height - margin
+        }
+        origin.x = max(margin, min(origin.x, bounds.width - width - margin))
+        return NSRect(origin: origin, size: NSSize(width: width, height: size.height))
     }
 
     // MARK: Hit testing
@@ -137,20 +174,8 @@ final class TerminalSizeBoundsOverlayView: NSView {
         if let host = detachedCardHost, host.frame.contains(local) {
             return host.hitTest(convert(local, to: host.superview)) ?? host
         }
-        return chipRect.contains(local) ? self : nil
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        let local = convert(event.locationInWindow, from: nil)
-        guard chipRect.contains(local) else {
-            super.mouseDown(with: event)
-            return
-        }
-        onShowSizePanel?(chipRect)
-    }
-
-    override func resetCursorRects() {
-        if !chipRect.isEmpty { addCursorRect(chipRect, cursor: .pointingHand) }
+        if !chip.isHidden, chip.frame.contains(local) { return chip }
+        return nil
     }
 
     // MARK: Drawing
@@ -172,34 +197,11 @@ final class TerminalSizeBoundsOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        chipRect = .zero
         guard let snapshot, snapshot.showsSizingChrome, snapshot.detachment == nil,
-              let geometry = currentGeometry(for: snapshot) else {
-            window?.invalidateCursorRects(for: self)
-            return
-        }
-        let display = TerminalSharingDisplay(snapshot: snapshot)
-        let ownerColor = display.ownerNSColor
-        if geometry.showsBounds {
-            drawHatch(outside: geometry.gridRect)
-            let border = NSBezierPath(rect: geometry.gridRect.insetBy(dx: 0.75, dy: 0.75))
-            border.lineWidth = 1.5
-            ownerColor.setStroke()
-            border.stroke()
-            if isFlashing {
-                let glow = NSBezierPath(rect: geometry.gridRect.insetBy(dx: -1.5, dy: -1.5))
-                glow.lineWidth = 4
-                ownerColor.withAlphaComponent(0.45).setStroke()
-                glow.stroke()
-            }
-        }
-        if geometry.hiddenColumns > 0 { drawCrop(edge: .maxX, in: geometry.gridRect, hidden: geometry.hiddenColumns) }
-        if geometry.hiddenRows > 0 { drawCrop(edge: .maxY, in: geometry.gridRect, hidden: geometry.hiddenRows) }
-        if geometry.needsDecoration {
-            drawChip(display: display, ownerColor: ownerColor, gridRect: geometry.gridRect)
-        }
-        if let hudText { drawHUD(size: hudText.size, owner: hudText.owner) }
-        window?.invalidateCursorRects(for: self)
+              let geometry = currentGeometry(for: snapshot) else { return }
+        if geometry.showsBounds { drawHatch(outside: geometry.gridRect) }
+        if geometry.hiddenColumns > 0 { drawCropFade(edge: .maxX, in: geometry.gridRect) }
+        if geometry.hiddenRows > 0 { drawCropFade(edge: .maxY, in: geometry.gridRect) }
     }
 
     private func drawHatch(outside gridRect: NSRect) {
@@ -208,94 +210,92 @@ final class TerminalSizeBoundsOverlayView: NSView {
         outside.append(NSBezierPath(rect: gridRect).reversed)
         outside.addClip()
         let hatch = NSBezierPath()
-        let spacing: CGFloat = 7
+        let spacing: CGFloat = 8
         var x = -bounds.height
         while x < bounds.width {
             hatch.move(to: NSPoint(x: x, y: bounds.height))
             hatch.line(to: NSPoint(x: x + bounds.height, y: 0))
             x += spacing
         }
-        hatch.lineWidth = 1
-        NSColor.secondaryLabelColor.withAlphaComponent(0.14).setStroke()
+        hatch.lineWidth = 0.5
+        NSColor.secondaryLabelColor.withAlphaComponent(0.07).setStroke()
         hatch.stroke()
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    private func drawCrop(edge: NSRectEdge, in gridRect: NSRect, hidden: Int) {
-        let depth: CGFloat = edge == .maxX ? 36 : 28
+    private func drawCropFade(edge: NSRectEdge, in gridRect: NSRect) {
+        let depth = Self.cropFadeDepth
         let fadeRect = edge == .maxX
             ? NSRect(x: gridRect.maxX - depth, y: gridRect.minY, width: depth, height: gridRect.height)
             : NSRect(x: gridRect.minX, y: gridRect.maxY - depth, width: gridRect.width, height: depth)
-        let gradient = NSGradient(starting: Self.amber.withAlphaComponent(0), ending: Self.amber.withAlphaComponent(0.28))
+        let gradient = NSGradient(starting: Self.amber.withAlphaComponent(0), ending: Self.amber.withAlphaComponent(0.22))
+        // This view is flipped, so a 90° gradient runs top to bottom.
         gradient?.draw(in: fadeRect, angle: edge == .maxX ? 0 : 90)
-        // Numbers and arrows only, so the pill needs no plural catalog entry.
-        let text = edge == .maxX ? "+\(hidden) →" : "+\(hidden) ↓"
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-            .foregroundColor: NSColor(red: 0.953, green: 0.804, blue: 0.494, alpha: 1),
-        ]
+    }
+}
+
+/// The pane chip `118×38 · Lawrence's Mac`: an accessibility button that
+/// opens the size panel at the terminal's tab.
+@MainActor
+final class TerminalSizeBoundsChipView: NSView {
+    private static let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+    private static let horizontalPadding: CGFloat = 6
+    private static let verticalPadding: CGFloat = 3
+
+    var onPress: (() -> Void)?
+    var text: String = "" {
+        didSet {
+            guard text != oldValue else { return }
+            needsDisplay = true
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    override var isFlipped: Bool { true }
+
+    private var attributes: [NSAttributedString.Key: Any] {
+        [.font: Self.font, .foregroundColor: NSColor.secondaryLabelColor]
+    }
+
+    override var fittingSize: NSSize { intrinsicContentSize }
+
+    override var intrinsicContentSize: NSSize {
         let size = (text as NSString).size(withAttributes: attributes)
-        let pill = edge == .maxX
-            ? NSRect(x: gridRect.maxX - size.width - 22, y: gridRect.midY - 10, width: size.width + 16, height: 20)
-            : NSRect(x: gridRect.midX - size.width / 2 - 8, y: gridRect.maxY - 26, width: size.width + 16, height: 20)
-        let path = NSBezierPath(roundedRect: pill, xRadius: 10, yRadius: 10)
-        NSColor(red: 0.227, green: 0.18, blue: 0.078, alpha: 0.95).setFill()
-        path.fill()
-        (text as NSString).draw(at: NSPoint(x: pill.minX + 8, y: pill.minY + (20 - size.height) / 2), withAttributes: attributes)
-    }
-
-    private func drawChip(display: TerminalSharingDisplay, ownerColor: NSColor, gridRect: NSRect) {
-        let text = "\(TerminalSharingDisplay.gridLabel(display.state.size)) · \(display.ownerLabel)"
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
-            .foregroundColor: NSColor.labelColor,
-        ]
-        let textSize = (text as NSString).size(withAttributes: attributes)
-        let dot: CGFloat = 12
-        let width = min(textSize.width + dot + 18, max(60, bounds.width - 12))
-        let height: CGFloat = 20
-        // Outside the grid's bottom-right corner when there is room, else inside.
-        var origin = NSPoint(x: gridRect.maxX - width, y: gridRect.maxY + 6)
-        if origin.y + height > bounds.height - 4 { origin.y = gridRect.maxY - height - 6 }
-        origin.x = max(6, min(origin.x, bounds.width - width - 6))
-        let rect = NSRect(origin: origin, size: NSSize(width: width, height: height))
-        let path = NSBezierPath(roundedRect: rect, xRadius: height / 2, yRadius: height / 2)
-        NSColor.windowBackgroundColor.withAlphaComponent(0.92).setFill()
-        path.fill()
-        ownerColor.setStroke()
-        path.lineWidth = 1
-        path.stroke()
-        let dotRect = NSRect(x: rect.minX + 4, y: rect.midY - dot / 2, width: dot, height: dot)
-        ownerColor.setFill()
-        NSBezierPath(ovalIn: dotRect).fill()
-        let textRect = NSRect(x: dotRect.maxX + 6, y: rect.midY - textSize.height / 2, width: rect.maxX - dotRect.maxX - 12, height: textSize.height)
-        (text as NSString).draw(with: textRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: attributes, context: nil)
-        chipRect = rect
-    }
-
-    private func drawHUD(size: String, owner: String) {
-        let sizeAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 20, weight: .regular),
-            .foregroundColor: NSColor.white,
-        ]
-        let ownerAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 12),
-            .foregroundColor: NSColor(white: 0.7, alpha: 1),
-        ]
-        let sizeText = size as NSString
-        let ownerText = owner as NSString
-        let sizeSize = sizeText.size(withAttributes: sizeAttributes)
-        let ownerSize = ownerText.size(withAttributes: ownerAttributes)
-        let width = sizeSize.width + ownerSize.width + 38
-        let height = max(sizeSize.height, ownerSize.height) + 16
-        let rect = NSRect(x: bounds.midX - width / 2, y: bounds.midY - height / 2, width: width, height: height)
-        let path = NSBezierPath(roundedRect: rect, xRadius: 10, yRadius: 10)
-        NSColor(red: 0.078, green: 0.102, blue: 0.141, alpha: 0.92).setFill()
-        path.fill()
-        sizeText.draw(at: NSPoint(x: rect.minX + 14, y: rect.midY - sizeSize.height / 2), withAttributes: sizeAttributes)
-        ownerText.draw(
-            at: NSPoint(x: rect.minX + 24 + sizeSize.width, y: rect.midY - ownerSize.height / 2),
-            withAttributes: ownerAttributes
+        return NSSize(
+            width: ceil(size.width) + 2 * Self.horizontalPadding,
+            height: ceil(size.height) + 2 * Self.verticalPadding
         )
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4)
+        NSColor.windowBackgroundColor.withAlphaComponent(0.72).setFill()
+        path.fill()
+        let textRect = bounds.insetBy(dx: Self.horizontalPadding, dy: Self.verticalPadding)
+        (text as NSString).draw(
+            with: textRect,
+            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+            attributes: attributes,
+            context: nil
+        )
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onPress?()
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    // MARK: Accessibility
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityLabel() -> String? { text }
+    override func accessibilityIdentifier() -> String { "terminalSizeChip" }
+    override func accessibilityPerformPress() -> Bool {
+        onPress?()
+        return true
     }
 }

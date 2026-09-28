@@ -4,7 +4,7 @@ import CmuxTerminalSharing
 import CmuxTerminalSizing
 import Foundation
 
-/// Tab-bar side of shared terminal sizing: the presence accessory on a
+/// Tab-bar side of shared terminal sizing: the avatar accessory on a
 /// terminal's tab and the tab context-menu size actions. Every action goes
 /// through ``TerminalSharingStore``, the same path as the size panel,
 /// shortcut, command palette and socket.
@@ -36,10 +36,10 @@ extension Workspace {
         switch action {
         case .sizeToMyWindow:
             if !store.sizeToMe(surfaceID: panelId) { NSSound.beep() }
-        case .toggleSizeCountsFromThisDevice:
-            if !store.toggleSelfCounts(surfaceID: panelId) { NSSound.beep() }
-        case .showSizePanel:
-            if !controller.presentTerminalSizePanel(surfaceID: panelId, confirmDisconnectOthers: false) { NSSound.beep() }
+        case .toggleSizePanel:
+            if !controller.presentTerminalSizePanel(surfaceID: panelId, confirmDisconnectOthers: false, toggle: true) {
+                NSSound.beep()
+            }
         case .disconnectOtherClients:
             if !controller.presentTerminalSizePanel(surfaceID: panelId, confirmDisconnectOthers: true) { NSSound.beep() }
         default:

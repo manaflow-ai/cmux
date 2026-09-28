@@ -18,8 +18,8 @@ struct TerminalSharingDetachedCard: View {
             )
             return String(
                 format: String(
-                    localized: "terminalSharing.detached.byMessage",
-                    defaultValue: "%1$@ disconnected this Mac at %2$@. The terminal is still running. This Mac will not reconnect by itself."
+                    localized: "terminalSharing.detached.byMessageShort",
+                    defaultValue: "%1$@ disconnected this Mac at %2$@."
                 ),
                 who, time
             )
@@ -55,18 +55,14 @@ struct TerminalSharingDetachedCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label {
-                Text(String(localized: "terminalSharing.detached.title", defaultValue: "Detached from this terminal"))
-                    .font(.headline)
-            } icon: {
-                Image(systemName: "eject")
-            }
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "terminalSharing.detached.titleShort", defaultValue: "Detached"))
+                .font(.headline)
             Text(message)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
+            HStack(spacing: 12) {
                 Button(String(localized: "terminalSharing.detached.reattach", defaultValue: "Reattach")) {
                     onReattach(false)
                 }
@@ -74,12 +70,14 @@ struct TerminalSharingDetachedCard: View {
                 Button(String(localized: "terminalSharing.detached.reattachAsViewer", defaultValue: "Reattach as Viewer")) {
                     onReattach(true)
                 }
+                .buttonStyle(.link)
                 .help(String(localized: "terminalSharing.detached.reattachAsViewer.help", defaultValue: "Reattach without changing the terminal size"))
             }
         }
-        .padding(16)
-        .frame(maxWidth: 380, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: 320, alignment: .leading)
+        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator))
     }
 }

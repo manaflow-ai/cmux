@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxTerminal
 import CmuxTerminalSharing
 import CmuxTerminalSizing
@@ -226,12 +227,13 @@ extension TerminalController {
 
     private func terminalSharingDidChange(surfaceID: UUID) {
         let snapshot = terminalSharing.snapshot(for: surfaceID)
+        if snapshot == nil { terminalSizePanelPresenter.close(surfaceID: surfaceID) }
         if let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) {
             surface.hostedView.setTerminalSharingSnapshot(
                 snapshot,
                 surface: surface,
-                onShowSizePanel: { [weak self] rect in
-                    _ = self?.presentTerminalSizePanel(surfaceID: surfaceID, confirmDisconnectOthers: false, anchor: rect)
+                onShowSizePanel: { [weak self] in
+                    _ = self?.presentTerminalSizePanel(surfaceID: surfaceID, confirmDisconnectOthers: false)
                 },
                 onReattach: { [weak self] asViewer in
                     _ = self?.terminalSharing.reattach(surfaceID: surfaceID, asViewer: asViewer)
@@ -243,24 +245,46 @@ extension TerminalController {
         }
     }
 
-    /// Opens the size panel for a terminal (tab accessory, context menu,
-    /// command palette and pane chip all land here).
+    /// Opens the size panel for a terminal, anchored at its tab in the tab
+    /// strip (tab accessory, pane chip, context menu, command palette and
+    /// shortcut all land here).
     ///
-    /// - Returns: `false` when the terminal has no pane on screen.
+    /// - Parameters:
+    ///   - surfaceID: The terminal.
+    ///   - confirmDisconnectOthers: Open with the Disconnect Others confirmation showing.
+    ///   - toggle: Close instead when the panel is already open for this terminal
+    ///     (the tab accessory's click).
+    /// - Returns: `false` when the terminal has nothing on screen to anchor to.
     @discardableResult
-    func presentTerminalSizePanel(surfaceID: UUID, confirmDisconnectOthers: Bool, anchor: NSRect? = nil) -> Bool {
+    func presentTerminalSizePanel(surfaceID: UUID, confirmDisconnectOthers: Bool, toggle: Bool = false) -> Bool {
+        if toggle, terminalSizePanelPresenter.consumeToggleClose(surfaceID: surfaceID) { return true }
         if terminalSharing.snapshot(for: surfaceID) == nil {
             _ = localSizingHost(surfaceID: surfaceID, create: true)
         }
-        guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
-              surface.hostedView.window != nil else { return false }
+        guard let anchor = terminalSizePanelAnchor(surfaceID: surfaceID) else { return false }
         let panel = TerminalSizePanelView(
             store: terminalSharing,
             surfaceID: surfaceID,
             confirmDisconnectOthers: confirmDisconnectOthers
         )
-        surface.hostedView.presentTerminalSizePanel(NSHostingController(rootView: panel), anchor: anchor)
+        terminalSizePanelPresenter.present(panel, surfaceID: surfaceID, anchor: anchor.view, rect: anchor.rect)
         return true
+    }
+
+    /// The terminal's tab accessory, else its tab item, in the tab strip.
+    /// Falls back to the pane's top-right corner only when the tab strip does
+    /// not show the tab (for example a hidden tab bar).
+    private func terminalSizePanelAnchor(surfaceID: UUID) -> (view: NSView, rect: NSRect?)? {
+        if let workspace = AppDelegate.shared?.workspaceContainingPanel(panelId: surfaceID)?.workspace,
+           let tabID = workspace.surfaceIdFromPanelId(surfaceID),
+           let view = workspace.bonsplitController.popoverAnchorView(for: tabID) {
+            return (view, nil)
+        }
+        guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
+              surface.hostedView.window != nil else { return nil }
+        let pane = surface.hostedView
+        let corner = NSRect(x: pane.bounds.maxX - 24, y: pane.isFlipped ? 0 : pane.bounds.maxY - 4, width: 20, height: 4)
+        return (pane, corner)
     }
 
     // MARK: - Publishing

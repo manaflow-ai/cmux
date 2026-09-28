@@ -715,5 +715,11 @@
     "arguments": [
       1
     ]
+  },
+  "terminalSharing.chip.hiddenColumns": {
+    "source": "%ld cols hidden",
+    "arguments": [
+      1
+    ]
   }
 }

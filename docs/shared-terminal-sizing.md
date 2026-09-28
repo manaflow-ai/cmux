@@ -118,11 +118,13 @@ Disconnecting is not unpairing. Pairing revoke stays in pairing settings.
 
 Every viewer whose viewport differs from the grid draws, from the size state:
 
-- a 1.5 pt border around the grid in the owner's color;
-- a hatch outside the grid, so empty space never reads as blank output;
-- a corner chip `118 × 38 · Maya's Mac Studio` that opens the size panel;
-- when the viewer is smaller, an amber fade on the cut edge and a `+N cols` pill;
-- on each change, a border flash and a size HUD (driven by an injected clock).
+- a 1 pt border around the grid in the owner's color at 70% opacity;
+- a faint hatch outside the grid, so empty space never reads as blank output;
+- one small chip outside the grid's bottom-right corner,
+  `118×38 · Maya's Mac` (plus `· 12 cols hidden` when the viewer is smaller),
+  that opens the size panel;
+- when the viewer is smaller, a short fade on the cut edge;
+- on each change, the border animates to the new grid. There is no HUD.
 
 Owner colors come from `TerminalSizingParticipantColor` (Swift, in
 `CmuxTerminalSizing`; the iOS twin uses the same rule). The key is the
@@ -132,10 +134,19 @@ prime `0x100000001b3` and this palette, in order: `#3CC2B0`, `#EBA946`,
 `#A688F5`, `#5AA9F2`, `#F07A8A`, `#7BC96F`, `#E58F4B`, `#C77DDB`, `#4FC1D9`,
 `#D6C24A`.
 
-The tab shows attached people, a ring on the owner, the grid size, and a
-dashed-box glyph when this viewer does not match. The size panel has the mode
-control, a size map, one row per participant (counts switch, priority order,
-disconnect), and "Disconnect other clients".
+On the Mac, the tab shows up to three attached people (owner first, with a
+ring in the owner's color, `+N` for the rest) only while someone else is
+attached. Its tooltip is `Size set by Maya's Mac · 118×38`, and clicking it
+toggles the size panel. The panel always hangs from the tab (the accessory, or
+the tab itself when the accessory is hidden), whichever entrypoint opened it:
+tab, pane chip, context menu, command palette or shortcut. It holds the grid
+and owner, a Size mode menu (with a cols × rows field pair in Fixed), one row
+per participant ("sets size" on the owner; a hover menu with Counts toward
+size and Disconnect; drag handles in Priority), and "Disconnect Others" with an
+inline confirmation. "Size to My Window" lives in the tab context menu, the
+palette and the shortcut. The tab context menu adds Size to My Window, a
+Terminal Size submenu with the five modes, and Disconnect Others… while anyone
+else is attached.
 
 ## Mac ↔ iPhone payloads
 

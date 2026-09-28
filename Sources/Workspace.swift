@@ -14878,13 +14878,12 @@ extension Workspace: BonsplitDelegate {
              .forkConversationNewWorkspace:
             handleForkConversationContextAction(action, for: tab, inPane: pane)
         case .sizeToMyWindow,
-             .toggleSizeCountsFromThisDevice,
              .sizeModeLatest,
              .sizeModeSmallest,
              .sizeModeLargest,
              .sizeModePriority,
              .sizeModeFixed,
-             .showSizePanel,
+             .toggleSizePanel,
              .disconnectOtherClients:
             handleTerminalSharingContextAction(action, for: tab)
         @unknown default:
