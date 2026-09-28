@@ -145,6 +145,12 @@ extension MobileShellComposite {
             deliverDemonstrationTerminalReplay(surfaceID: surfaceID)
             return
         }
+        // An external host serves its own screen and has nothing to do with
+        // the Mac client or its replay barriers; waiting for either would
+        // leave the mounted view blank.
+        if handleExternalHostReplayRequest(surfaceID: surfaceID) {
+            return
+        }
         guard remoteClient != nil,
               runtime?.supportsServerPushEvents == false
                 || terminalEventSubscriptionIsValidated else {
