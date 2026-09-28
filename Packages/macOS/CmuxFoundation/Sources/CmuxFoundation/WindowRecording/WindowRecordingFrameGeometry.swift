@@ -29,8 +29,14 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
         }
     }
 
-    public var cropsNothing: Bool {
-        cropX == 0 && cropY == 0
+    /// Whether the crop keeps every pixel of a source of this size.
+    ///
+    /// The size is part of the question: a region at the window's origin has a
+    /// zero offset and still throws away everything outside it. A plain
+    /// `cropsNothing` property read as "the offset is zero" and cost `cmux shot
+    /// --region 0,0,420,900` its crop.
+    public func cropsNothing(ofWidth sourceWidth: Int, height sourceHeight: Int) -> Bool {
+        cropX == 0 && cropY == 0 && cropWidth == sourceWidth && cropHeight == sourceHeight
     }
 
     public var scalesNothing: Bool {

@@ -32,10 +32,14 @@ extension TerminalController {
             )
         }
 
+        // Held so a timed-out capture can be cancelled: without this the task
+        // keeps running and writes `out` after the caller was told the
+        // screenshot timed out, on top of whatever they put there since.
+        var capture: Task<Void, Never>?
         let outcome: Result<WindowStillImageWriter.Written, Error>? = socketAwaitCallback(
             timeout: 20
         ) { completion in
-            Task {
+            capture = Task {
                 do {
                     completion(.success(try await Self.captureStill(
                         request: request,
@@ -47,6 +51,7 @@ extension TerminalController {
             }
         }
         guard let outcome else {
+            capture?.cancel()
             return .err(
                 code: "timeout",
                 message: "window.screenshot timed out after 20 seconds",
@@ -99,7 +104,9 @@ extension TerminalController {
             widthQuantum: 1
         )
         let image: CGImage
-        if geometry.cropsNothing, geometry.scalesNothing, request.caption == nil {
+        if geometry.cropsNothing(ofWidth: frame.image.width, height: frame.image.height),
+           geometry.scalesNothing,
+           request.caption == nil {
             // Nothing to crop, scale or draw: re-rendering would only cost a
             // copy and the window's color space.
             image = frame.image
@@ -113,6 +120,9 @@ extension TerminalController {
             }
             image = composed
         }
+        // The last point where giving up is still free: after this the file
+        // exists. A cancelled capture is a timed-out one, already answered.
+        try Task.checkCancellation()
         return try WindowStillImageWriter.write(
             image,
             to: Self.screenshotOutputURL(request: request),

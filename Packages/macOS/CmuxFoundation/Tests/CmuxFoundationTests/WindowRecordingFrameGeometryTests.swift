@@ -69,7 +69,20 @@ import Testing
         #expect(geometry.cropHeight == 600)
         #expect(geometry.outputWidth == 800)
         #expect(geometry.outputHeight == 600)
-        #expect(!geometry.cropsNothing)
+        #expect(!geometry.cropsNothing(ofWidth: 1600, height: 1000))
+    }
+
+    @Test func aRegionAtTheWindowsOriginStillCrops() throws {
+        // The bug this pins: the still path skipped composing whenever the crop
+        // offset was zero, so `--region 0,0,420,900` wrote the whole window.
+        let geometry = try plan(params: ["region": "0,0,420,900"])
+
+        #expect(geometry.cropX == 0)
+        #expect(geometry.cropY == 0)
+        #expect(geometry.cropWidth == 840)
+        #expect(geometry.cropHeight == 1000)
+        #expect(!geometry.cropsNothing(ofWidth: 1600, height: 1000))
+        #expect(try plan().cropsNothing(ofWidth: 1600, height: 1000))
     }
 
     @Test func regionOnAOnePointPerPixelWindowIsNotScaled() throws {
