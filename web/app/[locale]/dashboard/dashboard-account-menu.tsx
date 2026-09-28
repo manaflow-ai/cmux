@@ -77,7 +77,7 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
                   <div className="truncate text-xs text-muted">{user.primaryEmail}</div>
                 ) : null}
               </div>
-              <Menu.Item render={<Link href="/dashboard/team" />} className={menuItemClass}>
+              <Menu.Item render={<Link href="/dashboard/settings" />} className={menuItemClass}>
                 <SettingsIcon />
                 <span>{t("settings")}</span>
               </Menu.Item>

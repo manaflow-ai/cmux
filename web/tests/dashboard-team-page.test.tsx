@@ -1,11 +1,8 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import type React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createNextNavigationMock } from "./helpers/next-navigation-mock";
-import {
-  TEST_STACK_PROJECT_ID,
-  nextHeadersMock,
-} from "./helpers/dashboard-session-mock";
-import { renderSettled } from "./helpers/render-stream";
+import { TEST_STACK_PROJECT_ID } from "./helpers/dashboard-session-mock";
 
 const previousStackProjectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
 process.env.NEXT_PUBLIC_STACK_PROJECT_ID = TEST_STACK_PROJECT_ID;
@@ -17,104 +14,78 @@ afterAll(() => {
   }
 });
 
-let signedIn = true;
 let stackConfigured = true;
 let redirectedTo: string | null = null;
 
-mock.module("@hexclave/next", () => ({
-  AccountSettings: () => (
-    <section data-testid="stack-account-settings">
-      profile, security, sessions, teams, and invitations
-    </section>
-  ),
-  useUser: () => null,
-  UserAvatar: () => <span data-testid="avatar" />,
-  TeamSwitcher: () => <span data-testid="team-switcher" />,
-}));
-
-mock.module("next/navigation", () => {
-  const navigation = createNextNavigationMock((target: unknown) => {
+mock.module("next/navigation", () =>
+  createNextNavigationMock((target: unknown) => {
     redirectedTo = String(target);
     throw new Error(`redirect:${target}`);
-  });
-  return navigation;
-});
-
-mock.module("next/headers", () =>
-  nextHeadersMock({
-    refreshToken: () => "refresh-1",
-    // Middleware forwards the destination for the sign-in redirect.
-    headers: () => new Headers({ "x-cmux-dashboard-return-path": "/dashboard/team" }),
   }),
 );
 
-mock.module("next/cache", () => ({
-  cacheLife: () => undefined,
+mock.module("next-intl", () => ({
+  useTranslations: () => (key: string) => key,
 }));
 
-mock.module("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: undefined, isPending: true, isError: false }),
-  useQueryClient: () => ({
-    setQueryData: () => undefined,
-    invalidateQueries: async () => undefined,
-  }),
+mock.module("@/i18n/navigation", () => ({
+  Link: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
+    <a href={href} {...props}>{children}</a>
+  ),
+  useRouter: () => ({ replace: () => undefined, refresh: () => undefined }),
+  usePathname: () => "/dashboard/team",
 }));
 
 mock.module("../app/lib/stack", () => ({
   isStackConfigured: () => stackConfigured,
-  getStackServerApp: () => ({
-    getUser: async () => signedIn ? { id: "user-1", isAnonymous: false } : null,
-  }),
 }));
 
-mock.module("../app/lib/vault-auth", () => ({
-  localizedVaultPath: (_locale: string, path: string) => path,
-  vaultSignInHref: (path: string) => `/handler/sign-in?after_auth_return_to=${path}`,
-}));
+const { default: DashboardTeamPage } = await import("../app/[locale]/dashboard/team/page");
+const { settingsRouteForHash } = await import("../app/[locale]/dashboard/team/team-hash-redirect");
 
-const { default: DashboardTeamPage } = await import(
-  "../app/[locale]/dashboard/team/page"
-);
-
-describe("dashboard team settings", () => {
+describe("legacy /dashboard/team route", () => {
   beforeEach(() => {
-    signedIn = true;
     stackConfigured = true;
     redirectedTo = null;
   });
 
-  test("renders Stack's complete account and team settings", async () => {
-    const page = await DashboardTeamPage({
-      params: Promise.resolve({ locale: "en" }),
-    });
-    expect(renderToStaticMarkup(page)).toContain(
-      'data-testid="dashboard-section-skeleton"',
+  test("renders the client hash redirect instead of Hexclave account settings", async () => {
+    const html = renderToStaticMarkup(
+      await DashboardTeamPage({ params: Promise.resolve({ locale: "en" }) }),
     );
-    const html = await renderSettled(page);
-
-    expect(html).toContain('data-testid="stack-account-settings"');
-    expect(html).toContain("teams, and invitations");
+    expect(html).toContain('data-testid="team-hash-redirect"');
+    expect(html).toContain('href="/dashboard/settings"');
     expect(redirectedTo).toBeNull();
-  });
-
-  test("preserves the team settings return path when signed out", async () => {
-    signedIn = false;
-
-    const html = await renderSettled(await DashboardTeamPage({
-      params: Promise.resolve({ locale: "en" }),
-    }));
-
-    expect(html).not.toContain('data-testid="stack-account-settings"');
-    expect(redirectedTo).toContain("/handler/sign-in");
-    expect(redirectedTo).toContain("/dashboard/team");
   });
 
   test("preserves the active locale when Stack is unavailable", async () => {
     stackConfigured = false;
-
-    await expect(DashboardTeamPage({
-      params: Promise.resolve({ locale: "ja" }),
-    })).rejects.toThrow("redirect:/ja");
+    await expect(
+      DashboardTeamPage({ params: Promise.resolve({ locale: "ja" }) }),
+    ).rejects.toThrow("redirect:/ja");
     expect(redirectedTo).toBe("/ja");
+  });
+});
+
+describe("settingsRouteForHash", () => {
+  test.each([
+    ["#team-team_123", "/dashboard/teams/team_123"],
+    ["#team-a%2Fb", "/dashboard/teams/a%2Fb"],
+    ["#team-creation", "/dashboard/teams/new"],
+    ["#profile", "/dashboard/settings"],
+    ["#auth", "/dashboard/settings/auth"],
+    ["#notifications", "/dashboard/settings/notifications"],
+    ["#sessions", "/dashboard/settings/sessions"],
+    ["#api-keys", "/dashboard/settings/api-keys"],
+    ["#settings", "/dashboard/settings/account"],
+    ["#payments", "/dashboard/billing"],
+    ["", "/dashboard/settings"],
+    ["#", "/dashboard/settings"],
+    ["#team-", "/dashboard/settings"],
+    ["#unknown", "/dashboard/settings"],
+    ["#constructor", "/dashboard/settings"],
+    ["#%E0%A4%A", "/dashboard/settings"],
+  ])("maps %p to %p", (hash, route) => {
+    expect(settingsRouteForHash(hash)).toBe(route);
   });
 });

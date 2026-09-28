@@ -44,10 +44,15 @@ describe("dashboard shell", () => {
     // The theme toggle lives inside the account menu, not in the shell footer.
     expect(html).not.toContain("theme-control");
     expect(html).toContain('href="/dashboard/coderouter"');
+    // Account group: settings, then teams, then billing. The legacy
+    // Hexclave route is no longer linked.
+    const settingsIndex = html.indexOf('href="/dashboard/settings"');
+    const teamsIndex = html.indexOf('href="/dashboard/teams"');
     const billingIndex = html.indexOf('href="/dashboard/billing"');
-    const teamIndex = html.indexOf('href="/dashboard/team"');
-    expect(billingIndex).toBeGreaterThan(-1);
-    expect(teamIndex).toBeGreaterThan(billingIndex);
+    expect(settingsIndex).toBeGreaterThan(-1);
+    expect(teamsIndex).toBeGreaterThan(settingsIndex);
+    expect(billingIndex).toBeGreaterThan(teamsIndex);
+    expect(html).not.toContain('href="/dashboard/team"');
     const menuButton = html.match(
       /<button[^>]*aria-controls="dashboard-mobile-nav"[^>]*>/,
     )?.[0];
@@ -92,6 +97,7 @@ describe("dashboard shell", () => {
     expect(mobileDevicesIndex).toBeGreaterThan(coderouterIndex);
     expect(testflightIndex).toBeGreaterThan(mobileDevicesIndex);
     expect(billingIndex).toBeGreaterThan(testflightIndex);
+    expect(html.indexOf('href="/dashboard/settings"')).toBeGreaterThan(testflightIndex);
     // Every page prefetches its static shell; private data streams behind
     // Suspense and is never part of a prefetch, so no link opts out.
     expect(linkPrefetch.get("/dashboard/coderouter")).toBeUndefined();

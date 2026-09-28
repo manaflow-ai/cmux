@@ -1,0 +1,87 @@
+import { describe, expect, mock, test } from "bun:test";
+import type React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { isOnlySignInMethod, type SignInFacts } from "../app/[locale]/dashboard/settings/lib/sign-in-methods";
+
+mock.module("next-intl", () => ({
+  useTranslations: () => (key: string) => key,
+}));
+
+mock.module("@/i18n/navigation", () => ({
+  Link: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
+  usePathname: () => "/dashboard/settings/auth",
+  useRouter: () => ({ replace: () => undefined, refresh: () => undefined }),
+}));
+
+const { PasskeySection } = await import("../app/[locale]/dashboard/settings/components/auth/passkey-section");
+const { OtpSection } = await import("../app/[locale]/dashboard/settings/components/auth/otp-section");
+
+const none: SignInFacts = { hasPassword: false, otpAuthEnabled: false, passkeyAuthEnabled: false, oauthSignInCount: 0 };
+
+describe("isOnlySignInMethod", () => {
+  test("OTP is the last method only when nothing else can sign in", () => {
+    expect(isOnlySignInMethod("otp", { ...none, otpAuthEnabled: true })).toBe(true);
+    expect(isOnlySignInMethod("otp", { ...none, otpAuthEnabled: true, hasPassword: true })).toBe(false);
+    expect(isOnlySignInMethod("otp", { ...none, otpAuthEnabled: true, passkeyAuthEnabled: true })).toBe(false);
+    expect(isOnlySignInMethod("otp", { ...none, otpAuthEnabled: true, oauthSignInCount: 1 })).toBe(false);
+    expect(isOnlySignInMethod("otp", none)).toBe(false);
+  });
+
+  test("passkey is the last method only when nothing else can sign in", () => {
+    expect(isOnlySignInMethod("passkey", { ...none, passkeyAuthEnabled: true })).toBe(true);
+    expect(isOnlySignInMethod("passkey", { ...none, passkeyAuthEnabled: true, otpAuthEnabled: true })).toBe(false);
+  });
+
+  test("one OAuth provider is last; a second provider or password frees it", () => {
+    expect(isOnlySignInMethod("oauth", { ...none, oauthSignInCount: 1 })).toBe(true);
+    expect(isOnlySignInMethod("oauth", { ...none, oauthSignInCount: 2 })).toBe(false);
+    expect(isOnlySignInMethod("oauth", { ...none, oauthSignInCount: 1, hasPassword: true })).toBe(false);
+  });
+});
+
+type FakeUser = Parameters<typeof PasskeySection>[0]["user"];
+
+function fakeUser(overrides: Record<string, unknown>, verifiedSignInEmail = true): FakeUser {
+  return {
+    hasPassword: false,
+    otpAuthEnabled: false,
+    passkeyAuthEnabled: false,
+    oauthProviders: [],
+    useContactChannels: () => [
+      { id: "c1", value: "me@example.com", type: "email", isPrimary: true, isVerified: verifiedSignInEmail, usedForAuth: true },
+    ],
+    update: async () => undefined,
+    registerPasskey: async () => ({ status: "ok", data: undefined }),
+    ...overrides,
+  } as unknown as FakeUser;
+}
+
+describe("sign-in method sections", () => {
+  test("passkey cannot be disabled when it is the only sign-in method", () => {
+    const html = renderToStaticMarkup(<PasskeySection user={fakeUser({ passkeyAuthEnabled: true })} />);
+    expect(html).toContain("onlyMethod");
+    expect(html).not.toContain(">delete<");
+  });
+
+  test("passkey can be disabled when a password also exists", () => {
+    const html = renderToStaticMarkup(
+      <PasskeySection user={fakeUser({ passkeyAuthEnabled: true, hasPassword: true })} />,
+    );
+    expect(html).toContain(">delete<");
+    expect(html).not.toContain("onlyMethod");
+  });
+
+  test("passkey registration needs a verified sign-in email", () => {
+    expect(renderToStaticMarkup(<PasskeySection user={fakeUser({}, false)} />)).toContain("needsVerifiedEmail");
+    expect(renderToStaticMarkup(<PasskeySection user={fakeUser({})} />)).toContain(">add<");
+  });
+
+  test("OTP cannot be disabled when it is the only sign-in method", () => {
+    const html = renderToStaticMarkup(<OtpSection user={fakeUser({ otpAuthEnabled: true })} />);
+    expect(html).toContain("onlyMethod");
+    const withOAuth = renderToStaticMarkup(
+      <OtpSection user={fakeUser({ otpAuthEnabled: true, oauthProviders: [{ id: "github" }] })} />,
+    );
+    expect(withOAuth).toContain(">disable<");
+  });
+});

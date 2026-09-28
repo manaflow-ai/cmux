@@ -1,16 +1,14 @@
-import { AccountSettings } from "@hexclave/next";
 import { redirect } from "next/navigation";
-import { Suspense } from "react";
-import { loadDashboardSection } from "@/app/lib/dashboard-auth";
 import { isStackConfigured } from "@/app/lib/stack";
-import { IsolatedErrorBoundary, SectionUnavailable } from "@/app/components/error-boundary";
-import { DashboardAuthRecovery } from "../components/dashboard-auth-recovery";
-import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
-
-const RETURN_PATH = "/dashboard/team";
+import { TeamHashRedirect } from "./team-redirect";
 
 export const instant = true;
 
+/**
+ * Legacy Hexclave account settings URL. Stack emails and old bookmarks still
+ * link here with a hash; the client maps it to `/dashboard/settings/*` or
+ * `/dashboard/teams/*`. Each destination runs its own session gate.
+ */
 export default async function DashboardTeamPage({
   params,
 }: {
@@ -20,24 +18,5 @@ export default async function DashboardTeamPage({
   if (!isStackConfigured()) {
     redirect(`/${locale}`);
   }
-
-  return (
-    <div className="w-full px-3 py-4">
-      <Suspense fallback={<DashboardSectionSkeleton variant="rows" />}>
-        <TeamSettingsSection locale={locale} />
-      </Suspense>
-    </div>
-  );
-}
-
-async function TeamSettingsSection({ locale }: { locale: string }) {
-  const section = await loadDashboardSection(locale, RETURN_PATH);
-  if (section.kind === "unavailable") {
-    return <DashboardAuthRecovery locale={locale} returnPath={RETURN_PATH} />;
-  }
-  return (
-    <IsolatedErrorBoundary name="dashboard-account-settings" fallback={<SectionUnavailable />}>
-      <AccountSettings />
-    </IsolatedErrorBoundary>
-  );
+  return <TeamHashRedirect />;
 }
