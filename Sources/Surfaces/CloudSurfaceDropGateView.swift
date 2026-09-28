@@ -1,6 +1,6 @@
 import CmuxCloud
 import AppKit
-import Bonsplit
+import UniformTypeIdentifiers
 
 /// Intercepts only forbidden live surface drags, leaving ordinary hit testing alone.
 @MainActor
@@ -28,15 +28,8 @@ final class CloudSurfaceDropGateView: NSView {
     func rejection(for pasteboard: NSPasteboard) -> SurfaceTransferRejection? {
         guard isActive, let workspace,
               DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboard.types) else { return nil }
-        guard let transfer = sourceResolver.transfer(from: pasteboard) else {
-            return workspace.surfaceOwnershipPolicy.rejection(for: nil)
-        }
-        // A tab already in this workspace is being reordered or split within it.
-        if transfer.isFromCurrentProcess,
-           workspace.panelIdFromSurfaceId(TabID(uuid: transfer.tabId)) != nil {
-            return nil
-        }
-        guard let source = sourceResolver.source(for: transfer) else {
+        guard let transfer = sourceResolver.transfer(from: pasteboard),
+              let source = sourceResolver.source(for: transfer) else {
             return workspace.surfaceOwnershipPolicy.rejection(for: nil)
         }
         return workspace.surfaceDropRejection(transfer, source: source)
@@ -90,18 +83,33 @@ final class CloudSurfaceDropGateView: NSView {
     /// overlay out of the way.
     private func destinationBeneath(_ sender: any NSDraggingInfo) -> NSView? {
         guard let root = window?.contentView?.superview ?? window?.contentView else { return nil }
-        let types = Set(sender.draggingPasteboard.types ?? [])
+        let types = sender.draggingPasteboard.types ?? []
         guard !types.isEmpty else { return nil }
         let reference = root.superview ?? root
         var candidate = root.hitTest(reference.convert(sender.draggingLocation, from: nil))
         while let view = candidate {
             if view !== self, !view.isDescendant(of: self),
-               !types.isDisjoint(with: view.registeredDraggedTypes) {
+               Self.accepts(types, registeredTypes: view.registeredDraggedTypes) {
                 return view
             }
             candidate = view.superview
         }
         return nil
+    }
+
+    /// AppKit matches registered types by conformance: SwiftUI's `onDrop`
+    /// destinations register `public.data` rather than the custom type.
+    private static func accepts(
+        _ types: [NSPasteboard.PasteboardType],
+        registeredTypes: [NSPasteboard.PasteboardType]
+    ) -> Bool {
+        types.contains { type in
+            registeredTypes.contains { registered in
+                if type == registered { return true }
+                guard let dragged = UTType(type.rawValue), let accepted = UTType(registered.rawValue) else { return false }
+                return dragged.conforms(to: accepted)
+            }
+        }
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
@@ -122,7 +130,11 @@ final class CloudSurfaceDropGateView: NSView {
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
         feedback.clear()
-        forwardedDestination?.draggingEnded(sender)
+        // Optional in NSDraggingDestination; NSView itself does not implement it.
+        if let destination = forwardedDestination,
+           destination.responds(to: #selector(NSDraggingDestination.draggingEnded(_:))) {
+            destination.draggingEnded(sender)
+        }
         forwardedDestination = nil
     }
 
