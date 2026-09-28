@@ -563,6 +563,34 @@ struct SidebarAppKitRowCellTests {
         #expect(!cell.closeButtonPaintForTesting.isHidden)
     }
 
+    /// The shortcut hint pill is painted over the row's trailing edge instead of
+    /// being placed in the trailing slot, and it replaces the close button while
+    /// it shows. The title still has to stay out from under it, because a
+    /// one-line title truncates in the middle and its end carries meaning.
+    @Test
+    func shortcutHintPillHoldsTheTrailingColumnOpen() throws {
+        let width: CGFloat = 240
+        let model = Self.makeModel(canClose: true, shortcutHintText: "1")
+        let cell = Self.configuredCell(model: model)
+        let window = Self.layoutCell(cell, model: model, width: width)
+        defer { window.close() }
+        let titleView = try Self.titleView(in: cell, model: model)
+        let reserved = width
+            - SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
+            - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
+            - 24
+
+        #expect(titleView.frame.maxX == reserved)
+
+        // The pill stands in for the close button, so hovering such a row shows
+        // no button and moves nothing.
+        cell.enforcePointerHovering(true)
+        cell.layoutContent(model: model, width: width, apply: true)
+
+        #expect(titleView.frame.maxX == reserved)
+        #expect(cell.closeButtonPaintForTesting.isHidden)
+    }
+
     /// A wrapped title's height DOES depend on its width, so hovering such a
     /// row must not change the width its height was measured at.
     @Test

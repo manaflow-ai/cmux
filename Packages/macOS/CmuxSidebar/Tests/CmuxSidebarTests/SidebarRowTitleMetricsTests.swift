@@ -8,15 +8,15 @@ import Testing
 struct SidebarRowTitleMetricsTests {
     @Test("One line by default, and wrapping still shows a title in full")
     func lineLimits() {
-        #expect(SidebarRowTitleMetrics.lineLimit(wrapsTitles: false, usesTwoLines: false) == 1)
-        #expect(SidebarRowTitleMetrics.lineLimit(wrapsTitles: false, usesTwoLines: true) == 2)
+        #expect(SidebarRowTitleMetrics(wrapsTitles: false, usesTwoLines: false).lineLimit == 1)
+        #expect(SidebarRowTitleMetrics(wrapsTitles: false, usesTwoLines: true).lineLimit == 2)
         #expect(
-            SidebarRowTitleMetrics.lineLimit(wrapsTitles: true, usesTwoLines: false)
+            SidebarRowTitleMetrics(wrapsTitles: true, usesTwoLines: false).lineLimit
                 == SidebarRowTitleMetrics.maxWrappedLines
         )
         // Wrapping is the stronger request, so it is not reduced to two lines.
         #expect(
-            SidebarRowTitleMetrics.lineLimit(wrapsTitles: true, usesTwoLines: true)
+            SidebarRowTitleMetrics(wrapsTitles: true, usesTwoLines: true).lineLimit
                 == SidebarRowTitleMetrics.maxWrappedLines
         )
     }
@@ -26,12 +26,15 @@ struct SidebarRowTitleMetricsTests {
     /// renderer drew the sidebar.
     @Test("Both renderers truncate a one-line title in the middle")
     func truncationModesAgree() {
-        #expect(SidebarRowTitleMetrics.appKitLineBreakMode(lineLimit: 1) == .byTruncatingMiddle)
-        #expect(SidebarRowTitleMetrics.swiftUITruncationMode(lineLimit: 1) == .middle)
+        let oneLine = SidebarRowTitleMetrics(lineLimit: 1)
+        #expect(oneLine.truncatesMiddle)
+        #expect(oneLine.appKitLineBreakMode == .byTruncatingMiddle)
+        #expect(oneLine.swiftUITruncationMode == .middle)
 
         for limit in [2, 3, SidebarRowTitleMetrics.maxWrappedLines] {
-            #expect(!SidebarRowTitleMetrics.truncatesMiddle(lineLimit: limit))
-            #expect(SidebarRowTitleMetrics.swiftUITruncationMode(lineLimit: limit) == .tail)
+            let metrics = SidebarRowTitleMetrics(lineLimit: limit)
+            #expect(!metrics.truncatesMiddle)
+            #expect(metrics.swiftUITruncationMode == .tail)
         }
     }
 
@@ -39,11 +42,19 @@ struct SidebarRowTitleMetricsTests {
     /// that shows a title in full may wrap without a mark.
     @Test("A two-line title truncates, a fully wrapped title does not")
     func lineBreakModesMatchTheirLimits() {
-        #expect(SidebarRowTitleMetrics.appKitLineBreakMode(lineLimit: 2) == .byTruncatingTail)
+        #expect(SidebarRowTitleMetrics(lineLimit: 2).appKitLineBreakMode == .byTruncatingTail)
         #expect(
-            SidebarRowTitleMetrics.appKitLineBreakMode(lineLimit: SidebarRowTitleMetrics.maxWrappedLines)
+            SidebarRowTitleMetrics(lineLimit: SidebarRowTitleMetrics.maxWrappedLines).appKitLineBreakMode
                 == .byWordWrapping
         )
+    }
+
+    /// A line limit is a count of lines, so the metrics cannot be built with a
+    /// limit that would draw no title at all.
+    @Test("A limit below one line is treated as one line")
+    func limitsBelowOneLineAreClamped() {
+        #expect(SidebarRowTitleMetrics(lineLimit: 0).lineLimit == 1)
+        #expect(SidebarRowTitleMetrics(lineLimit: -3).truncatesMiddle)
     }
 
     /// Row titles are labels in a narrow column, not body text.

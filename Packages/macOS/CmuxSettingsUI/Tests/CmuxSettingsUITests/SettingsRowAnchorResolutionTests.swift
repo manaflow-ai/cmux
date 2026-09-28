@@ -129,6 +129,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.showWorkspaceDescription",
         "sidebar.workspaceDescriptionColor",
         "sidebar.stackBranchDirectory",
+        "sidebar.twoLineWorkspaceTitles",
         "sidebar.watchGitStatus",
         "sidebar.wrapWorkspaceTitles",
         "sidebar.beta.workspaceTodos.controls.enabled",

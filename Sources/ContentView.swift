@@ -16204,10 +16204,11 @@ struct TabItemView: View, Equatable {
                 : SidebarMarkdownRenderer(markdown: display).plainText
         }
         let detailVisibility = visibleAuxiliaryDetails
-        let titleLineLimit = SidebarRowTitleMetrics.lineLimit(
+        let titleMetrics = SidebarRowTitleMetrics(
             wrapsTitles: settings.wrapsWorkspaceTitles,
             usesTwoLines: settings.usesTwoLineWorkspaceTitles
         )
+        let titleLineLimit = titleMetrics.lineLimit
         let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
@@ -16324,7 +16325,7 @@ struct TabItemView: View, Equatable {
                         .foregroundColor(activePrimaryTextColor)
                         .opacity(workspaceSnapshot.isMuted ? 0.6 : 1)
                         .lineLimit(titleLineLimit)
-                        .truncationMode(SidebarRowTitleMetrics.swiftUITruncationMode(lineLimit: titleLineLimit))
+                        .truncationMode(titleMetrics.swiftUITruncationMode)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .alignmentGuide(.sidebarTitleFirstLineCenter) { _ in titleFirstLineCenter }
@@ -16333,12 +16334,16 @@ struct TabItemView: View, Equatable {
 
                 // Matches the AppKit rows: the hover-revealed close button no
                 // longer holds a column open on rows that are not hovered, so a
-                // resting title gets that width. Wrapped titles keep the
-                // reservation, since changing their width on hover would change
-                // their line count and the row's height.
+                // resting title gets that width. The shortcut hint pill is drawn
+                // over the same trailing edge and replaces the close button
+                // while it shows, so the title yields to it as well. A title on
+                // more than one line keeps the reservation at all times, since
+                // changing its width would change its line count and the row's
+                // height.
                 let reservesTrailingSlot = trailingStatusActive
                     || showCloseButton
-                    || (titleLineLimit != 1 && canCloseWorkspace)
+                    || showsWorkspaceShortcutHint
+                    || titleLineLimit != 1
                 if reservesTrailingSlot {
                     SidebarWorkspaceTrailingStatusSlot(showsSpinner: spinnerOnTrailing, showsBadge: badgeOnTrailing, unreadCount: unreadCount, side: scaledUnreadBadgeSize, width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip, canCloseWorkspace: canCloseWorkspace, showsCloseButton: showCloseButton, closeButtonTooltip: closeButtonTooltip, closeButtonColor: activeSecondaryColor(0.7), closeButtonFontSize: scaledFontSize(9), closeAction: actions.closeWorkspace)
                 }
