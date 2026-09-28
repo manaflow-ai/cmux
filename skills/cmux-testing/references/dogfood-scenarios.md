@@ -58,19 +58,24 @@ passing tour only means no step failed; a frame that shows a blank window, the
 wrong screen, a system dialog over the app or the old behavior is a finding.
 Open the run link for all frames and the accessibility trees. When no tour
 reaches the change, add or extend one (with `paths` for the files it covers)
-in the same PR; the next push that changes app code shows it (a push that
-changes no app code gets no new build, so no media, and
-`gh workflow run pr-media.yml --repo manaflow-ai/cmux -f pr=<n> -f allow_compile=true` is the way to see a tour-only edit). For evidence no tour can produce
+in the same PR, and the next push shows it. A push that changes no app
+input (only a tour, docs or tests) runs the tours on the app CI already built
+for the same inputs earlier in the PR, and the section says which build. A PR
+that never changed app code has no such build; there
+`gh workflow run pr-media.yml --repo manaflow-ai/cmux -f pr=<n> -f allow_compile=true`
+compiles one for the tour. For evidence no tour can produce
 (a drag, a recording from a fleet dogfood), upload it with `scripts/pr-media.py`;
 the workflow uploads through the same tool.
 
 `pr-media-prune.yml` keeps the branch small: weekly it drops the folders of
-pull requests closed over 30 days ago and squashes the branch to one commit,
-so images in those old comments stop loading. It is a dry run unless
-dispatched with `-f apply=true` or `CI_PR_MEDIA_PRUNE_APPLY` is 1.
+pull requests closed over 30 days ago (unless an upload touched them since)
+and squashes the branch to one commit, so images in those old comments stop
+loading. It is a dry run unless dispatched with `-f apply=true` or
+`CI_PR_MEDIA_PRUNE_APPLY` is 1.
 
-Give every new tour a `paths` list of `fnmatch` globs (`*` crosses
-directories), for example `"paths": ["Sources/*Browser*", "Packages/macOS/CmuxBrowser/*"]`.
+Give a new tour a `paths` list of `fnmatch` globs (`*` crosses directories),
+for example `"paths": ["Sources/*Browser*", "Packages/macOS/CmuxBrowser/*"]`.
+Without one, only a `Dogfood-tours:` line or an edit to the tour file picks it.
 The test reads only `steps` and `launch`, so `paths` changes nothing about a run.
 
 ## Write a tour

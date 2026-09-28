@@ -60,6 +60,7 @@ jobs:
     outputs:
       pr: ${{ steps.plan.outputs.pr }}
       head_sha: ${{ steps.plan.outputs.head_sha }}
+      build_sha: ${{ steps.plan.outputs.build_sha }}
       merge_sha: ${{ steps.plan.outputs.merge_sha }}
       tours: ${{ steps.plan.outputs.tours }}
       run: ${{ steps.plan.outputs.run }}
@@ -87,6 +88,7 @@ jobs:
           # main's tours supply `paths` to a head that predates them.
           sparse-checkout: |
             scripts/ci/pr_media.py
+            scripts/ci/find_admitted_build.py
             dogfood/scenarios
           sparse-checkout-cone-mode: false
 
@@ -149,11 +151,16 @@ jobs:
       - name: Fetch the pull request head and the merge CI built
         env:
           HEAD_SHA: ${{ needs.plan.outputs.head_sha }}
+          BUILD_SHA: ${{ needs.plan.outputs.build_sha }}
           MERGE_SHA: ${{ needs.plan.outputs.merge_sha }}
           TOUR: ${{ matrix.tour }}
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 origin "$HEAD_SHA"
+          if [ -n "$BUILD_SHA" ] && [ "$BUILD_SHA" != "$HEAD_SHA" ]; then
+            git fetch --no-tags --depth=1 origin "$BUILD_SHA" \
+              || echo "::warning::could not fetch $BUILD_SHA; the dispatch may find no product to adopt"
+          fi
           if [ -n "$MERGE_SHA" ]; then
             git fetch --no-tags --depth=1 origin "$MERGE_SHA" \
               || echo "::warning::could not fetch $MERGE_SHA; the dispatch may find no product to adopt"
@@ -171,6 +178,9 @@ jobs:
           READ_TOKEN: ${{ steps.read-token.outputs.token }}
           REPOSITORY: ${{ github.repository }}
           HEAD_SHA: ${{ needs.plan.outputs.head_sha }}
+          # The tour file comes from HEAD_SHA; the app from the build CI made
+          # for BUILD_SHA, which differs when this push changed no app input.
+          BUILD_SHA: ${{ needs.plan.outputs.build_sha }}
           TOUR: ${{ matrix.tour }}
           ALLOW_COMPILE: ${{ inputs.allow_compile && '--allow-compile' || '' }}
           # A job token cannot list repository variables (HTTP 403), so the
