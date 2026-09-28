@@ -98,3 +98,52 @@ extension DockSplitStore {
         }
     }
 }
+
+extension UpdateRelaunchBlockers {
+    /// Panels whose agent an update relaunch would cut off mid-task: every agent that is not
+    /// ``UpdateResumeSafety/safe``.
+    var midTaskPanelIds: Set<UUID> {
+        Set(agents.filter { $0.safety != .safe }.compactMap { UUID(uuidString: $0.id) })
+    }
+}
+
+/// "Continue where you left off" for agents an update relaunch cut off mid-task.
+///
+/// The relaunch saves mark those panels (`SessionTerminalPanelSnapshot.resumeWithContinuation`).
+/// When the relaunched app resumes one of them, its restore record carries ``prompt`` so the agent
+/// picks its turn back up, once.
+@MainActor
+final class UpdateRelaunchContinuationNudges {
+    static let shared = UpdateRelaunchContinuationNudges()
+
+    /// Sent to the agent, not shown to the user, so it is not localized.
+    static let prompt = "cmux restarted to install an update while you were working. Continue where you left off."
+
+    /// Panels the session saves mark. Set only once the update relaunch is under way, and kept for
+    /// the terminate-path save that follows it.
+    var midTaskPanelIds: Set<UUID> = []
+
+    /// Restored panels whose next agent resume carries ``prompt``.
+    private(set) var pendingPanelIds: Set<UUID> = []
+
+    /// Whether a session save should mark `panelId`.
+    func marksPanel(_ panelId: UUID) -> Bool? {
+        midTaskPanelIds.contains(panelId) ? true : nil
+    }
+
+    /// Records a restored panel that auto-resumes its agent from a marked snapshot.
+    func registerRestoredPanel(_ panelId: UUID, snapshot: SessionTerminalPanelSnapshot?, resumesAgent: Bool) {
+        guard resumesAgent, snapshot?.resumeWithContinuation == true else { return }
+        pendingPanelIds.insert(panelId)
+    }
+
+    /// The prompt for `panelId`'s next resume, if it has one.
+    func prompt(forPanel panelId: UUID) -> String? {
+        pendingPanelIds.contains(panelId) ? Self.prompt : nil
+    }
+
+    /// Ends the nudge once a resume of `panelId` is admitted.
+    func consume(panelId: UUID) {
+        pendingPanelIds.remove(panelId)
+    }
+}

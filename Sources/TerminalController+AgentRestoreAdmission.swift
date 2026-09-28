@@ -143,6 +143,9 @@ extension TerminalController {
             guard let claim = AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
                 kind: inputs.kind, sessionId: inputs.sessionID
             ) else { return .concurrentLaunch }
+            // The admitted CLI already holds the record with any update continuation prompt;
+            // a later restore of this panel resumes without it.
+            UpdateRelaunchContinuationNudges.shared.consume(panelId: inputs.surfaceID)
             return .admitted(claim)
         }
         // The CLI keeps the original restore operation alive. Each subsequent

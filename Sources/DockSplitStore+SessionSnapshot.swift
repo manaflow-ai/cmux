@@ -362,7 +362,10 @@ extension DockSplitStore {
                 textBoxDraft: terminal.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: transfer?.isRemoteTerminal ?? false,
                 remotePTYSessionID: transfer?.remotePTYSessionID,
-                wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil
+                wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil,
+                resumeWithContinuation: localTmuxStartCommand == nil
+                    ? UpdateRelaunchContinuationNudges.shared.marksPanel(panelId)
+                    : nil
             )
             browserSnapshot = nil
             filePreviewSnapshot = nil
