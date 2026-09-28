@@ -180,6 +180,10 @@ keeps the legacy claim and resize path, and phones behind it are not forwarded.
   | participant?, counts: true | false | null}`; `get-size-state {surface}`
   answers `{state}`.
 - Event `size-state {surface, state}`.
+- `note-size-activity {surface, view?}` records explicit activity for this
+  connection's participant, or for a relay sub-view with `view`.
+- A client opts in by listing `shared-sizing-v1` in `set-client-info`
+  `capabilities`; without it the daemon sends no `size-state` events.
 - `detach-client {client, by}` takes a numeric client id or a participant id.
   `detached` gains `reason`, `by` and, for a relay sub-view, `view`; the relay
   keeps its own attachment and forwards the event to that leaf.
