@@ -213,6 +213,19 @@ struct PaneDropZoneOverlayAnimationTests {
         expectSnap(of: host.overlay, to: host.frame(for: .right, in: resized))
     }
 
+    @Test("Resizing the pane during a slide drops the slide and pins the zone to the new layout")
+    func sameZoneReframeDuringSlideSnaps() {
+        let host = OverlayAnimatorHost()
+        defer { host.close() }
+        host.setZone(.right)
+        host.setZone(.left)
+        let resized = CGRect(x: 0, y: 0, width: 160, height: 80)
+        let transition = host.setZone(.left, in: resized)
+
+        #expect(transition == .moved)
+        expectSnap(of: host.overlay, to: host.frame(for: .left, in: resized))
+    }
+
     @Test("Hiding during a slide fades the overlay where it is drawn")
     func hideDuringSlideKeepsSlide() throws {
         let host = OverlayAnimatorHost()
