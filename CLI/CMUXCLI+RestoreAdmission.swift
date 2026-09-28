@@ -68,37 +68,16 @@ extension CMUXCLI {
             response = try RestoreAdmissionRetryPolicy.response {
                 try sendRestoreAdmission(params: &params, restorePayload: restorePayload, client: client)
             }
-            // The server waits on process/file events before answering another
-            // recovery request. Keep this CLI (and its saved cwd) alive until
-            // admission succeeds; never return the user to a manual-retry shell.
+            // Retry only genuinely unresolved evidence. A known live owner or
+            // competing launch is terminal, even when an older app also sets
+            // recovering=true on that response.
             params["wait_for_change"] = true
         } while response["recovering"] as? Bool == true
+            && response["live_owner_pid"] == nil && response["launch_pending"] as? Bool != true
         guard response["admitted"] as? Bool == true else {
-            if let processID = (response["live_owner_pid"] as? NSNumber)?.int64Value,
-               processID > 0 {
-                let format = String(
-                    localized: "cli.restore.error.liveOwner",
-                    defaultValue: "restore: this agent session is already running in process %1$lld. cmux did not start another copy. To take it over here, stop process %1$lld, then run 'cmux restore --surface' again."
-                )
-                throw loggedRestoreError(
-                    stage: "admission.live-owner",
-                    detail: "kind=\(record.kind) session=\(sessionID) pid=\(processID)",
-                    message: String(
-                        format: format,
-                        // Keep the PID an unambiguous shell token while the
-                        // surrounding diagnostic remains localized.
-                        locale: Locale(identifier: "en_US_POSIX"),
-                        processID
-                    )
-                )
-            }
-            throw loggedRestoreError(
-                stage: "admission.concurrent-launch",
-                detail: "kind=\(record.kind) session=\(sessionID)",
-                message: String(
-                    localized: "cli.restore.error.launchPending",
-                    defaultValue: "restore: another launch of this agent session is already starting. Wait for it to appear, or retry 'cmux restore --surface'."
-                )
+            throw restoreLaunchConflictError(
+                kind: record.kind, sessionID: sessionID,
+                processID: (response["live_owner_pid"] as? NSNumber)?.int64Value
             )
         }
         guard let claimID = response["claim_id"] as? String,
@@ -153,7 +132,8 @@ extension CMUXCLI {
     /// Best-effort rollback when preflight or `execve` fails after admission.
     func releaseRestoreLaunchAdmission(
         _ claim: RestoreLaunchAdmissionClaim?,
-        client: SocketClient
+        client: SocketClient,
+        deadline: Date? = nil
     ) {
         guard let claim else { return }
         _ = try? client.sendV2(
@@ -164,7 +144,8 @@ extension CMUXCLI {
                 "kind": claim.kind,
                 "session_id": claim.sessionID,
                 "claim_id": claim.claimID,
-            ]
+            ],
+            deadline: deadline
         )
     }
 }

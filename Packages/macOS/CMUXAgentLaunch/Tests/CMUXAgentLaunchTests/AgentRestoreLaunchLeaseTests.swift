@@ -14,11 +14,9 @@ struct AgentRestoreLaunchLeaseTests {
         let second = try AgentRestoreLaunchLease(directory: directory, account: "/codex", sessionID: session.lowercased())
         #expect(try first.tryAcquire())
         #expect(try !second.tryAcquire())
+        #expect(second.liveOwnerProcessID == nil, "A holder without a registered watcher is still launching")
         first.release()
-        // A parallel fork can retain a close-on-exec descriptor until exec.
-        // Await the kernel release, just as a contending CLI does.
-        try second.acquireAfterOwnerExit()
-        #expect(try second.tryAcquire())
+        try expectAcquisition(second)
     }
 
     @Test("Independent accounts and conversations do not serialize behind each other")
@@ -132,7 +130,7 @@ struct AgentRestoreLaunchLeaseTests {
         #expect(status == 0)
         finished.wait()
         #expect(registered.value)
-        #expect(try contender.tryAcquire())
+        try expectAcquisition(contender)
     }
 
     @Test("Transfer spawns an isolated watcher, and the launched process never inherits the lease")
@@ -167,7 +165,17 @@ struct AgentRestoreLaunchLeaseTests {
         var status: Int32 = 0
         #expect(waitpid(agent.pid, &status, 0) == agent.pid)
         #expect(status == 0, "the launched process inherited the lease descriptor")
-        try contender.acquireAfterOwnerExit()
+        try expectAcquisition(contender)
+    }
+
+    /// Parallel test spawns can retain CLOEXEC descriptors until their exec.
+    /// Only this test helper retries; production restore contention never waits.
+    private func expectAcquisition(_ lease: AgentRestoreLaunchLease) throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while try !lease.tryAcquire() {
+            try #require(ContinuousClock.now < deadline, "Lease was not released after owner exit")
+            Thread.sleep(forTimeInterval: 0.005)
+        }
     }
 }
 
