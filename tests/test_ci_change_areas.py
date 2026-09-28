@@ -4451,6 +4451,75 @@ def test_a_cmux_ui_tests_diff_runs_its_classes_without_a_label() -> None:
         assert coverage_gap("pull_request", True, ui_diff, [], ui_suite=True) is False
 
 
+def test_a_diff_the_fuzz_repros_exercise_asks_for_their_replays() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import changed_ui_selectors, fuzz_regression_selectors
+    from ui_tests_dispatch import FUZZ_REGRESSIONS_SELECTOR
+
+    assert fuzz_regression_selectors(["Sources/Sidebar/SidebarState.swift"]) == [FUZZ_REGRESSIONS_SELECTOR]
+    assert fuzz_regression_selectors(["dogfood/fuzz/regressions/x.json", "README.md"]) == [FUZZ_REGRESSIONS_SELECTOR]
+    assert fuzz_regression_selectors(["Sources/Workspace.swift", "README.md"]) == []
+    assert fuzz_regression_selectors(None) == []
+
+    script = ROOT / "scripts/ci/choose_ci_suite.py"
+    with tempfile.TemporaryDirectory() as directory:
+        changed = Path(directory) / "changed.txt"
+        event = Path(directory) / "event.json"
+
+        def outputs(files: str, head: str = "manaflow-ai/cmux", labels: tuple[str, ...] = ()) -> dict[str, str]:
+            changed.write_text(files)
+            event.write_text(json.dumps({
+                "repository": {"full_name": "manaflow-ai/cmux"},
+                "pull_request": {"head": {"repo": {"full_name": head}},
+                                 "labels": [{"name": label} for label in labels]},
+            }))
+            run = subprocess.run(
+                [sys.executable, str(script), "--event-name", "pull_request",
+                 "--pull-request-policy", "compile-only", "--event-path", str(event),
+                 "--files-from", str(changed), "--root", str(ROOT)],
+                capture_output=True, text=True, check=True,
+            )
+            return dict(line.split("=", 1) for line in run.stdout.splitlines() if "=" in line)
+
+        values = outputs("Sources/Sidebar/SidebarState.swift\n")
+        assert values["ui_selectors"] == FUZZ_REGRESSIONS_SELECTOR
+        assert values["coverage_gap"] == "false"
+        assert outputs("Sources/Workspace.swift\n")["ui_selectors"] == ""
+        # A fork's ui-tests job refuses to run anything, and no-full-ci opts out.
+        assert outputs("Sources/Sidebar/SidebarState.swift\n", head="someone/cmux")["ui_selectors"] == ""
+        assert outputs("Sources/Sidebar/SidebarState.swift\n", labels=("no-full-ci",))["ui_selectors"] == ""
+        # Next to a changed class, after it; a helper change stays a gap the replays do not close.
+        classes = changed_ui_selectors(ROOT, ["cmuxUITests/BonsplitTabDragUITests.swift"])
+        assert classes
+        values = outputs("cmuxUITests/BonsplitTabDragUITests.swift\nvendor/bonsplit\n")
+        assert values["ui_selectors"] == " ".join([*classes, FUZZ_REGRESSIONS_SELECTOR])
+        assert values["coverage_gap"] == "false"
+        helper = next(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "cmuxUITests").rglob("*"))
+                      if path.is_file() and changed_ui_selectors(ROOT, [path.relative_to(ROOT).as_posix()]) is None)
+        values = outputs(f"{helper}\nSources/Sidebar/SidebarState.swift\n")
+        assert values["ui_selectors"] == FUZZ_REGRESSIONS_SELECTOR
+        assert values["coverage_gap"] == "true"
+
+    # Classes that fill one focused run keep it: the replay gives way, and no gap opens.
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        (root / "cmuxUITests").mkdir()
+        names = [f"SidebarWorkspaceReorderRows{index}UITests" for index in range(6)]  # 287 characters; 315 with the replay
+        (root / "cmuxUITests/Many.swift").write_text("".join(f"class {name}: XCTestCase {{}}\n" for name in names))
+        changed = root / "changed.txt"
+        changed.write_text("cmuxUITests/Many.swift\nSources/Sidebar/SidebarState.swift\n")
+        event = root / "event.json"
+        event.write_text(json.dumps({"repository": {"full_name": "manaflow-ai/cmux"},
+                                     "pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}, "labels": []}}))
+        run = subprocess.run(
+            [sys.executable, str(script), "--event-name", "pull_request", "--pull-request-policy", "compile-only",
+             "--event-path", str(event), "--files-from", str(changed), "--root", str(root)],
+            capture_output=True, text=True, check=True)
+        values = dict(line.split("=", 1) for line in run.stdout.splitlines() if "=" in line)
+        assert values["ui_selectors"] == " ".join(f"cmuxUITests/{name}" for name in names)
+        assert values["coverage_gap"] == "false"
+
+
 def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from choose_ci_suite import changed_unit_selectors, strict_steps
@@ -5063,10 +5132,9 @@ def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
         assert outputs(["Sources/Workspace.swift"])["unit_in_admission"] == "false"
 
     ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
-    # A compile admission on an owned Mac holds glaeda's compile token, not the
-    # gui token, so a persistent pick moves the changed suites to shard 8.
-    assert ci["jobs"]["changes"]["outputs"]["unit_in_admission"] == (
-        "${{ steps.macos-pool.outputs.persistent != 'true' && steps.suite.outputs.unit_in_admission || 'false' }}")
+    # An owned compile admission takes its Mac's gui token for the suites
+    # itself, so the pool no longer decides where they run.
+    assert ci["jobs"]["changes"]["outputs"]["unit_in_admission"] == "${{ steps.suite.outputs.unit_in_admission }}"
     assert ci["jobs"]["macos"]["with"]["unit_in_admission"] == "${{ needs.changes.outputs.unit_in_admission }}"
 
     workflow = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))
@@ -5074,20 +5142,47 @@ def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
     assert call_inputs["unit_in_admission"]["default"] == "", call_inputs["unit_in_admission"]
     admission = workflow["jobs"]["macos-compile-admission"]
     shards = workflow["jobs"]["app-host-unit-tests"]
-    assert shards["if"].endswith("&& inputs.unit_in_admission != 'true' }}"), shards["if"]
+    assert shards["if"].endswith(
+        "&& (inputs.unit_in_admission != 'true' || needs.macos-compile-admission.outputs.unit_tested == 'false') }}"
+    ), shards["if"]
     assert admission["outputs"]["changed_suites"] == "${{ steps.run-changed-suites.outcome }}"
+    assert admission["outputs"]["unit_tested"] == "${{ steps.test-here.outputs.tested }}"
 
     names = [step.get("name") for step in admission["steps"]]
     by_name = {step.get("name"): step for step in admission["steps"]}
     shard_steps = {step.get("name"): step for step in shards["steps"]}
+    take_gui = names.index("Take this Mac's gui token for the changed suites")
+    assert by_name[names[take_gui]]["if"] == "${{ inputs.unit_in_admission == 'true' }}"
+    assert "take-gui" in by_name[names[take_gui]]["run"]
+    take_step = by_name[names[take_gui]]
+
+    def take_gui_output(helper_status, *, owned_gui: str = "", helper: bool = True) -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "glaeda-canonical-root"
+            if helper:
+                fake.write_text(f"#!/bin/bash\nexit {helper_status}\n")
+                fake.chmod(0o755)
+            output = Path(tmp) / "output"
+            env = {**os.environ, "GITHUB_OUTPUT": str(output), "POOL_OWNED_GUI": owned_gui,
+                   "GLAEDA_CANONICAL_ROOT": str(fake)}
+            subprocess.run(["bash", "-e", "-c", take_step["run"]], env=env, check=True, capture_output=True)
+            return output.read_text().strip()
+
+    assert take_step["env"]["GLAEDA_CANONICAL_ROOT"] == "/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root"
+    assert take_gui_output(0) == "tested=true"
+    for gave_way in (1, 2, 3):
+        assert take_gui_output(gave_way) == "tested=false", gave_way
+    assert take_gui_output(0, owned_gui="0") == "tested=false"
+    assert take_gui_output(0, helper=False) == "tested=true"
     first_test = names.index("Prepare isolated DerivedData")
+    assert take_gui == first_test - 1
     # The product is packaged, uploaded and seeded before any test can fail.
     for producer in ("Package compiled app-host test product", "Upload compiled app-host test product",
                      "Seed node-local compiled product cache"):
         assert names.index(producer) < first_test, producer
     for name in names[first_test:]:
         condition = str(by_name[name].get("if", ""))
-        assert "inputs.unit_in_admission == 'true'" in condition or "steps.test-derived-data.outcome" in condition \
+        assert "steps.test-here.outputs.tested == 'true'" in condition or "steps.test-derived-data.outcome" in condition \
             or "steps.run-changed-suites.outcome" in condition \
             or name in {"Report evidence collection outcomes", "Hold consumers behind the fast Linux gate"}, name
     # Admission runs the worker's own scripts, not copies of them.
@@ -5119,15 +5214,22 @@ def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
     route = {"macos": "true", "full_suite": "false", "unit_suite": "true", "compile_admitted": "",
              "release_build": "false", "unit_selectors": "cmuxTests/AlphaTests"}
 
-    def macos_status(in_admission: str, admission: str, shards: str, suites: str) -> subprocess.CompletedProcess[str]:
+    def macos_status(in_admission: str, admission: str, shards: str, suites: str,
+                     tested: str = "") -> subprocess.CompletedProcess[str]:
         needs = {name: {"result": "skipped", "outputs": {}} for name in MACOS_JOBS}
-        needs["macos-compile-admission"] = {"result": admission, "outputs": {"changed_suites": suites}}
+        needs["macos-compile-admission"] = {"result": admission,
+                                            "outputs": {"changed_suites": suites, "unit_tested": tested}}
         needs["app-host-unit-tests"]["result"] = shards
         env = {**os.environ, "MACOS_INPUTS": json.dumps({**route, "unit_in_admission": in_admission}),
                "MACOS_NEEDS": json.dumps(needs)}
         return subprocess.run(["bash", "-c", status], cwd=ROOT, env=env, text=True, capture_output=True)
 
     assert macos_status("true", "success", "skipped", "success").returncode == 0
+    assert macos_status("true", "success", "skipped", "success", "true").returncode == 0
+    # An owned admission that could not take its Mac's gui token handed the
+    # suites to the worker, which must then pass.
+    assert macos_status("true", "success", "skipped", "skipped", "false").returncode != 0
+    assert macos_status("true", "success", "success", "skipped", "false").returncode == 0
     failed = macos_status("true", "failure", "skipped", "failure")
     assert failed.returncode != 0
     assert "the changed suites failed" in failed.stderr, failed.stderr
@@ -5512,13 +5614,13 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     assert '.conclusion != null and .conclusion != "success" and .conclusion != "skipped"' in watcher
     assert "permissions: {}" in watcher and "actions: write" in watcher
     assert "uses:" not in watcher
-    # ci.yml holds no actions: write but for ui-tests, which dispatches
-    # test-e2e.yml for a same-repository pull request's changed UI test
-    # classes: the owned-pool rescue sweeper finds CI runs by marker
-    # (ci-owned-pool-rescue.yml).
+    # ci.yml holds no actions: write at all: a pull_request run takes it from
+    # the pull request. ui-tests only requests the UI test run, which
+    # ci-ui-tests.yml dispatches from the default branch
+    # (tests/test_ci_ui_tests_dispatch.py).
     jobs = _ci_jobs()
     writers = sorted(key for key, job in jobs.items() if (job.get("permissions") or {}).get("actions") == "write")
-    assert writers == ["ui-tests"], writers
+    assert writers == [], writers
     assert (yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8")).get("permissions") or {}).get("actions") != "write"
     fork_guard = jobs["ui-tests"]["steps"][0]
     assert fork_guard["if"] == "github.event.pull_request.head.repo.full_name != github.repository"
@@ -6247,10 +6349,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     package_block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
     assert "vars.MACOS_RUNNER_PR" not in package_block
     assert (
-        "CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && "
-        "github.event.pull_request.head.repo.full_name == github.repository && "
-        "contains(inputs.pr_owned_jobs, ' swift-package ') && "
-        "((github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && (inputs.pr_side_runner || inputs.pr_runner)) && "
+        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
+        "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || "
+        "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && "
+        "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) && "
         "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
     ) in package_block
     assert (
@@ -6260,7 +6362,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in package_block
 
     release_block = workflow_job_block("release-build", MACOS_WORKFLOW)
-    assert "CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}" in release_block
+    assert (
+        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
+        "&& (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}"
+    ) in release_block
     assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block
 
 
