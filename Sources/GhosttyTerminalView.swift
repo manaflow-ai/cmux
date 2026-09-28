@@ -10997,10 +10997,7 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
         if let zone = activeDropZone {
             attachDropZoneOverlayIfNeeded()
-            _ = setFrameIfNeeded(
-                dropZoneOverlayView,
-                to: dropZoneOverlayFrame(for: zone, in: bounds.size)
-            )
+            dropZoneOverlayAnimator.snapFrame(dropZoneOverlayFrame(for: zone, in: bounds.size))
         }
         if let pending = pendingDropZone,
            bounds.width > 2,
