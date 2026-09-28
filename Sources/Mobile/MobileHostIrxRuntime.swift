@@ -998,6 +998,23 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                         onAdmissionSettled: { carrier.settleAdmission() })
                 }
             }
+            // The stream also ends when the NWListener fails asynchronously
+            // (a network transition can kill it). Left alone, the runtime
+            // would keep advertising a dead port and the nil-guard above
+            // would block every restart. Ownership distinguishes failure
+            // from teardown: `stopDirectQuicListener` clears the field
+            // before this stream end is observed. The restart runs in a
+            // fresh task because the cleanup cancels this one.
+            guard let self, self.isCurrent(token), !Task.isCancelled,
+                  self.directQuicListener === listener else { return }
+            Self.journal.record("direct-quic", "listener-ended", ["port": String(boundPort)])
+            self.stopDirectQuicListener()
+            Task { @MainActor [weak self] in
+                guard let self, self.isCurrent(token) else { return }
+                await self.refreshListenerState(token: token)
+                await self.startDirectQuicListener(token: token)
+                await self.publishTailscaleRoutes(token: token)
+            }
         }
     }
 
