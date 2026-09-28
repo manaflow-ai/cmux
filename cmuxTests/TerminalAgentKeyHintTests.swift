@@ -138,6 +138,22 @@ struct TerminalAgentKeyHintTests {
     }
 
     @Test
+    func pointerInvalidationCancelsADeferredClick() {
+        let view = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 40))
+        var fired = false
+        view.agentKeyHintPointer.pressCell = TerminalAgentKeyHintCell(row: 1, column: 2)
+        view.agentKeyHintPointer.pendingPress = { fired = true }
+        view.agentKeyHintPointer.deferredPress.release(at: 10)
+
+        view.clearAgentKeyHintHover()
+
+        #expect(view.agentKeyHintPointer.pressCell == nil)
+        #expect(view.agentKeyHintPointer.pendingPress == nil)
+        #expect(view.agentKeyHintPointer.deferredPress.deadline == nil)
+        #expect(!fired)
+    }
+
+    @Test
     func tooltipsShowKeysAsGlyphs() {
         #expect(GhosttyNSView.agentKeyHintDisplay("ctrl+o") == "⌃O")
         #expect(GhosttyNSView.agentKeyHintDisplay("shift+tab") == "⇧⇥")
