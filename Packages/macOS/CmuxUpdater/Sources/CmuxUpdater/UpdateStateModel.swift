@@ -377,23 +377,25 @@ public final class UpdateStateModel {
         }
     }
 
-    /// Explains why a ready update is waiting to relaunch: busy agents are waited out, other
-    /// running commands need the user's Install Now.
-    public static func relaunchBlockersDescription(_ blockers: UpdateRelaunchBlockers) -> String {
-        var sentences: [String] = []
+    /// Explains what an automatically installed update is waiting for before it relaunches:
+    /// busy agents and running commands first, then a quiet minute with no input.
+    public nonisolated static func relaunchBlockersDescription(_ blockers: UpdateRelaunchBlockers) -> String {
         if blockers.busyAgentCount > 0 {
-            sentences.append(String(
-                localized: "update.readyWaiting.agents",
-                defaultValue: "Installs and relaunches when \(blockers.busyAgentCount) agents finish. Agents resume after the relaunch."
-            ))
+            return String(
+                localized: "update.autoInstall.waitingAgents",
+                defaultValue: "Installs after \(blockers.busyAgentCount) agents finish and you step away. Workspaces and agents resume where they left off."
+            )
         }
         if blockers.runningCommandCount > 0 {
-            sentences.append(String(
-                localized: "update.readyWaiting.commands",
-                defaultValue: "Relaunching will stop \(blockers.runningCommandCount) running commands. Choose Install Now when you're ready."
-            ))
+            return String(
+                localized: "update.autoInstall.waitingCommands",
+                defaultValue: "Installs after \(blockers.runningCommandCount) running commands finish and you step away. Install Now stops them."
+            )
         }
-        return sentences.joined(separator: " ")
+        return String(
+            localized: "update.autoInstall.waitingQuiet",
+            defaultValue: "Installs the next time you step away for a minute. Workspaces and agents resume where they left off."
+        )
     }
 
     /// The detected-background-update title, when one should be shown.

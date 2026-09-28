@@ -1340,6 +1340,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var lastPersistedSessionWindowIds: [UUID] = []
     private var lastTypingActivityAt: TimeInterval = 0
+    /// Fresh resume indexes captured by `updaterPrepareForRelaunch()` just before an update
+    /// relaunch, for the synchronous relaunch save.
+    var updateRelaunchIndexCapture = UpdateRelaunchIndexCapture()
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
@@ -2511,11 +2514,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
         mainWindowLifecycleCoordinator.cancelAllWindowlessRouteFreezeTasks()
-        _ = saveSessionSnapshotUsingCachedProcessDetectedIndexes(
-            includeScrollback: true,
-            removeWhenEmpty: false
-        )
+        if let prepared = updateRelaunchIndexCapture.take(now: ProcessInfo.processInfo.systemUptime) {
+            _ = saveSessionSnapshot(
+                includeScrollback: true,
+                removeWhenEmpty: false,
+                restorableAgentIndex: prepared.restorableAgentIndex,
+                surfaceResumeBindingIndex: prepared.surfaceResumeBindingIndex
+            )
+        } else {
+            _ = saveSessionSnapshotUsingCachedProcessDetectedIndexes(
+                includeScrollback: true,
+                removeWhenEmpty: false
+            )
+        }
         ClosedItemHistoryStore.shared.flushPendingSaves()
+    }
+
+    /// Captures fresh resume indexes for the update relaunch save. The cached index misses an
+    /// agent session started since the last scan, which the save would then record as not
+    /// running, so it would not resume after the relaunch.
+    func prepareUpdateRelaunchIndexes() async {
+        let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
+        guard let indexes = await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
+            ttyDeviceBindings: ttyDeviceBindings
+        ) else {
+            StartupBreadcrumbLog.append("appDelegate.updateRelaunch.freshIndexTimedOut")
+            return
+        }
+        updateRelaunchIndexCapture.store(indexes, capturedAt: ProcessInfo.processInfo.systemUptime)
     }
 
     func configure(
@@ -20417,6 +20443,19 @@ private extension NSWindow {
 extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     func updaterRequestsRetryCheckForUpdates() {
         checkForUpdates(nil)
+    }
+
+    func updaterPrepareForRelaunch() async {
+        await prepareUpdateRelaunchIndexes()
+    }
+
+    func updaterTimeSinceLastUserInput() -> Duration {
+        let seconds = MacPresenceMonitor.liveSecondsSinceLastHardwareInput() ?? 0
+        return .milliseconds(Int64(seconds * 1000))
+    }
+
+    func installUpdatesAutomaticallyDidChange() {
+        updateController.installAutomaticallyDidChange()
     }
 
     func updaterWillRelaunchApplication() {
