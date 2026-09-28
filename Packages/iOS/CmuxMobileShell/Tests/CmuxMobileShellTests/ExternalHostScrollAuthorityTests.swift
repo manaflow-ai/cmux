@@ -134,6 +134,45 @@ struct ExternalHostScrollAuthorityTests {
     }
 
     @MainActor
+    @Test("A verified-replay Mac without screen anchoring cannot demote a Cloud surface's scroll authority")
+    func presentationAuthorityIsPerSurface() async throws {
+        let router = LivenessHostRouter()
+        // Verified replay WITHOUT the screen-anchor capability (and without a
+        // byte lane, which would negotiate hybrid instead): the one Mac
+        // configuration whose surfaces must wait for the Mac's ordered frame.
+        await router.setCapabilities([
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.render_grid.verified_replay.v1",
+            "terminal.replay.v1"
+        ])
+        let store = try await makeConnectedStore(
+            router: router,
+            box: TransportBox(),
+            clock: TestClock()
+        )
+        try #require(store.usesVerifiedTerminalReplay)
+        try #require(!store.usesScreenAnchoredRenderGrid)
+        let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)
+        Self.install(host, on: store)
+
+        // The Mac's surfaces defer to the Mac's ordered frames...
+        #expect(!store.terminalScrollPresentationAppliesLocally(surfaceID: "term-mac"))
+        // ...but a Cloud surface has no Mac frame to defer to: demoting it
+        // with the session leaves its scroll gesture with no applier at all.
+        #expect(store.terminalScrollPresentationAppliesLocally(surfaceID: Self.surfaceID))
+        #expect(store.terminalScrollPresentationAppliesLocally(surfaceID: "cmux-demo-terminal-1"))
+
+        // With no Mac connected everything presents locally.
+        let offline = Self.install(
+            RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID),
+            on: MobileShellComposite(workspaces: [])
+        )
+        #expect(offline.terminalScrollPresentationAppliesLocally(surfaceID: Self.surfaceID))
+        #expect(offline.terminalScrollPresentationAppliesLocally(surfaceID: "term-mac"))
+    }
+
+    @MainActor
     @Test("A render-grid Mac session does not gate a Cloud surface's bytes behind verified replay")
     func externalBytesAreNotHeldToVerifiedReplay() async throws {
         let router = LivenessHostRouter()
