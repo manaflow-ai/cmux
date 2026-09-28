@@ -682,6 +682,14 @@ struct SidebarCompactAgentStatusTests {
         defer { workspace.teardownAllPanels() }
         workspace.statusEntries["claude_code"] = Self.entry("claude_code", "Needs input")
         workspace.statusEntries["deploy"] = Self.entry("deploy", "green")
+        // A structured agent key is suppressed by
+        // `sidebarStatusEntriesVisibleForDisplay()` until something proves an
+        // agent owns it, and `partition` keys off the same allow-list. So
+        // without this the entry never reaches the factory at all and both
+        // sides of the comparison below would read `["deploy"]`, which is what
+        // the first version of this test asserted against and why it was wrong.
+        // A PID with no panel binding is the smallest such proof.
+        workspace.agentPIDs["claude_code"] = 4242
 
         func snapshot(compact: Bool) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
             let defaults = Self.makeDefaults()
@@ -694,10 +702,18 @@ struct SidebarCompactAgentStatusTests {
         }
 
         // On: the agent key leaves the rows and becomes the glyph; the key the
-        // user wrote themselves stays a row.
+        // user wrote themselves stays a row. A non-nil glyph on its own would
+        // not prove the entry is what produced it, since the factory also
+        // builds one from a branch or a pull request, so assert where it came
+        // from. The kind is `.idle` rather than `.needsInput` because the kind
+        // is read from `AgentHibernationLifecycleState`, which this workspace
+        // has none of; with no lifecycle state the `.idle` branch is reachable
+        // only through a non-empty `agentEntries`. The tooltip then carries the
+        // entry's own text, which nothing else in this fixture could supply.
         let on = snapshot(compact: true)
         #expect(on.metadataEntries.map(\.key) == ["deploy"])
-        #expect(on.compactStatusGlyph != nil)
+        #expect(on.compactStatusGlyph?.kind == .idle)
+        #expect(on.compactStatusGlyph?.tooltip.contains("Needs input") == true)
 
         // Off: both keys are rows and no glyph is built at all.
         let off = snapshot(compact: false)
