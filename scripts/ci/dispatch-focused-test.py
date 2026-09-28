@@ -767,6 +767,17 @@ def owned_class(label: str | None) -> tuple[str, str] | None:
     return match.groups() if match else None
 
 
+def adopts_on(runner: str | None, family: str | None) -> bool:
+    """Whether a UI run on `runner` can load a product compiled on `family`:
+    the same owned choice, or either Blacksmith macOS 26 size (they share a
+    toolchain; see FAMILY_RUNNERS)."""
+    if not runner or not family:
+        return False
+    if family.startswith("blacksmith-"):
+        return runner.startswith("blacksmith-") and "macos-26" in runner
+    return runner == family
+
+
 def product_family(source: dict) -> str | None:
     """The owned runner choice test-e2e.yml offers when a CI run's compile
     admission ran on an owned Mac, or the Blacksmith macOS 26 pool it ran on;
@@ -887,6 +898,8 @@ def watch_run(run_id: int) -> int:
 DOGFOOD_SELECTOR = "cmuxUITests/DogfoodScenarioUITests"
 # workflow_dispatch caps the whole inputs payload at 65,535 characters.
 DOGFOOD_SCENARIO_MAX_B64 = 60_000
+# --adopt-only's status when the run would have to compile the app itself.
+NO_PRODUCT_EXIT = 3
 
 
 def encode_scenario(path: Path) -> str:
@@ -948,6 +961,13 @@ def main() -> int:
         "run of a pull request head tests the merge its CI compiled",
     )
     parser.add_argument(
+        "--adopt-only",
+        action="store_true",
+        help="UI runs only: dispatch only when the run can adopt the app and UI test bundle a CI "
+        f"run of this commit compiled, and otherwise exit {NO_PRODUCT_EXIT}; the dispatched run "
+        "fails rather than compiles if its reuse still misses (PR media tours use this)",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="dispatch even if this selector already failed at this commit, "
@@ -995,6 +1015,8 @@ def main() -> int:
         parser.error("test_filter entries must all target cmuxTests or all target cmuxUITests")
     test_target = targets.pop()
     test_filter = ",".join(args.test_filter)
+    if args.adopt_only and (test_target != "cmuxUITests" or args.runner not in (None, "auto") or args.full_build):
+        parser.error("--adopt-only takes UI selectors on the default runner, without --full-build")
     if args.ref is not None and not args.ref.strip():
         parser.error("--ref must not be empty")
     if args.workflow_ref is not None and not args.workflow_ref.strip():
@@ -1036,6 +1058,11 @@ def main() -> int:
                     "them. Pass --full-build to test the head itself.",
                     flush=True,
                 )
+
+    if args.adopt_only and ui_source is None:
+        print(f"No CI run of {head} has or will have app-host products to adopt; "
+              "not compiling (--adopt-only).", flush=True)
+        return NO_PRODUCT_EXIT
 
     def guards(commit: str) -> int | None:
         """Refuse or attach before dispatching `commit`; a status means return it."""
@@ -1168,6 +1195,10 @@ def main() -> int:
         except (subprocess.CalledProcessError, json.JSONDecodeError):
             adopted = False
         ui_source["adopted"] = adopted
+        if args.adopt_only and not adopted:
+            print(f"{ui_source['url']} left no app-host products this run can adopt; "
+                  "not compiling (--adopt-only).", flush=True)
+            return NO_PRODUCT_EXIT
         if not adopted and commit != head:
             print(f"note: no CI products for {commit}; compiling {head} instead", file=sys.stderr, flush=True)
             commit = head
@@ -1199,6 +1230,11 @@ def main() -> int:
             pr_xcode_app=repository_variable(pool.PR_XCODE_VARIABLE, PR_XCODE_ENV),
             log=lambda message: print(f"Runner pool: {message}", file=sys.stderr, flush=True),
         )
+    if args.adopt_only and not adopts_on(runner, ui_source.get("family")):
+        print(f"UI runs go to {runner}, which cannot load the products {ui_source['url']} "
+              f"compiled on {ui_source.get('family') or 'an unknown pool'}; not compiling (--adopt-only).",
+              flush=True)
+        return NO_PRODUCT_EXIT
     dispatch_id = uuid.uuid4().hex
     video = not args.no_video and test_target != "cmuxTests"
     fields = {
@@ -1213,6 +1249,9 @@ def main() -> int:
         fields["runner"] = args.runner
     if scenario_b64:
         fields["dogfood_scenario"] = scenario_b64
+    if args.adopt_only:
+        # test-e2e.yml fails before compiling if its reuse step still misses.
+        fields["require_adopted_product"] = "true"
     # Name the pool chosen here, so the run title carries the pool the guards
     # above match on and test-e2e.yml does not read the queue a second time.
     if not pinned and runner in OVERFLOW_POOLS:

@@ -355,6 +355,7 @@ extension Workspace {
         // processes (e.g. claude_code "Running"). Don't restore them across app
         // restarts because the processes that set them are gone.
         statusEntries.removeAll()
+        agentStatusEntriesByPanelId.removeAll()
         clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
@@ -3023,6 +3024,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { sidebarMetadata.statusEntries }
         set { sidebarMetadata.statusEntries = newValue }
     }
+    /// Each pane's own copy of the agent status it last reported, keyed by
+    /// panel then status key. `statusEntries` keeps one entry per key (last
+    /// writer wins), so two panes running the same agent would otherwise hide
+    /// each other; the row resolves the most urgent pane from these instead.
+    var agentStatusEntriesByPanelId: [UUID: [String: SidebarStatusEntry]] = [:]
     var metadataBlocks: [String: SidebarMetadataBlock] {
         get { sidebarMetadata.metadataBlocks }
         set { sidebarMetadata.metadataBlocks = newValue }
@@ -3223,6 +3229,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         restoredAgentLifecycle.snapshotsByPanelId
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Journals agent sessions ended by closing their terminal. Tests point it
+    /// at a private journal.
+    var agentSessionCloseJournal = AgentSessionCloseJournal()
     /// In-memory compare-and-claim state held while a CLI restore hands the
     /// validated binding to its child process.
     @ObservationIgnored var surfaceResumeRestoreClaimsByPanelId: [
@@ -6454,6 +6463,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func resetSidebarContext(reason: String = "unspecified") {
         statusEntries.removeAll()
+        agentStatusEntriesByPanelId.removeAll()
         clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
@@ -6668,8 +6678,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
-        sidebarStatusEntriesVisibleForDisplay().sorted { lhs, rhs in
+        let keysNeedingInput = sidebarStatusKeysNeedingInput()
+        return sidebarStatusEntriesVisibleForDisplay().sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
+            let lhsNeedsInput = keysNeedingInput.contains(lhs.key)
+            if lhsNeedsInput != keysNeedingInput.contains(rhs.key) { return lhsNeedsInput }
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
             return lhs.key < rhs.key
         }
@@ -8859,7 +8872,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true, autoLayout: Bool = false
     ) -> TerminalPanelCreationOutcome {
         guard !isRetiredFromOwningTabManager else { return .failed }
         // In a remote tmux mirror workspace a split means "split the mirrored
@@ -8904,7 +8917,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault, autoLayout: autoLayout
         ) else { return .failed }
         return .created(panel)
     }
@@ -8921,7 +8934,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialDividerPosition: CGFloat?,
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
-        allowTextBoxFocusDefault: Bool
+        allowTextBoxFocusDefault: Bool, autoLayout: Bool
     ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
@@ -9047,7 +9060,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // Create the split with the new tab already present in the new pane.
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+        guard let newPaneId = autoLayout ? bonsplitController.addPaneWithAutoLayout(from: paneId, withTab: newTab) : bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
@@ -9058,8 +9071,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
             return nil
         }
-        applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
-        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: focus)
+        if !autoLayout { applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId) }
+        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: autoLayout ? "terminal_auto_layout" : "terminal_split", focused: focus)
 
 #if DEBUG
         cmuxDebugLog("split.created pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation)")
