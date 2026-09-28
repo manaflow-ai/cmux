@@ -418,6 +418,6 @@ cmux 免费、开源，并将一直如此。如果您想支持开发并提前体
 
 ## 许可证
 
-cmux 以 [GPL-3.0-or-later](LICENSE) 开源。
+cmux 以 [GPL-3.0-or-later](LICENSE) 开源。cmux 服务器软件（`web/`、Cloudflare Worker 以及 [LICENSE](LICENSE) 中列出的中继服务）改用 [Business Source License 1.1](web/LICENSE)：您可以出于非生产目的阅读、修改和运行它，生产使用或自托管需要商业许可证。
 
 如果您的组织无法遵守 GPL，可提供商业许可证。详情请联系 [founders@manaflow.com](mailto:founders@manaflow.com)。
