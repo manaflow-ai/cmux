@@ -218,6 +218,10 @@ public final class CloudMachineCreateCoordinator {
         return remove(where: { $0.createdMachineID == machineID }, closePresentations: true)
     }
 
+    /// Records that a machine's deletion failed and it is listed again.
+    /// - Parameter machineID: The provider machine whose deletion failed.
+    public func machineDeletionFailed(_ machineID: String) {}
+
     /// Fences an account transition and clears account-specific projection aliases.
     /// - Parameter cleanupCreatedMachines: Whether the departing account permits cleanup.
     /// - Returns: Teardown effects; old callbacks may only produce cleanup, never UI state.

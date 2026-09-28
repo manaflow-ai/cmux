@@ -118,6 +118,42 @@ struct CloudMachineDeletionCoordinatorTests {
         #expect(creates.finish(completion(machine: "early"), from: attempt).cleanupMachineIDs.isEmpty)
     }
 
+    @Test func receiptAfterAFailedDeletionKeepsTheRestoredMachine() {
+        let creates = makeCreates()
+        let deletions = CloudMachineDeletionCoordinator()
+        let attempt = creates.reserve(request())
+        #expect(deletions.begin("survivor"))
+        _ = creates.retireCreates(producing: "survivor")
+        #expect(deletions.finish("survivor", result: .failed) == .restored)
+        creates.machineDeletionFailed("survivor")
+
+        let receipt = creates.receive("OK machine=survivor\n", from: attempt)
+        #expect(receipt.cancelOperationIDs.isEmpty, "the restored machine is still this create's")
+        #expect(receipt.closedOperations.isEmpty)
+        #expect(creates.projection.adoptedOperationIDs["survivor"] == attempt.operationID)
+        // Cancelling that create later still cleans its machine up, once.
+        #expect(creates.cancel(attempt.operationID).cleanupMachineIDs == ["survivor"])
+        #expect(creates.finish(completion(machine: "survivor", cancelled: true), from: attempt).cleanupMachineIDs.isEmpty)
+    }
+
+    @Test func createRetiredByAFailedDeletionNeverRetriesTheDestroy() {
+        let creates = makeCreates()
+        let deletions = CloudMachineDeletionCoordinator()
+        let attempt = creates.reserve(request())
+        _ = creates.receive("OK machine=kept\n", from: attempt)
+        #expect(deletions.begin("kept"))
+        #expect(creates.retireCreates(producing: "kept").cancelOperationIDs == [attempt.operationID])
+        #expect(deletions.finish("kept", result: .failed) == .restored)
+        creates.machineDeletionFailed("kept")
+
+        // The person saw the delete fail and the machine come back; its stopped
+        // create's late receipts must not delete it again on their own.
+        #expect(creates.receive("OK machine=kept\n", from: attempt).cleanupMachineIDs.isEmpty)
+        let late = creates.finish(completion(machine: "kept", cancelled: true), from: attempt)
+        #expect(late.cleanupMachineIDs.isEmpty)
+        #expect(late.finished == nil)
+    }
+
     @Test func cancelledCreateCleanupJoinsDeletionOnce() {
         let creates = makeCreates()
         let deletions = CloudMachineDeletionCoordinator()
