@@ -41,7 +41,9 @@ struct CloudMachineNotificationDeliveryTests {
 
         // This suite only exercises delivery ownership, not selection. Avoid
         // the queued selection side effect, which dismisses focused-panel
-        // notifications after the fixture starts.
+        // notifications after the fixture starts. A selected workspace mounts
+        // its terminal in the app-host window and can dismiss notifications
+        // while their hooks are still resolving.
         let workspace = manager.addWorkspace(select: false)
         return Harness(store: store, workspace: workspace) {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
@@ -155,6 +157,11 @@ struct CloudMachineNotificationDeliveryTests {
         let projectHooks = await harness.store.notificationHookCache.hooks(startingFrom: directory.path, globalConfigPath: unusedGlobal)
         #expect(projectHooks.map(\.id) == ["project-marker"])
 
+        // Record read targets while hooks resolve: any read of this surface
+        // discards the pending notification, so name it if one happens.
+        var readTargets: [String] = []
+        let previousObserver = harness.store.readTargetObserver
+        harness.store.readTargetObserver = { readTargets.append(String(describing: $0)) }
         await harness.store.addDesktopNotificationResolvingHooks(
             tabId: harness.workspace.id,
             surfaceId: surfaceId,
@@ -165,7 +172,11 @@ struct CloudMachineNotificationDeliveryTests {
             origin: .cloudVM(machineID: "vivid-newt")
         )
         let notification = try await waitForNotification(titled: "from the machine", in: harness.store)
-        #expect(harness.store.notifications.map(\.title) == ["from the machine"])
+        harness.store.readTargetObserver = previousObserver
+        #expect(
+            harness.store.notifications.map(\.title) == ["from the machine"],
+            "read targets during hook resolution: \(readTargets)"
+        )
         #expect(notification?.origin == .cloudVM(machineID: "vivid-newt"))
         #expect(notification?.subtitle == "vivid-newt")
         #expect(
