@@ -5,6 +5,7 @@ Regression tests for Codex Feed hook wiring and decision output.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 import hashlib
 import os
@@ -88,6 +89,7 @@ class FakeCmuxSocket:
         method_errors: dict[str, tuple[str, str]] | None = None,
         single_batch_item_id: bool = False,
         method_delays: dict[str, float] | None = None,
+        on_raw_command: Callable[[str], None] | None = None,
     ):
         self.path = path
         self.decision = decision
@@ -102,6 +104,7 @@ class FakeCmuxSocket:
         self.method_errors = method_errors or {}
         self.single_batch_item_id = single_batch_item_id
         self.method_delays = method_delays or {}
+        self.on_raw_command = on_raw_command
         self._dropped_surface_list = False
         self.frames: list[dict] = []
         self.frames_with_connection: list[tuple[int, dict]] = []
@@ -174,6 +177,8 @@ class FakeCmuxSocket:
                         frame = json.loads(raw_line)
                     except json.JSONDecodeError:
                         self.frames.append({"raw": raw_line})
+                        if self.on_raw_command is not None:
+                            self.on_raw_command(raw_line)
                         if self.raw_response_delay > 0:
                             time.sleep(self.raw_response_delay)
                         reply(b"OK\n")

@@ -251,6 +251,57 @@ def test_codex_monitor_rss_reaches_a_plateau(cli_path: str, root: Path) -> None:
                 subprocess.run(["/bin/kill", str(pid)], check=False)
 
 
+def test_monitor_observes_append_during_notification(cli_path: str, root: Path) -> None:
+    """An append before notification acknowledgement must wake the next parse."""
+    socket_path = root / "monitor-wake.sock"
+    transcript_path = root / "monitor-wake.jsonl"
+    turn_id = "wake-race-turn"
+    first = append_synchronized_update(transcript_path, turn_id=turn_id, index=1)
+    next_question = "memory checkpoint 2"
+    appended = False
+
+    def append_before_acknowledgement(command: str) -> None:
+        nonlocal appended
+        if not appended and first in command:
+            appended = True
+            # The monitor is still awaiting this command's reply. The second
+            # append therefore occurs after its input parse and before its
+            # next wait, without a scheduling delay or another writer.
+            append_synchronized_update(transcript_path, turn_id=turn_id, index=2)
+
+    environment = {
+        key: value for key, value in os.environ.items()
+        if not key.startswith("CMUX_")
+    }
+    environment.update({
+        "CMUX_SOCKET_PATH": str(socket_path),
+        "CMUX_AGENT_HOOK_STATE_DIR": str(root / "wake-state"),
+        "CMUX_CLI_SENTRY_DISABLED": "1",
+        "CMUX_DEBUG_LOG": str(root / "monitor-wake.log"),
+    })
+    with FakeCmuxSocket(
+        socket_path, None, on_raw_command=append_before_acknowledgement
+    ) as server:
+        process = subprocess.Popen(
+            [cli_path, "--socket", str(socket_path), "hooks", "codex", "monitor",
+             "--workspace", FAKE_WORKSPACE_ID, "--surface", FAKE_SURFACE_ID,
+             "--session", f"monitor-wake-{os.getpid()}", "--turn", turn_id,
+             "--transcript", str(transcript_path)],
+            env=environment, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            wait_for_raw_command(server, first)
+            wait_for_raw_command(server, next_question)
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+
+
 def main() -> int:
     """Run the isolated monitor memory regression and report its result."""
     try:
@@ -263,6 +314,7 @@ def main() -> int:
         prefix="cmux-codex-monitor-memory-", dir="/tmp"
     ) as td:
         try:
+            test_monitor_observes_append_during_notification(cli_path, Path(td))
             test_codex_monitor_rss_reaches_a_plateau(cli_path, Path(td))
         except Exception as exc:
             print(f"FAIL: {exc}")
