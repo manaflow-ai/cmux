@@ -568418,6 +568418,1894 @@
           }
         }
       }
+    },
+    "cli.permissions.error.invalidExpires": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--expires takes a duration like 30m, 2h, or 7d"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب --expires مدة مثل 30m أو 2h أو 7d"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--expires erwartet eine Dauer wie 30m, 2h oder 7d"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--expires espera una duración como 30m, 2h o 7d"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--expires attend une durée comme 30m, 2h ou 7d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--expires には 30m、2h、7d のような期間を指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--expires에는 30m, 2h, 7d 같은 기간을 지정하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--expires 需要时长，例如 30m、2h 或 7d"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--expires 需要時間長度，例如 30m、2h 或 7d"
+          }
+        }
+      }
+    },
+    "cli.permissions.error.oneScope": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use either --session or --project, not both."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم --session أو --project، وليس كليهما."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwende entweder --session oder --project, nicht beides."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa --session o --project, no ambos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez --session ou --project, pas les deux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--session か --project のどちらか一方を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--session과 --project 중 하나만 사용하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请使用 --session 或 --project，不要同时使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請使用 --session 或 --project，不要同時使用。"
+          }
+        }
+      }
+    },
+    "cli.permissions.error.revokeTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions revoke requires a grant id or --all (see cmux permissions list)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب permissions revoke معرّف منح أو --all (راجع cmux permissions list)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions revoke benötigt eine Freigabe-ID oder --all (siehe cmux permissions list)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions revoke requiere un id de concesión o --all (consulta cmux permissions list)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions revoke nécessite un identifiant d’autorisation ou --all (voir cmux permissions list)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions revoke には許可 ID または --all が必要です（cmux permissions list を参照）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions revoke에는 허가 ID 또는 --all이 필요합니다(cmux permissions list 참조)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions revoke 需要授权 ID 或 --all（请参阅 cmux permissions list）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions revoke 需要授權 ID 或 --all（請參閱 cmux permissions list）"
+          }
+        }
+      }
+    },
+    "cli.permissions.error.ruleRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions request requires at least one --rule, e.g. --rule 'Bash(git:*)'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب permissions request قاعدة --rule واحدة على الأقل، مثل --rule 'Bash(git:*)'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions request benötigt mindestens eine --rule, z. B. --rule 'Bash(git:*)'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions request requiere al menos una --rule, p. ej. --rule 'Bash(git:*)'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions request nécessite au moins une --rule, par ex. --rule 'Bash(git:*)'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions request には --rule が 1 つ以上必要です（例: --rule 'Bash(git:*)'）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions request에는 --rule이 하나 이상 필요합니다. 예: --rule 'Bash(git:*)'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions request 至少需要一个 --rule，例如 --rule 'Bash(git:*)'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions request 至少需要一個 --rule，例如 --rule 'Bash(git:*)'"
+          }
+        }
+      }
+    },
+    "cli.permissions.error.scopeRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent session found. Pass --session <id> or --project <dir>."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على جلسة وكيل. مرّر --session <id> أو --project <dir>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Agenten-Sitzung gefunden. Gib --session <id> oder --project <dir> an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró ninguna sesión de agente. Indica --session <id> o --project <dir>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune session d’agent trouvée. Indiquez --session <id> ou --project <dir>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションが見つかりません。--session <id> または --project <dir> を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션을 찾을 수 없습니다. --session <id> 또는 --project <dir>를 지정하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到代理会话。请传入 --session <id> 或 --project <dir>。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到代理程式工作階段。請傳入 --session <id> 或 --project <dir>。"
+          }
+        }
+      }
+    },
+    "cli.permissions.error.subcommandRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions requires a subcommand. Try: request, list, revoke"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب permissions أمرًا فرعيًا. جرّب: request، list، revoke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions benötigt einen Unterbefehl. Versuche: request, list, revoke"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions requiere un subcomando. Prueba: request, list, revoke"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions nécessite une sous-commande. Essayez : request, list, revoke"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions にはサブコマンドが必要です。使用可能: request、list、revoke"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions에는 하위 명령이 필요합니다. 사용 가능: request, list, revoke"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions 需要子命令。可用：request、list、revoke"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permissions 需要子指令。可用：request、list、revoke"
+          }
+        }
+      }
+    },
+    "cli.permissions.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unexpected argument '%@' for cmux permissions %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وسيط غير متوقع '%@' للأمر cmux permissions %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unerwartetes Argument '%@' für cmux permissions %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Argumento inesperado '%@' para cmux permissions %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Argument inattendu '%@' pour cmux permissions %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予期しない引数 '%@'（cmux permissions %@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예상치 못한 인수 '%@' (cmux permissions %@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "意外的参数“%@”，用于 cmux permissions %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非預期的引數「%@」，用於 cmux permissions %@"
+          }
+        }
+      }
+    },
+    "cli.permissions.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown permissions subcommand '%@'. Try: request, list, revoke"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر permissions فرعي غير معروف '%@'. جرّب: request، list، revoke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter permissions-Unterbefehl '%@'. Versuche: request, list, revoke"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subcomando de permissions desconocido '%@'. Prueba: request, list, revoke"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-commande permissions inconnue '%@'. Essayez : request, list, revoke"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な permissions サブコマンド '%@'。使用可能: request、list、revoke"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 permissions 하위 명령 '%@'. 사용 가능: request, list, revoke"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 permissions 子命令“%@”。可用：request、list、revoke"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 permissions 子指令「%@」。可用：request、list、revoke"
+          }
+        }
+      }
+    },
+    "cli.permissions.list.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No active grants."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد أذونات ممنوحة نشطة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine aktiven Freigaben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay concesiones activas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune autorisation active."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な許可はありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 허가가 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有有效的授权。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有有效的授權。"
+          }
+        }
+      }
+    },
+    "cli.permissions.request.approved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approved grant %@:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت الموافقة على المنح %@:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Freigabe %@ genehmigt:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Concesión %@ aprobada:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorisation %@ approuvée :"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可 %@ を承認しました:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허가 %@ 승인됨:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已批准授权 %@："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已核准授權 %@："
+          }
+        }
+      }
+    },
+    "cli.permissions.request.denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The request was denied."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم رفض الطلب."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Anfrage wurde abgelehnt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La solicitud fue denegada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La demande a été refusée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リクエストは拒否されました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청이 거부되었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求已被拒绝。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要求已被拒絕。"
+          }
+        }
+      }
+    },
+    "cli.permissions.revoke.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grants revoked: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأذونات الممنوحة الملغاة: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widerrufene Freigaben: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Concesiones revocadas: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorisations révoquées : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り消した許可: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소된 허가: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已撤销的授权：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已撤銷的授權：%@"
+          }
+        }
+      }
+    },
+    "cli.permissions.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux permissions <subcommand> [options]\n\nAsk for a batch of agent permissions once, instead of one prompt per\ntool call. cmux shows an approval panel; nothing is granted until you\napprove it there.\n\nSubcommands:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      Ask for the rules (Claude permission syntax, e.g. 'Bash(git:*)',\n      'Edit(//abs/dir/**)'). Waits for your answer and prints what was\n      approved. Defaults to the current agent session when one is known.\n      --expires takes 30m, 2h, 7d, or seconds (default 24h, at most 30d).\n  list\n      List active grants with how many requests each answered.\n  revoke <id> | --all\n      Revoke one grant, or every grant.\n\nAll subcommands support --json for machine-readable output."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux permissions <subcommand> [options]\n\nاطلب مجموعة من أذونات الوكيل مرة واحدة، بدلًا من طلب لكل\nاستدعاء أداة. يعرض cmux لوحة موافقة؛ ولا يُمنح أي شيء حتى\nتوافق عليه هناك.\n\nالأوامر الفرعية:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      يطلب القواعد (بصيغة أذونات Claude، مثل 'Bash(git:*)'\n      و'Edit(//abs/dir/**)'). ينتظر ردك ويطبع ما تمت الموافقة عليه.\n      الافتراضي هو جلسة الوكيل الحالية عند معرفتها.\n      يقبل --expires القيم 30m أو 2h أو 7d أو ثوانٍ (الافتراضي 24h، والحد الأقصى 30d).\n  list\n      يسرد الأذونات الممنوحة النشطة وعدد الطلبات التي أجاب عنها كل منها.\n  revoke <id> | --all\n      يلغي إذنًا ممنوحًا واحدًا أو جميعها.\n\nتدعم جميع الأوامر الفرعية --json لإخراج قابل للقراءة آليًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux permissions <subcommand> [options]\n\nEinmalig einen Satz von Agenten-Berechtigungen anfragen, statt einer Abfrage pro\nWerkzeugaufruf. cmux zeigt ein Genehmigungsfenster; erst wenn du dort\nzustimmst, wird etwas freigegeben.\n\nUnterbefehle:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      Fragt die Regeln an (Claude-Berechtigungssyntax, z. B. 'Bash(git:*)',\n      'Edit(//abs/dir/**)'). Wartet auf deine Antwort und gibt aus, was\n      genehmigt wurde. Standard ist die aktuelle Agenten-Sitzung, falls bekannt.\n      --expires akzeptiert 30m, 2h, 7d oder Sekunden (Standard 24h, höchstens 30d).\n  list\n      Listet aktive Freigaben auf, mit der Anzahl beantworteter Anfragen.\n  revoke <id> | --all\n      Widerruft eine Freigabe oder alle Freigaben.\n\nAlle Unterbefehle unterstützen --json für maschinenlesbare Ausgabe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux permissions <subcommand> [options]\n\nSolicita una vez un conjunto de permisos de agente, en lugar de una consulta por\ncada llamada a herramienta. cmux muestra un panel de aprobación; no se concede\nnada hasta que lo apruebes ahí.\n\nSubcomandos:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      Solicita las reglas (sintaxis de permisos de Claude, p. ej. 'Bash(git:*)',\n      'Edit(//abs/dir/**)'). Espera tu respuesta e imprime lo que se\n      aprobó. Por defecto usa la sesión de agente actual cuando se conoce.\n      --expires acepta 30m, 2h, 7d o segundos (24h por defecto, 30d como máximo).\n  list\n      Lista las concesiones activas y cuántas solicitudes respondió cada una.\n  revoke <id> | --all\n      Revoca una concesión, o todas.\n\nTodos los subcomandos admiten --json para una salida legible por máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation: cmux permissions <subcommand> [options]\n\nDemander une fois un ensemble d’autorisations d’agent, au lieu d’une demande par\nappel d’outil. cmux affiche un panneau d’approbation ; rien n’est accordé tant\nque vous n’y avez pas donné votre accord.\n\nSous-commandes:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      Demande les règles (syntaxe d’autorisation Claude, par ex. 'Bash(git:*)',\n      'Edit(//abs/dir/**)'). Attend votre réponse et affiche ce qui a été\n      approuvé. Par défaut, la session d’agent actuelle si elle est connue.\n      --expires accepte 30m, 2h, 7d ou des secondes (24h par défaut, 30d au plus).\n  list\n      Liste les autorisations actives et le nombre de demandes traitées par chacune.\n  revoke <id> | --all\n      Révoque une autorisation, ou toutes.\n\nToutes les sous-commandes prennent en charge --json pour une sortie lisible par machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux permissions <subcommand> [options]\n\nツール呼び出しごとに確認する代わりに、エージェントの権限を\nまとめて一度にリクエストします。cmux が承認パネルを表示し、\nそこで承認するまで何も許可されません。\n\nサブコマンド:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      ルールをリクエストします（Claude の権限構文。例: 'Bash(git:*)'、\n      'Edit(//abs/dir/**)'）。応答を待ち、承認された内容を表示します。\n      現在のエージェントセッションがわかる場合はそれが既定になります。\n      --expires には 30m、2h、7d または秒数を指定します（既定 24h、最大 30d）。\n  list\n      有効な許可と、それぞれが応答したリクエスト数を一覧表示します。\n  revoke <id> | --all\n      許可を 1 つ、またはすべて取り消します。\n\nすべてのサブコマンドは機械可読出力用の --json に対応しています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux permissions <subcommand> [options]\n\n도구 호출마다 묻는 대신 에이전트 권한 묶음을 한 번에\n요청합니다. cmux가 승인 패널을 표시하며, 그곳에서 승인하기\n전에는 아무것도 허가되지 않습니다.\n\n하위 명령:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      규칙을 요청합니다(Claude 권한 구문, 예: 'Bash(git:*)',\n      'Edit(//abs/dir/**)'). 응답을 기다린 뒤 승인된 항목을 출력합니다.\n      현재 에이전트 세션을 알 수 있으면 기본값으로 사용합니다.\n      --expires에는 30m, 2h, 7d 또는 초를 지정합니다(기본값 24h, 최대 30d).\n  list\n      활성 허가와 각 허가가 응답한 요청 수를 나열합니다.\n  revoke <id> | --all\n      허가 하나 또는 모든 허가를 취소합니다.\n\n모든 하위 명령은 기계가 읽을 수 있는 출력을 위해 --json을 지원합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux permissions <subcommand> [options]\n\n一次请求一组代理权限，\n而不是每次调用工具都询问。cmux 会显示批准面板；\n在你于该处批准之前，不会授予任何权限。\n\n子命令:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      请求这些规则（Claude 权限语法，例如 'Bash(git:*)'、\n      'Edit(//abs/dir/**)'）。等待你的答复并列出已批准的内容。\n      如果已知当前代理会话，则默认使用该会话。\n      --expires 接受 30m、2h、7d 或秒数（默认 24h，最长 30d）。\n  list\n      列出有效的授权，以及每个授权已答复的请求数。\n  revoke <id> | --all\n      撤销一个授权，或撤销全部授权。\n\n所有子命令都支持 --json 以输出机器可读格式。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux permissions <subcommand> [options]\n\n一次要求一組代理程式權限，\n而不是每次工具呼叫都詢問。cmux 會顯示核准面板；\n在你於該處核准之前，不會授予任何權限。\n\n子指令:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      要求這些規則（Claude 權限語法，例如 'Bash(git:*)'、\n      'Edit(//abs/dir/**)'）。等待你的回覆並列出已核准的項目。\n      若已知目前的代理程式工作階段，則預設使用該工作階段。\n      --expires 接受 30m、2h、7d 或秒數（預設 24h，最長 30d）。\n  list\n      列出有效的授權，以及每個授權已回應的要求數。\n  revoke <id> | --all\n      撤銷一個授權，或撤銷所有授權。\n\n所有子指令都支援 --json 以輸出機器可讀格式。"
+          }
+        }
+      }
+    },
+    "agentPermissions.approval.approveSelected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approve Selected"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الموافقة على المحدد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auswahl genehmigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aprobar selección"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approuver la sélection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した項目を承認"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택 항목 승인"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "批准所选项"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "核准所選項目"
+          }
+        }
+      }
+    },
+    "agentPermissions.approval.broadWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Broad: covers any command, file, or host of this kind."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "واسع: يشمل أي أمر أو ملف أو مضيف من هذا النوع."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weit gefasst: gilt für jeden Befehl, jede Datei oder jeden Host dieser Art."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amplio: cubre cualquier comando, archivo o host de este tipo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Large : couvre toute commande, tout fichier ou tout hôte de ce type."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "広範囲: この種類のあらゆるコマンド、ファイル、ホストが対象になります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "광범위함: 이 유형의 모든 명령, 파일 또는 호스트에 적용됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "范围宽泛：涵盖此类的任何命令、文件或主机。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範圍廣泛：涵蓋此類的任何指令、檔案或主機。"
+          }
+        }
+      }
+    },
+    "agentPermissions.approval.deny": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deny"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفض"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ablehnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denegar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refuser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒否"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "거부"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒绝"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒絕"
+          }
+        }
+      }
+    },
+    "agentPermissions.approval.expiresLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expires"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينتهي في"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft ab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caduca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expire le"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効期限"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "만료"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到期时间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到期時間"
+          }
+        }
+      }
+    },
+    "agentPermissions.approval.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent is asking for these permissions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يطلب وكيل هذه الأذونات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent bittet um diese Berechtigungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente solicita estos permisos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agent demande ces autorisations"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが次の権限を求めています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 다음 권한을 요청하고 있습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理正在请求这些权限"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式正在要求這些權限"
+          }
+        }
+      }
+    },
+    "agentPermissions.approval.reasonLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent says:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقول الوكيل:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent sagt:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El agente dice:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’agent indique :"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントからのメッセージ:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 메시지:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理表示："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式表示："
+          }
+        }
+      }
+    },
+    "agentPermissions.approval.scopeLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applies to"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينطبق على"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gilt für"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se aplica a"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S’applique à"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用範囲"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "적용 대상"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适用范围"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用範圍"
+          }
+        }
+      }
+    },
+    "agentPermissions.approval.scopeProject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every agent session in %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كل جلسات الوكيل في %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jede Agenten-Sitzung in %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todas las sesiones de agente en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les sessions d’agent dans %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 内のすべてのエージェントセッション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 모든 에이전트 세션"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的所有代理会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的所有代理程式工作階段"
+          }
+        }
+      }
+    },
+    "agentPermissions.approval.scopeSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent session (%@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسة الوكيل هذه (%@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Agenten-Sitzung (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta sesión de agente (%@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette session d’agent (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントセッション（%@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트 세션(%@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理会话（%@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理程式工作階段（%@）"
+          }
+        }
+      }
+    },
+    "agentPermissions.approval.windowTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Permission Request"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب إذن من وكيل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechtigungsanfrage eines Agenten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solicitud de permisos de un agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demande d’autorisation d’un agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの権限リクエスト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 권한 요청"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理权限请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式權限要求"
+          }
+        }
+      }
+    },
+    "socket.permissions.invalidExpiry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "expires_in_seconds must be between one minute and 30 days."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة expires_in_seconds بين دقيقة واحدة و30 يومًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "expires_in_seconds muss zwischen einer Minute und 30 Tagen liegen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "expires_in_seconds debe estar entre un minuto y 30 días."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "expires_in_seconds doit être compris entre une minute et 30 jours."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "expires_in_seconds は 1 分から 30 日の範囲で指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "expires_in_seconds는 1분에서 30일 사이여야 합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "expires_in_seconds 必须介于一分钟到 30 天之间。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "expires_in_seconds 必須介於一分鐘到 30 天之間。"
+          }
+        }
+      }
+    },
+    "socket.permissions.invalidProjectRoot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A project scope needs root, an absolute path to an existing directory."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب نطاق المشروع root، وهو مسار مطلق إلى مجلد موجود."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Projekt-Geltungsbereich benötigt root, einen absoluten Pfad zu einem vorhandenen Verzeichnis."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un ámbito de proyecto requiere root, una ruta absoluta a una carpeta existente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une portée de projet nécessite root, un chemin absolu vers un dossier existant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクト範囲には root（既存ディレクトリの絶対パス）が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트 범위에는 기존 디렉터리의 절대 경로인 root가 필요합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "项目范围需要 root，即现有目录的绝对路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "專案範圍需要 root，也就是現有目錄的絕對路徑。"
+          }
+        }
+      }
+    },
+    "socket.permissions.invalidRule": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not a permission rule: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليست قاعدة إذن: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Berechtigungsregel: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No es una regla de permisos: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce n’est pas une règle d’autorisation : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限ルールではありません: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한 규칙이 아닙니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是权限规则：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是權限規則：%@"
+          }
+        }
+      }
+    },
+    "socket.permissions.invalidScope": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope must be session or project."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة scope هي session أو project."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope muss session oder project sein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope debe ser session o project."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope doit valoir session ou project."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope は session または project を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope는 session 또는 project여야 합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope 必须是 session 或 project。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope 必須是 session 或 project。"
+          }
+        }
+      }
+    },
+    "socket.permissions.missingRules": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rules must be a non-empty list of permission rules."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون rules قائمة غير فارغة من قواعد الأذونات."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rules muss eine nicht leere Liste von Berechtigungsregeln sein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rules debe ser una lista no vacía de reglas de permisos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rules doit être une liste non vide de règles d’autorisation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rules には空でない権限ルールのリストを指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rules는 비어 있지 않은 권한 규칙 목록이어야 합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rules 必须是非空的权限规则列表。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rules 必須是非空的權限規則清單。"
+          }
+        }
+      }
+    },
+    "socket.permissions.missingSessionID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A session scope needs session_id."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب نطاق الجلسة session_id."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Sitzungs-Geltungsbereich benötigt session_id."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un ámbito de sesión requiere session_id."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une portée de session nécessite session_id."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション範囲には session_id が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 범위에는 session_id가 필요합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话范围需要 session_id。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段範圍需要 session_id。"
+          }
+        }
+      }
+    },
+    "socket.permissions.revokeTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass a grant id or all: true."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر معرّف منح أو all: true."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib eine Freigabe-ID oder all: true an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica un id de concesión o all: true."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez un identifiant d’autorisation ou all: true."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可 ID または all: true を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허가 ID 또는 all: true를 전달하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请传入授权 ID 或 all: true。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請傳入授權 ID 或 all: true。"
+          }
+        }
+      }
+    },
+    "socket.permissions.saveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The grant could not be saved."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر حفظ الإذن الممنوح."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Freigabe konnte nicht gespeichert werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar la concesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’autorisation n’a pas pu être enregistrée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可を保存できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허가를 저장할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存授权。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法儲存授權。"
+          }
+        }
+      }
+    },
+    "socket.permissions.tooManyRules": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many rules in one request."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد القواعد كبير جدًا في طلب واحد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele Regeln in einer Anfrage."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demasiadas reglas en una sola solicitud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de règles dans une seule demande."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つのリクエストに含まれるルールが多すぎます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 요청에 규칙이 너무 많습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "单个请求中的规则过多。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "單一要求中的規則過多。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
