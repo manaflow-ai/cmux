@@ -665,11 +665,16 @@ function ActivityCaret({ open, visible }: { open: boolean; visible: boolean }) {
   );
 }
 
+/** "Message from <sender>", with the name inserted as written. */
+export function agentMessageLabel(from: string, languages?: readonly string[]): string {
+  return agentChatText("agentMessageFrom", languages).replace("{sender}", () => from);
+}
+
 /** A cmux agent message the agent received, shown with its sender. */
 export function AgentMessageRow({ message }: { message: { from: string; body: string } }) {
   return (
     <div className="msg agent-message">
-      <div className="agent-message-from">{agentChatText("agentMessageFrom").replace("{sender}", message.from)}</div>
+      <div className="agent-message-from">{agentMessageLabel(message.from)}</div>
       <div className="body selectable">{message.body}</div>
     </div>
   );

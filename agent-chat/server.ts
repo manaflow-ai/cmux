@@ -184,6 +184,7 @@ interface Session extends SessionCtx {
     queuedMessages?: QueuedAgentMessage[];
     queuedCheckedAt?: number;
     queuedInflight?: boolean;
+    queuedReadFailed?: boolean;
   };
 }
 interface WsData {
@@ -313,7 +314,11 @@ function providerInfo(p: ProviderDef) {
 function broadcastSessions() {
   const payload = JSON.stringify({
     kind: "sessions",
-    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary),
+    // Queued message bodies go only to the session's own page.
+    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map((s) => {
+      const { queuedMessages: _queued, ...summary } = sessionSummary(s) as ReturnType<typeof sessionSummary> & { queuedMessages?: unknown };
+      return summary;
+    }),
   });
   for (const ws of allSockets) ws.send(payload);
 }
@@ -689,16 +694,21 @@ function refreshTranscriptAttention(sess: Session, source: TranscriptSource) {
 // spawns the CLI, so it runs at most every couple of seconds while a page is
 // open; delivered messages then appear in the transcript itself.
 const QUEUED_MESSAGES_REFRESH_MS = 2_000;
+// After a failed read (an app without the method, or a busy app), wait longer.
+const QUEUED_MESSAGES_RETRY_MS = 30_000;
 
 function refreshQueuedMessages(sess: Session) {
   const transcript = sess.transcript;
   if (!transcript || transcript.queuedInflight) return;
   const now = Date.now();
-  if (transcript.queuedCheckedAt && now - transcript.queuedCheckedAt < QUEUED_MESSAGES_REFRESH_MS) return;
+  const interval = transcript.queuedReadFailed ? QUEUED_MESSAGES_RETRY_MS : QUEUED_MESSAGES_REFRESH_MS;
+  if (transcript.queuedCheckedAt && now - transcript.queuedCheckedAt < interval) return;
   transcript.queuedCheckedAt = now;
   transcript.queuedInflight = true;
   void queuedTranscriptMessages(sess)
     .then((messages) => {
+      transcript.queuedReadFailed = messages === undefined;
+      if (messages === undefined) return;
       if (JSON.stringify(transcript.queuedMessages ?? []) === JSON.stringify(messages)) return;
       transcript.queuedMessages = messages;
       const payload = JSON.stringify({ kind: "session-queued-messages", sessionId: sess.id, messages });

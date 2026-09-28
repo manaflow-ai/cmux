@@ -41,13 +41,18 @@ export interface QueuedAgentMessage {
   body: string;
 }
 
-/** The terminal's queued agent messages, oldest first; none when unavailable. */
-export async function queuedTranscriptMessages(sess: SessionCtx): Promise<QueuedAgentMessage[]> {
+/**
+ * The terminal's queued agent messages, oldest first. Undefined when the app
+ * could not be read, so the view keeps what it last showed.
+ */
+export async function queuedTranscriptMessages(sess: SessionCtx): Promise<QueuedAgentMessage[] | undefined> {
   const surfaceId = transcriptTarget(sess)?.surfaceId;
   if (!surfaceId) return [];
-  const res = await rpc("agent.message.list", { surface: surfaceId, state: "queued", limit: 20 });
+  // The list is newest first; the limit is high enough that the oldest (the
+  // next to be delivered) are not cut off.
+  const res = await rpc("agent.message.list", { surface: surfaceId, state: "queued", limit: 200 });
   const messages = res.ok ? (res.result as { messages?: unknown })?.messages : undefined;
-  if (!Array.isArray(messages)) return [];
+  if (!Array.isArray(messages)) return undefined;
   return messages
     .filter((m: any) => m && typeof m.id === "string" && typeof m.body === "string"
       && String(m.recipient_surface_id ?? "").toUpperCase() === surfaceId.toUpperCase())
@@ -114,25 +119,28 @@ function tagValue(text: string, tag: string): string | undefined {
 
 // cmux delivers agent messages through agent hooks, so they reach the
 // transcript as hook context, stop feedback, or a wake reminder. Every path
-// carries the same text (AgentMessagePromptRenderer.swift); each section is a
-// header (after any prefix the agent adds), metadata lines, and the body
-// between the first and last `---`.
-const CMUX_AGENT_MESSAGE_HEADER = /\[cmux agent message(?: \(\d+ of \d+\))?\] from (.+)$/gm;
+// carries the same text (AgentMessagePromptRenderer.swift): a header line, a
+// `Message id:` line, other metadata, `---`, the body, and a closing line
+// that carries the id. The closing line is searched for by id and parsing
+// resumes after it, so text inside a body (a quoted header, a forged
+// message) is never read as a message of its own.
+const CMUX_AGENT_MESSAGE_HEADER = /\[cmux agent message(?: \(\d+ of \d+\))?\] from ([^\n]+)\nMessage id: ([^\n]+)\n/g;
 
 type CmuxAgentMessage = Extract<AgentEvent, { kind: "agent-message" }>;
 
 export function cmuxAgentMessages(text: string): CmuxAgentMessage[] {
-  const headers = [...text.matchAll(CMUX_AGENT_MESSAGE_HEADER)];
   const out: CmuxAgentMessage[] = [];
-  headers.forEach((header, index) => {
-    const start = header.index ?? 0;
-    const section = text.slice(start, headers[index + 1]?.index ?? text.length);
-    const id = section.match(/^Message id: (.+)$/m)?.[1]?.trim();
-    const open = section.indexOf("\n---\n");
-    const close = section.lastIndexOf("\n---");
-    if (!id || open < 0 || close <= open) return;
-    out.push({ kind: "agent-message", id, from: header[1].trim(), body: section.slice(open + 5, close) });
-  });
+  const header = new RegExp(CMUX_AGENT_MESSAGE_HEADER.source, "g");
+  let match: RegExpExecArray | null;
+  while ((match = header.exec(text))) {
+    const id = match[2].trim();
+    const open = text.indexOf("\n---\n", match.index);
+    const closing = `\n--- end of message ${id} ---`;
+    const close = open < 0 ? -1 : text.indexOf(closing, open + 4);
+    if (!id || close < 0) continue;
+    out.push({ kind: "agent-message", id, from: match[1].trim(), body: text.slice(open + 5, close) });
+    header.lastIndex = close + closing.length;
+  }
   return out;
 }
 
@@ -220,8 +228,9 @@ class ClaudeTranscriptParser implements TranscriptParser {
     if (originKind === "task-notification") {
       const text = typeof content === "string" ? content : textOf(content);
       // An idle agent woken by cmux (asyncRewake) records the message here.
-      const messages = cmuxAgentMessages(text);
-      if (messages.length) return this.agentMessages.take(text);
+      // Only the reminder is cmux's; a task's own result may quote anything.
+      const reminder = tagValue(text, "system-reminder") ?? "";
+      if (cmuxAgentMessages(reminder).length) return this.agentMessages.take(reminder);
       const summary = tagValue(text, "summary") ?? tagValue(text, "status");
       return [{ kind: "status", text: summary ? `Background task: ${truncate(summary, 160)}` : "Background task update" }];
     }
@@ -357,6 +366,8 @@ class CodexTranscriptParser implements TranscriptParser {
 
   private track(events: AgentEvent[]): AgentEvent[] {
     for (const evt of events) {
+      // Hook context can sit between the two records of one prompt.
+      if (evt.kind === "agent-message") continue;
       if (evt.kind === "user") {
         this.lastUser = evt.text;
         this.sinceUser = 0;
@@ -527,7 +538,7 @@ export function transcriptLooksRunning(events: AgentEvent[], lastWriteMs: number
   for (let i = events.length - 1; i >= 0; i--) {
     const kind = events[i].kind;
     if (kind === "done") return false;
-    if (kind === "user" || kind === "tool-start" || kind === "tool-end" || kind === "thinking" || kind === "assistant" || kind === "status") return true;
+    if (kind === "user" || kind === "agent-message" || kind === "tool-start" || kind === "tool-end" || kind === "thinking" || kind === "assistant" || kind === "status") return true;
   }
   return false;
 }
