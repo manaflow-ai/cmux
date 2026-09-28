@@ -57,6 +57,8 @@ extension TerminalController {
             "mobile.compatible_tags.set",
             "mobile.task.attachment.upload",
             "mobile.task.models.list",
+            "mobile.chat.send",
+            "mobile.chat.interrupt",
             // Socket-reachable panel artifact reads (worker lane); fetch stays
             // behind the authenticated mobile execution context.
             "mobile.panel.artifact.stat",

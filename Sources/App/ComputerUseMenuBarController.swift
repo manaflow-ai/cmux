@@ -147,7 +147,7 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
         )
         let viewTitle = String(
             localized: "computerUse.menu.focusTarget",
-            defaultValue: "Focus Computer Use"
+            defaultValue: "Focus cmux Computer Use"
         )
         let viewItem = NSMenuItem(
             title: viewTitle,

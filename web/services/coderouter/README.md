@@ -2,10 +2,16 @@
 
 Hosted model router for cmux Cloud VMs, the `cr` CLI, and direct API clients. The data plane serves the OpenAI Responses API (`/v1/responses`, `/v1/models`), the Anthropic Messages API (`/v1/messages`, `/v1/messages/count_tokens`, `/v1/models` for Anthropic clients) and the OpenCode provider proxy (`/api/coderouter/opencode/*`). Requests authenticate with a VM or CLI route token, or a long-lived `crk_` API key, then forward to one of the team's provider accounts with failover (`codexProxy.ts`, `claudeProxy.ts`, `opencodeProxy.ts`). The control plane under `/api/coderouter/*` manages accounts, sessions, API keys and usage.
 
-API keys are created through `POST /api/coderouter/api-keys` with a signed-in
-team member who has `manageAccounts` permission, and the plaintext key is
-returned once. `GET` lists only safe
-metadata. `DELETE /api/coderouter/api-keys/:id` revokes a key, while
+Provider accounts are team resources. Every team member may add, rename,
+disable, transfer and remove the team's shared accounts and their own private
+imports; only the importer changes a private account's sharing. No route
+returns a stored provider credential, so managing an account never reveals
+its secret.
+
+API keys are created through `POST /api/coderouter/api-keys` by a signed-in
+team member who holds Stack's `$manage_api_keys` permission (every user in
+their personal team), and the plaintext key is returned once. `GET` lists only safe
+metadata. `DELETE /api/coderouter/api-keys/:id` revokes a key under the same permission, while
 `DELETE /api/coderouter/api-keys/self` lets the key holder revoke its own key.
 Every model and route ledger row stores the key's opaque UUID, so usage can be
 aggregated per key without storing the secret. The `last_used_at` value in the
@@ -96,9 +102,13 @@ another team or a private account. Requests already sent upstream may finish.
 
 New account API writes explicitly set private visibility and their importing user.
 The database default remains shared for compatibility with older servers during
-a rolling deployment; old writes must not create ownerless private accounts. Human route tokens and API
-keys can use that user's private accounts and the selected team's shared
-accounts. An organization VM never inherits its creator's private access.
+a rolling deployment; old writes must not create ownerless private accounts. Human route tokens can
+use that user's private accounts and the selected team's shared accounts. A
+`crk_` API key is a team credential: in an organization it uses only the team's
+shared accounts, never its creator's or another member's private account. A key
+in a personal scope keeps its owner's private accounts. Each key has its own
+sticky-session namespace. An organization VM never inherits its creator's
+private access.
 Private accounts in a personal scope (`team_id = created_by`) are available to
 that user's personal VMs. Importing privately into an organization, even a
 one-person organization, does not grant its VMs access until the account is

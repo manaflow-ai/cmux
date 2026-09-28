@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxMobileHost
 import CmuxSettingsUI
 import AppKit
@@ -148,6 +149,7 @@ class TerminalController {
     /// App-lifetime automation engine, attached by the composition root after
     /// the initial TabManager and notification store are ready.
     @MainActor var automationEngine: AutomationEngine?
+    @MainActor private(set) var browserDataImportCoordinator: BrowserDataImportCoordinator?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     /// Main-actor grants for the file currently displayed by each mobile panel.
     /// The live panel inventory and artifact reads share this owner so a closed
@@ -452,6 +454,32 @@ class TerminalController {
     /// read-only afterward; the controller is an app-lifetime singleton.
     private final class ServerEventTarget: @unchecked Sendable {
         weak var controller: TerminalController?
+    }
+
+    /// Queues a session hook the app observed for a remote agent (the cmux-tui agent
+    /// roster of a `cmux ssh` machine) through the same relay-backed delivery
+    /// lane as `agent.hook.enqueue`, routed to the local pane showing it.
+    /// - Returns: `false` when the socket is not listening, the event is
+    ///   invalid for queued delivery, or the queue is full.
+    nonisolated func enqueueMirroredAgentHook(
+        agent: String,
+        subcommand: String,
+        payload: String,
+        workspaceID: UUID,
+        surfaceID: UUID
+    ) -> Bool {
+        guard let socketPath = currentSocketPathForRemoteRestore(),
+              let event = AgentHookDeliveryEvent.mirrored(
+                  agent: agent,
+                  subcommand: subcommand,
+                  payload: payload,
+                  workspaceID: workspaceID,
+                  surfaceID: surfaceID,
+                  deliverySocketPath: socketPath
+              ) else {
+            return false
+        }
+        return agentHookDeliveryQueue.enqueue(event)
     }
 
     private init(
@@ -1049,6 +1077,12 @@ class TerminalController {
         self.accountFlow = accountFlow
     }
 
+    /// Injects the app-lifetime browser import coordinator before socket RPCs start.
+    @MainActor
+    func attachBrowserDataImportCoordinator(_ coordinator: BrowserDataImportCoordinator) {
+        browserDataImportCoordinator = coordinator
+    }
+
     /// Inject the app-lifetime power controller before socket or mobile calls
     /// can reach the caffeine methods.
     @MainActor
@@ -1274,7 +1308,7 @@ class TerminalController {
                     await self.v2SurfaceReadSelection(params: parsedRequest.params)
                 }
             }
-            if request.method == "mobile.task.models.list" {
+            if ["mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt"].contains(request.method) {
                 return v2AsyncResultCall(
                     id: request.id,
                     timeoutSeconds: 7
@@ -1595,14 +1629,23 @@ class TerminalController {
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "agent.hook.enqueue":
+            // Relay provenance survives only after the ingress gate authorized
+            // the owner workspace and surface selectors.
+            let enqueueParams: [String: Any]?
+            if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil {
+                enqueueParams = RemoteRelayAgentHookAdmission().queueParameters(from: request.params)
+            } else {
+                enqueueParams = request.params
+            }
             let hookParams: [String: Any]
-            if request.params["relay_backed"] as? Bool == true,
-               request.params["caller_tty"] != nil {
+            if let enqueueParams,
+               enqueueParams["relay_backed"] as? Bool == true,
+               enqueueParams["caller_tty"] != nil {
                 hookParams = v2MainSync {
-                    self.agentHookParametersResolvingRelayTTY(request.params)
+                    self.agentHookParametersResolvingRelayTTY(enqueueParams)
                 }
             } else {
-                hookParams = request.params
+                hookParams = enqueueParams ?? [:]
             }
             guard let localSocketPath = currentSocketPathForRemoteRestore(),
                   let event = AgentHookDeliveryEvent(
@@ -1715,7 +1758,12 @@ class TerminalController {
             }
         case "browser.import.cookies":
             return v2VmCall(id: request.id, timeoutSeconds: 10 * 60) {
-                let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
+                guard let coordinator = await self.browserDataImportCoordinator else {
+                    throw BrowserImportAutomationError.noBrowsers
+                }
+                let outcome = try await BrowserImportAutomation.importCookies(
+                    params: request.params, coordinator: coordinator
+                )
                 return outcome.socketPayload
             }
         case "mobile.attach_ticket.create":
@@ -2671,6 +2719,9 @@ class TerminalController {
 
         case "close_window":
             return closeWindow(args)
+
+        case "resize_window":
+            return resizeWindow(args)
 
         case "move_workspace_to_window":
             return moveWorkspaceToWindow(args)
@@ -3828,6 +3879,9 @@ class TerminalController {
             if let combinedError = error as? CloudEnvDelivery.OperationAndCleanupError {
                 return v2Error(id: id, code: "vm_env_delivery_failed", message: combinedError.localizedDescription)
             }
+            if let failure = error as? SSHTuiOpenFailure {
+                return v2Error(id: id, code: "ssh_failed", message: failure.reason)
+            }
             if let catalogError = error as? SurfaceCatalogError {
                 switch catalogError {
                 case .nothingToOpen:
@@ -4145,6 +4199,14 @@ class TerminalController {
     // preamble.
     func v2RefreshKnownRefs() {
         guard let app = AppDelegate.shared else { return }
+
+        // #2751: skip the pre-mint pass until session restore has settled.
+        // Refreshing here is only an optimization (refs otherwise mint lazily
+        // on the first list/create); iterating the half-built window/tab tree
+        // while restore is pending or in flight faults (EXC_BAD_ACCESS / arm64e
+        // ptrauth). A v2 socket command arriving within ~1s of launch can
+        // re-enter this on the main actor mid-restore, so degrade gracefully.
+        guard app.didCompleteInitialSessionRestore else { return }
 
         let windows = app.listMainWindowSummaries()
         for item in windows {
@@ -5561,6 +5623,47 @@ class TerminalController {
         case finished(V2CallResult)
         /// The raw Ghostty text and identity; the caller formats it off-main.
         case captured(ReadTextCapture)
+        /// The target terminal had no live surface and a start is pending;
+        /// the caller waits off-main and retries.
+        case surfaceStarting
+    }
+
+    /// A terminal in a workspace that was never shown has no libghostty
+    /// surface until something starts it (#1472). Socket reads start it and
+    /// wait this long for it before reporting the terminal as unreadable.
+    private nonisolated static let readTextSurfaceStartWait: TimeInterval = 2.0
+
+    /// Starts a cold terminal for a socket read. Returns true while the read
+    /// should release the main actor and retry.
+    private func readTextAwaitsSurfaceStart(_ surface: TerminalSurface, deadline: Date) -> Bool {
+        guard surface.liveSurfaceForGhosttyAccess(reason: "socket.readTerminalText.start") == nil else {
+            return false
+        }
+        // Hibernated agents and restores awaiting admission cannot start now;
+        // report them right away instead of waiting out the deadline.
+        guard surface.canCreateRuntimeSurface else { return false }
+        // A read waits on the result, so it is input demand like socket
+        // send_text, not restore-paced background priming.
+        surface.requestInputDemandSurfaceStartIfNeeded()
+        return Date() < deadline
+    }
+
+    /// Runs `body` on the main actor until it stops reporting a pending
+    /// surface start, sleeping on the calling worker thread between tries.
+    private nonisolated func v2MainSyncAwaitingSurfaceStart<Outcome>(
+        isStarting: (Outcome) -> Bool,
+        _ body: @MainActor (Date) -> Outcome
+    ) -> Outcome {
+        // On the main thread the start task cannot run while we wait, so
+        // request it and read once.
+        let deadline = Thread.isMainThread
+            ? Date.distantPast
+            : Date().addingTimeInterval(Self.readTextSurfaceStartWait)
+        while true {
+            let outcome = v2MainSync { body(deadline) }
+            guard isStarting(outcome) else { return outcome }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
     }
 
     /// `surface.read_text` worker body (issue #5757). The former
@@ -5585,7 +5688,10 @@ class TerminalController {
 
         // Main-actor critical section: resolve the target and read the raw
         // Ghostty text. Everything after this hop runs off the main actor.
-        let outcome: ReadTextCaptureOutcome = v2MainSync {
+        let outcome: ReadTextCaptureOutcome = v2MainSyncAwaitingSurfaceStart(isStarting: {
+            if case .surfaceStarting = $0 { return true }
+            return false
+        }) { surfaceStartDeadline in
             // Mint refs for current topology so caller-supplied `kind:N` refs
             // resolve, exactly as the former main-actor dispatch did before
             // handing off to the coordinator.
@@ -5727,6 +5833,9 @@ class TerminalController {
                 workspaceID = ws.id
                 resolvedWindowID = self.v2ResolveWindowId(tabManager: tabManager)
             }
+            if self.readTextAwaitsSurfaceStart(terminalSurface, deadline: surfaceStartDeadline) {
+                return .surfaceStarting
+            }
             guard let rawSnapshot = self.readTerminalTextRawSnapshot(
                 terminalSurface: terminalSurface,
                 includeScrollback: includeScrollback
@@ -5766,6 +5875,9 @@ class TerminalController {
         switch outcome {
         case let .finished(result):
             return result
+        case .surfaceStarting:
+            // v2MainSyncAwaitingSurfaceStart never returns this case.
+            return .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
         case let .captured(capture):
             // The full-scrollback formatting stays off the main actor.
             switch Self.terminalTextPayload(
@@ -6073,7 +6185,6 @@ class TerminalController {
             )
         }
 
-        NotificationCenter.default.post(name: .workstreamEventReceived, object: event)
         return v2IngestFeedEvent(
             event,
             waitTimeout: waitTimeout,
@@ -7743,6 +7854,10 @@ class TerminalController {
                 const labelledBy = __normalize(el.getAttribute('aria-labelledby') || '');
                 if (labelledBy) {
                   const text = labelledBy.split(/\\s+/).map((id) => document.getElementById(id)).filter(Boolean).map((n) => __normalize(n.textContent || '')).join(' ').trim();
+                  if (text) return text;
+                }
+                if (el.labels && el.labels.length) {
+                  const text = Array.from(el.labels).map((n) => __normalize(n.textContent || '')).join(' ').trim();
                   if (text) return text;
                 }
                 if (el.tagName && String(el.tagName).toLowerCase() === 'input') {
@@ -10104,81 +10219,6 @@ class TerminalController {
         return event
     }
 
-    private func v2BrowserImportDialog(params: [String: Any]) -> V2CallResult {
-        let scope: BrowserImportScope?
-        if params.keys.contains("scope") {
-            guard let raw = v2String(params, "scope")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-                  !raw.isEmpty else {
-                return .err(code: "invalid_params", message: "scope must be a non-empty string", data: ["param": "scope"])
-            }
-            switch raw {
-            case "cookie", "cookies", "cookiesonly", "cookies_only", "cookies-only":
-                scope = .cookiesOnly
-            case "history", "historyonly", "history_only", "history-only":
-                scope = .historyOnly
-            case "cookiesandhistory", "cookies_and_history", "cookies-and-history", "all-basic":
-                scope = .cookiesAndHistory
-            case "everything", "all":
-                scope = .everything
-            default:
-                return .err(code: "invalid_params", message: "scope is invalid", data: ["param": "scope"])
-            }
-        } else {
-            scope = nil
-        }
-
-        let defaultDestinationProfileID: UUID?
-        if params.keys.contains("destination_profile") {
-            guard let query = v2String(params, "destination_profile")?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-                  !query.isEmpty else {
-                return .err(
-                    code: "invalid_params",
-                    message: "destination_profile must be a non-empty string",
-                    data: ["param": "destination_profile"]
-                )
-            }
-            let profiles = BrowserProfileStore.shared.profiles
-            if let uuid = UUID(uuidString: query),
-               profiles.contains(where: { $0.id == uuid }) {
-                defaultDestinationProfileID = uuid
-            } else if let profile = profiles.first(where: {
-                $0.displayName.localizedCaseInsensitiveCompare(query) == .orderedSame ||
-                    $0.slug.localizedCaseInsensitiveCompare(query) == .orderedSame
-            }) {
-                defaultDestinationProfileID = profile.id
-            } else if v2Bool(params, "create_destination_profile") == true ||
-                v2Bool(params, "create_profile") == true {
-                guard let createdProfileID = BrowserProfileStore.shared.createProfile(named: query)?.id else {
-                    return .err(
-                        code: "invalid_params",
-                        message: "destination_profile could not be created",
-                        data: ["param": "destination_profile"]
-                    )
-                }
-                defaultDestinationProfileID = createdProfileID
-            } else {
-                return .err(
-                    code: "invalid_params",
-                    message: "destination_profile does not match a cmux browser profile",
-                    data: ["param": "destination_profile"]
-                )
-            }
-        } else {
-            defaultDestinationProfileID = nil
-        }
-        Task { @MainActor in
-            BrowserDataImportCoordinator.shared.presentImportDialog(
-                defaultDestinationProfileID: defaultDestinationProfileID,
-                defaultScope: scope
-            )
-        }
-        return .ok([
-            "opened": true,
-            "scope": scope.map { $0.rawValue as Any } ?? NSNull(),
-        ])
-    }
-
     private nonisolated func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
         var out: [String: Any] = [
             "name": cookie.name,
@@ -11592,6 +11632,7 @@ class TerminalController {
     private enum ReadScreenCaptureOutcome {
         case finished(String)
         case captured(TerminalTextRawSnapshot)
+        case surfaceStarting
     }
 
     /// `read_screen` worker body — the v1 twin of `v2SurfaceReadText`
@@ -11634,7 +11675,10 @@ class TerminalController {
         }
         let trimmedSurfaceArg = options.surfaceArg.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let outcome: ReadScreenCaptureOutcome = v2MainSync {
+        let outcome: ReadScreenCaptureOutcome = v2MainSyncAwaitingSurfaceStart(isStarting: {
+            if case .surfaceStarting = $0 { return true }
+            return false
+        }) { surfaceStartDeadline in
             guard let tabManager = self.tabManager else {
                 return .finished("ERROR: TabManager not available")
             }
@@ -11654,6 +11698,9 @@ class TerminalController {
                   let target = tab.controlSocketTerminalInputTarget(for: panelId) else {
                 return .finished("ERROR: Terminal surface not found")
             }
+            if self.readTextAwaitsSurfaceStart(target.surface, deadline: surfaceStartDeadline) {
+                return .surfaceStarting
+            }
             guard target.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
                 return .finished("ERROR: Terminal surface not found")
             }
@@ -11670,6 +11717,9 @@ class TerminalController {
         switch outcome {
         case .finished(let reply):
             return reply
+        case .surfaceStarting:
+            // v2MainSyncAwaitingSurfaceStart never returns this case.
+            return "ERROR: Terminal surface not found"
         case .captured(let captured):
             snapshot = captured
         }
@@ -12586,6 +12636,44 @@ class TerminalController {
         return "OK \(windowId.uuidString)"
     }
 
+    /// `resize_window <window_id> <width|-> <height|->` — `-` keeps that dimension.
+    /// Both `-` is a frame read: nothing changes and the current size comes back.
+    /// Reports the window FRAME size (title bar included), matching what
+    /// `resizeMainWindow` sets and returns.
+    private func resizeWindow(_ args: String) -> String {
+        let parts = args.split(separator: " ").map(String.init)
+        // Exactly three: the grammar has no optional tail, and silently ignoring extra
+        // tokens turns a malformed command into a successful resize.
+        guard parts.count == 3 else { return "ERROR: Usage resize_window <window_id> <width|-> <height|->" }
+        guard let windowId = UUID(uuidString: parts[0]) else { return "ERROR: Invalid window id" }
+
+        // A dimension must survive the CGFloat math and the Int in the reply:
+        // Int(Double.nan) traps at runtime, so nothing non-finite may pass, and
+        // zero or negative sizes are refusals AppKit would express as clamping.
+        func parseDimension(_ raw: String, name: String) -> (value: Double?, error: String?) {
+            if raw == "-" { return (nil, nil) }
+            guard let value = Double(raw), value.isFinite, value > 0, value <= 100_000 else {
+                return (nil, "ERROR: Invalid \(name)")
+            }
+            return (value, nil)
+        }
+        let width = parseDimension(parts[1], name: "width")
+        if let error = width.error { return error }
+        let height = parseDimension(parts[2], name: "height")
+        if let error = height.error { return error }
+
+        // NSWindow frames are main-thread only; parsing above stays off main.
+        let size = v2MainSync {
+            AppDelegate.shared?.resizeMainWindow(
+                windowId: windowId,
+                width: width.value.map { CGFloat($0) },
+                height: height.value.map { CGFloat($0) }
+            )
+        }
+        guard let size = size ?? nil else { return "ERROR: Window not found" }
+        return "OK \(Int(size.width)) \(Int(size.height))"
+    }
+
     private func closeWindow(_ arg: String) -> String {
         let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
@@ -12735,6 +12823,7 @@ class TerminalController {
                 allowTextBoxFocusDefault: false
             ) {
             case .created(let panel):
+                tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
                 result = "OK \(panel.id.uuidString)"
             case .routedToRemote:
                 result = "OK routed-to-remote-tmux"

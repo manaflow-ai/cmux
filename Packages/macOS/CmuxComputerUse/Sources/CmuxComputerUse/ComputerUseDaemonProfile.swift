@@ -1,7 +1,7 @@
 import Foundation
 
 /// The independently hosted Computer Use protocol surface.
-enum ComputerUseDaemonProfile: CaseIterable, Hashable, Sendable {
+public enum ComputerUseDaemonProfile: CaseIterable, Hashable, Sendable {
     case native
     case codexCompatibility
 }

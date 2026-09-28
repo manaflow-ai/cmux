@@ -5,9 +5,10 @@ extension CloudVMState {
         lhs.hasSameModeledContent(as: rhs) && lhs.document == rhs.document
     }
 
-    /// Clients and live terminal titles and dimensions are observations, not
-    /// revisioned resources (client.list and public_terminal_snapshot). Keep
-    /// them in exports without treating inspection or resize as a conflict.
+    /// Clients, session metadata, and live terminal titles, dimensions, and
+    /// output stream revisions are observations, not revisioned resources
+    /// (client.list and public_terminal_snapshot). Keep them in exports without
+    /// treating inspection or terminal output as a conflict.
     /// Compare resource rows by identity. Positional keys keep unkeyed arrays
     /// strict, and every unknown field inside a row remains part of equality.
     public func hasSameRevisionedContent(as other: CloudVMState) -> Bool {
@@ -77,8 +78,9 @@ extension CloudVMState {
             && agents == other.agents
     }
 
-    /// Identity, launch fields, and unknown fields remain strict. Only the PTY
-    /// title and dimensions are live; unchanged rows use their byte cache.
+    /// Identity, launch fields, and unknown fields remain strict. Only PTY
+    /// title, dimensions, and output stream revision are live; unchanged rows
+    /// use their byte cache.
     private func hasSameTerminalDocument(as other: CloudVMState) -> Bool {
         guard let left = document.collections["terminals"] else {
             return other.document.collections["terminals"] == nil
@@ -89,7 +91,10 @@ extension CloudVMState {
             if a == b { continue }
             guard var lhs = try? JSONSerialization.jsonObject(with: a) as? [String: Any],
                   var rhs = try? JSONSerialization.jsonObject(with: b) as? [String: Any] else { return false }
-            for key in ["title", "cols", "rows"] { lhs[key] = nil; rhs[key] = nil }
+            for key in ["title", "cols", "rows", "stream_revision"] {
+                lhs[key] = nil
+                rhs[key] = nil
+            }
             // Older daemon deltas omit lifecycle while preserving the durable
             // `running` bit. Full snapshots include the derived lifecycle name.
             // Compare the protocol meaning, not whether that optional spelling

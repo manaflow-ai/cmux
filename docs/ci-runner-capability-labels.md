@@ -75,7 +75,7 @@ and change in a pull request, where they are reviewed next to the change that
 caused them.
 
 **Vendor and cost policy are operator choices.** Whether that job runs on a
-sponsored Blacksmith VM, a metered Warp VM, a Tart guest on a CMUX-owned mini,
+sponsored Blacksmith VM, a metered Warp VM, an owned glaeda mini,
 or a Mac Ultra in someone's office is not a property of the code, is not
 reviewable in a pull request, and changes for reasons the code never sees.
 
@@ -211,11 +211,11 @@ cannot name the wrong one:
 | Function | Invariant it polices |
 | --- | --- |
 | `check_no_bare_github_hosted_runners` | no job pins a bare `ubuntu-*` / `macos-NN` |
-| `check_no_self_hosted_fleet_runners` | the fleet-name regex, its self-test probes, and four per-file line-number exemptions |
+| `check_no_self_hosted_fleet_runners` | the fleet-name regex, its self-test probes, and the line-number exemption for owned E2E dropdown options |
 | `check_macos_runner` (7 call sites) | each named job routes through a paid macOS label |
 | `check_release_build_runner_disk_capacity` | `release-build` uses the exact macOS 26 pool expression and fallback |
 | `check_display_runner_identity_guard` | `tests-build-and-lag` validates Depot identity when `MACOS_RUNNER_DISPLAY` resolves to Depot |
-| `check_ios_tart_canary` | three iOS jobs each fail closed on Tart identity mismatch |
+| `check_ios_runner_routing` | every macOS iOS job takes the runner job's pool, which reads the dispatch input and `MACOS_RUNNER_*` |
 | `check_macos_xcode_pin_tracks_pull_request_lane` | the Xcode pin follows the same lane variable as the pool |
 | `check_macos_runner_identity_env_tracks_routing` | every `MACOS_RUNNER`-bearing env value equals its job's `runs-on` |
 | `check_no_paid_overflow_fallbacks` | no workflow falls back to `warp-` |
@@ -223,9 +223,9 @@ cannot name the wrong one:
 
 **Ten check functions and two helpers, covering 15 of the 38 invocations.**
 
-One more shrinks rather than disappears. `check_e2e_runner_fallbacks` loses its
-Tart-choice and runner-identity assertions but keeps the concurrency and
-`continue-on-error` rules, which are unrelated. `check_cla_guard_runner`
+One more stays. `check_e2e_runner_fallbacks` polices the concurrency and
+`continue-on-error` rules, which are unrelated (its Tart-choice and
+runner-identity assertions went with the Tart VM fleet on 2026-09-25). `check_cla_guard_runner`
 inverts: it asserts a job is *not* redirectable, which still needs saying.
 
 The remaining 22 checks — signing, DMG, Sentry, XCTest skips, web tests,
@@ -269,7 +269,7 @@ no CI run.
 previous run. A difference here is the whole signal.
 
 **Step 3 — label owned capacity.**
-Register Tart guests and enrolled machines with the capability vocabulary
+Register enrolled machines (the owned glaeda minis) with the capability vocabulary
 *in addition to* their existing labels. Nothing routes to them yet.
 *Verifiable:* the runners API lists each machine's label set, and every set is
 in the resolver's image. A machine advertising a capability it lacks is caught

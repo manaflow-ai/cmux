@@ -1,3 +1,4 @@
+import CmuxCloud
 import class XCTest.XCTestCase
 import func XCTest.XCTSkipIf
 import func XCTest.XCTAssertEqual

@@ -71,7 +71,6 @@ CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 GUARD_WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
 WEB_WORKFLOW_PATH = ".github/workflows/ci-web.yml"
 MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
-CLI_WORKFLOW_PATH = ".github/workflows/cli-pipe-regressions.yml"
 MACOS_XCODE_PROJECT_PATH = "cmux.xcodeproj/project.pbxproj"
 MACOS_PRODUCT_TARGET = "cmux"
 CLI_PRODUCT_TARGET = "cmux-cli"
@@ -137,6 +136,9 @@ CI_PUBLISHING_ONLY = frozenset({
     "scripts/ci/nightly-sparkle-key.sh",
     "scripts/prebuild_sparkle_deltas.sh",
     "scripts/sparkle_generate_appcast.sh",
+    # The local release script behind /release-local and /release-nightly. No
+    # workflow runs it; its guards read it as text on Linux.
+    "scripts/build-sign-upload.sh",
 })
 
 CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({
@@ -152,6 +154,7 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
     "scripts/ci/compile-app-host-test-product.sh",
     "scripts/ci/product_input_identity.py",
     "scripts/ci/peer_product_source.py",
+    "scripts/ci/relocate_package_framework_rpaths.py",
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/reuse_app_host_products.py",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
@@ -305,17 +308,15 @@ NO_AREAS = ChangeAreas(
 
 # What a ci.yml job that calls one of these reusable workflows selects. Its
 # `with:` inputs, `if:` and `needs:` all sit in the calling job's own block.
+# The job that calls ci-macos.yml also passes the `cli` route that runs the
+# CLI lane there (compile admission's CLI smoke checks, cli-product-tests).
 _CALLED_WORKFLOW_AREAS = {
     MACOS_WORKFLOW_PATH: ChangeAreas(
-        macos=True, web=False, agent_session_web=False, cli=False,
+        macos=True, web=False, agent_session_web=False, cli=True,
         swift_packages=False, release_build=True,
     ),
     WEB_WORKFLOW_PATH: ChangeAreas(
         macos=False, web=True, agent_session_web=True, cli=False,
-        swift_packages=False, release_build=False,
-    ),
-    CLI_WORKFLOW_PATH: ChangeAreas(
-        macos=False, web=False, agent_session_web=False, cli=True,
         swift_packages=False, release_build=False,
     ),
 }
@@ -329,7 +330,7 @@ def ci_workflow_change_areas(base: str, head: str) -> Optional[ChangeAreas]:
 
     A plainly Linux job selects nothing, including the gates that decide
     whether macOS runs without running Mac work (`macos-admission-gate`). A job that
-    calls ci-macos.yml, ci-web.yml or the CLI lane selects that area. Routing
+    calls ci-macos.yml or ci-web.yml selects that area. Routing
     jobs, the preamble, and any other job run every area.
     """
     diff = _changed_workflow_jobs(base, head)
@@ -550,7 +551,10 @@ def _python_names(text: str, token: str, *, imports_only: bool = False) -> Optio
     for node in ast.walk(tree):
         if isinstance(node, ast.Import) and any(alias.name.split(".")[-1] == token for alias in node.names):
             return True
-        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[-1] == token:
+        # `from scripts.ci import helper` and `from . import helper` import helper too.
+        if isinstance(node, ast.ImportFrom) and (
+            (node.module or "").split(".")[-1] == token or any(alias.name == token for alias in node.names)
+        ):
             return True
         if (not imports_only and isinstance(node, ast.Constant) and isinstance(node.value, str)
                 and id(node) not in docstrings and whole_name.search(node.value)):
@@ -568,10 +572,10 @@ def _routed_job_areas(workflow: str, text: str, token: str) -> Optional[ChangeAr
 
     A ci-macos.yml job runs behind the macOS area, with Release and the CLI lane
     only for their own jobs, as macos_workflow_change_areas() reads an edit. A
-    ci-web.yml job runs behind web, a CLI lane job behind cli. Any other plainly
-    Linux job runs behind the areas its `if:` reads, which may be none: the
-    static stage and the guards route themselves. The routing and status jobs,
-    other Mac jobs, and a name outside any job answer None.
+    ci-web.yml job runs behind web. Any other plainly Linux job runs behind the
+    areas its `if:` reads, which may be none: the static stage and the guards
+    route themselves. The routing and status jobs, other Mac jobs, and a name
+    outside any job answer None.
     """
     # A leading newline lets a file that starts at `jobs:` split too.
     parts = split_workflow_jobs("\n" + text)
@@ -592,7 +596,7 @@ def _routed_job_areas(workflow: str, text: str, token: str) -> Optional[ChangeAr
             cli=bool(naming & MACOS_CLI_LANE_JOBS), swift_packages=False,
             release_build=bool(naming & _release_jobs(jobs)),
         )
-    if workflow in (WEB_WORKFLOW_PATH, CLI_WORKFLOW_PATH):
+    if workflow == WEB_WORKFLOW_PATH:
         return _CALLED_WORKFLOW_AREAS[workflow]
     selected = NO_AREAS
     for name in naming:
@@ -821,10 +825,10 @@ SHARED_WEB_WORKFLOW_PREFIXES = (
 )
 
 
-# Everything cli-pipe-regressions.yml runs besides the cmux-cli target's own
+# Everything the CLI lane (compile admission's CLI product and its early CLI
+# smoke checks, then cli-product-tests) runs besides the cmux-cli target's own
 # compile inputs, which cli_target_inputs() reads from the Xcode project.
 CLI_LANE_EXACT_INPUTS = frozenset({
-    CLI_WORKFLOW_PATH,
     # Checked-out submodules: bonsplit is a local package of the project the
     # lane resolves, and ghostty supplies the GhosttyKit.xcframework binary
     # target that CmuxTerminalCore (in the cmux-cli closure) re-vends.
@@ -844,7 +848,8 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "scripts/ci/r2-cache.sh",
     "scripts/ci/cache_restore_receipt.py",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
-    # The regression scripts the lane runs, and what they import or read.
+    # The regression scripts admission's CLI smoke step runs, and what they
+    # import or read.
     "tests/test_cli_broken_pipe_writes.py",
     "tests/test_cli_socket_operation_deadline.py",
     "tests/test_cli_config_doctor.py",
@@ -864,10 +869,16 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/run-and-capture.sh",
     "scripts/ci/require_selected_test_execution.sh",
+    # The Python product lane consumes these alongside the host-free bundle.
+    "scripts/ci/run_python_test_lane.py",
+    "scripts/ci/test_execution_registry.py",
+    "tests/test_claude_hook_spool.py",
+    "tests/claude_teams_test_utils.py",
     # What restore-app-host-test-product.sh itself runs.
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/canonical-build-root.sh",
-    # Seeds the checkout of both CLI lanes and initializes cli-pipe's submodules.
+    "scripts/ci/relocate_package_framework_rpaths.py",
+    # Seeds the checkout of compile admission and cli-product-tests.
     "scripts/ci/git-seed.sh",
 })
 
@@ -875,14 +886,12 @@ CLI_LANE_INPUT_PREFIXES = (
     "CLI/",
     "cmuxCLITests/",
     "cmuxCLITestSupport/",
-    # The lane builds the cmux-cli scheme of this project and keys its package
+    # The lane builds the cmux-cli target of this project and keys its package
     # cache on the project's Package.resolved.
     "cmux.xcodeproj/",
     ".github/actions/cache-restore/",
     # cli-product-tests' canonical fallback download of the compiled product.
     ".github/actions/download-test-product/",
-    # The lane runs `swift test` in this package directly.
-    "Packages/macOS/CmuxFoundation/",
 )
 
 # ---------------------------------------------------------------------------
@@ -898,11 +907,11 @@ CLI_LANE_INPUT_PREFIXES = (
 # deliberate on both sides:
 #
 #   * select_package_tests.py fails open, so an unrecognized path (or an edit
-#     to the lane's own workflow) selects all 33 packages. On main that is
+#     to the lane's own workflow) selects every package. On main that is
 #     right, because the lane is running regardless and only its list is in
 #     question. Routing a pull request that way would be the 30-minute sweep
 #     under another name: over the last 200 merged pull requests it would have
-#     queued 34 full 33-package runs. Those changes keep their existing
+#     queued 34 full package sweeps. Those changes keep their existing
 #     coverage from the push to main.
 #   * A package outside the job's own list selects nothing, so the lane would
 #     start, check out submodules, and test zero packages. Asking the selector
@@ -910,8 +919,10 @@ CLI_LANE_INPUT_PREFIXES = (
 # ---------------------------------------------------------------------------
 
 SWIFT_PACKAGE_ROOT_PREFIX = "Packages/"
-# The job's package list, as a shell array inside its "Select package tests"
-# step. Reading it here keeps one list rather than a copy that can drift.
+# The job's package list, as a shell array in the lane script the job runs
+# (on a runner or as a fleet step). Reading it here keeps one list rather than
+# a copy that can drift.
+SWIFT_PACKAGE_LANE_SCRIPT_PATH = "scripts/ci/package-test-lane.sh"
 _SWIFT_PACKAGE_JOB_LIST_RE = re.compile(
     r"(?m)^[ \t]*PACKAGES=\(\n(?P<body>(?:[ \t]*[A-Za-z0-9_]+\n)+)[ \t]*\)\n"
 )
@@ -939,14 +950,14 @@ def swift_package_test_packages() -> Optional[tuple[str, ...]]:
     """The packages ci-macos.yml's swift-package-tests job runs, in job order."""
     root = Path(__file__).resolve().parents[2]
     try:
-        workflow = (root / MACOS_WORKFLOW_PATH).read_text(encoding="utf-8")
+        script = (root / SWIFT_PACKAGE_LANE_SCRIPT_PATH).read_text(encoding="utf-8")
     except OSError as error:
-        print(f"Could not read {MACOS_WORKFLOW_PATH}: {error}", file=sys.stderr)
+        print(f"Could not read {SWIFT_PACKAGE_LANE_SCRIPT_PATH}: {error}", file=sys.stderr)
         return None
-    matches = _SWIFT_PACKAGE_JOB_LIST_RE.findall(workflow)
+    matches = _SWIFT_PACKAGE_JOB_LIST_RE.findall(script)
     if len(matches) != 1:
         print(
-            f"Expected one PACKAGES=( ... ) list in {MACOS_WORKFLOW_PATH}, "
+            f"Expected one PACKAGES=( ... ) list in {SWIFT_PACKAGE_LANE_SCRIPT_PATH}, "
             f"found {len(matches)}",
             file=sys.stderr,
         )
@@ -1034,8 +1045,8 @@ def is_cli_change(
         return is_macos_change(path, macos_ios_packages)
     for directory in cli_inputs.package_directories:
         if path == directory or path.startswith(f"{directory}/"):
-            # A package's test sources never reach the cmux-cli binary.
-            # CmuxFoundation's tests, which the lane runs, matched above.
+            # A package's test sources never reach the cmux-cli binary; the
+            # swift-package-tests lane runs them (swift_package_test_selection).
             return not path.startswith(f"{directory}/Tests/")
     return path.rsplit("/", 1)[-1] in cli_inputs.source_file_names
 

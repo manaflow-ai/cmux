@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloud
 import SwiftUI
 
 /// Shows one Network sheet at a time on the main window, like

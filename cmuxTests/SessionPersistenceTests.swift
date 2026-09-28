@@ -3371,15 +3371,16 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     }
 
     func testOpenCodeForkSupportSkipsLocalProbeForRemoteLikeContext() async {
+        let workingDirectory = "/remote/cmux/project-\(UUID().uuidString)"
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .opencode,
             sessionId: "opencode-session-remote",
-            workingDirectory: "/remote/cmux/project-\(UUID().uuidString)",
+            workingDirectory: workingDirectory,
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "opencode",
                 executablePath: "/remote/bin/opencode",
                 arguments: ["/remote/bin/opencode"],
-                workingDirectory: "/remote/cmux/project-\(UUID().uuidString)",
+                workingDirectory: workingDirectory,
                 environment: ["PATH": "/remote/bin:/usr/bin"],
                 capturedAt: 123,
                 source: "process"
@@ -4023,6 +4024,30 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testClaudeResumeCommandStripsQuotedCmuxNodeOptionsRestoreModuleInHomeWithSpace() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-node-options-space",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude"],
+                workingDirectory: nil,
+                environment: [
+                    "NODE_OPTIONS": "--require=\"/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs\" --max-old-space-size=4096 --trace-warnings --require=\"/Users/a b/tools/hook.cjs\""
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "/bin/sh -c " + shellQuotedForTest("'env' 'NODE_OPTIONS=--trace-warnings --require=\"/Users/a b/tools/hook.cjs\"' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-node-options-space'")
+        )
+    }
+
     func testClaudeResumeCommandDropsEmptyStaleCmuxNodeOptionsEnvironment() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
@@ -4532,6 +4557,23 @@ extension SessionPersistenceTests {
             binding.command,
             TerminalStartupWorkingDirectoryPrefix.prefix(
                 "codex resume session --append-system-prompt 'use C:\\tmp' --model gpt-5.4",
+                workingDirectory: "/tmp/project"
+            )
+        )
+    }
+
+    func testAgentHookSurfaceResumeBindingDropsDuplicateKimiWorkingDirectoryOption() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "cd '/tmp/project' && kimi --resume session --work-dir '/tmp/project' --model kimi-k2",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            updatedAt: 1
+        )
+
+        XCTAssertEqual(
+            binding.command,
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "kimi --resume session --model kimi-k2",
                 workingDirectory: "/tmp/project"
             )
         )
