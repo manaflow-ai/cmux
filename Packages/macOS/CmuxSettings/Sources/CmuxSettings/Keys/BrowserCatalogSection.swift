@@ -51,6 +51,20 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserHiddenWebViewDiscardDelaySeconds"
     )
 
+    public let hiddenWebViewDiscardMode = DefaultsKey<BrowserHiddenWebViewDiscardMode>(
+        id: "browser.hiddenWebViewDiscardMode",
+        defaultValue: .memoryBudget,
+        userDefaultsKey: "browserHiddenWebViewDiscardMode"
+    )
+
+    /// Physical memory, in megabytes, that hidden browser panes may keep
+    /// before the pane hidden longest is discarded.
+    public let hiddenWebViewMemoryBudgetMB = DefaultsKey<Int>(
+        id: "browser.hiddenWebViewMemoryBudgetMB",
+        defaultValue: 2048,
+        userDefaultsKey: "browserHiddenWebViewMemoryBudgetMB"
+    )
+
     /// Shows a save panel for each browser download instead of saving directly
     /// to the user's Downloads folder.
     public let askWhereToSaveDownloads = DefaultsKey<Bool>(

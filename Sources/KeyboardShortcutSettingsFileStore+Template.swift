@@ -219,6 +219,8 @@ extension CmuxSettingsFileStore {
                     "showSearchSuggestions": BrowserSearchSettingsStore.defaultSearchSuggestionsEnabled,
                     "theme": BrowserThemeSettings.defaultMode.rawValue,
                     "discardHiddenWebViews": BrowserHiddenWebViewDiscardPolicy.defaultEnabled,
+                    "hiddenWebViewDiscardMode": BrowserHiddenWebViewDiscardPolicy.defaultMode.rawValue,
+                    "hiddenWebViewMemoryBudgetMB": BrowserHiddenWebViewDiscardPolicy.defaultMemoryBudgetMB,
                     "hiddenWebViewDiscardDelaySeconds": BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay,
                     "askWhereToSaveDownloads": SettingCatalog().browser.askWhereToSaveDownloads.defaultValue,
                     "openTerminalLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser,

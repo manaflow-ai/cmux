@@ -142,6 +142,8 @@ extension CmuxSettingsFileStore {
         "browser.showSearchSuggestions",
         "browser.theme",
         "browser.discardHiddenWebViews",
+        "browser.hiddenWebViewDiscardMode",
+        "browser.hiddenWebViewMemoryBudgetMB",
         "browser.hiddenWebViewDiscardDelaySeconds",
         "browser.askWhereToSaveDownloads",
         "browser.openTerminalLinksInCmuxBrowser",

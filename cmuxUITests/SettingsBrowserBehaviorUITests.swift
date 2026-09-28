@@ -31,6 +31,8 @@ final class SettingsBrowserBehaviorUITests: SettingsUITestCase {
         "browserSearchEngine",
         "browserThemeMode",
         "browserHiddenWebViewDiscardEnabled",
+        "browserHiddenWebViewDiscardMode",
+        "browserHiddenWebViewMemoryBudgetMB",
         "browserHiddenWebViewDiscardDelaySeconds",
         "browserInsecureHTTPAllowlist",
         "browserImportHintShowOnBlankTabs",

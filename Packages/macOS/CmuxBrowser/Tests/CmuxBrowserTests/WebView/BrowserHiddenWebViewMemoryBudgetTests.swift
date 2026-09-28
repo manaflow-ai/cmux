@@ -23,6 +23,102 @@ struct BrowserHiddenWebViewMemoryBudgetTests {
         #expect(!manager.hasScheduledDiscard)
     }
 
+    @Test("Timer mode still discards a pane hidden past the delay")
+    func timerModeDiscardsPaneHiddenPastDelay() {
+        let defaults = makeDefaults()
+        defaults.set("timer", forKey: BrowserHiddenWebViewDiscardPolicy.modeKey)
+        let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
+        let delegate = DiscardDelegate(hiddenAt: Date().addingTimeInterval(-3600))
+        manager.delegate = delegate
+
+        manager.scheduleIfNeeded(reason: "test.hidden")
+
+        #expect(delegate.discardRequests == ["test.hidden"])
+    }
+
+    @Test("Timer mode arms a countdown for a pane hidden less than the delay")
+    func timerModeArmsCountdownWithinDelay() {
+        let defaults = makeDefaults()
+        defaults.set("timer", forKey: BrowserHiddenWebViewDiscardPolicy.modeKey)
+        let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
+        let delegate = DiscardDelegate(hiddenAt: Date())
+        manager.delegate = delegate
+
+        manager.scheduleIfNeeded(reason: "test.hidden")
+        defer { manager.cancel() }
+
+        #expect(manager.hasScheduledDiscard)
+        #expect(delegate.discardRequests.isEmpty)
+    }
+
+    @Test("The budget may discard a pane only once it has been hidden for the delay")
+    func budgetEligibilityRequiresHiddenDelay() {
+        let now = Date()
+        let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: makeDefaults())
+        let delegate = DiscardDelegate(hiddenAt: now.addingTimeInterval(-60))
+        manager.delegate = delegate
+        #expect(!manager.isEligibleForMemoryBudgetDiscard(now: now))
+
+        delegate.hiddenAt = now.addingTimeInterval(-BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay)
+        #expect(manager.isEligibleForMemoryBudgetDiscard(now: now))
+
+        delegate.hiddenAt = nil
+        #expect(!manager.isEligibleForMemoryBudgetDiscard(now: now))
+    }
+
+    @Test("The budget never discards a pane a blocker protects")
+    func budgetEligibilityRespectsBlockers() {
+        let now = Date()
+        let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: makeDefaults())
+        let delegate = DiscardDelegate(hiddenAt: now.addingTimeInterval(-3600))
+        delegate.snapshot = DiscardDelegate.makeSnapshot(isPlayingMedia: true)
+        manager.delegate = delegate
+
+        #expect(!manager.isEligibleForMemoryBudgetDiscard(now: now))
+        #expect(!manager.requestMemoryBudgetDiscard(now: now))
+        #expect(delegate.discardRequests.isEmpty)
+    }
+
+    @Test("The budget waits the delay again after the system wakes")
+    func budgetEligibilityRestartsAfterWake() {
+        let now = Date()
+        let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: makeDefaults())
+        let delegate = DiscardDelegate(hiddenAt: now.addingTimeInterval(-3600))
+        manager.delegate = delegate
+
+        manager.noteSystemDidWake(now: now.addingTimeInterval(-60))
+
+        #expect(!manager.isEligibleForMemoryBudgetDiscard(now: now))
+    }
+
+    @Test("A budget discard reports the memory budget reason")
+    func budgetDiscardReportsReason() {
+        let now = Date()
+        let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: makeDefaults())
+        let delegate = DiscardDelegate(hiddenAt: now.addingTimeInterval(-3600))
+        manager.delegate = delegate
+
+        #expect(manager.requestMemoryBudgetDiscard(now: now))
+        #expect(delegate.discardRequests == [BrowserHiddenWebViewDiscardManager.memoryBudgetReason])
+    }
+
+    @Test("Mode and budget settings fall back to their defaults when unset or invalid")
+    func policyResolvesModeAndBudget() {
+        let defaults = makeDefaults()
+        #expect(BrowserHiddenWebViewDiscardPolicy.mode(defaults: defaults) == .memoryBudget)
+        #expect(BrowserHiddenWebViewDiscardPolicy.memoryBudgetMB(defaults: defaults) == 2048)
+
+        defaults.set("timer", forKey: BrowserHiddenWebViewDiscardPolicy.modeKey)
+        defaults.set(4096, forKey: BrowserHiddenWebViewDiscardPolicy.memoryBudgetKey)
+        #expect(BrowserHiddenWebViewDiscardPolicy.mode(defaults: defaults) == .timer)
+        #expect(BrowserHiddenWebViewDiscardPolicy.memoryBudgetMB(defaults: defaults) == 4096)
+
+        defaults.set("sometimes", forKey: BrowserHiddenWebViewDiscardPolicy.modeKey)
+        defaults.set(100, forKey: BrowserHiddenWebViewDiscardPolicy.memoryBudgetKey)
+        #expect(BrowserHiddenWebViewDiscardPolicy.mode(defaults: defaults) == .memoryBudget)
+        #expect(BrowserHiddenWebViewDiscardPolicy.memoryBudgetMB(defaults: defaults) == 2048)
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "cmux-hidden-webview-budget-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -33,32 +129,37 @@ struct BrowserHiddenWebViewMemoryBudgetTests {
 
 @MainActor
 private final class DiscardDelegate: BrowserHiddenWebViewDiscardManagerDelegate {
-    var snapshot = BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
-        isClosing: false,
-        isVisibleInUI: false,
-        shouldRenderWebView: true,
-        hasPendingRemoteNavigation: false,
-        hasCurrentURL: true,
-        isLoading: false,
-        webViewIsLoading: false,
-        hasActiveMainFrameProvisionalNavigation: false,
-        isDownloading: false,
-        activeDownloadCount: 0,
-        preferredDeveloperToolsVisible: false,
-        isDeveloperToolsVisible: false,
-        isElementFullscreenActive: false,
-        isReactGrabActive: false,
-        isVisualAutomationCaptureActive: false,
-        hasPopups: false,
-        isCapturingMedia: false,
-        isPlayingMedia: false
-    )
+    var snapshot = makeSnapshot()
     var hiddenAt: Date?
     let webViewInstanceID = UUID()
-    private(set) var discardRequestCount = 0
+    private(set) var discardRequests: [String] = []
+    var discardRequestCount: Int { discardRequests.count }
 
     init(hiddenAt: Date?) {
         self.hiddenAt = hiddenAt
+    }
+
+    static func makeSnapshot(isPlayingMedia: Bool = false) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
+        BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
+            isClosing: false,
+            isVisibleInUI: false,
+            shouldRenderWebView: true,
+            hasPendingRemoteNavigation: false,
+            hasCurrentURL: true,
+            isLoading: false,
+            webViewIsLoading: false,
+            hasActiveMainFrameProvisionalNavigation: false,
+            isDownloading: false,
+            activeDownloadCount: 0,
+            preferredDeveloperToolsVisible: false,
+            isDeveloperToolsVisible: false,
+            isElementFullscreenActive: false,
+            isReactGrabActive: false,
+            isVisualAutomationCaptureActive: false,
+            hasPopups: false,
+            isCapturingMedia: false,
+            isPlayingMedia: isPlayingMedia
+        )
     }
 
     var hiddenWebViewDiscardSnapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot { snapshot }
@@ -69,7 +170,7 @@ private final class DiscardDelegate: BrowserHiddenWebViewDiscardManagerDelegate 
         _ manager: BrowserHiddenWebViewDiscardManager,
         reason: String
     ) {
-        discardRequestCount += 1
+        discardRequests.append(reason)
     }
 
     func hiddenWebViewDiscardManagerPolicyDidChange(

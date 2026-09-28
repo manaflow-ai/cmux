@@ -313027,55 +313027,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How long a browser tab must stay hidden before cmux frees its page memory. Active downloads, popups, developer tools, fullscreen, and loading pages are skipped."
+            "value": "How long a browser tab must stay hidden before cmux may free its page memory. Active downloads, popups, developer tools, fullscreen, and loading pages are skipped."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブラウザタブが非表示になってから、cmux がページメモリを解放するまでの時間です。進行中のダウンロード、ポップアップ、開発者ツール、フルスクリーン、読み込み中のページは対象外です。"
+            "value": "ブラウザタブが非表示になってから、cmux がページメモリを解放できるようになるまでの時間です。進行中のダウンロード、ポップアップ、開発者ツール、フルスクリーン、読み込み中のページは対象外です。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "浏览器标签页需隐藏多久，cmux 才会释放其页面内存。正在下载、弹出窗口、开发者工具、全屏和加载中的页面会被跳过。"
+            "value": "浏览器标签页需隐藏多久，cmux 才可以释放其页面内存。正在下载、弹出窗口、开发者工具、全屏和加载中的页面会被跳过。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wie lange ein Browser-Tab ausgeblendet bleiben muss, bevor cmux seinen Seitenspeicher freigibt. Aktive Downloads, Popups, Entwicklertools, Vollbild und ladende Seiten werden übersprungen."
+            "value": "Wie lange ein Browser-Tab ausgeblendet bleiben muss, bevor cmux seinen Seitenspeicher freigeben darf. Aktive Downloads, Popups, Entwicklertools, Vollbild und ladende Seiten werden übersprungen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Durée pendant laquelle un onglet de navigateur doit rester masqué avant que cmux ne libère sa mémoire de page. Les téléchargements actifs, les fenêtres surgissantes, les outils de développement, le mode plein écran et les pages en cours de chargement sont ignorés."
+            "value": "Durée pendant laquelle un onglet de navigateur doit rester masqué avant que cmux puisse libérer sa mémoire de page. Les téléchargements actifs, les fenêtres surgissantes, les outils de développement, le mode plein écran et les pages en cours de chargement sont ignorés."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المدة التي يجب أن تظل فيها علامة تبويب المتصفح مخفية قبل أن يقوم cmux بتحرير ذاكرة صفحتها. يتم تخطي التنزيلات النشطة والنوافذ المنبثقة وأدوات المطورين وملء الشاشة والصفحات التي يتم تحميلها."
+            "value": "المدة التي يجب أن تظل فيها علامة تبويب المتصفح مخفية قبل أن يتمكن cmux من تحرير ذاكرة صفحتها. يتم تخطي التنزيلات النشطة والنوافذ المنبثقة وأدوات المطورين وملء الشاشة والصفحات التي يتم تحميلها."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuánto tiempo debe permanecer oculta una pestaña del navegador antes de que cmux libere la memoria de su página. Se omiten las descargas activas, las ventanas emergentes, las herramientas de desarrollo, la pantalla completa y las páginas en carga."
+            "value": "Cuánto tiempo debe permanecer oculta una pestaña del navegador antes de que cmux pueda liberar la memoria de su página. Se omiten las descargas activas, las ventanas emergentes, las herramientas de desarrollo, la pantalla completa y las páginas en carga."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "瀏覽器標籤頁必須保持隱藏多久，cmux 才會釋放其網頁記憶體。作用中的下載、彈出式視窗、開發者工具、全螢幕和載入中的網頁將會跳過。"
+            "value": "瀏覽器標籤頁必須保持隱藏多久，cmux 才可以釋放其網頁記憶體。作用中的下載、彈出式視窗、開發者工具、全螢幕和載入中的網頁將會跳過。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 페이지 메모리를 해제하기 전까지 브라우저 탭이 숨겨진 상태로 유지되어야 하는 시간입니다. 진행 중인 다운로드, 팝업, 개발자 도구, 전체 화면 및 로딩 중인 페이지는 제외됩니다."
+            "value": "cmux가 페이지 메모리를 해제할 수 있기 전까지 브라우저 탭이 숨겨진 상태로 유지되어야 하는 시간입니다. 진행 중인 다운로드, 팝업, 개발자 도구, 전체 화면 및 로딩 중인 페이지는 제외됩니다."
           }
         }
       }
@@ -352718,6 +352718,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "browser.discardHiddenWebViews 메모리 숨겨진 탭 웹뷰 삭제 언로드 회수 browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.browser.hidden-webview-discard-mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewDiscardMode memory saver budget timer hidden tabs discard unload"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewDiscardMode memory saver budget timer hidden tabs discard unload メモリセーバー モード 予算 タイマー 非表示 タブ 破棄 解放"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewDiscardMode memory saver budget timer hidden tabs discard unload Speichersparmodus Modus Budget zeitgesteuert ausgeblendete Tabs verwerfen entladen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewDiscardMode memory saver budget timer hidden tabs discard unload économiseur de mémoire mode budget minuteur onglets masqués rejeter décharger"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewDiscardMode memory saver budget timer hidden tabs discard unload توفير الذاكرة وضع ميزانية مؤقت علامات تبويب مخفية تجاهل إلغاء تحميل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewDiscardMode memory saver budget timer hidden tabs discard unload ahorro de memoria modo presupuesto temporizador pestañas ocultas descartar descargar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewDiscardMode memory saver budget timer hidden tabs discard unload 記憶體節省 方式 預算 計時器 隱藏 標籤頁 捨棄 卸載"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewDiscardMode memory saver budget timer hidden tabs discard unload 内存节省 方式 预算 计时器 隐藏 标签页 丢弃 卸载"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewDiscardMode memory saver budget timer hidden tabs discard unload 메모리 절약 방식 예산 타이머 숨겨진 탭 삭제 언로드"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.browser.hidden-webview-memory-budget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewMemoryBudgetMB memory budget limit megabytes hidden tabs discard unload"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewMemoryBudgetMB memory budget limit megabytes hidden tabs discard unload メモリ 予算 上限 メガバイト 非表示 タブ 破棄 解放"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewMemoryBudgetMB memory budget limit megabytes hidden tabs discard unload Speicher Budget Limit Megabyte ausgeblendete Tabs verwerfen entladen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewMemoryBudgetMB memory budget limit megabytes hidden tabs discard unload mémoire budget limite mégaoctets onglets masqués rejeter décharger"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewMemoryBudgetMB memory budget limit megabytes hidden tabs discard unload ذاكرة ميزانية حد ميغابايت علامات تبويب مخفية تجاهل إلغاء تحميل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewMemoryBudgetMB memory budget limit megabytes hidden tabs discard unload memoria presupuesto límite megabytes pestañas ocultas descartar descargar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewMemoryBudgetMB memory budget limit megabytes hidden tabs discard unload 記憶體 預算 上限 MB 隱藏 標籤頁 捨棄 卸載"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewMemoryBudgetMB memory budget limit megabytes hidden tabs discard unload 内存 预算 上限 MB 隐藏 标签页 丢弃 卸载"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.hiddenWebViewMemoryBudgetMB memory budget limit megabytes hidden tabs discard unload 메모리 예산 한도 메가바이트 숨겨진 탭 삭제 언로드"
           }
         }
       }
@@ -554037,55 +554155,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frees memory from browser tabs hidden longer than the delay. They reload when shown again."
+            "value": "Frees page memory from hidden browser tabs. Scroll position, form input, and history come back when a tab is shown again."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Browser-Tabs, die länger als die festgelegte Zeit ausgeblendet sind, geben ihren Speicher frei und werden beim erneuten Anzeigen neu geladen."
+            "value": "Gibt den Seitenspeicher ausgeblendeter Browser-Tabs frei. Scrollposition, Formulareingaben und Verlauf werden wiederhergestellt, wenn ein Tab wieder angezeigt wird."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Libère la mémoire des onglets de navigateur masqués depuis plus longtemps que le délai défini. Ils se rechargent lorsqu’ils réapparaissent."
+            "value": "Libère la mémoire des pages des onglets de navigateur masqués. La position de défilement, les saisies de formulaire et l’historique sont restaurés lorsqu’un onglet réapparaît."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحرر ذاكرة علامات تبويب المتصفح المخفية لمدة تتجاوز المهلة المحددة، ويُعاد تحميلها عند عرضها مجددًا."
+            "value": "يحرر ذاكرة الصفحات من علامات تبويب المتصفح المخفية. تتم استعادة موضع التمرير وإدخالات النماذج والسجل عند عرض علامة التبويب مجددًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Libera la memoria de las pestañas del navegador que llevan ocultas más tiempo del indicado. Se vuelven a cargar al mostrarse de nuevo."
+            "value": "Libera la memoria de página de las pestañas ocultas del navegador. La posición de desplazamiento, los datos de formularios y el historial se recuperan cuando la pestaña vuelve a mostrarse."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "瀏覽器標籤頁隱藏超過延遲時間後，會釋放其記憶體。再次顯示時會重新載入。"
+            "value": "釋放隱藏瀏覽器標籤頁的網頁記憶體。標籤頁再次顯示時，會恢復捲動位置、表單輸入和瀏覽記錄。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "浏览器标签页隐藏超过延迟时间后，会释放其内存。再次显示时会重新加载。"
+            "value": "释放隐藏浏览器标签页的页面内存。标签页再次显示时，会恢复滚动位置、表单输入和浏览历史。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "브라우저 탭이 지연 시간보다 오래 숨겨져 있으면 메모리를 해제합니다. 탭을 다시 표시하면 새로 고칩니다."
+            "value": "숨겨진 브라우저 탭의 페이지 메모리를 해제합니다. 탭을 다시 표시하면 스크롤 위치, 양식 입력 및 방문 기록이 복원됩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "非表示の時間が遅延時間を超えたブラウザタブのメモリを解放します。タブは再び表示したときに再読み込みされます。"
+            "value": "非表示のブラウザタブのページメモリを解放します。タブを再び表示すると、スクロール位置、フォーム入力、履歴が復元されます。"
           }
         }
       }
@@ -563064,6 +563182,360 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在還原…"
+          }
+        }
+      }
+    },
+    "settings.browser.hiddenWebViewDiscardMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory Saver Mode"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع توفير الذاكرة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speichersparmodus-Art"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de ahorro de memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode de l’économiseur de mémoire"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリセーバーのモード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리 절약 방식"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内存节省方式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶體節省方式"
+          }
+        }
+      }
+    },
+    "settings.browser.hiddenWebViewMemoryBudget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hidden Tab Memory Budget"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ميزانية ذاكرة علامات التبويب المخفية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speicherbudget für ausgeblendete Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presupuesto de memoria de pestañas ocultas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Budget mémoire des onglets masqués"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非表示タブのメモリ予算"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "숨겨진 탭 메모리 예산"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏标签页内存预算"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏標籤頁記憶體預算"
+          }
+        }
+      }
+    },
+    "settings.browser.hiddenWebViewDiscardMode.memoryBudget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory Budget"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ميزانية الذاكرة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speicherbudget"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presupuesto de memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Budget mémoire"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリ予算"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리 예산"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内存预算"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶體預算"
+          }
+        }
+      }
+    },
+    "settings.browser.hiddenWebViewDiscardMode.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory Budget frees the tabs hidden longest once hidden tabs use more than the budget. Timer frees every tab hidden longer than the delay."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحرر «ميزانية الذاكرة» علامات التبويب المخفية منذ أطول مدة عندما تتجاوز علامات التبويب المخفية الميزانية. ويحرر «المؤقت» كل علامة تبويب مخفية لمدة أطول من التأخير."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Speicherbudget“ gibt die am längsten ausgeblendeten Tabs frei, sobald ausgeblendete Tabs mehr als das Budget belegen. „Zeitgesteuert“ gibt jeden Tab frei, der länger als die Verzögerung ausgeblendet ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Presupuesto de memoria» libera las pestañas ocultas desde hace más tiempo cuando las pestañas ocultas superan el presupuesto. «Temporizador» libera cada pestaña oculta durante más tiempo que la demora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« Budget mémoire » libère les onglets masqués depuis le plus longtemps dès que les onglets masqués dépassent le budget. « Minuteur » libère chaque onglet masqué depuis plus longtemps que le délai."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「メモリ予算」は、非表示のタブが予算を超えてメモリを使うと、最も長く非表示になっているタブから解放します。「タイマー」は、遅延時間より長く非表示になっているすべてのタブを解放します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'메모리 예산'은 숨겨진 탭이 예산보다 많은 메모리를 사용하면 가장 오래 숨겨진 탭부터 해제합니다. '타이머'는 지연 시간보다 오래 숨겨진 모든 탭을 해제합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“内存预算”会在隐藏标签页占用的内存超过预算时，释放隐藏最久的标签页。“计时器”会释放隐藏时间超过延迟的每个标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「記憶體預算」會在隱藏標籤頁使用的記憶體超過預算時，釋放隱藏最久的標籤頁。「計時器」會釋放隱藏時間超過延遲的每個標籤頁。"
+          }
+        }
+      }
+    },
+    "settings.browser.hiddenWebViewDiscardMode.timer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المؤقت"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeitgesteuert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporizador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minuteur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイマー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "타이머"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "计时器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計時器"
+          }
+        }
+      }
+    },
+    "settings.browser.hiddenWebViewMemoryBudget.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How much memory hidden browser tabs may use before cmux frees the ones hidden longest."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مقدار الذاكرة التي يمكن أن تستخدمها علامات تبويب المتصفح المخفية قبل أن يحرر cmux العلامات المخفية منذ أطول مدة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie viel Speicher ausgeblendete Browser-Tabs belegen dürfen, bevor cmux die am längsten ausgeblendeten freigibt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuánta memoria pueden usar las pestañas ocultas del navegador antes de que cmux libere las que llevan más tiempo ocultas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quantité de mémoire que les onglets de navigateur masqués peuvent utiliser avant que cmux libère ceux masqués depuis le plus longtemps."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が最も長く非表示になっているタブを解放するまでに、非表示のブラウザタブが使用できるメモリ量です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 가장 오래 숨겨진 탭을 해제하기 전까지 숨겨진 브라우저 탭이 사용할 수 있는 메모리 양입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏的浏览器标签页可使用的内存上限，超过后 cmux 会释放隐藏最久的标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏的瀏覽器標籤頁可使用的記憶體上限，超過後 cmux 會釋放隱藏最久的標籤頁。"
           }
         }
       }

@@ -22,6 +22,7 @@ public protocol BrowserHiddenWebViewDiscardManagerDelegate: AnyObject {
 @MainActor
 public final class BrowserHiddenWebViewDiscardManager {
     public static let systemMemoryPressureReason = "system_memory_pressure"
+    public static let memoryBudgetReason = "hidden_memory_budget"
 
     public struct BlockerSnapshot {
         public let isClosing: Bool
@@ -176,6 +177,26 @@ public final class BrowserHiddenWebViewDiscardManager {
         now: Date = Date(),
         allowingRecoverableWebContentTermination: Bool = false
     ) {
+        // Under the memory budget, hidden time alone never discards a pane;
+        // the budget coordinator picks the pane hidden longest.
+        guard BrowserHiddenWebViewDiscardPolicy.mode(defaults: policyDefaults) == .timer else {
+            cancel()
+            return
+        }
+        armDiscardCountdown(
+            reason: reason,
+            now: now,
+            allowingRecoverableWebContentTermination: allowingRecoverableWebContentTermination
+        )
+    }
+
+    /// Discards the pane once it has been hidden for the delay, counted from
+    /// when it was hidden or the system last woke, whichever is later.
+    private func armDiscardCountdown(
+        reason: String,
+        now: Date,
+        allowingRecoverableWebContentTermination: Bool
+    ) {
         scheduleGeneration &+= 1
         discardTimer?.cancel()
         discardTimer = nil
@@ -230,8 +251,9 @@ public final class BrowserHiddenWebViewDiscardManager {
             now: now,
             allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
         ).isEmpty else { return false }
+        // A deferred pressure discard keeps its countdown in either mode.
         guard delegate.hiddenWebViewDiscardHiddenAt != nil else {
-            scheduleIfNeeded(
+            armDiscardCountdown(
                 reason: reason,
                 now: now,
                 allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
@@ -240,7 +262,7 @@ public final class BrowserHiddenWebViewDiscardManager {
         }
         // Memory pressure bypasses the hidden-duration delay, not the WebKit post-wake crash guard.
         guard !isInPostWakeDiscardDelay(now: now) else {
-            scheduleIfNeeded(
+            armDiscardCountdown(
                 reason: reason,
                 now: now,
                 allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
@@ -252,6 +274,29 @@ public final class BrowserHiddenWebViewDiscardManager {
         discardTimer?.cancel()
         discardTimer = nil
         delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)
+        return true
+    }
+
+    /// Whether the memory budget may discard the pane now: nothing blocks a
+    /// discard, and the pane has been hidden for the delay since it was
+    /// hidden or the system last woke, whichever is later.
+    public func isEligibleForMemoryBudgetDiscard(now: Date = Date()) -> Bool {
+        guard let delegate, let hiddenAt = delegate.hiddenWebViewDiscardHiddenAt else { return false }
+        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot, now: now).isEmpty else { return false }
+        let effectiveHiddenAt = lastSystemWakeAt.map { max(hiddenAt, $0) } ?? hiddenAt
+        let hiddenDelay = BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: policyDefaults)
+        return now.timeIntervalSince(effectiveHiddenAt) >= hiddenDelay
+    }
+
+    /// Discards the pane to bring hidden web content back under the memory
+    /// budget, if it is still eligible.
+    ///
+    /// - Returns: Whether the discard was requested.
+    @discardableResult
+    public func requestMemoryBudgetDiscard(now: Date = Date()) -> Bool {
+        guard let delegate, isEligibleForMemoryBudgetDiscard(now: now) else { return false }
+        cancel()
+        delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: Self.memoryBudgetReason)
         return true
     }
 

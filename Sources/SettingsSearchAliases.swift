@@ -194,6 +194,8 @@ enum SettingsSearchAliasIndex {
         "browser:search-suggestions": localized("settings.search.alias.setting.browser.search-suggestions", defaultValue: "browser.showSearchSuggestions suggest autocomplete address bar search suggestions"),
         "browser:theme": localized("settings.search.alias.setting.browser.theme", defaultValue: "browser.theme web page theme color scheme light dark system"),
         "browser:hidden-webview-discard": localized("settings.search.alias.setting.browser.hidden-webview-discard", defaultValue: "browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"),
+        "browser:hidden-webview-discard-mode": localized("settings.search.alias.setting.browser.hidden-webview-discard-mode", defaultValue: "browser.hiddenWebViewDiscardMode memory saver budget timer hidden tabs discard unload"),
+        "browser:hidden-webview-memory-budget": localized("settings.search.alias.setting.browser.hidden-webview-memory-budget", defaultValue: "browser.hiddenWebViewMemoryBudgetMB memory budget limit megabytes hidden tabs discard unload"),
         "browser:hidden-webview-discard-delay": localized("settings.search.alias.setting.browser.hidden-webview-discard-delay", defaultValue: "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"),
         "browser:ask-where-to-save-downloads": localized("settings.search.alias.setting.browser.ask-where-to-save-downloads", defaultValue: "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail"),
         "browser:terminal-links": localized("settings.search.alias.setting.browser.terminal-links", defaultValue: "browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),

@@ -61,6 +61,16 @@ extension AppDelegate {
         monitor.onAggregatePressureCleared = {
             AgentHibernationController.shared.clearAggregateMemoryPressureConfirmations()
         }
+        let browserMemoryBudget = BrowserHiddenWebViewMemoryBudgetCoordinator { [weak self] in
+            (self?.paneMemoryGuardrailTabManagers() ?? []).flatMap { manager in
+                manager.tabs.flatMap { workspace in
+                    workspace.panels.values.compactMap { $0 as? BrowserPanel }
+                }
+            }
+        }
+        monitor.onSampleApplied = { sampledAt in
+            browserMemoryBudget.enforceBudget(now: sampledAt)
+        }
         monitor.start()
     }
 
