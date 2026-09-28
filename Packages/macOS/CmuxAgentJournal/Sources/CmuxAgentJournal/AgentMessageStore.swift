@@ -7,6 +7,17 @@ public struct AgentMessageStoreChange: Sendable, Equatable {
     public let state: AgentMessageDeliveryState
 }
 
+/// The store could not write a new message to its journal file. The message
+/// was not stored: nothing in memory changed and no change was published.
+public struct AgentMessagePersistenceError: Error, Equatable, Sendable {
+    /// Description of the underlying file error.
+    public let reason: String
+
+    public init(reason: String) {
+        self.reason = reason
+    }
+}
+
 /// Result of a hook's inbox check for its surface.
 public enum AgentMessagePollOutcome: Sendable, Equatable {
     /// The poller owns the surface's inbox. `queued` messages are waiting;
@@ -87,30 +98,38 @@ public final class AgentMessageStore: @unchecked Sendable {
     // MARK: - Writes
 
     /// Validates and stores a new queued message.
+    ///
+    /// The journal write is the source of truth: the message joins the
+    /// in-memory inbox and the change handler fires only after its record is
+    /// on disk. Throws ``AgentMessageValidationError`` for a bad draft and
+    /// ``AgentMessagePersistenceError`` when the record can't be written.
     @discardableResult
     public func append(_ draft: AgentMessageDraft) throws -> AgentMessage {
         let draft = try draft.validated()
-        let message: AgentMessage
-        lock.lock()
-        let id = makeId()
-        let parent = draft.inReplyTo.flatMap { messagesById[$0] }
-        message = AgentMessage(
-            id: id,
-            threadId: draft.threadId ?? parent?.threadId ?? id,
-            senderName: draft.senderName,
-            senderSurfaceId: draft.senderSurfaceId,
-            senderWorkspaceId: draft.senderWorkspaceId,
-            recipientSurfaceId: draft.recipientSurfaceId,
-            recipientWorkspaceId: draft.recipientWorkspaceId,
-            body: draft.body,
-            createdAt: now(),
-            inReplyTo: draft.inReplyTo
-        )
-        messagesById[id] = message
-        order.append(id)
-        appendRecord(Record(kind: .message, message: message))
-        lock.unlock()
-
+        let message = try lock.withLock {
+            let id = makeId()
+            let parent = draft.inReplyTo.flatMap { messagesById[$0] }
+            let message = AgentMessage(
+                id: id,
+                threadId: draft.threadId ?? parent?.threadId ?? id,
+                senderName: draft.senderName,
+                senderSurfaceId: draft.senderSurfaceId,
+                senderWorkspaceId: draft.senderWorkspaceId,
+                recipientSurfaceId: draft.recipientSurfaceId,
+                recipientWorkspaceId: draft.recipientWorkspaceId,
+                body: draft.body,
+                createdAt: now(),
+                inReplyTo: draft.inReplyTo
+            )
+            do {
+                try appendRecord(Record(kind: .message, message: message))
+            } catch {
+                throw AgentMessagePersistenceError(reason: String(describing: error))
+            }
+            messagesById[id] = message
+            order.append(id)
+            return message
+        }
         onChange?(AgentMessageStoreChange(message: message, state: .queued))
         return message
     }
@@ -225,7 +244,10 @@ public final class AgentMessageStore: @unchecked Sendable {
                   message.state.canAdvance(to: state) else { continue }
             Self.apply(state: state, at: at, via: via, to: &message)
             messagesById[id] = message
-            appendRecord(Record(kind: .state, id: id, state: state, at: at, via: via))
+            // State records are best effort: if one is lost, a restart
+            // replays the message in its earlier state, so a delivered
+            // message can be delivered again but none is dropped.
+            try? appendRecord(Record(kind: .state, id: id, state: state, at: at, via: via))
             changed.append(message)
         }
         lock.unlock()
@@ -268,23 +290,32 @@ public final class AgentMessageStore: @unchecked Sendable {
         return decoder
     }()
 
+    /// Appends one JSON line to the journal, creating the file when it doesn't
+    /// exist. A failed write is truncated back off the file so a partial line
+    /// can't swallow the next record. In-memory stores write nothing.
     /// Must hold `lock`.
-    private func appendRecord(_ record: Record) {
-        guard let fileURL, var data = try? Self.encoder.encode(record) else { return }
+    private func appendRecord(_ record: Record) throws {
+        guard let fileURL else { return }
+        var data = try Self.encoder.encode(record)
         data.append(0x0A)
         if FileManager.default.fileExists(atPath: fileURL.path) {
             // Never fall back to rewriting an existing file: a failed open
-            // (out of descriptors, permissions) loses one record, not history.
-            guard let handle = try? FileHandle(forWritingTo: fileURL) else { return }
+            // (out of descriptors, permissions) fails this write, not history.
+            let handle = try FileHandle(forWritingTo: fileURL)
             defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
+            let offset = try handle.seekToEnd()
+            do {
+                try handle.write(contentsOf: data)
+            } catch {
+                try? handle.truncate(atOffset: offset)
+                throw error
+            }
         } else {
-            try? FileManager.default.createDirectory(
+            try FileManager.default.createDirectory(
                 at: fileURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try? data.write(to: fileURL, options: .atomic)
+            try data.write(to: fileURL, options: .atomic)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         }
     }

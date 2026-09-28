@@ -195,6 +195,15 @@ extension TerminalController {
             return .ok(payload)
         } catch let error as AgentMessageValidationError {
             return .err(code: "invalid_params", message: Self.agentMessageValidationMessage(error), data: nil)
+        } catch let error as AgentMessagePersistenceError {
+            return .err(
+                code: "storage_failed",
+                message: String(
+                    localized: "socket.agentMessage.error.notSaved",
+                    defaultValue: "The message was not sent: cmux could not save it to the message journal."
+                ),
+                data: ["reason": error.reason]
+            )
         } catch {
             return .err(code: "internal_error", message: String(describing: error), data: nil)
         }

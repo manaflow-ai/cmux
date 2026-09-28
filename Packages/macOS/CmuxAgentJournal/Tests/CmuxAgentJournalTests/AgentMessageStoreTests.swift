@@ -200,17 +200,42 @@ struct AgentMessageStoreTests {
         #expect(store.poll(recipientSurfaceId: "surface-b", pollerKey: "other", register: false) == .superseded)
     }
 
-    @Test("A write that can't open an existing file never replaces it")
-    func appendNeverRewritesExistingFile() throws {
+    @Test("A message that can't be written is not stored and never replaces the file")
+    func appendFailsWhenJournalIsUnwritable() throws {
         let url = temporaryFileURL()
-        let store = AgentMessageStore(fileURL: url)
+        let seen = SeenChanges()
+        let store = AgentMessageStore(fileURL: url, onChange: { seen.append($0.state) })
         try store.append(draft(body: "first"))
         try store.append(draft(body: "second"))
         try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: url.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path) }
-        try store.append(draft(body: "third"))
+        #expect(throws: AgentMessagePersistenceError.self) {
+            try store.append(draft(body: "third"))
+        }
+        // Nothing unsaved is visible or announced.
+        #expect(store.messages(limit: .max).map(\.body) == ["second", "first"])
+        #expect(store.hasQueued(recipientSurfaceId: "surface-b"))
+        #expect(seen.values == [.queued, .queued])
         let reopened = AgentMessageStore(fileURL: url)
         #expect(reopened.messages(limit: .max).map(\.body) == ["second", "first"])
+    }
+
+    @Test("A message whose journal directory can't be created is not stored")
+    func appendFailsWhenJournalCannotBeCreated() throws {
+        let blocker = temporaryFileURL().deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: blocker.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        // A plain file where the journal's directory should be.
+        try Data().write(to: blocker)
+        defer { try? FileManager.default.removeItem(at: blocker) }
+        let store = AgentMessageStore(fileURL: blocker.appendingPathComponent("agent-messages.jsonl"))
+        #expect(throws: AgentMessagePersistenceError.self) {
+            try store.append(draft())
+        }
+        #expect(store.messages(limit: .max).isEmpty)
+        #expect(!store.hasQueued(recipientSurfaceId: "surface-b"))
     }
 
     @Test("The change handler sees every state a message enters")

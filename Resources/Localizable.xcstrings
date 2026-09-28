@@ -580159,6 +580159,65 @@
         }
       }
     },
+    "socket.agentMessage.error.notSaved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The message was not sent: cmux could not save it to the message journal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم إرسال الرسالة: تعذّر على cmux حفظها في سجل الرسائل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Nachricht wurde nicht gesendet: cmux konnte sie nicht im Nachrichtenjournal speichern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El mensaje no se envió: cmux no pudo guardarlo en el registro de mensajes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le message n’a pas été envoyé : cmux n’a pas pu l’enregistrer dans le journal des messages."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージは送信されませんでした: cmux がメッセージジャーナルに保存できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지를 보내지 못했습니다: cmux가 메시지 저널에 저장하지 못했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息未发送：cmux 无法将其保存到消息日志。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訊息未傳送：cmux 無法將其儲存到訊息日誌。"
+          }
+        }
+      }
+    },
     "socket.agentMessage.error.targetNotFound": {
       "extractionState": "manual",
       "localizations": {
