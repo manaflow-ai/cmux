@@ -7,7 +7,7 @@ final class WindowDecorationsController {
     private var didStart = false
     private var minimalModeSidebarChromeHoverMonitor: Any?
     private var lastMinimalModeTitlebarClick: MinimalModeTitlebarClickRecord?
-    private var lastKnownPresentationMode = WorkspacePresentationModeSettings.mode()
+    private var lastKnownTitlebarHidden = WorkspaceTitlebarSettings().isHidden
     private var lastKnownTitlebarDebugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
     private let minimalModeSidebarTitlebarClickTargets = NSMapTable<NSWindow, MinimalModeSidebarControlActionView>(
         keyOptions: .weakMemory,
@@ -38,7 +38,7 @@ final class WindowDecorationsController {
     }
 
     func apply(to window: NSWindow) {
-        if isMainWorkspaceWindow(window), WorkspacePresentationModeSettings.isMinimal() {
+        if isMainWorkspaceWindow(window), WorkspaceTitlebarSettings().isHidden {
             WindowMouseMovedEventsCoordinator.enable(for: window, owner: self)
         } else {
             WindowMouseMovedEventsCoordinator.disable(for: window, owner: self)
@@ -66,10 +66,10 @@ final class WindowDecorationsController {
     }
 
     private func applyDefaultsDrivenDecorationChangeIfNeeded() {
-        let currentMode = WorkspacePresentationModeSettings.mode()
+        let isTitlebarHidden = WorkspaceTitlebarSettings().isHidden
         let currentTitlebarSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
-        guard currentMode != lastKnownPresentationMode || currentTitlebarSnapshot != lastKnownTitlebarDebugSnapshot else { return }
-        lastKnownPresentationMode = currentMode
+        guard isTitlebarHidden != lastKnownTitlebarHidden || currentTitlebarSnapshot != lastKnownTitlebarDebugSnapshot else { return }
+        lastKnownTitlebarHidden = isTitlebarHidden
         lastKnownTitlebarDebugSnapshot = currentTitlebarSnapshot
         attachToExistingWindows()
     }
@@ -394,7 +394,7 @@ final class WindowDecorationsController {
 
     private func applyMinimalModeSidebarTitlebarClickTarget(to window: NSWindow) {
         let shouldInstall = isMainWorkspaceWindow(window)
-            && WorkspacePresentationModeSettings.isMinimal()
+            && WorkspaceTitlebarSettings().isHidden
             && !window.styleMask.contains(.fullScreen)
             && minimalModeSidebarTitlebarControlsAreAvailable(in: window)
         guard shouldInstall,

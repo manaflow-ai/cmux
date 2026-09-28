@@ -197,6 +197,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
     // local state.
     private static let touchedKeys = [
         "workspacePresentationMode",          // Minimal Mode (default .standard)
+        "workspaceTitlebarVisible",           // Independent title preference (default true)
         "workspaceInheritWorkingDirectory",   // Inherit CWD (default true)
         "menuBarOnly",                        // Menu Bar Only (default false)
         "showMenuBarExtra",                   // Show in Menu Bar (gated row)
@@ -308,7 +309,15 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         let minimal = toggle(window, id: "SettingsMinimalModeToggle")
         XCTAssertFalse(isOn(minimal), "Minimal Mode should start off (.standard)")
 
+        let titlebar = toggle(window, id: "SettingsShowWorkspaceTitleBarToggle")
+        XCTAssertTrue(titlebar.isEnabled)
+        XCTAssertEqual(titlebar.value as? String, "1")
+        titlebar.click()
+        XCTAssertTrue(poll(timeout: 4.0) { titlebar.value as? String == "0" })
+
         minimal.click()
+        XCTAssertTrue(poll(timeout: 4.0) { !titlebar.isEnabled })
+        XCTAssertEqual(titlebar.value as? String, "0")
         XCTAssertTrue(
             poll(timeout: 4.0) { self.isOn(minimal) },
             "Minimal Mode should be on after one click"
@@ -329,6 +338,8 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             subtitleText(window, Subtitle.minimal).exists,
             "The same subtitle should be shown after Minimal Mode turns off"
         )
+        XCTAssertTrue(poll(timeout: 4.0) { titlebar.isEnabled })
+        XCTAssertEqual(titlebar.value as? String, "0", "Leaving Minimal Mode must preserve the hidden-title preference")
 
         closeSettings(app, window)
     }

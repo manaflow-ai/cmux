@@ -34,9 +34,11 @@ struct CloudMachineNotificationDeliveryTests {
         store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
-        if AppDelegate.shared == nil {
-            AppDelegate.shared = appDelegate
-        }
+        // Full app-host shards run many suites in one process. Always install
+        // this harness's delegate so delivery-target resolution cannot consult
+        // a delegate left behind by an earlier suite; restore() returns the
+        // previous shared delegate after the test.
+        AppDelegate.shared = appDelegate
         AppFocusState.overrideIsFocused = false
 
         let workspace = manager.addWorkspace(select: true)

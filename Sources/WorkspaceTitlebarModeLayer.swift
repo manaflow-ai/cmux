@@ -1,18 +1,16 @@
 import SwiftUI
 
-struct WorkspaceTitlebarModeLayer<Titlebar: View>: View {
+struct WorkspaceTitlebarModeLayer<Titlebar: View, CompactControls: View>: View {
     let titlebar: () -> Titlebar
+    @ViewBuilder var compactControls: () -> CompactControls
 
-    @AppStorage(WorkspacePresentationModeSettings.modeKey)
-    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
-
-    private var isMinimalMode: Bool {
-        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
-    }
+    @WorkspaceTitlebarConfiguration private var titlebarSettings
 
     var body: some View {
-        if !isMinimalMode {
+        if !titlebarSettings.isHidden {
             titlebar()
+        } else if !titlebarSettings.isMinimalMode {
+            compactControls()
         }
     }
 }

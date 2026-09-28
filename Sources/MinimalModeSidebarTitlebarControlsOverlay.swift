@@ -13,15 +13,10 @@ struct MinimalModeSidebarTitlebarControlsOverlay: View {
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
 
-    @AppStorage(WorkspacePresentationModeSettings.modeKey)
-    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
-
-    private var isMinimalMode: Bool {
-        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
-    }
+    @WorkspaceTitlebarConfiguration private var titlebarSettings
 
     var body: some View {
-        if isMinimalMode {
+        if titlebarSettings.isHidden {
             HiddenTitlebarSidebarControlsView(
                 unreadModel: unreadModel,
                 layoutModel: layoutModel,

@@ -39,6 +39,7 @@ principles:
 - ``SettingCodable``
 - ``AppearanceMode``
 - ``SocketControlMode``
+- ``WorkspaceTitlebarPolicy``
 
 ### Type erasure and migration
 
