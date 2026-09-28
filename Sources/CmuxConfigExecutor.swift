@@ -73,6 +73,7 @@ struct CmuxConfigExecutor {
         tabManager: TabManager,
         baseCwd: String,
         globalConfigPath: String,
+        trustCommand: String? = nil,
         presentingWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
@@ -129,6 +130,7 @@ struct CmuxConfigExecutor {
             displayTitle: action.title,
             icon: action.icon,
             iconSourcePath: action.iconSourcePath,
+            trustCommand: trustCommand,
             presentingWindow: presentingWindow
         ) { shellInput in
             switch target {
@@ -171,6 +173,7 @@ struct CmuxConfigExecutor {
             tabManager: tabManager,
             baseCwd: baseCwd,
             globalConfigPath: globalConfigPath,
+            trustCommand: command,
             presentingWindow: presentingWindow
         )
     }
@@ -186,6 +189,7 @@ struct CmuxConfigExecutor {
         displayTitle: String? = nil,
         icon: CmuxButtonIcon? = nil,
         iconSourcePath: String? = nil,
+        trustCommand: String? = nil,
         presentingWindow: NSWindow? = nil,
         onAuthorized: @escaping (String) -> Void
     ) -> Bool {
@@ -193,7 +197,7 @@ struct CmuxConfigExecutor {
         guard !shellCommand.isEmpty else { return false }
 
         let descriptor = terminalTrustDescriptor(
-            command: shellCommand,
+            command: sanitizeForDisplay(trustCommand ?? rawCommand),
             actionID: actionID,
             target: target,
             configSourcePath: configSourcePath,
