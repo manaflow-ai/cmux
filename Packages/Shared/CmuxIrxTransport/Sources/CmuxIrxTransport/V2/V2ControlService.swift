@@ -311,17 +311,23 @@ public actor V2ControlService {
 
     func operation(_ schema: String) -> String { schema.split(separator: ".").dropLast().joined(separator: ".") }
 
+    /// The longest any cooldown or reconnect backoff may run, app-wide. A
+    /// credential or connection attempt deferred for hours is
+    /// indistinguishable from a dead Mac; half an hour bounds the damage of
+    /// any single misclassified failure while staying far under rate limits.
+    static let maximumBackoff: TimeInterval = 30 * 60
+
     func record(_ error: V2ControlFailure, schema: String) {
         failure = error
         if case .server(let response) = error {
             if response.code == .rateLimited {
-                let delay = max(1, Double(response.retryAfterMS ?? 60_000) / 1000)
+                let delay = min(max(1, Double(response.retryAfterMS ?? 60_000) / 1000), Self.maximumBackoff)
                 cooldowns[operation(schema)] = dependencies.now().addingTimeInterval(delay)
                 journal("cooldown-set", ["schema": schema, "source": "rate_limited", "delay_s": String(Int(delay))])
             } else if response.code == .clientUpgradeRequired {
                 let attempt = retiredAttempts[schema, default: 0]
-                let delays: [TimeInterval] = [3600, 6 * 3600, 24 * 3600]
-                let delay = delays[min(attempt, delays.count - 1)] * (1 + 0.1 * dependencies.jitter())
+                let delays: [TimeInterval] = [600, 1800, 1800]
+                let delay = min(delays[min(attempt, delays.count - 1)] * (1 + 0.1 * dependencies.jitter()), Self.maximumBackoff)
                 retiredAttempts[schema] = attempt + 1
                 cooldowns[schema] = dependencies.now().addingTimeInterval(delay)
                 journal("cooldown-set", ["schema": schema, "source": "upgrade_required", "delay_s": String(Int(delay))])

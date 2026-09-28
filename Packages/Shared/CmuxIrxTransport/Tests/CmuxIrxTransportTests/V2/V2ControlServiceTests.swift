@@ -250,12 +250,30 @@ import Testing
         _ = service
     }
 
-    @Test func permanentClosesStopWhileCapacityClosesBackOff() async throws {
+    @Test func onlyRevocationStopsEverythingElseRetriesWithinTheBackoffCeiling() async throws {
         let service = try service(backend: V2TestBackend(now: now))
         #expect(await service.terminal(.socketClosed(code: 1008, reason: "device_revoked")))
-        #expect(await service.terminal(.socketClosed(code: 1009, reason: "payload_too_large")))
+        #expect(await service.terminal(.socketClosed(code: 1008, reason: "team_access_revoked")))
+        // Policy closes without a revocation reason, wire-shape and
+        // persistence failures all retry now; a stopped service is silent
+        // until relaunch, which is how a wedged Mac disappears for hours.
+        #expect(await service.terminal(.socketClosed(code: 1008, reason: "policy_violation")) == false)
+        #expect(await service.terminal(.socketClosed(code: 1009, reason: "payload_too_large")) == false)
+        #expect(await service.terminal(.invalidWireData) == false)
+        #expect(await service.terminal(.persistenceFailed) == false)
+        #expect(await service.terminal(.capacityExceeded) == false)
+        #expect(await service.terminal(.scopeMismatch) == false)
+        #expect(await service.terminal(.http(status: 403, retryAfter: nil)) == false)
         #expect(await service.retryDelay(.socketClosed(code: 1013, reason: "slow_consumer"), attempt: 0) >= 60)
-        #expect(await service.terminal(.socketClosed(code: 1011, reason: "transport_error")) == false)
+        // A server retry-after or accumulated cooldown cannot push any
+        // reconnect past the app-wide 30-minute ceiling.
+        let capped = await service.retryDelay(.http(status: 429, retryAfter: 6 * 3600), attempt: 6)
+        #expect(capped <= 1800)
+        let cooldownCapped = await service.retryDelay(
+            .cooldown(schemaID: "session.open.v1", until: Date(timeIntervalSince1970: Double(now) + 24 * 3600)),
+            attempt: 0
+        )
+        #expect(cooldownCapped <= 1800)
     }
 
     @Test func paginationPinsRevisionAndRestartsAfterConcurrentChange() async throws {
@@ -376,8 +394,8 @@ import Testing
         catch V2ControlFailure.server(let error) { #expect(error.code == .clientUpgradeRequired) }
         do { _ = try await service.refreshRelayCredentials(); Issue.record("Expected long cooldown") }
         catch V2ControlFailure.cooldown(_, let until) {
-            #expect(until.timeIntervalSince1970 - Double(now) >= 3600)
-            #expect(until.timeIntervalSince1970 - Double(now) <= 3960)
+            #expect(until.timeIntervalSince1970 - Double(now) >= 300)
+            #expect(until.timeIntervalSince1970 - Double(now) <= 1800)
         }
         await socket.rejectRelay(nil)
         await service.explicitRetry(schemaID: "relay.request.v1")
@@ -430,6 +448,8 @@ import Testing
         await retiredService.stop()
         let retired = events(journal, "cooldown-set").first { $0.attributes["source"] == "upgrade_required" }
         #expect(retired?.attributes["schema"] == "relay.request.v1")
-        #expect(Int(retired?.attributes["delay_s"] ?? "") ?? 0 >= 3600)
+        let retiredDelay = Int(retired?.attributes["delay_s"] ?? "") ?? 0
+        #expect(retiredDelay >= 300)
+        #expect(retiredDelay <= 1800)
     }
 }

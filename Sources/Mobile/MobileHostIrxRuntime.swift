@@ -40,7 +40,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     nonisolated static func activationRetryDelay(after error: any Error, failureCount: Int, jitterUnitInterval: Double) -> TimeInterval {
         let ladder = min(5 * pow(2, Double(min(max(failureCount, 0), 16))), maximumActivationRetryDelay)
         let floor = TimeInterval(max(0, (error as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0))
-        let base = max(ladder, floor)
+        // A server retry-after may stretch one wait but never past the
+        // app-wide backoff ceiling; a host that waits hours is a dead host.
+        let base = min(max(ladder, floor), 30 * 60)
         return base + min(max(jitterUnitInterval, 0), 1) * base * 0.25
     }
 
