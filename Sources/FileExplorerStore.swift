@@ -750,7 +750,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     /// reports ``remoteListingUnsupportedToolsStatus``.
     static func legacyListingCommand(path: String, showHidden: Bool) -> String {
         let lsFlags = showHidden ? "-1pa" : "-1p"
-        return "ls \(lsFlags) \(shellSingleQuote(path)) 2>/dev/null"
+        return "ls \(lsFlags) \(remoteShellPathWord(path)) 2>/dev/null"
     }
 
     /// Parses ``legacyListingCommand(path:showHidden:)`` output. Entries carry
