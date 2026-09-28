@@ -1511,8 +1511,17 @@ final class TerminalNotificationStore: ObservableObject {
             return false
         }
         let focusState = notificationFocusState(tabId: request.tabId, surfaceId: request.surfaceId)
-        let shouldSuppressExternalDelivery = Self.shouldSuppressExternalDelivery(focusState)
+        let shouldSuppressExternalDelivery = Self.shouldSuppressExternalDelivery(
+            focusState,
+            suppressWhenAppFocused: Self.isSuppressWhenAppFocusedEnabled()
+        )
         let isFocusedSurfaceArrival = focusState.isFocusedSurfaceArrival
+        // Only the exact focused pane holds the workspace in place;
+        // `suppressWhenAppFocused` withholds the banner without changing
+        // sidebar ordering, matching Feed's delivery decision.
+        let effects = effects.keepingFocusedWorkspaceInPlace(
+            isFocusedPane: isFocusedSurfaceArrival
+        )
         let notification = TerminalNotification(
             id: notificationID,
             tabId: request.tabId,

@@ -20,7 +20,7 @@ extension TerminalNotificationStore {
 
     static func shouldSuppressExternalDelivery(
         _ focusState: NotificationFocusState,
-        suppressWhenAppFocused: Bool = isSuppressWhenAppFocusedEnabled()
+        suppressWhenAppFocused: Bool
     ) -> Bool {
         if suppressWhenAppFocused {
             return focusState.isAppFocused

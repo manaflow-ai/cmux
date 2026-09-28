@@ -110,6 +110,37 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
 }
 
 extension AppDelegate {
+    /// Requests application termination for the Cmd+Q quit path.
+    ///
+    /// The `terminate` seam exists so the quit path's *scheduling* is testable
+    /// without ending the test process, and so every Cmd+Q caller goes through
+    /// one place that decides when `NSApp.terminate` runs.
+    ///
+    /// `applicationShouldTerminate` can answer `.terminateLater` and finish the
+    /// quit from a `Task { @MainActor }` (owned runtime cleanup plus the fresh
+    /// session snapshot). `terminate` then waits for that reply in a nested
+    /// run loop, and CFRunLoop does not drain the GCD main queue from a nested
+    /// loop while the thread is already inside a main-queue callout. So a
+    /// caller that is itself a main-queue block (the debug socket's
+    /// `DispatchQueue.main.sync` hop for `simulate_shortcut cmd+q`, issue
+    /// #10788) starves the cleanup task and the quit hangs. Keyboard Cmd+Q
+    /// escaped it only because AppKit delivers that key in a run-loop event
+    /// callout.
+    static func requestApplicationTermination(
+        terminate: @escaping @MainActor () -> Void = { NSApp.terminate(nil) }
+    ) {
+        // Run the terminate from a run-loop block, not DispatchQueue.main.async:
+        // a GCD main-queue block is itself a main-queue callout, so the nested
+        // `.terminateLater` loop would still never drain the cleanup task. A
+        // run-loop block runs outside any main-queue callout, and `.default`
+        // keeps it out of modal-panel and event-tracking loops.
+        RunLoop.main.perform(inModes: [.default]) {
+            MainActor.assumeIsolated {
+                terminate()
+            }
+        }
+    }
+
     static func pendingTerminateReply(
         isAwaitingTerminateCleanup: Bool,
         hasActiveQuitConfirmation: Bool,

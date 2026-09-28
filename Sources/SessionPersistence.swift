@@ -1829,6 +1829,33 @@ extension AppSessionSnapshot: SessionSnapshotRepresenting {
     /// treats an empty-window snapshot as unusable (empty states remove the file instead
     /// of writing it), matching the legacy `!snapshot.windows.isEmpty` usability check.
     var hasWindows: Bool { !windows.isEmpty }
+
+    var richness: SessionSnapshotRichness {
+        let workspaces = windows.flatMap(\.tabManager.workspaces)
+        return SessionSnapshotRichness(
+            workspaces: workspaces.count,
+            panels: workspaces.reduce(0) { $0 + $1.panels.count }
+        )
+    }
+
+    /// Hash of the window, workspace, and panel identities plus each
+    /// terminal's agent session, used by the overwrite guard to tell a user
+    /// change (a new workspace, a started agent) from autosave churn.
+    var structureSignature: Int {
+        var hasher = Hasher()
+        for window in windows {
+            hasher.combine(window.windowId)
+            for workspace in window.tabManager.workspaces {
+                hasher.combine(workspace.workspaceId)
+                for panel in workspace.panels {
+                    hasher.combine(panel.id)
+                    hasher.combine(panel.terminal?.agent?.sessionId)
+                    hasher.combine(panel.terminal?.resumeBinding != nil)
+                }
+            }
+        }
+        return hasher.finalize()
+    }
 }
 
 enum SessionScrollbackReplayStore {
@@ -1870,7 +1897,29 @@ enum SessionScrollbackReplayStore {
         // white-on-white output (issue #5165). Strip them before replay.
         let themePortable = strippingTerminalColorOSCSequences(scrollback)
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(themePortable) else { return nil }
-        return ansiSafeReplayText(truncated)
+        return ansiSafeReplayText(endingOnFreshLine(truncated))
+    }
+    /// Captured scrollback usually stops at the old prompt with no trailing
+    /// newline. Replayed as is, the new shell's first prompt would start mid-line
+    /// (zsh marks that with a highlighted `%`), so end the replay on a fresh line.
+    /// Trailing CSI sequences (such as an SGR reset after the last newline) do
+    /// not move the cursor to a new line and are skipped when checking.
+    nonisolated private static func endingOnFreshLine(_ text: String) -> String {
+        let bytes = Array(text.utf8)
+        var end = bytes.count
+        while end > 0 {
+            let last = bytes[end - 1]
+            if last == 0x0A { return text } // \n
+            // Otherwise the text must end with `ESC [ <params> <final>` to keep looking.
+            guard (0x40...0x7E).contains(last) else { break }
+            var index = end - 2
+            while index >= 0, (0x20...0x3F).contains(bytes[index]) {
+                index -= 1
+            }
+            guard index >= 1, bytes[index] == 0x5B, bytes[index - 1] == 0x1B else { break }
+            end = index - 1
+        }
+        return text + "\r\n"
     }
     /// Preserve ANSI color state safely across replay boundaries.
     nonisolated private static func ansiSafeReplayText(_ text: String) -> String {

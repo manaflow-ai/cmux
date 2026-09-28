@@ -10863,55 +10863,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "It's removed from all your devices. If it's still online, it reappears the next time it connects."
+            "value": "It removes this computer from your saved devices and revokes its current access. If the Mac is still signed in, it can restore access the next time cmux opens or returns to the foreground."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてのデバイスから削除されます。オンラインのままの場合は、次回接続時に再表示されます。"
+            "value": "保存済みのデバイスからこのコンピュータを削除し、現在のアクセスを取り消します。Macでサインインしたままの場合、cmuxを次に開くか、フォアグラウンドに戻したときにアクセスを復元できます。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Es wurde von allen Ihren Geräten entfernt. Wenn es noch online ist, wird es bei der nächsten Verbindung wieder angezeigt."
+            "value": "Dieser Computer wird aus Ihren gespeicherten Geräten entfernt und sein aktueller Zugriff widerrufen. Wenn der Mac noch angemeldet ist, kann cmux den Zugriff wiederherstellen, sobald die App erneut geöffnet oder in den Vordergrund gebracht wird."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il est supprimé de tous vos appareils. S'il est toujours en ligne, il réapparaîtra lors de sa prochaine connexion."
+            "value": "Cet ordinateur sera supprimé de vos appareils enregistrés et son accès actuel sera révoqué. Si le Mac est toujours connecté, cmux peut rétablir l’accès à la prochaine ouverture ou lorsque l’app revient au premier plan."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتم إزالته من جميع أجهزتك. إذا كان لا يزال متصلاً بالإنترنت، فسيظهر مرة أخرى في المرة التالية التي يتصل فيها."
+            "value": "تتم إزالة هذا الكمبيوتر من أجهزتك المحفوظة وإلغاء وصوله الحالي. إذا ظل جهاز Mac مسجلاً للدخول، يمكن لـ cmux استعادة الوصول عند فتحه أو عودته إلى الواجهة في المرة التالية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se elimina de todos tus dispositivos. Si todavía está en línea, reaparece la próxima vez que se conecte."
+            "value": "Este ordenador se elimina de tus dispositivos guardados y se revoca su acceso actual. Si la sesión del Mac sigue iniciada, cmux puede restaurar el acceso la próxima vez que se abra o vuelva a primer plano."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "它已從您的所有設備中刪除。如果它仍然在線，它會在下次連接時重新出現。"
+            "value": "此電腦會從您儲存的裝置中移除，並撤銷目前的存取權。如果 Mac 仍保持登入狀態，cmux 會在下次開啟或回到前景時恢復存取權。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "它已从您的所有设备中删除。如果它仍然在线，它会在下次连接时重新出现。"
+            "value": "此电脑会从您保存的设备中移除，并撤销当前访问权限。如果 Mac 仍保持登录状态，cmux 会在下次打开或回到前台时恢复访问权限。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모든 기기에서 삭제됩니다. 아직 온라인 상태라면 다음에 연결할 때 다시 나타납니다."
+            "value": "이 컴퓨터가 저장된 기기에서 제거되고 현재 접근 권한이 취소됩니다. Mac에 계속 로그인되어 있으면 cmux를 다음에 열거나 다시 전면으로 가져올 때 접근 권한을 복원할 수 있습니다."
           }
         }
       }

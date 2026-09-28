@@ -1,19 +1,11 @@
 import CmuxSettingsUI
 
-/// Settings reads host admission state and resumes capture verification when grants are ready.
+/// Settings observes readiness separately from explicit permission/setup actions.
 extension HostSettingsActions {
+    /// Rendering, activation, and permission changes only refresh the snapshot.
+    /// Incomplete setup is status, not intent to open (or reopen) onboarding.
     func refreshComputerUsePermissions() async {
-        let status = await computerUseRuntimeService.refreshHelperStatus()
-        guard
-            CmuxFeatureFlags.shared.isComputerUseUXEnabled,
-            computerUseRuntimeService.permissionStatusIsKnown,
-            status.accessibility,
-            status.screenRecording,
-            computerUseRuntimeService.onboardingRequiresCompletion
-        else {
-            return
-        }
-        runComputerUseOnboardingAction(.screenRecording)
+        _ = await computerUseRuntimeService.refreshHelperStatus()
     }
 
     func computerUseAccessibilityGranted() -> Bool {
