@@ -79,6 +79,21 @@ def normalized(text: str, name: str) -> str | None:
         return scratch.read_text(encoding="utf-8")
 
 
+def fallback_conflict(base_path: Path, ours_path: Path, theirs_path: Path) -> None:
+    """Materialize Git's normal conflict output before refusing the merge."""
+    completed = subprocess.run(
+        ["git", "merge-file", "-p", str(ours_path), str(base_path), str(theirs_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    # merge-file returns 1 for ordinary conflicts; its stdout is still the
+    # required conflict-marked working-tree content. Preserve ours if the
+    # fallback itself fails, but never claim to have resolved the merge.
+    if completed.stdout:
+        ours_path.write_text(completed.stdout, encoding="utf-8")
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 4:
         print("usage: merge-pbxproj.py %O %A %B [%P]", file=sys.stderr)
@@ -93,9 +108,11 @@ def main(argv: list[str]) -> int:
             theirs_path.read_text(encoding="utf-8"),
         )
     except ValueError as error:
+        fallback_conflict(base_path, ours_path, theirs_path)
         print(f"merge-pbxproj: {name}: {error}; falling back", file=sys.stderr)
         return 1
     except (OSError, ImportError, AttributeError, UnicodeDecodeError) as error:
+        fallback_conflict(base_path, ours_path, theirs_path)
         print(f"merge-pbxproj: {name}: cannot merge ({error}); falling back", file=sys.stderr)
         return 1
     settled = normalized(merged, name)
