@@ -81,12 +81,14 @@ final class MachineDeleteCoordinator {
     /// Hides the machine a cancelled create announced, for that create's cleanup.
     /// Its local presentations detach when the cleanup's destroy request starts.
     ///
-    /// The create coordinator requests cleanup while it applies the cancel: before
-    /// the create's card closes, and for Cmd+W inside the close of the card's
-    /// workspace. The request reaches the socket after both, so the card's close has
-    /// unbound any pane the person added and the detach keeps that workspace
-    /// instead of closing it whole or again. A cleanup whose CLI exits first lists
-    /// the machine again with its presentations.
+    /// The create coordinator requests cleanup while it applies a transition: a
+    /// cancel, before the create's card closes and for Cmd+W inside the close of the
+    /// card's workspace, a cancelled create's late receipt, or an account's end. The
+    /// request comes from the cleanup's own CLI process, so it reaches the socket
+    /// after that transition has applied. A closed card has unbound any pane the
+    /// person added, and the detach keeps that workspace instead of closing it whole
+    /// or again. A cleanup whose CLI exits first lists the machine again with its
+    /// presentations.
     /// - Parameter machineID: The exact provider machine identifier.
     func beginCleanup(_ machineID: String) {
         deletions.beginCleanup(machineID)

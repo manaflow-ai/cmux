@@ -136,6 +136,29 @@ struct MachineDeleteCoordinatorTests {
         #expect(!wasGone && fixture.requested == ["m2"] && fixture.retired == ["m2"])
     }
 
+    @Test func cleanupJoinedByAnotherRemoveDetachesOnce() async throws {
+        let fixture = MachineDeleteFixture()
+        let coordinator = fixture.makeCoordinator()
+        coordinator.beginCleanup("m1")
+        // A terminal's `cmux vm rm` can reach the socket before the cleanup's CLI.
+        let terminal = Task { try await coordinator.destroy(id: "m1") }
+        try await fixture.waitForRequest()
+        #expect(fixture.detached == ["m1"])
+
+        let cleanupStarted = AsyncStream<Void>.makeStream()
+        let cleanup = Task {
+            cleanupStarted.continuation.yield(())
+            return try await coordinator.destroy(id: "m1")
+        }
+        var started = cleanupStarted.stream.makeAsyncIterator()
+        _ = try #require(await started.next(), "Expected the cleanup's request to start")
+        fixture.answer()
+        let terminalWasGone = try await terminal.value
+        let cleanupWasGone = try await cleanup.value
+        #expect(!terminalWasGone && !cleanupWasGone, "The cleanup joins the request in flight")
+        #expect(fixture.detached == ["m1"] && fixture.requested == ["m1"] && fixture.retired == ["m1"])
+    }
+
     @Test func notFoundRetiresTheMachineAndOtherFailuresRestoreIt() async throws {
         let fixture = MachineDeleteFixture()
         let coordinator = fixture.makeCoordinator()
