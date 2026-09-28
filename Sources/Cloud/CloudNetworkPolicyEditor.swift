@@ -16,20 +16,28 @@ struct CloudNetworkPolicyEditor: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Picker(String(localized: "cloud.network.mode.label", defaultValue: "Outbound access"), selection: $model.mode) {
-                ForEach(CloudNetworkPolicyMode.allCases, id: \.self) { mode in
-                    Text(mode.title).tag(mode)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Picker(String(localized: "cloud.network.mode.label", defaultValue: "Outbound access"), selection: $model.mode) {
+                    ForEach(CloudNetworkPolicyMode.allCases, id: \.self) { mode in
+                        Text(mode.title).tag(mode)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .accessibilityIdentifier("CloudNetworkPolicyEditor.mode")
+                CloudSecurityExplainer()
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .accessibilityIdentifier("CloudNetworkPolicyEditor.mode")
 
+            // The note on what stays reachable is the caption's tooltip; in
+            // Allowlist mode it is also printed under the lists below.
             Text(model.mode.explanation)
                 .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .help(model.requiredDomainsNote ?? model.mode.explanation)
+                .accessibilityHint(model.requiredDomainsNote ?? "")
                 .accessibilityIdentifier("CloudNetworkPolicyEditor.modeExplanation")
 
             if model.showsAllowlistDetails {
@@ -38,16 +46,9 @@ struct CloudNetworkPolicyEditor: View {
                         .padding(.top, 6)
                 } label: {
                     Text(allowlistSummary)
-                        .cmuxFont(size: 12, weight: .medium)
+                        .cmuxFont(size: 12)
                 }
                 .accessibilityIdentifier("CloudNetworkPolicyEditor.allowlist")
-            }
-
-            if let note = model.requiredDomainsNote {
-                Text(note)
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if let error = model.inputError {
@@ -73,7 +74,7 @@ struct CloudNetworkPolicyEditor: View {
     }
 
     private var allowlistDetails: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             if !model.presets.isEmpty {
                 section(String(localized: "cloud.network.presets.label", defaultValue: "Quick add")) {
                     CloudNetworkPresetToggles(
@@ -138,16 +139,20 @@ struct CloudNetworkPolicyEditor: View {
             CloudCheckboxRow(
                 title: String(localized: "cloud.network.dns.label", defaultValue: "Allow DNS lookups"),
                 isOn: $model.allowDns
-            ) {
-                Text(String(
-                    localized: "cloud.network.dns.note",
-                    defaultValue: "Listed domains work without DNS. Open DNS lets tools resolve names for IP ranges, but DNS is also an outbound channel."
-                ))
-                .cmuxFont(size: 11)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
+            )
+            .help(String(
+                localized: "cloud.network.dns.note",
+                defaultValue: "Listed domains work without DNS. Open DNS lets tools resolve names for IP ranges, but DNS is also an outbound channel."
+            ))
             .accessibilityIdentifier("CloudNetworkPolicyEditor.dns")
+
+            if let note = model.requiredDomainsNote {
+                Text(note)
+                    .cmuxFont(size: 11)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("CloudNetworkPolicyEditor.requiredDomains")
+            }
         }
     }
 

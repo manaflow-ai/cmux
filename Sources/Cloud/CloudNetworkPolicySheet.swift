@@ -9,16 +9,13 @@ struct CloudNetworkPolicySheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(String(
-                    format: String(localized: "cloud.network.sheet.title", defaultValue: "Network for %@"),
-                    model.machineLabel
-                ))
-                .cmuxFont(size: 19, weight: .semibold)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                CloudSecurityExplainer()
-            }
+            Text(String(
+                format: String(localized: "cloud.network.sheet.title", defaultValue: "Network for %@"),
+                model.machineLabel
+            ))
+            .cmuxFont(size: 15, weight: .semibold)
+            .lineLimit(1)
+            .truncationMode(.middle)
 
             switch model.phase {
             case .loading:
@@ -27,6 +24,7 @@ struct CloudNetworkPolicySheet: View {
                     Text(String(localized: "cloud.network.sheet.loading", defaultValue: "Loading the network policy…"))
                         .cmuxFont(size: 12)
                         .foregroundStyle(.secondary)
+                    CloudSecurityExplainer()
                 }
             case .loadFailed(let message):
                 messageBox(message, isError: true)
@@ -42,8 +40,8 @@ struct CloudNetworkPolicySheet: View {
 
             buttons
         }
-        .padding(24)
-        .frame(width: 500)
+        .padding(20)
+        .frame(width: 460)
         .accessibilityIdentifier("CloudNetworkPolicySheet")
     }
 
@@ -87,33 +85,26 @@ struct CloudNetworkPolicySheet: View {
             .cloudErrorCopyMenu(text)
     }
 
+    /// "Changes apply without restarting" is Save's tooltip, not a footer line.
     private var buttons: some View {
-        VStack(spacing: 10) {
-            Divider()
-            HStack(spacing: 8) {
-                Text(String(localized: "cloud.network.sheet.live", defaultValue: "Changes apply without restarting the machine."))
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(2)
-                Spacer()
-                if model.outcome == nil, model.applied?.state == .pending, !model.hasChanges {
-                    Button(String(localized: "cloud.network.sheet.done", defaultValue: "Done")) { model.done() }
-                        .keyboardShortcut(.cancelAction)
-                        .buttonStyle(.bordered)
-                } else {
-                    Button(String(localized: "machines.new.cancel", defaultValue: "Cancel")) { model.cancel() }
-                        .keyboardShortcut(.cancelAction)
-                        .buttonStyle(.bordered)
-                        .accessibilityIdentifier("CloudNetworkPolicySheet.cancel")
-                }
-                Button(String(localized: "cloud.network.sheet.save", defaultValue: "Save")) {
-                    Task { await model.save() }
-                }
-                .disabled(!model.canSave)
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("CloudNetworkPolicySheet.save")
+        HStack(spacing: 8) {
+            Spacer()
+            if model.outcome == nil, model.applied?.state == .pending, !model.hasChanges {
+                Button(String(localized: "cloud.network.sheet.done", defaultValue: "Done")) { model.done() }
+                    .keyboardShortcut(.cancelAction)
+            } else {
+                Button(String(localized: "machines.new.cancel", defaultValue: "Cancel")) { model.cancel() }
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityIdentifier("CloudNetworkPolicySheet.cancel")
             }
+            Button(String(localized: "cloud.network.sheet.save", defaultValue: "Save")) {
+                Task { await model.save() }
+            }
+            .disabled(!model.canSave)
+            .keyboardShortcut(.defaultAction)
+            .help(String(localized: "cloud.network.sheet.live", defaultValue: "Changes apply without restarting the machine."))
+            .accessibilityIdentifier("CloudNetworkPolicySheet.save")
         }
+        .padding(.top, 4)
     }
 }

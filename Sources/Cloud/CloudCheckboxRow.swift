@@ -11,6 +11,9 @@ import SwiftUI
 /// label-less checkbox has a fixed size, so the row lays out once.
 struct CloudCheckboxRow<Detail: View>: View {
     let title: String
+    /// Read by VoiceOver instead of `title` when the visible title leans on
+    /// a row label ("Keep up to date" next to "Coding agents").
+    var accessibilityTitle: String?
     @Binding var isOn: Bool
     var fontSize: CGFloat = 13
     @ViewBuilder var detail: () -> Detail
@@ -20,7 +23,7 @@ struct CloudCheckboxRow<Detail: View>: View {
             Toggle(isOn: $isOn) { EmptyView() }
                 .toggleStyle(.checkbox)
                 .labelsHidden()
-                .accessibilityLabel(title)
+                .accessibilityLabel(accessibilityTitle ?? title)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .cmuxFont(size: fontSize)
@@ -34,7 +37,7 @@ struct CloudCheckboxRow<Detail: View>: View {
 }
 
 extension CloudCheckboxRow where Detail == EmptyView {
-    init(title: String, isOn: Binding<Bool>, fontSize: CGFloat = 13) {
-        self.init(title: title, isOn: isOn, fontSize: fontSize) { EmptyView() }
+    init(title: String, accessibilityTitle: String? = nil, isOn: Binding<Bool>, fontSize: CGFloat = 13) {
+        self.init(title: title, accessibilityTitle: accessibilityTitle, isOn: isOn, fontSize: fontSize) { EmptyView() }
     }
 }

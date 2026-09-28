@@ -11,31 +11,23 @@ struct NewMachineSheet: View {
     @Bindable var model: NewMachineModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             header
-            if model.supportsSize {
-                sizeSection
+            if hasSettingsRows {
+                settingsGrid
             }
-            if model.supportsNetworkPolicy {
-                networkSection
-            }
-            if model.supportsAgentUpdates {
-                agentUpdatesSection
-            }
-            if model.hasNoAllowedMemoryOptions {
-                Text(String(localized: "machines.new.size.noneAllowed", defaultValue: "No machine size is available for this plan. Close this dialog and reopen it to refresh your plan."))
-                    .cmuxFont(size: 12)
+            if let note = model.freeAccessNoteText {
+                Text(note)
+                    .cmuxFont(size: 11)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("NewMachineSheet.size.noneAllowed")
             }
-            planSection
             if let errorText = model.errorText {
                 errorBox(errorText)
             }
-            buttons
+            footer
         }
-        .padding(24)
+        .padding(20)
         .frame(width: 500)
         .accessibilityIdentifier("NewMachineSheet")
         .confirmationDialog(
@@ -53,48 +45,130 @@ struct NewMachineSheet: View {
 
     }
 
+    private var subtitle: String {
+        model.isBaseSetup
+            ? String(
+                localized: "machines.new.subtitle.base",
+                defaultValue: "Base is your persistent cloud machine. Opening it later reuses this same machine; reset Base to start over."
+            )
+            : String(
+                localized: "machines.new.subtitle",
+                defaultValue: "A cloud computer with devtools and coding agents preinstalled. Its home directory is reset when the machine is recreated."
+            )
+    }
+
+    /// New Machine shows its description as the title's tooltip; Base has no
+    /// settings rows, so its description stays visible because it is the
+    /// only thing that says what Base is.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(model.isBaseSetup
                 ? String(localized: "machines.new.title.base", defaultValue: "Set Up Base")
                 : String(localized: "machines.new.title", defaultValue: "New Machine"))
-                .cmuxFont(size: 19, weight: .semibold)
-            Text(model.isBaseSetup
-                ? String(
-                    localized: "machines.new.subtitle.base",
-                    defaultValue: "Base is your persistent cloud machine. Opening it later reuses this same machine; reset Base to start over."
-                )
-                : String(
-                    localized: "machines.new.subtitle",
-                    defaultValue: "A cloud computer with devtools and coding agents preinstalled. Its home directory is reset when the machine is recreated."
-                ))
-                .cmuxFont(size: 12)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            CloudSecurityExplainer()
+                .cmuxFont(size: 15, weight: .semibold)
+                .help(subtitle)
+            if model.isBaseSetup {
+                Text(subtitle)
+                    .cmuxFont(size: 12)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
-    private var networkSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(String(localized: "cloud.network.section.label", defaultValue: "Network"))
-                .cmuxFont(size: 13, weight: .semibold)
+    private var hasSettingsRows: Bool {
+        model.supportsSize || model.hasNoAllowedMemoryOptions || model.supportsNetworkPolicy || model.supportsAgentUpdates
+    }
+
+    /// One label column, one control column, like a System Settings pane.
+    private var settingsGrid: some View {
+        Grid(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline), horizontalSpacing: 12, verticalSpacing: 14) {
+            if model.supportsSize || model.hasNoAllowedMemoryOptions {
+                GridRow {
+                    rowLabel(String(localized: "machines.new.row.size", defaultValue: "Size"))
+                    sizeControl
+                }
+            }
+            if model.supportsNetworkPolicy {
+                GridRow {
+                    rowLabel(String(localized: "cloud.network.section.label", defaultValue: "Network"))
+                    networkControl
+                }
+            }
+            if model.supportsAgentUpdates {
+                GridRow {
+                    rowLabel(String(localized: "machines.new.row.agents", defaultValue: "Coding agents"))
+                    agentUpdatesControl
+                }
+            }
+        }
+    }
+
+    private func rowLabel(_ title: String) -> some View {
+        Text(title)
+            .cmuxFont(size: 13)
+            .gridColumnAlignment(.trailing)
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var sizeControl: some View {
+        if model.hasNoAllowedMemoryOptions {
+            Text(String(localized: "machines.new.size.noneAllowed", defaultValue: "No machine size is available for this plan. Close this dialog and reopen it to refresh your plan."))
+                .cmuxFont(size: 12)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("NewMachineSheet.size.noneAllowed")
+        } else if let selectedSize = model.selectedSize {
+            Menu {
+                ForEach(model.memoryOptions, id: \.self) { memoryMb in
+                    if let size = MachineSizeOption(memoryMb: memoryMb) {
+                        Button(size.menuTitle) { model.selectSize(memoryMb) }
+                    }
+                }
+                ForEach(model.lockedMemoryOptions, id: \.self) { memoryMb in
+                    if let size = MachineSizeOption(memoryMb: memoryMb) {
+                        Button { model.selectSize(memoryMb) } label: {
+                            Label(model.lockedSizeMenuTitle(size), systemImage: "lock.fill")
+                        }
+                        .disabled(model.upgradePlan(for: memoryMb) == nil)
+                        .accessibilityIdentifier("NewMachineSheet.size.locked.\(memoryMb)")
+                    }
+                }
+            } label: {
+                Text(selectedSize.menuTitle)
+            }
+            .fixedSize()
+            .help(String(localized: "machines.new.size.help", defaultValue: "Choose the memory and disk profile for this machine."))
+            .accessibilityIdentifier("NewMachineSheet.size")
+            .accessibilityLabel(String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"))
+            .accessibilityValue(selectedSize.menuTitle)
+        }
+    }
+
+    @ViewBuilder
+    private var networkControl: some View {
+        Group {
             switch model.networkAvailability {
             case .loading:
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
                     Text(String(localized: "cloud.network.loading", defaultValue: "Loading network options…"))
-                        .cmuxFont(size: 11)
+                        .cmuxFont(size: 12)
                         .foregroundStyle(.secondary)
+                    CloudSecurityExplainer()
                 }
             case .unavailable:
-                Text(String(
-                    localized: "cloud.network.unavailable",
-                    defaultValue: "Network options could not be loaded. The machine gets full internet access; change it later with Network… in the machine menu."
-                ))
-                .cmuxFont(size: 11)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(String(
+                        localized: "cloud.network.unavailable",
+                        defaultValue: "Network options could not be loaded. The machine gets full internet access; change it later with Network… in the machine menu."
+                    ))
+                    .cmuxFont(size: 12)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    CloudSecurityExplainer()
+                }
             case .available:
                 CloudNetworkPolicyEditor(model: model.network)
             }
@@ -102,18 +176,12 @@ struct NewMachineSheet: View {
         .accessibilityIdentifier("NewMachineSheet.network")
     }
 
-    private var agentUpdatesSection: some View {
+    private var agentUpdatesControl: some View {
         CloudCheckboxRow(
-            title: String(localized: "machines.new.agentUpdates.label", defaultValue: "Keep coding agents up to date"),
+            title: String(localized: "machines.new.agentUpdates.short", defaultValue: "Keep up to date"),
+            accessibilityTitle: String(localized: "machines.new.agentUpdates.label", defaultValue: "Keep coding agents up to date"),
             isOn: $model.keepsAgentsUpdated
         ) {
-            Text(String(
-                localized: "machines.new.agentUpdates.help",
-                defaultValue: "Updates Claude Code, Codex, OpenCode, and Pi to the newest release when you connect, at most once a day. A new release installs only after it has been public for 3 days."
-            ))
-            .cmuxFont(size: 11)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
             if let note = model.agentUpdatesNetworkNote {
                 Text(note)
                     .cmuxFont(size: 11)
@@ -122,86 +190,11 @@ struct NewMachineSheet: View {
                     .accessibilityIdentifier("NewMachineSheet.agentUpdates.networkNote")
             }
         }
+        .help(String(
+            localized: "machines.new.agentUpdates.help",
+            defaultValue: "Updates Claude Code, Codex, OpenCode, and Pi to the newest release when you connect, at most once a day. A new release installs only after it has been public for 3 days."
+        ))
         .accessibilityIdentifier("NewMachineSheet.agentUpdates")
-    }
-
-    private var sizeSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(String(localized: "machines.new.size.label", defaultValue: "Machine size"))
-                    .cmuxFont(size: 13, weight: .semibold)
-                Text(String(
-                    localized: "machines.new.size.help",
-                    defaultValue: "Choose the memory and disk profile for this machine."
-                ))
-                .cmuxFont(size: 11)
-                .foregroundStyle(.secondary)
-            }
-
-            if let selectedSize = model.selectedSize {
-                Menu {
-                    ForEach(model.memoryOptions, id: \.self) { memoryMb in
-                        if let size = MachineSizeOption(memoryMb: memoryMb) {
-                            Button(size.menuTitle) { model.selectSize(memoryMb) }
-                        }
-                    }
-                    ForEach(model.lockedMemoryOptions, id: \.self) { memoryMb in
-                        if let size = MachineSizeOption(memoryMb: memoryMb) {
-                            Button { model.selectSize(memoryMb) } label: {
-                                Label(model.lockedSizeMenuTitle(size), systemImage: "lock.fill")
-                            }
-                            .disabled(model.upgradePlan(for: memoryMb) == nil)
-                            .accessibilityIdentifier("NewMachineSheet.size.locked.\(memoryMb)")
-                        }
-                    }
-                } label: {
-                    Text(selectedSize.menuTitle)
-                }
-                .accessibilityIdentifier("NewMachineSheet.size")
-                .accessibilityLabel(String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"))
-                .accessibilityValue(selectedSize.menuTitle)
-            }
-
-            if let note = model.lockedSizesNoteText, let upgradeTitle = model.memoryUpgradeButtonTitle {
-                HStack(alignment: .center, spacing: 8) {
-                    Text(note)
-                        .cmuxFont(size: 11)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("NewMachineSheet.size.lockedNote")
-                    Spacer(minLength: 0)
-                    Button(upgradeTitle) {
-                        model.selectedUpgradePlanId = model.highestLockedMemoryUpgradePlanId ?? model.memoryUpgradePlanId ?? "max"
-                        model.showsMaxUpgrade = true
-                    }
-                    .controlSize(.small)
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("NewMachineSheet.size.upgrade")
-                }
-            }
-        }
-        .accessibilityIdentifier("NewMachineSheet.sizeSection")
-    }
-
-    @ViewBuilder
-    private var planSection: some View {
-        if model.planMeterText != nil || model.freeAccessNoteText != nil {
-            VStack(alignment: .leading, spacing: 3) {
-                if let meter = model.planMeterText {
-                    Text(meter)
-                        .cmuxFont(size: 11, weight: .medium)
-                        .foregroundStyle(.secondary)
-                }
-                if let note = model.freeAccessNoteText {
-                    Text(note)
-                        .cmuxFont(size: 11)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("NewMachineSheet.plan")
-        }
     }
 
     private func errorBox(_ text: String) -> some View {
@@ -225,35 +218,46 @@ struct NewMachineSheet: View {
         .cloudErrorCopyMenu(text)
     }
 
-    private var buttons: some View {
-        VStack(spacing: 10) {
-            Divider()
-            HStack(alignment: .center, spacing: 8) {
-                Text(model.isBaseSetup
-                    ? String(localized: "machines.new.background.note.base", defaultValue: "Setup continues in the Machines panel.")
-                    : String(localized: "machines.new.background.note", defaultValue: "Creation continues in the Machines panel."))
+    /// Plan usage and the upgrade for locked sizes share the row with the
+    /// buttons; the longer explanations are tooltips.
+    private var footer: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if let meter = model.planMeterText {
+                Text(meter)
                     .cmuxFont(size: 11)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("NewMachineSheet.backgroundNote")
-                Spacer()
-                Button(String(localized: "machines.new.cancel", defaultValue: "Cancel")) {
-                    model.cancel()
-                }
-                .keyboardShortcut(.cancelAction)
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("NewMachineSheet.cancel")
-                Button(createTitle) {
-                    model.create()
-                }
-                .disabled(model.hasNoAllowedMemoryOptions)
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("NewMachineSheet.create")
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("NewMachineSheet.plan")
             }
+            if let note = model.lockedSizesNoteText, let upgradeTitle = model.memoryUpgradeButtonTitle {
+                Button(upgradeTitle) {
+                    model.selectedUpgradePlanId = model.highestLockedMemoryUpgradePlanId ?? model.memoryUpgradePlanId ?? "max"
+                    model.showsMaxUpgrade = true
+                }
+                .buttonStyle(.link)
+                .cmuxFont(size: 11)
+                .lineLimit(1)
+                .help(note)
+                .accessibilityHint(note)
+                .accessibilityIdentifier("NewMachineSheet.size.upgrade")
+            }
+            Spacer(minLength: 8)
+            Button(String(localized: "machines.new.cancel", defaultValue: "Cancel")) {
+                model.cancel()
+            }
+            .keyboardShortcut(.cancelAction)
+            .accessibilityIdentifier("NewMachineSheet.cancel")
+            Button(createTitle) {
+                model.create()
+            }
+            .disabled(model.hasNoAllowedMemoryOptions)
+            .keyboardShortcut(.defaultAction)
+            .help(model.isBaseSetup
+                ? String(localized: "machines.new.background.note.base", defaultValue: "Setup continues in the Machines panel.")
+                : String(localized: "machines.new.background.note", defaultValue: "Creation continues in the Machines panel."))
+            .accessibilityIdentifier("NewMachineSheet.create")
         }
-        .padding(.top, 2)
+        .padding(.top, 4)
     }
 
     private var createTitle: String {
