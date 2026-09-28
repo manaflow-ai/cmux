@@ -23,6 +23,9 @@ public struct KarabinerProfile: Sendable, Equatable {
     var devices: [Device]
     var manipulators: [KarabinerManipulator]
 
+    /// No modifications: what Karabiner-Elements runs without a `karabiner.json`.
+    public static let empty = KarabinerProfile()
+
     init(
         simpleModifications: [PhysicalKey: SimpleTarget] = [:],
         devices: [Device] = [],
@@ -63,12 +66,22 @@ public struct KarabinerProfile: Sendable, Equatable {
         self.manipulators = manipulators
     }
 
-    /// The `devices` entry that applies to `device`: the first whose
-    /// identifiers pick it, preferring an entry for the keyboard over one
-    /// for a combined keyboard and pointing device.
-    func deviceSettings(for device: KeyboardDevice) -> Device? {
-        let matching = devices.filter { $0.identifiers.matches(device) == true }
-        return matching.first { $0.identifiers.isPointingDevice != true } ?? matching.first
+    /// The `devices` entry that applies to `device`, preferring an entry
+    /// for the keyboard alone over one for a combined keyboard and pointing
+    /// device.
+    ///
+    /// - Returns: The entry, or `nil` for none; `certain` is false when an
+    ///   entry names something cmux can't check, so it may be this device.
+    func deviceSettings(for device: KeyboardDevice) -> (settings: Device?, certain: Bool) {
+        var matching: [Device] = []
+        for entry in devices {
+            switch entry.identifiers.isEntry(for: device) {
+            case true?: matching.append(entry)
+            case nil: return (nil, false)
+            case false?: continue
+            }
+        }
+        return (matching.first { $0.identifiers.isPointingDevice != true } ?? matching.first, true)
     }
 
     private static func simpleModifications(_ value: Any?) -> [PhysicalKey: SimpleTarget] {

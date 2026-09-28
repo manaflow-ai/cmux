@@ -29,7 +29,10 @@ public struct PhysicalKeyboardSetup: Sendable {
     ///   - connectedKeyboards: Keyboards from the HID registry, including
     ///     Karabiner's virtual keyboard when it runs. Karabiner's profile
     ///     only applies while that virtual keyboard is present.
-    ///   - karabiner: The selected Karabiner-Elements profile, if any.
+    ///   - karabiner: The selected Karabiner-Elements profile;
+    ///     ``KarabinerProfile/empty`` when there is no `karabiner.json`, and
+    ///     `nil` when it exists but can't be read, which makes every keyboard
+    ///     Karabiner manages unknown.
     ///   - userKeyMapping: `hidutil`'s `UserKeyMapping`.
     ///   - modifierKeys: System Settings' modifier keys per keyboard.
     ///   - application: cmux, for Karabiner's frontmost-application conditions.
@@ -60,8 +63,16 @@ public struct PhysicalKeyboardSetup: Sendable {
     public func remap(for keyboard: KeyboardDevice?) -> PhysicalKeyRemap {
         var stage: PhysicalKeyRemap.KarabinerStage?
         var reachesMacOSAs = keyboard
-        if let karabiner, let virtual = karabinerVirtualKeyboard {
-            let settings = keyboard.flatMap(karabiner.deviceSettings(for:))
+        if let virtual = karabinerVirtualKeyboard {
+            // Karabiner runs, but its configuration couldn't be read: its
+            // remaps are unknown.
+            guard let karabiner else { return .unknown }
+            var settings: KarabinerProfile.Device?
+            if let keyboard {
+                let found = karabiner.deviceSettings(for: keyboard)
+                guard found.certain else { return .unknown }
+                settings = found.settings
+            }
             if settings?.ignore != true {
                 reachesMacOSAs = virtual
                 stage = PhysicalKeyRemap.KarabinerStage(

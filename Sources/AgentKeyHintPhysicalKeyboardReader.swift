@@ -48,7 +48,14 @@ struct AgentKeyHintPhysicalKeyboardReader: Sendable {
     ///   was read, so a save during the read is noticed on the next check.
     func read() -> (setup: PhysicalKeyboardSetup, karabinerStamp: FileStamp) {
         let stamp = karabinerStamp()
-        let profile = (try? Data(contentsOf: karabinerURL)).flatMap(KarabinerProfile.init(configurationData:))
+        // No file: Karabiner runs with no modifications. A file that can't be
+        // read or parsed leaves Karabiner's remaps unknown (nil).
+        let profile: KarabinerProfile?
+        if stamp.modificationDate == nil {
+            profile = .empty
+        } else {
+            profile = (try? Data(contentsOf: karabinerURL)).flatMap(KarabinerProfile.init(configurationData:))
+        }
         let setup = PhysicalKeyboardSetup(
             connectedKeyboards: Self.connectedKeyboards(),
             karabiner: profile,
@@ -77,8 +84,12 @@ struct AgentKeyHintPhysicalKeyboardReader: Sendable {
             func property(_ key: String) -> Any? {
                 IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
             }
-            // The Touch Bar and similar virtual devices aren't keyboards anyone types on.
+            // The Touch Bar and similar virtual devices aren't keyboards anyone
+            // types on; a mouse's or combined device's extra keyboard
+            // interface isn't a keyboard either, only a primary keyboard is.
             if property(kIOHIDTransportKey) as? String == "Virtual" { continue }
+            guard (property(kIOHIDPrimaryUsagePageKey) as? NSNumber)?.intValue == Int(kHIDPage_GenericDesktop),
+                  (property(kIOHIDPrimaryUsageKey) as? NSNumber)?.intValue == Int(kHIDUsage_GD_Keyboard) else { continue }
             keyboards.append(KeyboardDevice(
                 name: property(kIOHIDProductKey) as? String ?? "",
                 vendorID: (property(kIOHIDVendorIDKey) as? NSNumber)?.intValue ?? 0,

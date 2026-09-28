@@ -52,10 +52,19 @@ public struct PhysicalKeyRemap: Sendable {
 
     var karabiner: KarabinerStage?
     var system: HIDKeyMapping
+    /// Whether cmux can't tell what this keyboard's keys do at all.
+    var isUnknown = false
 
     init(karabiner: KarabinerStage?, system: HIDKeyMapping) {
         self.karabiner = karabiner
         self.system = system
+    }
+
+    /// A keyboard whose remaps can't be read; every chord resolves as printed.
+    static var unknown: PhysicalKeyRemap {
+        var remap = PhysicalKeyRemap(karabiner: nil, system: .identity)
+        remap.isUnknown = true
+        return remap
     }
 
     /// Which physical keys produce `agentKey` on this keyboard.
@@ -64,12 +73,12 @@ public struct PhysicalKeyRemap: Sendable {
     /// chord (with left-hand modifiers) works, when a rule cmux can't read
     /// is involved, when no physical chord produces it, when two different
     /// chords are equally good, or when the chord found shows the same
-    /// glyphs as the printed one.
+    /// glyphs as the printed one and uses no right-hand modifier.
     ///
     /// - Parameter agentKey: A named key in `TerminalSurface.sendNamedKey`
     ///   form, such as `ctrl+o` or `escape`.
     public func resolve(agentKey: String) -> PhysicalKeyResolution {
-        guard let target = LogicalKeyChord(agentKey: agentKey) else { return .asPrinted }
+        guard !isUnknown, let target = LogicalKeyChord(agentKey: agentKey) else { return .asPrinted }
         switch press(target.asPrinted) {
         case .chord(target, _), .unknown: return .asPrinted
         default: break
@@ -91,8 +100,10 @@ public struct PhysicalKeyRemap: Sendable {
         let best = byGlyphs.values.filter { $0.rank == bestRank }
         // Two different chords that are equally good: don't pick one.
         guard best.count == 1, let only = best.first else { return .asPrinted }
-        // Right Control where left Control is remapped still reads as ⌃O.
-        guard only.press.chord.glyphs != target.asPrinted.glyphs else { return .asPrinted }
+        // Right Control where left Control is remapped reads as ⌃O too; it's
+        // still worth showing, since the tooltip says which side.
+        guard only.press.chord.glyphs != target.asPrinted.glyphs
+            || only.press.chord.modifiers.contains(where: \.isRightModifier) else { return .asPrinted }
         return .press(only.press)
     }
 
@@ -203,7 +214,9 @@ public struct PhysicalKeyRemap: Sendable {
         return candidates
     }
 
-    /// Keys in `chord` that send another key on their own.
+    /// Keys in `chord` that send another key on their own. A right-hand
+    /// modifier that sends its own modifier gets no note; the tooltip names
+    /// its side from the chord.
     private func notes(for chord: PhysicalKeyChord) -> [PhysicalKeyNote] {
         chord.allKeys.compactMap { key in
             guard let output = alone(key), output != key else { return nil }

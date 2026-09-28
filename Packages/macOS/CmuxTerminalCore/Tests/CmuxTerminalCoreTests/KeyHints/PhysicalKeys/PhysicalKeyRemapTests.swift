@@ -250,8 +250,87 @@ struct PhysicalKeyRemapTests {
             """
         )
         let remap = try setup(karabiner: json).remap(for: builtIn)
-        // Right Control still works and reads as ⌃O; Caps Lock is not offered.
-        #expect(remap.resolve(agentKey: "ctrl+o") == .asPrinted)
+        // Caps Lock is not offered; right Control is the sure way.
+        #expect(remap.resolve(agentKey: "ctrl+o") == .press(PhysicalKeyPress(
+            chord: PhysicalKeyChord(modifiers: [.rightControl], key: try key("o")),
+            notes: [],
+            viaKarabinerRule: false
+        )))
+    }
+
+    @Test func leftSideOnlyRuleOffersTheRightModifier() throws {
+        let json = profile(rules: """
+        [{"description": "left ctrl+o is cmd+o", "manipulators": [
+          {"type": "basic", "from": {"key_code": "o", "modifiers": {"mandatory": ["left_control"], "optional": ["any"]}},
+           "to": [{"key_code": "o", "modifiers": ["left_command"]}]}]}]
+        """)
+        guard case let .press(press) = try setup(karabiner: json).remap(for: builtIn).resolve(agentKey: "ctrl+o") else {
+            Issue.record("expected a physical chord")
+            return
+        }
+        #expect(press.chord.rightHandModifiers == [.rightControl])
+    }
+
+    @Test func bareKeyboardDeviceEntryIsTheBuiltInKeyboardOnly() throws {
+        // Karabiner leaves out zero ids: this entry is the built-in keyboard.
+        let json = profile(devices: """
+        [{"identifiers": {"is_keyboard": true},
+          "simple_modifications": [
+            {"from": {"key_code": "left_command"}, "to": [{"key_code": "left_control"}]},
+            {"from": {"key_code": "left_control"}, "to": [{"key_code": "left_command"}]}]}]
+        """)
+        let setup = try setup(keyboards: [builtIn, external, karabinerVirtual], karabiner: json)
+        #expect(setup.remap(for: external).resolve(agentKey: "ctrl+o") == .asPrinted)
+        guard case let .press(press) = setup.remap(for: builtIn).resolve(agentKey: "ctrl+o") else {
+            Issue.record("expected a physical chord")
+            return
+        }
+        #expect(press.chord.glyphs == "⌘O")
+    }
+
+    @Test func uncheckableDeviceEntryMakesThatKeyboardUnknown() throws {
+        let json = profile(
+            simple: #"[{"from": {"key_code": "left_command"}, "to": [{"key_code": "left_control"}]}, {"from": {"key_code": "left_control"}, "to": [{"key_code": "left_command"}]}]"#,
+            devices: #"[{"identifiers": {"is_keyboard": true, "product_id": 268, "vendor_id": 9610, "device_address": "aa-bb"}, "ignore": true}]"#
+        )
+        let setup = try setup(keyboards: [external, karabinerVirtual], karabiner: json)
+        #expect(setup.remap(for: external).resolve(agentKey: "ctrl+o") == .asPrinted)
+    }
+
+    @Test func unreadableKarabinerConfigurationWhileItRunsIsUnknown() {
+        let swap = SystemModifierKeyMappings(mappings: [
+            .init(vendorID: 0, productID: 0): HIDKeyMapping(destinations: [.capsLock: .leftControl, .leftControl: .capsLock]),
+        ])
+        let setup = PhysicalKeyboardSetup(
+            connectedKeyboards: [builtIn, karabinerVirtual],
+            karabiner: nil,
+            userKeyMapping: .identity,
+            modifierKeys: swap,
+            application: cmux
+        )
+        #expect(setup.remap(for: builtIn).resolve(agentKey: "ctrl+o") == .asPrinted)
+        // Without karabiner.json, Karabiner remaps nothing and macOS applies
+        // the virtual keyboard's modifier keys, not the built-in one's.
+        let empty = PhysicalKeyboardSetup(
+            connectedKeyboards: [builtIn, karabinerVirtual],
+            karabiner: .empty,
+            userKeyMapping: .identity,
+            modifierKeys: swap,
+            application: cmux
+        )
+        #expect(empty.remap(for: builtIn).resolve(agentKey: "ctrl+o") == .asPrinted)
+    }
+
+    @Test func karabinerKeyNameAliasesAreRead() throws {
+        let json = profile(simple: """
+        [{"from": {"key_code": "left_gui"}, "to": [{"key_code": "left_control"}]},
+         {"from": {"key_code": "left_control"}, "to": [{"key_code": "left_gui"}]}]
+        """)
+        guard case let .press(press) = try setup(karabiner: json).remap(for: builtIn).resolve(agentKey: "ctrl+o") else {
+            Issue.record("expected a physical chord")
+            return
+        }
+        #expect(press.chord.glyphs == "⌘O")
     }
 
     @Test func variableConditionOnTheChordLeavesThePrintedChord() throws {

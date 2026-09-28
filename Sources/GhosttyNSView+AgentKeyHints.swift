@@ -268,6 +268,17 @@ extension GhosttyNSView {
                 defaultValue: "\(physical) is your \(sends) key"
             )
         }
+        var rightHand: [PhysicalKey] = []
+        for key in advice.chords.flatMap(\.rightHandModifiers) where !rightHand.contains(key) {
+            rightHand.append(key)
+        }
+        for key in rightHand {
+            let name = agentKeyHintKeyName(key)
+            reasons.append(String(
+                localized: "terminal.agentKeyHint.physicalKeys.rightHandKey",
+                defaultValue: "use the right \(name) key"
+            ))
+        }
         if advice.viaKarabinerRule {
             reasons.append(String(
                 localized: "terminal.agentKeyHint.physicalKeys.karabinerRule",

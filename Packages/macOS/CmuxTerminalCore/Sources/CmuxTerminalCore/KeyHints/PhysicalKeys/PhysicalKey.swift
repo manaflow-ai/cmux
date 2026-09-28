@@ -30,6 +30,8 @@ public struct PhysicalKey: Hashable, Sendable {
         let usage = UInt32(truncatingIfNeeded: hidUsage)
         if (page == 0xFF || page == 0xFF01), usage == 3 {
             self = .fn
+        } else if page == 0, usage == 0 {
+            self = .noAction
         } else {
             self.init(usagePage: page, usage: usage)
         }
@@ -40,7 +42,7 @@ public struct PhysicalKey: Hashable, Sendable {
     ///
     /// - Parameter keyCode: A Karabiner `key_code`, such as `left_control`.
     public init?(karabinerKeyCode keyCode: String) {
-        guard let entry = Self.entriesByName[keyCode] else { return nil }
+        guard let entry = Self.entriesByName[Self.aliases[keyCode] ?? keyCode] else { return nil }
         self = entry.key
     }
 
@@ -184,6 +186,12 @@ public struct PhysicalKey: Hashable, Sendable {
         entries.append(Entry(name: "fn", key: .fn, glyph: "fn"))
         return entries
     }()
+
+    /// Other names Karabiner-Elements accepts for the same keys.
+    private static let aliases: [String: String] = [
+        "left_gui": "left_command", "right_gui": "right_command",
+        "left_alt": "left_option", "right_alt": "right_option",
+    ]
 
     private static let entriesByName: [String: Entry] = Dictionary(
         entries.map { ($0.name, $0) },

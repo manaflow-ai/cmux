@@ -30,6 +30,11 @@ struct PhysicalKeyParserTests {
         #expect(mapping.output(for: .leftCommand) == .leftControl)
     }
 
+    @Test func zeroUsageMeansNoAction() {
+        #expect(PhysicalKey(hidUsage: 0) == .noAction)
+        #expect(PhysicalKey(hidUsage: 0x7_0000_0000) == .noAction)
+    }
+
     @Test func unsetHidutilMappingIsIdentity() {
         #expect(HIDKeyMapping(hidutilOutput: "(null)\n") == .identity)
         #expect(HIDKeyMapping(hidutilOutput: "") == .identity)
@@ -106,9 +111,9 @@ struct PhysicalKeyParserTests {
         #expect(profile.simpleModifications[.rightCommand] == .unknown)
         #expect(profile.simpleModifications[try #require(PhysicalKey(karabinerKeyCode: "f1"))] == .key(.noAction))
         let yunzii = KeyboardDevice(name: "Y", vendorID: 9610, productID: 268, isBuiltIn: false)
-        #expect(profile.deviceSettings(for: yunzii)?.simpleModifications[.leftOption] == .key(.leftControl))
+        #expect(profile.deviceSettings(for: yunzii).settings?.simpleModifications[.leftOption] == .key(.leftControl))
         let ignored = KeyboardDevice(name: "I", vendorID: 2, productID: 1, isBuiltIn: false)
-        #expect(profile.deviceSettings(for: ignored)?.ignore == true)
+        #expect(profile.deviceSettings(for: ignored).settings?.ignore == true)
     }
 
     @Test func noSelectedProfileOrInvalidJSONReadsAsNoProfile() {

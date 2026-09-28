@@ -34,8 +34,23 @@ struct KarabinerDeviceIdentifiers: Sendable, Equatable {
         }
     }
 
-    /// Whether these identifiers pick `device`, a keyboard, or `nil` when
-    /// that can't be told.
+    /// Whether a `devices` entry with these identifiers is `device`, or
+    /// `nil` when that can't be told.
+    ///
+    /// Karabiner matches a `devices` entry on every identifier, and writes
+    /// only the ones that aren't 0 or false: `{"is_keyboard": true}` is the
+    /// built-in keyboard (vendor and product 0), not every keyboard.
+    func isEntry(for device: KeyboardDevice) -> Bool? {
+        guard isKeyboard == true, (vendorID ?? 0) == device.vendorID, (productID ?? 0) == device.productID else {
+            return false
+        }
+        if isBuiltInKeyboard == false, device.isBuiltIn { return false }
+        return hasUncheckableField ? nil : true
+    }
+
+    /// Whether these identifiers, in a `device_if` condition, pick
+    /// `device`, a keyboard, or `nil` when that can't be told. Fields left
+    /// out match anything.
     func matches(_ device: KeyboardDevice) -> Bool? {
         if isKeyboard == false { return false }
         if isBuiltInKeyboard == true, !device.isBuiltIn { return false }

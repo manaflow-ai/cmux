@@ -23,6 +23,11 @@ public struct PhysicalKeyChord: Hashable, Sendable {
         return text + key.glyph
     }
 
+    /// Right-hand modifier keys in the chord, which its glyphs can't show.
+    public var rightHandModifiers: [PhysicalKey] {
+        modifiers.filter(\.isRightModifier)
+    }
+
     /// Every key in the chord, modifiers first.
     var allKeys: [PhysicalKey] { modifiers + [key] }
 
