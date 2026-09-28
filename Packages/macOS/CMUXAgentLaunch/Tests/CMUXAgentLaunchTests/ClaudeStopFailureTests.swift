@@ -57,6 +57,13 @@ struct ClaudeStopFailureTests {
         #expect(result?.reason == .rateLimited)
         #expect(result?.resetsAt == nil)
         #expect(failure(errorType: "rate_limit", message: "API Error: Rate limit reached")?.reason == .rateLimited)
+        // Claude Code 2.1.283's rendering of an API 429.
+        #expect(
+            failure(
+                errorType: "rate_limit",
+                message: "API Error: Request rejected (429) · Number of request tokens has exceeded your per-minute rate limit"
+            )?.reason == .rateLimited
+        )
     }
 
     @Test("Dropped connections classify from the message")
@@ -83,6 +90,13 @@ struct ClaudeStopFailureTests {
         #expect(failure(errorType: "billing_error", message: nil)?.reason == .billing)
         #expect(failure(errorType: "max_output_tokens", message: nil)?.reason == .outputLimit)
         #expect(failure(errorType: "unknown", message: "API Error: 529 overloaded")?.reason == .overloaded)
+        // Claude Code 2.1.283 reports a 529 as server_error.
+        #expect(
+            failure(
+                errorType: "server_error",
+                message: "API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment."
+            )?.reason == .overloaded
+        )
     }
 
     @Test("The message is the rendered error text on one line")
