@@ -829,7 +829,10 @@ extension CMUXCLI {
         } else {
             explicitFocus = nil
         }
-        let fileFocus = explicitFocus ?? true
+        // Run by a person, the opened file or page takes focus; run by an agent or a
+        // script, it opens beside them (`defaultFocusForUserOpen`).
+        let interactiveFocus = Self.defaultFocusForUserOpen()
+        let fileFocus = explicitFocus ?? interactiveFocus
 
         let targets = try parsedArgs.targets.map(resolveOpenTarget)
         var fileCount = 0
@@ -882,7 +885,7 @@ extension CMUXCLI {
                 directoryCount += 1
             case .url(let url, let defaultFocus):
                 try flushPendingFiles()
-                var params: [String: Any] = ["url": url, "focus": explicitFocus ?? defaultFocus]
+                var params: [String: Any] = ["url": url, "focus": explicitFocus ?? (defaultFocus && interactiveFocus)]
                 if let windowHandle { params["window_id"] = windowHandle }
                 if let workspaceHandle { params["workspace_id"] = workspaceHandle }
                 if let surfaceHandle { params["surface_id"] = surfaceHandle }
@@ -7926,8 +7929,9 @@ extension CMUXCLI {
           --surface <id|ref|index>     Target surface whose pane should receive file tabs (default: $CMUX_SURFACE_ID)
           --pane <id|ref|index>        Target pane for file tabs
           --window <id|ref|index>      Target window
-          --focus <true|false>         Focus opened file previews (default: true)
-          --no-focus                   Do not focus opened file previews
+          --focus <true|false>         Focus opened file previews and web pages
+          --no-focus                   Open them in the background
+                                       \(Self.openFocusDefaultHelp)
 
         Examples:
           cmux open report.pdf

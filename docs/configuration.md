@@ -117,8 +117,9 @@ Default: `right`.
 
 Routine Agent Hibernation is opt-in. cmux hibernates idle background agent
 processes to free RAM and CPU, then resumes each one with its saved session
-when you visit its tab. Independently, aggregate memory pressure can offer the
-same lossless hibernation lifecycle even when routine hibernation is disabled.
+when you visit its tab. Independently, memory pressure (critical system pressure,
+or aggregate pressure below) can use the same lossless hibernation lifecycle even
+when routine hibernation is disabled.
 See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full eligibility
 rules, confirmation settle window, and resume behavior.
 
