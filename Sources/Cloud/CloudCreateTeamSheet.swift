@@ -88,6 +88,10 @@ struct CloudCreateTeamSheet: View {
                 _ = try await accountFlow.createTeam(displayName: displayName)
                 isSubmitting = false
                 onFinish()
+            } catch is TeamChangeInProgressError {
+                // Another surface started a team change after the click. The
+                // status row names it, and Create returns once it finishes.
+                isSubmitting = false
             } catch {
                 isSubmitting = false
                 errorMessage = String(
