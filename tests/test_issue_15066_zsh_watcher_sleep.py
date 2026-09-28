@@ -159,8 +159,22 @@ print -r -- "WATCHERS:${_CMUX_PR_POLL_PID}:${_CMUX_GIT_HEAD_WATCH_PID}"
 # zselect is the wait in this parent too, so the fixture never needs a real
 # sleep executable while the two watcher children make their first pass.
 zselect -t 150 || true
+pr_pid="$_CMUX_PR_POLL_PID"
+git_pid="$_CMUX_GIT_HEAD_WATCH_PID"
 _cmux_stop_git_head_watch
 _cmux_halt_pr_poll_loop
+pr_alive=1
+git_alive=1
+for (( attempt = 0; attempt < 40; attempt++ )); do
+    kill -0 -- -"$pr_pid" 2>/dev/null || pr_alive=0
+    kill -0 "$git_pid" 2>/dev/null || git_alive=0
+    (( !pr_alive && !git_alive )) && break
+    zselect -t 5 || true
+done
+(( !pr_alive && !git_alive )) || {
+    print -r -- "TEARDOWN_LEAK:"$pr_pid":"$git_pid":"$pr_alive":"$git_alive
+    exit 6
+}
 print -r -- "TEARDOWN:${_CMUX_PR_POLL_PID}:${_CMUX_GIT_HEAD_WATCH_PID}"
 '''
         result = run_zsh(command, env=env, cwd=repo, timeout=8.0)
