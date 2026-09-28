@@ -9,6 +9,7 @@ struct CloudTreeMachineRowContent: View {
     let machine: MachineSnapshot
     var style: CloudTreeStyle = CloudTreeStyleStore.current
     var now: Date = .now
+    var resources: CloudTreeMachineResourceSection? = nil
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var fontMagnification
 
     var body: some View {
@@ -56,14 +57,14 @@ struct CloudTreeMachineRowContent: View {
 
     /// Combines this machine's identity, activity, and resource readings for assistive technology.
     var accessibilityLabel: String {
-        var parts = [machine.displayName, machine.activityLabel, CloudMachineResourcePresentation(machine: machine, now: now).summary]
+        var parts = [machine.displayName, machine.activityLabel, metrics.summary]
         parts.append(usageSummary)
         return parts.joined(separator: ", ")
     }
 
     /// Expands the row with its sample time, machine details, and optional billing usage.
     var toolTip: String {
-        var lines = [machine.displayName, machine.activityLabel, CloudMachineResourcePresentation(machine: machine, now: now).summary]
+        var lines = [machine.displayName, machine.activityLabel, metrics.summary]
         if let sampledAt = machine.stats?.resourceSampledAt {
             lines.append(String(
                 format: String(localized: "cloudTree.resources.sampled", defaultValue: "Sampled %@"),
@@ -78,7 +79,11 @@ struct CloudTreeMachineRowContent: View {
 
     /// A missing backend report remains visible instead of looking like a removed feature.
     var usageSummary: String {
-        usageLine ?? String(localized: "machines.usage.unavailable", defaultValue: "Token usage unavailable")
+        resources?.usageSummary ?? usageLine ?? String(localized: "machines.usage.unavailable", defaultValue: "Token usage unavailable")
+    }
+
+    private var metrics: CloudMachineResourcePresentation {
+        resources?.metrics ?? CloudMachineResourcePresentation(machine: machine, now: now)
     }
 
     /// "$1.23 · 41K tokens · 30d", including a measured zero. Nil means no report.
@@ -140,8 +145,8 @@ struct CloudTreeMachineRowContent: View {
             return String(localized: "machines.row.locked", defaultValue: "Locked")
         }
         var parts: [String] = []
-        let metrics = CloudMachineResourcePresentation(machine: machine, now: now)
         if style.showsMachineStats {
+            let metrics = self.metrics
             parts.append([metrics.cpu, metrics.memory, metrics.disk]
                 .map { "\($0.label)\u{00A0}\($0.value)" }
                 .joined(separator: " · "))
