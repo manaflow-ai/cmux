@@ -32,11 +32,11 @@ public final class MobileDisplaySettings {
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let unreadBadgeDiameterKey = "cmux.mobile.debug.unreadBadgeDiameter.v1"
+    private static let feedReplacesNotificationsKey = "cmux.mobile.debug.feedReplacesNotifications.v1"
     #if DEBUG
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
     private static let taskComposerFullLiquidGlassKey = "cmux.mobile.debug.taskComposerFullLiquidGlass.v1"
     private static let feedBubbleQuotesKey = "cmux.mobile.debug.feedBubbleQuotes.v1"
-    private static let feedReplacesNotificationsKey = "cmux.mobile.debug.feedReplacesNotifications.v1"
     #endif
 
     /// The preview line counts the "Preview Lines" setting offers.

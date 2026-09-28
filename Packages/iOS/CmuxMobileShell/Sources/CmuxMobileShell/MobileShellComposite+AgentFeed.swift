@@ -158,6 +158,7 @@ extension MobileShellComposite {
         agentFeedLocalRepliesByItemID = [:]
         agentFeedTriageOverridesByItemID = [:]
         agentFeedReadRowKeys = []
+        agentFeedReadRowKeyOrder = []
         agentFeedUnreadBaseline = Date()
         agentFeedPersistUnreadState()
         agentFeedItems = []
@@ -185,7 +186,11 @@ extension MobileShellComposite {
     /// Records a visible, explicit interaction with a row (answer, reply,
     /// open, or full-text read), clearing its unread needs-input state.
     public func markAgentFeedItemInteracted(_ item: MobileAgentFeedItem) {
-        guard agentFeedInsertReadRowKey(for: item.id) else { return }
+        var changed = agentFeedInsertReadRowKey(for: item.id)
+        if item.kind == .stop {
+            changed = agentFeedInsertReadKey(Self.agentFeedTurnKey(item)) || changed
+        }
+        guard changed else { return }
         recomputeAgentFeedItems()
     }
 
@@ -193,17 +198,30 @@ extension MobileShellComposite {
         "\(id.macDeviceID)|\(id.macInstanceTag ?? "")|\(id.itemID)"
     }
 
+    /// Stops can reach the phone through two lanes that collapse onto one
+    /// row whose identity may switch to the fuller lane, so read state for
+    /// them is also keyed by the turn.
+    static func agentFeedTurnKey(_ item: MobileAgentFeedItem) -> String {
+        "turn|\(item.macDeviceID)|\(item.macInstanceTag ?? "")|\(item.workstreamID)|\(item.source)|\(Int(item.createdAt.timeIntervalSinceReferenceDate / 180))"
+    }
+
     private static let agentFeedReadRowKeysDefaultsKey = "cmux.mobile.agentFeed.readRowKeys.v1"
     private static let agentFeedUnreadBaselineDefaultsKey = "cmux.mobile.agentFeed.unreadBaseline.v1"
 
     @discardableResult
     func agentFeedInsertReadRowKey(for id: MobileAgentFeedItemID) -> Bool {
+        agentFeedInsertReadKey(Self.agentFeedRowKey(id))
+    }
+
+    @discardableResult
+    func agentFeedInsertReadKey(_ key: String) -> Bool {
         _ = agentFeedUnreadBaselineLoadingIfNeeded()
-        guard agentFeedReadRowKeys.insert(Self.agentFeedRowKey(id)).inserted else { return false }
-        if agentFeedReadRowKeys.count > 1_500 {
-            // The unread rule only needs recent rows; a coarse trim bounds
-            // the persisted set without tracking order.
-            agentFeedReadRowKeys = Set(agentFeedReadRowKeys.prefix(1_000))
+        guard agentFeedReadRowKeys.insert(key).inserted else { return false }
+        agentFeedReadRowKeyOrder.append(key)
+        while agentFeedReadRowKeyOrder.count > 1_500 {
+            // The unread rule only needs recent rows; evict the oldest so a
+            // trim can never resurrect a row still on screen.
+            agentFeedReadRowKeys.remove(agentFeedReadRowKeyOrder.removeFirst())
         }
         agentFeedPersistUnreadState()
         return true
@@ -215,9 +233,10 @@ extension MobileShellComposite {
         if let stored = defaults.object(forKey: Self.agentFeedUnreadBaselineDefaultsKey) as? Double {
             let baseline = Date(timeIntervalSinceReferenceDate: stored)
             agentFeedUnreadBaseline = baseline
-            agentFeedReadRowKeys = Set(
-                defaults.stringArray(forKey: Self.agentFeedReadRowKeysDefaultsKey) ?? []
-            )
+            agentFeedReadRowKeyOrder = defaults.stringArray(
+                forKey: Self.agentFeedReadRowKeysDefaultsKey
+            ) ?? []
+            agentFeedReadRowKeys = Set(agentFeedReadRowKeyOrder)
             return baseline
         }
         let baseline = Date()
@@ -232,7 +251,7 @@ extension MobileShellComposite {
             defaults.set(baseline.timeIntervalSinceReferenceDate,
                          forKey: Self.agentFeedUnreadBaselineDefaultsKey)
         }
-        defaults.set(Array(agentFeedReadRowKeys), forKey: Self.agentFeedReadRowKeysDefaultsKey)
+        defaults.set(agentFeedReadRowKeyOrder, forKey: Self.agentFeedReadRowKeysDefaultsKey)
     }
 
     /// Removes one hidden Mac's rows and cancels work that could restore them.
@@ -306,6 +325,10 @@ extension MobileShellComposite {
             agentFeedLog.error(
                 "list failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
             )
+            // A re-emitted equal revision must not be ignored after a
+            // transient failure; leave the mac marked pending so the next
+            // trigger refetches.
+            agentFeedRefreshPendingMacIDs.insert(macDeviceID)
         }
     }
 
@@ -392,7 +415,9 @@ extension MobileShellComposite {
                           projected.triagedNeedsInput != true,
                           !projected.needsInput,
                           projected.createdAt > agentFeedUnreadBaselineLoadingIfNeeded(),
-                          !agentFeedReadRowKeys.contains(Self.agentFeedRowKey(projected.id)) {
+                          !agentFeedReadRowKeys.contains(Self.agentFeedRowKey(projected.id)),
+                          projected.kind != .stop
+                              || !agentFeedReadRowKeys.contains(Self.agentFeedTurnKey(projected)) {
                     // A new event needs the user until a visible, explicit
                     // interaction (answer, reply, open, read, or swipe) marks
                     // it read; scrolling past never does.
@@ -473,10 +498,18 @@ extension MobileShellComposite {
             if collapsed.hasSuffix("…") { return String(collapsed.dropLast()) }
             return collapsed
         }
-        let a = normalized(lhs)
-        let b = normalized(rhs)
-        guard !a.isEmpty, !b.isEmpty else { return false }
-        return a.hasPrefix(b) || b.hasPrefix(a)
+        func collapsed(_ value: String) -> String {
+            value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        let a = collapsed(lhs)
+        let b = collapsed(rhs)
+        guard !a.isEmpty, !b.isEmpty, a != b else { return !a.isEmpty && a == b }
+        // Only a truncated preview (marked by its ellipsis) may match the
+        // fuller text; two distinct complete reasons never merge.
+        let (shorter, longer) = a.count <= b.count ? (a, b) : (b, a)
+        guard shorter.hasSuffix("…") else { return false }
+        _ = normalized(shorter)
+        return longer.hasPrefix(String(shorter.dropLast()))
     }
 
     // MARK: - Replies

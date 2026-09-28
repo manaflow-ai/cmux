@@ -132,12 +132,14 @@ final class AgentFeedInlineTextView: UIView {
                 attempts += 1
             }
             let displayed = preview(utf16Length: cut)
+            textView.textContainer.maximumNumberOfLines = lineLimit
             let range = NSRange(location: displayed.length - moreTitle.utf16.count, length: moreTitle.utf16.count)
             displayed.addAttribute(.foregroundColor, value: tintColor ?? UIColor.systemBlue, range: range)
             textView.attributedText = displayed
             textView.accessibilityLabel = String(displayed.string.dropLast(moreTitle.count))
             linkRange = range
         } else {
+            textView.textContainer.maximumNumberOfLines = 0
             textView.attributedText = complete
             textView.accessibilityLabel = complete.string
             linkRange = nil

@@ -463,6 +463,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// read, or swipe-triaged). Every newer row shows as needs-input until
     /// it appears here. Persisted phone-locally.
     var agentFeedReadRowKeys: Set<String> = []
+    var agentFeedReadRowKeyOrder: [String] = []
     var agentFeedUnreadBaseline: Date?
     var agentFeedRefreshTasksByMac: [String: Task<Void, Never>] = [:]
     var agentFeedRefreshPendingMacIDs: Set<String> = []

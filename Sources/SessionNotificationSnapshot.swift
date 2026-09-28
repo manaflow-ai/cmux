@@ -86,7 +86,10 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             body: body,
             createdAt: Date(timeIntervalSince1970: createdAt),
             isRead: isRead,
-            isAgentEvent: isAgentEvent ?? false,
+            // Unknown provenance restores as agent-produced so a legacy
+            // banner cannot re-enter the mobile Feed; it stays in the
+            // Notifications screen either way.
+            isAgentEvent: isAgentEvent ?? true,
             paneFlash: paneFlash ?? true,
             scrollPosition: restoredScrollPosition,
             clickAction: clickAction,
