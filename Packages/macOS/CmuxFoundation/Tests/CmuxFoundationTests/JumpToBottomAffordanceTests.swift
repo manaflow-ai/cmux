@@ -79,6 +79,19 @@ import Testing
         #expect(affordance.isVisible)
     }
 
+    @Test func reenablingDoesNotResurfaceOverContentThatOwnsScrolling() {
+        var affordance = JumpToBottomAffordance()
+        affordance.update(snapshot(below: 6), isEnabled: true) { true }
+        affordance.update(snapshot(below: 6), isEnabled: false) { true }
+        var ownerChecks = 0
+        affordance.update(snapshot(below: 6), isEnabled: true) {
+            ownerChecks += 1
+            return false
+        }
+        #expect(!affordance.isVisible)
+        #expect(ownerChecks == 0)
+    }
+
     @Test func contentGrowthBelowTheViewportMarksNewContent() {
         var affordance = JumpToBottomAffordance()
         affordance.update(snapshot(below: 10, length: 200), isEnabled: true) { false }

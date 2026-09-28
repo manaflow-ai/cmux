@@ -24,6 +24,15 @@ final class TerminalJumpToBottomIndicatorView: NSView {
     private var observers: [NSObjectProtocol] = []
     private var lastSnapshot: JumpToBottomAffordance.Snapshot?
     private var contentOwnsScrolling: () -> Bool = { false }
+    /// What the pill last drew, so settings writes unrelated to it do not
+    /// rebuild the SwiftUI tree.
+    private var renderedKey: RenderKey?
+
+    private struct RenderKey: Equatable {
+        var hasNewContentBelow: Bool
+        var accentFingerprint: String
+        var isDark: Bool
+    }
 
     /// Scrolls the terminal to the bottom and returns focus to it.
     var onJump: (() -> Void)?
@@ -45,6 +54,8 @@ final class TerminalJumpToBottomIndicatorView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, let hostingView, !hostingView.isHidden else { return nil }
+        // Wheel and trackpad scrolling over the pill still scroll the terminal.
+        if NSApp.currentEvent?.type == .scrollWheel { return nil }
         let local = convert(point, from: superview)
         guard hostingView.frame.contains(local) else { return nil }
         return super.hitTest(point)
@@ -86,6 +97,7 @@ final class TerminalJumpToBottomIndicatorView: NSView {
     /// terminal surface.
     func reset() {
         lastSnapshot = nil
+        renderedKey = nil
         affordance.reset()
         stopObserving()
         render()
@@ -104,17 +116,27 @@ final class TerminalJumpToBottomIndicatorView: NSView {
         guard affordance.isVisible else {
             isHidden = true
             hostingView?.isHidden = true
+            renderedKey = nil
             return
         }
+        let isDark = SidebarAppearanceColorResolver().currentColorScheme() == .dark
+        let key = RenderKey(
+            hasNewContentBelow: affordance.hasNewContentBelow,
+            accentFingerprint: Self.accent().fingerprint,
+            isDark: isDark
+        )
         let hostingView = installHostingViewIfNeeded()
-        hostingView.appearance = Self.terminalAppearance()
-        hostingView.rootView = pill()
+        if key != renderedKey {
+            renderedKey = key
+            hostingView.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+            hostingView.rootView = pill()
+        }
         hostingView.isHidden = false
         isHidden = false
     }
 
     private func pill() -> JumpToBottomPill {
-        let accent = (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).color
+        let accent = Self.accent().color
         return JumpToBottomPill(
             hasNewContentBelow: affordance.hasNewContentBelow,
             accent: accent
@@ -132,7 +154,11 @@ final class TerminalJumpToBottomIndicatorView: NSView {
             hostingView.centerXAnchor.constraint(equalTo: centerXAnchor),
             hostingView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.bottomInset),
             hostingView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
+            hostingView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
         ])
+        // In a pane narrower than the pill, clip its label instead of
+        // breaking constraints.
+        hostingView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         self.hostingView = hostingView
         return hostingView
     }
@@ -145,6 +171,7 @@ final class TerminalJumpToBottomIndicatorView: NSView {
         observers = [
             center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main, using: refresh),
             center.addObserver(forName: CmuxAccentColor.didChangeNotification, object: nil, queue: .main, using: refresh),
+            center.addObserver(forName: .ghosttyConfigDidReload, object: nil, queue: .main, using: refresh),
         ]
     }
 
@@ -159,7 +186,7 @@ final class TerminalJumpToBottomIndicatorView: NSView {
             isEnabled = enabled
             apply()
         } else if affordance.isVisible {
-            // Accent or terminal theme may have changed.
+            // Redraws only when the accent or terminal scheme changed.
             render()
         }
     }
@@ -168,11 +195,8 @@ final class TerminalJumpToBottomIndicatorView: NSView {
         TerminalCatalogSection().showJumpToBottomButton.value(in: .standard)
     }
 
-    /// The pill follows the terminal theme's light or dark scheme, which can
-    /// differ from the window's appearance.
-    private static func terminalAppearance() -> NSAppearance? {
-        let scheme = SidebarAppearanceColorResolver().currentColorScheme()
-        return NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+    private static func accent() -> CmuxAccentColor {
+        AppDelegate.shared?.accentColor ?? CmuxAccentColor()
     }
 }
 
