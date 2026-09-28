@@ -39,7 +39,10 @@ struct CloudMachineNotificationDeliveryTests {
         }
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(select: true)
+        // This suite only exercises delivery ownership, not selection. Avoid
+        // the queued selection side effect, which dismisses focused-panel
+        // notifications after the fixture starts.
+        let workspace = manager.addWorkspace(select: false)
         return Harness(store: store, workspace: workspace) {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
