@@ -1569,7 +1569,8 @@ jobs:
     outputs:
       # Only jobs the rescue watch can find move: a marker that failed to
       # upload leaves every job where the picker put it.
-      runners: ${{ steps.late-marker.outcome == 'success' && steps.late-watch-marker.outcome == 'success' && steps.place.outputs.runners || '{}' }}
+      # Jobs moved only to Blacksmith (the gui overflow) need no marker.
+      runners: ${{ (steps.place.outputs.onto_owned == 'false' || steps.late-marker.outcome == 'success' && steps.late-watch-marker.outcome == 'success') && steps.place.outputs.runners || '{}' }}
     steps:
       # The picker's code from the base branch, as ci.yml's changes job uses it.
       - name: Check out the trusted picker
@@ -1629,14 +1630,14 @@ jobs:
       # this marker tells it jobs moved (owned_pool_rescue.py,
       # LATE_MARKER_PREFIX), so it watches them like any owned job.
       - name: Record the moved jobs
-        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}'
+        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}' && steps.place.outputs.onto_owned != 'false'
         continue-on-error: true
         env:
           RUNNERS: ${{ steps.place.outputs.runners }}
         run: mkdir -p "$RUNNER_TEMP/late-placement" && printf '%s\n' "$RUNNERS" > "$RUNNER_TEMP/late-placement/runners.json"
       - name: Upload the late placement marker
         id: late-marker
-        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}'
+        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}' && steps.place.outputs.onto_owned != 'false'
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -1647,7 +1648,7 @@ jobs:
       # The rescue sweeper finds late-placed runs by this fixed name.
       - name: Upload the late owned-pool watch marker
         id: late-watch-marker
-        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}' && github.run_attempt == 1
+        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}' && steps.place.outputs.onto_owned != 'false' && github.run_attempt == 1
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

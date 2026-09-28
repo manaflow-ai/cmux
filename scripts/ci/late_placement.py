@@ -67,9 +67,12 @@ pool = _picker()
 # Rounds of gui jobs an owned gui-token job may queue behind (at most the picker's CI_PR_POOL_QUEUE_ROUNDS).
 # One: a gui job waits for about one shard on a busy mini, never longer, since Blacksmith runs it as fast.
 GUI_QUEUE_ROUNDS = 1
-# In-flight CI runs gui_backlog() reads jobs from, newest first, and how far back it looks.
+# In-flight CI runs gui_backlog() reads jobs from, oldest first, and the window it reads them in: a run's gui
+# jobs queue only once its admission finished (p50 about 9 minutes), so a run younger than BACKLOG_MIN_AGE has none,
+# and one older than the window has finished its shards.
 BACKLOG_LOOKUPS = 30
-BACKLOG_WINDOW_MINUTES = 180
+BACKLOG_WINDOW_MINUTES = 120
+BACKLOG_MIN_AGE_MINUTES = 4
 
 
 def late_jobs(*, macos: str | None, cli: str | None, full_suite: str | None, unit_suite: str | None,
@@ -107,21 +110,26 @@ def place(jobs: Sequence[str], *, owned_jobs: str, idle: int, root: str, gui: bo
 def gui_backlog(github: Any, label: str, *, exclude_run_id: int | None, enough: int, now: dt.datetime) -> int:
     """Jobs queued on `label` in the CI runs still in flight, stopping at `enough` (one request per run).
 
-    Newest runs first, at most BACKLOG_LOOKUPS of them from the last
-    BACKLOG_WINDOW_MINUTES: a queued gui job belongs to a run whose admission
-    finished, so an older run holds none. Raises when a read fails.
+    GitHub lists a run as `queued` while any of its jobs is, even with others
+    running, so both `queued` and `in_progress` runs are read. Oldest first,
+    at most BACKLOG_LOOKUPS runs created between BACKLOG_WINDOW_MINUTES and
+    BACKLOG_MIN_AGE_MINUTES ago. Raises when a read fails.
     """
     since = (now - dt.timedelta(minutes=BACKLOG_WINDOW_MINUTES)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    runs = github.runs_since(pool.CI_WORKFLOW, since, status="in_progress")
+    newest = now - dt.timedelta(minutes=BACKLOG_MIN_AGE_MINUTES)
+    runs: dict[Any, Mapping[str, Any]] = {}
+    for status in ("queued", "in_progress"):
+        for run in github.runs_since(pool.CI_WORKFLOW, since, status=status):
+            created = pool.parse_time(str(run.get("created_at") or ""))
+            if run.get("id") != exclude_run_id and created is not None and created <= newest:
+                runs[run.get("id")] = run
     queued = 0
-    for run in runs[:BACKLOG_LOOKUPS]:
-        if run.get("id") == exclude_run_id:
-            continue
+    for run in sorted(runs.values(), key=lambda run: str(run.get("created_at")))[:BACKLOG_LOOKUPS]:
+        if queued >= enough:
+            break
         jobs = github.get(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page={pool.PAGE_SIZE}").get("jobs") or []
         queued += sum(1 for job in jobs if isinstance(job, Mapping) and job.get("status") == "queued"
                       and label in (job.get("labels") or []))
-        if queued >= enough:
-            break
     return queued
 
 
@@ -129,11 +137,12 @@ def overflow(jobs: Sequence[str], *, owned_jobs: str, gui_idle: int, gui_online:
              rounds: int) -> tuple[str, ...]:
     """The owned gui-token jobs that would wait more than `rounds` gui job lengths; the highest priority stay.
 
-    The first gui_idle of them start now; after those, a job at queue place q (behind
-    `backlog`) waits about q / gui_online rounds, so rounds x gui_online places are allowed."""
+    The `backlog` queued before them takes the idle runners first; after those, a job at queue place q
+    waits about q / gui_online rounds, so gui_idle + rounds x gui_online places are allowed in all."""
     owned = f" {owned_jobs.strip()} "
     mine = sorted((key for key in jobs if f" {key} " in owned and pool.gui_token_job(key)), key=pool.priority)
-    keep = max(0, gui_idle) + max(0, rounds * max(0, gui_online) - max(0, backlog))
+    # GitHub hands the idle runners to the jobs queued before these first.
+    keep = max(0, max(0, gui_idle) + rounds * max(0, gui_online) - max(0, backlog))
     return tuple(mine[keep:])
 
 
@@ -169,7 +178,10 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
             and len(owned_gui) > gui_idle:
         online = pool.live_online(runners, [gui_label])[gui_label]
         try:
-            queued = backlog(gui_label, rounds * online + len(owned_gui))
+            # Past gui_idle + rounds x online queued ahead, every owned gui job moves: no need to count further.
+            # With no rounds (the kill switch) and nothing idle, all move without a read.
+            enough = gui_idle + rounds * online
+            queued = backlog(gui_label, enough) if enough > 0 else 0
         except Exception as error:  # noqa: BLE001 - an unread backlog moves nothing
             print(f"::warning title=late placement::could not count the gui backlog ({error})")
             queued = None
@@ -208,6 +220,9 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     if output:
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(f"runners={json.dumps(placed, sort_keys=True)}\n")
+            # The rescue watch's markers are for jobs moved onto owned runners; a move to Blacksmith needs none.
+            onto_owned = any(pool.persistent(label) for label in placed.values())
+            handle.write(f"onto_owned={str(onto_owned).lower()}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
