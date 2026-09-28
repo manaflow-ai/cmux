@@ -6,7 +6,7 @@ extension CMUXCLI {
     static var vmAgentUpdatesUsage: String {
         String(
             localized: "cli.vm.agentUpdates.usage",
-            defaultValue: "Usage:\n  cmux vm agent-updates <id>                 Show the machine's setting.\n  cmux vm agent-updates <id> <latest|image>  Change it.\n\nlatest updates Claude Code, Codex, OpenCode, and Pi to the newest npm\nrelease when you connect, at most once a day. image keeps the versions the\nmachine's image baked (the default). Updates need registry.npmjs.org: with\nnetwork mode none, or an allowlist without the npm preset, they fail. Add\n--json for the structured result."
+            defaultValue: "Usage:\n  cmux vm agent-updates <id>                 Show the machine's setting.\n  cmux vm agent-updates <id> <latest|image>  Change it.\n\nlatest updates Claude Code, Codex, OpenCode, and Pi to the newest npm\nrelease when you connect, at most once a day. image keeps the versions the\nmachine's image baked (the default). Updates need registry.npmjs.org: with\nnetwork mode none, or an allowlist without the npm preset, they fail. Add\n--json for the structured result.\nA new release installs only after it has been public for 3 days."
         )
     }
 

@@ -208,7 +208,7 @@ final class NewMachineModel {
     }
 
     /// "Keep coding agents up to date": the create sends `--agent-updates
-    /// latest`. Starts from the last submitted choice (off by default).
+    /// latest`. On by default; the sheet remembers a user who unchecks it.
     var keepsAgentsUpdated: Bool
     var supportsAgentUpdates: Bool { mode == .newMachine }
 
@@ -290,7 +290,7 @@ final class NewMachineModel {
         submit: @escaping Submit
     ) {
         self.defaults = defaults
-        self.keepsAgentsUpdated = defaults.bool(forKey: Self.keepsAgentsUpdatedDefaultsKey)
+        self.keepsAgentsUpdated = defaults.object(forKey: Self.keepsAgentsUpdatedDefaultsKey) as? Bool ?? true
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
         self.mode = mode
         self.plan = plan

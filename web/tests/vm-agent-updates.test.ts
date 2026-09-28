@@ -31,7 +31,11 @@ elif args[0] == "view":
     if os.path.exists(os.path.join(d, "offline")):
         sys.stderr.write("npm error code ETIMEDOUT\nnpm error network request to https://registry.npmjs.org failed\n")
         sys.exit(1)
-    print(json.load(open(os.path.join(d, "latest.json")))[args[1]])
+    latest = json.load(open(os.path.join(d, "latest.json")))[args[1]]
+    times_path = os.path.join(d, "times.json")
+    times = json.load(open(times_path)).get(args[1], {}) if os.path.exists(times_path) else {}
+    times.setdefault(latest, "2000-01-01T00:00:00.000Z")
+    print(json.dumps({"dist-tags": {"latest": latest}, "time": {"created": "2000-01-01T00:00:00.000Z", **times}}))
 elif args[0] == "install":
     for spec in args[1:]:
         if spec.startswith("-"):
@@ -97,6 +101,7 @@ function guest(setting: "latest" | "image" | null = "latest"): Guest {
       binDir,
       libexecDir,
       intervalSeconds: 24 * 60 * 60,
+      minReleaseAgeSeconds: 3 * 24 * 60 * 60,
     },
     env: { ...process.env, FAKE_NPM_DIR: npmDir },
   };
@@ -118,6 +123,12 @@ function state(g: Guest): { checkedAt: string; ok: boolean; versions: Record<str
 function setLatest(g: Guest, versions: Record<string, string>) {
   writeFileSync(path.join(g.root, "npm-state/latest.json"), JSON.stringify({ ...PINNED, ...versions }));
 }
+
+function setPublished(g: Guest, times: Record<string, Record<string, string>>) {
+  writeFileSync(path.join(g.root, "npm-state/times.json"), JSON.stringify(times));
+}
+
+const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3600_000).toISOString();
 
 describe("guest agent updates", () => {
   test("the updated packages are exactly the ones the devbox bakes", () => {
@@ -185,6 +196,29 @@ describe("guest agent updates", () => {
     expect(readlinkSync(path.join(g.options.libexecDir, "cmux-opencode-real"))).toBe(realpathSync(path.join(g.nvmBin, "opencode")));
   });
 
+  test("a release younger than the minimum age waits; the newest old-enough one installs", () => {
+    const g = guest();
+    setLatest(g, { "@openai/codex": "1.3.0", "opencode-ai": "1.1.0" });
+    setPublished(g, {
+      "@openai/codex": { "1.1.0": hoursAgo(24 * 10), "1.2.0": hoursAgo(24 * 4), "1.2.1-beta.1": hoursAgo(24 * 4), "1.3.0": hoursAgo(1) },
+      "opencode-ai": { "1.1.0": hoursAgo(2) },
+    });
+    expect(runUpdater(g).status).toBe(0);
+    expect(state(g).versions["@openai/codex"]).toBe("1.2.0");
+    expect(state(g).versions["opencode-ai"]).toBe("1.0.0");
+    expect(npmCalls(g).filter((call) => call.startsWith("install"))).toEqual(["install -g --foreground-scripts @openai/codex@1.2.0"]);
+  });
+
+  test("never downgrades a newer installed release", () => {
+    const g = guest();
+    writeFileSync(path.join(g.root, "npm-state/installed.json"), JSON.stringify({ ...PINNED, "@openai/codex": "5.0.0" }));
+    setLatest(g, { "@openai/codex": "5.0.0" });
+    setPublished(g, { "@openai/codex": { "4.0.0": hoursAgo(24 * 10), "5.0.0": hoursAgo(1) } });
+    expect(runUpdater(g).status).toBe(0);
+    expect(state(g).versions["@openai/codex"]).toBe("5.0.0");
+    expect(npmCalls(g).some((call) => call.startsWith("install"))).toBe(false);
+  });
+
   test("a successful check suppresses the next one for a day", () => {
     const g = guest();
     expect(runUpdater(g).status).toBe(0);
@@ -210,9 +244,9 @@ describe("guest agent updates", () => {
     expect(npmCalls(g).some((call) => call.startsWith("install"))).toBe(false);
 
     rmSync(path.join(g.root, "npm-state/offline"));
-    setLatest(g, { "@earendil-works/pi-coding-agent": "0.99.0" });
+    setLatest(g, { "@earendil-works/pi-coding-agent": "1.5.0" });
     expect(runUpdater(g).status).toBe(0);
-    expect(state(g)).toMatchObject({ ok: true, versions: { "@earendil-works/pi-coding-agent": "0.99.0" } });
+    expect(state(g)).toMatchObject({ ok: true, versions: { "@earendil-works/pi-coding-agent": "1.5.0" } });
   });
 
   test("does nothing when the machine is image-pinned or has no setting", () => {

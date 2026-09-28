@@ -569252,55 +569252,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage:\n  cmux vm agent-updates <id>                 Show the machine's setting.\n  cmux vm agent-updates <id> <latest|image>  Change it.\n\nlatest updates Claude Code, Codex, OpenCode, and Pi to the newest npm\nrelease when you connect, at most once a day. image keeps the versions the\nmachine's image baked (the default). Updates need registry.npmjs.org: with\nnetwork mode none, or an allowlist without the npm preset, they fail. Add\n--json for the structured result."
+            "value": "Usage:\n  cmux vm agent-updates <id>                 Show the machine's setting.\n  cmux vm agent-updates <id> <latest|image>  Change it.\n\nlatest updates Claude Code, Codex, OpenCode, and Pi to the newest npm\nrelease when you connect, at most once a day. image keeps the versions the\nmachine's image baked (the default). Updates need registry.npmjs.org: with\nnetwork mode none, or an allowlist without the npm preset, they fail. Add\n--json for the structured result.\nA new release installs only after it has been public for 3 days."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام:\n  cmux vm agent-updates <id>                 اعرض إعداد الآلة.\n  cmux vm agent-updates <id> <latest|image>  غيّره.\n\nيحدّث latest كلًا من Claude Code وCodex وOpenCode وPi إلى أحدث إصدار على npm\nعند الاتصال، مرة واحدة يوميًا على الأكثر. ويُبقي image الإصدارات المضمّنة في\nصورة الآلة (الافتراضي). تحتاج التحديثات إلى registry.npmjs.org: ستفشل في وضع\nالشبكة none أو مع قائمة سماح دون الإعداد المسبق npm.\nأضف --json للنتيجة المنظّمة."
+            "value": "الاستخدام:\n  cmux vm agent-updates <id>                 اعرض إعداد الآلة.\n  cmux vm agent-updates <id> <latest|image>  غيّره.\n\nيحدّث latest كلًا من Claude Code وCodex وOpenCode وPi إلى أحدث إصدار على npm\nعند الاتصال، مرة واحدة يوميًا على الأكثر. ويُبقي image الإصدارات المضمّنة في\nصورة الآلة (الافتراضي). تحتاج التحديثات إلى registry.npmjs.org: ستفشل في وضع\nالشبكة none أو مع قائمة سماح دون الإعداد المسبق npm.\nأضف --json للنتيجة المنظّمة.\nلا يُثبَّت الإصدار الجديد إلا بعد مرور 3 أيام على نشره."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung:\n  cmux vm agent-updates <id>                 Einstellung der Maschine anzeigen.\n  cmux vm agent-updates <id> <latest|image>  Einstellung ändern.\n\nlatest aktualisiert Claude Code, Codex, OpenCode und Pi beim Verbinden auf\ndas neueste npm-Release, höchstens einmal am Tag. image behält die Versionen\naus dem Image der Maschine (Standard). Updates brauchen registry.npmjs.org:\nmit Netzwerkmodus none oder einer Allowlist ohne npm-Preset schlagen sie\nfehl. Mit --json erhalten Sie das strukturierte Ergebnis."
+            "value": "Verwendung:\n  cmux vm agent-updates <id>                 Einstellung der Maschine anzeigen.\n  cmux vm agent-updates <id> <latest|image>  Einstellung ändern.\n\nlatest aktualisiert Claude Code, Codex, OpenCode und Pi beim Verbinden auf\ndas neueste npm-Release, höchstens einmal am Tag. image behält die Versionen\naus dem Image der Maschine (Standard). Updates brauchen registry.npmjs.org:\nmit Netzwerkmodus none oder einer Allowlist ohne npm-Preset schlagen sie\nfehl. Mit --json erhalten Sie das strukturierte Ergebnis.\nEin neues Release wird erst installiert, wenn es seit 3 Tagen veröffentlicht ist."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso:\n  cmux vm agent-updates <id>                 Muestra el ajuste de la máquina.\n  cmux vm agent-updates <id> <latest|image>  Lo cambia.\n\nlatest actualiza Claude Code, Codex, OpenCode y Pi a la versión más reciente\nde npm al conectarte, como máximo una vez al día. image conserva las versiones\nde la imagen de la máquina (predeterminado). Las actualizaciones necesitan\nregistry.npmjs.org: con el modo de red none, o una lista de permitidos sin el\npreajuste npm, fallan. Añade --json para obtener el resultado estructurado."
+            "value": "Uso:\n  cmux vm agent-updates <id>                 Muestra el ajuste de la máquina.\n  cmux vm agent-updates <id> <latest|image>  Lo cambia.\n\nlatest actualiza Claude Code, Codex, OpenCode y Pi a la versión más reciente\nde npm al conectarte, como máximo una vez al día. image conserva las versiones\nde la imagen de la máquina (predeterminado). Las actualizaciones necesitan\nregistry.npmjs.org: con el modo de red none, o una lista de permitidos sin el\npreajuste npm, fallan. Añade --json para obtener el resultado estructurado.\nUna versión nueva solo se instala cuando lleva 3 días publicada."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation :\n  cmux vm agent-updates <id>                 Afficher le réglage de la machine.\n  cmux vm agent-updates <id> <latest|image>  Le modifier.\n\nlatest met à jour Claude Code, Codex, OpenCode et Pi vers la dernière\nversion npm à la connexion, au plus une fois par jour. image conserve les\nversions de l'image de la machine (par défaut). Les mises à jour exigent\nregistry.npmjs.org : en mode réseau none, ou avec une liste d'autorisation\nsans le préréglage npm, elles échouent. Ajoutez --json pour le résultat structuré."
+            "value": "Utilisation :\n  cmux vm agent-updates <id>                 Afficher le réglage de la machine.\n  cmux vm agent-updates <id> <latest|image>  Le modifier.\n\nlatest met à jour Claude Code, Codex, OpenCode et Pi vers la dernière\nversion npm à la connexion, au plus une fois par jour. image conserve les\nversions de l'image de la machine (par défaut). Les mises à jour exigent\nregistry.npmjs.org : en mode réseau none, ou avec une liste d'autorisation\nsans le préréglage npm, elles échouent. Ajoutez --json pour le résultat structuré.\nUne nouvelle version ne s'installe qu'après 3 jours de publication."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方:\n  cmux vm agent-updates <id>                 マシンの設定を表示します。\n  cmux vm agent-updates <id> <latest|image>  設定を変更します。\n\nlatest は接続時に Claude Code、Codex、OpenCode、Pi を npm の最新リリースに\n更新します（1 日に最大 1 回）。image はマシンのイメージに含まれるバージョンを\n維持します（既定）。更新には registry.npmjs.org へのアクセスが必要です。\nネットワークモードが none、または npm プリセットのない許可リストでは失敗します。\n構造化された結果には --json を追加してください。"
+            "value": "使い方:\n  cmux vm agent-updates <id>                 マシンの設定を表示します。\n  cmux vm agent-updates <id> <latest|image>  設定を変更します。\n\nlatest は接続時に Claude Code、Codex、OpenCode、Pi を npm の最新リリースに\n更新します（1 日に最大 1 回）。image はマシンのイメージに含まれるバージョンを\n維持します（既定）。更新には registry.npmjs.org へのアクセスが必要です。\nネットワークモードが none、または npm プリセットのない許可リストでは失敗します。\n構造化された結果には --json を追加してください。\n新しいリリースは公開から 3 日経過した後にインストールされます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법:\n  cmux vm agent-updates <id>                 머신의 설정을 표시합니다.\n  cmux vm agent-updates <id> <latest|image>  설정을 변경합니다.\n\nlatest는 연결할 때 Claude Code, Codex, OpenCode, Pi를 npm 최신 릴리스로\n업데이트하며, 하루에 최대 한 번입니다. image는 머신 이미지에 포함된 버전을\n유지합니다(기본값). 업데이트에는 registry.npmjs.org가 필요합니다. 네트워크 모드가\nnone이거나 npm 프리셋이 없는 허용 목록이면 실패합니다.\n구조화된 결과는 --json을 추가하세요."
+            "value": "사용법:\n  cmux vm agent-updates <id>                 머신의 설정을 표시합니다.\n  cmux vm agent-updates <id> <latest|image>  설정을 변경합니다.\n\nlatest는 연결할 때 Claude Code, Codex, OpenCode, Pi를 npm 최신 릴리스로\n업데이트하며, 하루에 최대 한 번입니다. image는 머신 이미지에 포함된 버전을\n유지합니다(기본값). 업데이트에는 registry.npmjs.org가 필요합니다. 네트워크 모드가\nnone이거나 npm 프리셋이 없는 허용 목록이면 실패합니다.\n구조화된 결과는 --json을 추가하세요.\n새 릴리스는 공개된 지 3일이 지난 후에만 설치됩니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm agent-updates <id>                 显示机器的设置。\n  cmux vm agent-updates <id> <latest|image>  更改设置。\n\nlatest 会在连接时将 Claude Code、Codex、OpenCode 和 Pi 更新到 npm 的最新版本，\n每天最多一次。image 保留机器镜像内置的版本（默认）。更新需要访问\nregistry.npmjs.org：网络模式为 none，\n或允许列表未包含 npm 预设时，更新会失败。\n加上 --json 可获取结构化结果。"
+            "value": "用法：\n  cmux vm agent-updates <id>                 显示机器的设置。\n  cmux vm agent-updates <id> <latest|image>  更改设置。\n\nlatest 会在连接时将 Claude Code、Codex、OpenCode 和 Pi 更新到 npm 的最新版本，\n每天最多一次。image 保留机器镜像内置的版本（默认）。更新需要访问\nregistry.npmjs.org：网络模式为 none，\n或允许列表未包含 npm 预设时，更新会失败。\n加上 --json 可获取结构化结果。\n新版本发布满 3 天后才会安装。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm agent-updates <id>                 顯示機器的設定。\n  cmux vm agent-updates <id> <latest|image>  變更設定。\n\nlatest 會在連線時將 Claude Code、Codex、OpenCode 和 Pi 更新到 npm 的最新版本，\n每天最多一次。image 保留機器映像內建的版本（預設）。更新需要存取\nregistry.npmjs.org：網路模式為 none，\n或允許清單未包含 npm 預設時，更新會失敗。\n加上 --json 可取得結構化結果。"
+            "value": "用法：\n  cmux vm agent-updates <id>                 顯示機器的設定。\n  cmux vm agent-updates <id> <latest|image>  變更設定。\n\nlatest 會在連線時將 Claude Code、Codex、OpenCode 和 Pi 更新到 npm 的最新版本，\n每天最多一次。image 保留機器映像內建的版本（預設）。更新需要存取\nregistry.npmjs.org：網路模式為 none，\n或允許清單未包含 npm 預設時，更新會失敗。\n加上 --json 可取得結構化結果。\n新版本發布滿 3 天後才會安裝。"
           }
         }
       }
@@ -569606,55 +569606,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Updates Claude Code, Codex, OpenCode, and Pi to the newest release when you connect, at most once a day."
+            "value": "Updates Claude Code, Codex, OpenCode, and Pi to the newest release when you connect, at most once a day. A new release installs only after it has been public for 3 days."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحدّث Claude Code وCodex وOpenCode وPi إلى أحدث إصدار عند الاتصال، مرة واحدة يوميًا على الأكثر."
+            "value": "يحدّث Claude Code وCodex وOpenCode وPi إلى أحدث إصدار عند الاتصال، مرة واحدة يوميًا على الأكثر. لا يُثبَّت الإصدار الجديد إلا بعد مرور 3 أيام على نشره."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aktualisiert Claude Code, Codex, OpenCode und Pi beim Verbinden auf das neueste Release, höchstens einmal am Tag."
+            "value": "Aktualisiert Claude Code, Codex, OpenCode und Pi beim Verbinden auf das neueste Release, höchstens einmal am Tag. Ein neues Release wird erst installiert, wenn es seit 3 Tagen veröffentlicht ist."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actualiza Claude Code, Codex, OpenCode y Pi a la versión más reciente al conectarte, como máximo una vez al día."
+            "value": "Actualiza Claude Code, Codex, OpenCode y Pi a la versión más reciente al conectarte, como máximo una vez al día. Una versión nueva solo se instala cuando lleva 3 días publicada."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Met à jour Claude Code, Codex, OpenCode et Pi vers la dernière version à la connexion, au plus une fois par jour."
+            "value": "Met à jour Claude Code, Codex, OpenCode et Pi vers la dernière version à la connexion, au plus une fois par jour. Une nouvelle version ne s'installe qu'après 3 jours de publication."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続時に Claude Code、Codex、OpenCode、Pi を最新リリースに更新します（1 日に最大 1 回）。"
+            "value": "接続時に Claude Code、Codex、OpenCode、Pi を最新リリースに更新します（1 日に最大 1 回）。新しいリリースは公開から 3 日経過した後にインストールされます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결할 때 Claude Code, Codex, OpenCode, Pi를 최신 릴리스로 업데이트하며, 하루에 최대 한 번입니다."
+            "value": "연결할 때 Claude Code, Codex, OpenCode, Pi를 최신 릴리스로 업데이트하며, 하루에 최대 한 번입니다. 새 릴리스는 공개된 지 3일이 지난 후에만 설치됩니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连接时将 Claude Code、Codex、OpenCode 和 Pi 更新到最新版本，每天最多一次。"
+            "value": "连接时将 Claude Code、Codex、OpenCode 和 Pi 更新到最新版本，每天最多一次。新版本发布满 3 天后才会安装。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連線時將 Claude Code、Codex、OpenCode 和 Pi 更新到最新版本，每天最多一次。"
+            "value": "連線時將 Claude Code、Codex、OpenCode 和 Pi 更新到最新版本，每天最多一次。新版本發布滿 3 天後才會安裝。"
           }
         }
       }

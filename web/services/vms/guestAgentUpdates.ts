@@ -8,8 +8,14 @@ import { shellQuote } from "./drivers/cmuxTuiDaemon";
  * nvm Node and links every bin into /usr/local/bin (build-devbox-freestyle.ts,
  * step "agents"); opencode's /usr/local/bin entry is the /etc/cmux/opencode
  * wrapper, which execs /usr/local/libexec/cmux-opencode-real. A machine opted
- * into "latest" re-runs that install on attach with the registry's current
- * `latest` of each package, at most once a day, and re-asserts the same links.
+ * into "latest" re-runs that install on attach, at most once a day, and
+ * re-asserts the same links.
+ *
+ * "Latest" is the newest release that has been public for at least
+ * GUEST_AGENT_MIN_RELEASE_AGE_SECONDS and is not newer than the registry's
+ * `latest` tag. A hijacked maintainer account publishes a malicious release
+ * that is usually found and removed within hours; the wait keeps such a
+ * release off every opted-in machine. The updater never downgrades.
  *
  * The attach exec only records the setting and launches a detached updater, so
  * attach never waits on the network. The updater serializes on a lock, skips
@@ -33,6 +39,7 @@ export const GUEST_AGENT_PACKAGES: readonly { readonly pkg: string; readonly bin
 
 export const GUEST_AGENT_UPDATES_LOG = "/var/log/cmux-agent-updates.log";
 export const GUEST_AGENT_UPDATES_INTERVAL_SECONDS = 24 * 60 * 60;
+export const GUEST_AGENT_MIN_RELEASE_AGE_SECONDS = 3 * 24 * 60 * 60;
 
 export type GuestAgentUpdaterOptions = {
   readonly packages: readonly { readonly pkg: string; readonly binary: string }[];
@@ -42,6 +49,8 @@ export type GuestAgentUpdaterOptions = {
   readonly libexecDir: string;
   /** Seconds a successful check suppresses the next one. */
   readonly intervalSeconds: number;
+  /** A release younger than this is not installed yet. */
+  readonly minReleaseAgeSeconds: number;
 };
 
 export const GUEST_AGENT_UPDATER_DEFAULTS: GuestAgentUpdaterOptions = {
@@ -50,6 +59,7 @@ export const GUEST_AGENT_UPDATER_DEFAULTS: GuestAgentUpdaterOptions = {
   binDir: "/usr/local/bin",
   libexecDir: "/usr/local/libexec",
   intervalSeconds: GUEST_AGENT_UPDATES_INTERVAL_SECONDS,
+  minReleaseAgeSeconds: GUEST_AGENT_MIN_RELEASE_AGE_SECONDS,
 };
 
 // argv: <config dir> <options JSON>. Runs as root. Exit 0 when skipped or
@@ -63,7 +73,10 @@ options = json.loads(sys.argv[2])
 setting_path = os.path.join(config_dir, "agent-updates")
 state_path = os.path.join(config_dir, "agent-updates.state")
 lock_path = os.path.join(config_dir, ".agent-updates.lock")
-release = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
+release = re.compile(r"^\d+\.\d+\.\d+$")
+
+def release_key(version):
+    return tuple(int(part) for part in version.split("."))
 
 def now_iso():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -159,17 +172,41 @@ def relink():
         else:
             link_atomic(source, entry)
 
+def published_at(stamp):
+    return datetime.strptime(stamp[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc).timestamp()
+
+def eligible_release(name):
+    # The newest x.y.z release that is at least minReleaseAgeSeconds old and
+    # not above the latest tag (a prerelease or a pulled "next" never counts).
+    data = json.loads(npm_run(["view", name, "dist-tags", "time", "--json", "--fetch-retries=1", "--fetch-timeout=30000"], 120) or "{}")
+    latest = (data.get("dist-tags") or {}).get("latest", "")
+    if not release.match(latest):
+        raise RuntimeError(name + ": registry latest " + repr(latest) + " is not a release")
+    cutoff = time.time() - options["minReleaseAgeSeconds"]
+    candidates = []
+    for version, stamp in (data.get("time") or {}).items():
+        if not release.match(version) or release_key(version) > release_key(latest):
+            continue
+        try:
+            if published_at(stamp) <= cutoff:
+                candidates.append(version)
+        except (TypeError, ValueError):
+            continue
+    return max(candidates, key=release_key) if candidates else None
+
 versions = {}
 try:
     versions = installed_versions()
     targets = {}
     for package in options["packages"]:
         name = package["pkg"]
-        latest = npm_run(["view", name, "version", "--fetch-retries=1", "--fetch-timeout=30000"], 120).strip()
-        if not release.match(latest):
-            raise RuntimeError(name + ": registry latest " + repr(latest) + " is not a release")
-        if versions.get(name) != latest:
-            targets[name] = latest
+        target = eligible_release(name)
+        installed = versions.get(name)
+        if target is None:
+            continue
+        if installed and release.match(installed) and release_key(installed) >= release_key(target):
+            continue
+        targets[name] = target
     if targets:
         log("installing " + " ".join(name + "@" + version for name, version in sorted(targets.items())))
         npm_run(["install", "-g", "--foreground-scripts"] + [name + "@" + version for name, version in sorted(targets.items())], 900)
@@ -177,7 +214,7 @@ try:
     versions = installed_versions()
     mismatched = sorted(name for name, version in targets.items() if versions.get(name) != version)
     if mismatched:
-        raise RuntimeError("not installed at latest: " + ", ".join(mismatched))
+        raise RuntimeError("not installed at the chosen release: " + ", ".join(mismatched))
     write_atomic(state_path, json.dumps({"checkedAt": now_iso(), "ok": True, "versions": versions}) + "\n")
     log("up to date: " + json.dumps(versions, sort_keys=True))
 except Exception as error:

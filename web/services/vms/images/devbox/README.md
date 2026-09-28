@@ -48,10 +48,12 @@ tags and packages the image does not bake; the chatmux devbox template
 repo to keep the parity the header describes.
 
 A machine can opt out of its image's pins: with `agentUpdates: "latest"` (New
-Machine's "Keep coding agents up to date", `cmux vm agent-updates <vm>
+Machine's "Keep coding agents up to date", checked by default in the sheet,
+`cmux vm agent-updates <vm>
 latest`, or `PUT /api/vm/{id}/agent-updates`), each attach starts a detached
-updater that installs npm's `latest` of every pinned package, at most once a
-day, and re-asserts the `/usr/local/bin` links and the opencode wrapper
+updater that installs, for every pinned package, the newest release that has
+been public for 3 days and is not above npm's `latest` tag (never a
+downgrade), at most once a day, and re-asserts the `/usr/local/bin` links and the opencode wrapper
 (`web/services/vms/guestAgentUpdates.ts`; outcome in
 `/etc/cmux/agent-updates.state`, log in `/var/log/cmux-agent-updates.log`). It
 needs `registry.npmjs.org`: under "No internet", or an allowlist without the

@@ -210,8 +210,9 @@ cmux vm new --agent-updates latest      # choose at create
 ```
 
 `latest` makes each attach start a detached updater on the machine that installs
-npm's latest Claude Code, Codex, OpenCode, Pi, and agent-browser, at most once a
-day; attach never waits for it. Switching back to `image` stops further updates
+the newest Claude Code, Codex, OpenCode, Pi, and agent-browser releases that have
+been public for 3 days, at most once a day; attach never waits for it. The New
+Machine sheet checks it by default. Switching back to `image` stops further updates
 but does not downgrade what is installed. Updates need `registry.npmjs.org`: with
 `cmux vm network` mode `none`, or an allowlist without the `npm` preset, they fail
 and are retried on the next attach (the CLI prints a note when you set `latest`).

@@ -75,24 +75,24 @@ struct NewMachineAgentUpdatesTests {
         UserDefaults(suiteName: "new-machine-agent-updates-\(UUID().uuidString)")!
     }
 
-    @Test func offByDefaultAndSendsNothing() {
+    @Test func onByDefaultAndSendsLatest() throws {
         let model = NewMachineModel(mode: .newMachine, plan: nil, defaults: Self.defaults(), submit: { _ in true })
-        #expect(!model.keepsAgentsUpdated)
-        #expect(!model.cliArguments.contains("--agent-updates"))
-    }
-
-    @Test func onSendsLatestAndIsRememberedForTheNextSheet() throws {
-        let defaults = Self.defaults()
-        let model = NewMachineModel(mode: .newMachine, plan: nil, defaults: defaults, submit: { _ in true })
-        model.keepsAgentsUpdated = true
+        #expect(model.keepsAgentsUpdated)
         let arguments = model.cliArguments
         let index = try #require(arguments.firstIndex(of: "--agent-updates"))
         #expect(arguments[index + 1] == "latest")
+    }
+
+    @Test func uncheckingSendsNothingAndIsRememberedForTheNextSheet() {
+        let defaults = Self.defaults()
+        let model = NewMachineModel(mode: .newMachine, plan: nil, defaults: defaults, submit: { _ in true })
+        model.keepsAgentsUpdated = false
+        #expect(!model.cliArguments.contains("--agent-updates"))
 
         // Only a submitted choice is remembered.
-        #expect(!NewMachineModel(mode: .newMachine, plan: nil, defaults: defaults, submit: { _ in true }).keepsAgentsUpdated)
-        model.create()
         #expect(NewMachineModel(mode: .newMachine, plan: nil, defaults: defaults, submit: { _ in true }).keepsAgentsUpdated)
+        model.create()
+        #expect(!NewMachineModel(mode: .newMachine, plan: nil, defaults: defaults, submit: { _ in true }).keepsAgentsUpdated)
     }
 
     @Test func networkNoteAppearsOnlyWhenThePolicyBlocksNpm() {

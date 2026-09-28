@@ -112,7 +112,7 @@ struct NewMachineSheet: View {
             .accessibilityIdentifier("NewMachineSheet.agentUpdates")
             Text(String(
                 localized: "machines.new.agentUpdates.help",
-                defaultValue: "Updates Claude Code, Codex, OpenCode, and Pi to the newest release when you connect, at most once a day."
+                defaultValue: "Updates Claude Code, Codex, OpenCode, and Pi to the newest release when you connect, at most once a day. A new release installs only after it has been public for 3 days."
             ))
             .cmuxFont(size: 11)
             .foregroundStyle(.secondary)
