@@ -2579,6 +2579,7 @@
           "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs.",
           "warnBeforeClosingTabXButton": "Show a confirmation before closing a tab with the tab close button.",
           "hideTabCloseButton": "Hide tab close buttons in the pane tab bar.",
+          "tabBarVisibility": "Decide when a pane draws its tab bar. \"always\" draws it even for a pane holding one tab; \"multiple-tabs\" hides it while a pane holds one tab and draws it once a second tab opens. Minimal mode (app.minimalMode) always draws it, because there the top pane's tab bar doubles as the window titlebar.",
           "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination.",
           "globalFontMagnification": "Percentage zoom for everything cmux draws itself: terminal text, tab titles, sidebars, Settings, overlays, and window chrome. Web pages inside browser surfaces keep their own size.",
           "paneResizeStepPixels": "Pixels moved per keypress when using pane-resize shortcuts. Accepts 1–200; defaults to 20. Changes apply immediately."
@@ -2657,6 +2658,7 @@
           "paneFlashColor": "Override the pane flash and unread notification ring color. Leave unset to use the accent from app.accentColor.",
           "soundWhenFocused": "Play the notification sound even when the pane that notified is already focused. Off by default, so a focused pane shows only its ring and flash.",
           "suppressOnlyFocusedSurface": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw.",
+          "suppressWhenAppFocused": "When enabled, cmux skips the desktop banner for every notification while cmux is the active app, not only for the focused pane. Notifications still appear in the sidebar, the sound and custom command still run, and phone forwarding is unchanged. Off keeps showing banners for other workspaces and panes while cmux is focused.",
           "agentPermissionPrompt": "Notify when an agent (e.g. Claude Code) is blocked waiting for your permission to run a tool. On by default, since this is the alert you must act on to unblock the agent.",
           "agentTurnComplete": "When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it.",
           "agentIdleReminder": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert.",
