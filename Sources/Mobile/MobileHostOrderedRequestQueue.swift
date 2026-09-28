@@ -230,7 +230,7 @@ final class MobileTerminalInputOrdering {
     }
 
     func finish(_ ticket: MobileTerminalInputOrderingTicket) {
-        if !committedTicketIDs.remove(ticket.id),
+        if committedTicketIDs.remove(ticket.id) == nil,
            let inputSequence = ticket.inputSequence {
             let key = SurfaceSequenceKey(surfaceID: ticket.surfaceID, token: ticket.token)
             pendingSequencesBySurfaceAndToken[key]?.remove(inputSequence)
