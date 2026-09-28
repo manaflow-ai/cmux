@@ -281,6 +281,10 @@ path = "tests/test_shell_no_git_watch.py"
 lane = "macos-shell"
 
 [[test]]
+path = "tests/test_shell_pr_watch_private_state.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_claude_hook_stop_last_assistant.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]

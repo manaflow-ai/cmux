@@ -86,7 +86,7 @@ private func authDebugLogType(for message: String) -> OSLogType {
 }
 
 #if DEBUG && os(macOS)
-private func appendAuthDebugLineToFile(_ line: String, path: String) {
+func appendAuthDebugLineToFile(_ line: String, path: String) {
     let fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0o600)
     guard fd >= 0 else { return }
     defer { close(fd) }
