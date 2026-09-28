@@ -14,6 +14,7 @@ final class WorkspaceNavigationBarController: UIViewController {
     private var installedLeadingGroups: [UIBarButtonItemGroup] = []
     private var installedTrailingGroups: [UIBarButtonItemGroup] = []
     private var installedPinnedGroup: UIBarButtonItemGroup?
+    private weak var installedNavigationBar: UINavigationBar?
     private var terminalPicker: TerminalPickerBarItem?
     private weak var owner: UIViewController?
     private var originalItem: OriginalItem?
@@ -118,6 +119,7 @@ final class WorkspaceNavigationBarController: UIViewController {
             restoreConfiguration()
             owner = target
             originalItem = OriginalItem(item: target.navigationItem, navigationBar: navigation.navigationBar)
+            installedNavigationBar = navigation.navigationBar
         }
         let item = target.navigationItem
         navigation.navigationBar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
@@ -186,13 +188,14 @@ final class WorkspaceNavigationBarController: UIViewController {
         if item.pinnedTrailingGroup === installedPinnedGroup {
             item.pinnedTrailingGroup = originalItem.trailingGroup
         }
-        if let navigation = owner.navigationController,
-           navigation.navigationBar.accessibilityIdentifier == "MobileWorkspaceNavigationBar" {
-            navigation.navigationBar.accessibilityIdentifier = originalItem.navigationBarAccessibilityIdentifier
+        if let navigationBar = installedNavigationBar,
+           navigationBar.accessibilityIdentifier == "MobileWorkspaceNavigationBar" {
+            navigationBar.accessibilityIdentifier = originalItem.navigationBarAccessibilityIdentifier
         }
         installedLeadingGroups = []
         installedTrailingGroups = []
         installedPinnedGroup = nil
+        installedNavigationBar = nil
         self.owner = nil
         self.originalItem = nil
     }
