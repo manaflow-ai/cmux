@@ -15004,11 +15004,12 @@ class TerminalController {
         return mobileHostResult(result)
     }
 
-    /// Adds the authenticated host proof to the v2 workspace snapshot. The
-    /// public status cache is already populated by the admitted mobile
-    /// connection, so this does not perform another RPC or network request.
-    /// If the identity is still being prepared, return the plain workspace
-    /// result and let the client use its legacy fallback request.
+    /// Adds the authenticated host proof to the v2 workspace snapshot. This is
+    /// called after the mobile connection has been admitted, so it can build
+    /// the private identity payload directly from the live host service. That
+    /// avoids waiting for the public-status cache to catch up during startup.
+    /// If the identity is unavailable, return the plain workspace result and
+    /// let the client use its legacy fallback request.
     @MainActor
     private func v2MobileWorkspaceListWithHostStatus(
         params: [String: Any]
@@ -15018,8 +15019,12 @@ class TerminalController {
               var workspaceObject = workspacePayload as? [String: Any] else {
             return workspaceResult
         }
-        guard case let .ok(hostStatusPayload) = MobileHostPublicStatusCache.result(
-            includeIdentity: true
+        guard !MobileHostIdentity.deviceID().isEmpty else {
+            return workspaceResult
+        }
+        guard case let .ok(hostStatusPayload) = v2MobileHostStatus(
+            params: params,
+            includePrivateMetadata: true
         ), let hostStatusObject = hostStatusPayload as? [String: Any] else {
             return workspaceResult
         }
@@ -15251,15 +15256,26 @@ class TerminalController {
 
         let tabManager = v2ResolveTabManager(params: params)
         let workspaceCount = tabManager?.tabs.count ?? 0
+        let deviceID = MobileHostIdentity.deviceID()
+        guard !deviceID.isEmpty else {
+            return .ok([
+                "mac_device_id": deviceID,
+                "mac_display_name": v2OrNull(MobileHostIdentity.instanceDisplayName()),
+                "host_service": status.payload,
+                "workspace_count": workspaceCount,
+                "terminal_fidelity": "render_grid",
+                "capabilities": capabilities,
+            ])
+        }
 
-        return .ok([
-            "mac_device_id": MobileHostIdentity.deviceID(),
-            "mac_display_name": v2OrNull(MobileHostIdentity.instanceDisplayName()),
-            "host_service": status.payload,
-            "workspace_count": workspaceCount,
-            "terminal_fidelity": "render_grid",
-            "capabilities": capabilities,
-        ])
+        var payload = MobileHostService.identityStatusPayload(
+            routes: status.routes,
+            deviceID: deviceID
+        )
+        payload["host_service"] = status.payload
+        payload["workspace_count"] = workspaceCount
+
+        return .ok(payload)
     }
 
     #if DEBUG
