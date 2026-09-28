@@ -40,7 +40,7 @@ struct TerminalFontCard: View {
             id: "font-family",
             title: String(localized: "settings.terminal.ghostty.fontFamily", defaultValue: "Font"),
             key: .fontFamily,
-            controlWidth: 220,
+            controlWidth: 250,
             overriddenBy: model.overriddenKeys[.fontFamily]
         ) {
             Button {
@@ -59,11 +59,11 @@ struct TerminalFontCard: View {
                         .imageScale(.small)
                         .foregroundStyle(.secondary)
                 }
-                .frame(width: 190)
+                .frame(width: 220)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .popover(isPresented: $isPickingFamily, arrowEdge: .trailing) {
+            .popover(isPresented: $isPickingFamily, arrowEdge: .bottom) {
                 TerminalFontFamilyPicker(
                     families: model.fontFamilyChoices,
                     selection: model.options.fontFamily,
