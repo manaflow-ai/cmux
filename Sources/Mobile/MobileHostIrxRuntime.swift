@@ -429,7 +429,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         let identity = IrxIdentity(privateKeyData: key.secretKey, deviceID: deviceID, appInstanceID: key.endpointID)
         let preferredPort = MobileHostService.configuredPort()
         let supervisor = IrxEndpointSupervisor(configuration: .init(identity: identity, pathMode: Self.pathMode,
-            preferredBindAddress: "0.0.0.0:\(Self.irohPort(configuredPort: preferredPort))",
+            preferredBindAddress: "0.0.0.0:\(preferredPort)",
             initialRemoteBiStreams: 1, initialRemoteUniStreams: 0,
             additionalALPNs: Self.endpointAdditionalALPNs), journal: Self.journal)
         let admission = try V2InboundAdmissionAuthority(host: device)
@@ -770,12 +770,14 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         guard isCurrent(token), !Task.isCancelled else { return }
         var next = listenerState
         next.phase = healthy ? .ready : .starting
-        // Users reach the Mac directly on the Direct QUIC port. Without that
-        // listener (macOS 14), the Iroh port is the only direct port.
+        // Users reach the Mac on the Direct QUIC pairing port; without that
+        // listener the Iroh port is the only direct port.
         let directPort = directQuicPort ?? port
         next.preferredPort = directQuicPort == nil
-            ? Self.irohPort(configuredPort: MobileHostService.configuredPort())
-            : MobileHostService.configuredPort()
+            ? MobileHostService.configuredPort()
+            : Self.directQuicCandidatePorts(
+                configuredPort: MobileHostService.configuredPort()
+            ).first.map(Int.init)
         next.boundPort = healthy ? directPort : nil
         next.localSocketAddresses = healthy
             ? addresses.map { Self.replacingPort(in: $0, with: directPort) } : []
@@ -870,21 +872,26 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         }
     }
 
-    /// Iroh binds the port after the configured one, so Direct addresses a
-    /// user already entered (host plus the configured port) reach Direct QUIC.
-    nonisolated static func irohPort(configuredPort: Int) -> Int {
-        configuredPort < 65535 ? configuredPort + 1 : configuredPort - 1
+    /// Iroh keeps the configured port: existing Direct-method phones pin
+    /// their Iroh dial to it, and a Mac-only upgrade must not strand them.
+    /// Direct QUIC scans a deterministic window above it, so its port
+    /// survives restarts (an ephemeral port would die with the process and
+    /// strand every pairing that persisted it).
+    nonisolated static func directQuicCandidatePorts(configuredPort: Int) -> [UInt16] {
+        (1 ... 16).compactMap { offset in
+            let candidate = configuredPort + offset
+            return candidate <= 65535 ? UInt16(candidate) : nil
+        }
     }
 
     private func startDirectQuicListener(token: UUID) async {
         guard directQuicListener == nil, pairingEnabled(), let identity, let registry, let admission else { return }
-        let preferredPort = MobileHostService.configuredPort()
         var started: (listener: DirectQuicListener, port: UInt16)?
-        // The configured port first; when another cmux instance on this Mac
-        // already owns it (a second dev build, or the stable app), an
-        // ephemeral port serves instead. Every advertised route, pairing
+        // A deterministic window above the configured Iroh port: another
+        // cmux instance on this Mac (a second dev build, or the stable app)
+        // may own the first candidates, and every advertised route, pairing
         // code, and the Settings port row carry the actual bound port.
-        for candidatePort in [UInt16(preferredPort), 0] {
+        for candidatePort in Self.directQuicCandidatePorts(configuredPort: MobileHostService.configuredPort()) {
             guard isCurrent(token), directQuicListener == nil else { return }
             let listener: DirectQuicListener
             do {
@@ -900,15 +907,18 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 break
             } catch {
                 Self.journal.record(
-                    "direct-quic",
-                    candidatePort == 0 ? "listener-failed" : "listener-port-busy",
+                    "direct-quic", "listener-port-busy",
                     ["port": String(candidatePort), "error": String(describing: error)]
                 )
                 guard directQuicListener === listener else { return }
                 stopDirectQuicListener()
             }
         }
-        guard let (listener, boundPort) = started else { return }
+        guard let (listener, boundPort) = started else {
+            Self.journal.record("direct-quic", "listener-failed",
+                ["error": "no free port in the configured window"])
+            return
+        }
         guard isCurrent(token), directQuicListener === listener else {
             listener.cancel()
             return

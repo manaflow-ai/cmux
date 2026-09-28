@@ -705,9 +705,10 @@ final class MobileHostService {
     /// User-default key for the preferred iOS pairing listener port.
     nonisolated static let portDefaultsKey = SettingCatalog().mobile.iOSPairingPort.userDefaultsKey
 
-    /// UDP port for the Direct QUIC listener (Direct and Tailscale Only
-    /// phones). Iroh binds the next port up; a busy Iroh port falls back to an
-    /// available one, which the runtime reports separately.
+    /// UDP port for the IROH listener (unchanged, so pinned Direct-method
+    /// dials from released phones survive a Mac upgrade). The Direct QUIC
+    /// listener scans the deterministic window just above it; the runtime
+    /// reports both bound ports separately.
     nonisolated static func configuredPort(defaults: UserDefaults = .standard) -> Int {
         let fallback = SettingCatalog().mobile.iOSPairingPort.defaultValue
         guard let raw = defaults.object(forKey: portDefaultsKey) as? Int else {
