@@ -61,6 +61,10 @@ REQUEST_POLL_SECONDS = 20
 # How long the waiting side looks for the dispatch run of its attempt. The
 # build controller dispatches it seconds after `ui-tests` starts.
 FIND_DISPATCH_SECONDS = 20 * 60
+# How long a cancelled dispatch run's replacement may take to appear in the
+# runs list, and how often it is read meanwhile.
+REPLACEMENT_SECONDS = 120
+REPLACEMENT_POLL_SECONDS = 10
 MAX_CONSECUTIVE_ERRORS = 10
 RUN_LINE = re.compile(r"^Run: https://github\.com/[^/]+/[^/]+/actions/runs/(\d+)")
 # dispatch-focused-test.py attaches to an identical run already in flight;
@@ -446,8 +450,18 @@ def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
         # A second dispatch for this attempt (the build controller, a re-running
         # bot) joins the same concurrency group and cancels the one watched
         # here; follow it instead of reporting the cancel.
-        newer = retrying(lambda: find_dispatch_run(gh, run_id, attempt, since, default_branch), sleep=sleep)
-        if newer is None or newer["id"] == watched["id"] or newer.get("created_at", "") < watched.get("created_at", ""):
+        # The runs list lags run creation, so look for the replacement a while.
+        replaced_by = now() + REPLACEMENT_SECONDS
+
+        def replacement() -> dict | bool | None:
+            newer = find_dispatch_run(gh, run_id, attempt, since, default_branch)
+            if newer is not None and newer["id"] != watched["id"] and \
+                    newer.get("created_at", "") >= watched.get("created_at", ""):
+                return newer
+            return False if now() >= replaced_by else None
+
+        newer = poll(replacement, sleep=sleep, interval=REPLACEMENT_POLL_SECONDS)
+        if newer is False:
             break
         found = newer
         print(f"{watched.get('html_url')} was replaced; UI tests for this run: {found.get('html_url')}", flush=True)

@@ -180,7 +180,8 @@ LIST = f"repos/{REPO}/actions/workflows/ci-ui-tests.yml/runs"
 class AwaitVerdictTests(unittest.TestCase):
     def verdict(self, routes) -> int:
         gh = FakeGitHub({RUN: [ci_run()], **routes})
-        return ui.await_verdict(gh, "100", "1", sleep=lambda _: None)
+        clock = iter(range(0, 10**6, 30))
+        return ui.await_verdict(gh, "100", "1", sleep=lambda _: None, now=lambda: next(clock))
 
     def test_mirrors_a_dispatch_that_ran_and_passed(self) -> None:
         other = dispatch_run(title=ui.dispatch_title("101", "1"), run_id=901)
@@ -206,10 +207,12 @@ class AwaitVerdictTests(unittest.TestCase):
 
     def test_follows_a_dispatch_that_replaced_the_watched_one(self) -> None:
         # The build controller's dispatch landed after this job found the
-        # bot's, and cancelled it through the shared concurrency group.
+        # bot's, and cancelled it through the shared concurrency group; the
+        # runs list shows the replacement one read late.
         newer = dispatch_run(run_id=901, created_at="2026-09-28T10:00:30Z")
         self.assertEqual(self.verdict({
             LIST: [{"workflow_runs": [dispatch_run(status="in_progress")]},
+                   {"workflow_runs": [dispatch_run(conclusion="cancelled")]},
                    {"workflow_runs": [newer, dispatch_run(conclusion="cancelled")]}],
             f"repos/{REPO}/actions/runs/901/jobs": [jobs("success")],
             f"repos/{REPO}/actions/runs/900": [dispatch_run(conclusion="cancelled")],
