@@ -461,10 +461,12 @@ final class CmuxTuiSurfaceProviderRegistry {
     // MARK: - internals
     private func performDiscovery(generation: UInt64, updateExisting: Bool) async -> [CmuxTuiSurfaceProvider]? {
         guard !isRetired, !sessionRejected, let catalog else { return nil }
+        let access = accessEpoch
         let page: VMListPage
         do {
             page = try await listPageWithError()
         } catch let error as VMClientError {
+            guard access == accessEpoch, generation == refreshGeneration, !Task.isCancelled, !isRetired else { return nil }
             if error.cloudHTTPError?.rejectsSession == true { sessionRejected = true; pollTask?.cancel(); pollTask = nil; refreshGeneration &+= 1 }
             return nil
         } catch {
@@ -496,25 +498,22 @@ final class CmuxTuiSurfaceProviderRegistry {
             // Updating a known provider invalidates its suspended snapshot;
             // only a full refresh may do that because it also restarts the work.
             if !updateExisting, providers[summary.id] != nil { continue }
-            // A machine listed again after a delete waits for that delete's
-            // teardown, so the teardown cannot close the new provider's
-            // forwards or link.
-            // `machineWasDeleted` keys teardowns by the id it resolved
-            // case-insensitively; look the teardown up the same way.
             let registeredID = registeredMachineID(matching: summary.id)
             if let teardown = machineTeardowns.removeValue(forKey: registeredID) {
                 await teardown.value
                 guard generation == refreshGeneration else { return nil }
             }
-            await links.setPrivateAddresses([summary.addressIPv4, summary.addressIPv6].compactMap { $0 }, for: summary.id)
-            // A delete that ran while that await was suspended bumped the
-            // generation; creating a provider now would hand its link and
-            // forwards to the teardown that delete scheduled.
+            let addresses = [summary.addressIPv4, summary.addressIPv6].compactMap { $0 }
+            let previousAddresses = await links.privateAddresses(for: summary.id)
+            await links.setPrivateAddresses(addresses, for: summary.id)
+            let normalizedAddresses = await links.privateAddresses(for: summary.id)
+            let routeChanged = previousAddresses != normalizedAddresses
             guard generation == refreshGeneration else { return nil }
             if let provider = providers[summary.id] {
-                let stateChanged = provider.summary.status != summary.status || provider.summary.image != summary.image || provider.summary.resolvedKind != summary.resolvedKind
+                let stateChanged = routeChanged || provider.summary.status != summary.status || provider.summary.image != summary.image || provider.summary.resolvedKind != summary.resolvedKind
                 provider.update(summary: summary)
                 if stateChanged { await links.resetRetry(machineID: summary.id) }
+                if routeChanged { provider.resetLinkFailureAfterRouteChange() }
             } else {
                 let provider = CmuxTuiSurfaceProvider(
                     summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope, links: links, catalog: catalog,

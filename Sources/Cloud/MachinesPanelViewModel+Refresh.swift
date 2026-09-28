@@ -51,7 +51,7 @@ extension MachinesPanelViewModel {
     /// transient failure as reconnecting; routine polls keep a settled outage
     /// actionable until that poll itself fails or succeeds.
     func refresh(routinePoll: Bool = false) {
-        guard isCloudEnabled(), let client = client ?? VMClient.shared else { return }
+        guard isCloudEnabled(), listProblem != .sessionRejected, let client = client ?? VMClient.shared else { return }
         guard refreshTask == nil else {
             refreshRequestedWhileLoading = true
             if !routinePoll {

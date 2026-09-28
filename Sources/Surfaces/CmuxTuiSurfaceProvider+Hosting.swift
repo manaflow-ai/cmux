@@ -46,4 +46,12 @@ extension CmuxTuiSurfaceProvider {
         )
     }
 
+    func resetLinkFailureAfterRouteChange() {
+        guard info.linkFailure != nil else { return }
+        info.linkFailure = nil
+        info.linkError = nil
+        info.linkState = .connecting
+        catalog.updateMachine(info, from: self)
+    }
+
 }

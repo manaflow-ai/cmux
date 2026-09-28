@@ -145,7 +145,7 @@ public struct CloudVMRetryLedger: Sendable, Equatable {
         now: Date,
         jitter: Double = 0
     ) -> CloudVMRetryPolicy.Decision {
-        let previous = entries[key]
+        let previous = entries[machineID]
         let attempts = (previous?.attempts ?? 0) + 1
         let startedAt = previous?.startedAt ?? now
         let elapsed = now.timeIntervalSince(startedAt)

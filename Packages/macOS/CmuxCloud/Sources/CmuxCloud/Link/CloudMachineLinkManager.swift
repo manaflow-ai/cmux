@@ -295,11 +295,7 @@ public actor CloudMachineLinkManager {
             let text = CloudMachineLink.errorText(error)
             let typed = (error as? VMClientError)?.cloudHTTPError
             let terminal = typed.map { !$0.admitsAutomaticRetry || $0.requiresRecreate || $0.rejectsSession } ?? false
-            if terminal {
-                lastFailure[machineID] = LinkFailure(at: .now, error: text, typed: typed, terminal: true)
-            } else {
-                lastFailure[machineID] = nil
-            }
+            lastFailure[machineID] = LinkFailure(at: .now, error: text, typed: typed, terminal: terminal)
             links[machineID] = nil
             #if DEBUG
             CMUXDebugLog.logDebugEvent("cloud.link.failed machine=\(machineID) error=\(String(reflecting: error)) text=\(text)")
@@ -470,9 +466,9 @@ public actor CloudMachineLinkManager {
     }
 
     public func resetRetry(machineID: String) async {
-        lastFailure[machineID] = nil
         let client = await MainActor.run { VMClient.shared }
         await client?.resetAttachRetry(machineID: machineID)
+        lastFailure[machineID] = nil
     }
 
     public func disconnectAll() async {
