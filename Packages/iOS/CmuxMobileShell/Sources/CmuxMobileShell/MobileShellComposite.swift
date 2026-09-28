@@ -3333,22 +3333,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         func storedReconnectRoutes(_ mac: MobilePairedMac) -> [CmxAttachRoute] {
             orderedReconnectRoutes(for: mac, supportedKinds: supportedKinds)
         }
-        let loadedActiveMac: MobilePairedMac?
-        let loadedMacs: [MobilePairedMac]
-        do {
-            loadedActiveMac = try await pairedMacStore.activeMac(stackUserID: scope.userID, teamID: scope.teamID)
-            if let result = storedMacReconnectInterruptionResult(generation: generation) {
-                return result ? .connected : .superseded
-            }
-            loadedMacs = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
-        } catch {
-            mobileShellLog.error("paired mac store read failed: \(String(describing: error), privacy: .public)")
-            // A read failure means "couldn't determine," not "no mac": keep the
-            // hint so a transient SQLite error doesn't erase a returning user's
-            // paired state.
-            finishStoredMacReconnectAttempt(generation: generation)
-            return .failed(.unknown)
-        }
+        // `loadPairedMacs()` just hydrated the same scoped store snapshot used
+        // by the Computers screen. Re-reading `activeMac` and `loadAll` here
+        // added two SQLite queries to every cold launch and could delay the
+        // first cached-route dial behind the duplicate I/O. Reuse that coherent
+        // snapshot and derive the active row from its persisted marker.
+        let loadedMacs = storedPairedMacsIncludingHidden
+        let loadedActiveMac = loadedMacs.first(where: \.isActive)
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
