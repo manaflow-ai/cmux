@@ -243,8 +243,9 @@ struct BrowserExtensionsToolbarButton: View {
                         togglePin(item.id)
                     } label: {
                         Image(systemName: pinned ? "pin.fill" : "pin")
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(pinned ? .primary : .secondary)
-                            .frame(width: 24, height: 24)
+                            .frame(width: 22, height: 22)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -317,7 +318,7 @@ private struct BrowserPinnedExtensionButton: View {
     var body: some View {
         Button(action: perform) {
             ZStack(alignment: .bottomTrailing) {
-                BrowserExtensionIcon(icon: action.icon, symbol: "puzzlepiece.extension", size: style.iconPointSize + 2)
+                BrowserExtensionIcon(icon: action.icon, symbol: "puzzlepiece.extension", size: style.iconPointSize)
                     .opacity(action.isEnabled ? 1 : 0.45)
                 if !action.badge.isEmpty {
                     BrowserExtensionBadge(text: action.badge).offset(x: 5, y: 4)
