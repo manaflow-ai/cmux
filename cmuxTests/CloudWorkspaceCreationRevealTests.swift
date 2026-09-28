@@ -188,14 +188,17 @@ struct CloudWorkspaceCreationRevealTests {
             defer { defaults.removePersistentDomain(forName: suite) }
             let operations = CloudWorkspaceOperationController(isAvailable: { true })
             fixture.app.cloudWorkspaceOperationController = operations
+            // The app owns the coordinator; capturing the fixture would keep both alive.
+            defer { fixture.app.cloudWorkspaceCoordinator = nil }
             fixture.app.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
                 machinePinStore: CloudMachinePinStore(defaults: defaults, scopeProvider: { "scope" }),
                 allowsOperation: { true }, loadMachines: { [fixture.provider.machine.rawValue] },
-                createWorkspace: { _ in
+                createWorkspace: { [provider = fixture.provider, catalog = fixture.catalog, weak manager = fixture.manager] _ in
+                    guard let manager else { return nil }
                     // The same unfocused create the app composes for ⌘N.
-                    try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
-                        machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
-                        name: nil, focus: false, host: .init(manager: fixture.manager)
+                    return try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                        machine: provider.machine, provider: provider, catalog: catalog,
+                        name: nil, focus: false, host: .init(manager: manager)
                     ).opened?.workspaceID
                 }
             )
