@@ -142,15 +142,9 @@ struct TerminalFontCard: View {
     private var lineHeightLabel: String {
         switch model.options.cellHeight {
         case .percent(let percent):
-            return String.localizedStringWithFormat(
-                String(localized: "settings.terminal.ghostty.lineHeight.percent", defaultValue: "%@%%"),
-                percent > 0 ? "+\(percent)" : String(percent)
-            )
+            return (percent > 0 ? "+" : "") + "\(percent)%"
         case .pixels(let pixels):
-            return String.localizedStringWithFormat(
-                String(localized: "settings.terminal.ghostty.lineHeight.pixels", defaultValue: "%@ px"),
-                pixels > 0 ? "+\(pixels)" : String(pixels)
-            )
+            return (pixels > 0 ? "+" : "") + "\(pixels) px"
         }
     }
 }
