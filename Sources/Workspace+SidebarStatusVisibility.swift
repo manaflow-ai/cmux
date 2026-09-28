@@ -1,4 +1,5 @@
 import CmuxSidebar
+import CmuxTerminalCore
 import Foundation
 
 extension Workspace {
@@ -187,5 +188,59 @@ extension Workspace {
             return lhs.priority < rhs.priority
         }
         return lhs.key > rhs.key
+    }
+
+    // MARK: Terminal session status (OSC 21337)
+
+    private static let terminalSessionStatusKeyPrefix = "terminal.session-status."
+
+    /// The status key a terminal surface's OSC 21337 output writes, one per
+    /// surface so split panes never overwrite each other.
+    static func terminalSessionStatusKey(panelId: UUID) -> String {
+        terminalSessionStatusKeyPrefix + panelId.uuidString.lowercased()
+    }
+
+    static func isTerminalSessionStatusKey(_ key: String) -> Bool {
+        key.hasPrefix(terminalSessionStatusKeyPrefix)
+    }
+
+    /// Shows or clears the sidebar entry for a surface's session status. A
+    /// surface that already left this workspace is ignored, so a publish that
+    /// raced the close cannot bring the entry back. The entry only draws: it
+    /// never carries a URL or markdown.
+    func applyTerminalSessionStatus(_ status: TerminalSessionStatus, panelId: UUID) {
+        let key = Self.terminalSessionStatusKey(panelId: panelId)
+        guard panels[panelId] != nil, let text = status.displayText else {
+            if statusEntries[key] != nil {
+                statusEntries.removeValue(forKey: key)
+            }
+            return
+        }
+        let icon = status.indicator == nil ? nil : "circle.fill"
+        let color = status.displayColor
+        guard TerminalController.shouldReplaceStatusEntry(
+            current: statusEntries[key],
+            key: key,
+            value: text,
+            icon: icon,
+            color: color,
+            url: nil,
+            priority: 0,
+            format: .plain
+        ) else {
+            return
+        }
+        statusEntries[key] = SidebarStatusEntry(key: key, value: text, icon: icon, color: color)
+    }
+
+    /// Drops session status entries whose surface is gone.
+    func pruneTerminalSessionStatusEntries(validSurfaceIds: Set<UUID>) {
+        for key in statusEntries.keys where Self.isTerminalSessionStatusKey(key) {
+            let rawId = key.dropFirst(Self.terminalSessionStatusKeyPrefix.count)
+            if let panelId = UUID(uuidString: String(rawId)), validSurfaceIds.contains(panelId) {
+                continue
+            }
+            statusEntries.removeValue(forKey: key)
+        }
     }
 }

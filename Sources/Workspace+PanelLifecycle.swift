@@ -576,6 +576,10 @@ extension Workspace {
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
         agentStatusEntriesByPanelId.removeValue(forKey: panelId)
+        let sessionStatusKey = Self.terminalSessionStatusKey(panelId: panelId)
+        if statusEntries[sessionStatusKey] != nil {
+            statusEntries.removeValue(forKey: sessionStatusKey)
+        }
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
