@@ -21,7 +21,7 @@ struct RestoredAgentLifecycleProjectionTests {
         let queued = snapshot("queued")
         lifecycle.seedSessionRestore(
             panelId: panelID, snapshot: queued, manualResumeAvailable: true,
-            willRunStartupCommand: false, willRunStartupInput: true,
+            willRunStartupInput: true,
             resumeWorkingDirectory: queued.workingDirectory
         )
         await confirmation(expectedCount: 0) { changed in
@@ -81,7 +81,7 @@ struct RestoredAgentLifecycleProjectionTests {
         let lifecycle = RestoredAgentLifecycleCoordinator(dateProvider: { 100 })
         lifecycle.seedSessionRestore(
             panelId: panelID, snapshot: snapshot("queued"), manualResumeAvailable: true,
-            willRunStartupCommand: false, willRunStartupInput: true, resumeWorkingDirectory: nil
+            willRunStartupInput: true, resumeWorkingDirectory: nil
         )
         lifecycle.setResumeState(.autoResumeCommandRunning, panelId: panelID)
         lifecycle.setSnapshot(snapshot("unrelated"), panelId: panelID)
