@@ -13,6 +13,9 @@ final class TerminalAgentTurnControlView: NSView {
     private let backdrop = NSVisualEffectView(frame: .zero)
     private let stopButton = TerminalAgentTurnControlButton(frame: .zero)
     private(set) var target: AgentTurnInterruptTarget?
+    /// How long Stop stays disabled after a click.
+    static let stopHoldInterval: TimeInterval = 1.5
+    private var stopHoldGeneration: UInt64 = 0
     private var isEnabledBySetting = false
     /// Registered only while an agent is running, so toggling the setting
     /// mid-turn applies at once without every idle terminal observing defaults.
@@ -81,6 +84,10 @@ final class TerminalAgentTurnControlView: NSView {
             reloadSetting()
         }
         observeSetting(target != nil)
+        if target != self.target {
+            stopHoldGeneration &+= 1
+            stopButton.isEnabled = true
+        }
         self.target = target
         render()
     }
@@ -132,7 +139,16 @@ final class TerminalAgentTurnControlView: NSView {
     }
 
     @objc private func handleStop() {
-        guard let target, isEnabledBySetting else { return }
+        guard let target, isEnabledBySetting, stopButton.isEnabled else { return }
+        // One Escape per click: a second Escape at Claude's idle prompt opens
+        // its rewind menu. Hold the button until the lifecycle catches up.
+        stopButton.isEnabled = false
+        let generation = stopHoldGeneration &+ 1
+        stopHoldGeneration = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.stopHoldInterval) { [weak self] in
+            guard let self, self.stopHoldGeneration == generation else { return }
+            self.stopButton.isEnabled = true
+        }
         onInterrupt?(target)
     }
 }

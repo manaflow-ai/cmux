@@ -1,4 +1,3 @@
-import CmuxMobileHost
 import Foundation
 
 extension TerminalPanel {
@@ -14,8 +13,9 @@ extension TerminalPanel {
         view.setRunningTarget(AgentTurnInterruptTarget.resolve(statusKeyedStates: containerAgentLifecycleStates))
     }
 
-    /// Sends the agent's interrupt keys, then journals the interrupt so the
-    /// pane leaves `running`: agents run no Stop hook when interrupted.
+    /// Sends the agent's interrupt keys, then, for Claude Code, journals the
+    /// interrupt so the pane leaves `running`: Claude runs no Stop hook when
+    /// interrupted.
     func interruptAgentTurn(_ target: AgentTurnInterruptTarget) {
         guard AgentTurnInterruptTarget.resolve(statusKeyedStates: containerAgentLifecycleStates) == target else {
             refreshAgentTurnControl()
@@ -24,13 +24,13 @@ extension TerminalPanel {
         for key in target.interruptKeys {
             _ = sendNamedKeyResult(key.rawValue)
         }
-        let entries = AgentChatHookSessionStore().entries(agentSource: target.hookSource)
-        guard let draft = target.interruptDraft(
-            surfaceID: id,
-            fallbackWorkspaceID: workspaceId,
-            entries: entries
-        ) else { return }
-        AgentJournalLifecycleCenter.shared.enqueueAppend(draft)
+        guard target.settlesTurnInJournal else { return }
+        AgentJournalLifecycleCenter.shared.recordUserInterrupt(
+            surfaceId: id,
+            workspaceId: workspaceId,
+            agentKey: target.statusKey,
+            source: target.hookSource
+        )
     }
 
     /// Per-agent lifecycle for this pane from whichever container owns it.

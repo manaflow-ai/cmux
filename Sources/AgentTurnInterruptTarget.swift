@@ -1,5 +1,3 @@
-import CmuxAgentJournal
-import CmuxMobileHost
 import Foundation
 
 /// The agent a terminal pane's Stop button interrupts, and how.
@@ -14,7 +12,7 @@ enum AgentTurnInterruptTarget: String, CaseIterable, Equatable, Sendable {
     /// Sidebar lifecycle key.
     var statusKey: String { rawValue }
 
-    /// Agent slug that names the hook session store and journal source.
+    /// Agent slug its hooks journal under.
     var hookSource: String {
         switch self {
         case .claudeCode: "claude"
@@ -29,6 +27,13 @@ enum AgentTurnInterruptTarget: String, CaseIterable, Equatable, Sendable {
         }
     }
 
+    /// Whether cmux journals the interrupt so the pane leaves `running`.
+    /// Only Claude Code: it runs no Stop hook on interrupt, and its next
+    /// PreToolUse declares the pane running again if the turn continues.
+    /// Codex journals lifecycle only at prompt submit and Stop, so a settle
+    /// could mark a still-working Codex pane idle for the rest of the turn.
+    var settlesTurnInJournal: Bool { self == .claudeCode }
+
     /// Named keys that interrupt the running turn.
     var interruptKeys: [TextBoxTerminalKey] { [.escape] }
 
@@ -38,40 +43,5 @@ enum AgentTurnInterruptTarget: String, CaseIterable, Equatable, Sendable {
         statusKeyedStates: [String: AgentHibernationLifecycleState]
     ) -> AgentTurnInterruptTarget? {
         allCases.first { statusKeyedStates[$0.statusKey] == .running }
-    }
-
-    /// The session to settle after an interrupt: the newest hook-store entry
-    /// bound to the surface. `nil` when the store has no binding for it.
-    func interruptedSession(
-        surfaceID: UUID,
-        entries: [AgentChatHookSessionStore.Entry]
-    ) -> AgentChatHookSessionStore.Entry? {
-        let surface = surfaceID.uuidString
-        return entries
-            .filter { $0.surfaceID?.caseInsensitiveCompare(surface) == .orderedSame }
-            .max { ($0.updatedAt ?? .distantPast) < ($1.updatedAt ?? .distantPast) }
-    }
-
-    /// Journal event that ends the interrupted turn, or `nil` when no session
-    /// is bound to the surface. The hook store's workspace wins over
-    /// `fallbackWorkspaceID` so the event matches the one the hooks journal.
-    func interruptDraft(
-        surfaceID: UUID,
-        fallbackWorkspaceID: UUID,
-        entries: [AgentChatHookSessionStore.Entry],
-        now: Date = Date()
-    ) -> AgentJournalEventDraft? {
-        guard let session = interruptedSession(surfaceID: surfaceID, entries: entries) else {
-            return nil
-        }
-        let workspaceID = session.workspaceID.flatMap(UUID.init(uuidString:)) ?? fallbackWorkspaceID
-        return .userInterrupt(
-            source: hookSource,
-            agentKey: statusKey,
-            sessionId: session.sessionID,
-            workspaceId: workspaceID.uuidString,
-            surfaceId: surfaceID.uuidString,
-            occurredAt: now
-        )
     }
 }
