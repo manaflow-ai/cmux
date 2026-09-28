@@ -49,6 +49,11 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     private var pendingInputBySurfaceID: [String: Data] = [:]
     /// Consecutive failed catalog reads per machine, which pace the retry.
     private var catalogFailureCounts: [String: Int] = [:]
+    /// The grid each surface's emulator was last painted for (its snapshot,
+    /// or a daemon resize the emulator followed).
+    private var appliedGridBySurfaceID: [String: (columns: Int, rows: Int)] = [:]
+    /// One pending repaint per machine after the daemon changed the grid.
+    private var resizeRepaintTasks: [String: Task<Void, Never>] = [:]
     /// Each machine's last catalog read, republished with a degraded status
     /// when the link drops or a read fails. Emptying the rows instead would
     /// strand an open terminal: its view resolves its surface through them
@@ -504,6 +509,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     /// Ends one machine's attachment and its ordered delivery, leaving the
     /// link itself open for the catalog.
     private func teardownAttachment(machineID: String) {
+        resizeRepaintTasks.removeValue(forKey: machineID)?.cancel()
         attachTasks.removeValue(forKey: machineID)?.cancel()
         attachments.removeValue(forKey: machineID)?.detach()
         outputStreams.removeValue(forKey: machineID)?.finish()
@@ -514,21 +520,60 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     private func deliver(_ event: CloudTerminalOutputEvent, surfaceID: String) {
         guard let store else { return }
         switch event {
-        case .snapshot(let replay, _, _):
+        case .snapshot(let replay, let cols, let rows):
             // A snapshot is the daemon's whole screen, so it replaces what is
-            // on screen rather than appending to it.
+            // on screen rather than appending to it, and it defines the grid
+            // everything after it is painted for.
+            appliedGridBySurfaceID[surfaceID] = (cols, rows)
+            if let machineID = CloudAddress(parsing: surfaceID)?.machineID {
+                resizeRepaintTasks.removeValue(forKey: machineID)?.cancel()
+            }
             store.deliverExternalHostTerminalReplay(replay, surfaceID: surfaceID)
         case .output(let bytes):
             store.deliverExternalHostTerminalBytes(bytes, surfaceID: surfaceID)
-        case .resized:
-            // The phone drives the grid, so a daemon resize needs no local
-            // action; the emulator already holds the size it reported.
-            break
+        case .resized(let cols, let rows):
+            // The daemon's grid moved away from the one this surface was
+            // painted for. That happens when another viewer resizes a shared
+            // terminal (a daemon without viewer-size priority takes the
+            // smallest grid), and from then on the program repaints only the
+            // cells it thinks changed, on a grid the emulator is not at, so
+            // stale cells survive on screen. No incremental stream repairs
+            // that; only a fresh snapshot does. Repaint after a short settle
+            // so a burst of drags costs one repaint.
+            guard appliedGridBySurfaceID[surfaceID].map({ $0 != (cols, rows) }) ?? false else { break }
+            scheduleResizeRepaint(surfaceID: surfaceID)
         case .exited:
             store.deliverExternalHostTerminalBytes(
                 Data("\r\n[process exited]\r\n".utf8),
                 surfaceID: surfaceID
             )
+        }
+    }
+
+    /// The settle before a grid-change repaint, long enough to coalesce a
+    /// resize drag, short enough that a corrupted screen barely shows.
+    static let resizeRepaintSettle: Duration = .milliseconds(400)
+
+    /// Re-attaches `surfaceID` for a fresh snapshot once the daemon's grid
+    /// stops moving. The attach path itself re-reports the phone's grid, so
+    /// after the repaint the daemon and the emulator agree again.
+    private func scheduleResizeRepaint(surfaceID: String) {
+        guard let machineID = CloudAddress(parsing: surfaceID)?.machineID else { return }
+        resizeRepaintTasks[machineID]?.cancel()
+        resizeRepaintTasks[machineID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await retryClock.sleep(for: Self.resizeRepaintSettle)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            resizeRepaintTasks.removeValue(forKey: machineID)
+            guard attachedSurfaceIDsByMachine[machineID] == surfaceID,
+                  let machine = admittedMachines.first(where: { $0.id == machineID }),
+                  let terminalID = CloudAddress(parsing: surfaceID)?.component else { return }
+            bridgeLog.notice("grid changed under surface; repainting machine=\(machineID, privacy: .public) terminal=\(terminalID, privacy: .public)")
+            ensureAttached(surfaceID: surfaceID, machine: machine, terminalID: terminalID, forceReattach: true)
         }
     }
 
@@ -612,6 +657,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         if let surfaceID = attachedSurfaceIDsByMachine.removeValue(forKey: machineID) {
             lastReportedGridBySurfaceID.removeValue(forKey: surfaceID)
             pendingInputBySurfaceID.removeValue(forKey: surfaceID)
+            appliedGridBySurfaceID.removeValue(forKey: surfaceID)
         }
         store?.removeExternalHostWorkspaceState(
             macDeviceID: CloudAddress(machineID: machineID).identifier
@@ -626,6 +672,9 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
             .union(deliveryTasks.keys) {
             teardownAttachment(machineID: machineID)
         }
+        for task in resizeRepaintTasks.values { task.cancel() }
+        resizeRepaintTasks = [:]
+        appliedGridBySurfaceID = [:]
         catalogTasks = [:]
         catalogFailureCounts = [:]
         lastCatalogs = [:]
