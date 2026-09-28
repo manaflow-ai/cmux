@@ -567592,6 +567592,655 @@
           }
         }
       }
+    },
+    "cli.agents.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agents observed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تتم ملاحظة أي وكلاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Agenten beobachtet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se observaron agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun agent observé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "観測されたエージェントはありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "관찰된 에이전트 없음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未观察到任何代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未觀察到任何代理"
+          }
+        }
+      }
+    },
+    "cli.agents.endedHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ended agents are hidden; --all shows them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكلاء المنتهون مخفيون؛ يعرضهم --all."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beendete Agenten sind ausgeblendet; --all zeigt sie an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes finalizados están ocultos; --all los muestra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents terminés sont masqués ; --all les affiche."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了済みのエージェントは非表示です。--all で表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료된 에이전트는 숨겨져 있습니다. --all로 표시합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已结束的代理已隐藏；使用 --all 显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已結束的代理已隱藏；使用 --all 顯示。"
+          }
+        }
+      }
+    },
+    "cli.agents.error.ambiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: '%@' matches more than one agent; pass a longer name or a resource ref:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: '%@' يطابق أكثر من وكيل؛ حدّد اسمًا أطول أو مرجع مورد:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: '%@' passt auf mehr als einen Agenten; einen längeren Namen oder eine Ressourcenreferenz angeben:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: '%@' coincide con más de un agente; indica un nombre más largo o una referencia de recurso:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: '%@' correspond à plusieurs agents ; indiquez un nom plus long ou une référence de ressource :"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: '%@' は複数のエージェントに一致します。より長い名前かリソース参照を指定してください:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: '%@'이(가) 여러 에이전트와 일치합니다. 더 긴 이름이나 리소스 참조를 지정하세요:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: '%@' 匹配多个代理；请提供更长的名称或资源引用："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: '%@' 符合多個代理；請提供較長的名稱或資源參照："
+          }
+        }
+      }
+    },
+    "cli.agents.error.argument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: unexpected argument '%@'. Known: ls, open <name>, --all, --state <state>, --json"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: وسيطة غير متوقعة '%@'. المعروفة: ls, open <name>, --all, --state <state>, --json"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: unerwartetes Argument '%@'. Bekannt: ls, open <name>, --all, --state <state>, --json"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: argumento inesperado '%@'. Conocidos: ls, open <name>, --all, --state <state>, --json"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: argument inattendu '%@'. Connus : ls, open <name>, --all, --state <state>, --json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: 予期しない引数 '%@'。既知: ls, open <name>, --all, --state <state>, --json"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: 예상치 못한 인수 '%@'. 사용 가능: ls, open <name>, --all, --state <state>, --json"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: 意外的参数 '%@'。已知: ls, open <name>, --all, --state <state>, --json"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: 非預期的引數 '%@'。已知: ls, open <name>, --all, --state <state>, --json"
+          }
+        }
+      }
+    },
+    "cli.agents.error.noMatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: no agent matches '%@'. See: cmux agents --all"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: لا يوجد وكيل يطابق '%@'. راجع: cmux agents --all"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: kein Agent passt zu '%@'. Siehe: cmux agents --all"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: ningún agente coincide con '%@'. Consulta: cmux agents --all"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: aucun agent ne correspond à '%@'. Voir : cmux agents --all"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: '%@' に一致するエージェントはありません。参照: cmux agents --all"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: '%@'와(과) 일치하는 에이전트가 없습니다. 참고: cmux agents --all"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: 没有代理匹配 '%@'。参见: cmux agents --all"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: 沒有代理符合 '%@'。請參閱: cmux agents --all"
+          }
+        }
+      }
+    },
+    "cli.agents.error.openUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: open needs a name, resource ref or session id. See: cmux agents"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: يحتاج open إلى اسم أو مرجع مورد أو معرّف جلسة. راجع: cmux agents"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: open benötigt einen Namen, eine Ressourcenreferenz oder eine Sitzungs-ID. Siehe: cmux agents"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: open necesita un nombre, una referencia de recurso o un ID de sesión. Consulta: cmux agents"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: open nécessite un nom, une référence de ressource ou un identifiant de session. Voir : cmux agents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: open には名前、リソース参照、またはセッション ID が必要です。参照: cmux agents"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: open에는 이름, 리소스 참조 또는 세션 ID가 필요합니다. 참고: cmux agents"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: open 需要名称、资源引用或会话 ID。参见: cmux agents"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: open 需要名稱、資源參照或工作階段 ID。請參閱: cmux agents"
+          }
+        }
+      }
+    },
+    "cli.agents.error.response": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: invalid response (missing items)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: استجابة غير صالحة (items مفقود)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: Ungültige Antwort (items fehlt)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: respuesta no válida (falta items)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents : réponse non valide (items manquant)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: 無効な応答（items がありません）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: 잘못된 응답(items 누락)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents：无效的响应（缺少 items）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents：無效的回應（缺少 items）"
+          }
+        }
+      }
+    },
+    "cli.agents.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agents [ls] [--all] [--state <state>] [--json]\n       cmux agents open <name|resource|session-id>\n\nList the coding agents cmux knows about across local, SSH and Cloud\nterminals: name, state, agent kind, where it runs, cwd and pull requests.\nRows needing input come first, then working, idle and ended agents.\nReads cached facts only; nothing is refreshed, typed or focused.\n\nopen jumps to the agent's terminal. It matches a resource ref or session\nid, then an exact name, then a unique part of a name (case-insensitive).\nAn ambiguous name lists the candidates instead of guessing.\n\nFlags:\n  --all            Include ended agents\n  --state <state>  Only needs_input, working, idle, unknown or ended (repeatable)\n  --json           Machine-readable rows with stable resource refs and session ids\n\nExamples:\n  cmux agents\n  cmux agents --state needs_input\n  cmux agents --json\n  cmux agents open \"review pr\""
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux agents [ls] [--all] [--state <state>] [--json]\n       cmux agents open <name|resource|session-id>\n\nيعرض وكلاء البرمجة التي يعرفها cmux عبر الطرفيات المحلية وSSH وCloud:\nالاسم والحالة ونوع الوكيل ومكان التشغيل وcwd وطلبات السحب.\nتظهر الصفوف التي تحتاج إلى إدخال أولًا، ثم الوكلاء قيد العمل والخاملون والمنتهون.\nيقرأ المعلومات المخزنة مؤقتًا فقط؛ لا يتم تحديث أي شيء أو كتابته أو التركيز عليه.\n\nينتقل open إلى طرفية الوكيل. يطابق مرجع مورد أو معرّف\nجلسة، ثم اسمًا مطابقًا تمامًا، ثم جزءًا فريدًا من اسم (دون تمييز حالة الأحرف).\nيعرض الاسم الغامض المرشحين بدلًا من التخمين.\n\nالخيارات:\n  --all            تضمين الوكلاء المنتهين\n  --state <state>  needs_input أو working أو idle أو unknown أو ended فقط (قابل للتكرار)\n  --json           صفوف قابلة للقراءة آليًا مع مراجع موارد ومعرّفات جلسات ثابتة\n\nأمثلة:\n  cmux agents\n  cmux agents --state needs_input\n  cmux agents --json\n  cmux agents open \"review pr\""
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux agents [ls] [--all] [--state <state>] [--json]\n       cmux agents open <name|resource|session-id>\n\nListet die Coding-Agenten, die cmux in lokalen, SSH- und Cloud-Terminals kennt:\nName, Status, Agent-Art, Ausführungsort, cwd und Pull Requests.\nZeilen, die eine Eingabe benötigen, stehen zuerst, dann arbeitende, inaktive und beendete Agenten.\nLiest nur zwischengespeicherte Fakten; nichts wird aktualisiert, eingegeben oder fokussiert.\n\nopen springt zum Terminal des Agenten. Gesucht wird nach einer Ressourcenreferenz oder\nSitzungs-ID, dann nach einem exakten Namen, dann nach einem eindeutigen Namensteil (ohne Groß-/Kleinschreibung).\nEin mehrdeutiger Name listet die Kandidaten auf, statt zu raten.\n\nOptionen:\n  --all            Beendete Agenten einbeziehen\n  --state <state>  Nur needs_input, working, idle, unknown oder ended (wiederholbar)\n  --json           Maschinenlesbare Zeilen mit stabilen Ressourcenreferenzen und Sitzungs-IDs\n\nBeispiele:\n  cmux agents\n  cmux agents --state needs_input\n  cmux agents --json\n  cmux agents open \"review pr\""
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux agents [ls] [--all] [--state <state>] [--json]\n       cmux agents open <name|resource|session-id>\n\nLista los agentes de programación que cmux conoce en terminales locales, SSH y Cloud:\nnombre, estado, tipo de agente, dónde se ejecuta, cwd y pull requests.\nPrimero aparecen las filas que necesitan entrada, luego los agentes en ejecución, inactivos y finalizados.\nSolo lee datos en caché; no se actualiza, escribe ni enfoca nada.\n\nopen salta al terminal del agente. Busca una referencia de recurso o un ID de\nsesión, luego un nombre exacto y después una parte única de un nombre (sin distinguir mayúsculas).\nUn nombre ambiguo lista los candidatos en lugar de adivinar.\n\nOpciones:\n  --all            Incluir agentes finalizados\n  --state <state>  Solo needs_input, working, idle, unknown o ended (repetible)\n  --json           Filas legibles por máquina con referencias de recurso e ID de sesión estables\n\nEjemplos:\n  cmux agents\n  cmux agents --state needs_input\n  cmux agents --json\n  cmux agents open \"review pr\""
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation: cmux agents [ls] [--all] [--state <state>] [--json]\n       cmux agents open <name|resource|session-id>\n\nListe les agents de code connus de cmux dans les terminaux locaux, SSH et Cloud :\nnom, état, type d’agent, lieu d’exécution, cwd et pull requests.\nLes lignes en attente de saisie apparaissent d’abord, puis les agents actifs, inactifs et terminés.\nLit uniquement des données en cache ; rien n’est actualisé, saisi ni mis au premier plan.\n\nopen accède au terminal de l’agent. Il cherche une référence de ressource ou un identifiant\nde session, puis un nom exact, puis une partie unique d’un nom (sans tenir compte de la casse).\nUn nom ambigu liste les candidats au lieu de deviner.\n\nOptions:\n  --all            Inclure les agents terminés\n  --state <state>  Uniquement needs_input, working, idle, unknown ou ended (répétable)\n  --json           Lignes lisibles par machine avec références de ressource et identifiants de session stables\n\nExemples:\n  cmux agents\n  cmux agents --state needs_input\n  cmux agents --json\n  cmux agents open \"review pr\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux agents [ls] [--all] [--state <state>] [--json]\n       cmux agents open <name|resource|session-id>\n\nローカル、SSH、Cloud のターミナルで cmux が把握しているコーディングエージェントを一覧表示します:\n名前、状態、エージェントの種類、実行場所、cwd、プルリクエスト。\n入力待ちの行が先頭に表示され、その後に作業中、アイドル、終了済みのエージェントが続きます。\nキャッシュ済みの情報のみを読み取り、更新、入力、フォーカスは行いません。\n\nopen はエージェントのターミナルに移動します。リソース参照またはセッション\nID、完全一致の名前、名前の一意な部分（大文字と小文字を区別しない）の順に照合します。\n名前があいまいな場合は推測せずに候補を一覧表示します。\n\nフラグ:\n  --all            終了済みのエージェントを含める\n  --state <state>  needs_input、working、idle、unknown、ended のみ（複数指定可）\n  --json           安定したリソース参照とセッション ID を含む機械可読な行\n\n例:\n  cmux agents\n  cmux agents --state needs_input\n  cmux agents --json\n  cmux agents open \"review pr\""
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux agents [ls] [--all] [--state <state>] [--json]\n       cmux agents open <name|resource|session-id>\n\ncmux가 로컬, SSH, Cloud 터미널에서 알고 있는 코딩 에이전트를 나열합니다:\n이름, 상태, 에이전트 종류, 실행 위치, cwd, 풀 리퀘스트.\n입력이 필요한 행이 먼저 표시되고, 그다음 작업 중, 유휴, 종료된 에이전트가 표시됩니다.\n캐시된 정보만 읽으며 새로 고침, 입력, 포커스는 하지 않습니다.\n\nopen은 에이전트의 터미널로 이동합니다. 리소스 참조나 세션\nID, 정확한 이름, 이름의 고유한 일부(대소문자 구분 없음) 순으로 일치시킵니다.\n이름이 모호하면 추측하지 않고 후보를 나열합니다.\n\n플래그:\n  --all            종료된 에이전트 포함\n  --state <state>  needs_input, working, idle, unknown, ended만(반복 가능)\n  --json           안정적인 리소스 참조와 세션 ID가 포함된 기계 판독용 행\n\n예시:\n  cmux agents\n  cmux agents --state needs_input\n  cmux agents --json\n  cmux agents open \"review pr\""
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux agents [ls] [--all] [--state <state>] [--json]\n       cmux agents open <name|resource|session-id>\n\n列出 cmux 在本地、SSH 和 Cloud 终端中已知的编程代理：\n名称、状态、代理类型、运行位置、cwd 和 pull request。\n需要输入的行排在最前，然后是工作中、空闲和已结束的代理。\n仅读取缓存信息；不会刷新、输入或聚焦任何内容。\n\nopen 会跳转到代理的终端。依次匹配资源引用或会话\nID、完整名称，再匹配名称中唯一的部分（不区分大小写）。\n名称不明确时会列出候选项，而不是猜测。\n\n选项:\n  --all            包含已结束的代理\n  --state <state>  仅限 needs_input、working、idle、unknown 或 ended（可重复）\n  --json           机器可读的行，包含稳定的资源引用和会话 ID\n\n示例:\n  cmux agents\n  cmux agents --state needs_input\n  cmux agents --json\n  cmux agents open \"review pr\""
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux agents [ls] [--all] [--state <state>] [--json]\n       cmux agents open <name|resource|session-id>\n\n列出 cmux 在本機、SSH 與 Cloud 終端機中已知的程式設計代理：\n名稱、狀態、代理種類、執行位置、cwd 與 pull request。\n需要輸入的列排在最前，接著是工作中、閒置與已結束的代理。\n僅讀取快取資訊；不會重新整理、輸入或聚焦任何內容。\n\nopen 會跳至代理的終端機。依序比對資源參照或工作階段\nID、完整名稱，再比對名稱中唯一的部分（不分大小寫）。\n名稱不明確時會列出候選項目，而不是自行猜測。\n\n旗標:\n  --all            包含已結束的代理\n  --state <state>  僅限 needs_input、working、idle、unknown 或 ended（可重複）\n  --json           機器可讀的列，包含穩定的資源參照與工作階段 ID\n\n範例:\n  cmux agents\n  cmux agents --state needs_input\n  cmux agents --json\n  cmux agents open \"review pr\""
+          }
+        }
+      }
+    },
+    "cli.agents.limited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More work was observed than one read returns; some agents may be missing."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت ملاحظة عمل أكثر مما تُرجعه قراءة واحدة؛ قد يكون بعض الوكلاء مفقودين."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es wurde mehr Arbeit beobachtet, als ein Lesevorgang liefert; einige Agenten fehlen möglicherweise."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se observó más trabajo del que devuelve una sola lectura; es posible que falten algunos agentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus de travail a été observé qu’une seule lecture n’en renvoie ; certains agents peuvent manquer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 回の読み取りで返される以上の作業が観測されました。一部のエージェントが欠けている可能性があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 번의 읽기로 반환되는 것보다 많은 작업이 관찰되었습니다. 일부 에이전트가 누락되었을 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "观察到的工作多于单次读取可返回的数量；可能缺少部分代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "觀察到的工作多於單次讀取可傳回的數量；可能缺少部分代理。"
+          }
+        }
+      }
+    },
+    "cli.agents.openHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jump to one: cmux agents open <name>"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتقل إلى أحدهم: cmux agents open <name>"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu einem springen: cmux agents open <name>"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ir a uno: cmux agents open <name>"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accéder à l’un d’eux : cmux agents open <name>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動するには: cmux agents open <name>"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나로 이동: cmux agents open <name>"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳转到其中一个: cmux agents open <name>"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳至其中一個: cmux agents open <name>"
+          }
+        }
+      }
+    },
+    "cli.agents.opened": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opened %@ (%@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم فتح %@ (%@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ geöffnet (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se abrió %@ (%@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ouvert (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を開きました（%@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 열림(%@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已打开 %@（%@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已開啟 %@（%@）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

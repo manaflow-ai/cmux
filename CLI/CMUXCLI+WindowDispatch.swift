@@ -21,7 +21,8 @@ extension CMUXCLI {
             // not activate a window as a side effect of global --window parsing.
             return false
         }
-        if normalizedCommand == "read-screen" || normalizedCommand == "read-selection" || normalizedCommand == "current" {
+        if normalizedCommand == "read-screen" || normalizedCommand == "read-selection" || normalizedCommand == "current"
+            || normalizedCommand == "agents" {
             return false
         }
         if normalizedCommand == "rpc",
