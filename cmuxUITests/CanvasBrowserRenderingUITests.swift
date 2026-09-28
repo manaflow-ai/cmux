@@ -5,7 +5,7 @@ import XCTest
 /// A browser snapshot cannot detect a texture painted outside its native view.
 final class CanvasBrowserRenderingUITests: BrowserFixtureSocketTestCase {
     func testBrowserPixelsFollowCanvasPaneAfterSocketSplit() throws {
-        let app = try launchApp()
+        let app = try launchApp(additionalLaunchArguments: ["-fileExplorer.isVisible", "NO"])
         let window = app.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 10))
         let workspace = try socketResult(
@@ -18,6 +18,13 @@ final class CanvasBrowserRenderingUITests: BrowserFixtureSocketTestCase {
         try setFrame(surfaceID: sourceID, workspaceID: workspaceID, x: 0, y: 0)
 
         for iteration in 1...3 {
+            // Frame both the source and its right-hand split before opening
+            // the browser. Persisted viewport/sidebar state can otherwise put
+            // a correctly rendered split outside the captured window.
+            try socketResult(
+                method: "canvas.set_viewport",
+                params: ["workspace_id": workspaceID, "x": 430, "y": 150, "zoom": 0.7]
+            )
             let opened = try socketResult(
                 method: "browser.open_split",
                 params: [
