@@ -127,23 +127,20 @@ struct AgentSessionRecovery: Sendable {
     /// The shell input that resumes `candidate`: through its recorded
     /// launcher when there is one, otherwise the kind's normal resume command.
     static func resumeCommand(for candidate: AgentRecoveryCandidate) -> String? {
+        guard let kind = RestorableAgentKind(rawValue: candidate.kind) else { return nil }
         if let arguments = candidate.launcherResumeArguments {
-            return arguments.map(shellQuoted).joined(separator: " ")
+            return AgentResumeCommandBuilder.launcherResumeShellCommand(
+                kind: kind,
+                sessionId: candidate.sessionId,
+                launchCommand: candidate.launchCommand,
+                launcherArguments: arguments
+            )
         }
-        return RestorableAgentKind(rawValue: candidate.kind)?.resumeCommand(
+        return kind.resumeCommand(
             sessionId: candidate.sessionId,
             launchCommand: candidate.launchCommand,
             workingDirectory: candidate.cwd
         )
-    }
-
-    static func shellQuoted(_ value: String) -> String {
-        let plain = CharacterSet(charactersIn:
-            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@%+=:,./_-")
-        if !value.isEmpty, value.unicodeScalars.allSatisfy({ plain.contains($0) }) {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// Workspace title for a recovered session: the cwd's last component.
@@ -240,18 +237,17 @@ extension AppDelegate {
               SessionRestorePolicy.shouldAttemptRestore(),
               !SessionRestorePolicy.isRunningUnderAutomatedTests() else { return }
         didScheduleAgentSessionRecovery = true
-        // Give restored panels a moment to claim their agents first.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-            guard let self, !self.isTerminatingApp else { return }
-            let openSessionIds = self.openAgentSessionIdsForRecovery()
-            let recovery = AgentSessionRecovery()
-            let activeSince = self.previousSessionLaunchStartedAt
-            Task.detached(priority: .utility) {
-                let candidates = recovery.candidates(openSessionIds: openSessionIds, activeSince: activeSince)
-                guard !candidates.isEmpty else { return }
-                await MainActor.run { [weak self] in
-                    self?.offerAgentSessionRecovery(candidates)
-                }
+        // Runs once session restore has completed: restored panels, including
+        // staged and deferred agent resumes, are already visible to the open-id
+        // scan, and restoreRecoveredAgentSessions repeats it before launching.
+        let openSessionIds = openAgentSessionIdsForRecovery()
+        let recovery = AgentSessionRecovery()
+        let activeSince = previousSessionLaunchStartedAt
+        Task.detached(priority: .utility) {
+            let candidates = recovery.candidates(openSessionIds: openSessionIds, activeSince: activeSince)
+            guard !candidates.isEmpty else { return }
+            await MainActor.run { [weak self] in
+                self?.offerAgentSessionRecovery(candidates)
             }
         }
     }

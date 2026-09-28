@@ -7,55 +7,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux session restore [--list] [--session <id>]...\n\nReopen Claude sessions that were running when cmux last quit unexpectedly.\ncmux finds them in the agent journal, skips any that are running or already\nopen, and resumes each in its own workspace through the launcher that started\nit (for example `sr claude proxy --account <x>`).\n\nWithout --session, restore acts only after an unexpected quit.\n\nOptions:\n  --list            Show the sessions without restoring them.\n  --session <id>    Restore only this session (repeatable)."
+            "value": "Usage: cmux session restore [--list] [--session <id>]...\n\nReopen Claude sessions that were running when cmux last quit unexpectedly.\ncmux finds them in the agent journal, skips any that are running or already\nopen, and resumes each in its own workspace through the launcher that started\nit.\n\nWithout --session, restore acts only after an unexpected quit.\n\nOptions:\n  --list            Show the sessions without restoring them.\n  --session <id>    Restore only this session (repeatable)."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux session restore [--list] [--session <id>]...\n\nÖffnet Claude-Sitzungen erneut, die liefen, als cmux zuletzt unerwartet beendet wurde.\ncmux findet sie im Agent-Journal, überspringt laufende oder bereits geöffnete\nund setzt jede in einem eigenen Workspace über den Launcher fort, der sie gestartet hat\n(zum Beispiel `sr claude proxy --account <x>`).\n\nOhne --session stellt restore nur nach einem unerwarteten Beenden wieder her.\n\nOptionen:\n  --list            Sitzungen anzeigen, ohne sie wiederherzustellen.\n  --session <id>    Nur diese Sitzung wiederherstellen (wiederholbar)."
+            "value": "Verwendung: cmux session restore [--list] [--session <id>]...\n\nÖffnet Claude-Sitzungen erneut, die liefen, als cmux zuletzt unerwartet beendet wurde.\ncmux findet sie im Agent-Journal, überspringt laufende oder bereits geöffnete\nund setzt jede in einem eigenen Workspace über den Launcher fort, der sie gestartet hat.\n\nOhne --session stellt restore nur nach einem unerwarteten Beenden wieder her.\n\nOptionen:\n  --list            Sitzungen anzeigen, ohne sie wiederherzustellen.\n  --session <id>    Nur diese Sitzung wiederherstellen (wiederholbar)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux session restore [--list] [--session <id>]...\n\nRouvre les sessions Claude en cours lorsque cmux s’est fermé de façon inattendue.\ncmux les trouve dans le journal des agents, ignore celles qui tournent ou sont déjà\nouvertes, et reprend chacune dans son propre espace de travail via le lanceur qui l’a\ndémarrée (par exemple `sr claude proxy --account <x>`).\n\nSans --session, restore n’agit qu’après une fermeture inattendue.\n\nOptions :\n  --list            Afficher les sessions sans les restaurer.\n  --session <id>    Restaurer uniquement cette session (répétable)."
+            "value": "Utilisation : cmux session restore [--list] [--session <id>]...\n\nRouvre les sessions Claude en cours lorsque cmux s’est fermé de façon inattendue.\ncmux les trouve dans le journal des agents, ignore celles qui tournent ou sont déjà\nouvertes, et reprend chacune dans son propre espace de travail via le lanceur qui l’a\ndémarrée.\n\nSans --session, restore n’agit qu’après une fermeture inattendue.\n\nOptions :\n  --list            Afficher les sessions sans les restaurer.\n  --session <id>    Restaurer uniquement cette session (répétable)."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux session restore [--list] [--session <id>]...\n\nيعيد فتح جلسات Claude التي كانت قيد التشغيل عندما أُغلق cmux بشكل غير متوقع آخر مرة.\nيعثر cmux عليها في سجل الوكيل، ويتخطى ما يعمل منها أو المفتوح بالفعل،\nويستأنف كل جلسة في مساحة عمل خاصة بها عبر المشغّل الذي بدأها\n(مثل `sr claude proxy --account <x>`).\n\nبدون --session، لا تعمل الاستعادة إلا بعد إغلاق غير متوقع.\n\nالخيارات:\n  --list            عرض الجلسات دون استعادتها.\n  --session <id>    استعادة هذه الجلسة فقط (قابل للتكرار)."
+            "value": "الاستخدام: cmux session restore [--list] [--session <id>]...\n\nيعيد فتح جلسات Claude التي كانت قيد التشغيل عندما أُغلق cmux بشكل غير متوقع آخر مرة.\nيعثر cmux عليها في سجل الوكيل، ويتخطى ما يعمل منها أو المفتوح بالفعل،\nويستأنف كل جلسة في مساحة عمل خاصة بها عبر المشغّل الذي بدأها.\n\nبدون --session، لا تعمل الاستعادة إلا بعد إغلاق غير متوقع.\n\nالخيارات:\n  --list            عرض الجلسات دون استعادتها.\n  --session <id>    استعادة هذه الجلسة فقط (قابل للتكرار)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux session restore [--list] [--session <id>]...\n\nVuelve a abrir las sesiones de Claude que estaban en ejecución cuando cmux se cerró inesperadamente.\ncmux las encuentra en el diario de agentes, omite las que están en ejecución o ya\nabiertas, y reanuda cada una en su propio espacio de trabajo mediante el lanzador que\nla inició (por ejemplo `sr claude proxy --account <x>`).\n\nSin --session, restore solo actúa tras un cierre inesperado.\n\nOpciones:\n  --list            Mostrar las sesiones sin restaurarlas.\n  --session <id>    Restaurar solo esta sesión (repetible)."
+            "value": "Uso: cmux session restore [--list] [--session <id>]...\n\nVuelve a abrir las sesiones de Claude que estaban en ejecución cuando cmux se cerró inesperadamente.\ncmux las encuentra en el diario de agentes, omite las que están en ejecución o ya\nabiertas, y reanuda cada una en su propio espacio de trabajo mediante el lanzador que\nla inició.\n\nSin --session, restore solo actúa tras un cierre inesperado.\n\nOpciones:\n  --list            Mostrar las sesiones sin restaurarlas.\n  --session <id>    Restaurar solo esta sesión (repetible)."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux session restore [--list] [--session <id>]...\n\n重新開啟 cmux 上次意外結束時仍在執行的 Claude 工作階段。\ncmux 會從代理日誌中找出它們，略過仍在執行或已開啟的工作階段，\n並透過原本啟動它的啟動器在各自的工作區中繼續\n（例如 `sr claude proxy --account <x>`）。\n\n未指定 --session 時，restore 只會在意外結束後執行。\n\n選項：\n  --list            只列出工作階段，不還原。\n  --session <id>    只還原此工作階段（可重複）。"
+            "value": "用法： cmux session restore [--list] [--session <id>]...\n\n重新開啟 cmux 上次意外結束時仍在執行的 Claude 工作階段。\ncmux 會從代理日誌中找出它們，略過仍在執行或已開啟的工作階段，\n並透過原本啟動它的啟動器在各自的工作區中繼續。\n\n未指定 --session 時，restore 只會在意外結束後執行。\n\n選項：\n  --list            只列出工作階段，不還原。\n  --session <id>    只還原此工作階段（可重複）。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux session restore [--list] [--session <id>]...\n\n重新打开 cmux 上次意外退出时仍在运行的 Claude 会话。\ncmux 会从代理日志中找到它们，跳过仍在运行或已打开的会话，\n并通过最初启动它的启动器在各自的工作区中继续\n（例如 `sr claude proxy --account <x>`）。\n\n未指定 --session 时，restore 只会在意外退出后执行。\n\n选项：\n  --list            只列出会话，不恢复。\n  --session <id>    只恢复此会话（可重复）。"
+            "value": "用法： cmux session restore [--list] [--session <id>]...\n\n重新打开 cmux 上次意外退出时仍在运行的 Claude 会话。\ncmux 会从代理日志中找到它们，跳过仍在运行或已打开的会话，\n并通过最初启动它的启动器在各自的工作区中继续。\n\n未指定 --session 时，restore 只会在意外退出后执行。\n\n选项：\n  --list            只列出会话，不恢复。\n  --session <id>    只恢复此会话（可重复）。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux session restore [--list] [--session <id>]...\n\ncmux가 마지막으로 예기치 않게 종료될 때 실행 중이던 Claude 세션을 다시 엽니다.\ncmux는 에이전트 저널에서 세션을 찾고, 실행 중이거나 이미 열려 있는 세션은 건너뛰며,\n각 세션을 시작한 런처를 통해 자체 워크스페이스에서 이어갑니다\n(예: `sr claude proxy --account <x>`).\n\n--session이 없으면 restore는 예기치 않은 종료 후에만 동작합니다.\n\n옵션:\n  --list            복원하지 않고 세션만 표시합니다.\n  --session <id>    이 세션만 복원합니다(반복 가능)."
+            "value": "사용법: cmux session restore [--list] [--session <id>]...\n\ncmux가 마지막으로 예기치 않게 종료될 때 실행 중이던 Claude 세션을 다시 엽니다.\ncmux는 에이전트 저널에서 세션을 찾고, 실행 중이거나 이미 열려 있는 세션은 건너뛰며,\n각 세션을 시작한 런처를 통해 자체 워크스페이스에서 이어갑니다.\n\n--session이 없으면 restore는 예기치 않은 종료 후에만 동작합니다.\n\n옵션:\n  --list            복원하지 않고 세션만 표시합니다.\n  --session <id>    이 세션만 복원합니다(반복 가능)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux session restore [--list] [--session <id>]...\n\ncmux が前回予期せず終了したときに実行中だった Claude セッションを再び開きます。\ncmux はエージェントジャーナルからセッションを見つけ、実行中または既に開いている\nものはスキップし、それぞれを起動したランチャー経由で専用のワークスペースで再開します\n（例: `sr claude proxy --account <x>`）。\n\n--session を指定しない場合、restore は予期しない終了の後にのみ動作します。\n\nオプション:\n  --list            復元せずにセッションを表示します。\n  --session <id>    このセッションのみ復元します（複数指定可）。"
+            "value": "使用法: cmux session restore [--list] [--session <id>]...\n\ncmux が前回予期せず終了したときに実行中だった Claude セッションを再び開きます。\ncmux はエージェントジャーナルからセッションを見つけ、実行中または既に開いている\nものはスキップし、それぞれを起動したランチャー経由で専用のワークスペースで再開します。\n\n--session を指定しない場合、restore は予期しない終了の後にのみ動作します。\n\nオプション:\n  --list            復元せずにセッションを表示します。\n  --session <id>    このセッションのみ復元します（複数指定可）。"
           }
         }
       }

@@ -10,14 +10,14 @@ extension CMUXCLI {
         sessionMoveUsage() + "\n\n" + sessionRestoreUsage()
     }
 
-    private func sessionRestoreUsage() -> String {
+    func sessionRestoreUsage() -> String {
         String(localized: "cli.session.help", defaultValue: """
         Usage: cmux session restore [--list] [--session <id>]...
 
         Reopen Claude sessions that were running when cmux last quit unexpectedly.
         cmux finds them in the agent journal, skips any that are running or already
         open, and resumes each in its own workspace through the launcher that started
-        it (for example `sr claude proxy --account <x>`).
+        it.
 
         Without --session, restore acts only after an unexpected quit.
 

@@ -8751,6 +8751,9 @@ struct CMUXCLI {
         while let argument = remaining.first {
             remaining.removeFirst()
             switch argument {
+            case "--help", "-h":
+                print(sessionRestoreUsage())
+                return
             case "--list":
                 listOnly = true
             case "--session":

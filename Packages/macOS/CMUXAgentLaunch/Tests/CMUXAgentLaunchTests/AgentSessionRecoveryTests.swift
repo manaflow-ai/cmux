@@ -53,6 +53,20 @@ struct AgentLauncherPrefixTests {
         }
     }
 
+    @Test("a launcher argv that still carries the old session's input is not recorded")
+    func launcherCarryingSessionInputRejected() {
+        // sr appended something after the forwarded tail, so no suffix matched.
+        #expect(
+            AgentLauncherPrefix(kind: "claude").derive(
+                agentArguments: ["claude", "--resume", "old", "hi"],
+                parentArguments: ["sr", "claude", "proxy", "--account", "me", "--resume", "old", "hi", "--extra"]
+            ) == nil
+        )
+        #expect(!AgentLauncherPrefix.isReplayable(["sr", "claude", "proxy", "--continue"]))
+        #expect(!AgentLauncherPrefix.isReplayable(["sr", "claude", "proxy", "--resume=old"]))
+        #expect(AgentLauncherPrefix.isReplayable(["sr", "claude", "proxy", "--account", "me"]))
+    }
+
     @Test("a parent that never names the agent is not trusted as its launcher")
     func unrelatedParentRejected() {
         #expect(
@@ -137,6 +151,49 @@ struct AgentSessionRecoveryPlannerTests {
         declared.launchCommand?.externalLauncher = "sr"
         #expect(declared.launcherResumeArguments == nil)
         #expect(candidates[1].launcherResumeArguments == nil)
+    }
+
+    @Test("launcher resume drops stale settings files and defers routed or unsafe launches")
+    func launcherResumeSanitizes() throws {
+        let prefix = ["sr", "claude", "proxy", "--account", "me@example.com"]
+        var candidate = AgentRecoveryCandidate(
+            kind: "claude",
+            sessionId: "s1",
+            workspaceId: nil,
+            cwd: "/tmp",
+            launchCommand: AgentLaunchCommand(
+                arguments: [
+                    "claude",
+                    "--settings", "/tmp/subrouter-claude-settings-abc/settings.json",
+                    "--settings", "/tmp/gone.json",
+                    "--settings", "/tmp/kept.json",
+                    "--model", "opus",
+                ],
+                launcherPrefix: prefix
+            ),
+            lastActivity: now
+        )
+        let arguments = try #require(candidate.launcherResumeArguments(isReadableFile: { $0 == "/tmp/kept.json" }))
+        #expect(Array(arguments.prefix(7)) == prefix + ["--resume", "s1"])
+        #expect(!arguments.contains("/tmp/subrouter-claude-settings-abc/settings.json"))
+        #expect(!arguments.contains("/tmp/gone.json"))
+        #expect(arguments.contains("/tmp/kept.json"))
+        #expect(arguments.contains("opus"))
+
+        // A recorded prefix that selects a session itself is never replayed.
+        candidate.launchCommand?.launcherPrefix = prefix + ["--resume", "old"]
+        #expect(candidate.launcherResumeArguments(isReadableFile: { _ in true }) == nil)
+
+        // A proven Subrouter-routed launch belongs to the normal restore path.
+        candidate.launchCommand = AgentLaunchCommand(
+            arguments: ["claude"],
+            environment: [
+                SubrouterClaudeResumeRouting.environmentKey: "sr claude proxy --resume",
+                SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: "sr claude proxy --resume",
+            ],
+            launcherPrefix: prefix
+        )
+        #expect(candidate.launcherResumeArguments(isReadableFile: { _ in true }) == nil)
     }
 
     @Test("launch commands without a launcher prefix still decode")

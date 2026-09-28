@@ -105,10 +105,14 @@ struct AgentSessionRecoveryAppTests {
         #expect(Set(candidates.map(\.sessionId)) == ["proxied", "plain", "no-pid", "missing-pid-start"])
 
         let proxiedCandidate = try #require(candidates.first { $0.sessionId == "proxied" })
-        #expect(
-            AgentSessionRecovery.resumeCommand(for: proxiedCandidate)
-                == "sr claude proxy --account me@example.com --resume proxied"
-        )
+        let proxiedCommand = try #require(AgentSessionRecovery.resumeCommand(for: proxiedCandidate))
+        // The launcher argv runs inside the portable `/bin/sh -c` wrapper that
+        // keeps cmux's Claude shim on PATH for the re-exec'd agent.
+        #expect(proxiedCommand.hasPrefix("/bin/sh -c "))
+        #expect(proxiedCommand.contains("CMUX_CLAUDE_WRAPPER_SHIM"))
+        for word in ["sr", "claude", "proxy", "--account", "me@example.com", "--resume", "proxied"] {
+            #expect(proxiedCommand.contains(word))
+        }
         #expect(AgentSessionRecovery.workspaceTitle(for: proxiedCandidate) == "my app")
 
         let plainCandidate = try #require(candidates.first { $0.sessionId == "plain" })
@@ -135,12 +139,5 @@ struct AgentSessionRecoveryAppTests {
             }
             #expect(code == "invalid_params")
         }
-    }
-
-    @Test
-    func shellQuotingKeepsArgumentsIntact() {
-        #expect(AgentSessionRecovery.shellQuoted("me@example.com") == "me@example.com")
-        #expect(AgentSessionRecovery.shellQuoted("it's here") == "'it'\\''s here'")
-        #expect(AgentSessionRecovery.shellQuoted("") == "''")
     }
 }

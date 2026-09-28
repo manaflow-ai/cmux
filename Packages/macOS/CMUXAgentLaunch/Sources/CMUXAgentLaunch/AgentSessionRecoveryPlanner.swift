@@ -79,20 +79,53 @@ public struct AgentRecoveryCandidate: Equatable, Sendable {
     /// recorded (callers then use the kind's normal resume command). The
     /// agent's own resume arguments, including preserved flags such as the
     /// permission mode or model, follow the launcher in place of the agent
-    /// executable. A launcher the user declared in `agents.launchers`
-    /// (``AgentLaunchCommand/externalLauncher``) takes precedence: the normal
-    /// resume command already re-supplies it.
+    /// executable.
+    ///
+    /// Returns nil, deferring to the normal resume command, when:
+    /// - a launcher the user declared in `agents.launchers`
+    ///   (``AgentLaunchCommand/externalLauncher``) is recorded: the normal
+    ///   resume command already re-supplies it;
+    /// - the launch is a proven Subrouter-routed Claude launch: the normal
+    ///   restore path owns that route (fresh private settings, environment,
+    ///   and the account pin carried from this prefix);
+    /// - the prefix could replay the old session (see
+    ///   ``AgentLauncherPrefix/isReplayable(_:)``).
+    ///
+    /// Settings files that no longer exist (a launcher's per-launch temporary
+    /// `--settings`) are dropped so the agent can start.
     public var launcherResumeArguments: [String]? {
-        guard launchCommand?.externalLauncher == nil,
-              let prefix = launchCommand?.launcherPrefix, !prefix.isEmpty,
-              let agentArguments = AgentResumeArgv().builtInKind(
-                kind: kind,
-                sessionId: sessionId,
-                executablePath: launchCommand?.executablePath,
-                arguments: launchCommand?.arguments ?? []
-              ) else {
+        launcherResumeArguments(isReadableFile: { FileManager.default.isReadableFile(atPath: $0) })
+    }
+
+    func launcherResumeArguments(isReadableFile: @escaping (String) -> Bool) -> [String]? {
+        guard let launchCommand,
+              launchCommand.externalLauncher == nil,
+              let prefix = launchCommand.launcherPrefix,
+              AgentLauncherPrefix.isReplayable(prefix) else {
             return nil
         }
+        let subrouter = SubrouterClaudeResumeRouting()
+        if kind == "claude",
+           subrouter.provesRoutedLaunch(launcher: launchCommand.launcher, environment: launchCommand.environment) {
+            return nil
+        }
+        guard var agentArguments = AgentResumeArgv().builtInKind(
+            kind: kind,
+            sessionId: sessionId,
+            executablePath: launchCommand.executablePath,
+            arguments: launchCommand.arguments
+        ) else {
+            return nil
+        }
+        if kind == "claude" {
+            agentArguments = ClaudeRestoreSettingsPathFilter(
+                isReadableFile: isReadableFile,
+                workingDirectory: cwd
+            ).removingUnreadableSettingsPaths(
+                from: subrouter.removingPrivateSettingsArguments(from: agentArguments)
+            )
+        }
+        guard !agentArguments.isEmpty else { return nil }
         return prefix + agentArguments.dropFirst()
     }
 }
