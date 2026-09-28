@@ -303,11 +303,11 @@ extension TerminalController {
         }
 
         if request.method == "surface.read_text" {
-            // These legacy bodies still return Foundation-shaped values. Run
-            // the miss on the main actor only when no published snapshot exists;
-            // steady-state polling takes the branch above and never enters
-            // this fallback.
-            let response = try await v2MainAsync {
+            // The fallback performs one short v2MainSync capture hop, then
+            // formats potentially large scrollback off-main. Keep the whole
+            // legacy body on the blocking worker lane so this command remains
+            // off the main actor and preserves the worker-lane contract.
+            let response = await runSocketWorkerBlockingBody {
                 self.socketWorkerV2Response(
                     handling: ControlRequest(
                         id: request.id,
