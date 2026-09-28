@@ -17323,7 +17323,7 @@ struct CMUXCLI {
                     throw CLIError(message: usage)
                 }
             }
-            guard let selector, clear != paths.isEmpty else { throw CLIError(message: usage) }
+            guard let selector, clear == paths.isEmpty else { throw CLIError(message: usage) }
             var params: [String: Any] = [
                 "surface_id": try requireSurface(), "selector": selector, "files": paths
             ]
