@@ -19,6 +19,7 @@ import { shellRoute } from "./root";
 const coderouterRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/dashboard/coderouter",
+  staticData: { titleKey: "coderouter.metaTitle" },
   loaderDeps: ({ search }) => ({ team: search.team }),
   loader: async ({ context, deps }) => {
     try {

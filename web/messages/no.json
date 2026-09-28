@@ -376,6 +376,20 @@
         "empty": "Ingen maskiner har brukt coderouter de siste {days} dagene.",
         "unavailable": "Bruk per maskin er midlertidig utilgjengelig.",
         "estimateNote": "API-ekvivalent verdi er et estimat basert på offentlige listepriser, ikke faktisk forbruk."
+      },
+      "metrics": {
+        "title": "Bruk siste 30 dager",
+        "scope": "Samlet for teamet {team}",
+        "period": "Siste {days} dager",
+        "inputTokens": "Input-tokens",
+        "outputTokens": "Output-tokens",
+        "tokens": "Tokens totalt",
+        "apiEquivalent": "API-ekvivalent verdi",
+        "unpriced": "{share} av disse tokenene kom fra modeller uten listepris og er ikke tatt med i den verdien.",
+        "chartLabel": "Daglig tokenbruk i CodeRouter",
+        "privacy": "Ingen prompter, svar, kontonavn eller medlemsidentiteter registreres eller vises.",
+        "estimate": "API-ekvivalent verdi er hva disse tokenene ville ha kostet med offentlige API-listepriser (prisliste {version}). Det er ikke det du har betalt.",
+        "unavailable": "Teamets bruk er midlertidig utilgjengelig."
       }
     },
     "accountMenu": {
@@ -486,10 +500,6 @@
         "uploadImage": "Last opp bilde",
         "removeImage": "Fjern bilde",
         "zoom": "Zoom"
-      },
-      "redirect": {
-        "redirecting": "Åpner innstillinger…",
-        "openSettings": "Fortsett til innstillinger"
       },
       "profile": {
         "title": "Profil",
@@ -1013,6 +1023,11 @@
       "apiKeyUsageDetail": "siste 30 dager: {completions} fullføringer · {tokens} tokens ({input} inn / {output} ut) · {value} API-ekvivalent",
       "apiKeyUsageUnavailable": "Bruk er ikke tilgjengelig",
       "revokeApiKeyConfirmBody": "Klienter som bruker denne nøkkelen mister autentiseringen umiddelbart."
+    },
+    "notFound": {
+      "title": "Fant ikke siden",
+      "body": "Denne dashbordsiden finnes ikke eller er flyttet.",
+      "home": "Gå til dashbordet"
     }
   },
   "community": {

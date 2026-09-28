@@ -376,6 +376,20 @@
         "empty": "Nenhuma máquina usou o coderouter nos últimos {days} dias.",
         "unavailable": "O uso por máquina está temporariamente indisponível.",
         "estimateNote": "O valor equivalente em API é uma estimativa com base em preços de lista públicos, não o gasto real."
+      },
+      "metrics": {
+        "title": "Uso em 30 dias",
+        "scope": "Total da equipe {team}",
+        "period": "Últimos {days} dias",
+        "inputTokens": "Tokens de entrada",
+        "outputTokens": "Tokens de saída",
+        "tokens": "Total de tokens",
+        "apiEquivalent": "Valor equivalente em API",
+        "unpriced": "{share} desses tokens vieram de modelos sem preço de tabela e ficaram fora desse valor.",
+        "chartLabel": "Uso diário de tokens do CodeRouter",
+        "privacy": "Nenhum prompt, resposta, rótulo de conta ou identidade de membro é registrado ou exibido.",
+        "estimate": "O valor equivalente em API é quanto esses tokens custariam pelos preços públicos de tabela da API (tabela de preços {version}). Não é o valor que você pagou.",
+        "unavailable": "O uso da equipe está temporariamente indisponível."
       }
     },
     "accountMenu": {
@@ -486,10 +500,6 @@
         "uploadImage": "Enviar imagem",
         "removeImage": "Remover imagem",
         "zoom": "Zoom"
-      },
-      "redirect": {
-        "redirecting": "Abrindo configurações…",
-        "openSettings": "Continuar para as configurações"
       },
       "profile": {
         "title": "Perfil",
@@ -1013,6 +1023,11 @@
       "apiKeyUsageDetail": "últimos 30 dias: {completions} conclusões · {tokens} tokens ({input} entrada / {output} saída) · equivalente de API {value}",
       "apiKeyUsageUnavailable": "Uso indisponível",
       "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente."
+    },
+    "notFound": {
+      "title": "Página não encontrada",
+      "body": "Esta página do painel não existe ou foi movida.",
+      "home": "Ir para o painel"
     }
   },
   "community": {

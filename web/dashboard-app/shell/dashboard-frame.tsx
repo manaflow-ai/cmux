@@ -7,20 +7,24 @@ import { isDashboardApiError } from "../lib/api";
 import { shellRoute } from "../routes/root";
 import { DashboardAccountMenu, DashboardAccountMenuFallback } from "./dashboard-account-menu";
 import { DashboardShell } from "./dashboard-shell";
+import { DashboardTitle } from "./dashboard-title";
 
 export function DashboardFrame() {
   const { session } = shellRoute.useRouteContext();
   return (
-    <DashboardShell
-      vaultEnabled={session.flags.vaultEnabled}
-      account={
-        <IsolatedErrorBoundary name="dashboard-account-menu" fallback={<DashboardAccountMenuFallback />}>
-          <DashboardAccountMenu user={session.user} />
-        </IsolatedErrorBoundary>
-      }
-    >
-      <Outlet />
-    </DashboardShell>
+    <>
+      <DashboardTitle />
+      <DashboardShell
+        vaultEnabled={session.flags.vaultEnabled}
+        account={
+          <IsolatedErrorBoundary name="dashboard-account-menu" fallback={<DashboardAccountMenuFallback />}>
+            <DashboardAccountMenu user={session.user} />
+          </IsolatedErrorBoundary>
+        }
+      >
+        <Outlet />
+      </DashboardShell>
+    </>
   );
 }
 

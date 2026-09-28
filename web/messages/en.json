@@ -774,10 +774,6 @@
         "removeImage": "Remove image",
         "zoom": "Zoom"
       },
-      "redirect": {
-        "redirecting": "Opening settings…",
-        "openSettings": "Continue to settings"
-      },
       "profile": {
         "title": "Profile",
         "description": "Your name and avatar.",

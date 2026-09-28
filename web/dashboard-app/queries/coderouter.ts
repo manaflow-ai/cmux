@@ -135,7 +135,54 @@ export function coderouterOverviewQuery(team: string | undefined) {
   });
 }
 
+/** Coderouter account and API-key requests give up after this long. */
+export const CODEROUTER_REQUEST_TIMEOUT_MS = 10_000;
+
 /** API keys load beside the overview, so a slow key list never blocks the page. */
 export function coderouterApiKeysQueryKey(teamId: string) {
   return [...coderouterQueryRoot, "api-keys", teamId] as const;
+}
+
+const apiKeyUsageSchema = z.object({
+  completions: z.number(),
+  inputTokens: z.number(),
+  cachedInputTokens: z.number(),
+  outputTokens: z.number(),
+  totalTokens: z.number(),
+  apiEquivalentUsd: z.number(),
+  pricedTokens: z.number(),
+  unpricedTokens: z.number(),
+});
+
+const apiKeySummarySchema = z.object({
+  id: z.string(),
+  keyPrefix: z.string(),
+  label: z.string(),
+  createdAt: z.string(),
+  lastUsedAt: nullableString,
+  revokedAt: nullableString,
+  usage: apiKeyUsageSchema.nullable(),
+});
+
+export type CoderouterApiKeySummary = z.output<typeof apiKeySummarySchema>;
+
+const apiKeyListSchema = z.object({ keys: z.array(apiKeySummarySchema) });
+
+/**
+ * The team's coderouter API keys. The team is part of the key, so a team
+ * switch never shows the previous team's keys.
+ */
+export function coderouterApiKeysQuery(teamId: string) {
+  return queryOptions({
+    queryKey: coderouterApiKeysQueryKey(teamId),
+    queryFn: async ({ signal }): Promise<readonly CoderouterApiKeySummary[]> => {
+      const body = await dashboardFetch("/api/coderouter/api-keys", apiKeyListSchema, {
+        headers: { "x-cmux-team-id": teamId },
+        signal: AbortSignal.any([signal, AbortSignal.timeout(CODEROUTER_REQUEST_TIMEOUT_MS)]),
+      });
+      return body.keys;
+    },
+    staleTime: 0,
+    retry: false,
+  });
 }

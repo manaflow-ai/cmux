@@ -376,6 +376,20 @@
         "empty": "过去 {days} 天内没有机器使用 coderouter。",
         "unavailable": "机器使用情况暂时不可用。",
         "estimateNote": "API 等值金额是按公开标价估算的，并非实际支出。"
+      },
+      "metrics": {
+        "title": "30 天用量",
+        "scope": "{team} 的团队汇总",
+        "period": "最近 {days} 天",
+        "inputTokens": "输入令牌",
+        "outputTokens": "输出令牌",
+        "tokens": "总令牌数",
+        "apiEquivalent": "API 等值金额",
+        "unpriced": "其中 {share} 的令牌来自没有公开定价的模型，未计入该金额。",
+        "chartLabel": "CodeRouter 每日令牌用量",
+        "privacy": "不会记录或显示任何提示词、输出、账户标签或成员身份。",
+        "estimate": "API 等值金额是这些令牌按公开 API 定价（价目表 {version}）计算的费用，并非你的实际支出。",
+        "unavailable": "团队用量暂时不可用。"
       }
     },
     "accountMenu": {
@@ -486,10 +500,6 @@
         "uploadImage": "上传图片",
         "removeImage": "移除图片",
         "zoom": "缩放"
-      },
-      "redirect": {
-        "redirecting": "正在打开设置…",
-        "openSettings": "前往设置"
       },
       "profile": {
         "title": "个人资料",
@@ -1013,6 +1023,11 @@
       "apiKeyUsageDetail": "过去 30 天：{completions} 次完成 · {tokens} 个令牌（输入 {input} / 输出 {output}）· API 等值 {value}",
       "apiKeyUsageUnavailable": "使用数据不可用",
       "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。"
+    },
+    "notFound": {
+      "title": "找不到页面",
+      "body": "此仪表板页面不存在或已被移动。",
+      "home": "前往仪表板"
     }
   },
   "community": {

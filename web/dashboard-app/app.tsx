@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { useLocale } from "next-intl";
-import { useState, useSyncExternalStore } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import { DashboardSkeleton } from "./components/dashboard-skeleton";
 import { createDashboardRouter } from "./router";
 
@@ -28,8 +28,16 @@ function DashboardClient() {
   const [router] = useState(() =>
     createDashboardRouter({ queryClient, locale, pathname: window.location.pathname })
   );
+  // A stable ref callback runs its cleanup only on unmount.
+  const restoreHistoryOnUnmount = useCallback(
+    (node: HTMLSpanElement | null) => (node ? () => router.history.destroy() : undefined),
+    [router],
+  );
   return (
     <QueryClientProvider client={queryClient}>
+      {/* Leaving /dashboard through a Next link unmounts the SPA: restore the
+          history functions the router patched (React 19 ref cleanup). */}
+      <span hidden ref={restoreHistoryOnUnmount} />
       <RouterProvider router={router} />
     </QueryClientProvider>
   );

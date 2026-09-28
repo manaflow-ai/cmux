@@ -376,6 +376,20 @@
         "empty": "過去 {days} 天內沒有機器使用 coderouter。",
         "unavailable": "機器使用情況暫時無法使用。",
         "estimateNote": "API 等值金額是依公開牌價估算，並非實際支出。"
+      },
+      "metrics": {
+        "title": "30 天用量",
+        "scope": "{team} 的團隊彙總",
+        "period": "最近 {days} 天",
+        "inputTokens": "輸入權杖",
+        "outputTokens": "輸出權杖",
+        "tokens": "總權杖數",
+        "apiEquivalent": "API 等值金額",
+        "unpriced": "其中 {share} 的權杖來自沒有公開定價的模型，未計入該金額。",
+        "chartLabel": "CodeRouter 每日權杖用量",
+        "privacy": "不會記錄或顯示任何提示詞、輸出、帳戶標籤或成員身分。",
+        "estimate": "API 等值金額是這些權杖按公開 API 定價（價目表 {version}）計算的費用，並非你的實際支出。",
+        "unavailable": "團隊用量暫時無法使用。"
       }
     },
     "accountMenu": {
@@ -486,10 +500,6 @@
         "uploadImage": "上傳圖片",
         "removeImage": "移除圖片",
         "zoom": "縮放"
-      },
-      "redirect": {
-        "redirecting": "正在開啟設定…",
-        "openSettings": "前往設定"
       },
       "profile": {
         "title": "個人資料",
@@ -1013,6 +1023,11 @@
       "apiKeyUsageDetail": "過去 30 天：{completions} 次完成 · {tokens} 個權杖（輸入 {input} / 輸出 {output}）· API 等值 {value}",
       "apiKeyUsageUnavailable": "使用量不可用",
       "revokeApiKeyConfirmBody": "使用此金鑰的用戶端將立即無法驗證。"
+    },
+    "notFound": {
+      "title": "找不到頁面",
+      "body": "此儀表板頁面不存在或已移動。",
+      "home": "前往儀表板"
     }
   },
   "community": {

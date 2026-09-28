@@ -55,9 +55,10 @@ describe("dashboard Next shell", () => {
     expect(redirectedTo).toBe("/");
   });
 
-  test("every dashboard URL prerenders the same instant shell", () => {
-    expect(layoutModule.instant).toBe(true);
-    expect(pageModule.instant).toBe(true);
+  test("every dashboard URL serves the same static document", () => {
+    // No instant validation: the SPA owns navigation inside /dashboard.
+    expect("instant" in layoutModule).toBe(false);
+    expect("instant" in pageModule).toBe(false);
     // The catch-all page takes no params: the SPA reads the URL on the client.
     expect(DashboardPage.length).toBe(0);
   });

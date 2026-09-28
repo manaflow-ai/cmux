@@ -376,6 +376,20 @@
         "empty": "Nijedna mašina nije koristila coderouter u posljednjih {days} dana.",
         "unavailable": "Korištenje po mašini trenutno nije dostupno.",
         "estimateNote": "API ekvivalentna vrijednost je procjena na osnovu javnih cjenovnika, a ne stvarni trošak."
+      },
+      "metrics": {
+        "title": "Korištenje u 30 dana",
+        "scope": "Zbirno za tim {team}",
+        "period": "Posljednjih {days} dana",
+        "inputTokens": "Ulazni tokeni",
+        "outputTokens": "Izlazni tokeni",
+        "tokens": "Ukupno tokena",
+        "apiEquivalent": "API ekvivalentna vrijednost",
+        "unpriced": "{share} ovih tokena potiče od modela bez javne cijene i nije uključeno u tu vrijednost.",
+        "chartLabel": "Dnevno korištenje CodeRouter tokena",
+        "privacy": "Promptovi, izlazi, oznake računa i identiteti članova se ne bilježe niti prikazuju.",
+        "estimate": "API ekvivalentna vrijednost je iznos koji bi ovi tokeni koštali po javnim API cijenama (cjenovnik {version}). To nije iznos koji ste platili.",
+        "unavailable": "Korištenje tima je privremeno nedostupno."
       }
     },
     "accountMenu": {
@@ -486,10 +500,6 @@
         "uploadImage": "Otpremi sliku",
         "removeImage": "Ukloni sliku",
         "zoom": "Zumiranje"
-      },
-      "redirect": {
-        "redirecting": "Otvaranje postavki…",
-        "openSettings": "Nastavi na postavke"
       },
       "profile": {
         "title": "Profil",
@@ -1013,6 +1023,11 @@
       "apiKeyUsageDetail": "posljednjih 30 dana: {completions} završetaka · {tokens} tokena ({input} ulaz / {output} izlaz) · API ekvivalent {value}",
       "apiKeyUsageUnavailable": "Upotreba nije dostupna",
       "revokeApiKeyConfirmBody": "Klijenti koji koriste ovaj ključ odmah će izgubiti autentifikaciju."
+    },
+    "notFound": {
+      "title": "Stranica nije pronađena",
+      "body": "Ova stranica kontrolne ploče ne postoji ili je premještena.",
+      "home": "Idi na kontrolnu ploču"
     }
   },
   "community": {

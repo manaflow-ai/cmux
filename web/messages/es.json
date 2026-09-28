@@ -376,6 +376,20 @@
         "empty": "Ninguna máquina ha usado coderouter en los últimos {days} días.",
         "unavailable": "El uso por máquina no está disponible temporalmente.",
         "estimateNote": "El valor equivalente en API es una estimación basada en precios de lista públicos, no el gasto real."
+      },
+      "metrics": {
+        "title": "Uso de 30 días",
+        "scope": "Total del equipo {team}",
+        "period": "Últimos {days} días",
+        "inputTokens": "Tokens de entrada",
+        "outputTokens": "Tokens de salida",
+        "tokens": "Tokens totales",
+        "apiEquivalent": "Valor equivalente en API",
+        "unpriced": "El {share} de estos tokens provino de modelos sin precio de lista y no se incluye en ese valor.",
+        "chartLabel": "Uso diario de tokens de CodeRouter",
+        "privacy": "No se registran ni se muestran prompts, respuestas, etiquetas de cuentas ni identidades de miembros.",
+        "estimate": "El valor equivalente en API es lo que habrían costado estos tokens a los precios de lista públicos de la API (tarifa {version}). No es lo que pagaste.",
+        "unavailable": "El uso del equipo no está disponible temporalmente."
       }
     },
     "accountMenu": {
@@ -486,10 +500,6 @@
         "uploadImage": "Subir imagen",
         "removeImage": "Quitar imagen",
         "zoom": "Zoom"
-      },
-      "redirect": {
-        "redirecting": "Abriendo la configuración…",
-        "openSettings": "Ir a la configuración"
       },
       "profile": {
         "title": "Perfil",
@@ -1013,6 +1023,11 @@
       "apiKeyUsageDetail": "últimos 30 días: {completions} finalizaciones · {tokens} tokens ({input} entrada / {output} salida) · equivalente API de {value}",
       "apiKeyUsageUnavailable": "Uso no disponible",
       "revokeApiKeyConfirmBody": "Los clientes que usen esta clave dejarán de autenticarse inmediatamente."
+    },
+    "notFound": {
+      "title": "Página no encontrada",
+      "body": "Esta página del panel no existe o se ha movido.",
+      "home": "Ir al panel"
     }
   },
   "community": {

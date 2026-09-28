@@ -376,6 +376,20 @@
         "empty": "Ingen maskiner har brugt coderouter i de seneste {days} dage.",
         "unavailable": "Forbrug pr. maskine er midlertidigt utilgængeligt.",
         "estimateNote": "API-ækvivalent værdi er et estimat baseret på offentlige listepriser, ikke faktisk forbrug."
+      },
+      "metrics": {
+        "title": "Forbrug de seneste 30 dage",
+        "scope": "Samlet for teamet {team}",
+        "period": "Seneste {days} dage",
+        "inputTokens": "Input-tokens",
+        "outputTokens": "Output-tokens",
+        "tokens": "Tokens i alt",
+        "apiEquivalent": "API-ækvivalent værdi",
+        "unpriced": "{share} af disse tokens kom fra modeller uden listepris og er ikke medregnet i den værdi.",
+        "chartLabel": "Dagligt CodeRouter-tokenforbrug",
+        "privacy": "Ingen prompts, outputs, kontonavne eller medlemsidentiteter registreres eller vises.",
+        "estimate": "Den API-ækvivalente værdi er, hvad disse tokens ville have kostet til offentlige API-listepriser (prisliste {version}). Det er ikke, hvad du har betalt.",
+        "unavailable": "Teamets forbrug er midlertidigt utilgængeligt."
       }
     },
     "accountMenu": {
@@ -486,10 +500,6 @@
         "uploadImage": "Upload billede",
         "removeImage": "Fjern billede",
         "zoom": "Zoom"
-      },
-      "redirect": {
-        "redirecting": "Åbner indstillinger…",
-        "openSettings": "Fortsæt til indstillinger"
       },
       "profile": {
         "title": "Profil",
@@ -1013,6 +1023,11 @@
       "apiKeyUsageDetail": "sidste 30 dage: {completions} fuldførelser · {tokens} tokens ({input} input / {output} output) · {value} API-ækvivalent",
       "apiKeyUsageUnavailable": "Brug er ikke tilgængelig",
       "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen."
+    },
+    "notFound": {
+      "title": "Siden blev ikke fundet",
+      "body": "Denne dashboardside findes ikke eller er blevet flyttet.",
+      "home": "Gå til dashboard"
     }
   },
   "community": {

@@ -376,6 +376,20 @@
         "empty": "In den letzten {days} Tagen hat keine Maschine coderouter genutzt.",
         "unavailable": "Die Nutzung pro Maschine ist vorübergehend nicht verfügbar.",
         "estimateNote": "Der API-Gegenwert ist eine Schätzung auf Basis öffentlicher Listenpreise, keine tatsächlichen Ausgaben."
+      },
+      "metrics": {
+        "title": "Nutzung der letzten 30 Tage",
+        "scope": "Team-Gesamtwerte für {team}",
+        "period": "Letzte {days} Tage",
+        "inputTokens": "Eingabe-Token",
+        "outputTokens": "Ausgabe-Token",
+        "tokens": "Token gesamt",
+        "apiEquivalent": "API-Gegenwert",
+        "unpriced": "{share} dieser Token stammen von Modellen ohne Listenpreis und sind in diesem Wert nicht enthalten.",
+        "chartLabel": "Tägliche CodeRouter-Token-Nutzung",
+        "privacy": "Es werden keine Prompts, Ausgaben, Kontobezeichnungen oder Mitgliederidentitäten erfasst oder angezeigt.",
+        "estimate": "Der API-Gegenwert entspricht den Kosten dieser Token zu öffentlichen API-Listenpreisen (Preisliste {version}). Er entspricht nicht dem, was du bezahlt hast.",
+        "unavailable": "Die Team-Nutzung ist vorübergehend nicht verfügbar."
       }
     },
     "accountMenu": {
@@ -486,10 +500,6 @@
         "uploadImage": "Bild hochladen",
         "removeImage": "Bild entfernen",
         "zoom": "Zoom"
-      },
-      "redirect": {
-        "redirecting": "Einstellungen werden geöffnet…",
-        "openSettings": "Weiter zu den Einstellungen"
       },
       "profile": {
         "title": "Profil",
@@ -1013,6 +1023,11 @@
       "apiKeyUsageDetail": "letzte 30 Tage: {completions} Abschlüsse · {tokens} Tokens ({input} Eingabe / {output} Ausgabe) · {value} API-Äquivalent",
       "apiKeyUsageUnavailable": "Nutzung nicht verfügbar",
       "revokeApiKeyConfirmBody": "Clients mit diesem Schlüssel können sich sofort nicht mehr authentifizieren."
+    },
+    "notFound": {
+      "title": "Seite nicht gefunden",
+      "body": "Diese Dashboard-Seite existiert nicht oder wurde verschoben.",
+      "home": "Zum Dashboard"
     }
   },
   "community": {

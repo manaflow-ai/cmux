@@ -2,7 +2,7 @@
 
 import { Dialog } from "@base-ui-components/react/dialog";
 import { Tabs } from "@base-ui-components/react/tabs";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFormatter, useNow, useTranslations } from "next-intl";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Modal } from "@/app/[locale]/components/modal";
@@ -19,7 +19,23 @@ import type {
   NativeAccountsState,
   SharedAccountsState,
 } from "../../lib/coderouter-types";
-import { coderouterApiKeysQueryKey, coderouterQueryRoot } from "../../queries/coderouter";
+import { coderouterApiKeysQuery } from "../../queries/coderouter";
+import {
+  accountSharingMutation,
+  accountWriteErrorKey,
+  addApiKeyAccountMutation,
+  addClaudeUpstreamMutation,
+  apiKeyCreateErrorKey,
+  claudeAccountMutation,
+  createApiKeyMutation,
+  removeNativeAccountMutation,
+  removeSharedAccountMutation,
+  revokeApiKeyMutation,
+  transferErrorKeyFor,
+  transferNativeAccountMutation,
+  type ClaudeUpstreamBody,
+  type IssuedCoderouterApiKey,
+} from "../../queries/coderouter-mutations";
 
 /**
  * Every account the team routes through, in one list: the Claude upstream
@@ -30,38 +46,21 @@ import { coderouterApiKeysQueryKey, coderouterQueryRoot } from "../../queries/co
  */
 export type { ClaudeAccountsState, CoderouterTransferTeam, NativeAccountsState, SharedAccountsState };
 
-type CoderouterApiKeySummary = {
-  readonly id: string;
-  readonly keyPrefix: string;
-  readonly label: string;
-  readonly createdAt: string;
-  readonly lastUsedAt: string | null;
-  readonly revokedAt: string | null;
-  readonly usage: CoderouterApiKeyUsage | null;
-};
-
-type CoderouterApiKeyUsage = {
-  readonly completions: number;
-  readonly inputTokens: number;
-  readonly cachedInputTokens: number;
-  readonly outputTokens: number;
-  readonly totalTokens: number;
-  readonly apiEquivalentUsd: number;
-  readonly pricedTokens: number;
-  readonly unpricedTokens: number;
-};
-
-type IssuedCoderouterApiKey = Pick<
-  CoderouterApiKeySummary,
-  "id" | "keyPrefix" | "label" | "createdAt"
-> & { readonly key: string };
-
 type FormStatus = {
   readonly state: "idle" | "submitting" | "success" | "error";
   readonly message?: string;
 };
 
-const idleStatus: FormStatus = { state: "idle" };
+/** The row and form status a mutation implies; `message` is the error or success copy. */
+function mutationStatus(
+  mutation: { readonly isPending: boolean; readonly isError: boolean; readonly isSuccess: boolean },
+  messages: { readonly error: () => string; readonly success?: () => string },
+): FormStatus {
+  if (mutation.isPending) return { state: "submitting" };
+  if (mutation.isError) return { state: "error", message: messages.error() };
+  if (mutation.isSuccess && messages.success) return { state: "success", message: messages.success() };
+  return { state: "idle" };
+}
 
 /** Everything the add panel offers, in display order. */
 type ApiKeyAddKind = "openai-apikey" | "openrouter-apikey";
@@ -84,20 +83,7 @@ const primaryButtonClass =
   "border border-foreground bg-foreground px-3 py-1.5 text-sm text-background transition-colors hover:bg-background hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground disabled:cursor-not-allowed disabled:opacity-60";
 const rowGridClass =
   "grid gap-2 px-3 py-2 text-sm md:grid-cols-[1.3fr_1fr_1.2fr_auto] md:items-center md:gap-3";
-const API_KEY_REQUEST_TIMEOUT_MS = 10_000;
-
 type Translator = ReturnType<typeof useTranslations<"dashboard.coderouterAccounts">>;
-
-/**
- * Replaces Next's `router.refresh()`: every account list on this page comes
- * from the coderouter queries, so invalidating them reloads what changed.
- */
-function useRefreshCoderouter(): () => void {
-  const queryClient = useQueryClient();
-  return () => {
-    void queryClient.invalidateQueries({ queryKey: coderouterQueryRoot });
-  };
-}
 
 export function CoderouterAccountsSection({
   teamId,
@@ -234,47 +220,25 @@ function CoderouterApiKeysSection({
     currency: "USD",
     maximumFractionDigits: 2,
   });
-  const queryClient = useQueryClient();
-  const [status, setStatus] = useState<FormStatus>(idleStatus);
   const [issued, setIssued] = useState<IssuedCoderouterApiKey & { readonly teamId: string } | null>(null);
-  // The key list loads beside the page; the team is part of the key, so a
-  // team switch never shows the previous team's keys.
-  const keysQuery = useQuery({
-    queryKey: coderouterApiKeysQueryKey(teamId),
-    queryFn: ({ signal }) => fetchApiKeys(teamId, signal),
-    staleTime: 0,
-    retry: false,
-  });
-  const reloadKeys = () => queryClient.invalidateQueries({ queryKey: coderouterApiKeysQueryKey(teamId) });
+  // The key list loads beside the page.
+  const keysQuery = useQuery(coderouterApiKeysQuery(teamId));
+  const createKey = useMutation(createApiKeyMutation(useQueryClient(), teamId));
+  const status = mutationStatus(createKey, { error: () => t(apiKeyCreateErrorKey(createKey.error)) });
   const visibleKeys = keysQuery.data ?? null;
   const visibleIssued = issued?.teamId === teamId ? issued : null;
 
-  const create = async (event: FormEvent<HTMLFormElement>) => {
+  const create = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (status.state === "submitting") return;
+    if (createKey.isPending) return;
     const form = event.currentTarget;
     const label = String(new FormData(form).get("apiKeyLabel") ?? "").trim();
-    setStatus({ state: "submitting" });
-    try {
-      const response = await fetch("/api/coderouter/api-keys", {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-cmux-team-id": teamId },
-        body: JSON.stringify({ label }),
-        signal: AbortSignal.timeout(API_KEY_REQUEST_TIMEOUT_MS),
-      });
-      if (!response.ok) {
-        setStatus({ state: "error", message: response.status === 403 ? t("teamAccessError") : t("apiKeyCreateError") });
-        return;
-      }
-      const created = await response.json() as IssuedCoderouterApiKey;
-      if (!created.key || !created.id) throw new Error("api key response malformed");
-      form.reset();
-      setIssued({ ...created, teamId });
-      setStatus(idleStatus);
-      await reloadKeys();
-    } catch {
-      setStatus({ state: "error", message: t("apiKeyCreateError") });
-    }
+    createKey.mutate(label, {
+      onSuccess: (created) => {
+        form.reset();
+        setIssued({ ...created, teamId });
+      },
+    });
   };
 
   return (
@@ -347,7 +311,7 @@ function CoderouterApiKeysSection({
                     <div className="mt-0.5 text-muted">{t("apiKeyCreatedAt", { at: format.dateTime(created, { dateStyle: "medium" }) })} · {statusDetail}</div>
                     <div className="mt-0.5 text-muted">{usageDetail}</div>
                   </div>
-                  <div className="text-right">{canManage && !key.revokedAt ? <ApiKeyRevokeAction teamId={teamId} keyId={key.id} onRevoked={() => void reloadKeys()} /> : null}</div>
+                  <div className="text-right">{canManage && !key.revokedAt ? <ApiKeyRevokeAction teamId={teamId} keyId={key.id} /> : null}</div>
                 </li>
               );
             })}
@@ -371,52 +335,21 @@ function CoderouterApiKeysSection({
   );
 }
 
-async function fetchApiKeys(teamId: string, signal: AbortSignal): Promise<readonly CoderouterApiKeySummary[]> {
-  const response = await fetch("/api/coderouter/api-keys", {
-    headers: { "x-cmux-team-id": teamId },
-    cache: "no-store",
-    signal: AbortSignal.any([signal, AbortSignal.timeout(API_KEY_REQUEST_TIMEOUT_MS)]),
-  });
-  if (!response.ok) throw new Error("api key list failed");
-  const body = await response.json() as { keys?: CoderouterApiKeySummary[] };
-  if (!Array.isArray(body.keys)) throw new Error("api key list malformed");
-  return body.keys;
-}
-
 function ApiKeyRevokeAction({
   teamId,
   keyId,
-  onRevoked,
 }: {
   readonly teamId: string;
   readonly keyId: string;
-  readonly onRevoked: () => void;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
-  const [pending, setPending] = useState(false);
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState(false);
-  const revoke = async () => {
+  const revokeKey = useMutation(revokeApiKeyMutation(useQueryClient(), teamId));
+  const pending = revokeKey.isPending;
+  const error = revokeKey.isError;
+  const revoke = () => {
     if (pending) return;
-    setPending(true);
-    setError(false);
-    try {
-      const response = await fetch(`/api/coderouter/api-keys/${encodeURIComponent(keyId)}`, {
-        method: "DELETE",
-        headers: { "x-cmux-team-id": teamId },
-        signal: AbortSignal.timeout(API_KEY_REQUEST_TIMEOUT_MS),
-      });
-      if (!response.ok) {
-        setError(true);
-        return;
-      }
-      setOpen(false);
-      onRevoked();
-    } catch {
-      setError(true);
-    } finally {
-      setPending(false);
-    }
+    revokeKey.mutate(keyId, { onSuccess: () => setOpen(false) });
   };
   return (
     <div>
@@ -429,7 +362,7 @@ function ApiKeyRevokeAction({
         <Dialog.Description className="mt-2 text-left text-xs text-muted">{t("revokeApiKeyConfirmBody")}</Dialog.Description>
         <div className="mt-5 flex justify-end gap-2">
           <Dialog.Close className={buttonClass}>{t("cancelAction")}</Dialog.Close>
-          <button type="button" onClick={() => void revoke()} className={primaryButtonClass}>{t("revokeApiKeyAction")}</button>
+          <button type="button" onClick={revoke} className={primaryButtonClass}>{t("revokeApiKeyAction")}</button>
         </div>
       </Modal>
     </div>
@@ -550,21 +483,12 @@ function AccountSharing({ teamId, accountId, family, visibility }: {
   readonly visibility: "private" | "team";
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
-  const refresh = useRefreshCoderouter();
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState(false);
-  async function updateSharing() {
+  const sharing = useMutation(accountSharingMutation(useQueryClient(), teamId));
+  const pending = sharing.isPending;
+  const error = sharing.isError;
+  function updateSharing() {
     if (pending) return;
-    setPending(true);
-    setError(false);
-    try {
-      const response = await fetch(`/api/coderouter/accounts/${encodeURIComponent(accountId)}/sharing`, {
-        method: "PATCH", headers: { "content-type": "application/json", "x-cmux-team-id": teamId },
-        body: JSON.stringify({ family, visibility: visibility === "private" ? "team" : "private" }),
-      });
-      if (!response.ok) { setError(true); return; }
-      refresh();
-    } catch { setError(true); } finally { setPending(false); }
+    sharing.mutate({ accountId, family, visibility: visibility === "private" ? "team" : "private" });
   }
   return <div>
     <button type="button" className={buttonClass} disabled={pending} onClick={updateSharing}>
@@ -582,28 +506,14 @@ function NativeAccountActions({
   readonly accountId: string;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
-  const refresh = useRefreshCoderouter();
-  const [status, setStatus] = useState<FormStatus>(idleStatus);
+  const removal = useMutation(removeNativeAccountMutation(useQueryClient(), teamId));
+  const status = mutationStatus(removal, { error: () => t(accountWriteErrorKey(removal.error, "removeError")) });
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const remove = async () => {
-    if (status.state === "submitting") return;
+  const remove = () => {
+    if (removal.isPending) return;
     setConfirmOpen(false);
-    setStatus({ state: "submitting" });
-    try {
-      const response = await fetch(
-        `/api/coderouter/accounts/${encodeURIComponent(accountId)}`,
-        { method: "DELETE", headers: { "x-cmux-team-id": teamId } },
-      );
-      if (!response.ok && response.status !== 404) {
-        setStatus({ state: "error", message: errorMessageForStatus(response.status, t, t("removeError")) });
-        return;
-      }
-      setStatus(idleStatus);
-      refresh();
-    } catch {
-      setStatus({ state: "error", message: t("removeError") });
-    }
+    removal.mutate(accountId);
   };
 
   return (
@@ -619,59 +529,6 @@ function NativeAccountActions({
   );
 }
 
-export type TransferRequestResult =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly status: number | null; readonly error: string | null };
-
-/** Moves one native account from `teamId` to `destinationTeamId`. */
-export async function requestNativeAccountTransfer(
-  input: { readonly teamId: string; readonly accountId: string; readonly destinationTeamId: string },
-  send: typeof fetch = fetch,
-): Promise<TransferRequestResult> {
-  try {
-    const response = await send(`/api/coderouter/accounts/${encodeURIComponent(input.accountId)}/transfer`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-cmux-team-id": input.teamId },
-      body: JSON.stringify({ destinationTeamId: input.destinationTeamId }),
-      signal: AbortSignal.timeout(API_KEY_REQUEST_TIMEOUT_MS),
-    });
-    if (response.ok) return { ok: true };
-    return { ok: false, status: response.status, error: await responseErrorCode(response) };
-  } catch {
-    return { ok: false, status: null, error: null };
-  }
-}
-
-async function responseErrorCode(response: Response): Promise<string | null> {
-  try {
-    const body: unknown = await response.json();
-    const error = typeof body === "object" && body !== null ? (body as { error?: unknown }).error : undefined;
-    return typeof error === "string" ? error : null;
-  } catch {
-    return null;
-  }
-}
-
-const TRANSFER_ERROR_KEYS = {
-  400: "validationError",
-  403: "transferForbiddenError",
-  404: "transferNotFoundError",
-  409: "transferConflictError",
-  503: "transferUnavailableError",
-} as const;
-
-/** Message key for a failed transfer. The route answers 403 "forbidden" when
- * the viewer can no longer manage the source team, and 403
- * "destination_forbidden" when the destination refuses the account. */
-export function transferErrorKey(
-  status: number | null,
-  error: string | null,
-): "teamAccessError" | "transferError" | (typeof TRANSFER_ERROR_KEYS)[keyof typeof TRANSFER_ERROR_KEYS] {
-  if (status === 403 && error === "forbidden") return "teamAccessError";
-  const key = status === null ? undefined : TRANSFER_ERROR_KEYS[status as keyof typeof TRANSFER_ERROR_KEYS];
-  return key ?? "transferError";
-}
-
 function NativeAccountTransfer({
   teamId,
   accountId,
@@ -685,35 +542,31 @@ function NativeAccountTransfer({
   readonly accountLabel: string;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
-  const refresh = useRefreshCoderouter();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<"choose" | "confirm">("choose");
   const [destinationId, setDestinationId] = useState(teams[0]?.id ?? "");
-  const [status, setStatus] = useState<FormStatus>(idleStatus);
+  const transfer = useMutation(transferNativeAccountMutation(useQueryClient(), teamId));
+  const status = mutationStatus(transfer, { error: () => t(transferErrorKeyFor(transfer.error)) });
   const destination = teams.find((team) => team.id === destinationId) ?? teams[0];
 
   const openDialog = () => {
     setStep("choose");
     setDestinationId(teams[0]?.id ?? "");
-    setStatus(idleStatus);
+    transfer.reset();
     setOpen(true);
   };
 
-  const confirm = async () => {
-    if (status.state === "submitting" || !destination) return;
-    setStatus({ state: "submitting" });
-    const result = await requestNativeAccountTransfer({ teamId, accountId, destinationTeamId: destination.id });
-    if (!result.ok) {
-      setStatus({ state: "error", message: t(transferErrorKey(result.status, result.error)) });
-      return;
-    }
-    setOpen(false);
-    setStatus(idleStatus);
-    onTransferred(t("transferSuccess", { account: accountLabel, destination: destination.name }));
-    refresh();
+  const confirm = () => {
+    if (transfer.isPending || !destination) return;
+    transfer.mutate({ accountId, destinationTeamId: destination.id }, {
+      onSuccess: () => {
+        setOpen(false);
+        onTransferred(t("transferSuccess", { account: accountLabel, destination: destination.name }));
+      },
+    });
   };
 
-  const submitting = status.state === "submitting";
+  const submitting = transfer.isPending;
   return (
     <div>
       <button type="button" className={buttonClass} onClick={openDialog} disabled={submitting}>
@@ -753,11 +606,11 @@ function NativeAccountTransfer({
               <p role="alert" className="mt-2 text-left text-xs text-foreground">{status.message}</p>
             ) : null}
             <div className="mt-5 flex justify-end gap-2">
-              <button type="button" className={buttonClass} disabled={submitting} onClick={() => { setStatus(idleStatus); setStep("choose"); }}>
+              <button type="button" className={buttonClass} disabled={submitting} onClick={() => { transfer.reset(); setStep("choose"); }}>
                 {t("backAction")}
               </button>
               <Dialog.Close className={buttonClass} disabled={submitting}>{t("cancelAction")}</Dialog.Close>
-              <button type="button" className={primaryButtonClass} disabled={submitting} onClick={() => void confirm()}>
+              <button type="button" className={primaryButtonClass} disabled={submitting} onClick={confirm}>
                 {submitting ? t("transferringAction") : t("transferConfirmAction")}
               </button>
             </div>
@@ -848,46 +701,22 @@ function ClaudeAccountActions({
   readonly account: ClaudeAccountDescription;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
-  const refresh = useRefreshCoderouter();
-  const [status, setStatus] = useState<FormStatus>(idleStatus);
+  // Toggle and remove share one mutation, so they share one pending and error line.
+  const write = useMutation(claudeAccountMutation(useQueryClient(), teamId));
+  const status = mutationStatus(write, {
+    error: () => t(accountWriteErrorKey(write.error, write.variables?.action === "remove" ? "removeError" : "updateError")),
+  });
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const url = `/api/coderouter/claude-upstream/${encodeURIComponent(account.id)}?teamId=${encodeURIComponent(teamId)}`;
 
-  const toggle = async () => {
-    if (status.state === "submitting") return;
-    setStatus({ state: "submitting" });
-    try {
-      const response = await fetch(url, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ state: account.state === "disabled" ? "active" : "disabled" }),
-      });
-      if (!response.ok) {
-        setStatus({ state: "error", message: errorMessageForStatus(response.status, t, t("updateError")) });
-        return;
-      }
-      setStatus(idleStatus);
-      refresh();
-    } catch {
-      setStatus({ state: "error", message: t("updateError") });
-    }
+  const toggle = () => {
+    if (write.isPending) return;
+    write.mutate({ accountId: account.id, action: "setState", state: account.state === "disabled" ? "active" : "disabled" });
   };
 
-  const remove = async () => {
-    if (status.state === "submitting") return;
+  const remove = () => {
+    if (write.isPending) return;
     setConfirmOpen(false);
-    setStatus({ state: "submitting" });
-    try {
-      const response = await fetch(url, { method: "DELETE" });
-      if (!response.ok && response.status !== 404) {
-        setStatus({ state: "error", message: errorMessageForStatus(response.status, t, t("removeError")) });
-        return;
-      }
-      setStatus(idleStatus);
-      refresh();
-    } catch {
-      setStatus({ state: "error", message: t("removeError") });
-    }
+    write.mutate({ accountId: account.id, action: "remove" });
   };
 
   return (
@@ -916,31 +745,16 @@ function SharedAccountActions({
   readonly accountId: string;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
-  const refresh = useRefreshCoderouter();
-  const [status, setStatus] = useState<FormStatus>(idleStatus);
+  const removal = useMutation(removeSharedAccountMutation(useQueryClient(), teamId));
+  const status = mutationStatus(removal, {
+    error: () => t(accountWriteErrorKey(removal.error, "removeError", "notConfiguredTitle")),
+  });
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const remove = async () => {
-    if (status.state === "submitting") return;
+  const remove = () => {
+    if (removal.isPending) return;
     setConfirmOpen(false);
-    setStatus({ state: "submitting" });
-    try {
-      const response = await fetch(
-        `/api/subrouter/accounts/${encodeURIComponent(accountId)}?teamId=${encodeURIComponent(teamId)}`,
-        { method: "DELETE" },
-      );
-      if (!response.ok) {
-        setStatus({
-          state: "error",
-          message: errorMessageForStatus(response.status, t, t("removeError"), t("notConfiguredTitle")),
-        });
-        return;
-      }
-      setStatus(idleStatus);
-      refresh();
-    } catch {
-      setStatus({ state: "error", message: t("removeError") });
-    }
+    removal.mutate(accountId);
   };
 
   return (
@@ -1086,39 +900,22 @@ function ApiKeyForm({
   readonly kind: ApiKeyAddKind;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
-  const refresh = useRefreshCoderouter();
-  const [status, setStatus] = useState<FormStatus>(idleStatus);
+  const add = useMutation(addApiKeyAccountMutation(useQueryClient(), teamId));
+  const status = mutationStatus(add, {
+    error: () => t(accountWriteErrorKey(add.error, "saveError")),
+    success: () => t("saveSuccess"),
+  });
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
+  const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (status.state === "submitting") return;
+    if (add.isPending) return;
     const form = event.currentTarget;
     const data = new FormData(form);
-    const label = String(data.get("label") ?? "").trim();
-    setStatus({ state: "submitting" });
-    try {
-      const response = await fetch("/api/coderouter/accounts", {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-cmux-team-id": teamId },
-        body: JSON.stringify({
-          provider: kind,
-          apiKey: String(data.get("apiKey") ?? "").trim(),
-          ...(label ? { label } : {}),
-        }),
-      });
-      if (!response.ok) {
-        setStatus({
-          state: "error",
-          message: errorMessageForStatus(response.status, t, t("saveError")),
-        });
-        return;
-      }
-      form.reset();
-      setStatus({ state: "success", message: t("saveSuccess") });
-      refresh();
-    } catch {
-      setStatus({ state: "error", message: t("saveError") });
-    }
+    add.mutate({
+      provider: kind,
+      apiKey: String(data.get("apiKey") ?? "").trim(),
+      label: String(data.get("label") ?? "").trim(),
+    }, { onSuccess: () => form.reset() });
   };
 
   return (
@@ -1161,37 +958,17 @@ function ClaudeUpstreamForm({
   readonly kind: ClaudeUpstreamKind;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
-  const refresh = useRefreshCoderouter();
-  const [status, setStatus] = useState<FormStatus>(idleStatus);
+  const add = useMutation(addClaudeUpstreamMutation(useQueryClient(), teamId));
+  const status = mutationStatus(add, {
+    error: () => t(accountWriteErrorKey(add.error, "saveError")),
+    success: () => t("saveSuccess"),
+  });
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
+  const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (status.state === "submitting") return;
+    if (add.isPending) return;
     const form = event.currentTarget;
-    const body = bodyForKind(kind, new FormData(form));
-    setStatus({ state: "submitting" });
-    try {
-      const response = await fetch(
-        `/api/coderouter/claude-upstream?teamId=${encodeURIComponent(teamId)}`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
-      if (!response.ok) {
-        setStatus({
-          state: "error",
-          message: errorMessageForStatus(response.status, t, t("saveError")),
-        });
-        return;
-      }
-      form.reset();
-      setStatus({ state: "success", message: t("saveSuccess") });
-      refresh();
-    } catch {
-      setStatus({ state: "error", message: t("saveError") });
-    }
+    add.mutate(bodyForKind(kind, new FormData(form)), { onSuccess: () => form.reset() });
   };
 
   return (
@@ -1275,7 +1052,7 @@ function Field({
   );
 }
 
-function bodyForKind(kind: ClaudeUpstreamKind, data: FormData): Record<string, string> {
+function bodyForKind(kind: ClaudeUpstreamKind, data: FormData): ClaudeUpstreamBody {
   const field = (name: string) => String(data.get(name) ?? "").trim();
   const label = field("label");
   const withLabel = (body: Record<string, string>) => (label ? { ...body, label } : body);
@@ -1351,16 +1128,4 @@ function sharedKindLabel(kind: string, t: Translator): string {
     default:
       return t("kindUnknown");
   }
-}
-
-function errorMessageForStatus(
-  status: number,
-  t: Translator,
-  fallback: string,
-  unavailable: string = fallback,
-): string {
-  if (status === 400) return t("validationError");
-  if (status === 403) return t("teamAccessError");
-  if (status === 503) return unavailable;
-  return fallback;
 }

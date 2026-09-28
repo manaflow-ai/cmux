@@ -376,6 +376,20 @@
         "empty": "Aucune machine n'a utilisé coderouter au cours des {days} derniers jours.",
         "unavailable": "L'utilisation par machine est temporairement indisponible.",
         "estimateNote": "La valeur équivalente API est une estimation basée sur les prix publics, pas une dépense réelle."
+      },
+      "metrics": {
+        "title": "Utilisation sur 30 jours",
+        "scope": "Total de l’équipe {team}",
+        "period": "{days} derniers jours",
+        "inputTokens": "Jetons d’entrée",
+        "outputTokens": "Jetons de sortie",
+        "tokens": "Jetons au total",
+        "apiEquivalent": "Valeur équivalente API",
+        "unpriced": "{share} de ces jetons proviennent de modèles sans prix public et ne sont pas inclus dans cette valeur.",
+        "chartLabel": "Utilisation quotidienne des jetons CodeRouter",
+        "privacy": "Aucun prompt, résultat, libellé de compte ni identité de membre n’est enregistré ou affiché.",
+        "estimate": "La valeur équivalente API correspond au coût de ces jetons aux prix publics de l’API (grille tarifaire {version}). Ce n’est pas ce que vous avez payé.",
+        "unavailable": "L’utilisation de l’équipe est temporairement indisponible."
       }
     },
     "accountMenu": {
@@ -486,10 +500,6 @@
         "uploadImage": "Importer une image",
         "removeImage": "Supprimer l’image",
         "zoom": "Zoom"
-      },
-      "redirect": {
-        "redirecting": "Ouverture des réglages…",
-        "openSettings": "Continuer vers les réglages"
       },
       "profile": {
         "title": "Profil",
@@ -1013,6 +1023,11 @@
       "apiKeyUsageDetail": "30 derniers jours : {completions} complétions · {tokens} tokens ({input} entrée / {output} sortie) · équivalent API {value}",
       "apiKeyUsageUnavailable": "Utilisation indisponible",
       "revokeApiKeyConfirmBody": "Les clients utilisant cette clé ne pourront plus s’authentifier immédiatement."
+    },
+    "notFound": {
+      "title": "Page introuvable",
+      "body": "Cette page du tableau de bord n’existe pas ou a été déplacée.",
+      "home": "Aller au tableau de bord"
     }
   },
   "community": {

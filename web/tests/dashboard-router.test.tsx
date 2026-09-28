@@ -59,10 +59,14 @@ const { createDashboardRouter } = await import("../dashboard-app/router");
 async function loadRouter(url: string, locale = "en") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const pathname = url.split(/[?#]/)[0]!;
-  const router = createDashboardRouter({ queryClient, locale, pathname });
+  const router = createDashboardRouter({
+    queryClient,
+    locale,
+    pathname,
+    history: createMemoryHistory({ initialEntries: [url] }),
+  });
   router.update({
     ...router.options,
-    history: createMemoryHistory({ initialEntries: [url] }),
     isServer: false,
     scrollRestoration: false,
     origin: "http://localhost",
@@ -142,6 +146,23 @@ describe("dashboard router", () => {
     expect(html).toContain('data-testid="dashboard-shell"');
     expect(html).toContain("Page not found");
   });
+
+  test.each([
+    ["/dashboard/coderouter?team=t1", "en", "coderouter — cmux"],
+    ["/ja/dashboard/coderouter", "ja", "coderouter — cmux"],
+  ])("%s renders its route title", async (url, locale, title) => {
+    const { html } = await render(url, locale);
+    // The overview fetch fails in this stub; the title comes from the route, not the data.
+    expect(html.match(/<title>([^<]*)<\/title>/g)).toEqual([`<title>${title}</title>`]);
+  });
+
+  test.each(["/dashboard", "/dashboard/billing", "/dashboard/does-not-exist"])(
+    "%s keeps the layout title",
+    async (url) => {
+      const { html } = await render(url);
+      expect(html).not.toContain("<title>");
+    },
+  );
 
   test("renders the home screen inside the shell", async () => {
     const { html } = await render("/dashboard");

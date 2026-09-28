@@ -376,6 +376,20 @@
         "empty": "Son {days} günde hiçbir makine coderouter kullanmadı.",
         "unavailable": "Makine başına kullanım geçici olarak kullanılamıyor.",
         "estimateNote": "API eşdeğer değeri, herkese açık liste fiyatlarına dayalı bir tahmindir, gerçek harcama değildir."
+      },
+      "metrics": {
+        "title": "30 günlük kullanım",
+        "scope": "{team} için ekip toplamı",
+        "period": "Son {days} gün",
+        "inputTokens": "Girdi token’ları",
+        "outputTokens": "Çıktı token’ları",
+        "tokens": "Toplam token",
+        "apiEquivalent": "API eşdeğer değeri",
+        "unpriced": "Bu token’ların {share} kadarı liste fiyatı olmayan modellerden geldi ve bu değere dahil edilmedi.",
+        "chartLabel": "Günlük CodeRouter token kullanımı",
+        "privacy": "Hiçbir istem, çıktı, hesap etiketi veya üye kimliği kaydedilmez ya da gösterilmez.",
+        "estimate": "API eşdeğer değeri, bu token’ların herkese açık API liste fiyatlarıyla (fiyat tablosu {version}) tutacağı tutardır. Ödediğiniz tutar değildir.",
+        "unavailable": "Ekip kullanımı geçici olarak kullanılamıyor."
       }
     },
     "accountMenu": {
@@ -486,10 +500,6 @@
         "uploadImage": "Görsel yükle",
         "removeImage": "Görseli kaldır",
         "zoom": "Yakınlaştır"
-      },
-      "redirect": {
-        "redirecting": "Ayarlar açılıyor…",
-        "openSettings": "Ayarlara devam et"
       },
       "profile": {
         "title": "Profil",
@@ -1013,6 +1023,11 @@
       "apiKeyUsageDetail": "son 30 gün: {completions} tamamlama · {tokens} belirteç ({input} giriş / {output} çıkış) · API eşdeğeri {value}",
       "apiKeyUsageUnavailable": "Kullanım verisi yok",
       "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz."
+    },
+    "notFound": {
+      "title": "Sayfa bulunamadı",
+      "body": "Bu panel sayfası mevcut değil veya taşındı.",
+      "home": "Panele git"
     }
   },
   "community": {

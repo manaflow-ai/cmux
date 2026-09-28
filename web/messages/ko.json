@@ -376,6 +376,20 @@
         "empty": "최근 {days}일 동안 coderouter를 사용한 머신이 없습니다.",
         "unavailable": "머신별 사용량을 일시적으로 확인할 수 없습니다.",
         "estimateNote": "API 환산 금액은 공개 정가를 기준으로 한 추정치이며 실제 지출이 아닙니다."
+      },
+      "metrics": {
+        "title": "30일 사용량",
+        "scope": "{team} 팀 합계",
+        "period": "최근 {days}일",
+        "inputTokens": "입력 토큰",
+        "outputTokens": "출력 토큰",
+        "tokens": "총 토큰",
+        "apiEquivalent": "API 환산 금액",
+        "unpriced": "이 토큰 중 {share}는 정가가 없는 모델에서 발생하여 환산 금액에 포함되지 않았습니다.",
+        "chartLabel": "일별 CodeRouter 토큰 사용량",
+        "privacy": "프롬프트, 출력, 계정 라벨, 멤버 신원은 기록하거나 표시하지 않습니다.",
+        "estimate": "API 환산 금액은 이 토큰을 공개 API 정가(요금표 {version})로 사용했을 때의 금액이며, 실제 결제 금액이 아닙니다.",
+        "unavailable": "팀 사용량을 일시적으로 확인할 수 없습니다."
       }
     },
     "accountMenu": {
@@ -486,10 +500,6 @@
         "uploadImage": "이미지 업로드",
         "removeImage": "이미지 제거",
         "zoom": "확대/축소"
-      },
-      "redirect": {
-        "redirecting": "설정을 여는 중…",
-        "openSettings": "설정으로 이동"
       },
       "profile": {
         "title": "프로필",
@@ -1013,6 +1023,11 @@
       "apiKeyUsageDetail": "최근 30일: 완료 {completions}회 · 토큰 {tokens}개 ({input} 입력 / {output} 출력) · API 환산 {value}",
       "apiKeyUsageUnavailable": "사용량을 사용할 수 없음",
       "revokeApiKeyConfirmBody": "이 키를 사용하는 클라이언트는 즉시 인증할 수 없게 됩니다."
+    },
+    "notFound": {
+      "title": "페이지를 찾을 수 없습니다",
+      "body": "이 대시보드 페이지가 없거나 이동되었습니다.",
+      "home": "대시보드로 이동"
     }
   },
   "community": {
