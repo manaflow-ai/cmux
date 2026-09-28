@@ -43,8 +43,9 @@ extension TerminalController {
         if let tool = agent.activity.tool {
             activity["tool"] = [
                 "name": tool.name,
-                // Commands and argv can carry credentials and home paths.
-                "command": orNull(tool.command.map(AgentHookNotificationPolicy.redactSensitiveCommand)),
+                // Unredacted: agent.list is a same-user local socket kept off the
+                // remote relay, and the same user can read this argv with ps.
+                "command": orNull(tool.command),
                 "started_at": timestamp(tool.startedAt),
             ] as [String: Any]
         }
