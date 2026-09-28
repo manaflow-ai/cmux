@@ -380,14 +380,14 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     ),
   attachTunnelNetwork: (provider, tunnelId, networkId) =>
     providerEffect(provider, "attachTunnelNetwork", async () => {
-      const impl = privateNetworking(provider).attachTunnelNetwork;
-      if (!impl) throw new VmOperationUnsupportedError({ provider, operation: "attachTunnelNetwork" });
-      return await impl(tunnelId, networkId);
+      const networking = privateNetworking(provider);
+      if (!networking.attachTunnelNetwork) throw new VmOperationUnsupportedError({ provider, operation: "attachTunnelNetwork" });
+      return await networking.attachTunnelNetwork(tunnelId, networkId);
     }),
   detachTunnelNetwork: (provider, tunnelId, networkId) =>
     providerEffect(provider, "detachTunnelNetwork", async () => {
-      const impl = privateNetworking(provider).detachTunnelNetwork;
-      if (!impl) throw new VmOperationUnsupportedError({ provider, operation: "detachTunnelNetwork" });
-      await impl(tunnelId, networkId);
+      const networking = privateNetworking(provider);
+      if (!networking.detachTunnelNetwork) throw new VmOperationUnsupportedError({ provider, operation: "detachTunnelNetwork" });
+      await networking.detachTunnelNetwork(tunnelId, networkId);
     }),
 });

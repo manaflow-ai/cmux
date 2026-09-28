@@ -6,6 +6,7 @@ import {
   isWireGuardPublicKey,
   networkSlugForTeam,
   networkSlugForUser,
+  privateNetworkErrorDescription,
   readVmTunnel,
   resolveOwnerNetwork,
   revokeVmAccessGrant,
@@ -20,7 +21,7 @@ import {
   VmProviderOperationError,
   VmTunnelNotFoundError,
 } from "../services/vms/errors";
-import { ProviderTunnelNetworkOverlapError } from "../services/vms/drivers";
+import { ProviderError, ProviderTunnelNetworkOverlapError } from "../services/vms/drivers";
 import type {
   CreateProviderTunnelOptions,
   ProviderNetwork,
@@ -454,6 +455,18 @@ describe("resolveOwnerNetwork", () => {
     const timedOut = await Effect.runPromise(resolveOwnerNetwork({ userId: "user-1", provider: "freestyle", billingTeamId: "team-1", directoryTimeoutMs: 1, teamDirectory: { listMemberIds: async () => new Promise<readonly string[]>(() => {}) } }).pipe(Effect.provide(layerFor(testRepo(), testGateway()))));
     expect(timedOut.scope).toBe("user");
     expect(timedOut.memberIngress).toBe(false);
+  });
+
+  test("nested provider failures have readable private-network diagnostics", () => {
+    const upstream = Object.assign(new Error("upstream unavailable"), { status: 503, code: "UPSTREAM" });
+    const providerError = new ProviderError("freestyle", "attachTunnelNetwork", upstream);
+    const description = privateNetworkErrorDescription(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "attachTunnelNetwork",
+      cause: providerError,
+    }));
+    expect(description).toContain("[freestyle] attachTunnelNetwork");
+    expect(description).toContain("status=503 code=UPSTREAM upstream unavailable");
   });
 
   test("an existing team network is reused by a current member of a one-member team", async () => {

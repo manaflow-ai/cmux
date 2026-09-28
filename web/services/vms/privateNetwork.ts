@@ -843,6 +843,41 @@ function requirePrivateAccessRepo(provider: ProviderId) {
   });
 }
 
+export function privateNetworkErrorDescription(error: unknown): string {
+  const parts: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 8 && current && !seen.has(current); depth += 1) {
+    seen.add(current);
+    if (typeof current !== "object") {
+      if (typeof current === "string" && current.trim()) parts.push(current.trim());
+      break;
+    }
+    const record = current as {
+      readonly message?: unknown;
+      readonly cause?: unknown;
+      readonly code?: unknown;
+      readonly status?: unknown;
+      readonly statusCode?: unknown;
+      readonly body?: { readonly code?: unknown };
+      readonly response?: { readonly status?: unknown };
+    };
+    const status = [record.status, record.statusCode, record.response?.status].find((value): value is number => typeof value === "number");
+    const code = typeof record.code === "string" || typeof record.code === "number"
+      ? String(record.code)
+      : typeof record.body?.code === "string" || typeof record.body?.code === "number"
+        ? String(record.body.code)
+        : undefined;
+    const message = typeof record.message === "string" ? record.message.trim() : "";
+    const detail = [status === undefined ? undefined : `status=${status}`, code ? `code=${code}` : undefined, message || undefined]
+      .filter((value): value is string => value !== undefined)
+      .join(" ");
+    if (detail) parts.push(detail.slice(0, 300));
+    current = record.cause;
+  }
+  return (parts.join(" <- ") || "unknown provider failure").slice(0, 1_000);
+}
+
 function attachTeamNetwork(input: {
   readonly providers: PrivateNetworkingGateway;
   readonly repo: TeamNetworkRepo;
@@ -872,6 +907,7 @@ function attachTeamNetwork(input: {
     Effect.logWarning("Cloud team tunnel attachment skipped", {
       networkId: input.network.id,
       overlap: isProviderTunnelNetworkOverlap(error),
+      errorDescription: privateNetworkErrorDescription(error),
       error,
     }).pipe(Effect.as(false)),
   ));
@@ -893,6 +929,7 @@ function detachStaleTeamNetwork(input: {
   return operation.pipe(Effect.catchAll((error) =>
     Effect.logWarning("Cloud stale team tunnel attachment cleanup skipped", {
       teamNetworkId: input.attachment.teamNetworkId,
+      errorDescription: privateNetworkErrorDescription(error),
       error,
     }).pipe(Effect.as(false)),
   ));
