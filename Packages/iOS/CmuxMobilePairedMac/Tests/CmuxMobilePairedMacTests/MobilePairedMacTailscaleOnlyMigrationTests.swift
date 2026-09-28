@@ -24,7 +24,7 @@ import Testing
         try await store.upsert(macDeviceID: "keyed-mac", displayName: "Keyed", routes: [iroh, tailscale],
                                instanceTag: "default", markActive: true, stackUserID: "alice", now: now)
         try await store.setDirectAddresses(macDeviceID: "keyed-mac", instanceTag: "default",
-                                           rawJSON: "[{\"address\":\"192.168.1.10\",\"port\":58465,\"enabled\":true}]",
+                                           rawJSON: "[{\"address\":\"192.168.1.10\",\"port\":58465,\"enabled\":true},{\"address\":\"100.64.0.9\",\"port\":58465,\"enabled\":false}]",
                                            stackUserID: "alice")
         try await store.authorizeUserTailscaleRoutes(macDeviceID: "keyed-mac", instanceTag: "default",
                                                      stackUserID: "alice", teamID: nil, routes: [tailscale])
@@ -50,13 +50,33 @@ import Testing
         // The grants became Direct addresses; leaving them could resurrect a
         // removed address through the Iroh compatibility path.
         #expect(keyed.legacyTailscaleRoutes == nil)
+        // The granted endpoint matched a disabled entry: migration re-enables
+        // it (a converted pairing must not land with nothing dialable).
         #expect(keyed.directAddresses == [
             MobilePairedMacDirectAddress(address: "192.168.1.10", port: 58465),
-            MobilePairedMacDirectAddress(address: "100.64.0.9", port: 58465, label: "Tailscale"),
+            MobilePairedMacDirectAddress(address: "100.64.0.9", port: 58465, enabled: true),
         ])
         #expect(legacy.connectionMethodRawValue == nil)
         // The grant stays, so the Iroh method's legacy compatibility still dials it.
         #expect(legacy.legacyTailscaleRoutes == [tailscale])
+    }
+
+    /// A replacement code drops the stale code-derived endpoint, keeps the
+    /// user's own entries, and re-enables a matching disabled one.
+    @Test func replacementReconcilesCodeDerivedAddresses() throws {
+        let old = try! CmxAttachRoute(
+            id: "t1", kind: .tailscale, endpoint: .hostPort(host: "100.64.0.9", port: 58466))
+        let replacement = try! CmxAttachRoute(
+            id: "t2", kind: .tailscale, endpoint: .hostPort(host: "100.64.0.20", port: 58466))
+        let start = [MobilePairedMacDirectAddress(address: "192.168.1.10", port: 58466)]
+            .appendingTailscaleAddresses(from: [old])
+        #expect(start.map(\.address) == ["192.168.1.10", "100.64.0.9"])
+
+        let replaced = start.appendingTailscaleAddresses(from: [replacement])
+        #expect(replaced == [
+            MobilePairedMacDirectAddress(address: "192.168.1.10", port: 58466),
+            MobilePairedMacDirectAddress(address: "100.64.0.20", port: 58466, label: "Tailscale"),
+        ])
     }
 
     private static func setUserVersion(_ version: Int32, at url: URL) throws {

@@ -180,14 +180,18 @@ extension MobileShellComposite {
                     // instance-tag adoption can move the row to a new owner
                     // key, and merging against the pre-upsert snapshot would
                     // overwrite the user's existing Direct addresses.
-                    let current = (try? await pairedMacStore.loadAll(
+                    // A failed re-read must not masquerade as an empty list:
+                    // merging against [] would overwrite the user's existing
+                    // addresses. Without the row, skip the merge entirely.
+                    let reloaded = (try? await pairedMacStore.loadAll(
                         stackUserID: stackUserID, teamID: scope?.teamID
                     ))?.first {
                         MacPairingKey($0) == MacPairingKey(macDeviceID: ticket.macDeviceID, instanceTag: instanceTag)
-                    }?.directAddresses ?? []
+                    }
+                    let current = reloaded?.directAddresses ?? []
                     let merged = current.appendingTailscaleAddresses(
                         from: userAuthorizedTailscaleRoutes)
-                    if merged != current {
+                    if reloaded != nil, merged != current {
                         try? await pairedMacStore.setDirectAddresses(
                             macDeviceID: ticket.macDeviceID,
                             instanceTag: instanceTag,

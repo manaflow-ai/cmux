@@ -957,6 +957,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         )
     }
 
+    /// Forwards with the canonical device id and resolved team.
     public func revokeAllLegacyTailscaleGrants(
         macDeviceID: String,
         instanceTag: String?,

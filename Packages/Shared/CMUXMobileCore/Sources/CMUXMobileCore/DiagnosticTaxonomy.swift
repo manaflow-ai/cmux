@@ -882,6 +882,7 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
 /// without account, address, or grant details.
 /// The connection method a diagnostics payload attributes an event to.
 public enum DiagnosticConnectionMethod: Int, Sendable, Codable, CaseIterable {
+    /// Iroh: discovery, direct paths, and managed relays (the default).
     case iroh = 0
     /// The former Tailscale Only method, folded into Direct. Kept so older
     /// diagnostic reports still decode; no longer recorded.

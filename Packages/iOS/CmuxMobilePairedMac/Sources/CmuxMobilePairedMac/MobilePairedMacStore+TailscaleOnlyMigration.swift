@@ -95,14 +95,34 @@ extension MobilePairedMacStore {
 }
 
 public extension [MobilePairedMacDirectAddress] {
-    /// Appends each Tailscale host and port not already present as an
-    /// enabled Direct address labeled "Tailscale".
+    /// The label marking a Direct address as derived from a Tailscale
+    /// pairing code, so a later code can replace it.
+    static var tailscaleDerivedLabel: String { "Tailscale" }
+
+    /// Reconciles the code-derived Tailscale subset against a freshly
+    /// authorized route set: stale "Tailscale"-labeled entries the new code
+    /// no longer names are dropped (a replacement scan replaces, so old
+    /// endpoints cannot pile up and crowd out the live one), a matching
+    /// entry is re-enabled (an authorization naming a disabled endpoint must
+    /// leave something dialable), and new endpoints are appended. Entries
+    /// the user added by hand carry no "Tailscale" label and are never
+    /// touched.
     func appendingTailscaleAddresses(from routes: [CmxAttachRoute]) -> [MobilePairedMacDirectAddress] {
-        var merged = self
-        for route in routes {
-            guard route.kind == .tailscale, case let .hostPort(host, port) = route.endpoint,
-                  !merged.contains(where: { $0.address == host && $0.port == port }) else { continue }
-            merged.append(MobilePairedMacDirectAddress(address: host, port: port, label: "Tailscale"))
+        let authorized = routes.compactMap { route -> (host: String, port: Int)? in
+            guard route.kind == .tailscale, case let .hostPort(host, port) = route.endpoint else { return nil }
+            return (host, port)
+        }
+        var merged = filter { entry in
+            entry.label != Self.tailscaleDerivedLabel
+                || authorized.contains { $0.host == entry.address && $0.port == entry.port }
+        }
+        for (host, port) in authorized {
+            if let index = merged.firstIndex(where: { $0.address == host && $0.port == port }) {
+                merged[index].enabled = true
+                continue
+            }
+            merged.append(MobilePairedMacDirectAddress(
+                address: host, port: port, label: Self.tailscaleDerivedLabel))
         }
         return merged
     }

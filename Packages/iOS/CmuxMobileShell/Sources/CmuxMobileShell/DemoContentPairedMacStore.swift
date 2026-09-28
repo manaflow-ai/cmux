@@ -350,6 +350,7 @@ public struct DemoContentPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Demonstration rows have no real grants; everything else forwards.
     public func revokeAllLegacyTailscaleGrants(
         macDeviceID: String,
         instanceTag: String?,

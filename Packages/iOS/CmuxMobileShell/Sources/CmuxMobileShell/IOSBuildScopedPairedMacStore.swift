@@ -631,6 +631,8 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Revokes in the scope that actually holds the row, mirroring the
+    /// grant write above.
     public func revokeAllLegacyTailscaleGrants(
         macDeviceID: String,
         instanceTag: String?,
