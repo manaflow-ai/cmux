@@ -125,15 +125,28 @@ enum SurfacePaneFactory {
 
     /// A fresh local workspace (⌘N) titled `title`, returned with the id of the starter
     /// pane it opened with so a caller projecting a group can take that pane's place.
-    static func createLocalWorkspace(title: String, titleSource: Workspace.CustomTitleSource = .user) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
+    /// `focus: false` creates it behind the current selection (no window or workspace switch).
+    static func createLocalWorkspace(title: String, titleSource: Workspace.CustomTitleSource = .user, focus: Bool) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
         guard let workspace = AppDelegate.shared?.addWorkspaceInPreferredMainWindow(
             title: title, titleSource: titleSource,
+            select: focus,
             shouldBringToFront: false,
             debugSource: "surface.catalog.newWorkspace"
         ) else {
             throw FactoryError.workspaceNotFound(UUID())
         }
         return (workspace.id, workspace.focusedPanelId)
+    }
+
+    /// A pane an agent or script opened without focus gets the unread dot, so the person
+    /// sees that something landed without being pulled to it. It uses the restored-unread
+    /// indicator, which clears when the person selects the workspace, clicks the pane or
+    /// types in it; a manual mark-unread would survive everything but typing. The pane the
+    /// person is already looking at is left alone.
+    static func markOpenedInBackground(panelID: UUID, in workspaceID: UUID) {
+        guard let workspace = workspace(id: workspaceID), workspace.panels[panelID] != nil else { return }
+        if workspace.owningTabManager?.selectedTabId == workspaceID, workspace.focusedPanelId == panelID { return }
+        workspace.restorePanelUnreadIndicator(panelID)
     }
 
     /// The pane (Bonsplit id) that hosts a panel, for re-projecting in place.
