@@ -683,6 +683,13 @@ final class CmuxSettingsFileStore {
             ) else { return }
             snapshot.managedUserDefaults["sidebarSelectionColorHex"] = .nullableString(value)
         }
+        if section.keys.contains("subtleSelection") {
+            if let value = jsonBool(section["subtleSelection"]) {
+                snapshot.managedUserDefaults[SettingCatalog().workspaceColors.subtleSelection.userDefaultsKey] = .bool(value)
+            } else {
+                logInvalid("workspaceColors.subtleSelection", sourcePath: sourcePath)
+            }
+        }
         if section.keys.contains("notificationBadgeColor") {
             guard let value = parseNullableHex(
                 section["notificationBadgeColor"],

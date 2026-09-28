@@ -138,7 +138,12 @@ elif args[:2] == ["run", "list"]:
 elif args[:2] == ["run", "watch"]:
     sys.exit(int(os.environ.get("LAUNCHER_WATCH_STATUS", "0")))
 elif args[:2] == ["run", "view"]:
-    print("failure")
+    if "--log-failed" in args:
+        if os.environ.get("LAUNCHER_FAILED_LOG_FAIL"):
+            sys.exit(1)
+        print(os.environ.get("LAUNCHER_FAILED_LOG", ""))
+    else:
+        print("failure")
 else:
     sys.exit(2)
 '''
@@ -212,6 +217,30 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(self.dispatch()["record_video"], "false")
         self.assertIn("/actions/runs/123", result.stdout)
         self.assertNotIn("/actions/runs/999", result.stdout)
+
+    def test_a_scenario_dispatches_the_dogfood_test_with_the_encoded_tour(self):
+        import base64
+        tour = {"steps": [{"shot": "start"}, {"key": "t", "modifiers": ["command"]}]}
+        path = self.root / "tour.json"
+        path.write_text(json.dumps(tour))
+        result = self.launch("--scenario", str(path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        dispatch = self.dispatch()
+        self.assertEqual(dispatch["test_filter"], "cmuxUITests/DogfoodScenarioUITests")
+        self.assertEqual(json.loads(base64.b64decode(dispatch["dogfood_scenario"])), tour)
+
+    def test_a_scenario_without_steps_is_refused_before_dispatch(self):
+        path = self.root / "tour.json"
+        path.write_text(json.dumps({"launch": {}}))
+        result = self.launch("--scenario", str(path))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("steps", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists())
+
+    def test_a_run_needs_a_selector_or_a_scenario(self):
+        result = self.launch()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--scenario", result.stderr)
 
     def test_only_unpinned_runs_without_full_build_look_for_ci_products(self):
         for args in (["cmuxTests/ExampleTests"], ["cmuxTests/ExampleTests", "--full-build"],
@@ -644,14 +673,15 @@ class FocusedLauncherTests(unittest.TestCase):
                 self.assertNotEqual(self.launch("ExampleTests", *args).returncode, 0)
         self.assertFalse((self.root / "dispatch.json").exists())
     def _prior(self, conclusion, *, selector="cmuxTests/ExampleTests", commit=HEAD, runner="mac",
-               workflow_ref="main"):
+               workflow_ref="main", count=1):
         return json.dumps([{
+            "databaseId": 555,
             "displayTitle": f"{selector} on {runner} @ {commit} [deadbeef]",
             "headBranch": workflow_ref,
             "conclusion": conclusion,
             "status": "completed",
             "url": "https://github.com/manaflow-ai/cmux/actions/runs/555",
-        }])
+        }] * count)
 
     def _live(self, *, selector="cmuxTests/ExampleTests", commit=HEAD,
               runner=DEFAULT_RUNNER, status="in_progress", workflow_ref="main"):
@@ -717,6 +747,58 @@ class FocusedLauncherTests(unittest.TestCase):
         # title prefix would let batching bypass the guard entirely.
         prior = self._prior("failure", selector="cmuxTests/AlphaTests,cmuxTests/ExampleTests")
         result = self.launch("cmuxTests/ExampleTests", LAUNCHER_PRIOR_RUNS=prior)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already failed", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    MACHINE_LOG = (
+        "build\tRun selected tests\t2026-09-27T10:45:36Z cmuxUITests-Runner[39090] Failed to initialize "
+        "for UI testing: \"Timed out while enabling automation mode.\"\n"
+        "build\tRun selected tests\t2026-09-27T10:45:40Z ** TEST EXECUTE FAILED **\n"
+    )
+
+    def test_a_machine_failure_is_dispatched_again_without_force(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure"), LAUNCHER_FAILED_LOG=self.MACHINE_LOG,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("before any test started", result.stdout)
+        self.assertIn("Automation Mode", result.stdout)
+        self.assertEqual(self.dispatch()["test_filter"], "cmuxTests/ExampleTests")
+
+    def test_a_failure_where_a_test_started_is_still_refused(self):
+        log = self.MACHINE_LOG + "Test Case '-[cmuxTests.ExampleTests testA]' started.\n"
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure"), LAUNCHER_FAILED_LOG=log,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already failed", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_two_machine_failures_are_still_redispatched(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure", count=2), LAUNCHER_FAILED_LOG=self.MACHINE_LOG,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("before any test started", result.stdout)
+
+    def test_an_unreadable_log_is_refused(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure"), LAUNCHER_FAILED_LOG_FAIL="1",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already failed", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_repeated_machine_failures_stop_redispatching(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure", count=3), LAUNCHER_FAILED_LOG=self.MACHINE_LOG,
+        )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("already failed", result.stderr)
         self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
@@ -1601,6 +1683,39 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         for label in (SMALL, LARGE, OLD):
             self.assertEqual(self.pool.retry_runner(label), label)
         self.assertEqual(self.owned(requested=MINI, owned="0"), MINI)  # explicit is explicit
+
+    def test_a_ui_run_waits_for_an_owned_mac_instead_of_blacksmith(self):
+        # Blacksmith sessions sit at a locked screen, so UI tests cannot run there.
+        full = dict(running=8, queued=40, committed=48, test_filter="cmuxUITests/ExampleUITests", owned_ui="1")
+        self.assertIn(self.owned(**{**full, "test_filter": "cmuxTests/ExampleTests"}), self.pool.E2E_POOLS)
+        self.assertEqual(self.owned(**full), MINI)
+        self.assertEqual(self.pool.retry_runner(MINI, ui=True), MINI)
+        self.assertEqual(self.pool.retry_runner(SMALL, ui=True), SMALL)
+        self.assertTrue(self.pool.ui_run("cmuxTests/A, cmuxUITests/B"))
+        self.assertFalse(self.pool.ui_run("cmuxTests/A, cmuxTests/B"))
+
+    def test_the_ui_rule_holds_over_every_fallback_but_a_drained_fleet(self):
+        move = dict(test_filter="cmuxUITests/A", owned="1", owned_ui="1", order="",
+                    owned_slots=json.dumps({MINI: 8}), pr_xcode_app="/Applications/Xcode_26.6.app")
+        for label in (SMALL, LARGE):
+            self.assertEqual(self.pool.ui_owned_runner(label, **move), MINI)
+        root = "glaeda-root-" + MINI.removeprefix("glaeda-")
+        self.assertEqual(self.pool.ui_owned_runner(SMALL, **{**move, "owned_slots": json.dumps({MINI: 8, root: 4})}),
+                         root)
+        kept = {
+            "a cmuxTests run": dict(test_filter="cmuxTests/A"),
+            "owned pools off": dict(owned="0"),
+            "UI runs not allowed on owned Macs": dict(owned_ui=""),
+            "a drained fleet": dict(owned_slots="{}"),
+            "another Xcode pin": dict(pr_xcode_app="/Applications/Xcode_26.5.app"),
+        }
+        for why, change in kept.items():
+            with self.subTest(why=why):
+                self.assertEqual(self.pool.ui_owned_runner(SMALL, **{**move, **change}), SMALL)
+        self.assertEqual(self.pool.ui_owned_runner(MINI, **move), MINI)
+        # A snapshot too old to route on still keeps a UI run off Blacksmith.
+        stale = self.pool.pr_runner_pool.MAX_SNAPSHOT_MINUTES + 1
+        self.assertEqual(self.owned(age=stale, test_filter="cmuxUITests/A", owned_ui="1"), MINI)
 
     def test_owned_macs_record_no_video(self):
         step = next(step for step in self.jobs["filter"]["steps"] if step.get("id") == "filter")

@@ -13,6 +13,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+LANE = "scripts/ci/package-test-lane.sh"
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 from select_package_tests import GLOBAL_INPUTS, select  # noqa: E402
@@ -52,6 +53,8 @@ def job_scripts() -> set[str]:
     workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
     job = workflow.split("\n  swift-package-tests:\n", 1)[1]
     job = re.split(r"\n  [A-Za-z0-9_-]+:\n", job, maxsplit=1)[0]
+    # The job's test steps run the lane script, which calls the rest by path.
+    job += (ROOT / LANE).read_text(encoding="utf-8")
     found = set(re.findall(r"(?:\./)?(scripts/[A-Za-z0-9_./-]+\.(?:sh|py))", job))
     pending = list(found)
     while pending:
@@ -66,20 +69,16 @@ def job_scripts() -> set[str]:
     return found
 
 
-def run_package_step(workflow: str, package: str, attempts: list[tuple[str, int]], bonsplit=False):
-    """Execute the real CI shell; only Swift's process boundary is substituted."""
-    name = "Run Bonsplit package tests" if bonsplit else "Run Swift package unit tests"
-    section = workflow.split(f"      - name: {name}\n", 1)[1].split("\n      - name:", 1)[0]
-    # The next step can have a leading YAML comment at the surrounding indent.
-    script = "\n".join(line[10:] if line.startswith(" " * 10) else line
-                        for line in section.split("        run: |\n", 1)[1].splitlines()
-                        if not line.startswith("      #"))
+def run_package_step(package: str, attempts: list[tuple[str, int]], bonsplit=False):
+    """Execute the real lane script; only Swift's process boundary is substituted."""
+    script = f"bash '{ROOT / LANE}' {'bonsplit' if bonsplit else 'packages'}\n"
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / "Packages/macOS" / package).mkdir(parents=True)
         (root / "vendor/bonsplit").mkdir(parents=True)
         (root / "scripts/ci").mkdir(parents=True)
-        shutil.copyfile(ROOT / "scripts/ci/require_swift_test_execution.py", root / "scripts/ci/require_swift_test_execution.py")
+        for helper in ("require_swift_test_execution.py", "hung_test_watchdog.py", "ci_process_tree.py"):
+            shutil.copyfile(ROOT / "scripts/ci" / helper, root / "scripts/ci" / helper)
         selected = root / "selected"
         selected.write_text(package + "\n")
         fixture = root / "attempts.json"
@@ -103,33 +102,33 @@ def run_package_step(workflow: str, package: str, attempts: list[tuple[str, int]
         return result, count
 
 
-def check_package_output_behavior(workflow: str) -> None:
+def check_package_output_behavior() -> None:
     padding = "build progress line without diagnostics\n" * 12000
     passed = "✔ Test run with 4 tests in 1 suites passed after 0.001 seconds.\n"
     cosmetic = "error: unexpected binary name GhosttyKit\n"
     for package in ("CmuxTerminal", "CmuxTerminalCore"):
-        result, count = run_package_step(workflow, package, [(cosmetic + "error: real compiler failure\n" + padding + passed, 1)])
+        result, count = run_package_step(package, [(cosmetic + "error: real compiler failure\n" + padding + passed, 1)])
         assert result.returncode == 1 and count == 1, f"{package}: real error incorrectly tolerated: {result.returncode}"
-        result, count = run_package_step(workflow, package, [(cosmetic + padding + passed, 1)])
+        result, count = run_package_step(package, [(cosmetic + padding + passed, 1)])
         assert result.returncode == 0 and count == 1, f"{package}: cosmetic diagnostic no longer tolerated"
-        result, count = run_package_step(workflow, package, [(cosmetic + "with 1 failure\n" + padding + passed, 1)])
+        result, count = run_package_step(package, [(cosmetic + "with 1 failure\n" + padding + passed, 1)])
         assert result.returncode == 1 and count == 1, f"{package}: test failure incorrectly tolerated"
     for bonsplit in (False, True):
         for signal in (5, 6):
             startup = f"Build complete!\nerror: Exited with unexpected signal code {signal}\n" + padding
-            result, count = run_package_step(workflow, "CmuxSettings", [(startup, 1), (passed, 0)], bonsplit)
+            result, count = run_package_step("CmuxSettings", [(startup, 1), (passed, 0)], bonsplit)
             assert result.returncode == 0 and count == 2, f"startup signal {signal} must retry once (bonsplit={bonsplit})"
-            result, count = run_package_step(workflow, "CmuxSettings", [(startup, 1)], bonsplit)
+            result, count = run_package_step("CmuxSettings", [(startup, 1)], bonsplit)
             assert result.returncode == 1 and count == 2, "repeated startup crashes must fail after one retry"
         for output in ("Build complete!\nerror: Exited with unexpected signal code 10\n" + padding,
                        "Build complete!\nerror: Exited with unexpected signal code 5\nTest Suite started\n" + padding):
-            result, count = run_package_step(workflow, "CmuxSettings", [(output, 1)], bonsplit)
+            result, count = run_package_step("CmuxSettings", [(output, 1)], bonsplit)
             assert result.returncode == 1 and count == 1, "non-startup failures must not retry"
     print("PASS: real package CI steps reject true errors and preserve bounded startup retries")
 
 
 def main() -> int:
-    check_package_output_behavior((ROOT / ".github/workflows/ci-macos.yml").read_text())
+    check_package_output_behavior()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         fixture(root)
@@ -203,9 +202,9 @@ def main() -> int:
         else:
             raise AssertionError("a listed package that does not exist must fail")
 
-    # Every package the workflow lists must exist, or the job fails before testing anything.
-    workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
-    listed = workflow.split("          PACKAGES=(\n", 1)[1].split("          )\n", 1)[0].split()
+    # Every package the lane lists must exist, or the job fails before testing anything.
+    lane = (ROOT / LANE).read_text(encoding="utf-8")
+    listed = lane.split("  PACKAGES=(\n", 1)[1].split("\n  )\n", 1)[0].split()
     assert len(listed) == len(set(listed)), "PACKAGES lists a package twice"
     result = subprocess.run(
         [sys.executable, str(ROOT / "scripts/ci/select_package_tests.py"), "--root", str(ROOT), *listed],
@@ -214,7 +213,7 @@ def main() -> int:
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == listed, "without a diff the script must print every listed package in order"
 
-    select_step = workflow.split("      - name: Select package tests\n", 1)[1].split("      - name:", 1)[0]
+    select_step = lane.split("\nselect_packages() {\n", 1)[1].split("\n}\n", 1)[0]
     assert "git diff --no-renames --name-only HEAD^1 HEAD" in select_step, "a move out of a package must list the old path"
     assert "'^vendor/bonsplit(/|$)'" in select_step, "a Bonsplit submodule bump must run the Bonsplit tests"
 

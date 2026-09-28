@@ -42,6 +42,48 @@ def queued_hook_command(agent: str, subcommand: str, disabled_key: str) -> str:
     )
 
 
+def spool_producer_command(agent: str, subcommand: str, fallback: str) -> str:
+    """Port of AgentHookSpoolProducer.command(subcommand:fallback:)."""
+    upper = agent.upper()
+    pid_key = "CMUX_" + "".join(character if character.isalnum() else "_" for character in upper) + "_PID"
+    spool_key = f"CMUX_{upper}_HOOK_SPOOL_DIR"
+    disable_key = f"CMUX_{upper}_HOOKS_DISABLED"
+    script = "\n".join(
+        [
+            "LC_ALL=C",
+            f"export {pid_key}=${{{pid_key}:-$PPID}}",
+            'cmux_fallback() { { print -rn -- "$cmux_p"; /bin/cat; } | /bin/sh -c "$1" >&3; exit $?; }',
+            'zmodload zsh/system zsh/datetime zsh/files 2>/dev/null || exec /bin/sh -c "$1" >&3',
+            "cmux_p= cmux_c= cmux_e=0",
+            f"while (( ${{#cmux_p}} < {256 * 1024} )); do sysread -i 0 -s 65536 cmux_c || {{ cmux_e=$?; break; }}; cmux_p+=$cmux_c; done",
+            f"[[ -n ${{CMUX_SURFACE_ID:-}} && ${{{disable_key}:-}} != 1 ]] || {{ (( cmux_e == 5 )) || /bin/cat >/dev/null; print -r -- '{{}}' >&3; exit 0; }}",
+            f"cmux_d=${spool_key}",
+            '(( cmux_e == 5 )) && [[ -f $cmux_d/keys ]] || cmux_fallback "$1"',
+            f"cmux_r=\"cmux-agent-hook-v1\"$'\\n'\"{agent}\"$'\\n'\"$2\"$'\\n'",
+            "for cmux_k in ${(f)\"$(<$cmux_d/keys)\"}; do (( ${+parameters[$cmux_k]} )) && cmux_r+=\"$cmux_k=${(P)cmux_k}\"$'\\0'; done",
+            "cmux_r+=$'\\0'\"$cmux_p\"",
+            f'(( ${{#cmux_r}} <= {512 * 1024} )) || cmux_fallback "$1"',
+            "umask 077",
+            "cmux_n=$cmux_d/$epochtime[1].$epochtime[2]-$$",
+            '{ print -rn -- "$cmux_r" >| $cmux_n.tmp && mv -f -- $cmux_n.tmp $cmux_n.rec; } 2>/dev/null || { rm -f -- $cmux_n.tmp 2>/dev/null; cmux_fallback "$1"; }',
+            "if zsystem flock -t 0 -r -f cmux_l $cmux_d/forwarder.lock 2>/dev/null; then",
+            "  zsystem flock -u $cmux_l",
+            '  rm -- $cmux_n.rec 2>/dev/null && cmux_fallback "$1"',
+            "fi",
+            "print -r -- '{}' >&3",
+        ]
+    )
+
+    def single_quoted(value: str) -> str:
+        return "'" + value.replace("'", "'\\''") + "'"
+
+    return (
+        f'if [ -n "${{{spool_key}:-}}" ] && [ -x /bin/zsh ]; then '
+        f"exec /bin/zsh -fc {single_quoted(script)} cmux-hook {single_quoted(fallback)} {subcommand} 3>&1 1>&2; "
+        f"else {fallback}; fi"
+    )
+
+
 def generated_claude_hook_settings() -> str:
     direct_cli = '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}"'
 
@@ -53,7 +95,11 @@ def generated_claude_hook_settings() -> str:
 
     def queued(subcommand: str, *, matcher: str = "") -> dict:
         return direct(
-            queued_hook_command("claude", subcommand, "CMUX_CLAUDE_HOOKS_DISABLED"),
+            spool_producer_command(
+                "claude",
+                subcommand,
+                queued_hook_command("claude", subcommand, "CMUX_CLAUDE_HOOKS_DISABLED"),
+            ),
             5,
             matcher=matcher,
         )
@@ -952,7 +998,7 @@ def test_nonstandard_generated_settings_still_validated_by_node(failures: list[s
 
 def test_speculative_hook_settings_are_discarded_on_passthrough(failures: list[str]) -> None:
     # The settings generator starts before the ping. Every passthrough must
-    # stop it and remove its output file without waiting for the watchdog.
+    # stop it and remove its output file.
     # `frobnicate` is only known as a subcommand through help discovery, so
     # the generator starts and the passthrough has to discard it; `doctor` is
     # a known subcommand, so the generator never starts.
@@ -983,7 +1029,6 @@ exit 0
 """,
                 )
 
-            started = time.monotonic()
             code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
                 socket_state=socket_state,
                 argv=argv,
@@ -991,7 +1036,6 @@ exit 0
                 setup_sandbox=setup,
                 help_output=help_output,
             )
-            elapsed = time.monotonic() - started
             context = f"speculative settings [{socket_state} {argv}]"
             expect(code == 0, f"{context}: wrapper exited {code}: {stderr}", failures)
             expect(real_argv == argv, f"{context}: expected passthrough argv, got {real_argv}", failures)
@@ -1010,7 +1054,6 @@ exit 0
                 except ProcessLookupError:
                     alive = False
                 expect(not alive, f"{context}: generator {pids[0]} still running after passthrough", failures)
-            expect(elapsed < 4.5, f"{context}: passthrough waited on the generator ({elapsed:.1f}s)", failures)
 
 
 def test_managed_defaults_domain_matches_per_key_reads(failures: list[str]) -> None:

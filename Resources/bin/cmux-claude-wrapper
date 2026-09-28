@@ -1770,6 +1770,8 @@ fi
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
 export CMUX_CLAUDE_PID=$$
+# A parent session's hook spool belongs to that session; this launch starts its own below.
+unset CMUX_CLAUDE_HOOK_SPOOL_DIR
 if [[ -z "$cmux_claude_hook_cmux_bin" ]]; then
     cmux_claude_hook_cmux_bin="$(resolve_hook_cmux_bin)"
 fi
@@ -1926,9 +1928,10 @@ CMUX_CLAUDE_LIFECYCLE_HOOKS
 # environment, the socket, or user settings.
 cmux_claude_build_standard_hook_settings() {
     local queued direct_cli
-    # JSON-escaped body of CMUXCLI.queuedAgentHookShellCommand(agent: "claude").
+    # JSON-escaped body of AgentHookSpoolProducer(agent: "claude").command(...)
+    # wrapping CMUXCLI.queuedAgentHookShellCommand(agent: "claude") as its fallback.
     IFS= read -r queued <<'CMUX_CLAUDE_QUEUED_HOOK_COMMAND'
-cmux_cli=\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; agent_pid=\"${CMUX_CLAUDE_PID:-${PPID:-}}\"; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$CMUX_CLAUDE_HOOKS_DISABLED\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '{}'; }; else CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '{}'; }; fi; else cat >/dev/null; echo '{}'; fi
+if [ -n \"${CMUX_CLAUDE_HOOK_SPOOL_DIR:-}\" ] && [ -x /bin/zsh ]; then exec /bin/zsh -fc 'LC_ALL=C\nexport CMUX_CLAUDE_PID=${CMUX_CLAUDE_PID:-$PPID}\ncmux_fallback() { { print -rn -- \"$cmux_p\"; /bin/cat; } | /bin/sh -c \"$1\" >&3; exit $?; }\nzmodload zsh/system zsh/datetime zsh/files 2>/dev/null || exec /bin/sh -c \"$1\" >&3\ncmux_p= cmux_c= cmux_e=0\nwhile (( ${#cmux_p} < 262144 )); do sysread -i 0 -s 65536 cmux_c || { cmux_e=$?; break; }; cmux_p+=$cmux_c; done\n[[ -n ${CMUX_SURFACE_ID:-} && ${CMUX_CLAUDE_HOOKS_DISABLED:-} != 1 ]] || { (( cmux_e == 5 )) || /bin/cat >/dev/null; print -r -- '\\''{}'\\'' >&3; exit 0; }\ncmux_d=$CMUX_CLAUDE_HOOK_SPOOL_DIR\n(( cmux_e == 5 )) && [[ -f $cmux_d/keys ]] || cmux_fallback \"$1\"\ncmux_r=\"cmux-agent-hook-v1\"$'\\''\\n'\\''\"claude\"$'\\''\\n'\\''\"$2\"$'\\''\\n'\\''\nfor cmux_k in ${(f)\"$(<$cmux_d/keys)\"}; do (( ${+parameters[$cmux_k]} )) && cmux_r+=\"$cmux_k=${(P)cmux_k}\"$'\\''\\0'\\''; done\ncmux_r+=$'\\''\\0'\\''\"$cmux_p\"\n(( ${#cmux_r} <= 524288 )) || cmux_fallback \"$1\"\numask 077\ncmux_n=$cmux_d/$epochtime[1].$epochtime[2]-$$\n{ print -rn -- \"$cmux_r\" >| $cmux_n.tmp && mv -f -- $cmux_n.tmp $cmux_n.rec; } 2>/dev/null || { rm -f -- $cmux_n.tmp 2>/dev/null; cmux_fallback \"$1\"; }\nif zsystem flock -t 0 -r -f cmux_l $cmux_d/forwarder.lock 2>/dev/null; then\n  zsystem flock -u $cmux_l\n  rm -- $cmux_n.rec 2>/dev/null && cmux_fallback \"$1\"\nfi\nprint -r -- '\\''{}'\\'' >&3' cmux-hook 'cmux_cli=\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; agent_pid=\"${CMUX_CLAUDE_PID:-${PPID:-}}\"; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$CMUX_CLAUDE_HOOKS_DISABLED\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '\\''{}'\\''; }; else CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '\\''{}'\\''; }; fi; else cat >/dev/null; echo '\\''{}'\\''; fi' @SUBCOMMAND@ 3>&1 1>&2; else cmux_cli=\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; agent_pid=\"${CMUX_CLAUDE_PID:-${PPID:-}}\"; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$CMUX_CLAUDE_HOOKS_DISABLED\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '{}'; }; else CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '{}'; }; fi; else cat >/dev/null; echo '{}'; fi; fi
 CMUX_CLAUDE_QUEUED_HOOK_COMMAND
     direct_cli='\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\"'
 
@@ -2276,6 +2279,28 @@ fi
 CMUX_COMPUTER_USE_CONFIG="$(cmux_computer_use_config "$@")" || CMUX_COMPUTER_USE_CONFIG=""
 if [[ -n "$CMUX_COMPUTER_USE_CONFIG" ]]; then
     set -- "--mcp-config=$CMUX_COMPUTER_USE_CONFIG" "$@"
+fi
+
+# One private hook spool and forwarder per session. Queued hooks then publish
+# events with zsh builtins instead of launching the cmux CLI for every event;
+# the forwarder admits them over one socket connection. The exec below keeps
+# this PID, so the forwarder is Claude's child and exits after Claude does.
+# Remote relays and settings without the spool path keep the CLI transport.
+if [[ -n "$CMUX_SETTINGS_PATH" && "$OSTYPE" == darwin* && -x /bin/zsh
+      && "$CMUX_CLAUDE_HOOKS_DISABLED" != "1"
+      && -x "$CMUX_CLAUDE_HOOK_CMUX_BIN" && "$CMUX_CLAUDE_HOOK_CMUX_BIN" == /*
+      && "${CMUX_SOCKET_PATH:-/}" == /* && -z "${CMUX_RELAY_ID:-}"
+      && "$HOOKS_JSON" == *CMUX_CLAUDE_HOOK_SPOOL_DIR* ]]; then
+    cmux_claude_hook_spool_dir="$(umask 077; mktemp -d "${TMPDIR:-/tmp}/cmux-claude-hooks.XXXXXXXX" 2>/dev/null)" \
+        || cmux_claude_hook_spool_dir=""
+    if [[ -n "$cmux_claude_hook_spool_dir" ]]; then
+        export CMUX_CLAUDE_HOOK_SPOOL_DIR="$cmux_claude_hook_spool_dir"
+        # Signals for Claude's process group must not end the forwarder before
+        # its final drain; it exits on its own when Claude exits.
+        ( trap '' HUP INT QUIT TERM; exec "$CMUX_CLAUDE_HOOK_CMUX_BIN" hooks claude spool-forwarder ) \
+            </dev/null >/dev/null 2>&1 &
+    fi
+    unset cmux_claude_hook_spool_dir
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
