@@ -3838,6 +3838,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let keyboardCopyModeRenderedFrameDemand = RenderDemandCounter()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
+    let terminalAccessibilityText = TerminalAccessibilityText()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
     private let commandClickReleaseRouter = TerminalCommandClickReleaseRouter()
@@ -6539,71 +6540,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    // MARK: - Accessibility
-
-    /// Expose the terminal surface as an editable accessibility element.
-    /// Voice input tools frequently target AX text areas for text insertion.
-    override func isAccessibilityElement() -> Bool {
-        true
-    }
-
-    override func accessibilityRole() -> NSAccessibility.Role? {
-        .textArea
-    }
-
-    override func accessibilityHelp() -> String? {
-        "Terminal content area"
-    }
-
-    override func accessibilityValue() -> Any? {
-        // We don't keep a full terminal text snapshot in this layer.
-        // Expose selected text when available; otherwise provide an empty value
-        // so AX clients still treat this as an editable text area.
-        accessibilitySelectedText() ?? ""
-    }
-
-    override func setAccessibilityValue(_ value: Any?) {
-        let content: String
-        switch value {
-        case let v as NSAttributedString:
-            content = v.string
-        case let v as String:
-            content = v
-        default:
-            return
-        }
-
-        guard !content.isEmpty else { return }
-
-#if DEBUG
-        cmuxDebugLog("ime.ax.setValue len=\(content.count)")
-#endif
-
-        let inject = {
-            self.withExternalCommittedText {
-                self.insertText(content, replacementRange: NSRange(location: NSNotFound, length: 0))
-            }
-        }
-        if Thread.isMainThread {
-            inject()
-        } else {
-            DispatchQueue.main.async(execute: inject)
-        }
-    }
-
-    private func withExternalCommittedText<T>(_ body: () -> T) -> T {
+    func withExternalCommittedText<T>(_ body: () -> T) -> T {
         externalCommittedTextDepth += 1
         defer { externalCommittedTextDepth -= 1 }
         return body()
-    }
-
-    override func accessibilitySelectedTextRange() -> NSRange {
-        selectedRange()
-    }
-
-    override func accessibilitySelectedText() -> String? {
-        guard let snapshot = readSelectionSnapshot() else { return nil }
-        return snapshot.string.isEmpty ? nil : snapshot.string
     }
 
     func readSelectionSnapshot(surface explicitSurface: ghostty_surface_t? = nil) -> SelectionSnapshot? {
@@ -6966,7 +6906,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 return false
             }
 
-            if !shouldRetryMainMenu { lastPerformKeyEvent = nil; keyDown(with: event); return true }
+            if !shouldRetryMainMenu {
+                lastPerformKeyEvent = nil
+                if !shouldDropForeignUnboundCommandChord(event) { keyDown(with: event) }
+                return true
+            }
             if let lastPerformKeyEvent {
                 self.lastPerformKeyEvent = nil
                 if lastPerformKeyEvent == event.timestamp {
