@@ -203,18 +203,25 @@ final class DogfoodScenarioUITests: XCTestCase {
         return element
     }
 
+    /// Each item is looked up inside the menu the step before it opened, not
+    /// across the whole app. Two top-level menus can carry the same title, and
+    /// an app-wide `menuItems[title]` then raises "Multiple matching elements"
+    /// instead of clicking the one the path asked for.
     private func clickMenu(_ path: [String], in app: XCUIApplication) throws {
         guard let top = path.first else { throw DogfoodError("empty menu path") }
         let bar = app.menuBars.menuBarItems[top]
         guard bar.waitForExistence(timeout: 5) else { throw DogfoodError("no menu \(top)") }
         bar.click()
+        var opened = bar
         for item in path.dropFirst() {
-            let menuItem = app.menuItems[item]
+            let menuItem = opened.menus.menuItems[item]
             guard menuItem.waitForExistence(timeout: 3) else {
                 app.typeKey(.escape, modifierFlags: [])
-                throw DogfoodError("no menu item \(item)")
+                throw DogfoodError("no menu item \(item) under \(path.joined(separator: " > "))")
             }
             menuItem.click()
+            // A submenu's own items hang off the item that opened it.
+            opened = menuItem
         }
     }
 
