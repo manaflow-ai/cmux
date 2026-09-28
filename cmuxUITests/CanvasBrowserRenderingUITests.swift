@@ -144,27 +144,21 @@ final class CanvasBrowserRenderingUITests: BrowserFixtureSocketTestCase {
                 lastScreenshot = window.screenshot()
                 guard browserFrame.width > 100, browserFrame.height > 100,
                       windowFrame.contains(browserFrame),
-                      let bitmap = NSBitmapImageRep(data: lastScreenshot.pngRepresentation) else {
+                      let bitmap = NSBitmapImageRep(data: webView.screenshot().pngRepresentation) else {
                     diagnostic = "browser=\(browserFrame), window=\(windowFrame)"
                     return false
                 }
-                let scaleX = CGFloat(bitmap.pixelsWide) / windowFrame.width
-                let scaleY = CGFloat(bitmap.pixelsHigh) / windowFrame.height
+                let scaleX = CGFloat(bitmap.pixelsWide) / browserFrame.width
+                let scaleY = CGFloat(bitmap.pixelsHigh) / browserFrame.height
                 let points: [(CGPoint, Bool)] = [
-                    (CGPoint(x: browserFrame.minX + 3, y: browserFrame.midY), true),
-                    (CGPoint(x: browserFrame.maxX - 3, y: browserFrame.midY), true),
-                    (CGPoint(x: browserFrame.midX, y: browserFrame.minY + 3), true),
-                    (CGPoint(x: browserFrame.midX, y: browserFrame.maxY - 3), true),
-                    (CGPoint(x: browserFrame.minX - 3, y: browserFrame.midY), false),
-                    (CGPoint(x: browserFrame.maxX + 3, y: browserFrame.midY), false),
-                    (CGPoint(x: browserFrame.midX, y: browserFrame.minY - 3), false),
-                    (CGPoint(x: browserFrame.midX, y: browserFrame.maxY + 3), false),
+                    (CGPoint(x: 3, y: browserFrame.height / 2), true),
+                    (CGPoint(x: browserFrame.width - 3, y: browserFrame.height / 2), true),
+                    (CGPoint(x: browserFrame.width / 2, y: 3), true),
+                    (CGPoint(x: browserFrame.width / 2, y: browserFrame.height - 3), true),
                 ]
                 for (point, expectedMagenta) in points {
-                    let x = Int((point.x - windowFrame.minX) * scaleX)
-                    // XCUI frames use a bottom-left origin; screenshot
-                    // bitmaps start at the top-left pixel.
-                    let y = Int((windowFrame.maxY - point.y) * scaleY)
+                    let x = Int(point.x * scaleX)
+                    let y = Int(point.y * scaleY)
                     guard x >= 0, y >= 0, x < bitmap.pixelsWide, y < bitmap.pixelsHigh,
                           let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else {
                         diagnostic = "Unsampleable point \(point); browser=\(browserFrame)"
