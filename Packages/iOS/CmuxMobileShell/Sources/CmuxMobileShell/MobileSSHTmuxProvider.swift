@@ -214,12 +214,22 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
         return listed ?? MobileSSHTerminal(id: id, name: id)
     }
 
-    /// "Split Pane" on a window section: splits the window's active pane
-    /// (detached, so no client's current pane moves) and returns the new
-    /// pane's terminal.
-    func splitWindow(inWorkspace workspaceID: String, window: String) async throws -> MobileSSHTerminal {
+    /// tmux names split flags by the divider's motion, not its orientation:
+    /// `-h` puts the panes side by side (Split Right) and `-v` stacks them
+    /// (Split Down).
+    nonisolated static func splitFlag(_ direction: MobileSSHSplitDirection) -> String {
+        switch direction {
+        case .right: "-h"
+        case .down: "-v"
+        }
+    }
+
+    /// "Split Right" / "Split Down" on a window section: splits the window's
+    /// active pane (detached, so no client's current pane moves) and returns
+    /// the new pane's terminal.
+    func splitWindow(inWorkspace workspaceID: String, window: String, direction: MobileSSHSplitDirection) async throws -> MobileSSHTerminal {
         let target = ("=" + workspaceID + ":" + window).posixShellSingleQuoted
-        let output = try await runStartingShell("split-window", "-t \(target) -P -F '#{pane_id}'")
+        let output = try await runStartingShell("split-window", "\(Self.splitFlag(direction)) -t \(target) -P -F '#{pane_id}'")
         guard let pane = MobileSSHTmuxControlParser.id(output.trimmingCharacters(in: .whitespacesAndNewlines), "%") else {
             throw SSHConnectionError.channelRequestRejected("tmux split-window: \(output)")
         }

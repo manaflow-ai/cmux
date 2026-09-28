@@ -309,8 +309,9 @@ final class MobileSSHHostProviders {
         return local.sibling(terminal.id)
     }
 
-    /// A section-level action: "Split Pane" on a tmux window; "New Tab" or
-    /// "Split Pane" on a cmux-tui screen (acting on `pane`, its active pane).
+    /// A section-level action: "Split Right" / "Split Down" on a tmux
+    /// window; "New Tab" or a split on a cmux-tui screen (acting on `pane`,
+    /// its active pane).
     func createTab(
         inWorkspace local: MobileSSHLocalID,
         section: String,
@@ -319,15 +320,16 @@ final class MobileSSHHostProviders {
     ) async throws -> MobileSSHLocalID? {
         switch local {
         case .tmux(let session):
-            guard action == .splitPane else { return nil }
+            guard let direction = action.splitDirection else { return nil }
             guard let tmux = tmux as? MobileSSHTmuxProvider else { throw MobileSSHRuntimeError.tmuxMissing }
-            return local.sibling(try await tmux.splitWindow(inWorkspace: session, window: section).id)
+            return local.sibling(try await tmux.splitWindow(inWorkspace: session, window: section, direction: direction).id)
         case .cmuxTUI(let session, let key):
             guard let pane else { return nil }
             let provider = try await cmuxTUIProvider(session: session)
-            let terminal = switch action {
-            case .newTab: try await provider.createTab(inWorkspace: key, pane: pane)
-            case .splitPane: try await provider.splitPane(inWorkspace: key, pane: pane)
+            let terminal = if let direction = action.splitDirection {
+                try await provider.splitPane(inWorkspace: key, pane: pane, direction: direction)
+            } else {
+                try await provider.createTab(inWorkspace: key, pane: pane)
             }
             return local.sibling(terminal.id)
         case .shell:

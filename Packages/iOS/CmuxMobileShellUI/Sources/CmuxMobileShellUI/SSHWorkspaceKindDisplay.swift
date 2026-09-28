@@ -40,18 +40,22 @@ extension MobileSSHTabLayout {
 }
 
 extension MobileSSHSectionAction {
-    /// The section-level create action's menu title.
+    /// The section-level create action's menu title. The splits reuse the
+    /// cmux macOS action names ("Split Right", "Split Down").
     var title: String {
         switch self {
         case .newTab: L10n.string("mobile.ssh.tabs.newTab", defaultValue: "New Tab")
-        case .splitPane: L10n.string("mobile.ssh.tabs.splitPane", defaultValue: "Split Pane")
+        case .splitRight: L10n.string("mobile.ssh.tabs.splitRight", defaultValue: "Split Right")
+        case .splitDown: L10n.string("mobile.ssh.tabs.splitDown", defaultValue: "Split Down")
         }
     }
 
+    /// The split glyphs match the cmux macOS tab-bar split actions.
     var systemImage: String {
         switch self {
         case .newTab: "plus.rectangle.on.rectangle"
-        case .splitPane: "rectangle.split.2x1"
+        case .splitRight: "square.split.2x1"
+        case .splitDown: "square.split.1x2"
         }
     }
 

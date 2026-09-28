@@ -4,7 +4,8 @@ import Foundation
 import Testing
 
 /// cmux-tui rows follow changes made elsewhere (a laptop adds a screen or
-/// tab), and each screen offers New Tab and Split Pane (PRD D32).
+/// tab), and each screen offers New Tab, Split Right, and Split Down
+/// (PRD D32).
 @Suite struct MobileSSHCmuxTUITopologyTests {
     /// A burst of tree changes asks for one relist; a change during that
     /// listing asks again once it started.
@@ -31,12 +32,13 @@ import Testing
         #expect(asked == [false, false, false])
     }
 
-    /// A cmux-tui screen with a pane offers New Tab, then Split Pane; tmux
-    /// windows offer Split Pane; shells and paneless screens offer nothing.
+    /// A cmux-tui screen with a pane offers New Tab, then Split Right and
+    /// Split Down; tmux windows offer both splits; shells and paneless
+    /// screens offer nothing.
     @Test @MainActor func sectionActionsPerKind() throws {
-        #expect(MobileSSHComputers.sectionActions(kind: .cmuxTUI, targetPane: 6) == [.newTab, .splitPane])
+        #expect(MobileSSHComputers.sectionActions(kind: .cmuxTUI, targetPane: 6) == [.newTab, .splitRight, .splitDown])
         #expect(MobileSSHComputers.sectionActions(kind: .cmuxTUI, targetPane: nil) == [])
-        #expect(MobileSSHComputers.sectionActions(kind: .tmux, targetPane: nil) == [.splitPane])
+        #expect(MobileSSHComputers.sectionActions(kind: .tmux, targetPane: nil) == [.splitRight, .splitDown])
         #expect(MobileSSHComputers.sectionActions(kind: .shell, targetPane: nil) == [])
 
         let tui = CmuxTUIWorkspace(
@@ -48,6 +50,18 @@ import Testing
         )
         let workspace = MobileSSHHostProviders.rekey(MobileSSHCmuxTUIProvider.workspace(tui), kind: .cmuxTUI, session: "main")
         let layout = MobileSSHComputers.tabLayout(workspace, hostID: UUID())
-        #expect(try #require(layout.sections.first).actions == [.newTab, .splitPane])
+        #expect(try #require(layout.sections.first).actions == [.newTab, .splitRight, .splitDown])
+    }
+
+    /// Each switcher split names its direction, and directions map onto the
+    /// wire commands: right is side by side (tmux `-h`), down is stacked
+    /// (tmux `-v`) — tmux names the flag by the divider's motion, so the
+    /// mapping is deliberately cross-axis.
+    @Test func splitActionsCarryTheirDirection() {
+        #expect(MobileSSHSectionAction.splitRight.splitDirection == .right)
+        #expect(MobileSSHSectionAction.splitDown.splitDirection == .down)
+        #expect(MobileSSHSectionAction.newTab.splitDirection == nil)
+        #expect(MobileSSHTmuxProvider.splitFlag(.right) == "-h")
+        #expect(MobileSSHTmuxProvider.splitFlag(.down) == "-v")
     }
 }

@@ -57,7 +57,7 @@ import Testing
         let row = MobileSSHTabRow(id: "cmux-ssh-x~tmux:work/%1", title: "Pane 1", paneLabel: nil, startsPane: false)
         let layout = MobileSSHTabLayout(
             kind: .tmux,
-            sections: [MobileSSHTabSection(id: "0", title: "0: zsh", rows: [row], actions: [.splitPane])]
+            sections: [MobileSSHTabSection(id: "0", title: "0: zsh", rows: [row], actions: [.splitRight, .splitDown])]
         )
         let terminal = MobileTerminalPreview(id: .init(rawValue: row.id), name: "0:zsh · pane 1")
         let value = TerminalPickerMenuValue(
@@ -72,13 +72,15 @@ import Testing
         #expect(value.checkedRowID == TerminalPickerMenuRow.ID.terminal(terminal.id))
         #expect(value.selectedName == "0:zsh · pane 1")
         #expect(layout.newTerminalTitle == "New Window")
-        #expect(layout.sections.first?.actions.map(\.title) == ["Split Pane"])
+        // The splits carry the cmux macOS action names, one per direction.
+        #expect(layout.sections.first?.actions.map(\.title) == ["Split Right", "Split Down"])
 
         var tui = layout
         tui.kind = MobileSSHWorkspaceKind.cmuxTUI
         #expect(tui.newTerminalTitle == "New Screen")
-        #expect(MobileSSHSectionAction.allCases.map(\.title) == ["New Tab", "Split Pane"])
-        #expect(MobileSSHSectionAction.splitPane.accessibilityIdentifier(section: "3") == "MobileSSHSectionAction-splitPane-3")
+        #expect(MobileSSHSectionAction.allCases.map(\.title) == ["New Tab", "Split Right", "Split Down"])
+        #expect(MobileSSHSectionAction.splitRight.accessibilityIdentifier(section: "3") == "MobileSSHSectionAction-splitRight-3")
+        #expect(MobileSSHSectionAction.splitDown.accessibilityIdentifier(section: "3") == "MobileSSHSectionAction-splitDown-3")
         // A different layout is a different menu value (the menu rebuilds).
         let flat = TerminalPickerMenuValue(
             liveTerminals: [terminal],

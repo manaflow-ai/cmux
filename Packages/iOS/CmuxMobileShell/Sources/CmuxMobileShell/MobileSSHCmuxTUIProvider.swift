@@ -264,12 +264,16 @@ extension MobileSSHCmuxTUIProvider: MobileSSHTerminalCreating {
         }
     }
 
-    /// "Split Pane" on a screen section: splits the screen's active pane to
-    /// the right (`split`), like tmux's Split Pane on a window. The new pane
-    /// holds one terminal tab.
-    func splitPane(inWorkspace workspaceID: String, pane: Int) async throws -> MobileSSHTerminal {
-        try await createSurface(inWorkspace: workspaceID) { control, _ in
-            try await control.split(pane: pane, direction: .right, cols: 80, rows: 24)
+    /// "Split Right" / "Split Down" on a screen section: splits the screen's
+    /// active pane in `direction` (`split`), like the same-named cmux macOS
+    /// actions. The new pane holds one terminal tab.
+    func splitPane(inWorkspace workspaceID: String, pane: Int, direction: MobileSSHSplitDirection) async throws -> MobileSSHTerminal {
+        let wireDirection: CmuxTUISplitDirection = switch direction {
+        case .right: .right
+        case .down: .down
+        }
+        return try await createSurface(inWorkspace: workspaceID) { control, _ in
+            try await control.split(pane: pane, direction: wireDirection, cols: 80, rows: 24)
         }
     }
 

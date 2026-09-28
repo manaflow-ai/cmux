@@ -41,9 +41,9 @@ extension MobileShellComposite {
         return sshComputers.kind(ofScopedID: scoped)
     }
 
-    /// A section's action from the grouped switcher: "Split Pane" on a tmux
-    /// window; "New Tab" or "Split Pane" on a cmux-tui screen. `nil` runs
-    /// the section's first action. Selects the new terminal.
+    /// A section's action from the grouped switcher: "Split Right" / "Split
+    /// Down" on a tmux window; "New Tab" or a split on a cmux-tui screen.
+    /// `nil` runs the section's first action. Selects the new terminal.
     public func createSSHTab(
         in workspaceID: MobileWorkspacePreview.ID,
         section sectionID: String,
@@ -123,9 +123,31 @@ public struct MobileSSHTabLayout: Equatable, Sendable {
 public enum MobileSSHSectionAction: String, Sendable, Equatable, CaseIterable {
     /// cmux-tui: a terminal tab in the screen's active pane (`new-tab`).
     case newTab
-    /// Splits the section's active pane: tmux `split-window -d` on the
-    /// window, cmux-tui `split` on the screen.
-    case splitPane
+    /// Splits the section's active pane side by side (vertical divider):
+    /// tmux `split-window -h`, cmux-tui `split` with `dir:"right"`. Named
+    /// like the cmux macOS "Split Right".
+    case splitRight
+    /// Splits the section's active pane stacked (horizontal divider): tmux
+    /// `split-window -v`, cmux-tui `split` with `dir:"down"`. Named like the
+    /// cmux macOS "Split Down".
+    case splitDown
+
+    /// The split's direction; `nil` for non-split actions.
+    public var splitDirection: MobileSSHSplitDirection? {
+        switch self {
+        case .newTab: nil
+        case .splitRight: .right
+        case .splitDown: .down
+        }
+    }
+}
+
+/// Where a split's new pane goes: `right` is side by side (tmux `-h`,
+/// cmux-tui `dir:"right"`), `down` is stacked below (tmux `-v`, cmux-tui
+/// `dir:"down"`).
+public enum MobileSSHSplitDirection: String, Sendable, Equatable {
+    case right
+    case down
 }
 
 /// One tmux window or cmux-tui screen.
@@ -134,9 +156,9 @@ public struct MobileSSHTabSection: Equatable, Sendable, Identifiable {
     public var id: String
     public var title: String
     public var rows: [MobileSSHTabRow]
-    /// The section's create actions, in menu order: "Split Pane" on a tmux
-    /// window; "New Tab" then "Split Pane" on a cmux-tui screen with a pane
-    /// to act on.
+    /// The section's create actions, in menu order: "Split Right" and
+    /// "Split Down" on a tmux window; "New Tab" then the splits on a
+    /// cmux-tui screen with a pane to act on.
     public var actions: [MobileSSHSectionAction]
 
     /// Whether the section has any create action.
@@ -215,8 +237,8 @@ extension MobileSSHComputers {
 
     nonisolated static func sectionActions(kind: MobileSSHWorkspaceKind, targetPane: Int?) -> [MobileSSHSectionAction] {
         switch kind {
-        case .tmux: [.splitPane]
-        case .cmuxTUI: targetPane == nil ? [] : [.newTab, .splitPane]
+        case .tmux: [.splitRight, .splitDown]
+        case .cmuxTUI: targetPane == nil ? [] : [.newTab, .splitRight, .splitDown]
         case .shell: []
         }
     }
@@ -235,9 +257,9 @@ extension MobileSSHComputers {
         }
     }
 
-    /// A section action: "Split Pane" (tmux window), "New Tab" or "Split
-    /// Pane" (cmux-tui screen); `nil` runs the section's first action.
-    /// Returns the new terminal's scoped surface id.
+    /// A section action: "Split Right" / "Split Down" (tmux window), "New
+    /// Tab" or a split (cmux-tui screen); `nil` runs the section's first
+    /// action. Returns the new terminal's scoped surface id.
     func createTab(inWorkspace scopedID: String, section sectionID: String, action: MobileSSHSectionAction? = nil) async -> String? {
         guard let hostID = MobileSSHIdentifier(scopedID).hostID,
               let local = MobileSSHLocalID(scopedID: scopedID) else { return nil }

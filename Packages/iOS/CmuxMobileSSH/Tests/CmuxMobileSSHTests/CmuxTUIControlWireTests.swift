@@ -43,7 +43,7 @@ import Testing
         #expect(received == [.treeChanged, .titleChanged(surface: 1, title: "vim"), .surfaceExited(surface: 4), .disconnected])
     }
 
-    /// "Split Pane" sends `split` for the screen's active pane with the
+    /// "Split Right" sends `split` for the screen's active pane with the
     /// phone's grid and returns the new surface.
     @Test func splitSendsPaneDirectionAndGrid() async throws {
         let peer = ScriptedCmuxTUIPeer()

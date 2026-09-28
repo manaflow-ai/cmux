@@ -1209,9 +1209,9 @@ struct WorkspaceDetailView: View {
         createTerminal()
     }
 
-    /// A grouped section's action: "Split Pane" (tmux window), "New Tab" or
-    /// "Split Pane" (cmux-tui screen). Surfaces the new terminal like New
-    /// Terminal.
+    /// A grouped section's action: "Split Right" / "Split Down" (tmux
+    /// window), "New Tab" or a split (cmux-tui screen). Surfaces the new
+    /// terminal like New Terminal.
     private func createSSHTabFromPicker(_ sectionID: String, _ action: MobileSSHSectionAction) {
         dismissTerminalKeyboardForChrome()
         browserCreateRequest = nil

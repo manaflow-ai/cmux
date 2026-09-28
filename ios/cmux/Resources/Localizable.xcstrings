@@ -99185,61 +99185,120 @@
         }
       }
     },
-    "mobile.ssh.tabs.splitPane": {
+    "mobile.ssh.tabs.splitRight": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Split Pane"
+            "value": "Split Right"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bereich teilen"
+            "value": "Nach rechts teilen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diviser le panneau"
+            "value": "Diviser à droite"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تقسيم الجزء"
+            "value": "تقسيم لليمين"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dividir panel"
+            "value": "Dividir a la derecha"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "分割窗格"
+            "value": "向右分割"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "拆分窗格"
+            "value": "向右拆分"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "창 분할"
+            "value": "오른쪽으로 분할"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペインを分割"
+            "value": "右に分割"
+          }
+        }
+      }
+    },
+    "mobile.ssh.tabs.splitDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split Down"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach unten teilen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diviser vers le bas"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تقسيم للأسفل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividir hacia abajo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向下分割"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向下拆分"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아래로 분할"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下に分割"
           }
         }
       }
