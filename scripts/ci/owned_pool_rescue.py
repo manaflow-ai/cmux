@@ -37,7 +37,10 @@ within seconds, before any step of the workflow succeeds. GitHub does not
 retry it, so the pull request would stay red until someone re-ran it. A job
 on the persistent pool that failed within REFUSAL_SECONDS of starting, with
 its runner setup step failed or no workflow step succeeded, counts as refused
-(compile admission's `always()` metrics steps still succeed after a refusal): the watcher lets the rest of the
+(compile admission's `always()` metrics steps still succeed after a refusal).
+A failed job that ran no step at all counts too, whatever its length: GitHub
+fails a job whose runner went away only after 10 minutes ("The self-hosted
+runner lost communication with the server"). The watcher lets the rest of the
 run finish, since GitHub re-runs no job of a run in progress and cancelling
 it would kill every healthy sibling, then confirms the head has not moved and
 re-runs its failed jobs. Only a run still going at the watch's end, or main's

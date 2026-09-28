@@ -378,6 +378,17 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertIn("cannot use", result.stderr)
         self.assertEqual(self.dispatch()["ref"], HEAD)
 
+    def test_a_ui_run_stops_waiting_once_admission_ends_without_products(self):
+        # Run 36435812903: the fleet refused compile admission, and the run stayed
+        # in progress only because its ui-tests job waited on this dispatch.
+        building = {**self.PR_CI, "status": "in_progress"}
+        jobs = [{"name": "macos / macOS compile admission", "labels": [MINI], "status": "completed",
+                 "conclusion": "failure"}]
+        result = self.launch("ExampleUITests", **self.ci_env(building, artifacts=[], jobs=jobs, status="in_progress"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("finished compile admission without app-host products", result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+
     def test_a_fallback_to_the_head_still_refuses_a_known_head_failure(self):
         building = {**self.PR_CI, "status": "in_progress"}
         result = self.launch("ExampleUITests", **self.ci_env(building, artifacts=[], status="completed"),

@@ -655,9 +655,10 @@ def admission_ended(run_id: int) -> bool:
 
     Admission uploads the products before it completes, so a finished
     admission without them has none to give. The run itself may stay in
-    progress for long after: its ui-tests job waits for the very dispatch
-    that waits here (run 36435812903, whose refused admission then could not
-    be re-run by the owned-pool rescue until the wait timed out).
+    progress for long after: its ui-tests job waits for the UI dispatch that
+    waits here, so run 36435812903's refused admission held that dispatch for
+    the whole PRODUCTS_WAIT_SECONDS before it compiled for itself, and kept
+    the run open so the owned-pool rescue could not re-run the refusal.
     """
     listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
     admissions = [job for job in listing.get("jobs", []) if job.get("name", "").endswith(rerun.ADMISSION_JOB)]
