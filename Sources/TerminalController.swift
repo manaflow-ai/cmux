@@ -7746,6 +7746,7 @@ class TerminalController {
     private nonisolated func v2BrowserSelectorAction(
         params: [String: Any],
         actionName: String,
+        javaScriptTimeout: TimeInterval = 5.0,
         scriptBuilder: (_ selectorLiteral: String) -> String
     ) -> V2CallResult {
         guard let selectorRaw = v2BrowserSelector(params) else {
@@ -7763,7 +7764,7 @@ class TerminalController {
             let selectorCondition = "document.querySelector(\(v2JSONLiteral(selector))) !== null"
 
             for attempt in 1...retryAttempts {
-                switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script, useEval: false) {
+                switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script, timeout: javaScriptTimeout, useEval: false) {
                 case .failure(let message):
                     return .err(code: "js_error", message: message, data: ["action": actionName, "selector": selector])
                 case .success(let value):
@@ -8454,7 +8455,12 @@ class TerminalController {
         }
         switch prepared {
         case .success(let filesJSON):
-            return v2BrowserSelectorAction(params: params, actionName: "set_input_files") { selectorLiteral in
+            // Base64 expands the bounded 32 MiB upload to roughly 43 MiB of JSON.
+            // Give WebKit enough time to decode and copy that payload while keeping
+            // the CLI's 30-second response budget (10 seconds for file preparation
+            // plus this capped 15-second JavaScript deadline).
+            let uploadTimeout = min(15.0, max(5.0, 5.0 + Double(filesJSON.utf8.count) / 4_000_000.0))
+            return v2BrowserSelectorAction(params: params, actionName: "set_input_files", javaScriptTimeout: uploadTimeout) { selectorLiteral in
                 v2BrowserControl.inputFilesScript(selectorLiteral: selectorLiteral, filesJSON: filesJSON)
             }
         case .failure(let failure):
