@@ -160,6 +160,7 @@ extension CMUXCLI {
         "open-notification",
         "paste",
         "paste-buffer",
+        "permissions",
         "ping",
         "pipe-pane",
         "popup",

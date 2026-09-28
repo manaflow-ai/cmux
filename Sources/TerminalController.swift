@@ -1871,6 +1871,14 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 60) {
                 await self.v2VaultFork(params: request.params)
             }
+        case "permissions.request":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: Self.permissionRequestTimeoutSeconds) {
+                await self.v2PermissionsRequest(params: request.params)
+            }
+        case "permissions.list":
+            return v2Result(id: request.id, v2PermissionsList())
+        case "permissions.revoke":
+            return v2Result(id: request.id, v2PermissionsRevoke(params: request.params))
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "workspace.ssh.open":

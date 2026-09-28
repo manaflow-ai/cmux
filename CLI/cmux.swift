@@ -6876,6 +6876,13 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput
             )
 
+        case "permissions":
+            try runPermissionsNamespace(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput
+            )
+
         case "list-workspaces":
             Self.warnLegacyVerbDeprecated("list-workspaces", replacement: "cmux workspace list")
             try runWorkspaceListCommand(
@@ -18485,6 +18492,8 @@ struct CMUXCLI {
             return Self.reviewUsage
         case "vault":
             return Self.vaultUsage
+        case "permissions":
+            return Self.permissionsUsage
         case "ai-accounts":
             return Self.aiAccountsUsage
         case "coderouter":
@@ -40396,6 +40405,14 @@ export default CMUXSessionRestore;
         )
         let hookEventName = classification.hookEventName
         let isActionable = classification.isActionable
+        if let grantedOutput = Self.agentPermissionGrantAnswer(
+            source: source,
+            hookEventName: hookEventName,
+            payload: stdinObj
+        ) {
+            print(grantedOutput)
+            return
+        }
         let env = ProcessInfo.processInfo.environment
         if Self.shouldSuppressKiroFeedEvent(
             source: source,
