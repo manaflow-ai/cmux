@@ -166,6 +166,7 @@ extension CMUXCLI {
         "previous-window",
         "read-screen",
         "read-selection",
+        "record",
         "refresh-surfaces",
         "reload-config",
         "remote-daemon-status",
