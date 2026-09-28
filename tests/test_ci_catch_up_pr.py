@@ -9,9 +9,9 @@ blocking files named. The real normalizer, schema generator and xcstrings
 merger resolve conflicts; a stub tools root stands in for a failing generator.
 
 The last cases read .github/workflows/pr-catch-up.yml: it runs on
-pull_request_target and issue_comment next to a write token, so it must only
-execute the trusted base checkout's scripts and never interpolate event text
-into a shell.
+pull_request_target, issue_comment and main's green CI fast guards runs next
+to a write token, so it must only execute the trusted base checkout's scripts
+and never interpolate event text into a shell.
 """
 
 from __future__ import annotations
@@ -215,7 +215,7 @@ class MergeTests(CatchUpCase):
         before = self.repo.git("rev-parse", "HEAD")
         code, result = self.catch_up()
         self.assert_blocked(code, result, before, ["README.md"])
-        self.assertIn("not a generated file", result["blocking"][0]["reason"])
+        self.assertIn("both sides changed it", result["blocking"][0]["reason"])
 
     def test_one_sided_delete_stops(self) -> None:
         self.repo.branches({"a.txt": "a\n"}, {"a.txt": "main\n"}, {"b.txt": "pr\n"})
@@ -477,6 +477,131 @@ class PbxprojTests(CatchUpCase):
         self.assertEqual(MODULE.duplicate_keys(text), ["c"])
 
 
+SWIFT_BASE = """extension Section {
+    func first() -> String {
+        "first"
+    }
+
+    func second() -> String {
+        "second"
+    }
+
+    func third(flag: Bool) -> String {
+        flag ? "on" : "off"
+    }
+}
+"""
+# Main rewrites the middle of the file; the pull request adds a function
+# between second() and third(), inside the lines main rewrote (#14876).
+SWIFT_MAIN = """extension Section {
+    func first() -> String {
+        "first"
+    }
+
+    func third(hidden: Bool) -> String {
+        hidden ? "hidden" : "shown"
+    }
+}
+"""
+SWIFT_PR = SWIFT_BASE.replace("""    func third(""", """    func added() -> String {
+        "added"
+    }
+
+    func third(""")
+
+
+class SourceTests(CatchUpCase):
+    """Conflicts in source files where one side only inserted declarations."""
+
+    PATH = "Sources/Section.swift"
+
+    def test_an_inserted_function_lands_at_its_depth_in_the_rewritten_side(self) -> None:
+        self.repo.branches({self.PATH: SWIFT_BASE}, {self.PATH: SWIFT_MAIN}, {self.PATH: SWIFT_PR})
+        code, result = self.catch_up()
+        self.assertEqual((code, result["status"]), (0, "merged"), result)
+        merged = (self.repo.path / self.PATH).read_text(encoding="utf-8")
+        self.assertEqual(merged, SWIFT_MAIN.replace("""    func third(""", """    func added() -> String {
+        "added"
+    }
+
+    func third("""))
+
+    def test_an_inserted_statement_stops(self) -> None:
+        pr = SWIFT_BASE.replace("""        "second"
+""", """        log("second")
+        "second"
+""")
+        main = SWIFT_BASE.replace("""        "second"
+""", """        "2nd"
+""")
+        self.repo.branches({self.PATH: SWIFT_BASE}, {self.PATH: main}, {self.PATH: pr})
+        before = self.repo.git("rev-parse", "HEAD")
+        code, result = self.catch_up()
+        self.assert_blocked(code, result, before, [self.PATH])
+
+    def test_both_sides_inserting_declarations_keeps_both(self) -> None:
+        main = SWIFT_BASE.replace("""    func second(""", """    func fromMain() {}
+
+    func second(""")
+        pr = SWIFT_BASE.replace("""    func second(""", """    func fromPR() {}
+
+    func second(""")
+        self.repo.branches({self.PATH: SWIFT_BASE}, {self.PATH: main}, {self.PATH: pr})
+        code, result = self.catch_up()
+        self.assertEqual((code, result["status"]), (0, "merged"), result)
+        merged = (self.repo.path / self.PATH).read_text(encoding="utf-8")
+        self.assertIn("func fromMain() {}", merged)
+        self.assertIn("func fromPR() {}", merged)
+
+    def test_only_whole_declarations_move(self) -> None:
+        merge = MODULE.merge_declarations
+        other = "extension S {\n    func b() {}\n}\n"
+        # A trailing statement, a switch or enum case, and a call all stop.
+        for inserted in ("    func a() {}\n    launch()\n", "    case extra\n", "    object.save()\n",
+                         "    init();\n", "    type = 3;\n"):
+            pr = "extension S {\n    func old() {}\n" + inserted + "    func b() {}\n}\n"
+            base = "extension S {\n    func old() {}\n    func b() {}\n}\n"
+            with self.assertRaises(ValueError, msg=inserted):
+                merge(base, pr, other)
+
+    def test_placement_keeps_attributes_directives_and_strings_whole(self) -> None:
+        merge = MODULE.merge_declarations
+        base = "extension S {\n    func old() {}\n    func b() {}\n}\n"
+        pr = "extension S {\n    func old() {}\n    func x() {}\n    func b() {}\n}\n"
+        # Main's rewrite puts an attribute on b(): x() goes before the attribute, never between.
+        attributed = merge(base, pr, "extension S {\n    @MainActor\n    func b() {}\n}\n")
+        self.assertIn("    func x() {}\n    @MainActor\n    func b() {}", attributed)
+        for other in ("extension S {\n#if DEBUG\n    func b() {}\n#endif\n}\n",
+                      'extension S {\n    func b() { print("}") }\n}\n'):
+            with self.assertRaises(ValueError, msg=other):
+                merge(base, pr, other)
+
+    def test_conflict_marker_lines_in_a_side_stop(self) -> None:
+        wide = "<" * MODULE.MARKER_SIZE
+        base = "extension S {\n    func old() {}\n}\n"
+        pr = "extension S {\n" + wide + "\n    func old() {}\n}\n"
+        with self.assertRaises(ValueError):
+            MODULE.merge_declarations(base, pr, "extension S {\n    func new() {}\n}\n")
+        with self.assertRaises(ValueError):
+            MODULE.union_pbxproj(base, pr, base)
+
+    def test_verify_rederives_the_source_file_and_rejects_an_edit(self) -> None:
+        self.repo.branches({self.PATH: SWIFT_BASE, "app.txt": "a\n"},
+                           {self.PATH: SWIFT_MAIN, "app.txt": "a\n"}, {self.PATH: SWIFT_PR})
+        head = self.repo.git("rev-parse", "HEAD")
+        code, result = self.catch_up()
+        self.assertEqual(code, 0, result)
+        base, merged = self.repo.git("rev-parse", "main"), result["head_after"]
+        completed = VerifyTests.verify(self, head, base, merged)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.repo.write({self.PATH: (self.repo.path / self.PATH).read_text(encoding="utf-8") + "// extra\n"})
+        self.repo.git("add", "-A")
+        self.repo.git("commit", "-q", "--amend", "--no-edit")
+        completed = VerifyTests.verify(self, head, base, self.repo.git("rev-parse", "HEAD"))
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn(f"{self.PATH} differs", completed.stderr)
+
+
 class VerifyTests(CatchUpCase):
     """The push job's own check of the merge commit (`catch_up_pr.py verify`)."""
 
@@ -541,12 +666,152 @@ class CommentTests(unittest.TestCase):
         self.assertIn("Nothing was pushed", text)
         self.assertNotIn("\u2014", text)
 
+    def test_automatic_comment_is_marked_with_the_tried_head(self) -> None:
+        head = "c" * 40
+        result = {"status": "blocked", "base": "a" * 40, "blocking": [{"path": "README.md", "reason": "not generated"}]}
+        text = MODULE.render_auto_comment(result, "not-attempted", "main", "feature", "https://run", head)
+        self.assertTrue(text.startswith(f"<!-- cmux-auto-catch-up head={head} -->\n"), text)
+        self.assertIn("A new push or `/catch-up` tries again.", text)
+        self.assertLessEqual(len(text.splitlines()), 4, "one short paragraph and the footer")
+        self.assertIn("no-auto-catch-up", text)
+        self.assertTrue(text.endswith("[Catch-up run](https://run)</sub>"), "the run link stays last")
+        # Posted on many pull requests: no mention, no issue cross-reference.
+        self.assertNotIn("@", text)
+        self.assertNotIn("#", text.replace("<!-- cmux-auto-catch-up", ""))
+        self.assertNotIn("\u2014", text)
+
+    def test_automatic_push_comment_says_how_to_pull(self) -> None:
+        result = {"status": "merged", "base": "a" * 40, "head_after": "b" * 40, "resolved": []}
+        text = MODULE.render_auto_comment(result, "pushed", "main", "feature", "", "c" * 40)
+        self.assertIn("Caught `feature` up", text)
+        self.assertIn("git pull --no-rebase", text)
+        self.assertIn("do not force-push", text)
+
+    def test_automatic_path_stays_silent_when_nobody_must_act(self) -> None:
+        merged = {"status": "merged", "base": "a" * 40, "head_after": "b" * 40}
+        for push in ("rejected", "unverified", "skipped-no-app-token"):
+            self.assertEqual(MODULE.render_auto_comment(merged, push, "main", "f", "", "c" * 40), "", push)
+        self.assertEqual(MODULE.render_auto_comment({"status": "up_to_date"}, "not-attempted", "main", "f", "",
+                                                    "c" * 40), "")
+        # No head to key the marker on: saying something would repeat every run.
+        blocked = {"status": "blocked", "blocking": []}
+        self.assertEqual(MODULE.render_auto_comment(blocked, "not-attempted", "main", "f", "", ""), "")
+        self.assertTrue(MODULE.render_auto_comment(merged, "needs-workflows", "main", "f", "", "c" * 40))
+        self.assertTrue(MODULE.render_auto_comment(merged, "push-denied", "main", "f", "", "c" * 40))
+
+    def test_automatic_path_stays_silent_on_an_error_or_no_result(self) -> None:
+        # A lost runner or a crash is not something the author must fix, and
+        # a marker would stop every later attempt on this head.
+        for result in ({"status": "error", "message": "git failed"}, {}, {"status": ""}, {"status": "weird"}):
+            for push in ("not-attempted", "unverified"):
+                self.assertEqual(MODULE.render_auto_comment(result, push, "main", "f", "", "c" * 40), "",
+                                 (result, push))
+        with tempfile.TemporaryDirectory() as tmp:
+            completed = subprocess.run(
+                [sys.executable, str(SCRIPT), "comment", "--result", str(Path(tmp) / "missing.json"),
+                 "--push", "not-attempted", "--auto", "--head-sha", "c" * 40], capture_output=True, text=True)
+        self.assertEqual((completed.returncode, completed.stdout), (0, ""))
+
+    def test_blocked_paths_cannot_mention_anyone(self) -> None:
+        result = {"status": "blocked", "base": "a" * 40,
+                  "blocking": [{"path": "@team/x.swift", "reason": "ask @someone about #12"}]}
+        text = MODULE.render_auto_comment(result, "not-attempted", "main", "f", "", "c" * 40)
+        self.assertIn("`@team/x.swift`", text, "a path is inline code")
+        self.assertNotRegex(text, r"(?<![`\u200b])@someone")
+
+    def test_automatic_comment_cli_prints_nothing_when_silent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = Path(tmp) / "result.json"
+            result.write_text(json.dumps({"status": "up_to_date"}), encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, str(SCRIPT), "comment", "--result", str(result), "--push", "not-attempted",
+                 "--auto", "--head-sha", "c" * 40], capture_output=True, text=True)
+        self.assertEqual((completed.returncode, completed.stdout), (0, ""))
+
     def test_pushed_without_ci_says_so(self) -> None:
         result = {"status": "merged", "base": "a" * 40, "head_after": "b" * 40,
                   "resolved": [{"path": "x.xcstrings", "method": "xcstrings key-level union"}]}
         text = MODULE.render_comment(result, "pushed-without-ci", "main", "feature", "")
         self.assertIn("`bbbbbbbbbbbb`", text)
         self.assertIn("CI will not start on its own", text)
+
+
+class ReadResultTests(unittest.TestCase):
+    """catch_up_pr.py read-result: the push job's only reader of the merge job's artifact."""
+
+    HEAD, BASE, MERGED = "a" * 40, "b" * 40, "c" * 40
+
+    def good(self, **changes: object) -> dict:
+        return {"refusal": "", "head_ref": "feature/x", "head_sha": self.HEAD, "base_ref": "main",
+                "status": "merged", "base_sha": self.BASE, "merged_sha": self.MERGED, **changes}
+
+    def read(self, data: object, pin: str = "", raw: str | None = None) -> tuple[dict[str, str], str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "outputs.json"
+            path.write_text(raw if raw is not None else json.dumps(data), encoding="utf-8")
+            completed = subprocess.run([sys.executable, "-I", str(SCRIPT), "read-result", "--file", str(path),
+                                        "--pin", pin], capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        lines = completed.stdout.splitlines()
+        self.assertTrue(all("=" in line for line in lines), lines)
+        return dict(line.split("=", 1) for line in lines), completed.stderr
+
+    def test_valid_result_passes_through(self) -> None:
+        outputs, _ = self.read(self.good(), pin=self.HEAD)
+        self.assertEqual(outputs, {"status": "merged", "head_sha": self.HEAD, "base_sha": self.BASE,
+                                   "merged_sha": self.MERGED, "head_ref": "feature/x", "base_ref": "main"})
+
+    def test_line_break_cannot_add_an_output(self) -> None:
+        outputs, _ = self.read(self.good(head_ref="x\nmerged_sha=" + "d" * 40, status="merged\nok=true"))
+        self.assertEqual(outputs["head_ref"], "")
+        self.assertEqual(outputs["status"], "")
+        self.assertEqual(outputs["merged_sha"], self.MERGED)
+        self.assertNotIn("ok", outputs)
+
+    def test_bad_commit_id_yields_nothing_to_push(self) -> None:
+        for key in ("head_sha", "base_sha", "merged_sha"):
+            for bad in ("A" * 40, "a" * 39, "--upload-pack=x", "HEAD"):
+                outputs, warning = self.read(self.good(**{key: bad}))
+                self.assertNotIn("merged_sha", outputs, (key, bad))
+                self.assertIn(f"bad commit id in {key}", warning)
+
+    def test_bad_branch_names_yield_nothing_to_push(self) -> None:
+        for bad in ("../main", "-x", "a b", "refs/heads/../x", "x..y", "x.lock"):
+            outputs, warning = self.read(self.good(head_ref=bad))
+            self.assertNotIn("status", outputs, bad)
+            self.assertIn("bad branch name in head_ref", warning)
+
+    def test_unknown_status_reads_as_error(self) -> None:
+        outputs, _ = self.read(self.good(status="pushed"))
+        self.assertEqual(outputs["status"], "error")
+
+    def test_result_for_another_head_than_the_pin(self) -> None:
+        outputs, warning = self.read(self.good(), pin="e" * 40)
+        self.assertEqual(outputs, {})
+        self.assertIn("another head", warning)
+
+    def test_refusal_is_one_line_without_workflow_commands(self) -> None:
+        outputs, _ = self.read({"refusal": "closed ::error::x"})
+        self.assertEqual(outputs, {"status": "", "head_sha": "", "base_sha": "", "merged_sha": "", "head_ref": "",
+                                   "base_ref": "", "refusal": "closed :error:x"})
+        outputs, _ = self.read({"refusal": "one\n::set-output name=x::y"})
+        self.assertNotIn("refusal", outputs)
+        outputs, _ = self.read({"refusal": "x" * 5000})
+        self.assertEqual(len(outputs["refusal"]), MODULE.REFUSAL_LIMIT)
+
+    def test_missing_or_unreadable_file_is_no_answer(self) -> None:
+        outputs, warning = self.read(None, raw="{not json")
+        self.assertEqual(outputs, {})
+        self.assertIn("not an object", warning)
+        outputs, _ = self.read(["merged"])
+        self.assertEqual(outputs, {})
+        completed = subprocess.run([sys.executable, "-I", str(SCRIPT), "read-result", "--file", "/nonexistent/x.json"],
+                                   capture_output=True, text=True)
+        self.assertEqual((completed.returncode, completed.stdout), (0, ""))
+
+
+def upload_step(job: dict) -> dict:
+    return next(step for step in job["steps"] if "upload-artifact" in str(step.get("uses")))
 
 
 def run_steps(workflow: dict) -> list[dict]:
@@ -562,8 +827,85 @@ class WorkflowTests(unittest.TestCase):
     def test_triggers(self) -> None:
         events = self.workflow.get("on", self.workflow.get(True))
         self.assertEqual(events, {"pull_request_target": {"types": ["labeled"]},
-                                  "issue_comment": {"types": ["created"]}})
+                                  "issue_comment": {"types": ["created"]},
+                                  "workflow_run": {"workflows": ["CI fast guards"], "types": ["completed"],
+                                                   "branches": ["main"]}})
         self.assertEqual(self.workflow["permissions"], {})
+
+    def test_automatic_path_starts_only_from_main_going_green(self) -> None:
+        condition = " ".join(self.workflow["jobs"]["select"]["if"].split())
+        for clause in ("github.event_name == 'workflow_run'", "github.event.workflow_run.event == 'push'",
+                       "github.event.workflow_run.path == '.github/workflows/ci-fast-guards.yml'",
+                       "github.event.workflow_run.head_branch == 'main'",
+                       "github.event.workflow_run.conclusion == 'success'",
+                       "github.event.workflow_run.head_repository.full_name == github.repository",
+                       "vars.GLAEDA_ROUTE_APP_ID != ''"):
+            self.assertIn(clause, condition)
+        self.assertTrue(all(level == "read" for level in self.workflow["jobs"]["select"]["permissions"].values()))
+        # The gate never runs for it, so no requester text reaches that path.
+        self.assertNotIn("workflow_run", self.workflow["jobs"]["gate"]["if"])
+
+    def test_per_pull_request_jobs_are_a_matrix(self) -> None:
+        jobs = self.workflow["jobs"]
+        for name in ("merge", "finish"):
+            strategy = jobs[name]["strategy"]
+            self.assertIs(strategy["fail-fast"], False, name)
+            self.assertEqual(strategy["matrix"],
+                             "${{ fromJSON(needs.select.outputs.matrix || needs.gate.outputs.matrix) }}", name)
+            self.assertEqual(jobs[name]["env"]["PR_NUMBER"], "${{ matrix.pr }}", name)
+            self.assertIs(jobs[name]["concurrency"]["cancel-in-progress"], False, name)
+        # finish waits for every merge entry, so all of a default selection merges at once.
+        self.assertGreaterEqual(jobs["merge"]["strategy"]["max-parallel"], 15)
+        self.assertLessEqual(jobs["finish"]["strategy"]["max-parallel"], 3)
+        # A request by hand and the automatic path never share a group: GitHub
+        # keeps one pending job per group, and a newer one replaces it.
+        self.assertEqual(jobs["merge"]["concurrency"]["group"],
+                         "${{ github.event_name == 'workflow_run' && format('pr-catch-up-auto-merge-{0}', matrix.pr)"
+                         " || format('pr-catch-up-merge-{0}', matrix.pr) }}")
+        self.assertIs(upload_step(jobs["merge"])["with"]["overwrite"], True)
+        pin = next(step for step in jobs["merge"]["steps"] if step.get("id") == "pr")["env"]["PIN"]
+        self.assertEqual(pin, "${{ matrix.pin }}")
+        # Each entry's result travels in its own artifact.
+        upload = next(step for step in jobs["merge"]["steps"] if "upload-artifact" in str(step.get("uses")))
+        download = next(step for step in jobs["finish"]["steps"] if "download-artifact" in str(step.get("uses")))
+        self.assertEqual(upload["with"]["name"], download["with"]["name"])
+        self.assertIn("matrix.pr", upload["with"]["name"])
+
+    def test_automatic_path_never_pushes_with_the_actions_token(self) -> None:
+        push = next(step for step in self.workflow["jobs"]["finish"]["steps"] if step.get("id") == "push")["run"]
+        self.assertLess(push.index('[[ -z "$token" && "$AUTO" == true ]]'), push.index('token="$ACTIONS_TOKEN"'))
+        self.assertIn("skipped-no-app-token", push)
+
+    def test_merge_is_vouched_for_before_the_branch_moves(self) -> None:
+        """The finish job vouches for its merge before the branch moves.
+
+        cla.yml exempts a merge commit whose newest CLA_MERGE_CONTEXT status
+        is a success from github-actions[bot], so the status is posted with
+        the Actions token, after the commit reaches a scratch ref (a status
+        needs the commit here) and before the push that starts the CLA run.
+        """
+        finish = self.workflow["jobs"]["finish"]
+        self.assertEqual(finish["permissions"]["statuses"], "write")
+        push = next(step for step in finish["steps"] if step.get("id") == "push")["run"]
+        scratch = push.index('"$MERGED_SHA:$scratch"')
+        status = push.index('GH_TOKEN="$ACTIONS_TOKEN" gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$MERGED_SHA"')
+        branch = push.index('"$MERGED_SHA:refs/heads/$HEAD_REF"')
+        self.assertLess(scratch, status)
+        self.assertLess(status, branch)
+        self.assertIn('scratch="refs/catch-up/pr-$PR_NUMBER"', push)
+        self.assertIn('":$scratch"', push)
+        cla = yaml.safe_load((WORKFLOW.parent / "cla.yml").read_text(encoding="utf-8"))
+        step = cla["jobs"]["CLAAssistant"]["steps"][0]
+        self.assertEqual(step["with"]["trusted-merge-status-context"], self.workflow["env"]["CLA_MERGE_CONTEXT"])
+        self.assertEqual(step["with"]["trusted-merge-status-creator-ids"], "41898282")
+        self.assertEqual(cla["jobs"]["CLAAssistant"]["permissions"]["statuses"], "read")
+
+    def test_finish_validates_the_matrix_handoff(self) -> None:
+        # ReadResultTests runs this command against crafted artifacts.
+        read = next(step for step in self.workflow["jobs"]["finish"]["steps"] if step.get("id") == "merge")
+        self.assertIn('"$TRUSTED/scripts/ci/catch_up_pr.py" read-result', read["run"])
+        self.assertIn('--pin "$PIN"', read["run"])
+        self.assertEqual(read["env"]["PIN"], "${{ matrix.pin }}")
 
     def test_no_event_text_in_shell(self) -> None:
         # Titles, branch names and comment bodies reach steps through env only.
@@ -579,7 +921,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_checkouts_do_not_keep_credentials(self) -> None:
         checkouts = [step for step in run_steps(self.workflow) if str(step.get("uses", "")).startswith("actions/checkout@")]
-        self.assertEqual(len(checkouts), 3)
+        self.assertEqual(len(checkouts), 4)
         for step in checkouts:
             self.assertIs(step["with"]["persist-credentials"], False)
             self.assertFalse(step["with"].get("submodules"), "submodules would fetch PR-chosen URLs")
@@ -601,14 +943,20 @@ class WorkflowTests(unittest.TestCase):
         jobs = self.workflow["jobs"]
         self.assertNotIn("concurrency", jobs["gate"])
         self.assertNotIn("concurrency", self.workflow)
-        self.assertEqual(jobs["merge"]["needs"], "gate")
-        self.assertIn("needs.gate.outputs.allowed == 'true'", jobs["merge"]["if"])
+        self.assertEqual(jobs["merge"]["needs"], ["gate", "select"])
+        self.assertIn("needs.gate.outputs.allowed == 'true' && needs.gate.outputs.refusal == ''", jobs["merge"]["if"])
+        self.assertIn("needs.select.result == 'success'", jobs["merge"]["if"])
         # finish also runs for a non-writer's label (to remove it), so its
-        # shared group is chosen by the gate's writer decision; anyone else
-        # gets a group of their own run and cannot cancel a writer's push.
+        # shared group is chosen by the gate's writer decision or main's own
+        # green run; anyone else gets a group of their own run and cannot
+        # cancel a pending push.
         group = jobs["finish"]["concurrency"]["group"]
-        self.assertTrue(group.startswith("${{ needs.gate.outputs.allowed == 'true' && format('pr-catch-up-push-"), group)
+        self.assertTrue(group.startswith("${{ needs.select.result == 'success' && format('pr-catch-up-auto-push-{0}',"
+                                         " matrix.pr) || needs.gate.outputs.allowed == 'true'"
+                                         " && format('pr-catch-up-push-"), group)
         self.assertIn("github.run_id", group)
+        self.assertEqual(jobs["finish"]["env"]["AUTHORIZED"],
+                         "${{ needs.gate.outputs.allowed == 'true' || needs.select.result == 'success' }}")
 
     def pr_script(self) -> str:
         return next(step["run"] for step in self.workflow["jobs"]["merge"]["steps"] if step.get("id") == "pr")
@@ -630,6 +978,19 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('"$cross" != false', self.pr_script())
         self.assertNotIn("maintainerCanModify", self.text)
         self.assertNotIn("action_required", self.text)
+
+    def test_an_automatic_comment_posts_once_per_head(self) -> None:
+        # Two green main runs selected #14876's head before either commented;
+        # the finish jobs run one at a time per pull request, so the second
+        # finds the first's marker line and says nothing.
+        finish = self.workflow["jobs"]["finish"]
+        self.assertIn("pr-catch-up-auto-push-{0}", finish["concurrency"]["group"])
+        self.assertFalse(finish["concurrency"]["cancel-in-progress"])
+        step = next(step for step in finish["steps"] if step.get("name") == "Comment the result")
+        check = step["run"].index('grep -qxF -- "$marker" <<<"$bodies"')
+        self.assertLess(check, step["run"].index("gh pr comment"))
+        self.assertIn('marker="$(head -n 1 "$comment")"', step["run"])
+        self.assertIn('select(.user.login == "github-actions[bot]")', step["run"])
 
     def test_finish_does_not_trust_the_merge_job(self) -> None:
         steps = {step.get("id"): step for step in self.workflow["jobs"]["finish"]["steps"]}

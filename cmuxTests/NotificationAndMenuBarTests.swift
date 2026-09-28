@@ -1,10 +1,13 @@
 import XCTest
 import AppKit
+import Darwin
 import SwiftUI
+import Testing
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
+import CmuxCloud
 import CmuxSettings
 import UserNotifications
 
@@ -32,6 +35,47 @@ private final class NotificationHookEvaluationResultBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return stored
+    }
+}
+
+@Suite("Notification hook process isolation")
+struct NotificationHookProcessIsolationTests {
+    @Test
+    func hookDoesNotInheritUnrelatedParentFileDescriptor() async throws {
+        var unrelatedPipe = [Int32](repeating: -1, count: 2)
+        try #require(Darwin.pipe(&unrelatedPipe) == 0)
+        defer {
+            for descriptor in unrelatedPipe where descriptor >= 0 {
+                Darwin.close(descriptor)
+            }
+        }
+        let unrelatedDescriptor = try #require(unrelatedPipe.first)
+        try #require(unrelatedDescriptor > STDERR_FILENO)
+
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Title",
+            subtitle: "",
+            body: "Body",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "descriptor-isolation",
+            command: "if [ -e /dev/fd/\(unrelatedDescriptor) ]; then printf '{\"notification\":{\"body\":\"inherited\"}}'; else cat; fi",
+            timeoutSeconds: 5,
+            sourcePath: "/tmp/cmux.json",
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let result = await TerminalNotificationPolicyEngine.evaluate(
+            request: request,
+            hooks: [hook]
+        )
+        let envelope = try result.get()
+        #expect(envelope.notification.body == "Body")
     }
 }
 
@@ -1882,6 +1926,52 @@ final class NotificationDockBadgeTests: XCTestCase {
         store.clearNotifications(forTabId: tab)
         XCTAssertEqual(store.unreadCount(forTabId: tab), 0)
         XCTAssertNil(store.latestNotification(forTabId: tab))
+    }
+
+    func testWorkspaceLevelMarkReadKeepsOtherPanesUnread() {
+        let tab = UUID()
+        let surface = UUID()
+        let manualUnreadSurface = UUID()
+        let workspaceLevelNotification = TerminalNotification(
+            id: UUID(),
+            tabId: tab,
+            surfaceId: nil,
+            title: "Workspace level",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: false
+        )
+        let surfaceNotification = TerminalNotification(
+            id: UUID(),
+            tabId: tab,
+            surfaceId: surface,
+            title: "Surface scoped",
+            subtitle: "",
+            body: "",
+            createdAt: Date().addingTimeInterval(-1),
+            isRead: false
+        )
+
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([workspaceLevelNotification, surfaceNotification])
+        store.markWindowDockSurfaceUnread(windowId: tab, surfaceId: manualUnreadSurface)
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: tab, surfaceId: nil))
+        let previousObserver = store.readTargetObserver
+        var readTargets: [NotificationReadTarget] = []
+        store.readTargetObserver = { readTargets.append($0) }
+        defer { store.readTargetObserver = previousObserver }
+
+        store.markWorkspaceLevelNotificationsRead(forTabId: tab)
+
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: tab, surfaceId: nil))
+        // Cloud rows placed at the workspace level follow the same read.
+        XCTAssertEqual(readTargets, [.surface(workspaceID: tab, surfaceID: nil)])
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: tab, surfaceId: surface))
+        XCTAssertTrue(store.hasManualUnread(forTabId: tab, surfaceId: manualUnreadSurface))
+
+        store.clearNotifications(forTabId: tab)
+        store.clearWindowDockSurfaceUnread(windowId: tab, surfaceId: manualUnreadSurface)
     }
 
     func testClearLatestNotificationRemovesOnlyCurrentSidebarPreviewSource() {
