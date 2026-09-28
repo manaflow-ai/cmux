@@ -878,25 +878,37 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
 
     private func startDirectQuicListener(token: UUID) async {
         guard directQuicListener == nil, pairingEnabled(), let identity, let registry, let admission else { return }
-        let port = MobileHostService.configuredPort()
-        let listener: DirectQuicListener
-        do {
-            listener = try DirectQuicListener(port: UInt16(port), identity: identity)
-        } catch {
-            // macOS 14 cannot load the in-memory TLS identity; Iroh still serves.
-            Self.journal.record("direct-quic", "listener-unavailable", ["error": String(describing: error)])
-            return
+        let preferredPort = MobileHostService.configuredPort()
+        var started: (listener: DirectQuicListener, port: UInt16)?
+        // The configured port first; when another cmux instance on this Mac
+        // already owns it (a second dev build, or the stable app), an
+        // ephemeral port serves instead. Every advertised route, pairing
+        // code, and the Settings port row carry the actual bound port.
+        for candidatePort in [UInt16(preferredPort), 0] {
+            guard isCurrent(token), directQuicListener == nil else { return }
+            let listener: DirectQuicListener
+            do {
+                listener = try DirectQuicListener(port: candidatePort, identity: identity)
+            } catch {
+                // macOS 14 cannot load the in-memory TLS identity; Iroh still serves.
+                Self.journal.record("direct-quic", "listener-unavailable", ["error": String(describing: error)])
+                return
+            }
+            directQuicListener = listener
+            do {
+                started = (listener, try await listener.start())
+                break
+            } catch {
+                Self.journal.record(
+                    "direct-quic",
+                    candidatePort == 0 ? "listener-failed" : "listener-port-busy",
+                    ["port": String(candidatePort), "error": String(describing: error)]
+                )
+                guard directQuicListener === listener else { return }
+                stopDirectQuicListener()
+            }
         }
-        directQuicListener = listener
-        let boundPort: UInt16
-        do {
-            boundPort = try await listener.start()
-        } catch {
-            Self.journal.record("direct-quic", "listener-failed", ["port": String(port),
-                "error": String(describing: error)])
-            if directQuicListener === listener { stopDirectQuicListener() }
-            return
-        }
+        guard let (listener, boundPort) = started else { return }
         guard isCurrent(token), directQuicListener === listener else {
             listener.cancel()
             return
