@@ -834,6 +834,9 @@ func browserNewTabNavigationSeed(
 /// Mirrors the opener's WebKit browsing context for popup windows.
 struct BrowserPopupBrowserContext {
     let websiteDataStore: WKWebsiteDataStore
+    /// Mirrors ``BrowserPanel/refusesProxyAuthenticationChallenges`` for
+    /// popups sharing the opener's proxied store.
+    let refusesProxyAuthenticationChallenges: Bool
 }
 
 enum BrowserFileSystemAccessBridge {
@@ -2899,7 +2902,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Popups inherit this panel's exact WebKit storage context.
     var popupBrowserContext: BrowserPopupBrowserContext {
         BrowserPopupBrowserContext(
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            refusesProxyAuthenticationChallenges: refusesProxyAuthenticationChallenges
         )
     }
 
@@ -4203,6 +4207,13 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteProxyEndpoint = endpoint
         applyProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
+    }
+
+    /// Remote and cloud panes route only through cmux proxies that carry
+    /// their credential, so a proxy challenge there is refused rather than
+    /// shown to the user.
+    var refusesProxyAuthenticationChallenges: Bool {
+        usesRemoteWorkspaceProxy || cloudBrowserMachineID != nil
     }
 
     func setRemoteWorkspaceStatus(_ status: BrowserRemoteWorkspaceStatus?) {
@@ -5752,7 +5763,11 @@ final class BrowserPanel: Panel, ObservableObject {
         // SOCKS only, as before; the legacy proxy dictionary cannot carry
         // the listener's credential.
         configuration.proxyConfigurations = [proxyConfigurations.socks]
-        return URLSession(configuration: configuration)
+        return URLSession(
+            configuration: configuration,
+            delegate: ManagedProxySessionDelegate(),
+            delegateQueue: nil
+        )
     }
 
     private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {
