@@ -21,7 +21,12 @@ import {
  */
 
 const SITE_ORIGIN = "https://cmux.com";
-const CACHE_CONTROL = "public, s-maxage=300, stale-while-revalidate=86400";
+const CACHE_CONTROL = "public, max-age=300, s-maxage=300, stale-while-revalidate=86400";
+/**
+ * The recap never shows more than a handful of releases, and the entry list
+ * grows with every release, so the response is capped rather than unbounded.
+ */
+export const MAX_RELEASES = 20;
 
 export interface HighlightFeature {
   title: string;
@@ -51,6 +56,7 @@ export function buildHighlights(
   const releases = Object.entries(media)
     .filter(([version]) => /^\d+(\.\d+)*$/.test(version))
     .sort(([a], [b]) => compareDottedVersions(b, a))
+    .slice(0, MAX_RELEASES)
     .map(([version, entry]) => toRelease(version, entry, origin));
   return { releases };
 }

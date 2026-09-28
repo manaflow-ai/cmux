@@ -33,6 +33,33 @@ struct WhatsNewAutomaticPresentationTests {
         #expect(policy.decide(mode: .sheet, flavor: .stable, currentVersion: "0.64.26", lastSeenVersion: "0.64.25", isFirstRun: true) == .present(since: "0.64.25"))
     }
 
+    /// Running an older build after a newer one. The policy does not filter
+    /// this itself: it hands the recorded key to the catalog as `since`, and
+    /// the catalog's numeric range is what yields nothing to announce. The
+    /// recorded key is deliberately left alone so the newer build still
+    /// counts as seen when the user goes back to it.
+    @Test func aDowngradeDefersToTheCatalogAndKeepsTheRecord() {
+        #expect(
+            policy.decide(mode: .sheet, flavor: .stable, currentVersion: "0.64.25", lastSeenVersion: "0.64.30")
+                == .present(since: "0.64.30")
+        )
+        #expect(
+            policy.decide(mode: .quiet, flavor: .stable, currentVersion: "0.64.25", lastSeenVersion: "0.64.30")
+                == .indicate(since: "0.64.30")
+        )
+    }
+
+    /// A `v` or `V` tag prefix must not disable announcements. Returning `nil`
+    /// from `releaseKey` silently turns the whole feature off.
+    @Test func aTagPrefixParsesInEitherCase() {
+        #expect(WhatsNewAutomaticPresentation.releaseKey("v0.64.25") == "0.64.25")
+        #expect(WhatsNewAutomaticPresentation.releaseKey("V0.64.25") == "0.64.25")
+        #expect(
+            policy.decide(mode: .sheet, flavor: .stable, currentVersion: "V0.64.26", lastSeenVersion: "0.64.25")
+                == .present(since: "0.64.25")
+        )
+    }
+
     @Test func onlyOncePerVersion() {
         for mode in WhatsNewPresentationMode.allCases {
             #expect(policy.decide(mode: mode, flavor: .stable, currentVersion: "0.64.26", lastSeenVersion: "0.64.26") == .none)

@@ -60,7 +60,8 @@ public struct WhatsNewAutomaticPresentation: Sendable {
     /// `"0.64.25"`).
     public static func releaseKey(_ version: String) -> String? {
         let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
-        let withoutPrefix = trimmed.hasPrefix("v") ? String(trimmed.dropFirst()) : trimmed
+        let hasTagPrefix = trimmed.first.map { $0 == "v" || $0 == "V" } ?? false
+        let withoutPrefix = hasTagPrefix ? String(trimmed.dropFirst()) : trimmed
         var components: [Substring] = []
         for part in withoutPrefix.split(separator: ".", omittingEmptySubsequences: false) {
             let digits = part.prefix { $0.isASCII && $0.isNumber }

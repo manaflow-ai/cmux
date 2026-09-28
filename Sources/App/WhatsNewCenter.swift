@@ -147,12 +147,15 @@ final class WhatsNewCenter {
             present(releases: pendingReleases, source: source)
             return
         }
-        let model = showWindow(phase: .loading, activates: true)
-        markSeen()
-        startFill(model)
+        startFill(showWindow(phase: .loading, activates: true))
     }
 
     /// Loads the recent releases into `model`, replacing any load in flight.
+    ///
+    /// Marking seen happens here, on a load that produced something to read,
+    /// not when the window opens. A recap that failed to load, or that had no
+    /// highlights to show, must not consume the one automatic announcement
+    /// for this version.
     private func startFill(_ model: WhatsNewViewModel) {
         fillTask?.cancel()
         model.phase = .loading
@@ -165,7 +168,11 @@ final class WhatsNewCenter {
             }
             // A build without a parseable version shows the newest releases.
             let current = WhatsNewAutomaticPresentation.releaseKey(self.currentVersion) ?? "\(Int.max)"
-            model.phase = .loaded(catalog.recentReleases(through: current))
+            let releases = catalog.recentReleases(through: current)
+            model.phase = .loaded(releases)
+            if !releases.isEmpty {
+                self.markSeen()
+            }
         }
     }
 
@@ -187,6 +194,9 @@ final class WhatsNewCenter {
             defaults.set(key, forKey: Self.lastSeenReleaseDefaultsKey)
         }
         hasUnseenHighlights = false
+        // The launch set has been shown. Later opens ask the catalog again so
+        // they reflect a retry or a catalog that has since been published.
+        pendingReleases = []
     }
 
     /// The catalog, fetched once per process and then reused.
@@ -233,6 +243,7 @@ final class WhatsNewCenter {
             viewModel.phase = phase
             viewModel.selectedModeID = mode.rawValue
             if activates {
+                NSApp.activate(ignoringOtherApps: true)
                 (window.sheetParent ?? window).makeKeyAndOrderFront(nil)
             }
             return viewModel
@@ -266,6 +277,14 @@ final class WhatsNewCenter {
         if let parent = sheetParent ?? sheetParentCandidate() {
             parent.beginSheet(newWindow) { [weak self] _ in
                 self?.forgetWindow()
+            }
+            // The parent is the frontmost main terminal window, which is not
+            // necessarily the frontmost window: Settings or About can be over
+            // it. Without this the sheet opens behind them and the Help menu
+            // looks like it did nothing.
+            if activates {
+                NSApp.activate(ignoringOtherApps: true)
+                parent.makeKeyAndOrderFront(nil)
             }
         } else {
             windowCloseObserver = NotificationCenter.default.addObserver(

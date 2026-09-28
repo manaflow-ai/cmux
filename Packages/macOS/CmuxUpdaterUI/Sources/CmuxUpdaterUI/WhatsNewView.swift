@@ -70,6 +70,14 @@ public struct WhatsNewView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
+            // Above the switch so loading, failed and empty are identifiable
+            // too. The recap usually opens as a sheet, where the window title
+            // is never drawn.
+            Text(String(localized: "whatsNew.title", defaultValue: "What's New in cmux"))
+                .cmuxFont(size: 22, weight: .bold)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
@@ -113,13 +121,13 @@ public struct WhatsNewView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 28) {
-                        Text(String(localized: "whatsNew.title", defaultValue: "What's New in cmux"))
-                            .cmuxFont(size: 22, weight: .bold)
                         ForEach(releases) { release in
                             WhatsNewReleaseSection(release: release, openURL: actions.openURL)
                         }
                     }
-                    .padding(24)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 16)
+                    .padding(.bottom, 24)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -203,6 +211,7 @@ private struct WhatsNewFeatureCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(feature.title)
                 .cmuxFont(size: 13, weight: .semibold)
+                .fixedSize(horizontal: false, vertical: true)
             Text(feature.description)
                 .cmuxFont(size: 12)
                 .foregroundStyle(.secondary)

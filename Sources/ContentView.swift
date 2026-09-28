@@ -15887,6 +15887,9 @@ private struct SidebarWhatsNewDot: View {
         Circle()
             .fill(cmuxAccent.color)
             .frame(width: 6, height: 6)
+            // A bare shape is not an accessibility element, so the label needs
+            // one to attach to or VoiceOver never mentions the dot.
+            .accessibilityElement()
             .accessibilityLabel(String(localized: "sidebar.help.whatsNew.unseen", defaultValue: "New highlights"))
     }
 }

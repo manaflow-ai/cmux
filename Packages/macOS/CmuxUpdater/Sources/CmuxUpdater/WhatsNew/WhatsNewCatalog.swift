@@ -29,7 +29,8 @@ public struct WhatsNewRelease: Decodable, Equatable, Identifiable, Sendable {
             self.video = video
         }
 
-        /// Decodes one card; a blank `tryIt` and non-https media are dropped.
+        /// Decodes one card; a blank `tryIt` and media that is not an https
+        /// cmux.com URL are dropped.
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             title = try container.decode(String.self, forKey: .title)
@@ -100,9 +101,17 @@ public struct WhatsNewRelease: Decodable, Equatable, Identifiable, Sendable {
         case version, title, url, hero, features
     }
 
-    /// Only https URLs load: the payload comes from the network.
+    /// Only https cmux.com URLs load. The payload comes from the network, and
+    /// these strings become `NSWorkspace.open` targets and image and video
+    /// loads, so the scheme alone is not enough: an arbitrary host would be a
+    /// link-injection and request-leak path if the endpoint were ever wrong.
     static func mediaURL(_ string: String?) -> URL? {
-        guard let string, let url = URL(string: string), url.scheme?.lowercased() == "https" else {
+        guard let string,
+              let url = URL(string: string),
+              url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(),
+              host == "cmux.com" || host.hasSuffix(".cmux.com")
+        else {
             return nil
         }
         return url
