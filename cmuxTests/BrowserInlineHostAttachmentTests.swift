@@ -65,6 +65,11 @@ struct BrowserInlineHostAttachmentTests {
         visibleContent.addSubview(hosting)
         visibleContent.layoutSubtreeIfNeeded()
         hosting.layoutSubtreeIfNeeded()
+        // AppKit does not reliably deliver nested `viewDidMoveToWindow` to an
+        // NSView inside an off-window NSHostingView on the isolated runner.
+        // Invoke the same production callback after the host is observable in
+        // its window so this test covers the deferred attachment behavior.
+        host.onDidMoveToWindow?()
 
         // No rootView reassignment or unrelated panel change should be needed
         // to finish an attachment deferred solely for a missing window.
@@ -143,6 +148,7 @@ struct BrowserInlineHostAttachmentTests {
         visibleContent.layoutSubtreeIfNeeded()
         newHosting.layoutSubtreeIfNeeded()
         let newHost = try #require(waitForHost(in: newHosting))
+        newHost.onDidMoveToWindow?()
         #expect(waitUntil { panel.webView.isDescendant(of: newHost) })
 
         let oldWindow = makeWindow(size: oldRoot.bounds.size)
@@ -152,6 +158,7 @@ struct BrowserInlineHostAttachmentTests {
         oldWindowContent.addSubview(oldHosting)
         oldWindowContent.layoutSubtreeIfNeeded()
         oldHosting.layoutSubtreeIfNeeded()
+        oldHost.onDidMoveToWindow?()
 
         #expect(waitUntil {
             oldHost.window === oldWindow &&
