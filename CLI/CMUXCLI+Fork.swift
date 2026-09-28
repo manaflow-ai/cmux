@@ -267,7 +267,7 @@ extension CMUXCLI {
             )
             guard clearOutcome == .cleared else {
                 throw loggedForkError(
-                    .bindingChanged,
+                    .checkpointMismatch,
                     stage: "binding.clear",
                     detail: String(describing: clearOutcome)
                 )
