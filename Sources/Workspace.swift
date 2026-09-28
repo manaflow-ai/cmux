@@ -7615,6 +7615,29 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return binding.vmID
     }
 
+    /// Where this workspace runs, derived from its Cloud machine or SSH
+    /// destination, never from the title the user typed. Window titles and
+    /// the Task Manager read this one value so they name the host the same way.
+    var hostLabel: WorkspaceHostLabel {
+        if let machineID = cloudVMID {
+            return WorkspaceHostLabel.cloud(
+                machineID: machineID,
+                machineName: cloudBindingState.machineNames[machineID]
+            ) ?? .local
+        }
+        if let remoteConfiguration {
+            // `cmux ssh` takes a port through `--ssh-option Port=...` as well as `--port`.
+            let optionPort = SSHAgentSocketResolver(environment: [:])
+                .optionValue(named: "Port", in: remoteConfiguration.sshOptions)
+                .flatMap { Int($0) }
+            return WorkspaceHostLabel.ssh(
+                destination: remoteConfiguration.destination,
+                port: remoteConfiguration.port ?? optionPort
+            ) ?? .local
+        }
+        return .local
+    }
+
     func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
         if let status = terminalPanel(for: surfaceId)?.deviceAttachment { return status.presentation }
         if let failure = cloudMaterializationFailures[surfaceId] {
