@@ -69,12 +69,17 @@ public enum AgentLifecycleActivity: String, Sendable, Equatable, CaseIterable {
         switch kind {
         case .stateChanged, .sessionStarted, .sessionEnded:
             return nil
+        case .turnStarted:
+            // A turn start is the user's new prompt from any resting phase,
+            // including a retry after an error or a reply typed while the
+            // agent waited for input.
+            guard current == .running, previous != .running else { return nil }
+            return .promptSubmitted
         default:
             let activity = classify(from: previous, to: current)
             // Only a turn start is a new prompt; a background child that
             // wakes an idle session is work, not the user asking for more.
-            if activity == .promptSubmitted, kind != .turnStarted { return nil }
-            return activity
+            return activity == .promptSubmitted ? nil : activity
         }
     }
 }
