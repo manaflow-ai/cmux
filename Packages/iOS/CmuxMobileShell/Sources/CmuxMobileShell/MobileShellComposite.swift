@@ -4858,7 +4858,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return restored
     }
 
-    /// Persist the live foreground Mac's routes and tag and mark it active,
+    /// Persist the live foreground Mac's routes and tag, then mark it active,
     /// without touching its connection.
     private func reassertLiveForegroundPairing(
         _ liveForeground: MobilePairedMac,
@@ -4870,9 +4870,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             routes: liveForeground.routes,
             pairedMacDeviceID: liveForeground.macDeviceID
         ) else { return }
+        // The guarded active write below is the only active-state update, so
+        // a newer switch cannot be overtaken by this reassertion.
         let accepted = await persistPairedMacFromTicket(
             ticket,
             instanceTagUpdate: .replace(liveForeground.instanceTag),
+            markActive: false,
             requiredScope: scope,
             ifStillCurrent: ifStillCurrent
         )
