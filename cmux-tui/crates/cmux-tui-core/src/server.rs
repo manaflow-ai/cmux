@@ -4940,14 +4940,7 @@ fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()> {
         if metadata.permissions().mode() & 0o077 != 0 {
             platform::restrict_directory(dir)?;
         }
-        let verified = std::fs::symlink_metadata(dir)?;
-        if verified.file_type().is_symlink()
-            || !verified.is_dir()
-            || verified.uid() != unsafe { libc::geteuid() }
-            || verified.permissions().mode() & 0o077 != 0
-        {
-            anyhow::bail!("runtime socket directory is not private: {}", dir.display());
-        }
+        verify_private_socket_directory(dir)?;
     }
     #[cfg(not(unix))]
     {
@@ -4997,6 +4990,44 @@ pub fn prepare_socket_parent(path: &Path, is_derived: bool) -> anyhow::Result<()
         }
     } else {
         prepare_explicit_socket_directory(path)?;
+    }
+    Ok(())
+}
+
+/// Connect a client to a session socket. A derived path must sit in the
+/// private runtime directory a server prepared, and its listener must run as
+/// this user, before the caller writes anything. Explicit paths keep their
+/// caller-managed semantics.
+pub fn connect_session_socket(
+    path: &Path,
+    is_derived: bool,
+) -> std::io::Result<Box<dyn transport::Stream>> {
+    if !is_derived {
+        return transport::connect(path);
+    }
+    #[cfg(unix)]
+    if let Some(dir) = path.parent() {
+        verify_private_socket_directory(dir)?;
+    }
+    transport::connect_same_user(path)
+}
+
+/// Check, without changing anything, that a derived socket directory is still
+/// the private one `prepare_runtime_socket_directory` leaves behind.
+#[cfg(unix)]
+fn verify_private_socket_directory(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let metadata = std::fs::symlink_metadata(dir)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_dir()
+        || metadata.uid() != platform::effective_uid()
+        || metadata.permissions().mode() & 0o077 != 0
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("runtime socket directory is not private: {}", dir.display()),
+        ));
     }
     Ok(())
 }
@@ -13824,6 +13855,39 @@ mod tests {
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
         prepare_runtime_socket_directory(&directory).unwrap();
         assert_eq!(std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_socket_connect_requires_a_private_derived_parent() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let root = TestSocketDir::create("private-socket");
+        let runtime = root.path().join("rt");
+        std::fs::create_dir(&runtime).unwrap();
+        let socket = runtime.join("m.sock");
+        let _listener = transport::listen(&socket).unwrap();
+
+        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(connect_session_socket(&socket, false).is_ok(), "explicit paths are unchanged");
+        let error = connect_session_socket(&socket, true)
+            .err()
+            .expect("a derived socket in a shared directory must be refused");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+
+        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(connect_session_socket(&socket, true).is_ok());
+
+        let alias = root.path().join("al");
+        symlink(&runtime, &alias).unwrap();
+        let error = connect_session_socket(&alias.join("m.sock"), true)
+            .err()
+            .expect("a derived socket behind a symlinked directory must be refused");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+
+        let missing = root.path().join("missing").join("m.sock");
+        let error = connect_session_socket(&missing, true).err().expect("nothing listens there");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
     }
 
     #[cfg(unix)]
