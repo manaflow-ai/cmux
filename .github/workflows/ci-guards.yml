@@ -982,6 +982,16 @@ jobs:
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_bash_integration_no_done_notifications.py
 
+      - name: Validate bash watcher retirement and shell PR refresh
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: |
+          if ! command -v zsh >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y zsh
+          fi
+          python3 tests/test_issue_15067_bash_watcher_churn.py
+          python3 tests/test_issue_1138_sidebar_pr_polling.py
+
       - name: Validate shell surface-scoped environment keys
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_shell_surface_scoped_keys.py
