@@ -1423,6 +1423,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         tableView.cacheDisplay(in: rowRect, to: representation)
         let rowImage = NSImage(size: rowRect.size)
         rowImage.addRepresentation(representation)
+        let badgeColor = (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).nsColor(for: tableView.effectiveAppearance)
 
         return NSImage(size: size, flipped: false) { bounds in
             rowImage.draw(in: bounds)
@@ -1435,7 +1436,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 width: badgeDiameter,
                 height: badgeDiameter
             )
-            NSColor.controlAccentColor.setFill()
+            badgeColor.setFill()
             NSBezierPath(ovalIn: badgeRect).fill()
 
             let countText = "\(count)" as NSString

@@ -447,9 +447,9 @@ def test_lane_wide_inputs_do_not_turn_the_lane_into_a_full_sweep() -> None:
 def test_package_lane_reads_the_job_package_list_from_the_workflow() -> None:
     packages = module.swift_package_test_packages()
     assert packages is not None
-    # The same list the job's "Select package tests" step declares.
-    workflow = MACOS_WORKFLOW.read_text(encoding="utf-8")
-    body = workflow.split("PACKAGES=(", 1)[1].split("\n          )", 1)[0]
+    # The same list the job's lane script declares.
+    lane = (ROOT / "scripts/ci/package-test-lane.sh").read_text(encoding="utf-8")
+    body = lane.split("PACKAGES=(", 1)[1].split("\n  )", 1)[0]
     assert set(packages) == set(body.split()), set(packages) ^ set(body.split())
     assert "CmuxSettingsUI" in packages
     # CmuxWorkspaces was missing from the list, so its tests never ran in CI.
@@ -6008,6 +6008,58 @@ def test_routed_package_lane_skips_the_release_helper_build() -> None:
             assert "inputs.full_suite == 'true'" in stripped, stripped
 
 
+def test_package_lane_fleet_step_is_opt_in_and_restates_its_runner() -> None:
+    # hq#794 phase 1: with CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY set to a gateway
+    # label, a same-repository pull request run that builds no helper takes it,
+    # which hands the lane script to the build fleet. The steps learn which
+    # path they are on from PACKAGE_TESTS_VIA_STEP, so it must name exactly
+    # the runs-on branch, and every runner-side step must stay off the gateway.
+    block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
+    job = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["swift-package-tests"]
+    via_step = (
+        "github.event_name == 'pull_request' && "
+        "!(inputs.full_suite == 'true' && inputs.release_build == 'true')"
+    )
+    fork = (
+        "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name "
+        "!= github.repository && 'blacksmith-6vcpu-macos-15' || "
+    )
+    assert fork + via_step + " && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || " in job["runs-on"], job["runs-on"]
+    assert job["env"]["PACKAGE_TESTS_VIA_STEP"] == (
+        "${{ github.repository_owner == 'manaflow-ai' && "
+        "github.event.pull_request.head.repo.full_name == github.repository && "
+        "vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != '' && " + via_step + " && '1' || '0' }}"
+    )
+
+    fleet = "Run Swift package tests on the build fleet"
+    for step in job["steps"]:
+        condition = str(step.get("if", ""))
+        name = step.get("name", "")
+        if name == fleet:
+            assert condition == "env.PACKAGE_TESTS_VIA_STEP == '1'", condition
+            run = step["run"]
+            assert "run --class light" in run
+            assert "--script scripts/ci/package-test-lane.sh --ref \"$GITHUB_SHA\"" in run
+            for code in ("69)", "75)"):
+                assert code in run, code
+            # Status 124 can mean either a fleet client timeout or the lane's
+            # hung-test watchdog; the streamed log distinguishes them.
+            assert "124)" in run
+            assert "streamed lane log" in run
+            assert "no automatic fallback" in run
+            assert 'exit "$status"' in run
+        elif "PACKAGE_TESTS_VIA_STEP != '1'" not in condition:
+            # Otherwise skipped with the steps they depend on: the checkout
+            # retry, the select outputs, or the helper build the fleet path
+            # never takes.
+            assert (
+                "steps.checkout.outcome == 'failure'" in condition
+                or "steps.select.outputs." in condition
+                or "inputs.release_build == 'true'" in condition
+            ), name
+    assert block.count(fleet) == 1
+
+
 def test_package_test_crashes_preserve_a_diagnosable_report() -> None:
     # A signalled test runner prints one SwiftPM line and no frames, so the
     # only evidence a crash leaves behind is the operating system's report.
@@ -6023,7 +6075,8 @@ def test_package_test_crashes_preserve_a_diagnosable_report() -> None:
     # Both retry guards (bonsplit and the package loop) still name only the
     # startup-crash signals. Widening the list is how a genuine crash gets
     # retried into a green check.
-    guards = re.findall(r"Exited with unexpected signal code (\[[^']*)'", block)
+    lane = (ROOT / "scripts/ci/package-test-lane.sh").read_text(encoding="utf-8")
+    guards = re.findall(r"Exited with unexpected signal code (\[[^']*)'", lane)
     assert guards == ["[56]([^0-9]|$)", "[56]([^0-9]|$)"], guards
 
 def test_macos_status_requires_the_lane_the_router_selected() -> None:
@@ -6247,20 +6300,28 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
 def test_swift_package_selection_precedes_optional_tool_setup() -> None:
     block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
 
+    lane = (ROOT / "scripts/ci/package-test-lane.sh").read_text(encoding="utf-8")
+
+    # The select step's outputs gate the GhosttyKit cache restore, which comes
+    # before the lane runs; the lane itself sets up Rust and downloads
+    # GhosttyKit only when its own selection needs them.
     select_index = block.index("      - name: Select package tests")
     ghostty_index = block.index("      - name: Capture Ghostty revision")
-    rust_index = block.index("      - name: Install Rust")
-    unit_index = block.index("      - name: Run Swift package unit tests")
-
-    assert select_index < ghostty_index < unit_index
-    assert select_index < rust_index < unit_index
-    assert "needs_ghosttykit=true" in block
-    assert "needs_rust=true" in block
+    run_index = block.index("      - name: Run Swift package tests\n")
+    assert select_index < ghostty_index < run_index
+    assert "./scripts/ci/package-test-lane.sh select" in block
+    assert "./scripts/ci/package-test-lane.sh run" in block
     assert "if: ${{ steps.select.outputs.needs_ghosttykit == 'true' }}" in block
-    assert "if: ${{ steps.select.outputs.needs_rust == 'true' }}" in block
-    assert "SELECTED_PACKAGES: ${{ steps.select.outputs.selected_packages }}" in block
-    assert 'done < "$selected"' in block
-    assert block.count("python3 scripts/ci/select_package_tests.py") == 1
+    assert 'output "needs_ghosttykit=$needs_ghosttykit"' in lane
+    assert 'output "needs_rust=$needs_rust"' in lane
+    run_phase = lane.split("\n  run)\n", 1)[1]
+    assert run_phase.index("select_packages") < run_phase.index("ensure_ghosttykit")
+    assert run_phase.index("select_packages") < run_phase.index("install_rust")
+    assert 'if [ "$needs_ghosttykit" = true ]; then\n      ensure_ghosttykit' in run_phase
+    assert 'if [ "$needs_rust" = true ]; then\n      install_rust' in run_phase
+    assert 'done < "$selected"' in lane
+    assert lane.count("python3 scripts/ci/select_package_tests.py") == 1
+    assert "select_package_tests.py" not in block
 
     app_host = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
     assert "steps.select.outputs.needs_ghosttykit" not in app_host
