@@ -5623,7 +5623,15 @@ struct CMUXCLI {
             }
 
         case "agent":
-            try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+            if commandArgs.first?.lowercased() == "compact-resume" {
+                try runAgentCompactResume(
+                    commandArgs: Array(commandArgs.dropFirst()),
+                    client: client,
+                    jsonOutput: jsonOutput
+                )
+            } else {
+                try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+            }
 
         case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"
@@ -18490,6 +18498,7 @@ struct CMUXCLI {
         switch command {
         case "agent":
             return Self.vmAgentUsage.replacingOccurrences(of: "cmux vm agent", with: "cmux agent")
+                + "\n\n" + Self.agentCompactResumeUsage
         case "remotes", "remote":
             return Self.remotesUsage
         case "todo":
