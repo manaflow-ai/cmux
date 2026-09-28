@@ -160,6 +160,7 @@ public struct ChatUsageAccumulator: Sendable {
             for (model, modelUsage) in codexRecordUsageByModel {
                 byModel[model, default: ChatTokenUsage()] += modelUsage
             }
+            byModel = Self.boundedUsageByModel(byModel)
         case .cumulativeEvents:
             // The cumulative total cannot be attributed per response or per
             // model, so it contributes to the overall figure only. Leaving
@@ -421,7 +422,7 @@ public struct ChatUsageAccumulator: Sendable {
             var prefix = codexCumulativeTotal
             if codexTranscriptInheritsHistory,
                let tail = codexCumulativeReplaceableTail,
-               tail.totalTokens == usage.totalTokens,
+               tail == usage,
                let withoutTail = Self.subtract(tail, from: prefix)
             {
                 prefix = withoutTail
@@ -450,6 +451,28 @@ public struct ChatUsageAccumulator: Sendable {
         if usageByModel[model] != nil { return model }
         // Reserve the final row for every later or oversized provider value.
         return usageByModel.count < usageModelBucketLimit - 1 ? model : overflowModelBucket
+    }
+
+    private static func boundedUsageByModel(
+        _ usageByModel: [String: ChatTokenUsage]
+    ) -> [String: ChatTokenUsage] {
+        guard usageByModel.count > usageModelBucketLimit else { return usageByModel }
+        let retainedModels = usageByModel.keys
+            .filter { $0 != overflowModelBucket }
+            .sorted()
+            .prefix(usageModelBucketLimit - 1)
+        let retained = Set(retainedModels)
+        var bounded = Dictionary(uniqueKeysWithValues: retainedModels.compactMap { model in
+            usageByModel[model].map { (model, $0) }
+        })
+        var overflow = usageByModel[overflowModelBucket] ?? ChatTokenUsage()
+        for (model, usage) in usageByModel where model != overflowModelBucket && !retained.contains(model) {
+            overflow += usage
+        }
+        if !overflow.isEmpty {
+            bounded[overflowModelBucket] = overflow
+        }
+        return bounded
     }
 
     private func codexModel(for payload: TranscriptJSONValue) -> String? {
@@ -630,7 +653,12 @@ public struct ChatUsageAccumulator: Sendable {
             codexCumulativeReplaceableTail = replaceableTail
         } else if delta == current {
             Self.incrementSaturating(&duplicateReports)
-            codexCumulativeReplaceableTail = replaceableTail
+            // A duplicate snapshot without a last-usage block carries no new
+            // evidence about which cumulative tail a later record replaces.
+            // Preserve the proven tail until a nonempty replacement appears.
+            if let replaceableTail {
+                codexCumulativeReplaceableTail = replaceableTail
+            }
         } else {
             cumulativeUsageIsAmbiguous = true
             codexCumulativeCurrent = delta

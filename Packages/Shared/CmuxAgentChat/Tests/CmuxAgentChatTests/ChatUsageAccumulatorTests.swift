@@ -103,6 +103,7 @@ struct ChatUsageAccumulatorTests {
         lastInput: Int,
         lastOutput: Int,
         cumulativeCached: Int = 0,
+        lastCached: Int = 0,
         contextWindow: Int? = 258_400,
         usedPercent: Double? = nil,
         windowMinutes: Int = 10_080,
@@ -111,11 +112,12 @@ struct ChatUsageAccumulatorTests {
         secondaryWindowMinutes: Int = 10_080,
         spendControlReached: Bool? = nil,
         includeUsageInfo: Bool = true,
+        includeLastUsage: Bool = true,
         includeLastTotal: Bool = true
     ) -> String {
         var lastUsage: [String: Any] = [
             "input_tokens": lastInput,
-            "cached_input_tokens": 0,
+            "cached_input_tokens": lastCached,
             "cache_write_input_tokens": 0,
             "output_tokens": lastOutput,
             "reasoning_output_tokens": 0,
@@ -132,8 +134,8 @@ struct ChatUsageAccumulatorTests {
                 "reasoning_output_tokens": 0,
                 "total_tokens": Self.saturatedSum(cumulativeInput, cumulativeOutput),
             ],
-            "last_token_usage": lastUsage,
         ]
+        if includeLastUsage { info["last_token_usage"] = lastUsage }
         if let contextWindow { info["model_context_window"] = contextWindow }
         var payload: [String: Any] = ["type": "token_count"]
         if includeUsageInfo { payload["info"] = info }
@@ -324,6 +326,44 @@ struct ChatUsageAccumulatorTests {
         }
         #expect(codex.totals.usageByModel.count == ChatUsageAccumulator.usageModelBucketLimit)
         #expect(codex.totals.usageByModel.values.map(\.totalTokens).reduce(0, +) == reports)
+    }
+
+    @Test("mixed-provider model rows share one global bound")
+    func mixedProviderModelUsageRowsAreBounded() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(claudeLines: (0..<40).map { index in
+            claudeLine(
+                uuid: "claude-mixed-\(index)",
+                messageID: "claude-message-\(index)",
+                model: "claude-mixed-model-\(index)",
+                input: 1,
+                cacheRead: 0,
+                cacheWrite: 0,
+                output: 0
+            )
+        })
+        for index in 0..<40 {
+            accumulator.ingest(codexLines: [
+                codexTurnContextLine(
+                    model: "codex-mixed-model-\(index)",
+                    turnID: "mixed-turn-\(index)",
+                    threadID: "mixed-thread-\(index)"
+                ),
+                codexRecordLine(
+                    responseID: "mixed-response-\(index)",
+                    input: 1,
+                    cached: 0,
+                    output: 0,
+                    threadID: "mixed-thread-\(index)",
+                    turnID: "mixed-turn-\(index)"
+                ),
+            ])
+        }
+
+        let totals = accumulator.totals
+        #expect(totals.usageByModel.count == ChatUsageAccumulator.usageModelBucketLimit)
+        #expect(totals.usageByModel["<other models>"] != nil)
+        #expect(totals.usageByModel.values.map(\.totalTokens).reduce(0, +) == 80)
     }
 
     @Test("Claude model corrections release their old bounded row")
@@ -831,7 +871,8 @@ struct ChatUsageAccumulatorTests {
             codexSessionMetaLine(model: "", inheritedHistory: true),
             codexTokenCountLine(
                 cumulativeInput: 1_086_500_386, cumulativeOutput: 3_819_683,
-                lastInput: 25_589, lastOutput: 51
+                lastInput: 25_589, lastOutput: 51,
+                cumulativeCached: 22_656, lastCached: 22_656
             ),
             codexRecordLine(responseID: "resp-a", input: 25_589, cached: 22_656, output: 51),
         ])
@@ -925,6 +966,56 @@ struct ChatUsageAccumulatorTests {
         #expect(accumulator.codexSource == .usageRecords)
         #expect(totals.responses == 1)
         #expect(totals.usage.totalTokens == 20)
+    }
+
+    @Test("an equal-total record with different fields is not the cumulative tail")
+    func codexInheritedEqualTotalDistinctRecordPreservesTail() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexSessionMetaLine(model: "", inheritedHistory: true),
+            codexTokenCountLine(
+                cumulativeInput: 1_000, cumulativeOutput: 0,
+                lastInput: 0, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 1_010, cumulativeOutput: 10,
+                lastInput: 10, lastOutput: 10
+            ),
+            codexRecordLine(responseID: "equal-total-distinct", input: 20, cached: 0, output: 0),
+        ])
+
+        let totals = accumulator.totals
+        #expect(accumulator.codexSource == .usageRecords)
+        #expect(totals.usage.freshInputTokens == 30)
+        #expect(totals.usage.outputTokens == 10)
+        #expect(totals.usage.totalTokens == 40)
+    }
+
+    @Test("a less-informative duplicate cumulative snapshot preserves its tail")
+    func codexInheritedDuplicateWithoutLastUsagePreservesTail() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexSessionMetaLine(model: "", inheritedHistory: true),
+            codexTokenCountLine(
+                cumulativeInput: 1_000, cumulativeOutput: 0,
+                lastInput: 0, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 1_020, cumulativeOutput: 0,
+                lastInput: 20, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 1_020, cumulativeOutput: 0,
+                lastInput: 0, lastOutput: 0,
+                includeLastUsage: false
+            ),
+            codexRecordLine(responseID: "record-after-duplicate", input: 20, cached: 0, output: 0),
+        ])
+
+        let totals = accumulator.totals
+        #expect(accumulator.codexSource == .usageRecords)
+        #expect(totals.usage.totalTokens == 20)
+        #expect(totals.duplicateReports == 1)
     }
 
     @Test("an inherited explicit zero starts a fully countable cumulative run")
