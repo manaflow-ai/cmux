@@ -103,7 +103,7 @@ import {
   VM_CREATE_ABANDONED_AFTER_MS,
   VM_PREVIEW_LEASE_RETENTION_MS,
 } from "./operationTimeouts";
-import { withVmProductAnalytics } from "./productAnalytics";
+import { withVmProductAnalytics, type VmDestroySource } from "./productAnalytics";
 import {
   CREATE_CLEANUP_PROVIDER_VM_ID_KEY,
   PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE,
@@ -1478,8 +1478,9 @@ function reopenBaseIfProviderDeleted(
       isProviderNotFoundError(err)
         ? Effect.gen(function* () {
           // forceStatus, the one caller that overrides the mapping. Everywhere
-          // else a 404 on a volume-backed machine means `paused`, because the
-          // machine can come back. Here it must not: this row is the Base's
+          // else a 404 on a volume-backed machine means `paused`, on the
+          // grounds that only the compute is gone. Here it must not: this row
+          // is the Base's
           // active generation, and beginBaseOpen below only allocates a
           // replacement generation once this row has stopped being a machine
           // the Base could still open. Leaving it `paused` would hand the same
@@ -2689,10 +2690,12 @@ function observedDbStatus(
  * The status is derived here rather than taken from the caller, so every
  * entrypoint agrees about what a provider 404 means. It does not always mean
  * `destroyed`: observedDbStatus maps a 404 on a machine with a persistent home
- * volume to `paused`, because the compute is gone but the machine is not. A
- * caller that hardcoded `destroyed` would both terminalize such a row and bill
- * a `vm.destroyed` that did not happen, and nothing can revisit a terminal row
- * to take either back.
+ * volume to `paused`, on the grounds that the compute is gone and the volume
+ * is not. A caller that hardcoded `destroyed` would both terminalize such a
+ * row and bill a `vm.destroyed` for a machine the provider never destroyed,
+ * and nothing can revisit a terminal row to take either back. Note that
+ * `paused` is a live status for credentials as well as for the UI; see the
+ * access preflight for what that means.
  *
  * `forceStatus` is the one deliberate exception and has exactly one caller;
  * see reopenBaseIfProviderDeleted for why.
@@ -2703,7 +2706,7 @@ function applyObservedProviderStatus(
   input: {
     readonly providerVmId: string;
     readonly providerStatus: "running" | "paused" | "destroyed";
-    readonly usageEventSource: string;
+    readonly usageEventSource: VmDestroySource;
     readonly modelPlane?: VmModelPlaneRevoker;
     readonly usageEventMetadata?: Record<string, string | number | boolean | null>;
     readonly forceStatus?: CloudVmStatus;
@@ -2739,7 +2742,7 @@ function reconcileObservedProviderStatus(
   repo: VmRepositoryShape,
   getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
   vm: CloudVmRow,
-  usageEventSource: string,
+  usageEventSource: VmDestroySource,
   modelPlane?: VmModelPlaneRevoker,
 ): Effect.Effect<ProviderStatusReconcileOutcome, never> {
   return Effect.gen(function* () {
@@ -2986,12 +2989,23 @@ function preflightResumeIfSuspended(
     if (status === "destroyed") {
       // A live provider read is authoritative for an access operation. Do not
       // mint an endpoint (or start a fork) against an id that Freestyle has
-      // already removed; mark the row so the next fleet refresh drops it and
-      // return the same not-found contract as ownership checks.
-      // No revoker is threaded here: this preflight has seven call sites, and
-      // the credentials a revoke would mark are already inert, because both
-      // authenticateRouteToken and authenticateVmAuthorization refuse a row
-      // that is not provisioning, running or paused.
+      // already removed; record what the probe saw and return the same
+      // not-found contract as ownership checks.
+      //
+      // What the row becomes is observedDbStatus's call, not this branch's: a
+      // machine with a persistent home volume lands on `paused`, not
+      // `destroyed`. That is deliberate and it is what getVm and the
+      // reconcile cron have always written for the same observation; this
+      // preflight used to disagree with both.
+      //
+      // Note what `paused` means for credentials: authenticateRouteToken and
+      // authenticateVmAuthorization both accept `provisioning`, `running` and
+      // `paused` (services/coderouter/repository.ts), so route tokens issued
+      // for this machine stay valid, exactly as they do for any sleeping
+      // machine. No revoker is threaded here because revoking would put this
+      // one of eight call sites at odds with every other reader of the same
+      // provider state. A volume-backed row that must lose its tokens has to
+      // be destroyed, by the user or by account deletion, which does revoke.
       yield* applyObservedProviderStatus(repo, vm, {
         providerVmId,
         providerStatus: "destroyed",
