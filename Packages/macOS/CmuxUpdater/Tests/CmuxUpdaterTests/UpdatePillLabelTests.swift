@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@preconcurrency import Sparkle
 @testable import CmuxUpdater
 
 /// The sidebar footer's update pill shows a one-word label that fits next to the account and
@@ -23,7 +24,10 @@ import Testing
             relaunchBlockers: UpdateRelaunchBlockers(busyAgentCount: 2, runningCommandCount: 0)
         )
         #expect(pillText(.idle) == "")
+        #expect(pillText(.preparingCheck(.init(cancel: {}))) == "Checking…")
         #expect(pillText(.checking(.init(cancel: {}))) == "Checking…")
+        #expect(pillText(.updateAvailable(.init(appcastItem: SUAppcastItem.empty(), reply: { _ in }))) == "Update")
+        #expect(pillText(.startingDownload) == "Updating…")
         #expect(pillText(.downloading(.init(cancel: {}, expectedLength: 100, progress: 42))) == "Updating…")
         #expect(pillText(.extracting(.init(progress: 0.5))) == "Updating…")
         #expect(pillText(.installing(installing)) == "Updating…")
