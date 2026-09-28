@@ -456,13 +456,16 @@ enum CloudTreeRowToolTip {
             let lines = workspaceLines(workspace, terminalCount: terminalCount, presenceHeads: presenceHeads)
             let names = WorkspacePresencePolicy.accessibilityLabel(presenceHeads)
             return .init(
-                toolTip: joined(lines),
+                toolTip: joined(lines, beyond: node.searchableTitle),
                 accessibilityLabel: presenceHeads.isEmpty
                     ? node.searchableTitle
                     : "\(node.searchableTitle), \(names)"
             )
         case .localWorkspace(let row):
-            return .init(toolTip: row.title, accessibilityLabel: node.searchableTitle)
+            return .init(
+                toolTip: joined([row.title], beyond: node.searchableTitle),
+                accessibilityLabel: node.searchableTitle
+            )
         case .terminal(let row):
             let text = CloudTreeTerminalRowContent(row: row, style: style).toolTip
             return .init(toolTip: text.isEmpty ? nil : text, accessibilityLabel: text)
@@ -490,13 +493,21 @@ enum CloudTreeRowToolTip {
                 accessibilityLabel: node.searchableTitle
             )
         case .resource(_, let row):
-            return .init(toolTip: row.accessibilityLabel, accessibilityLabel: row.accessibilityLabel)
+            return .init(
+                toolTip: joined([row.accessibilityLabel], beyond: node.searchableTitle),
+                accessibilityLabel: row.accessibilityLabel
+            )
         case .placeholder(_, let placeholder):
-            return .init(toolTip: placeholder.text, accessibilityLabel: node.searchableTitle)
+            return .init(
+                toolTip: joined([placeholder.text], beyond: node.searchableTitle),
+                accessibilityLabel: node.searchableTitle
+            )
         case .terminalsPool, .displaysPool, .workspacesGroup, .browsersGroup, .portsGroup,
              .resourcesPool, .devicesSection, .cloudMachinesSection, .devicesEmpty:
             // Fixed section labels: they never truncate, so hover text would only
-            // repeat what the row already reads.
+            // repeat what the row already reads. `.devicesEmpty` never reaches a
+            // `CloudTreeCellView`, it has its own cell class; it is here so the
+            // switch stays exhaustive over `Kind`.
             return .init(toolTip: nil, accessibilityLabel: node.searchableTitle)
         }
     }
@@ -510,19 +521,27 @@ enum CloudTreeRowToolTip {
         presenceHeads: [WorkspacePresenceParticipant]
     ) -> [String?] {
         var lines: [String?] = [workspace.name, workspace.detail]
-        lines.append(CloudTreeRowContentView.count(terminalCount))
+        // "0 terminals" is not occupancy, it is the absence of it, and the row
+        // already reads as empty. Only a count worth knowing earns a line.
+        if terminalCount > 0 {
+            lines.append(CloudTreeRowContentView.count(terminalCount))
+        }
         if !presenceHeads.isEmpty {
             lines.append(WorkspacePresencePolicy.accessibilityLabel(presenceHeads))
         }
         return lines
     }
 
-    /// One tooltip line per fact, dropping empties. nil when nothing is left.
-    private static func joined(_ lines: [String?]) -> String? {
+    /// One tooltip line per fact, dropping empties. nil when nothing is left,
+    /// and nil when everything left is `title`: a popup that repeats the row's
+    /// own text tells the pointer nothing and covers the rows under it.
+    private static func joined(_ lines: [String?], beyond title: String? = nil) -> String? {
         let text = lines
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
-        return text.isEmpty ? nil : text
+        if text.isEmpty { return nil }
+        if text == title?.trimmingCharacters(in: .whitespacesAndNewlines) { return nil }
+        return text
     }
 }

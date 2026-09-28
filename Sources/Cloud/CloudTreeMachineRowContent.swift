@@ -130,9 +130,10 @@ struct CloudTreeMachineRowContent: View {
         }
         parts.append(machine.kindLabel)
         if let createdAt = machine.createdAt {
-            // `now`, not `Date()`: the row's metrics already read the injected
-            // clock, so a test that pins one got an age measured against the
-            // other and the two halves of the same row disagreed.
+            // `now`, not `Date()`: every other part of this struct reads the
+            // injected clock, so the age was the one value a test could not
+            // pin. Both shipping call sites leave `now` at its default, so
+            // this changes no rendered text today.
             parts.append(Self.relativeFormatter.localizedString(for: createdAt, relativeTo: now))
         }
         if machine.freeAccess == .expired {

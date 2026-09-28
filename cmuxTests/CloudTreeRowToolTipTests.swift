@@ -41,6 +41,38 @@ struct CloudTreeRowToolTipTests {
         #expect(cell.accessibilityLabel()?.contains("Robin") == true)
     }
 
+    @Test("A workspace with nothing to add beyond its name has no hover text")
+    func bareWorkspaceRowHasNoToolTip() {
+        let node = CloudTreeNode(
+            id: "workspace/tooltip-test/ws-bare",
+            kind: .workspace(
+                machine: .cloud("tooltip-test"),
+                SurfaceRemoteWorkspace(id: "ws-bare", name: "workspace 2", index: 1, focused: false),
+                terminalCount: 0,
+                hiddenTabCount: 0,
+                openIn: nil
+            )
+        )
+        let cell = Self.cell(presence: [])
+        cell.configure(node: node, machineActions: Self.machineActions(), nodeActions: Self.nodeActions())
+        #expect(cell.toolTip == nil)
+        #expect(cell.accessibilityLabel() == "workspace 2")
+    }
+
+    @Test("A placeholder row does not pop its own text back at the pointer")
+    func placeholderRowHasNoToolTip() {
+        let node = CloudTreeNode(
+            id: "placeholder/tooltip-test/ports",
+            kind: .placeholder(
+                machine: .cloud("tooltip-test"),
+                CloudTreePlaceholder(text: "No forwarded ports", style: .dimmed)
+            )
+        )
+        let cell = Self.cell(presence: [])
+        cell.configure(node: node, machineActions: Self.machineActions(), nodeActions: Self.nodeActions())
+        #expect(cell.toolTip == nil)
+    }
+
     @Test("A terminal row's directory and agent reach the pointer")
     func terminalRowHasToolTip() throws {
         let node = Self.terminalNode()
