@@ -1,3 +1,5 @@
+import { vmToken } from "./vm-authorization-fixture";
+const SIGNED_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 import { describe, expect, test } from "bun:test";
 import {
   __test,
@@ -97,7 +99,7 @@ describe("coderouter OpenCode Go proxy", () => {
 });
 
 describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
-  const BOUND_TOKEN = "crt_bound-to-vm-1";
+  const BOUND_TOKEN = SIGNED_TOKEN;
   const CLI_TOKEN = "crt_cli-token";
 
   function dependencies(
@@ -155,7 +157,7 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
     const response = await openCodeClientConfig(
       configRequest({
         authorization: `Bearer ${VM_PLACEHOLDER_API_KEY}`,
-        "x-coderouter-route-token": BOUND_TOKEN,
+        "x-cmux-authorization": `Bearer ${BOUND_TOKEN}`,
         "x-cmux-vm-id": "vm-1",
       }),
       dependencies(),

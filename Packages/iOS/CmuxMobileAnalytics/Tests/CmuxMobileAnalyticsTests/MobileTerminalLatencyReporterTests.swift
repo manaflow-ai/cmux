@@ -45,6 +45,57 @@ import CMUXMobileCore
         #expect(event?.properties["render_p50_ms"] == .int(8))
         #expect(event?.properties["max_queue_depth"] == .int(2))
     }
+    @Test @MainActor func hostTimingAddsPerHopStagesAndPacerFieldsToTheWindow() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
+        let clock = LatencyTestClock()
+        let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
+        // Phone sends at t=1s. Mac clock is 5s ahead; uplink 100ms, Mac work
+        // 3ms (accept 1ms, capture wait 1ms, dispatch 1ms), downlink 100ms.
+        clock.value = 1_000_000_000
+        let sequence = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        let macReceive: UInt64 = (1_000_000_000 + 5_000_000_000 + 100_000_000) / 1_000
+        let timing = MobileTerminalHostTiming(
+            inputReceivedMicros: macReceive,
+            inputAcceptedMicros: macReceive + 1_000,
+            frameCapturedMicros: macReceive + 2_000,
+            frameDispatchedMicros: macReceive + 3_000,
+            pacer: MobileTerminalPacerSample(periodMillis: 90, emitted: 11, coalesced: 16, sheds: 0)
+        )
+        let received: UInt64 = 1_000_000_000 + 203_000_000
+        clock.value = received
+        reporter.hostTimingReceived(surfaceID: "s", appliedInputSequence: sequence, timing: timing, receivedAtNanos: received)
+        reporter.outputReceived(surfaceID: "s", appliedInputSequence: sequence, byteCount: 1, queueDepth: 0, receivedAtNanos: received)
+        await reporter.flush()
+
+        let event = await uploader.uploadedEvents.first { $0.name == MobileTerminalLatencyReporter.windowEventName }
+        #expect(event?.properties["host_accept_p50_ms"] == .int(1))
+        #expect(event?.properties["network_round_trip_p50_ms"] == .int(256))
+        #expect(event?.properties["uplink_p50_ms"] == .int(128))
+        #expect(event?.properties["downlink_p50_ms"] == .int(128))
+        #expect(event?.properties["pacer_emitted_count"] == .int(11))
+        #expect(event?.properties["pacer_coalesced_count"] == .int(16))
+        #expect(event?.properties["pacer_period_max_ms"] == .int(90))
+        // Input-to-output is still recorded: the hook must not consume the send time.
+        #expect(event?.properties["correlated_output_count"] == .int(1))
+    }
+
+    @Test @MainActor func windowsWithoutHostTimingAddNoStageFields() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
+        let clock = LatencyTestClock()
+        let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
+        let sequence = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        clock.value = 10_000_000
+        reporter.outputReceived(surfaceID: "s", appliedInputSequence: sequence, byteCount: 1, queueDepth: 0)
+        await reporter.flush()
+        let event = await uploader.uploadedEvents.first { $0.name == MobileTerminalLatencyReporter.windowEventName }
+        let keys = event.map { Array($0.properties.keys) } ?? []
+        // Older Macs, and windows with no keystroke echo, cost no extra bytes.
+        #expect(!keys.contains { $0.hasPrefix("uplink") || $0.hasPrefix("pacer") || $0.hasPrefix("host_") })
+        #expect(event?.properties["input_to_output_histogram"] != nil)
+    }
+
     @Test @MainActor func repeatedWatermarksDoNotCreateFalseSpikes() async {
         let uploader = RecordingAnalyticsUploader()
         let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")

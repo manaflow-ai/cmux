@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # CI guard for cmux.xcodeproj/project.pbxproj.
 # Fails when:
+#   - OpenStep project syntax is malformed
 #   - objectVersion drifts from the pinned value (Xcode major leak)
 #   - object IDs collide (Xcode silently replaces one definition with another)
+#   - unquoted strings contain characters rejected by OpenStep property lists
 #   - the file is not normalized (someone bypassed the pre-commit hook)
+#   - a built file belongs to no group (Xcode then re-plans every build)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,3 +33,4 @@ if [[ "$actual" != "$EXPECTED_OBJECT_VERSION" ]]; then
 fi
 
 python3 "$SCRIPT_DIR/normalize-pbxproj.py" --check "$PBXPROJ"
+python3 "$SCRIPT_DIR/check-pbxproj-group-membership.py" "$PBXPROJ"

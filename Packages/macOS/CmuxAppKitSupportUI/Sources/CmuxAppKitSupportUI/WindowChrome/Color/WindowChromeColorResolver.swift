@@ -7,7 +7,14 @@ public struct WindowChromeColorResolver: Sendable {
     public init() {}
 
     /// Returns a separator color readable against the given chrome background.
-    public func separatorColor(forChromeBackground chrome: NSColor) -> NSColor {
+    ///
+    /// - Parameter increaseContrast: The macOS Increase Contrast setting;
+    ///   when on, the separator steps further from the background and is
+    ///   less transparent so pane outlines and tab-bar edges stay visible.
+    public func separatorColor(
+        forChromeBackground chrome: NSColor,
+        increaseContrast: Bool = false
+    ) -> NSColor {
         let srgb = chrome.usingColorSpace(.sRGB) ?? chrome
         var red: CGFloat = 0
         var green: CGFloat = 0
@@ -16,8 +23,19 @@ public struct WindowChromeColorResolver: Sendable {
         srgb.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
         let luminance = 0.299 * red + 0.587 * green + 0.114 * blue
         let isLight = luminance > 0.5
-        let amount: CGFloat = isLight ? -0.12 : 0.16
-        let separatorAlpha: CGFloat = isLight ? 0.26 : 0.36
+        // Asymmetric because sRGB gamma compresses a fixed RGB step far more
+        // near white than near black. These deltas put both sides at CIE
+        // dL* ~7 against their own background once composited.
+        // Increase Contrast: a larger step at higher opacity on both sides.
+        let amount: CGFloat
+        let separatorAlpha: CGFloat
+        if increaseContrast {
+            amount = isLight ? -0.55 : 0.40
+            separatorAlpha = isLight ? 0.55 : 0.65
+        } else {
+            amount = isLight ? -0.30 : 0.16
+            separatorAlpha = isLight ? 0.26 : 0.36
+        }
         return NSColor(
             red: min(1.0, max(0.0, red + amount)),
             green: min(1.0, max(0.0, green + amount)),

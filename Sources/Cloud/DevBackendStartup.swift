@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import Observation
 
@@ -46,20 +47,34 @@ final class DevBackendStartup {
 
     func observe() async {
         guard let endpoint = Self.endpoint else { status = nil; return }
+        let operation = AppDelegate.shared?.cloudOperations?.begin(.connect, foreground: true)
         status = Status(state: "checking", message: String(localized: "devBackend.checking", defaultValue: "Connecting to your development backend…"))
         do {
             try await Self.withDeadline(.seconds(240)) { [weak self] in
                 try await self?.observeStream(endpoint: endpoint)
             }
+            if status?.isFailure == true {
+                await finish(operation, error: CloudDiagnosticFailure.network)
+            } else {
+                await finish(operation)
+            }
         } catch is CancellationError {
+            await finish(operation, error: CancellationError())
             return
         } catch let error as URLError where error.code == .timedOut {
             guard !Task.isCancelled else { return }
             status = Status(state: "failed", message: String(localized: "devBackend.timeout", defaultValue: "The development backend took too long to start. Try again."))
+            await finish(operation, error: CloudDiagnosticFailure.timeout)
         } catch {
             guard !Task.isCancelled else { return }
             status = Status(state: "failed", message: String(localized: "devBackend.unreachable", defaultValue: "Cannot reach the development backend. Check that Tailscale is connected, then try again."))
+            await finish(operation, error: CloudDiagnosticFailure.network)
         }
+    }
+
+    private func finish(_ operation: CloudOperationContext?, error: Error? = nil) async {
+        guard let operation else { return }
+        await operation.recorder.finish(operation, error: error)
     }
 
     private func observeStream(endpoint: URL) async throws {

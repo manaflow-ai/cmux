@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
@@ -7,11 +10,12 @@ extension CmuxTuiSurfaceProvider {
         // policy disables Cloud, so no policy check is repeated here.
         let machineID = self.machineID
         let clientID = CloudTuiClientPaths().notificationClientID()
+        let hub = CloudNotificationSyncHub.shared
         let sync = CloudNotificationSync(
             machineID: machineID,
-            clientID: clientID, store: CloudNotificationSyncHub.shared.persistenceStore,
+            clientID: clientID, store: hub.persistenceStore,
             resolveTarget: { [weak self] row in self?.notificationDeliveryTarget(for: row) },
-            deliver: { [weak self] row, target in self?.deliverNotification(row, to: target) ?? false },
+            deliver: { [weak self] row, target in self?.deliverNotification(row, to: target) ?? .declined },
             send: { [weak self] batch in
                 // A vanished provider must not report success: the batch stays
                 // pending in the durable state for the replacement sync.
@@ -28,7 +32,7 @@ extension CmuxTuiSurfaceProvider {
                 ))
             },
             unreadChanged: { terminalIDs in
-                CloudNotificationSyncHub.shared.setUnread(terminalIDs, machineID: machineID)
+                hub.setUnread(terminalIDs, machineID: machineID)
             },
             withdraw: { ids in
                 // `cmux notify --clear` on the machine, or ledger eviction:
@@ -41,7 +45,7 @@ extension CmuxTuiSurfaceProvider {
             }
         )
         notificationSync = sync
-        CloudNotificationSyncHub.shared.register(sync)
+        hub.register(sync)
         notificationPlacementObserver = NotificationCenter.default.addObserver(
             forName: SurfaceCatalog.didChangeNotification,
             object: nil,
@@ -54,6 +58,7 @@ extension CmuxTuiSurfaceProvider {
         }
     }
     func syncNotifications(from state: CloudVMState) {
+        syncAgentHooks(from: state)
         updateGuestURLMembership()
         guestURLService?.recoverOnLinkProgress()
         guard let notificationSync else { return }
@@ -63,63 +68,76 @@ extension CmuxTuiSurfaceProvider {
         cmuxDebugLog("cloud.notifications.sync machine=\(machineID) revision=\((state.cursor?.revision).map(String.init) ?? "nil") rows=\(rows.count) unreadTerminals=\(notificationSync.unreadTerminalIDs.count) pending=\(notificationSync.state.pendingAcks.count)")
         #endif
     }
-    /// The pane showing the terminal when one is open on this Mac, else the
-    /// local workspace bound to the terminal's remote workspace, else any
-    /// local workspace bound to the machine. No local placement means the row
-    /// stays undelivered until one exists; the Cloud tree still shows the dot.
-    func notificationDeliveryTarget(for row: CloudVMNotificationRow) -> CloudNotificationDeliveryTarget? {
-        if let terminalID = row.terminalID {
-            let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
-            if let projection = catalog.projections(of: resourceID).first {
-                return CloudNotificationDeliveryTarget(workspaceID: projection.workspaceID, panelID: projection.panelID)
-            }
+    // MARK: Agent hooks
+    /// Replays the session identity of Claude agents in `cmux ssh` panes into
+    /// the local hook queue, so the Mac's hook pipeline knows the remote
+    /// agent's session. Runs with every accepted state and every catalog
+    /// change, so a session whose pane was not open yet is caught up when it
+    /// opens. Sidebar status comes from the roster projection, and visible
+    /// notifications from the daemon's durable rows (`syncNotifications`).
+    func syncAgentHooks(from state: CloudVMState) {
+        guard machine.isSSH else { return }
+        let machine = self.machine
+        let catalog = self.catalog
+        func panel(for terminalID: String) -> SurfaceProjection? {
+            catalog.projections(of: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)).first
         }
-        let remoteWorkspaceID = row.terminalID.flatMap { terminalID -> String? in
-            guard let state = cloudState else { return nil }
-            for tab in state.tabs where tab.contentID == terminalID {
-                guard let pane = state.lookupIndex.pane(id: tab.paneID),
-                      let screen = state.lookupIndex.screen(id: pane.screenID) else { continue }
-                return screen.workspaceID
-            }
-            return nil
-        }
-        let bound = (AppDelegate.shared?.tabManager?.tabs ?? []).filter { $0.cloudVMBinding?.vmID == machineID }
-        if let remoteWorkspaceID,
-           let exact = bound.first(where: { $0.cloudVMBinding?.remoteWorkspaceID == remoteWorkspaceID }) {
-            return CloudNotificationDeliveryTarget(workspaceID: exact.id, panelID: nil)
-        }
-        if let any = bound.first {
-            return CloudNotificationDeliveryTarget(workspaceID: any.id, panelID: nil)
-        }
-        return nil
-    }
-    func deliverNotification(_ row: CloudVMNotificationRow, to target: CloudNotificationDeliveryTarget) -> Bool {
-        guard let store = AppDelegate.shared?.notificationStore else { return false }
-        guard CloudNotificationSyncHub.shared.admit(row, machineID: machineID) else { return true }
-        let terminalTitle = row.terminalID.flatMap { cloudState?.lookupIndex.terminal(id: $0)?.title } ?? ""
-        let machineName = summary.preferredName
-        let subtitle: String
-        if let explicit = row.subtitle {
-            // The producer's own subtitle wins, as `cmux notify --subtitle` does locally.
-            subtitle = explicit
-        } else if terminalTitle.isEmpty {
-            subtitle = machineName
-        } else {
-            subtitle = String(
-                format: String(localized: "cloudNotification.subtitle.machine", defaultValue: "%@ on %@"),
-                terminalTitle,
-                machineName
+        let routable = Set(state.agents.map(\.terminalID).filter { panel(for: $0) != nil })
+        let events = agentHookMirror.reconcile(agents: state.agents, routableTerminalIDs: routable)
+        guard !events.isEmpty else { return }
+        let controller = TerminalController.shared
+        for event in events {
+            // A session end for a terminal whose pane already closed has no
+            // local state left to clear.
+            guard let projection = panel(for: event.terminalID) else { continue }
+            let queued = controller.enqueueMirroredAgentHook(
+                agent: event.agent,
+                subcommand: event.subcommand,
+                payload: event.payload,
+                workspaceID: projection.workspaceID,
+                surfaceID: projection.panelID
             )
+            #if DEBUG
+            cmuxDebugLog("cloud.agentHook.mirror machine=\(machineID) terminal=\(event.terminalID) subcommand=\(event.subcommand) queued=\(queued)")
+            #else
+            _ = queued
+            #endif
         }
-        return store.addNotification(
-            tabId: target.workspaceID,
-            surfaceId: target.panelID,
-            title: row.title,
-            subtitle: subtitle,
-            body: row.body,
-            retargetsToLiveSurfaceOwner: target.panelID != nil,
-            correlationKey: CloudNotificationCorrelation.key(machineID: machineID, notificationID: row.id),
-            origin: .cloudVM(machineID: machineID)
-        ) != nil
+    }
+    /// Placement from the catalog as it is right now; see
+    /// `CloudNotificationPlacementResolver`.
+    var notificationPlacementResolver: CloudNotificationPlacementResolver {
+        CloudNotificationPlacementResolver(
+            machine: machine,
+            projections: { [catalog] in catalog.projections(of: $0) },
+            remoteWorkspaceID: { [weak self] terminalID in
+                guard let state = self?.cloudState else { return nil }
+                for tab in state.tabs where tab.contentID == terminalID {
+                    guard let pane = state.lookupIndex.pane(id: tab.paneID),
+                          let screen = state.lookupIndex.screen(id: pane.screenID) else { continue }
+                    return screen.workspaceID
+                }
+                return nil
+            },
+            boundWorkspaces: { [machineID] in
+                (AppDelegate.shared?.tabManager?.tabs ?? []).compactMap { workspace in
+                    guard let binding = workspace.cloudVMBinding, binding.vmID == machineID else { return nil }
+                    return CloudNotificationBoundWorkspace(workspaceID: workspace.id, remoteWorkspaceID: binding.remoteWorkspaceID)
+                }
+            }
+        )
+    }
+    func notificationDeliveryTarget(for row: CloudVMNotificationRow) -> CloudNotificationDeliveryTarget? {
+        notificationPlacementResolver.target(for: row)
+    }
+    func deliverNotification(_ row: CloudVMNotificationRow, to target: CloudNotificationDeliveryTarget) -> CloudNotificationDeliveryOutcome {
+        let machineID = self.machineID
+        return CloudNotificationLocalDelivery(
+            machineID: machineID,
+            store: { AppDelegate.shared?.notificationStore },
+            admit: { CloudNotificationSyncHub.shared.admit($0, machineID: machineID) },
+            machineName: { [summary] in summary.preferredName },
+            terminalTitle: { [weak self] in self?.cloudState?.lookupIndex.terminal(id: $0)?.title }
+        ).deliver(row, to: target)
     }
 }

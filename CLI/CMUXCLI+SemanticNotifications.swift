@@ -49,8 +49,12 @@ extension CMUXCLI {
 
     static func semanticAttentionContext(_ object: [String: Any]?) -> AgentAttentionContext {
         func identifier(_ keys: [String]) -> String? {
-            for key in keys {
-                if let value = object?[key] as? String, !value.isEmpty { return value }
+            // Hermes shell hooks keep native causal IDs in `extra`. Prefer
+            // top-level evidence when both envelopes provide an identity.
+            for fields in [object, object?["extra"] as? [String: Any]] {
+                for key in keys {
+                    if let value = fields?[key] as? String, !value.isEmpty { return value }
+                }
             }
             return nil
         }

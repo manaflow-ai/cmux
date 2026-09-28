@@ -7,6 +7,41 @@ struct RemoteCLIRelayPolicyTests {
     private let tokenHex = "00112233445566778899aabbccddeeff"
     private let relayID = "relay-policy"
 
+    @Test("core discovery uses canonical RPC names and the authenticated relay", arguments: [
+        "system.ping", "system.capabilities", "workspace.list"
+    ])
+    func forwardsCoreDiscovery(method: String) throws {
+        try withServer { port, unixServer in
+            let exchange = try runPolicyRelayExchange(port: port, relayID: relayID,
+                tokenHex: tokenHex, commandLine: "{\"id\":\"core\",\"method\":\"\(method)\",\"params\":{}}")
+            #expect(exchange.responseLines.first?["ok"] as? Bool == true)
+            #expect(unixServer.requests.count == 1)
+        }
+    }
+
+    @Test("unsupported core aliases and malformed discovery never reach the Mac")
+    func deniesUnsafeCoreDiscovery() throws {
+        try withServer { port, unixServer in
+            for request in [
+                #"{"method":"ping","params":{}}"#,
+                #"{"method":"capabilities","params":{}}"#,
+                #"{"method":"workspace.list.extra","params":{}}"#,
+                #"{"method":"workspace.list","params":{"window_id":"window:1"}}"#,
+                #"{"method":"workspace.list","params":{"workspace_id":null}}"#,
+                #"{"method":"workspace.list","params":{"workspace_ids":[]}}"#,
+                #"{"method":"workspace.list","params":{"metadata":[{"command":"id"}]}}"#,
+                #"{"method":"workspace.list","params":[]}"#,
+                #"{"method":"workspace.list","params":"invalid"}"#,
+                #"{"method":"workspace.list""#,
+                "list_workspaces"
+            ] {
+                let exchange = try runPolicyRelayExchange(port: port, relayID: relayID,
+                    tokenHex: tokenHex, commandLine: request)
+                expectDenial(exchange, unixServer, request)
+            }
+        }
+    }
+
     private func withServer(
         workspaceAliases: [UUID: UUID] = [:],
         surfaceAliases: [UUID: UUID] = [:],
@@ -116,6 +151,42 @@ struct RemoteCLIRelayPolicyTests {
                 commandLine: #"{"id":"p5","method":"system.exec","params":{"command":"id"}}"#
             )
             expectDenial(exchange, unixServer, "non-allowlisted method")
+        }
+    }
+
+    /// `workspace.reorder` has no relay parameter contract, so the method gate
+    /// denies it before any selector is read.
+    ///
+    /// The selectors below are UUIDs on purpose. Ref-form selectors such as
+    /// `workspace:1` are rejected by the *selector* gate
+    /// (`RemoteRelayCommandPolicy.malformedSelector`) whether or not the method
+    /// is allowlisted, so a ref-form payload reports `remote_relay_denied`
+    /// either way and this test would stay green through exactly the
+    /// regression it exists to catch. With UUIDs, the method gate is the only
+    /// thing left denying these, so allowlisting `workspace.reorder` turns them
+    /// into `ALLOW` and fails the test.
+    @Test("workspace.reorder has no relay contract")
+    func workspaceReorderHasNoRelayContract() {
+        #expect(
+            RemoteRelayRoutingSchema().parameters(for: "workspace.reorder") == nil,
+            "workspace.reorder must stay absent from the relay routing schema"
+        )
+    }
+
+    @Test("workspace.reorder is denied through a relay", arguments: [
+        #"{"id":"p5r","method":"workspace.reorder","params":{"workspace_id":"1EA7D9C4-0000-4000-8000-00000000A001","index":0}}"#,
+        #"{"id":"p5r","method":"workspace.reorder","params":{"workspace_id":"1EA7D9C4-0000-4000-8000-00000000A001","before_workspace_id":"1EA7D9C4-0000-4000-8000-00000000A002"}}"#,
+        #"{"id":"p5r","method":"workspace.reorder","params":{"workspace_id":"1EA7D9C4-0000-4000-8000-00000000A001","after_workspace_id":"1EA7D9C4-0000-4000-8000-00000000A002"}}"#,
+    ])
+    func deniesWorkspaceReorder(commandLine: String) throws {
+        try withServer { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: commandLine
+            )
+            expectDenial(exchange, unixServer, "workspace.reorder")
         }
     }
 
@@ -274,16 +345,6 @@ struct RemoteCLIRelayPolicyTests {
             workspaceAliases: [workspaceAlias.remote: workspaceAlias.local],
             responseBody: createResponse
         ) { port, unixServer in
-            let split = try runPolicyRelayExchange(
-                port: port,
-                relayID: relayID,
-                tokenHex: tokenHex,
-                commandLine: """
-                {"id":"c1","method":"surface.split","params":{"workspace_id":"\(workspaceAlias.remote.uuidString)","direction":"right"}}
-                """
-            )
-            #expect(split.responseLines.first?["ok"] as? Bool == true)
-
             let send = try runPolicyRelayExchange(
                 port: port,
                 relayID: relayID,
@@ -296,7 +357,7 @@ struct RemoteCLIRelayPolicyTests {
                 send.responseLines.first?["ok"] as? Bool == true,
                 "the created surface must be drivable immediately: \(send.rawResponse)"
             )
-            #expect(unixServer.requests.count == 2)
+            #expect(unixServer.requests.count == 1)
         }
     }
 

@@ -109,6 +109,10 @@ struct DockRuntimeParityTests {
     func dockPaneOwnershipFollowsBonsplitLifecycle() throws {
         let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
         let otherDock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        // Every split below supplies its own tabs. Interactive split repair
+        // would seed a terminal in the root and prevent its final empty close.
+        dock.isProgrammaticDockSplit = true
+        defer { dock.isProgrammaticDockSplit = false }
         let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
 
         #expect(dock.containsPane(rootPane.id))
@@ -789,7 +793,7 @@ struct DockRuntimeParityTests {
                 workspaceId: windowID,
                 runtimeSpawnPolicy: .pacedSessionRestore
             )
-            defer { terminal.surface.releaseSurfaceForTesting() }
+            defer { terminal.surface.releaseHostedSurfaceForTesting() }
             try dock.seedRuntimeParityPanel(terminal)
 
             let scrollPosition = TerminalNotificationScrollPosition(

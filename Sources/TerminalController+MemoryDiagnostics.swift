@@ -1,15 +1,25 @@
+import CmuxControlSocket
 import Foundation
 
 extension TerminalController {
-    nonisolated func v2SystemMemory(params: [String: Any]) -> V2CallResult {
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated func v2SystemMemory(params: [String: Any]) async -> V2CallResult {
         var baseParams = params
         baseParams["include_processes"] = false
-        let base = v2MainSync {
+        let paramsValue = baseParams.compactMapValues { JSONValue(foundationObject: $0) }
+        let typedBase = await v2MainAsync {
             self.v2RefreshKnownRefs()
-            return self.v2SystemTopBasePayload(params: baseParams)
+            return Self.controlCallResult(fromLegacy: self.v2SystemTopBasePayload(params: paramsValue.mapValues(\.foundationObject)))
         }
-        guard case .ok(let value) = base else { return base }
-        guard var payload = value as? [String: Any],
+        guard case .ok(let value) = typedBase else {
+            if case .err(let code, let message, let data) = typedBase { return .err(code: code, message: message, data: data?.foundationObject) }
+            return .err(code: "internal_error", message: "Invalid system.memory payload", data: nil)
+        }
+        guard var payload = value.foundationObject as? [String: Any],
               var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
             return .err(code: "internal_error", message: "Invalid system.memory payload", data: nil)
         }
@@ -54,7 +64,7 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "\(invalidLimitKey) must be an integer from 1 to 100", data: nil)
         }
         let topGroupLimit = topGroupLimitValue ?? groupLimitValue ?? 12
-        let processSnapshot = CmuxTopProcessSnapshot.captureCached(
+        let processSnapshot = await CmuxTopProcessSnapshot.captureCached(
             includeProcessDetails: true,
             maximumAge: 2
         )
@@ -71,13 +81,14 @@ extension TerminalController {
             annotatedWindows: windowNodes,
             topGroupLimit: topGroupLimit
         )
-        let resources = MemoryResourceSample(processSnapshot: processSnapshot)
-        payload["resource_context"] = v2MainSync {
-            resources.payload(
+        let resources = await MemoryResourceSample(processSnapshot: processSnapshot)
+        let resourceContext = await v2MainAsync {
+            JSONValue(foundationObject: resources.payload(
                 views: MemoryResourceViewCounts.capture(),
                 monitor: MemoryPressureMonitor.shared.resourceDiagnosticPayload()
-            )
+            )) ?? .object([:])
         }
+        payload["resource_context"] = resourceContext.foundationObject
         return .ok(payload)
     }
 }

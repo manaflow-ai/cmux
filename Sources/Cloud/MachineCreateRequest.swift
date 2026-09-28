@@ -1,4 +1,6 @@
+import CmuxSurfaceCatalogModel
 import Foundation
+import CmuxCloudMachines
 
 /// What the New Machine / Set Up Base sheet asked for, in the form the
 /// background create needs: which flow, the kind and label the person chose,
@@ -16,19 +18,41 @@ struct MachineCreateRequest: Equatable {
     /// Stable identity of the initiating window. Completion selects only in
     /// this window and never activates a different one.
     let selectionWindowID: UUID?
+    /// The local workspace reserved for this create, when the caller requested
+    /// an optimistic terminal presentation. A fresh workspace gives explicit
+    /// creates distinct idempotency scopes while a retry keeps the same scope.
+    let reservedWorkspaceID: UUID?
+    /// Whether completion may select the created workspace. Optimistic New
+    /// Machine presentation selects its reserved workspace immediately and
+    /// leaves this false so later network callbacks never steal focus.
+    let selectsCreatedWorkspace: Bool
 
     init(
         mode: NewMachineModel.Mode,
         kind: VMMachineKind,
         name: String?,
         arguments: [String],
-        selectionWindowID: UUID? = nil
+        selectionWindowID: UUID? = nil,
+        reservedWorkspaceID: UUID? = nil,
+        selectsCreatedWorkspace: Bool = false
     ) {
         self.mode = mode
         self.kind = kind
         self.name = name
         self.arguments = arguments
         self.selectionWindowID = selectionWindowID
+        self.reservedWorkspaceID = reservedWorkspaceID
+        self.selectsCreatedWorkspace = selectsCreatedWorkspace
+    }
+
+    /// Domain input without app-specific kind, selection, or localized display values.
+    var lifecycleRequest: CloudMachineCreateRequest {
+        CloudMachineCreateRequest(
+            arguments: arguments,
+            isBaseSetup: isBaseSetup,
+            presentationWorkspaceID: presentationWorkspaceID,
+            retainsPendingProjection: reservedWorkspaceID != nil
+        )
     }
 
     var isBaseSetup: Bool {
@@ -40,6 +64,28 @@ struct MachineCreateRequest: Equatable {
     var baseWorkspaceID: UUID? {
         if case .base(let workspaceID) = mode { return workspaceID }
         return nil
+    }
+
+    /// The local presentation workspace owned by this request, if any.
+    var presentationWorkspaceID: UUID? {
+        reservedWorkspaceID ?? baseWorkspaceID
+    }
+
+    /// Returns a request that targets an already-reserved local workspace.
+    /// The flag is appended exactly once so retries preserve the same target.
+    func targetingReservedWorkspace(_ workspaceID: UUID) -> MachineCreateRequest {
+        guard !arguments.contains("--workspace") else { return self }
+        var nextArguments = arguments
+        nextArguments += ["--workspace", workspaceID.uuidString]
+        return MachineCreateRequest(
+            mode: mode,
+            kind: kind,
+            name: name,
+            arguments: nextArguments,
+            selectionWindowID: selectionWindowID,
+            reservedWorkspaceID: workspaceID,
+            selectsCreatedWorkspace: selectsCreatedWorkspace
+        )
     }
 
     /// What the pending row is called before the backend names the machine:

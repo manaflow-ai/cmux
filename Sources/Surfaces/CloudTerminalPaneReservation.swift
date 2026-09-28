@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import Foundation
 
@@ -9,7 +12,7 @@ import Foundation
 /// a user types into a new pane are not lost.
 final class CloudOptimisticInputRelay: @unchecked Sendable {
     private let lock = NSLock()
-    private var router: CloudTuiManualIOInputRouter?
+    private var router: (@Sendable (TerminalManualInput) -> Void)?
     private var pending: [TerminalManualInput] = []
     private var discarded = false
     /// Bounded like the router's own queue: a runaway paste into a pane that
@@ -27,7 +30,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         lock.lock()
         if let router {
             lock.unlock()
-            router.send(input)
+            router(input)
             return
         }
         if !discarded, pending.count < pendingLimit { pending.append(input) }
@@ -36,11 +39,20 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
 
     /// Delivers everything queued so far to `router` and forwards from now on.
     func attach(_ router: CloudTuiManualIOInputRouter) {
+        attach { router.send($0) }
+    }
+
+    /// Device mirrors adopt the same pane with their own byte router.
+    func attach(_ router: DeviceTerminalInputRouter) {
+        attach { router.enqueue($0) }
+    }
+
+    private func attach(_ router: @escaping @Sendable (TerminalManualInput) -> Void) {
         lock.lock()
-        // Enqueue the backlog before publishing the router. send() only queues
-        // work, so holding this lock performs no socket I/O. A concurrent key
-        // cannot overtake earlier input at the handoff boundary.
-        for input in pending { router.send(input) }
+        // Enqueue the backlog before publishing the router. Both routers only
+        // queue work, so holding this lock performs no socket I/O. A concurrent
+        // key cannot overtake earlier input at the handoff boundary.
+        for input in pending { router(input) }
         pending.removeAll()
         discarded = false
         self.router = router
@@ -58,6 +70,12 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     }
 }
 
+/// The terminal and remote tab a create receipt bound a reservation to.
+struct CloudTerminalReservationKey: Hashable {
+    let resource: SurfaceResourceID
+    let remoteTabID: String?
+}
+
 /// A native pane that already occupies the user's requested split or tab while
 /// the machine creates the terminal behind it.
 ///
@@ -70,8 +88,16 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
 final class CloudTerminalPaneReservation {
     let workspaceID: UUID
     let panelID: UUID
-    let machine: SurfaceMachineID
+    private(set) var sourcePlacement: CloudTerminalSourcePlacement
+    /// An existing terminal's saved target, never the source tab of a new create.
+    let attachmentPlacement: SurfaceResourcePlacement?
+    /// The terminal this pane will show; never the split source. A new create
+    /// has none until its receipt binds one, and until then no terminal may
+    /// take this pane or its queued input.
+    private(set) var boundResourceID: SurfaceResourceID?
+    let creationReceipt = CloudTerminalCreationReceipt()
     let inputRelay: CloudOptimisticInputRelay
+    let requestID: UUID?
     /// When the pane was inserted. Adoption hands the elapsed wait to the
     /// attachment session so the connection card does not restart its grace.
     let startedAt: ContinuousClock.Instant
@@ -84,15 +110,70 @@ final class CloudTerminalPaneReservation {
         workspaceID: UUID,
         panelID: UUID,
         machine: SurfaceMachineID,
+        sourcePlacement: CloudTerminalSourcePlacement? = nil,
+        attachmentPlacement: SurfaceResourcePlacement? = nil,
         inputRelay: CloudOptimisticInputRelay = CloudOptimisticInputRelay(),
+        requestID: UUID? = nil,
         startedAt: ContinuousClock.Instant = .now
     ) {
         self.workspaceID = workspaceID
         self.panelID = panelID
-        self.machine = machine
+        self.sourcePlacement = sourcePlacement ?? CloudTerminalSourcePlacement(
+            machine: machine,
+            remoteWorkspaceID: attachmentPlacement?.remoteWorkspaceID,
+            remoteTabID: attachmentPlacement?.remoteTabID
+        )
+        self.attachmentPlacement = attachmentPlacement
+        boundResourceID = attachmentPlacement?.resource
         self.inputRelay = inputRelay
+        self.requestID = requestID
         self.startedAt = startedAt
     }
 
+    var machine: SurfaceMachineID { sourcePlacement.machine }
+
+    /// Records the create receipt: `sourcePlacement.resource` is now the created terminal.
+    func bind(sourcePlacement: CloudTerminalSourcePlacement) {
+        self.sourcePlacement = sourcePlacement
+        boundResourceID = sourcePlacement.resource?.id
+    }
+    var remoteWorkspaceID: String? { sourcePlacement.remoteWorkspaceID }
+    var remoteTabID: String? { sourcePlacement.remoteTabID }
     var elapsed: Duration { ContinuousClock.now - startedAt }
+
+    /// Completes the workspace identity after the local pane was admitted.
+    /// The pane can appear before the remote workspace receipt exists, so the
+    /// source initially carries only its machine identity.
+    func updateRemoteWorkspaceID(_ id: String) {
+        sourcePlacement = CloudTerminalSourcePlacement(
+            machine: sourcePlacement.machine,
+            resource: sourcePlacement.resource,
+            remoteWorkspaceID: id,
+            remoteTabID: sourcePlacement.remoteTabID,
+            pendingCreation: sourcePlacement.pendingCreation
+        )
+    }
+
+    /// Rechecks a saved view after attachment awaits and before any queued input is forwarded.
+    func validatedAttachmentPlacement(
+        resourceID: SurfaceResourceID,
+        remoteTabID: String?,
+        materializedPlacement: SurfaceRemotePlacement? = nil,
+        catalog: SurfaceCatalog
+    ) throws -> SurfaceRemotePlacement? {
+        guard let expected = attachmentPlacement else { return materializedPlacement }
+        guard resourceID == expected.resource, resourceID.machine == machine,
+              remoteTabID == nil || expected.remoteTabID == nil || remoteTabID == expected.remoteTabID else {
+            throw CloudDiagnosticFailure.placement
+        }
+        guard expected.remoteWorkspaceID != nil || expected.remoteTabID != nil else { return materializedPlacement }
+        guard let view = try? catalog.remoteView(
+            for: resourceID, tabID: expected.remoteTabID, workspaceID: expected.remoteWorkspaceID
+        ) else { throw CloudDiagnosticFailure.placement }
+        if let materializedPlacement,
+           materializedPlacement.workspaceID != view.workspace.id || materializedPlacement.tabID != view.tabID {
+            throw CloudDiagnosticFailure.placement
+        }
+        return materializedPlacement ?? SurfaceRemotePlacement(workspaceID: view.workspace.id, tabID: view.tabID)
+    }
 }

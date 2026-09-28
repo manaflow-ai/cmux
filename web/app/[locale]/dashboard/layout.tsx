@@ -1,4 +1,4 @@
-import { StackProvider, StackTheme } from "@stackframe/stack";
+import { StackProvider, StackTheme } from "@hexclave/next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import {
@@ -9,6 +9,7 @@ import {
 } from "@/app/lib/dashboard-auth";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { isVaultEnabled } from "@/services/vault/config";
+import { IsolatedErrorBoundary } from "@/app/components/error-boundary";
 import { DashboardQueryProvider } from "./components/query-provider";
 import {
   DashboardAccountMenu,
@@ -37,9 +38,14 @@ export default function DashboardLayout({
           <DashboardShell
             vaultEnabled={isVaultEnabled()}
             account={
-              <Suspense fallback={<DashboardAccountMenuFallback />}>
-                <DashboardAccountSlot />
-              </Suspense>
+              <IsolatedErrorBoundary
+                name="dashboard-account-menu"
+                fallback={<DashboardAccountMenuFallback />}
+              >
+                <Suspense fallback={<DashboardAccountMenuFallback />}>
+                  <DashboardAccountSlot />
+                </Suspense>
+              </IsolatedErrorBoundary>
             }
           >
             <Suspense fallback={null}>

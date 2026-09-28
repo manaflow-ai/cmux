@@ -73,7 +73,7 @@ describe("dashboard shell", () => {
     expect(html).toContain('href="/dashboard/coderouter"');
   });
 
-  test("renders iOS TestFlight in its own section below coderouter", () => {
+  test("renders remote control devices and TestFlight together below coderouter", () => {
     linkPrefetch.clear();
     const html = renderToStaticMarkup(
       <DashboardShell vaultEnabled account={accountControl}>
@@ -82,13 +82,15 @@ describe("dashboard shell", () => {
     );
 
     expect(html).toContain('href="/dashboard/testflight"');
-    expect(html).toContain("iosGroup");
-    // iOS section sits on its own, below coderouter and above the account group.
+    expect(html).toContain("remoteControlGroup");
+    // Remote control sits below coderouter and above the account group.
     const coderouterIndex = html.indexOf('href="/dashboard/coderouter"');
+    const mobileDevicesIndex = html.indexOf('href="/dashboard/mobile-devices"');
     const testflightIndex = html.indexOf('href="/dashboard/testflight"');
     const billingIndex = html.indexOf('href="/dashboard/billing"');
     expect(coderouterIndex).toBeGreaterThan(-1);
-    expect(testflightIndex).toBeGreaterThan(coderouterIndex);
+    expect(mobileDevicesIndex).toBeGreaterThan(coderouterIndex);
+    expect(testflightIndex).toBeGreaterThan(mobileDevicesIndex);
     expect(billingIndex).toBeGreaterThan(testflightIndex);
     // Every page prefetches its static shell; private data streams behind
     // Suspense and is never part of a prefetch, so no link opts out.

@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { StackServerApp } from "@stackframe/stack";
+import { StackServerApp } from "@hexclave/next";
 import { vmScopeVerificationEnvironment, cleanupVmScopeVerification } from "./vmScopeVerification";
 
 const { origin, sqlHost, sqlContainer } = vmScopeVerificationEnvironment(process.env);

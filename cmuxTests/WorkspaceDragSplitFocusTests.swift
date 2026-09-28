@@ -110,12 +110,19 @@ struct WorkspaceDragSplitFocusSwiftTests {
     }
 
     @Test
-    func nonFocusSplitPreservesCursorAndHibernation() throws {
+    func nonFocusSplitPreservesCursorAndHibernationDuringSuspendedPresentation() async throws {
         let originalAppDelegate = AppDelegate.shared
-        AppDelegate.shared = nil
-        defer { AppDelegate.shared = originalAppDelegate }
 
-        let fixture = try makeFixture()
+        let owner = TerminalPortalTestWorkspace()
+        defer {
+            owner.tearDown()
+            AppDelegate.shared = originalAppDelegate
+        }
+        let fixture = try makeFixture(workspace: owner.workspace)
+        owner.bind(to: fixture.window)
+        // Visibility auto-resume is covered separately. Suspend that policy so
+        // this transaction exercises only the explicit preserve-current intent.
+        fixture.workspace.setAgentHibernationAutoResumePresentationVisible(false)
         defer {
             fixture.window.orderOut(nil)
             fixture.previousKeyWindow?.makeKey()
@@ -154,6 +161,7 @@ struct WorkspaceDragSplitFocusSwiftTests {
                 focusIntent: .preserveCurrent
             )
         )
+        await AppKitTestEventPump().drain()
 
         #expect(
             fixture.workspace.bonsplitController.tabs(inPane: newPane)

@@ -16,10 +16,10 @@ struct OnboardingPairingView: View {
                 title: title,
                 message: L10n.string(
                     "mobile.onboarding.pairing.body",
-                    defaultValue: "This step is required before any Mac can appear on your iPhone. In cmux Settings > Mobile on your Mac, turn on Enable iOS pairing. Until you do, cmux keeps the Mac hidden and does not start iOS pairing networking."
+                    defaultValue: "On your Mac, open cmux Settings > Mobile and turn on Enable iOS pairing. Your Mac stays hidden until you do."
                 ),
                 visual: pairingVisual,
-                bodyLineReservation: 6
+                bodyLineReservation: 3
             )
         }
     }
@@ -33,11 +33,7 @@ struct OnboardingPairingView: View {
 
     private var pairingVisual: some View {
         VStack(spacing: 22) {
-            Image(systemName: "macbook.and.iphone")
-                .font(.system(size: 72, weight: .medium))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.tint)
-                .accessibilityHidden(true)
+            OnboardingPairingSettingsScreenshot()
 
             Label {
                 Text(
@@ -108,4 +104,5 @@ struct OnboardingPairingView: View {
         .frame(maxWidth: .infinity, alignment: .top)
     }
 }
+
 #endif

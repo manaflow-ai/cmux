@@ -1,3 +1,4 @@
+import CmuxCloud
 import CMUXMobileCore
 import CmuxSettings
 import Foundation
@@ -50,16 +51,12 @@ struct MobileHostIdentityTests {
             store.selectedPairingURLScheme?.rawValue
                 == "cmux-ios-com.cmux.app"
         )
-        #expect(
-            store.pushTargetNamespace?.bundleIdentifier == "com.cmux.app"
-        )
 
         let internalNamespace = try #require(MobileIOSAppNamespace(
             bundleIdentifier: "dev.cmux.app.internal"
         ))
         #expect(store.select(internalNamespace))
         #expect(store.selectedNamespace == internalNamespace)
-        #expect(store.pushTargetNamespace == internalNamespace)
         #expect(
             store.selectedPairingURLScheme?.rawValue
                 == "cmux-ios-dev.cmux.app.internal"
@@ -85,9 +82,6 @@ struct MobileHostIdentityTests {
         #expect(
             store.selectedPairingURLScheme?.rawValue
                 == "cmux-ios-com.cmux.app"
-        )
-        #expect(
-            store.pushTargetNamespace?.bundleIdentifier == "com.cmux.app"
         )
     }
 

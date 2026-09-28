@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageCard, useCliAuthConfirmation, useUser, type CliAuthConfirmationState } from "@stackframe/stack";
+import { MessageCard, useCliAuthConfirmation, useUser, type CliAuthConfirmationState } from "@hexclave/next";
 
 export type CliAuthIdentityMessages = {
   email: string;
