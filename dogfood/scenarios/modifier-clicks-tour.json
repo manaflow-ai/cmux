@@ -11,7 +11,8 @@
       "socket": "workspace.create",
       "params": {
         "title": "Example URL",
-        "initial_input": "clear; for i in $(seq 60); do echo 'https://example.com/ https://example.com/ https://example.com/ https://example.com/ '; done\n"
+        "initial_input": "clear; for i in $(seq 60); do echo 'https://example.com/ https://example.com/ https://example.com/ https://example.com/ '; done\n",
+        "focus": true
       }
     },
     {
@@ -28,6 +29,33 @@
     },
     {
       "tree": "01-cmd-click-terminal-example"
+    },
+    {
+      "hoverAt": {
+        "x": 0.01,
+        "y": 0.4
+      }
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "shot": "01-plain-hover-example"
+    },
+    {
+      "hoverAt": {
+        "x": 0.01,
+        "y": 0.4
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "shot": "01-cmd-hover-example"
     },
     {
       "clickAt": {
@@ -51,7 +79,8 @@
       "socket": "workspace.create",
       "params": {
         "title": "GitHub URL",
-        "initial_input": "clear; for i in $(seq 60); do echo 'https://github.com/manaflow-ai/cmux https://github.com/manaflow-ai/cmux https://github.com/manaflow-ai/cmux https://github.com/manaflow-ai/cmux '; done\n"
+        "initial_input": "clear; for i in $(seq 60); do echo 'https://github.com/manaflow-ai/cmux https://github.com/manaflow-ai/cmux https://github.com/manaflow-ai/cmux https://github.com/manaflow-ai/cmux '; done\n",
+        "focus": true
       }
     },
     {
