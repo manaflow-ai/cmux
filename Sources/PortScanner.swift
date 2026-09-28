@@ -280,7 +280,7 @@ final class PortScanner: @unchecked Sendable {
     /// command palette) see "not scanning" rather than a list frozen at the
     /// moment scanning stopped. Showing the detail again rescans from scratch.
     private func clearPublishedPortsLocked() {
-        let panelKeys = Array(ttyNames.keys)
+        let panelKeys = Set(ttyNames.keys)
         panelPortSnapshot.remove(keys: panelKeys)
         for key in panelKeys {
             panelPortOwnersByKey.removeValue(forKey: key)
@@ -293,7 +293,7 @@ final class PortScanner: @unchecked Sendable {
 
         let agentWorkspaces = trackedAgentWorkspaces
         guard !agentWorkspaces.isEmpty else { return }
-        agentPortSnapshot.remove(keys: Array(agentWorkspaces))
+        agentPortSnapshot.remove(keys: agentWorkspaces)
         for workspaceId in agentWorkspaces {
             agentPortOwnersByWorkspace.removeValue(forKey: workspaceId)
         }
