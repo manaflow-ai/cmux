@@ -12,6 +12,20 @@ import Testing
 
 @Suite("Cloud clipboard image routing")
 struct CloudImagePasteRoutingTests {
+    /// Test-only gate shared with the detached detector closure. The semaphore
+    /// is immutable and provides the only cross-task mutation.
+    private final class DetectionBlocker: @unchecked Sendable {
+        private let semaphore = DispatchSemaphore(value: 0)
+
+        func wait() {
+            semaphore.wait()
+        }
+
+        func signal() {
+            semaphore.signal()
+        }
+    }
+
     @Test @MainActor
     func legacyCloudSSHWorkspaceKeepsItsExistingUploadRoute() throws {
         let workspace = Workspace()
@@ -120,5 +134,41 @@ struct CloudImagePasteRoutingTests {
     func cloudPlainTextPasteRetainsTheExistingTextPath() {
         #expect(TerminalImageTransferPlanner.plan(preparedContent: .insertText("ordinary clipboard text"), target: .cloud)
             == .insertText("ordinary clipboard text"))
+    }
+
+    @Test @MainActor
+    func stalledAdHocSSHDetectionFallsBackToLocalPaste() async throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelID))
+        workspace.surfaceTTYNames[panelID] = "/dev/ttys15073"
+        let url = URL(fileURLWithPath: "/tmp/cmux-image-15073.png")
+        let releaseDetector = DetectionBlocker()
+
+        let target = await panel.surface.resolvedImageTransferTargetAsync(
+            in: workspace,
+            detector: { _ in
+                releaseDetector.wait()
+                return DetectedSSHSession(
+                    destination: "slow-host", port: nil, identityFile: nil,
+                    configFile: nil, jumpHost: nil, controlPath: nil,
+                    useIPv4: false, useIPv6: false,
+                    forwardAgent: false, compressionEnabled: false,
+                    sshOptions: []
+                )
+            },
+            timeoutSleep: { _ in }
+        )
+        releaseDetector.signal()
+
+        #expect(target == .local)
+        #expect(
+            TerminalImageTransferPlanner.plan(
+                fileURLs: [url],
+                target: target
+            ) == .insertText(
+                TerminalImageTransferPlanner.escapeForShell(url.path)
+            )
+        )
     }
 }

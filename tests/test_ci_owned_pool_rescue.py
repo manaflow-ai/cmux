@@ -115,14 +115,17 @@ class FakeAPI:
     def force_cancel(self, run_id):
         self.calls.append("force-cancel")
 
-    def rerun(self, run_id):
+    def rerun(self, run_id, next_attempt):
         self.calls.append("rerun")
+        # The attempt the re-run starts, which ci-ui-tests.yml is dispatched for.
+        assert next_attempt == self.attempt + 1, (next_attempt, self.attempt)
         # cancelled_at stays for the assertions; the cancel was of the attempt before.
         self.attempt += 1
         self.rerun_at = self.clock.seconds
 
-    def rerun_failed(self, run_id):
+    def rerun_failed(self, run_id, next_attempt):
         self.calls.append("rerun-failed")
+        assert next_attempt == self.attempt + 1, (next_attempt, self.attempt)
         self.attempt += 1
         self.cancelled_at, self.rerun_at = None, self.clock.seconds
 
@@ -185,6 +188,54 @@ def refusing_run(refused_at=60, **kwargs):
     return jobs
 
 
+def setup_job(*, started=41, past_setup=False):
+    """An owned job its runner took, still in glaeda's hook ("Set up runner") unless past_setup."""
+    found = job("macos / macOS compile admission", status="in_progress", labels=[MINI], created=40, runner="mini-1")
+    found.update(started_at=stamp(started), steps=[
+        {"name": "Set up job", "status": "completed", "conclusion": "success"},
+        {"name": "Set up runner", "status": "completed" if past_setup else "in_progress", "conclusion": None,
+         "started_at": stamp(started + 3)},
+        {"name": "Checkout", "status": "in_progress" if past_setup else "queued", "conclusion": None}])
+    return found
+
+
+class SetupWait(unittest.TestCase):
+    def test_a_job_waiting_in_setup_is_watched_then_rescued(self):
+        waiting = setup_job()
+        self.assertTrue(rescue.in_setup(waiting))
+        self.assertFalse(rescue.in_setup(setup_job(past_setup=True)))
+        early = START + dt.timedelta(seconds=41 + rescue.REFUSAL_SECONDS + 60)
+        self.assertFalse(rescue.accepted(waiting, early), "a job in setup has not been accepted yet")
+        self.assertTrue(rescue.accepted(setup_job(past_setup=True), early))
+        look = rescue.assess([changes()(60), waiting], now=early, budget_seconds=90)
+        self.assertEqual((look.action, look.waiting), ("watch", True))
+        # measured from the setup step the hook waits in, not from the job's start
+        self.assertEqual(rescue.assess([changes()(60), waiting], budget_seconds=90,
+                                       now=START + dt.timedelta(seconds=41 + rescue.SETUP_WAIT_SECONDS)).action,
+                         "watch")
+        late = START + dt.timedelta(seconds=44 + rescue.SETUP_WAIT_SECONDS)
+        look = rescue.assess([changes()(60), waiting], now=late, budget_seconds=90)
+        self.assertEqual(look.action, "rescue")
+        self.assertIn("runner setup", look.reason)
+        self.assertEqual(rescue.assess([changes()(60), setup_job(past_setup=True)], now=late,
+                                       budget_seconds=90).action, "watch")
+        # a job that entered setup late is judged before the watch ends, but not before the queued budget
+        soon = START + dt.timedelta(seconds=44 + 300)
+        self.assertEqual(rescue.assess([changes()(60), waiting], now=soon, budget_seconds=90,
+                                       deadline=soon + dt.timedelta(seconds=rescue.END_MARGIN_SECONDS)).action,
+                         "rescue")
+        early_close = START + dt.timedelta(seconds=44 + 30)
+        self.assertEqual(rescue.assess([changes()(60), waiting], now=early_close, budget_seconds=90,
+                                       deadline=early_close).action, "watch")
+        # a sibling still running is not cancelled for it, until the watch is about to end
+        shard = job("macos / shard", status="in_progress", labels=[MINI], runner="mini-2")
+        look = rescue.assess([changes()(60), waiting, shard], now=late, budget_seconds=90)
+        self.assertEqual((look.action, look.waiting), ("watch", True))
+        look = rescue.assess([changes()(60), waiting, shard], now=late, budget_seconds=90,
+                             deadline=late + dt.timedelta(seconds=rescue.END_MARGIN_SECONDS - 1))
+        self.assertEqual(look.action, "rescue")
+
+
 class Refusal(unittest.TestCase):
     def test_what_counts_as_a_refusal(self):
         self.assertTrue(rescue.refused(refused_job()))
@@ -209,6 +260,29 @@ class Refusal(unittest.TestCase):
         self.assertFalse(rescue.refused(refused_job(seconds=rescue.REFUSAL_SECONDS + 1)))
         self.assertFalse(rescue.refused(refused_job(labels=(BLACKSMITH,))))
         self.assertFalse(rescue.refused({**refused_job(), "conclusion": "cancelled"}))
+
+    def test_a_job_whose_runner_was_lost_counts_as_a_refusal_whatever_its_length(self):
+        # PR 15160's run 36420353579: cmux14-glaeda took compile admission at 12:20:18
+        # with its listener stopped; GitHub failed it at 12:30:18 ("The self-hosted
+        # runner lost communication with the server") and it listed no step at all.
+        lost = refused_job(seconds=600, steps=[])
+        self.assertTrue(rescue.refused(lost))
+        self.assertFalse(rescue.accepted(lost, START + dt.timedelta(hours=1)))
+        # A job that ran its own steps and then failed is still the code's.
+        self.assertFalse(rescue.refused(refused_job(seconds=600, steps=[
+            {"name": "Set up job", "conclusion": "success"},
+            {"name": "Checkout", "conclusion": "success"},
+            {"name": "Build", "conclusion": "failure"}])))
+        self.assertFalse(rescue.refused(refused_job(seconds=600, steps=[], labels=(BLACKSMITH,))))
+
+    def test_a_lost_runner_is_rerun_once_the_run_finishes(self):
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(refused_at=0, seconds=600, steps=[]), marker=True,
+                      finished=lambda seconds: True)
+        target = rescue.sweep_target(listed(RUN_ID), "manaflow-ai/cmux", late=False)
+        rescue.follow(api, target, seconds=90, queue_rounds="0", light_retry=False,
+                      now=clock.now, sleep=clock.sleep, log=lambda text: None)
+        self.assertEqual(api.calls.count("rerun-failed"), 1)
 
     def test_a_refused_job_reruns_the_failed_jobs_after_cancelling(self):
         clock = Clock()
@@ -1215,6 +1289,10 @@ class IOSDispatch(unittest.TestCase):
         self.assertEqual((target.pr_number > 0, target.e2e, target.picker_job), (True, True, "runner"))
         self.assertIsInstance(rescue.target_from_event(
             event(path=".github/workflows/ios-screenshots.yml"), "manaflow-ai/cmux"), str)
+        # The Iroh release gate's runner job places its Tailscale job the same way.
+        path = ".github/workflows/iroh-release-gate.yml"
+        target = rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux")
+        self.assertEqual((target.pr_number, target.e2e, target.picker_job, target.path), (0, True, "runner", path))
         # Signing and streamed validation never take an owned Mac, so they are never watched.
         for path in (".github/workflows/ios-testflight.yml", ".github/workflows/ios-streamed-validate.yml"):
             self.assertIsInstance(rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux"), str)
@@ -1548,12 +1626,36 @@ class Tokens(unittest.TestCase):
         with patch:
             api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
             api.run(1)
-            api.rerun_failed(1)
+            api.rerun_failed(1, 2)
             api.cancel(1)
         # A re-run started by the App would not be github-actions[bot], which
-        # ci-macos.yml's attempt-2 routing requires.
+        # ci-macos.yml's attempt-2 routing requires. The re-run then reads the
+        # run to see whether a UI test dispatch must follow (not for this one).
         self.assertEqual(seen, [("GET", "Bearer app-token"), ("POST", "Bearer repo-token"),
-                                ("POST", "Bearer repo-token")])
+                                ("GET", "Bearer app-token"), ("POST", "Bearer repo-token")])
+
+    def test_a_re_run_of_pull_request_ci_starts_its_ui_test_dispatch(self):
+        sent = []
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout):
+            sent.append((request.get_method(), request.full_url, request.data))
+            if request.get_method() == "GET":
+                # A read right after the re-run may still report the old attempt.
+                return Response(json.dumps({"path": ".github/workflows/ci.yml", "event": "pull_request",
+                                            "run_attempt": 1}).encode())
+            return Response(b"")
+        with unittest.mock.patch.object(rescue.urllib.request, "urlopen", urlopen):
+            rescue.GitHub("repo-token", "o/r").rerun(7, 2)
+        # A GITHUB_TOKEN re-run may emit no workflow_run event for ci-ui-tests.yml.
+        self.assertEqual(sent[-1][:2], ("POST", f"{rescue.API}/repos/o/r/actions/workflows/ci-ui-tests.yml/dispatches"))
+        self.assertEqual(json.loads(sent[-1][2]), {"ref": "main", "inputs": {"run_id": "7", "run_attempt": "2"}})
 
     def test_an_expired_app_token_falls_back_for_the_rest_of_the_watch(self):
         seen, patch = self.open_with(fail_first_read=True)
