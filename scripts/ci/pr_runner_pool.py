@@ -305,6 +305,7 @@ import datetime as dt
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import sys
@@ -1315,7 +1316,8 @@ def live_pools(snapshot: Mapping[str, Any], idle: Mapping[str, int], slot_counts
     since the snapshot and before the live window that may still wait there
     (pull request CI passes one per run, its admission). The snapshot's queue
     is drained by what the label's machines finished in the `age_minutes`
-    since it was taken, a job each per job_minutes(): charged whole, a
+    since it was taken, past the first half job length, a job each per
+    job_minutes(): charged whole, a
     12-minute-old count of 26 on 19 root runners called them full while
     their jobs waited at most 17 minutes (p90 10) from 07:00 to 10:30Z on
     2026-09-28, and 30% of admissions went to Blacksmith, which queued them
@@ -1343,8 +1345,11 @@ def live_pools(snapshot: Mapping[str, Any], idle: Mapping[str, int], slot_counts
         else:
             capacity[label] = max(int(slot_counts.get(label) or 0), free)
         seen = (pools.get(label) or {}) if isinstance(pools.get(label), Mapping) else {}
-        drained = capacity[label] * max(0.0, age_minutes or 0.0) / job_minutes(label)
-        waiting = max(0, int(int(seen.get("queued") or 0) - drained + 0.999999))
+        # Nothing counts as finished in the first half job length: a snapshot taken
+        # just after every runner started a job sees none of them done minutes later.
+        started = max(0.0, (age_minutes or 0.0) - job_minutes(label) / 2)
+        drained = capacity[label] * started / job_minutes(label)
+        waiting = max(0, math.ceil(int(seen.get("queued") or 0) - drained - 1e-9))
         queued = 0 if free else waiting + max(0, int(older.get(pool_label(label), 0)))
         pools[label] = {"queued": queued, "running": capacity[label] - free, "committed": 0, "future": 0}
     return {**snapshot, "pools": pools}, capacity

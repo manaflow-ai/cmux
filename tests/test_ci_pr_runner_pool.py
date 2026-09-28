@@ -2346,18 +2346,21 @@ class LiveCapacity(unittest.TestCase):
         slot_counts = {MINI: 40, ROOT_MINI: 19}
         online = {MINI: 40, ROOT_MINI: 19}
 
-        def queued(age, older=0):
-            live, _ = pool.live_pools(snap, {MINI: 3, ROOT_MINI: 0}, slot_counts, {MINI: older},
+        def queued(age, older=0, idle=0):
+            live, _ = pool.live_pools(snap, {MINI: 3, ROOT_MINI: idle}, slot_counts, {MINI: older},
                                       online=online, age_minutes=age)
             return live["pools"][ROOT_MINI]["queued"]
-        # Fresh: all 26. Five minutes on 19 runners at ten minutes a job: 9.5 done, 17 left (rounded up).
+        # Fresh, or within half a job length (ten minutes a job): all 26, as a burst that just started
+        # on every runner has finished nothing yet.
         self.assertEqual(queued(None), 26)
         self.assertEqual(queued(0), 26)
-        self.assertEqual(queued(5), 17)
-        # Twelve minutes: 22.8 done, 4 left; past the whole queue, none, but newer runs' admissions still count.
-        self.assertEqual(queued(12), 4)
+        self.assertEqual(queued(5), 26)
+        # Twelve minutes: seven past the half, 19 runners x 0.7 = 13.3 done, 13 left (rounded up).
+        self.assertEqual(queued(12), 13)
+        # Past the whole queue, none, but newer runs' admissions still count; an idle runner means none.
         self.assertEqual(queued(30), 0)
         self.assertEqual(queued(30, older=3), 3)
+        self.assertEqual(queued(12, older=3, idle=1), 0)
 
     def test_an_offline_fleet_is_no_queue_to_join(self):
         busy = fleet(busy=0, small=21, large=6, old=4)
