@@ -1948,6 +1948,7 @@ CMUX_CLAUDE_QUEUED_HOOK_COMMAND
     cmux_claude_standard_hook_settings_value='{"hooks":{'
     cmux_claude_standard_hook_settings_value+='"Notification":['"$q_prefix$notification$q_suffix"'"}],'
     cmux_claude_standard_hook_settings_value+='"PermissionRequest":[{"hooks":[{"command":"'"$direct_cli"' hooks feed --source claude","timeout":125,"type":"command"}],"matcher":""}],'
+    cmux_claude_standard_hook_settings_value+='"PostCompact":['"$q_prefix$feed$q_suffix"'"}],'
     cmux_claude_standard_hook_settings_value+='"PostToolUse":['"$q_prefix$push_notification$q_suffix"'PushNotification"}],'
     cmux_claude_standard_hook_settings_value+='"PreToolUse":[{"hooks":[{"command":"'"$direct_cli"' hooks claude cron-create-guard","timeout":5,"type":"command"}],"matcher":"CronCreate"},'"$q_prefix$pre_tool_use$q_suffix"'"}],'
     cmux_claude_standard_hook_settings_value+='"SessionEnd":['"$q_prefix$session_end$q_suffix"'"}],'
@@ -2056,6 +2057,8 @@ catch (_) { process.exit(1); }
 #   does not fire, and PreToolUse is the needs-input fallback (see above).
 # - SubagentStop: feed telemetry only. It must not run the visible Stop
 #   hook because a subagent finishing should not notify like the parent.
+# - PostCompact: feed telemetry only. Compact and resume waits for it before
+#   sending its continue prompt.
 # - Stop auto-name: opt-in AI workspace/tab naming. ASYNC with a long
 #   timeout because it may run a summarization subprocess; it gates itself
 #   on the workspaceAutoNaming setting via a socket probe, so it is a

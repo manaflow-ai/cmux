@@ -43,6 +43,13 @@ extension CMUXCLI {
                 subcommand: "feed"
             ),
         ]
+        // Compact and resume continues the agent only after this reports
+        // the compaction it asked for finished.
+        hooks["PostCompact"] = [
+            Self.claudeQueuedHookGroup(
+                subcommand: "feed"
+            ),
+        ]
         hooks["PreToolUse"] = [
             Self.claudeHookGroup(
                 matcher: "CronCreate",
