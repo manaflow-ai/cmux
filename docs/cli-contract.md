@@ -847,6 +847,7 @@ the expected text without connecting to a cmux socket.
 - `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies]`
 - `cmux docs` -> `Topics:`
 - `cmux docs settings` -> `Config files:`
+- `cmux docs capture` -> `capture: Screenshot or record a cmux window`
 - `cmux docs dock` -> `dock: Custom right-sidebar terminal controls`
 - `cmux settings --help` -> `Usage: cmux settings [open [target]|path|docs|<target>]`
 - `cmux settings path` -> `Config files:`
