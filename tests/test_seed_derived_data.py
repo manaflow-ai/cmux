@@ -230,6 +230,7 @@ class SeedDerivedData(unittest.TestCase):
         self.assertFalse((self.root / "cmux-ci-2" / seed.SEED_SOURCE).exists())
 
     def test_the_trusted_seed_job_keeps_its_seeds_before_save_and_the_product_steps(self):
+        """Keep clones the seed before the R2 upload, so the LAN archive need not wait for it."""
         seeder = steps("seed-derived-data.yml", "seed")
         choose_at, choose = named(seeder, "Keep seeds on a trusted Mac")
         adopt_at, _ = named(seeder, "Adopt the newest seed")
