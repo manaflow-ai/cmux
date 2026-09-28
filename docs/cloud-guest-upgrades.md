@@ -30,7 +30,7 @@ missing, and an in-place upgrade plus a one-row backfill restored them
 | `cmux-tui` binary and `cmux-tui-hook` | Yes | `web/scripts/upgrade-fleet-cmux-tui.ts` (below) |
 | Coding-agent hook entries | Yes | Same run: the pinned install command re-runs `cmux-tui agent hook install` |
 | `cmux-devbox-boot`, systemd units, the daemon's argv and environment | No | Bake only. The supervisor that is running keeps its own copy |
-| Baked packages, agent pins, desktop, `/etc/cmux/*` | No | Bake only |
+| Baked packages, agent pins, desktop, `/etc/cmux/*` | No (agent pins: only on machines opted into `agentUpdates: "latest"`) | Bake only; opted-in machines update their coding agents on attach (`web/services/vms/guestAgentUpdates.ts`) |
 | Create-time provider config: inline TLS rules (coderouter), VPC, firewall | No | Fixed at `vms.create`; the platform ignores later rules |
 | `cloud_vms.provider_metadata` written at create | Only by a backfill | A reviewed SQL update, per machine, after verifying the guest |
 

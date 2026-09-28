@@ -123,6 +123,9 @@ import {
 // and stay. The one sanctioned guest exec around create is the prompt-name
 // push in workflows.ts (schedulePromptIdentityPush): display-only, run after
 // the response, never awaited by create. Do not add anything else to it.
+// Attach has one opt-in counterpart: a machine with agentUpdates "latest"
+// gets the coding-agent updater exec (scheduleGuestAgentUpdates in
+// workflows.ts), also after the response and never awaited by attach.
 //
 // The coderouter model plane is edge-injected: the create carries an inline
 // `tls` rule for the coderouter host whose transform overwrites `x-cmux-authorization` to every request the

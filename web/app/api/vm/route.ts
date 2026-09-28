@@ -1,4 +1,5 @@
 import { parseCreateNetworkPolicy } from "../../../services/vms/networkPolicyRoute";
+import { parseCreateAgentUpdates } from "../../../services/vms/agentUpdatesRoute";
 import { normalizedDisplayName } from "../../../services/vms/displayName";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../services/vms/teamDirectory";
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
@@ -245,6 +246,8 @@ export async function POST(request: Request): Promise<Response> {
       const memoryMb = memory.memoryMb;
       const networkPolicy = parseCreateNetworkPolicy(candidate.networkPolicy);
       if (!networkPolicy.ok) return networkPolicy.response;
+      const agentUpdates = parseCreateAgentUpdates(candidate.agentUpdates);
+      if (!agentUpdates.ok) return agentUpdates.response;
 
       // Resolve provider/image only after the paid-plan boundary. A free or
       // unknown plan must receive `vm_requires_pro` without consulting
@@ -297,6 +300,7 @@ export async function POST(request: Request): Promise<Response> {
         imageSize: imageSelection.size ?? undefined,
         modelPlane,
         networkPolicy: networkPolicy.policy,
+        agentUpdates: agentUpdates.setting,
         teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
         timing,
         // Keep the `vm.created` ledger write off New Machine's critical path.

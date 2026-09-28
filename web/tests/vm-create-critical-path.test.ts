@@ -38,6 +38,7 @@ function row(): CloudVmRow {
     providerMetadata: {},
     networkPolicy: null,
     networkPolicyStatus: null,
+    agentUpdates: null,
     ownerTeamId: "team-fast",
     coderouterPoolId: null,
   };

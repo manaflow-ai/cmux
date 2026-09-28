@@ -44,6 +44,7 @@ function machineRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     providerMetadata: {},
     networkPolicy: null,
     networkPolicyStatus: null,
+    agentUpdates: null,
     ...overrides,
   };
 }

@@ -66,6 +66,7 @@ function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     providerMetadata: { cmuxResourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: 32768 } },
     networkPolicy: null,
     networkPolicyStatus: null,
+    agentUpdates: null,
     ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? "team-mp",
     coderouterPoolId: null,
     ...overrides,

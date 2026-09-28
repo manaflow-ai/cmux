@@ -138,6 +138,7 @@ function createRepo(): VmRepositoryShape {
     providerMetadata: {},
     networkPolicy: null,
     networkPolicyStatus: null,
+    agentUpdates: null,
   };
   return {
     beginCreate: () => Effect.succeed({ inserted: true, vm }),

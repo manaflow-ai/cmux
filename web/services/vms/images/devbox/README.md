@@ -47,6 +47,16 @@ tags and packages the image does not bake; the chatmux devbox template
 (`chatmux:infra/sandbox-images/Dockerfile`) is bumped by hand in its own
 repo to keep the parity the header describes.
 
+A machine can opt out of its image's pins: with `agentUpdates: "latest"` (New
+Machine's "Keep coding agents up to date", `cmux vm agent-updates <vm>
+latest`, or `PUT /api/vm/{id}/agent-updates`), each attach starts a detached
+updater that installs npm's `latest` of every pinned package, at most once a
+day, and re-asserts the `/usr/local/bin` links and the opencode wrapper
+(`web/services/vms/guestAgentUpdates.ts`; outcome in
+`/etc/cmux/agent-updates.state`, log in `/var/log/cmux-agent-updates.log`). It
+needs `registry.npmjs.org`: under "No internet", or an allowlist without the
+npm preset, the check fails and is retried on the next attach.
+
 Two invariants keep the checked-in manifest describing the machine users get
 (`devboxSourceDriftProblems` in `devbox-image-common.ts`, run by
 `devbox:manifest:check`, `vm-image-manifest.test.ts` and `promote` before it

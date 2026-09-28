@@ -40,6 +40,7 @@ function row(overrides: Partial<CloudVmRow>): CloudVmRow {
     providerMetadata: {},
     networkPolicy: null,
     networkPolicyStatus: null,
+    agentUpdates: null,
     ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? USER_ID,
     coderouterPoolId: null,
     ...overrides,
