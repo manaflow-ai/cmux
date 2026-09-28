@@ -235,4 +235,27 @@ if (reopenFromMidClose[0].height !== "110px" || reopenFromMidClose[0].opacity !=
   throw new Error(`interrupted reopen should continue from current height instead of snap to start: ${JSON.stringify(reopenFromMidClose)}`);
 }
 
+// cmux agent messages stay visible at the top of the turn they arrived in; a
+// message that woke an idle agent, or continued it after its reply, starts a turn.
+const messageBlocks = [
+  { kind: "user", text: "cut the release" },
+  { kind: "message", id: "m1", from: "coordinator", body: "Hold the tag." },
+  { kind: "assistant", text: "Holding.", open: false },
+  { kind: "footer", text: "" },
+  { kind: "message", id: "m2", from: "reviewer", body: "Tag is clear." },
+  { kind: "assistant", text: "Tagging now.", open: false },
+  { kind: "message", id: "m3", from: "reviewer", body: "Also bump the docs." },
+  { kind: "tool", toolId: "t", name: "Edit", detail: "docs.md", status: "ok" },
+] as unknown as Block[];
+const messageTurns = groupTurns(messageBlocks, "idle");
+const turnShape = messageTurns.map((g) => ({ user: g.user?.text, messages: (g.messages ?? []).map((m) => m.id), activity: g.activity.length }));
+const expectedShape = [
+  { user: "cut the release", messages: ["m1"], activity: 0 },
+  { user: undefined, messages: ["m2"], activity: 0 },
+  { user: undefined, messages: ["m3"], activity: 1 },
+];
+if (JSON.stringify(turnShape) !== JSON.stringify(expectedShape)) {
+  throw new Error(`agent messages grouped wrong: ${JSON.stringify(turnShape)}`);
+}
+
 console.log("turn summary and virtualization: OK");
