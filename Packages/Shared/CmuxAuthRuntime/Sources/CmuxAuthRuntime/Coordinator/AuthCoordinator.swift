@@ -118,6 +118,9 @@ public final class AuthCoordinator {
     @ObservationIgnored var authenticatedTeamsSessionGeneration: UInt64?
     @ObservationIgnored var authenticatedTeamScopeGeneration: UInt64 = 0
     @ObservationIgnored var lastPublishedAuthenticatedTeamScope: AuthenticatedTeamScope?
+    /// The retry loop that restores a missing team scope; see
+    /// ``scheduleTeamScopeRecoveryIfNeeded()``.
+    @ObservationIgnored var teamScopeRecovery: (id: UUID, task: Task<Void, Never>)?
     /// Sign-in attempts that currently own a possible write to the token store.
     ///
     /// This ownership spans the whole flow, not just the credential-exchange
@@ -704,6 +707,8 @@ public final class AuthCoordinator {
             )
         } catch {
             authLog.error("Failed to list teams: \(error.localizedDescription, privacy: .private)")
+            guard generation == sessionGeneration else { return }
+            scheduleTeamScopeRecoveryIfNeeded()
         }
     }
     private static func resolveTeamID(
@@ -724,6 +729,7 @@ public final class AuthCoordinator {
         sessionTransitionAlreadyAnnounced: Bool = false
     ) {
         advanceSessionGeneration(notifySessionWillTransition: !sessionTransitionAlreadyAnnounced)
+        cancelTeamScopeRecovery()
         latestSignInRefreshToken = nil
         if !preservePendingCode { pendingNonce = nil }
         userCache.clear()
@@ -773,6 +779,7 @@ public final class AuthCoordinator {
         isAuthenticated = cachedUser != nil
         isRestoringSession = false
         publishAuthenticatedSessionIdentity()
+        scheduleTeamScopeRecoveryIfNeeded()
     }
 
     func clearPersistedAuthForUITest() async {

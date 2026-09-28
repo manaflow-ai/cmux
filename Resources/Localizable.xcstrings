@@ -260698,6 +260698,65 @@
         }
       }
     },
+    "mobile.pairing.error.teamUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load your cmux team. Check your internet connection, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux チームを読み込めませんでした。インターネット接続を確認してから、もう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载你的 cmux 团队。请检查网络连接，然后重试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein cmux-Team konnte nicht geladen werden. Prüfe deine Internetverbindung und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger votre équipe cmux. Vérifiez votre connexion Internet, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحميل فريق cmux الخاص بك. تحقّق من اتصالك بالإنترنت، ثم حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cargar tu equipo de cmux. Comprueba tu conexión a internet e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入你的 cmux 團隊。請檢查網路連線，然後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 팀을 불러올 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
     "mobile.pairing.error.noTicket": {
       "extractionState": "manual",
       "localizations": {

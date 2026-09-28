@@ -214,6 +214,27 @@ final class MobilePairingModel {
             state = .pairingDisabled
             return
         }
+        // The host starts only for a signed-in team scope. A session whose
+        // team list has not loaded retries in the background; opening the
+        // sheet or pressing Try Again retries now instead of waiting.
+        if coordinator.authenticatedTeamScope == nil {
+            await coordinator.revalidateSession()
+            guard generation == refreshGeneration, state == .preparing else { return }
+            guard coordinator.isAuthenticated else {
+                signedInEmail = nil
+                state = .signedOut
+                return
+            }
+            guard coordinator.authenticatedTeamScope != nil else {
+                state = .failed(
+                    String(
+                        localized: "mobile.pairing.error.teamUnavailable",
+                        defaultValue: "Could not load your cmux team. Check your internet connection, then try again."
+                    )
+                )
+                return
+            }
+        }
         let status = await host.ensureListeningAndReady()
         guard generation == refreshGeneration else { return }
         guard status.isRunning else {
