@@ -3,32 +3,37 @@ import Testing
 
 @Suite("Chat outline navigator")
 struct ChatOutlineNavigatorTests {
-    // Prompts at rows 10, 50, (unanchored), 120.
-    private let navigator = ChatOutlineNavigator(anchorRows: [10, 50, nil, 120])
+    // Prompts at rows 10, 50, (unanchored), 120, 123 (a short turn).
+    private let navigator = ChatOutlineNavigator(anchorRows: [10, 50, nil, 120, 123])
 
-    @Test("the current turn is the last prompt at or above the viewport's upper third")
+    @Test("the current turn is the last prompt at or above the reading line")
     func currentTurn() {
         #expect(navigator.currentIndex(viewportTop: 0, viewportRows: 24) == nil)
         #expect(navigator.currentIndex(viewportTop: 9, viewportRows: 24) == 0)
-        #expect(navigator.currentIndex(viewportTop: 45, viewportRows: 24) == 1)
+        #expect(navigator.currentIndex(viewportTop: 49, viewportRows: 24) == 1)
         #expect(navigator.currentIndex(viewportTop: 100, viewportRows: 24) == 1)
+        // After a jump to row 120 (top 119), the short turn below is not current.
         #expect(navigator.currentIndex(viewportTop: 119, viewportRows: 24) == 3)
+        // At the live bottom, the newest prompt on screen is current.
+        #expect(navigator.currentIndex(viewportTop: 110, viewportRows: 24, isAtBottom: true) == 4)
     }
 
-    @Test("next skips unanchored prompts and stops at the last one")
-    func nextTarget() {
+    @Test("next and previous visit every anchored prompt, including short adjacent turns")
+    func stepThroughTurns() {
         #expect(navigator.nextTarget(viewportTop: 0, viewportRows: 24) == 0)
         #expect(navigator.nextTarget(viewportTop: 49, viewportRows: 24) == 3)
-        #expect(navigator.nextTarget(viewportTop: 119, viewportRows: 24) == nil)
+        #expect(navigator.nextTarget(viewportTop: 119, viewportRows: 24) == 4)
+        #expect(navigator.nextTarget(viewportTop: 122, viewportRows: 24) == nil)
+        #expect(navigator.previousTarget(viewportTop: 122, viewportRows: 24) == 3)
+        #expect(navigator.previousTarget(viewportTop: 119, viewportRows: 24) == 1)
+        #expect(navigator.previousTarget(viewportTop: 100, viewportRows: 24) == 1)
+        #expect(navigator.previousTarget(viewportTop: 9, viewportRows: 24) == nil)
     }
 
-    @Test("previous returns to the current prompt first when it scrolled off the top")
-    func previousTarget() {
-        #expect(navigator.previousTarget(viewportTop: 49, viewportRows: 24) == 0)
-        #expect(navigator.previousTarget(viewportTop: 100, viewportRows: 24) == 1)
-        #expect(navigator.previousTarget(viewportTop: 119, viewportRows: 24) == 1)
-        #expect(navigator.previousTarget(viewportTop: 9, viewportRows: 24) == nil)
-        #expect(navigator.previousTarget(viewportTop: 0, viewportRows: 3) == nil)
+    @Test("at the live bottom, previous goes to the newest prompt first")
+    func previousFromBottom() {
+        #expect(navigator.previousTarget(viewportTop: 110, viewportRows: 24, isAtBottom: true) == 4)
+        #expect(navigator.nextTarget(viewportTop: 110, viewportRows: 24, isAtBottom: true) == nil)
     }
 }
 

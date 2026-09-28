@@ -48,6 +48,38 @@ struct ChatOutlineAnchorResolverTests {
         #expect(resolver.row(for: first, among: [first, second], in: history) == nil)
     }
 
+    @Test("a newest prompt that is not echoed yet never borrows an older copy's row")
+    func unechoedNewestPromptStaysUnanchored() {
+        let entries = [entry("a", "yes"), entry("b", "fix"), entry("c", "yes")]
+        let history = "❯ yes\nok\n❯ fix\nworking\n"
+
+        let rows = ChatOutlineAnchorResolver().rows(for: entries, in: history)
+
+        #expect(rows == ["a": 0, "b": 2])
+    }
+
+    @Test("markdown headings, quotes and shell prompts are not prompt rows")
+    func proseLookalikesAreNotPrompts() {
+        let entries = [entry("a", "Summary"), entry("b", "ls")]
+        let history = "# Summary\n$ ls\n% ls\n"
+
+        #expect(ChatOutlineAnchorResolver().rows(for: entries, in: history).isEmpty)
+    }
+
+    @Test("hundreds of turns resolve against a long scrollback quickly")
+    func largeScrollbackResolves() {
+        let entries = (0..<400).map { entry("e\($0)", "prompt number \($0) about the build") }
+        var lines: [String] = []
+        for index in 0..<400 {
+            lines.append("❯ prompt number \(index) about the build")
+            lines.append(contentsOf: (0..<100).map { "> quoted output \($0) of turn \(index)" })
+        }
+        let rows = ChatOutlineAnchorResolver().rows(for: entries, in: lines.joined(separator: "\n"))
+
+        #expect(rows.count == 400)
+        #expect(rows["e399"] == 399 * 101)
+    }
+
     @Test("an older prompt never anchors below a newer one")
     func anchorsStayMonotonic() {
         // The redraw printed "b" again after "a"'s only copy; "a" must not

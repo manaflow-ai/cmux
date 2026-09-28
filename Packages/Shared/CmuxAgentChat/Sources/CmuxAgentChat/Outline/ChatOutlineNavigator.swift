@@ -2,6 +2,11 @@ import Foundation
 
 /// Answers "which turn is on screen" and "where does next/previous go" from
 /// resolved prompt rows and the terminal viewport.
+///
+/// A jump puts a prompt on the viewport's second row (one row of context), so
+/// the "reading line" is `viewportTop + 1`: the turn on screen is the last
+/// prompt at or above it, and next/previous move to the nearest prompt below
+/// or above it. At the live bottom, the newest visible prompt is current.
 public struct ChatOutlineNavigator: Sendable, Equatable {
     /// Start row per entry, in entry order; `nil` when the prompt could not be
     /// anchored in the terminal.
@@ -14,70 +19,46 @@ public struct ChatOutlineNavigator: Sendable, Equatable {
         self.anchorRows = anchorRows
     }
 
-    /// The entry whose exchange occupies the viewport: the last anchored
-    /// prompt at or above the viewport's upper third.
+    /// The entry whose exchange occupies the viewport.
     ///
     /// - Parameters:
     ///   - viewportTop: Absolute row at the top of the viewport.
     ///   - viewportRows: Visible row count.
+    ///   - isAtBottom: Whether the viewport follows the newest output.
     /// - Returns: The current entry index, or `nil` when no anchored prompt
-    ///   starts at or above the probe row.
-    public func currentIndex(viewportTop: Int, viewportRows: Int) -> Int? {
-        let probe = viewportTop + max(0, viewportRows / 3)
-        var current: Int?
+    ///   starts at or above the reading line.
+    public func currentIndex(viewportTop: Int, viewportRows: Int, isAtBottom: Bool = false) -> Int? {
+        let line = isAtBottom ? viewportTop + max(0, viewportRows - 1) : viewportTop + 1
+        return lastAnchoredIndex { $0 <= line }
+    }
+
+    /// Where "previous turn" goes: the nearest prompt above the reading line.
+    /// At the live bottom, the newest prompt on screen comes first.
+    public func previousTarget(viewportTop: Int, viewportRows: Int, isAtBottom: Bool = false) -> Int? {
+        if isAtBottom,
+           let newest = currentIndex(viewportTop: viewportTop, viewportRows: viewportRows, isAtBottom: true),
+           let row = anchorRows[newest], row > viewportTop + 1 {
+            return newest
+        }
+        return lastAnchoredIndex { $0 < viewportTop + 1 }
+    }
+
+    /// Where "next turn" goes: the nearest prompt below the reading line, or
+    /// `nil` when none is.
+    public func nextTarget(viewportTop: Int, viewportRows: Int, isAtBottom: Bool = false) -> Int? {
+        if isAtBottom { return nil }
+        return anchorRows.indices.first { index in
+            guard let row = anchorRows[index] else { return false }
+            return row > viewportTop + 1
+        }
+    }
+
+    private func lastAnchoredIndex(where predicate: (Int) -> Bool) -> Int? {
+        var result: Int?
         for (index, row) in anchorRows.enumerated() {
             guard let row else { continue }
-            if row <= probe {
-                current = index
-            } else {
-                break
-            }
+            if predicate(row) { result = index } else { break }
         }
-        return current
-    }
-
-    /// Where "previous turn" goes: the start of the current turn when its
-    /// prompt has scrolled above the viewport, otherwise the prompt before it.
-    ///
-    /// - Parameters:
-    ///   - viewportTop: Absolute row at the top of the viewport.
-    ///   - viewportRows: Visible row count.
-    public func previousTarget(viewportTop: Int, viewportRows: Int) -> Int? {
-        let current = currentIndex(viewportTop: viewportTop, viewportRows: viewportRows)
-        if let current, let row = anchorRows[current], row < viewportTop {
-            return current
-        }
-        guard let current else { return nil }
-        return previousAnchoredIndex(before: current)
-    }
-
-    /// Where "next turn" goes: the next anchored prompt below the current
-    /// turn, or `nil` when the current turn is the last one.
-    ///
-    /// - Parameters:
-    ///   - viewportTop: Absolute row at the top of the viewport.
-    ///   - viewportRows: Visible row count.
-    public func nextTarget(viewportTop: Int, viewportRows: Int) -> Int? {
-        nextAnchoredIndex(after: currentIndex(viewportTop: viewportTop, viewportRows: viewportRows))
-    }
-
-    /// The nearest anchored entry after `index`, or `nil` at the end.
-    ///
-    /// - Parameter index: The current entry, or `nil` when none is current
-    ///   (the viewport is above every anchored prompt).
-    public func nextAnchoredIndex(after index: Int?) -> Int? {
-        let start = (index ?? -1) + 1
-        guard start < anchorRows.count else { return nil }
-        return (start..<anchorRows.count).first { anchorRows[$0] != nil }
-    }
-
-    /// The nearest anchored entry before `index`.
-    ///
-    /// - Parameter index: The current entry, or `nil` to start from the end
-    ///   of the outline.
-    public func previousAnchoredIndex(before index: Int?) -> Int? {
-        let end = index ?? anchorRows.count
-        guard end > 0 else { return nil }
-        return (0..<min(end, anchorRows.count)).reversed().first { anchorRows[$0] != nil }
+        return result
     }
 }
