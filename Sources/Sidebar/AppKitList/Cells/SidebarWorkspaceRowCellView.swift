@@ -140,6 +140,19 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         needsLayout = true
     }
 
+    /// Title weight for this row, resolved through the weights the SwiftUI
+    /// rows use, so both renderers agree.
+    ///
+    /// Selection and unread count both take part in row-model equality, so a
+    /// change here re-measures the row instead of reusing a height cached at
+    /// the other weight.
+    private static func titleWeight(for model: SidebarWorkspaceRowModel) -> SidebarRowTextWeight {
+        .workspaceTitle(
+            isSelected: model.isActive || model.isMultiSelected,
+            hasUnread: model.unreadCount > 0
+        )
+    }
+
     var currentModelForMeasurement: SidebarWorkspaceRowModel? { model }
 
     /// Paints the FULL selected treatment instantly on press by applying a
@@ -606,7 +619,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
 #endif
         titleView.stringValue = boundedTitle
-        titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
+        titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: Self.titleWeight(for: model).appKitWeight)
         titleView.textColor = palette.primaryText
         titleView.alphaValue = snapshot.isMuted ? 0.6 : 1
 
@@ -1141,7 +1154,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 self?.removeInlineRenameSession()
             }
         )
-        session.field.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
+        // The rename field replaces the title in place, so it draws at the
+        // title's weight and the text does not shift when editing starts.
+        session.field.font = .systemFont(ofSize: model.scaled(12.5), weight: Self.titleWeight(for: model).appKitWeight)
         session.field.inlineRenameTextColor = palette(model).selectedForeground(1.0)
         renameSession = session
         titleView.isHidden = true

@@ -61,6 +61,8 @@ struct SidebarAppKitRowCellTests {
     static func makeModel(
         workspaceId: UUID = UUID(),
         isActive: Bool = false,
+        isMultiSelected: Bool = false,
+        unreadCount: Int = 0,
         isPinned: Bool = false,
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
@@ -84,11 +86,11 @@ struct SidebarAppKitRowCellTests {
             ),
             settings: resolvedSettings,
             isActive: isActive,
-            isMultiSelected: false,
+            isMultiSelected: isMultiSelected,
             hasUserCustomTitle: false,
             canCloseWorkspace: canClose,
             accessibilityWorkspaceCount: 1,
-            unreadCount: 0,
+            unreadCount: unreadCount,
             latestNotificationText: nil,
             showsAgentActivity: resolvedSettings.details.showAgentActivity,
             rowSpacing: 8,
@@ -430,6 +432,28 @@ struct SidebarAppKitRowCellTests {
             y: textView.textContainerOrigin.y + glyphBounds.midY
         )
         return textView.convert(localPoint, to: textView.superview)
+    }
+
+    /// The sidebar reads better when only the rows that need attention are
+    /// heavy, so a resting row draws its title lighter than a selected row or
+    /// a row with unread notifications.
+    @Test
+    func workspaceTitleWeightTracksSelectionAndUnread() throws {
+        func titleFont(_ model: SidebarWorkspaceRowModel) throws -> NSFont {
+            let cell = Self.configuredCell(model: model)
+            let titleView = try #require(
+                Self.descendants(of: cell)
+                    .compactMap { $0 as? SidebarRowTextView }
+                    .first { !$0.isHidden && $0.stringValue == model.snapshot.title }
+            )
+            return try #require(titleView.font)
+        }
+
+        let size = Self.makeModel().scaled(12.5)
+        #expect(try titleFont(Self.makeModel()) == NSFont.systemFont(ofSize: size, weight: .regular))
+        #expect(try titleFont(Self.makeModel(isActive: true)) == NSFont.systemFont(ofSize: size, weight: .semibold))
+        #expect(try titleFont(Self.makeModel(isMultiSelected: true)) == NSFont.systemFont(ofSize: size, weight: .semibold))
+        #expect(try titleFont(Self.makeModel(unreadCount: 3)) == NSFont.systemFont(ofSize: size, weight: .semibold))
     }
 
     @Test

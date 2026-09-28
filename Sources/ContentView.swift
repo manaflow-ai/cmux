@@ -15983,8 +15983,18 @@ struct TabItemView: View, Equatable {
         )
     }
 
+    /// Resting rows draw their title at `regular`; the selected row and rows
+    /// with unread notifications keep `semibold`. Resolved through
+    /// `SidebarRowTextWeight` so the AppKit row cell agrees.
+    private var titleTextWeight: SidebarRowTextWeight {
+        .workspaceTitle(
+            isSelected: isActive || isMultiSelected,
+            hasUnread: unreadCount > 0
+        )
+    }
+
     private var titleFontWeight: Font.Weight {
-        .semibold
+        titleTextWeight.swiftUIWeight
     }
 
     private var fontScale: CGFloat {
@@ -16279,7 +16289,9 @@ struct TabItemView: View, Equatable {
                 if isEditing {
                     SidebarInlineRenameField(
                         initialText: renameDraft,
-                        fontSize: GlobalFontMagnification.scaledSize(scaledFontSize(12.5), percent: globalFontMagnificationPercent), textColor: selectedWorkspaceForegroundNSColor(opacity: 1.0),
+                        fontSize: GlobalFontMagnification.scaledSize(scaledFontSize(12.5), percent: globalFontMagnificationPercent),
+                        fontWeight: titleTextWeight.appKitWeight,
+                        textColor: selectedWorkspaceForegroundNSColor(opacity: 1.0),
                         accessibilityLabel: String(
                             localized: "sidebar.workspace.rename.field.accessibilityLabel",
                             defaultValue: "Rename workspace"
