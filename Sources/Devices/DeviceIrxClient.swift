@@ -198,12 +198,30 @@ actor DeviceIrxClient {
 
     func enforce(_ cache: V2CachedState?) async {
         let revoked = sessions.filter { endpoint, entry in
-            guard let cache, let peer = try? IrxMacPeerAuthorization(
-                deviceID: entry.instance.deviceID, tag: entry.instance.tag, endpointID: endpoint
-            ).resolve(cache: cache, localIdentity: cache.identity, now: permissionNow()) else { return true }
             switch entry.authorization {
-            case .waiting: return false
-            case .verified: return !isAuthorized(peer, endpoint: endpoint, owner: entry.owner)
+            case .waiting:
+                // A control snapshot can be ready before its complete directory
+                // has arrived. The dial validates the latest cache at every
+                // admission boundary; stopping it here turns that normal race
+                // into a user-requested cancellation with no retry signal.
+                return cache == nil
+            case .verified:
+                guard let cache else { return true }
+                do {
+                    let peer = try IrxMacPeerAuthorization(
+                        deviceID: entry.instance.deviceID, tag: entry.instance.tag, endpointID: endpoint
+                    ).resolve(cache: cache, localIdentity: cache.identity, now: permissionNow())
+                    return !isAuthorized(peer, endpoint: endpoint, owner: entry.owner)
+                } catch let failure as IrxMacPeerAuthorization.Failure {
+                    switch failure {
+                    case .staleDirectory, .unavailable:
+                        return false
+                    case .revoked, .notDiscoverable, .identityMismatch:
+                        return true
+                    }
+                } catch {
+                    return false
+                }
             case .closing: return false
             }
         }

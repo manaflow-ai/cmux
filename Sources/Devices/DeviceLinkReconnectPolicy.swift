@@ -100,9 +100,9 @@ struct DeviceLinkReconnectPolicy: Equatable, Sendable {
                 ? .waiting(attempt: attempt, delay: Self.delay(afterFailures: attempt))
                 : .blocked(failure)
         case .connectInterrupted:
-            // Regression-test placeholder: the owner currently drops this
-            // signal until the connect cancellation fix lands.
-            return phase
+            guard case .connecting(let attempt) = phase else { return phase }
+            guard isDialable else { phase = .idle; return phase }
+            phase = .waiting(attempt: attempt, delay: Self.delay(afterFailures: attempt))
         case .transportLost:
             guard phase == .connected else { return phase }
             guard isDialable else { phase = .idle; return phase }
