@@ -52,7 +52,11 @@ extension RightSidebarMode {
     }
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
-        isAvailable(
+        if self == .customSidebar {
+            return CmuxExtensionSidebarSelection.customSidebarsEnabled(defaults: defaults)
+                && FileExplorerState.persistedCustomSidebarName(defaults: defaults) != nil
+        }
+        return isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
             machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
@@ -105,8 +109,8 @@ extension RightSidebarMode {
             // Available once the custom-sidebars beta is on AND a right-side
             // sidebar has been picked (right_sidebar set custom <name>); the
             // mode bar then grows a Custom button.
-            return CmuxExtensionSidebarSelection.customSidebarsEnabled(defaults: defaults)
-                && FileExplorerState.persistedCustomSidebarName(defaults: defaults) != nil
+            return CmuxExtensionSidebarSelection.customSidebarsEnabled
+                && FileExplorerState.persistedCustomSidebarName() != nil
         }
     }
 }
