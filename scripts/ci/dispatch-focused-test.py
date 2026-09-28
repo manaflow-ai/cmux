@@ -650,11 +650,26 @@ def skips_macos(run_id: int) -> bool:
     )
 
 
+def admission_ended(run_id: int) -> bool:
+    """Whether a CI run's latest attempt has compile admission jobs and all have completed.
+
+    Admission uploads the products before it completes, so a finished
+    admission without them has none to give. The run itself may stay in
+    progress for long after: its ui-tests job waits for the UI dispatch that
+    waits here, so run 36435812903's refused admission held that dispatch for
+    the whole PRODUCTS_WAIT_SECONDS before it compiled for itself, and kept
+    the run open so the owned-pool rescue could not re-run the refusal.
+    """
+    listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
+    admissions = [job for job in listing.get("jobs", []) if job.get("name", "").endswith(rerun.ADMISSION_JOB)]
+    return bool(admissions) and all(job.get("status") == "completed" for job in admissions)
+
+
 def wait_for_products(producer: dict, still_wanted: Callable[[], bool] = lambda: True) -> bool:
     """Wait for a building CI run to upload its app-host products.
 
     True once they exist; False when the run ends without them, skips its
-    macOS compile, has not produced them within PRODUCTS_WAIT_SECONDS, or
+    macOS compile, finishes compile admission without them, has not produced them within PRODUCTS_WAIT_SECONDS, or
     `still_wanted` says the products it will make cannot be used.
     """
     print(
@@ -674,6 +689,11 @@ def wait_for_products(producer: dict, still_wanted: Callable[[], bool] = lambda:
             if skips_macos(producer["id"]):
                 print(f"note: {producer['url']} skipped its macOS compile", file=sys.stderr, flush=True)
                 return False
+            if admission_ended(producer["id"]) and not rerun.products_artifact(REPO, str(producer["id"]),
+                                                                               rerun.gh_api):
+                print(f"note: {producer['url']} finished compile admission without app-host products",
+                      file=sys.stderr, flush=True)
+                return False
             if not still_wanted():
                 print(f"note: {producer['url']} compiles products this run cannot use", file=sys.stderr, flush=True)
                 return False
@@ -689,6 +709,10 @@ def awaited_products(producer: dict, commit: str, only_testing: str) -> dict | N
     if not wait_for_products(producer):
         return None
     return planned_products(commit, only_testing, str(producer["id"]))
+
+
+# CI runs whose finished products ui_product_source() found but no UI run can load.
+UNLOADABLE_SOURCES: list[str] = []
 
 
 def ui_product_source(commit: str) -> dict | None:
@@ -732,6 +756,8 @@ def ui_product_source(commit: str) -> dict | None:
             if rerun.products_artifact(REPO, str(run["id"]), rerun.gh_api):
                 if usable_product(source):
                     return {**source, "ready": True, "adopted": True}
+                if unusable_family(source):
+                    UNLOADABLE_SOURCES.append(source["url"])
                 continue
         except (subprocess.CalledProcessError, json.JSONDecodeError):
             continue
@@ -801,6 +827,15 @@ def product_family(source: dict) -> str | None:
             return blacksmith[0] if blacksmith[0] in RUNNERS else FAMILY_RUNNERS["blacksmith"]
         return None if labels else ""
     return ""
+
+
+def unusable_family(source: dict) -> bool:
+    """Whether a CI run's compile admission has a runner whose products no UI
+    run can load; False when unknown (no runner yet, or the API failed)."""
+    try:
+        return product_family(source) is None
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return False
 
 
 def usable_product(source: dict, pending: bool = False) -> bool:
@@ -898,8 +933,11 @@ def watch_run(run_id: int) -> int:
 DOGFOOD_SELECTOR = "cmuxUITests/DogfoodScenarioUITests"
 # workflow_dispatch caps the whole inputs payload at 65,535 characters.
 DOGFOOD_SCENARIO_MAX_B64 = 60_000
-# --adopt-only's status when the run would have to compile the app itself.
+# --adopt-only's status when the run would have to compile the app itself:
+# CI made no product (or has not within the wait), or made one on a pool
+# the UI runner cannot load (UNLOADABLE_PRODUCT_EXIT).
 NO_PRODUCT_EXIT = 3
+UNLOADABLE_PRODUCT_EXIT = 4
 
 
 def encode_scenario(path: Path) -> str:
@@ -932,7 +970,9 @@ def main() -> int:
         help="cmuxTests/Suite[/method] or cmuxUITests/Class[/method]; bare names target UI tests. "
         "A Swift Testing method takes its call suffix, Suite/method() or Suite/method(label:); "
         "one this checkout declares gets it added. "
-        "Pass several to run them against one compile; they must share a target.",
+        "Pass several to run them against one compile; they must share a target. "
+        "cmuxUITests/FuzzRegressions replays the UI fuzzer's checked-in repros (dogfood/fuzz/regressions) "
+        "against the app, after any UI classes named with it.",
     )
     parser.add_argument("--ref", help="remote branch, tag, or SHA; default: clean local HEAD, already pushed")
     parser.add_argument("--wait", action="store_true", help="wait and return a nonzero status if the run fails")
@@ -964,8 +1004,16 @@ def main() -> int:
         "--adopt-only",
         action="store_true",
         help="UI runs only: dispatch only when the run can adopt the app and UI test bundle a CI "
-        f"run of this commit compiled, and otherwise exit {NO_PRODUCT_EXIT}; the dispatched run "
+        f"run of this commit compiled, and otherwise exit {NO_PRODUCT_EXIT} "
+        f"({UNLOADABLE_PRODUCT_EXIT} when CI's product is on a pool the UI runner cannot load); the dispatched run "
         "fails rather than compiles if its reuse still misses (PR media tours use this)",
+    )
+    parser.add_argument(
+        "--adopt-main",
+        action="store_true",
+        help="with --adopt-only, for a pull request whose CI reused main's build: dispatch the head "
+        "without a CI run's product, and let test-e2e.yml adopt main's product of the same inputs "
+        "(it fails rather than compiles when that misses)",
     )
     parser.add_argument(
         "--force",
@@ -1017,6 +1065,8 @@ def main() -> int:
     test_filter = ",".join(args.test_filter)
     if args.adopt_only and (test_target != "cmuxUITests" or args.runner not in (None, "auto") or args.full_build):
         parser.error("--adopt-only takes UI selectors on the default runner, without --full-build")
+    if args.adopt_main and not args.adopt_only:
+        parser.error("--adopt-main goes with --adopt-only")
     if args.ref is not None and not args.ref.strip():
         parser.error("--ref must not be empty")
     if args.workflow_ref is not None and not args.workflow_ref.strip():
@@ -1059,7 +1109,11 @@ def main() -> int:
                     flush=True,
                 )
 
-    if args.adopt_only and ui_source is None:
+    if args.adopt_only and ui_source is None and not args.adopt_main:
+        if UNLOADABLE_SOURCES:
+            print(f"{UNLOADABLE_SOURCES[0]} compiled {head}'s app-host products where no UI run can "
+                  "load them; not compiling (--adopt-only).", flush=True)
+            return UNLOADABLE_PRODUCT_EXIT
         print(f"No CI run of {head} has or will have app-host products to adopt; "
               "not compiling (--adopt-only).", flush=True)
         return NO_PRODUCT_EXIT
@@ -1196,6 +1250,10 @@ def main() -> int:
             adopted = False
         ui_source["adopted"] = adopted
         if args.adopt_only and not adopted:
+            if unusable_family(ui_source):
+                print(f"{ui_source['url']} compiles on a pool whose products no UI run can load; "
+                      "not compiling (--adopt-only).", flush=True)
+                return UNLOADABLE_PRODUCT_EXIT
             print(f"{ui_source['url']} left no app-host products this run can adopt; "
                   "not compiling (--adopt-only).", flush=True)
             return NO_PRODUCT_EXIT
@@ -1230,11 +1288,11 @@ def main() -> int:
             pr_xcode_app=repository_variable(pool.PR_XCODE_VARIABLE, PR_XCODE_ENV),
             log=lambda message: print(f"Runner pool: {message}", file=sys.stderr, flush=True),
         )
-    if args.adopt_only and not adopts_on(runner, ui_source.get("family")):
+    if args.adopt_only and ui_source is not None and not adopts_on(runner, ui_source.get("family")):
         print(f"UI runs go to {runner}, which cannot load the products {ui_source['url']} "
               f"compiled on {ui_source.get('family') or 'an unknown pool'}; not compiling (--adopt-only).",
               flush=True)
-        return NO_PRODUCT_EXIT
+        return UNLOADABLE_PRODUCT_EXIT
     dispatch_id = uuid.uuid4().hex
     video = not args.no_video and test_target != "cmuxTests"
     fields = {

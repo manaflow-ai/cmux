@@ -22,6 +22,11 @@ final class TerminalAgentTurnControlView: NSView {
     private let stopButton = TerminalAgentTurnControlButton(frame: .zero)
     private let editQueuedButton = TerminalAgentTurnControlButton(frame: .zero)
     private let turnsButton = TerminalAgentTurnControlButton(frame: .zero)
+    /// Compact-and-resume progress, or why it stopped.
+    private let statusLabel = NSTextField(labelWithString: "")
+    private var statusGeneration: UInt64 = 0
+    /// How long a stopped run's reason stays in the pill.
+    static let statusErrorInterval: TimeInterval = 6
     private let buttonStack = NSStackView(frame: .zero)
     private(set) var target: AgentTurnInterruptTarget?
     /// The supported agent with a session in this pane, running or not.
@@ -95,6 +100,12 @@ final class TerminalAgentTurnControlView: NSView {
         buttonStack.orientation = .horizontal
         buttonStack.alignment = .centerY
         buttonStack.spacing = 10
+        statusLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.isHidden = true
+        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        buttonStack.addArrangedSubview(statusLabel)
         buttonStack.addArrangedSubview(turnsButton)
         buttonStack.addArrangedSubview(editQueuedButton)
         buttonStack.addArrangedSubview(stopButton)
@@ -197,6 +208,29 @@ final class TerminalAgentTurnControlView: NSView {
         }
     }
 
+    /// Whether Compact and Resume is offered (`agentActions.turnControl`).
+    var isCompactResumeEnabled: Bool { isEnabledBySetting }
+
+    /// Shows compact-and-resume progress in the pill, or clears it with
+    /// `nil`. An error clears itself after ``statusErrorInterval``.
+    func setCompactResumeStatus(_ text: String?, isError: Bool) {
+        statusGeneration &+= 1
+        statusLabel.stringValue = text ?? ""
+        statusLabel.toolTip = text
+        statusLabel.textColor = isError ? .systemOrange : .secondaryLabelColor
+        statusLabel.isHidden = text == nil
+        render()
+        guard isError, text != nil else { return }
+        let generation = statusGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.statusErrorInterval) { [weak self] in
+            guard let self, self.statusGeneration == generation else { return }
+            self.setCompactResumeStatus(nil, isError: false)
+        }
+    }
+
+    /// The compact-and-resume status the pill shows, for tests.
+    var compactResumeStatus: String? { statusLabel.isHidden ? nil : statusLabel.stringValue }
+
     private func render() {
         let showsStop = target != nil && isEnabledBySetting
         let showsEditQueued = isPromptEditingEnabled && target == .claudeCode && queuedPromptCount > 0
@@ -204,7 +238,7 @@ final class TerminalAgentTurnControlView: NSView {
         stopButton.isHidden = !showsStop
         editQueuedButton.isHidden = !showsEditQueued
         turnsButton.isHidden = !showsTurns
-        guard showsStop || showsEditQueued || showsTurns else {
+        guard showsStop || showsEditQueued || showsTurns || !statusLabel.isHidden else {
             isHidden = true
             return
         }

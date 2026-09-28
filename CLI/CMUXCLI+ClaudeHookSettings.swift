@@ -15,6 +15,9 @@ extension CMUXCLI {
         )] = [
             ("SessionStart", "", "session-start"),
             ("Stop", "", "stop"),
+            // Claude Code fires StopFailure instead of Stop when a turn dies
+            // on an API error (usage limit, dropped connection, overload).
+            ("StopFailure", "", "stop"),
             ("SessionEnd", "", "session-end"),
             ("Notification", "", "notification"),
             ("UserPromptSubmit", "", "prompt-submit"),
@@ -39,6 +42,13 @@ extension CMUXCLI {
             ),
         ])
         hooks["SubagentStop"] = [
+            Self.claudeQueuedHookGroup(
+                subcommand: "feed"
+            ),
+        ]
+        // Compact and resume continues the agent only after this reports
+        // the compaction it asked for finished.
+        hooks["PostCompact"] = [
             Self.claudeQueuedHookGroup(
                 subcommand: "feed"
             ),

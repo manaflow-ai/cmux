@@ -35,6 +35,8 @@ final class TerminalPanel: Panel, ObservableObject {
     weak var agentTurnsPopover: NSPopover?
     /// Set while the Turns button is looking up the pane's session.
     var isLoadingAgentTurns = false
+    /// The compact-and-resume run in progress on this pane, if any.
+    var agentCompactResumeRun: AgentCompactResumeRun?
 
     var ownedSessionScrollbackReplayFileURL: URL? = nil
     /// The workspace-env key/value pairs this panel inherited from its workspace's

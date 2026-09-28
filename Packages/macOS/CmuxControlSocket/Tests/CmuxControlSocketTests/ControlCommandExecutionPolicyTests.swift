@@ -55,6 +55,8 @@ struct ControlCommandExecutionPolicyTests {
             // must never hold the main actor (see socketWorkerMethods).
             "vault.sessions", "vault.search", "vault.checkpoints",
             "vault.checkpoint", "vault.fork",
+            // Reads the hook store and transcript tail before starting the run.
+            "agent.compact_resume",
             "mobile.compatible_tags.get", "mobile.compatible_tags.set",
             "mobile.panel.artifact.stat", "mobile.panel.artifact.thumbnail",
             // JavaScript-evaluating browser methods block on page JS and must

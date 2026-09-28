@@ -46,6 +46,11 @@ extension TerminalPanel {
                 popover?.performClose(nil)
                 self?.interruptAgentTurn(agent)
             },
+            onCompactResume: hostedView.agentTurnControlView.isCompactResumeEnabled ? { [weak self, weak popover] in
+                popover?.performClose(nil)
+                guard let self else { return }
+                Task { @MainActor in await self.startAgentCompactResume(timing: .now) }
+            } : nil,
             onEditPrompt: { [weak self, weak popover] text in
                 popover?.performClose(nil)
                 self?.putPromptInAgentInput(text)
