@@ -36,8 +36,8 @@ struct ExternalHostHostingTests {
         func externalHostRequestReplay(surfaceID: String) { replayRequests.append(surfaceID) }
     }
 
-    private static let hostID = "cmux-cloud\u{1F}vm-1"
-    private static let surfaceID = "cmux-cloud\u{1F}vm-1\u{1F}term-1"
+    private static let hostID = "cmux-cloud\u{1D}vm-1"
+    private static let surfaceID = "cmux-cloud\u{1D}vm-1\u{1D}term-1"
 
     private static func state(workspaceName: String = "api") -> MacWorkspaceState {
         MacWorkspaceState(
@@ -45,7 +45,7 @@ struct ExternalHostHostingTests {
             displayName: "sleepy-teal-otter",
             workspaces: [
                 MobileWorkspacePreview(
-                    id: MobileWorkspacePreview.ID(rawValue: "cmux-cloud\u{1F}vm-1\u{1F}ws-1"),
+                    id: MobileWorkspacePreview.ID(rawValue: "cmux-cloud\u{1D}vm-1\u{1D}ws-1"),
                     macDeviceID: hostID,
                     macDisplayName: "sleepy-teal-otter",
                     name: workspaceName,
@@ -208,8 +208,8 @@ struct ExternalHostHostingTests {
         let composite = Self.composite(with: host)
         // A second host stays visible, so a fallback would have somewhere to
         // land and the swap would go unnoticed.
-        let otherHostID = "cmux-cloud\u{1F}vm-2"
-        let other = RecordingHost(hostID: otherHostID, surfaceID: "cmux-cloud\u{1F}vm-2\u{1F}term-9")
+        let otherHostID = "cmux-cloud\u{1D}vm-2"
+        let other = RecordingHost(hostID: otherHostID, surfaceID: "cmux-cloud\u{1D}vm-2\u{1D}term-9")
         composite.registerExternalHostSource(other)
         composite.applyExternalHostWorkspaceState(
             MacWorkspaceState(
@@ -217,7 +217,7 @@ struct ExternalHostHostingTests {
                 displayName: "other",
                 workspaces: [
                     MobileWorkspacePreview(
-                        id: MobileWorkspacePreview.ID(rawValue: "cmux-cloud\u{1F}vm-2\u{1F}ws-9"),
+                        id: MobileWorkspacePreview.ID(rawValue: "cmux-cloud\u{1D}vm-2\u{1D}ws-9"),
                         macDeviceID: otherHostID,
                         name: "other work",
                         terminals: []
@@ -243,7 +243,7 @@ struct ExternalHostHostingTests {
         let openRow = try! #require(composite.workspaces.first)
         composite.selectedWorkspaceID = openRow.id
 
-        composite.setExternalHost("cmux-cloud\u{1F}vm-absent", hidden: true)
+        composite.setExternalHost("cmux-cloud\u{1D}vm-absent", hidden: true)
 
         #expect(composite.selectedWorkspaceID == openRow.id)
     }

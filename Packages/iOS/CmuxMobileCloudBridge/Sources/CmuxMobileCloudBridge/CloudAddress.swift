@@ -9,13 +9,15 @@ import Foundation
 /// switching) hold while a link is down, a machine is paused, or the app has
 /// just relaunched. Demonstration content relies on the same rule.
 ///
-/// The separator is the unit separator this repository already uses for
-/// composite identifiers, and it cannot appear in a machine id or a daemon id,
-/// so parsing back is unambiguous.
+/// The separator is the group separator, which cannot appear in a machine id
+/// or a daemon id, so parsing back is unambiguous. It must not be the unit
+/// separator: a host id carrying that reads as a Mac pairing id (device, then
+/// build tag), and the computer picker's filter would then match none of the
+/// machine's rows.
 public struct CloudAddress: Hashable, Sendable {
     /// Marks every identifier in this namespace.
     public static let namespace = "cmux-cloud"
-    private static let separator = "\u{1F}"
+    private static let separator = "\u{1D}"
 
     /// The Cloud machine's stable id.
     public let machineID: String
