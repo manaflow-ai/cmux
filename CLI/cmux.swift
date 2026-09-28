@@ -19988,8 +19988,8 @@ struct CMUXCLI {
                 "cli.surface.usage",
                 defaultValue: """
             Usage: cmux surface ls [<machine>|local] [--refresh] [--json]
-                   cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]
-                   cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]
+                   cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus|--no-focus]
+                   cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [-- <command...>]
                    cmux surface resume set [flags] -- <argv...>
                    cmux surface resume set [flags] --shell <command>
                    cmux surface resume show [--json] [flags]
