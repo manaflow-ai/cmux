@@ -170,9 +170,17 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         capture("team-dropdown-switch-failed")
     }
 
-    func testCreateTeamSheetReportsErrorsAndSelectsNewTeam() {
+    /// Create closes the sheet at once and the header shows the new team while
+    /// the server works. A rejected create restores the previous team, reports
+    /// the failure under the header and offers the name again.
+    func testCreateTeamIsOptimisticAndRejectedCreateRollsBack() {
+        // Creates stay pending until the test creates this file.
+        let createGate = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-team-create-gate-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: createGate) }
         let app = launchSignedInApp(teams: Self.fixtureTeams, environment: [
             "CMUX_UITEST_AUTH_FIXTURE_REJECT_TEAM_NAME": "Taken Team",
+            "CMUX_UITEST_AUTH_FIXTURE_TEAM_CREATE_GATE": createGate.path,
         ])
         defer { app.terminate() }
         let trigger = openCloudHeader(app)
@@ -192,18 +200,38 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
 
         name.typeText("Taken Team")
         create.click()
-        let error = sheet.staticTexts.matching(NSPredicate(
-            format: "identifier == %@ OR label == %@",
-            "CloudCreateTeamSheet.error", "Could not create that team. Try again."
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5), "Create does not wait for the server.")
+        waitForLabel(of: trigger, containing: "Taken Team")
+        waitForValue(of: trigger, "Creating team…")
+        trigger.click()
+        let creating = app.menuItems.matching(NSPredicate(
+            format: "identifier == %@ OR title == %@", "CloudTeamPickerCreatingStatus", "Creating team…"
         )).firstMatch
-        XCTAssertTrue(error.waitForExistence(timeout: 10), "A rejected create keeps the sheet open with its error.")
-        XCTAssertTrue(sheet.exists)
-        capture("create-team-sheet-error")
+        XCTAssertTrue(creating.waitForExistence(timeout: 5), "A pending create stays visible in the menu.")
+        let pendingTeam = app.menuItems.matching(NSPredicate(
+            format: "identifier == %@ OR title == %@", "CloudTeamPickerPendingTeam", "Taken Team"
+        )).firstMatch
+        XCTAssertTrue(pendingTeam.exists, "The menu lists the team being created.")
+        XCTAssertFalse(pendingTeam.isEnabled)
+        XCTAssertFalse(teamItem(app, id: "team-long", title: Self.longTeamName).isEnabled)
+        XCTAssertFalse(createTeamItem(app).isEnabled)
+        capture("create-team-pending")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(creating.waitForNonExistence(timeout: 5))
 
+        XCTAssertTrue(FileManager.default.createFile(atPath: createGate.path, contents: Data()))
+        assertTeamChangeError(app, "Could not create that team. Try again.")
+        waitForLabel(of: trigger, containing: Self.longTeamName)
+        capture("create-team-rejected")
+
+        trigger.click()
+        createTeamItem(app).click()
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        waitForValue(of: name, "Taken Team")
         name.typeKey("a", modifierFlags: .command)
         name.typeText("Launch Crew")
         create.click()
-        XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
         waitForLabel(of: trigger, containing: "Launch Crew")
 
         trigger.click()
@@ -285,6 +313,40 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         XCTAssertEqual(
             XCTWaiter().wait(for: [expectation], timeout: 10), .completed,
             "Expected \(element.label) to contain \(text)", file: file, line: line
+        )
+    }
+
+    private func waitForValue(
+        of element: XCUIElement,
+        _ value: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", value),
+            object: element
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [expectation], timeout: 10), .completed,
+            "Expected \(element) to have value \(value)", file: file, line: line
+        )
+    }
+
+    /// The right sidebar's own identifier can replace the ones inside it, so
+    /// this checks that the message keeps its identifier and its text.
+    private func assertTeamChangeError(
+        _ app: XCUIApplication,
+        _ message: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let errorText = app.staticTexts["CloudTeamPickerError"]
+        XCTAssertTrue(errorText.waitForExistence(timeout: 10), "A rejected team change reports its failure.",
+                      file: file, line: line)
+        XCTAssertTrue(
+            errorText.label == message || errorText.value as? String == message,
+            "VoiceOver reads the failure message, not \(errorText.label) / \(String(describing: errorText.value)).",
+            file: file, line: line
         )
     }
 
