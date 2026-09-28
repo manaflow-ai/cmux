@@ -78,12 +78,10 @@ public final class NotificationDeliveryCoordinator {
     /// the foreground. `keepsSoundQuiet` drops the sound for a banner whose
     /// target pane became focused after the banner was scheduled.
     public func presentationOptions(
-        for notification: UNNotification,
+        for content: UNNotificationContent,
         keepsSoundQuiet: Bool = false
     ) -> UNNotificationPresentationOptions {
-        presentationOptions(
-            notificationHasSound: notification.request.content.sound != nil && !keepsSoundQuiet
-        )
+        presentationOptions(notificationHasSound: content.sound != nil && !keepsSoundQuiet)
     }
 
     /// Handles a notification response from `UNUserNotificationCenterDelegate`.
