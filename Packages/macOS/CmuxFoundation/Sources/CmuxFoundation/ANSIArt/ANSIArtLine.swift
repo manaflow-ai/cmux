@@ -15,9 +15,11 @@ public struct ANSIArtLine: Hashable, Sendable {
         runs.map(\.text).joined()
     }
 
-    /// The number of character cells the line occupies, counting one cell per
-    /// grapheme.
+    /// The number of character cells the line occupies, per
+    /// ``ANSIArt/cellWidth(of:)``.
     public var columnCount: Int {
-        runs.reduce(0) { $0 + $1.text.count }
+        runs.reduce(0) { total, run in
+            run.text.unicodeScalars.reduce(total) { $0 + ANSIArt.cellWidth(of: $1) }
+        }
     }
 }

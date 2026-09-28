@@ -85,7 +85,7 @@ struct EmptyPaneArtView: View {
                     } else {
                         if text.isEmpty { textStart = column }
                         text.append(scalar)
-                        column += scalar.properties.generalCategory == .nonspacingMark ? 0 : 1
+                        column += ANSIArt.cellWidth(of: scalar)
                     }
                 }
                 flushText()

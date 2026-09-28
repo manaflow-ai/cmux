@@ -139,6 +139,13 @@ import Testing
         #expect(art.lines[0].text.hasSuffix("B"))
     }
 
+    @Test func combiningMarksShareTheirBaseCell() throws {
+        let art = try #require(parser.parse("e\u{301}x\n\u{301}"))
+        #expect(art.lines[0].columnCount == 2)
+        #expect(ANSIArt.cellWidth(of: "\u{301}") == 0)
+        #expect(ANSIArt.cellWidth(of: "A") == 1)
+    }
+
     @Test func adjacentCellsWithTheSameStyleShareARun() throws {
         let art = try #require(parser.parse("\(esc)[31mab\(esc)[31mcd\(esc)[32me"))
         #expect(runs(art).map(\.text) == ["abcd", "e"])

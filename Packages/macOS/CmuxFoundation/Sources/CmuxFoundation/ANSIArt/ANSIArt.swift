@@ -19,4 +19,18 @@ public struct ANSIArt: Hashable, Sendable {
     public var columnCount: Int {
         lines.map(\.columnCount).max() ?? 0
     }
+
+    /// The number of character cells `scalar` advances: 0 for combining
+    /// marks and format characters, which join the previous cell, else 1.
+    ///
+    /// - Parameter scalar: A printable scalar from the art.
+    /// - Returns: 0 or 1.
+    public static func cellWidth(of scalar: Unicode.Scalar) -> Int {
+        switch scalar.properties.generalCategory {
+        case .nonspacingMark, .enclosingMark, .format:
+            return 0
+        default:
+            return 1
+        }
+    }
 }

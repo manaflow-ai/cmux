@@ -22,7 +22,7 @@ struct ANSIArtBuilder {
     var isFull: Bool { lines.count >= maxLines }
 
     mutating func append(_ scalar: Unicode.Scalar) {
-        let width = Self.cellWidth(of: scalar)
+        let width = ANSIArt.cellWidth(of: scalar)
         guard column + width <= maxColumns else { return }
         if style != pendingStyle {
             flushRun()
@@ -165,16 +165,6 @@ struct ANSIArtBuilder {
     }
 
     // MARK: Cells
-
-    /// Combining marks and format characters join the previous cell.
-    private static func cellWidth(of scalar: Unicode.Scalar) -> Int {
-        switch scalar.properties.generalCategory {
-        case .nonspacingMark, .enclosingMark, .format:
-            return 0
-        default:
-            return 1
-        }
-    }
 
     /// Drops trailing spaces that have no visible background, so the art's
     /// width is its drawn width.
