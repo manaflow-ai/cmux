@@ -130,7 +130,7 @@ struct AgentRestoreLaunchLeaseTests {
         #expect(status == 0)
         finished.wait()
         #expect(registered.value)
-        #expect(try contender.tryAcquire())
+        try expectAcquisition(contender)
     }
 
     @Test("Transfer spawns an isolated watcher, and the launched process never inherits the lease")
@@ -171,7 +171,7 @@ struct AgentRestoreLaunchLeaseTests {
     /// Parallel test spawns can retain CLOEXEC descriptors until their exec.
     /// Only this test helper retries; production restore contention never waits.
     private func expectAcquisition(_ lease: AgentRestoreLaunchLease) throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         while try !lease.tryAcquire() {
             try #require(ContinuousClock.now < deadline, "Lease was not released after owner exit")
             Thread.sleep(forTimeInterval: 0.005)
