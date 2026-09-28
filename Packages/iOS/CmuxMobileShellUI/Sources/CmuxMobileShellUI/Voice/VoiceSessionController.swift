@@ -192,24 +192,16 @@ public final class VoiceSessionController {
         self.client = client
         startSendQueue(client: client)
 
-        // Audio first: hearing "Connecting…" flip to live with a dead mic is
-        // the failure mode we must not ship.
-        let audioReady = await withCheckedContinuation { continuation in
-            startAudio(client: client) { ready in
-                continuation.resume(returning: ready)
-            }
-        }
-        guard audioReady else {
-            phase = .failed(.audioUnavailable)
-            await client.shutdown()
-            return
-        }
-
+        // The protocol requires waiting for `session.started` before any
+        // audio or commands reach the wire, so the microphone engine starts
+        // from the `.started` handler; capturing earlier raced chunks into
+        // the send queue ahead of `session.start` itself.
         let events = await client.events()
         let config = await makeSessionConfig(model: Self.liveModel)
         enqueueSend { client in
             try await client.send(.sessionStart(config))
         }
+        voiceSessionLog.info("session.start sent; awaiting session.started")
 
         eventTask = Task { [weak self] in
             for await event in events {
@@ -217,6 +209,29 @@ public final class VoiceSessionController {
                 await self.handle(event)
             }
             await self?.handleStreamFinished()
+        }
+    }
+
+    /// Bring the microphone and playback engine up once the session is live.
+    /// An audio failure now fails the session visibly rather than leaving a
+    /// silent conversation.
+    private func beginAudio(client: VoiceLiveSessionClient) {
+        startAudio(client: client) { [weak self] ready in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if ready {
+                    voiceSessionLog.info("audio engine live")
+                    return
+                }
+                voiceSessionLog.error("audio engine failed to start after session.started")
+                self.phase = .failed(.audioUnavailable)
+                let client = self.client
+                Task {
+                    await client?.requestClose()
+                    await client?.shutdown()
+                }
+                self.teardown()
+            }
         }
     }
 
@@ -433,13 +448,20 @@ public final class VoiceSessionController {
     private func handle(_ event: VoiceLiveServerEvent) async {
         switch event {
         case .started:
+            voiceSessionLog.info("session.started received; going live")
             phase = .live
+            if let client {
+                beginAudio(client: client)
+            }
             if case .terminal = mode {
                 await attachToAgentSession()
             }
         case .outputAudioDelta(let data):
             audio.enqueuePlayback(data)
         case .inputTranscriptDelta(let delta):
+            if pendingUserUtterance.isEmpty, transcript.isEmpty {
+                voiceSessionLog.info("first input transcript delta received (mic path confirmed)")
+            }
             pendingUserUtterance += delta
             appendTranscript(role: .user, delta: delta)
         case .outputTranscriptDelta(let delta):
@@ -454,7 +476,8 @@ public final class VoiceSessionController {
             voiceSessionLog.error(
                 "live session error code=\(code ?? "?", privacy: .public) message=\(message ?? "", privacy: .public)"
             )
-        case .closed:
+        case .closed(let reason):
+            voiceSessionLog.info("session closed reason=\(reason ?? "nil", privacy: .public)")
             if phase == .live || phase == .connecting {
                 phase = phase == .connecting ? .failed(.connectionFailed) : .ended
             }

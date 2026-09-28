@@ -1,6 +1,7 @@
 #if os(iOS)
 internal import AVFoundation
 public import Foundation
+internal import os
 
 /// Owns the `AVAudioEngine` + shared `AVAudioSession` lifecycle OFF the main
 /// actor for the live voice-chat feature (GPT-Live): full-duplex microphone
@@ -44,6 +45,21 @@ public final class VoiceChatAudioEngine: @unchecked Sendable {
     /// keeps running so unmute is instant and the session stays configured.
     private var microphoneMuted = false
     private var onPlaybackActivity: (@Sendable (Bool) -> Void)?
+    /// Whether the input voice-processing unit is currently enabled. Touched
+    /// only on ``queue``.
+    private var voiceProcessingActive = false
+    /// Silence watchdog state: on some device configurations the
+    /// voice-processing unit delivers all-zero capture buffers instead of
+    /// audio. Count converted chunks and the loudest sample seen; if the
+    /// first ~3 seconds are digital silence with voice processing on, fall
+    /// back to a plain (echo-prone but audible) input once.
+    private var captureChunkCount = 0
+    private var capturePeak: Int32 = 0
+    private var loggedAudibleCapture = false
+    private var voiceProcessingFallbackUsed = false
+    private static let silenceWatchdogChunkCount = 45
+
+    private let log = Logger(subsystem: "dev.cmux.ios", category: "voice-audio")
 
     /// Playback graph format: deinterleaved Float32 mono at the wire rate.
     /// The engine resamples from here to the output route.
@@ -93,10 +109,20 @@ public final class VoiceChatAudioEngine: @unchecked Sendable {
                 // format, which voice processing changes. A failure degrades
                 // to echo-prone audio rather than refusing to start.
                 if !inputNode.isVoiceProcessingEnabled {
-                    try? inputNode.setVoiceProcessingEnabled(true)
+                    do {
+                        try inputNode.setVoiceProcessingEnabled(true)
+                        voiceProcessingActive = true
+                    } catch {
+                        voiceProcessingActive = false
+                        log.error("voice processing enable failed: \(String(describing: error), privacy: .public)")
+                    }
+                } else {
+                    voiceProcessingActive = true
                 }
                 let inputFormat = inputNode.outputFormat(forBus: 0)
+                log.info("engine starting: input \(inputFormat.sampleRate, privacy: .public)Hz ch=\(inputFormat.channelCount, privacy: .public) vp=\(self.voiceProcessingActive, privacy: .public)")
                 guard inputFormat.channelCount > 0, inputFormat.sampleRate > 0 else {
+                    log.error("invalid input format; aborting audio start")
                     teardownLocked()
                     onReady(false)
                     return
@@ -240,8 +266,72 @@ public final class VoiceChatAudioEngine: @unchecked Sendable {
             guard conversionError == nil, converted.frameLength > 0,
                   let channel = converted.int16ChannelData?[0]
             else { return }
-            let byteCount = Int(converted.frameLength) * MemoryLayout<Int16>.size
+            let sampleCount = Int(converted.frameLength)
+            // Silence watchdog: a voice-processing unit that came up wrong
+            // yields digital zero forever while everything else looks alive.
+            var peak: Int32 = 0
+            for index in 0..<sampleCount {
+                peak = max(peak, abs(Int32(channel[index])))
+            }
+            captureChunkCount += 1
+            if peak > capturePeak { capturePeak = peak }
+            if !loggedAudibleCapture, peak > 0 {
+                loggedAudibleCapture = true
+                log.info("first audible capture chunk #\(self.captureChunkCount, privacy: .public) peak=\(peak, privacy: .public)")
+            }
+            if voiceProcessingActive, !voiceProcessingFallbackUsed,
+               captureChunkCount == Self.silenceWatchdogChunkCount, capturePeak == 0 {
+                voiceProcessingFallbackUsed = true
+                log.fault("capture silent for \(Self.silenceWatchdogChunkCount, privacy: .public) chunks with voice processing on; restarting without it")
+                restartWithoutVoiceProcessingLocked()
+                return
+            }
+            let byteCount = sampleCount * MemoryLayout<Int16>.size
             emit(Data(bytes: channel, count: byteCount))
+        }
+    }
+
+    /// Rebuild the capture path with the voice-processing unit off after the
+    /// silence watchdog fired. Echo cancellation is lost; an audible mic is
+    /// strictly better than a silent one. MUST run on ``queue``.
+    private func restartWithoutVoiceProcessingLocked() {
+        dispatchPrecondition(condition: .onQueue(queue))
+        let inputNode = engine.inputNode
+        if engine.isRunning { engine.stop() }
+        inputNode.removeTap(onBus: 0)
+        do {
+            try inputNode.setVoiceProcessingEnabled(false)
+        } catch {
+            log.error("voice processing disable failed: \(String(describing: error), privacy: .public)")
+        }
+        voiceProcessingActive = false
+        captureChunkCount = 0
+        capturePeak = 0
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        guard inputFormat.channelCount > 0, inputFormat.sampleRate > 0,
+              let wireFormat = AVAudioFormat(
+                commonFormat: .pcmFormatInt16,
+                sampleRate: Self.wireSampleRate,
+                channels: 1,
+                interleaved: true
+              ),
+              let converter = AVAudioConverter(from: inputFormat, to: wireFormat)
+        else {
+            log.fault("fallback restart failed: unusable input format")
+            return
+        }
+        captureConverter = converter
+        inputNode.installTap(onBus: 0, bufferSize: 2_048, format: inputFormat) {
+            [weak self] buffer, _ in
+            self?.handleCapturedBuffer(buffer)
+        }
+        engine.prepare()
+        do {
+            try engine.start()
+            playerNode.play()
+            log.info("fallback restart complete: input \(inputFormat.sampleRate, privacy: .public)Hz vp=off")
+        } catch {
+            log.fault("fallback engine restart failed: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -275,6 +365,10 @@ public final class VoiceChatAudioEngine: @unchecked Sendable {
         emitCapturedAudio = nil
         onPlaybackActivity = nil
         microphoneMuted = false
+        captureChunkCount = 0
+        capturePeak = 0
+        loggedAudibleCapture = false
+        voiceProcessingFallbackUsed = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }
