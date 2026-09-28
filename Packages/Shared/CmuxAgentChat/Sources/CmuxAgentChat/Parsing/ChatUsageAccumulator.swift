@@ -40,7 +40,7 @@ import Foundation
 /// appear and cumulative events only as the fallback before that. A preceding
 /// cumulative snapshot from the same user rollout remains as a pre-record
 /// prefix, while session metadata that identifies inherited subagent history
-/// causes that prefix to be discarded rather than charging the parent again.
+/// removes the parent baseline and preserves only proven child growth.
 ///
 /// The cumulative fallback is split only at an explicit thread/session
 /// identity change or provider zero-reset. A `compacted` event changes visible
@@ -121,6 +121,7 @@ public struct ChatUsageAccumulator: Sendable {
     private var codexCumulativeBanked = ChatTokenUsage()
     private var codexCumulativeCurrent: ChatTokenUsage?
     private var codexInheritedCumulativeBaseline: ChatTokenUsage?
+    private var codexCumulativeReplaceableTail: ChatTokenUsage?
     private var cumulativeUsageIsAmbiguous = false
 
     private var duplicateReports = 0
@@ -381,6 +382,7 @@ public struct ChatUsageAccumulator: Sendable {
             codexCumulativeBanked = ChatTokenUsage()
             codexInheritedCumulativeBaseline = codexCumulativeCurrent
             codexCumulativeCurrent = nil
+            codexCumulativeReplaceableTail = nil
         }
         observeCodexSessionID(payload["id"]?.string)
         observeCodexThreadID(payload["thread_id"]?.string)
@@ -408,19 +410,28 @@ public struct ChatUsageAccumulator: Sendable {
             Self.incrementSaturating(&duplicateReports)
             return
         }
+        let usage = codexUsage(from: usageValue)
         // Records are precise from this point forward. Preserve a cumulative
-        // prefix written by this user rollout before record support appeared,
-        // but never charge inherited subagent history to every child. Later
-        // cumulative snapshots include the records and are ignored.
+        // prefix written before record support appeared. In an inherited
+        // rollout, cumulative accounting has already removed the parent
+        // baseline. The one exception is a latest cumulative tail that is the
+        // same response as this first precise record: replace that estimate
+        // instead of counting the response twice.
         if codexSource != .usageRecords {
-            codexRecordPrefixUsage = codexTranscriptInheritsHistory
-                ? ChatTokenUsage()
-                : codexCumulativeTotal
+            var prefix = codexCumulativeTotal
+            if codexTranscriptInheritsHistory,
+               let tail = codexCumulativeReplaceableTail,
+               tail.totalTokens == usage.totalTokens,
+               let withoutTail = Self.subtract(tail, from: prefix)
+            {
+                prefix = withoutTail
+            }
+            codexRecordPrefixUsage = prefix
+            cumulativeUsageIsAmbiguous = cumulativeUsageIsAmbiguous && !prefix.isEmpty
         }
         codexSource = .usageRecords
-        cumulativeUsageIsAmbiguous = false
+        codexCumulativeReplaceableTail = nil
         Self.incrementSaturating(&codexResponseCount)
-        let usage = codexUsage(from: usageValue)
         codexRecordUsage += usage
         // Resolve the record against its own identity. A later turn context
         // must not steal a delayed record from an earlier turn. Only an
@@ -492,6 +503,7 @@ public struct ChatUsageAccumulator: Sendable {
         }
         self.codexCumulativeCurrent = nil
         codexInheritedCumulativeBaseline = nil
+        codexCumulativeReplaceableTail = nil
     }
 
     /// Folds one fallback cumulative report into the monotone-run total.
@@ -510,7 +522,16 @@ public struct ChatUsageAccumulator: Sendable {
         guard codexSource != .usageRecords else { return }
         let usage = codexUsage(from: cumulative)
         if codexTranscriptInheritsHistory {
-            readInheritedCodexCumulative(usage)
+            let lastUsage: ChatTokenUsage?
+            if let last = info["last_token_usage"],
+               last.object != nil,
+               Self.hasRecognizedCount(last, keys: Self.codexCountKeys)
+            {
+                lastUsage = codexUsage(from: last)
+            } else {
+                lastUsage = nil
+            }
+            readInheritedCodexCumulative(usage, lastUsage: lastUsage)
             return
         }
         if usage.isEmpty {
@@ -540,7 +561,10 @@ public struct ChatUsageAccumulator: Sendable {
     }
 
     /// Counts only growth after an inherited parent-thread snapshot.
-    private mutating func readInheritedCodexCumulative(_ usage: ChatTokenUsage) {
+    private mutating func readInheritedCodexCumulative(
+        _ usage: ChatTokenUsage,
+        lastUsage: ChatTokenUsage?
+    ) {
         codexSource = .cumulativeEvents
         if usage.isEmpty {
             if let current = codexCumulativeCurrent {
@@ -550,11 +574,25 @@ public struct ChatUsageAccumulator: Sendable {
             // Unlike the inherited opening snapshot, an explicit zero is a
             // known baseline. The next run belongs wholly to this transcript.
             codexInheritedCumulativeBaseline = ChatTokenUsage()
+            codexCumulativeReplaceableTail = nil
             return
         }
         guard let baseline = codexInheritedCumulativeBaseline else {
-            codexInheritedCumulativeBaseline = usage
-            codexCumulativeCurrent = nil
+            if let lastUsage,
+               !lastUsage.isEmpty,
+               let baseline = Self.subtract(lastUsage, from: usage)
+            {
+                // Without a pre-response snapshot, the cumulative total
+                // already includes the child's first response. The matching
+                // `last_token_usage` is the only proven child portion.
+                codexInheritedCumulativeBaseline = baseline
+                codexCumulativeCurrent = lastUsage
+                codexCumulativeReplaceableTail = lastUsage
+            } else {
+                codexInheritedCumulativeBaseline = usage
+                codexCumulativeCurrent = nil
+                codexCumulativeReplaceableTail = nil
+            }
             return
         }
         guard usage.freshInputTokens >= baseline.freshInputTokens,
@@ -569,20 +607,34 @@ public struct ChatUsageAccumulator: Sendable {
             }
             codexCumulativeCurrent = nil
             codexInheritedCumulativeBaseline = usage
+            codexCumulativeReplaceableTail = nil
             return
         }
         let delta = Self.difference(usage, baseline)
+        let replaceableTail: ChatTokenUsage?
+        if let lastUsage,
+           !lastUsage.isEmpty,
+           Self.subtract(lastUsage, from: delta) != nil
+        {
+            replaceableTail = lastUsage
+        } else {
+            replaceableTail = nil
+        }
         guard let current = codexCumulativeCurrent else {
             codexCumulativeCurrent = delta
+            codexCumulativeReplaceableTail = replaceableTail
             return
         }
         if delta.totalTokens > current.totalTokens {
             codexCumulativeCurrent = delta
+            codexCumulativeReplaceableTail = replaceableTail
         } else if delta == current {
             Self.incrementSaturating(&duplicateReports)
+            codexCumulativeReplaceableTail = replaceableTail
         } else {
             cumulativeUsageIsAmbiguous = true
             codexCumulativeCurrent = delta
+            codexCumulativeReplaceableTail = replaceableTail
         }
     }
 
@@ -668,6 +720,20 @@ public struct ChatUsageAccumulator: Sendable {
             outputTokens: lhs.outputTokens - rhs.outputTokens,
             reasoningOutputTokens: lhs.reasoningOutputTokens - rhs.reasoningOutputTokens
         )
+    }
+
+    /// Subtracts a usage value only when every component is present.
+    private static func subtract(
+        _ value: ChatTokenUsage,
+        from total: ChatTokenUsage
+    ) -> ChatTokenUsage? {
+        guard total.freshInputTokens >= value.freshInputTokens,
+              total.cacheReadTokens >= value.cacheReadTokens,
+              total.cacheWriteTokens >= value.cacheWriteTokens,
+              total.outputTokens >= value.outputTokens,
+              total.reasoningOutputTokens >= value.reasoningOutputTokens
+        else { return nil }
+        return difference(total, value)
     }
 
     /// Whether a streamed Claude report is a later, larger version.

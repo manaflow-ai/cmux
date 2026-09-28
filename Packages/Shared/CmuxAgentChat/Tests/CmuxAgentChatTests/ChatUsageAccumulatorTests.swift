@@ -793,8 +793,8 @@ struct ChatUsageAccumulatorTests {
         #expect(!totals.cumulativeUsageIsAmbiguous)
     }
 
-    @Test("inherited compacted cumulative usage is discarded when records begin")
-    func codexCompactedCumulativePrefixIsDiscardedForRecords() {
+    @Test("an ambiguous inherited cumulative prefix survives record takeover")
+    func codexAmbiguousInheritedPrefixSurvivesRecords() {
         var accumulator = ChatUsageAccumulator()
         accumulator.ingest(codexLines: [
             codexSessionMetaLine(model: "", inheritedHistory: true),
@@ -815,12 +815,13 @@ struct ChatUsageAccumulatorTests {
         ])
 
         let totals = accumulator.totals
-        // Compaction did not reset the provider's lifetime counter, and the
-        // precise record replaces that inherited cumulative fallback.
+        // Compaction did not reset the provider's lifetime counter. The drop
+        // makes the 30-token child prefix ambiguous, but does not make it
+        // inherited parent usage or let the distinct record erase it.
         #expect(accumulator.codexSource == .usageRecords)
         #expect(totals.responses == 1)
-        #expect(totals.usage.totalTokens == 20)
-        #expect(!totals.cumulativeUsageIsAmbiguous)
+        #expect(totals.usage.totalTokens == 50)
+        #expect(totals.cumulativeUsageIsAmbiguous)
     }
 
     @Test("an inherited pre-record thread total is not charged to the child transcript")
@@ -862,6 +863,68 @@ struct ChatUsageAccumulatorTests {
         #expect(totals.usage.freshInputTokens == 25)
         #expect(totals.usage.outputTokens == 5)
         #expect(!totals.cumulativeUsageIsAmbiguous)
+    }
+
+    @Test("an inherited first cumulative event counts its proven child response")
+    func codexInheritedFirstCumulativeCountsLastUsage() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexSessionMetaLine(model: "", inheritedHistory: true),
+            codexTokenCountLine(
+                cumulativeInput: 1_025, cumulativeOutput: 5,
+                lastInput: 25, lastOutput: 5
+            ),
+        ])
+
+        let totals = accumulator.totals
+        #expect(accumulator.codexSource == .cumulativeEvents)
+        #expect(totals.usage.freshInputTokens == 25)
+        #expect(totals.usage.outputTokens == 5)
+        #expect(!totals.cumulativeUsageIsAmbiguous)
+    }
+
+    @Test("a distinct first record preserves inherited child cumulative usage")
+    func codexInheritedCumulativePrefixSurvivesDistinctRecord() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexSessionMetaLine(model: "", inheritedHistory: true),
+            codexTokenCountLine(
+                cumulativeInput: 1_000, cumulativeOutput: 0,
+                lastInput: 0, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 1_020, cumulativeOutput: 0,
+                lastInput: 20, lastOutput: 0
+            ),
+            codexRecordLine(responseID: "record-after-prefix", input: 10, cached: 0, output: 0),
+        ])
+
+        let totals = accumulator.totals
+        #expect(accumulator.codexSource == .usageRecords)
+        #expect(totals.responses == 1)
+        #expect(totals.usage.totalTokens == 30)
+    }
+
+    @Test("a matching first record replaces the inherited cumulative tail")
+    func codexInheritedMatchingRecordReplacesCumulativeTail() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexSessionMetaLine(model: "", inheritedHistory: true),
+            codexTokenCountLine(
+                cumulativeInput: 1_000, cumulativeOutput: 0,
+                lastInput: 0, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 1_020, cumulativeOutput: 0,
+                lastInput: 20, lastOutput: 0
+            ),
+            codexRecordLine(responseID: "record-matching-tail", input: 20, cached: 0, output: 0),
+        ])
+
+        let totals = accumulator.totals
+        #expect(accumulator.codexSource == .usageRecords)
+        #expect(totals.responses == 1)
+        #expect(totals.usage.totalTokens == 20)
     }
 
     @Test("an inherited explicit zero starts a fully countable cumulative run")
@@ -1084,6 +1147,27 @@ struct ChatUsageAccumulatorTests {
 
         let totals = accumulator.totals
         #expect(totals.usage.totalTokens == 30)
+        #expect(totals.cumulativeUsageIsAmbiguous)
+    }
+
+    @Test("a preserved ambiguous cumulative prefix stays ambiguous in record mode")
+    func codexAmbiguousCumulativePrefixRemainsAmbiguousWithRecords() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexTokenCountLine(
+                cumulativeInput: 100, cumulativeOutput: 0,
+                lastInput: 100, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 30, cumulativeOutput: 0,
+                lastInput: 30, lastOutput: 0
+            ),
+            codexRecordLine(responseID: "record-after-ambiguous-prefix", input: 20, cached: 0, output: 0),
+        ])
+
+        let totals = accumulator.totals
+        #expect(accumulator.codexSource == .usageRecords)
+        #expect(totals.usage.totalTokens == 50)
         #expect(totals.cumulativeUsageIsAmbiguous)
     }
 
