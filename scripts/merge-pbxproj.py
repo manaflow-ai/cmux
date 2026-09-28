@@ -37,7 +37,6 @@ CATCH_UP = ROOT / "scripts" / "ci" / "catch_up_pr.py"
 NORMALIZER = ROOT / "scripts" / "normalize-pbxproj.py"
 SECTION_BEGIN_RE = re.compile(r"/\* Begin ([A-Za-z0-9]+) section \*/")
 SECTION_END_RE = re.compile(r"/\* End ([A-Za-z0-9]+) section \*/")
-ARRAY_BEGIN_RE = re.compile(r"^\s*([A-Za-z0-9_]+) = \(\s*$")
 BUILD_FILE_RE = re.compile(r"^\s*[0-9A-Za-z]+ /\* .* \*/ = \{isa = PBXBuildFile;.*\};\s*$")
 FILE_REFERENCE_RE = re.compile(
     r"^\s*[0-9A-Za-z]+ /\* .* \*/ = \{isa = PBXFileReference;.*\};\s*$"
@@ -64,33 +63,58 @@ def load_mergers():
     return module
 
 
-def project_location(text: str) -> tuple[str | None, str | None]:
-    """The pbxproj section and innermost named array open at the end of text."""
+def project_location(module, text: str) -> tuple[str | None, int, str | None]:
+    """The trusted section, dictionary depth and innermost array at text's end."""
     section: str | None = None
-    arrays: list[str] = []
     for line in text.splitlines():
-        if match := SECTION_BEGIN_RE.search(line):
+        stripped = line.strip()
+        if match := SECTION_BEGIN_RE.fullmatch(stripped):
             section = match.group(1)
-        elif match := SECTION_END_RE.search(line):
+        elif match := SECTION_END_RE.fullmatch(stripped):
             if section == match.group(1):
                 section = None
-        if match := ARRAY_BEGIN_RE.match(line):
-            arrays.append(match.group(1))
-        elif line.strip() == ");" and arrays:
-            arrays.pop()
-    return section, arrays[-1] if arrays else None
+    tokens = [
+        match.group()
+        for match in module.PBX_TOKEN_RE.finditer(text)
+        if match.lastgroup != "comment"
+    ]
+    stack: list[tuple[str, str | None]] = []
+    assigned_key: str | None = None
+    for index, token in enumerate(tokens):
+        if token == "=" and index:
+            assigned_key = tokens[index - 1].strip("\"'")
+        elif token == "{":
+            stack.append(("dictionary", assigned_key))
+            assigned_key = None
+        elif token == "(":
+            stack.append(("array", assigned_key))
+            assigned_key = None
+        elif token in "})":
+            if stack:
+                stack.pop()
+            assigned_key = None
+        elif token not in {",", ";"}:
+            assigned_key = None
+    dictionary_depth = sum(kind == "dictionary" for kind, _ in stack)
+    array = next((name for kind, name in reversed(stack) if kind == "array"), None)
+    return section, dictionary_depth, array
 
 
-def safe_source_line(line: str, section: str | None, array: str | None) -> bool:
+def safe_source_line(
+    line: str,
+    section: str | None,
+    dictionary_depth: int,
+    array: str | None,
+) -> bool:
     if not line.strip():
         return True
-    if section == "PBXBuildFile" and array is None:
+    if section == "PBXBuildFile" and dictionary_depth == 2 and array is None:
         return BUILD_FILE_RE.fullmatch(line) is not None
-    if section == "PBXFileReference" and array is None:
+    if section == "PBXFileReference" and dictionary_depth == 2 and array is None:
         return FILE_REFERENCE_RE.fullmatch(line) is not None
-    if section == "PBXGroup" and array == "children":
+    if section == "PBXGroup" and dictionary_depth == 3 and array == "children":
         return SOURCE_CHILD_RE.fullmatch(line) is not None
-    if section == "PBXSourcesBuildPhase" and array == "files":
+    if section == "PBXSourcesBuildPhase" and dictionary_depth == 3 and array == "files":
         return SOURCE_PHASE_RE.fullmatch(line) is not None
     return False
 
@@ -112,8 +136,10 @@ def source_entry_union(module, base: str, ours: str, theirs: str) -> str:
                     " order-sensitive or unknown insertions need a person"
                 )
             for slot, lines in enumerate(slots):
-                section, array = project_location(prefix + "".join(base_lines[:slot]))
-                if any(not safe_source_line(line, section, array) for line in lines):
+                section, depth, array = project_location(
+                    module, prefix + "".join(base_lines[:slot])
+                )
+                if any(not safe_source_line(line, section, depth, array) for line in lines):
                     raise ValueError(
                         "automatic union is limited to source-file project entries;"
                         " order-sensitive or unknown insertions need a person"
@@ -126,7 +152,7 @@ def conflict_text(module, base: str, ours: str, theirs: str) -> str:
     """The ordinary diff3 conflict, or an explicit whole-file semantic conflict."""
     try:
         merged = module.merge_file(base, ours, theirs)
-    except ValueError:
+    except Exception:
         merged = ""
     if "<" * module.MARKER_SIZE in merged:
         return merged
@@ -207,13 +233,13 @@ def main(argv: list[str]) -> int:
         return 1
     try:
         module = load_mergers()
-    except (OSError, ImportError, AttributeError) as error:
+    except Exception as error:
         ours_path.write_text(explicit_conflict(base, ours, theirs), encoding="utf-8")
         print(f"merge-pbxproj: {name}: cannot load merge helpers ({error}); falling back", file=sys.stderr)
         return 1
     try:
         merged = source_entry_union(module, base, ours, theirs)
-    except ValueError as error:
+    except Exception as error:
         # A custom merge driver owns %A even when it returns failure: Git does
         # not rerun the built-in text merge for us. Leave the ordinary diff3
         # conflict there so a person cannot mistake an ours-only file for the
@@ -223,7 +249,7 @@ def main(argv: list[str]) -> int:
         return 1
     try:
         settled = normalized(merged, name)
-    except (OSError, UnicodeDecodeError, subprocess.SubprocessError) as error:
+    except Exception as error:
         print(f"merge-pbxproj: {name}: cannot validate the union ({error}); falling back", file=sys.stderr)
         settled = None
     if settled is None:

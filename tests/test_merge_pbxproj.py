@@ -9,6 +9,7 @@ the normalizer rejects counts as a refusal rather than a result.
 """
 
 import hashlib
+import importlib.util
 import os
 import subprocess
 import sys
@@ -209,6 +210,24 @@ def test_invalid_utf8_leaves_an_explicit_byte_preserving_conflict():
         assert b"Traceback" not in result.stderr
 
 
+def test_helper_load_failure_still_materializes_a_conflict():
+    spec = importlib.util.spec_from_file_location("merge_pbxproj_failure_test", DRIVER)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.load_mergers = lambda: (_ for _ in ()).throw(SyntaxError("broken helper"))
+    with tempfile.TemporaryDirectory() as directory:
+        paths = [Path(directory) / name for name in ("base", "ours", "theirs")]
+        texts = [project(["Base.swift"]), project(["Ours.swift"]), project(["Theirs.swift"])]
+        for path, text in zip(paths, texts):
+            path.write_text(text, encoding="utf-8")
+        code = module.main(["merge-pbxproj.py", *(str(path) for path in paths), "project.pbxproj"])
+        assert code == 1
+        conflicted = paths[1].read_text(encoding="utf-8")
+        assert "<" * 32 in conflicted
+        assert all(text.rstrip() in conflicted for text in texts)
+
+
 def test_the_same_entry_added_differently_is_refused():
     """Two branches adding one file under different names is a disagreement.
 
@@ -304,6 +323,31 @@ def test_order_sensitive_insertions_are_refused():
     # The .swift suffix deliberately matches the old text-only allowlist.
     ours = base.replace(needle, needle + f"\t\t\t\t{uuid('phase-a')} /* Consumer.swift */,\n")
     theirs = base.replace(needle, needle + f"\t\t\t\t{uuid('phase-b')} /* Producer.swift */,\n")
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 1
+    assert "<" * 32 in merged
+    assert "automatic union is limited to source-file project entries" in stderr
+
+
+def test_nested_dictionary_cannot_spoof_a_top_level_object_entry():
+    marker = "/* End PBXBuildFile section */"
+    holder = f"""\t\t{uuid('holder')} /* holder */ = {{
+\t\t\tisa = PBXBuildFile;
+\t\t\tsettings = {{
+\t\t\t\tBASE = 1;
+\t\t\t}};
+\t\t}};
+"""
+    base = project(["Alpha.swift"]).replace(marker, holder + marker)
+    needle = "\t\t\tsettings = {\n"
+    ours = base.replace(
+        needle,
+        needle + f"\t\t{uuid('nested-a')} /* NestedA.swift */ = {{isa = PBXBuildFile; fileRef = X; }};\n",
+    )
+    theirs = base.replace(
+        needle,
+        needle + f"\t\t{uuid('nested-b')} /* NestedB.swift */ = {{isa = PBXBuildFile; fileRef = Y; }};\n",
+    )
     code, merged, stderr = run(base, ours, theirs)
     assert code == 1
     assert "<" * 32 in merged
