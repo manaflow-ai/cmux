@@ -47,6 +47,7 @@ public struct SentryNoiseFilter: Sendable {
              "not_supported",
              "protected",
              "rate_limited",
+             "surface_unavailable",
              "tab_manager_unavailable",
              "unrecognized_method",
              "unsupported",
