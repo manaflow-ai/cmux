@@ -216,7 +216,8 @@ extension TerminalController {
             environment: environment,
             verificationHome: command.verificationHome,
             capturedAt: command.capturedAt,
-            source: command.source
+            source: command.source,
+            launcherPrefix: command.launcherPrefix
         )
     }
 
@@ -265,7 +266,8 @@ extension TerminalController {
                     environment: $0.environment,
                     verificationHome: $0.verificationHome,
                     capturedAt: $0.capturedAt,
-                    source: $0.source
+                    source: $0.source,
+                    launcherPrefix: $0.launcherPrefix
                 )
             },
             permissionMode: inputs.permissionMode,
