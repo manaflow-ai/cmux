@@ -501,7 +501,11 @@ extension Workspace {
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
-            noteAgentWakeAgentReported(panelId: targetPanelId)
+            // Wake confirmation needs the report's own pane, never the
+            // focused-pane fallback.
+            if let panelId {
+                noteAgentWakeAgentReported(panelId: panelId, statusKey: key)
+            }
         }
     }
 

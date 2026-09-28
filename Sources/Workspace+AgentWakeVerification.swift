@@ -6,18 +6,17 @@ import Foundation
 /// A wake types the agent's resume command into a fresh shell. If that
 /// command fails (launcher missing from PATH, session gone), the pane would
 /// otherwise sit at a shell prompt with no sign that anything went wrong.
-/// The check succeeds when an agent hook reports a PID or lifecycle state for
-/// the pane. It fails when the resume command returns to the prompt first, or
-/// when nothing reports in before the deadline and no live agent process is
-/// found. A failure shows a banner on the pane, a sidebar row and one feed
-/// entry.
+/// The check succeeds when the woken agent's own hooks report a PID or
+/// lifecycle state for the pane, or when a live process for that agent is
+/// found in the pane (checked every few seconds, for agents without hooks).
+/// It fails when the resume command returns to the prompt first, or when
+/// neither happens before the deadline. A failure shows a banner on the pane,
+/// a sidebar row and one feed entry.
 extension Workspace {
     static let agentWakeFailedStatusKey = "agent.wakeFailed"
-    static let agentWakeVerificationSeconds: TimeInterval = 90
-    /// A resume command that fails exits quickly (launcher missing, session
-    /// gone). One that returns later ran the agent, which the user then quit;
-    /// an agent without hooks never reports, so that ending counts as success.
-    static let agentWakeQuickExitSeconds: TimeInterval = 20
+    nonisolated static let agentWakeVerificationSeconds: TimeInterval = 90
+    /// How often a pending check looks for a live agent process.
+    nonisolated static let agentWakeLiveProcessProbeSeconds: TimeInterval = 5
 
     /// Starts (or restarts) the wake check for `panelId`.
     func beginAgentWakeVerification(
@@ -29,9 +28,18 @@ extension Workspace {
         agentWakeVerificationsByPanelId[panelId]?.deadlineTask?.cancel()
         let token = UUID()
         let deadlineTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(deadlineSeconds))
-            guard !Task.isCancelled else { return }
-            self?.resolveAgentWakeVerificationDeadline(panelId: panelId, token: token)
+            let clock = ContinuousClock()
+            let deadline = clock.now + .seconds(deadlineSeconds)
+            while true {
+                let nextProbe = clock.now + .seconds(Self.agentWakeLiveProcessProbeSeconds)
+                try? await Task.sleep(until: min(nextProbe, deadline), clock: clock)
+                guard !Task.isCancelled, let self else { return }
+                if clock.now >= deadline {
+                    self.resolveAgentWakeVerificationDeadline(panelId: panelId, token: token)
+                    return
+                }
+                guard self.probeAgentWakeLiveProcess(panelId: panelId, token: token) else { return }
+            }
         }
         let initialState = (agentWakeVerificationsByPanelId[panelId]?.state ?? .pending)
             .applying(.started)
@@ -47,16 +55,37 @@ extension Workspace {
         refreshAgentWakeFailureStatusEntry()
     }
 
-    /// An agent hook reported a PID or a non-manual lifecycle state for the pane.
-    func noteAgentWakeAgentReported(panelId: UUID) {
+    /// An agent hook reported a PID or a non-manual lifecycle state for the
+    /// pane under `statusKey`. Only a report from the woken agent counts.
+    func noteAgentWakeAgentReported(panelId: UUID, statusKey: String) {
+        guard let verification = agentWakeVerificationsByPanelId[panelId],
+              verification.acceptsReport(statusKey: statusKey) else {
+            return
+        }
         applyAgentWakeVerificationEvent(.agentReported, panelId: panelId)
     }
 
-    /// The restored resume command returned to the shell prompt.
-    func noteAgentWakeCommandEnded(panelId: UUID, now: Date = Date()) {
-        guard let verification = agentWakeVerificationsByPanelId[panelId] else { return }
-        let ranAWhile = now.timeIntervalSince(verification.startedAt) >= Self.agentWakeQuickExitSeconds
-        applyAgentWakeVerificationEvent(ranAWhile ? .agentReported : .commandEnded, panelId: panelId)
+    /// The restored resume command returned to the shell prompt. Before any
+    /// report or live process confirmed the agent, that is a failed wake.
+    func noteAgentWakeCommandEnded(panelId: UUID) {
+        applyAgentWakeVerificationEvent(.commandEnded, panelId: panelId)
+    }
+
+    /// Looks for a live process of the woken agent in the pane. Returns
+    /// whether the check is still pending and should keep probing.
+    @discardableResult
+    func probeAgentWakeLiveProcess(panelId: UUID, token: UUID? = nil) -> Bool {
+        guard !isRetiredFromOwningTabManager,
+              let verification = agentWakeVerificationsByPanelId[panelId],
+              token == nil || verification.token == token,
+              verification.state == .pending else {
+            return false
+        }
+        guard restoredAgentHasLiveProcess(verification.agent, panelId: panelId) else {
+            return true
+        }
+        applyAgentWakeVerificationEvent(.liveProcessFound, panelId: panelId)
+        return false
     }
 
     /// Fails a pending wake check directly. The normal paths are the

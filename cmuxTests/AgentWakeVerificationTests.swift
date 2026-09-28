@@ -47,6 +47,15 @@ struct AgentWakeVerificationStateTests {
     }
 
     @Test
+    func liveProcessWhilePendingSucceedsButDoesNotClearAFailure() {
+        #expect(AgentWakeVerificationState.pending.applying(.liveProcessFound) == .succeeded)
+        #expect(
+            AgentWakeVerificationState.failed(.exitedBeforeStart).applying(.liveProcessFound) ==
+                .failed(.exitedBeforeStart)
+        )
+    }
+
+    @Test
     func laterAgentReportClearsFailure() {
         #expect(
             AgentWakeVerificationState.failed(.didNotStart).applying(.agentReported) ==
@@ -228,20 +237,63 @@ struct AgentWakeVerificationWorkspaceTests {
 
     @MainActor
     @Test
-    func aResumeCommandEndingLateCountsAsAResumedAgent() throws {
+    func aResumeCommandEndingLateWithoutConfirmationStillFails() throws {
         let workspace = Workspace()
         defer { clearNotifications(workspace) }
         let panel = try #require(workspace.focusedTerminalPanel)
 
         workspace.beginAgentWakeVerification(panelId: panel.id, agent: agent)
-        // An agent without hooks ran and the user quit it: not a failed wake.
-        workspace.noteAgentWakeCommandEnded(
-            panelId: panel.id,
-            now: Date().addingTimeInterval(Workspace.agentWakeQuickExitSeconds + 5)
-        )
+        // No hook report and no live process was seen, however long the
+        // command ran: the wake is not confirmed.
+        workspace.noteAgentWakeCommandEnded(panelId: panel.id)
 
-        #expect(panel.agentWakeFailure == nil)
-        #expect(workspace.statusEntries[Workspace.agentWakeFailedStatusKey] == nil)
+        #expect(panel.agentWakeFailure?.reason == .exitedBeforeStart)
+    }
+
+    @MainActor
+    @Test
+    func probeWithoutLiveProcessKeepsTheCheckPending() throws {
+        let workspace = Workspace()
+        defer { clearNotifications(workspace) }
+        let panel = try #require(workspace.focusedTerminalPanel)
+
+        workspace.beginAgentWakeVerification(panelId: panel.id, agent: agent)
+        #expect(workspace.probeAgentWakeLiveProcess(panelId: panel.id))
+        #expect(workspace.agentWakeVerificationsByPanelId[panel.id]?.state == .pending)
+    }
+
+    @MainActor
+    @Test
+    func reportFromAnotherAgentOnThePaneLeavesTheCheckPending() throws {
+        let workspace = Workspace()
+        defer { clearNotifications(workspace) }
+        let panel = try #require(workspace.focusedTerminalPanel)
+
+        workspace.beginAgentWakeVerification(panelId: panel.id, agent: agent)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panel.id, lifecycle: .running)
+        workspace.recordAgentPID(key: "amp.other-session", pid: getpid(), panelId: panel.id, refreshPorts: false)
+        defer { workspace.clearAgentPID(key: "amp.other-session", panelId: panel.id, refreshPorts: false) }
+
+        #expect(workspace.agentWakeVerificationsByPanelId[panel.id]?.state == .pending)
+    }
+
+    @MainActor
+    @Test
+    func lifecycleReportWithoutPanelIdDoesNotConfirmTheFocusedPane() throws {
+        let workspace = Workspace()
+        defer { clearNotifications(workspace) }
+        let focused = try #require(workspace.focusedTerminalPanel)
+        let other = try #require(
+            workspace.newTerminalSplit(from: focused.id, orientation: .horizontal, focus: false)
+        )
+        #expect(workspace.focusedPanelId == focused.id)
+
+        workspace.beginAgentWakeVerification(panelId: focused.id, agent: agent)
+        workspace.beginAgentWakeVerification(panelId: other.id, agent: agent)
+        workspace.setAgentLifecycle(key: "codex", panelId: nil, lifecycle: .running)
+
+        #expect(workspace.agentWakeVerificationsByPanelId[focused.id]?.state == .pending)
+        #expect(workspace.agentWakeVerificationsByPanelId[other.id]?.state == .pending)
     }
 
     @MainActor

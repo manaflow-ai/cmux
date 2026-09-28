@@ -11,4 +11,14 @@ struct AgentWakeVerification {
     let commandText: String
     var state: AgentWakeVerificationState
     var deadlineTask: Task<Void, Never>?
+
+    /// Whether a hook report under `statusKey` comes from the woken agent.
+    /// Hook status keys name the agent kind (Claude reports as
+    /// `claude_code`); a Feed attention overlay for that agent counts too.
+    /// Reports from another agent in the same pane leave the check pending.
+    func acceptsReport(statusKey: String) -> Bool {
+        let source = agent.kind.rawValue
+        return statusKey == FeedCoordinator.lifecycleStatusKey(forSource: source)
+            || statusKey == FeedCoordinator.attentionStatusKey(forSource: source)
+    }
 }

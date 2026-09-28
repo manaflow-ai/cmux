@@ -15,11 +15,13 @@ enum AgentWakeVerificationState: Equatable, Sendable {
         case started
         /// An agent hook reported a PID or a lifecycle state for the pane.
         case agentReported
+        /// A live process of the woken agent was found in the pane, which
+        /// confirms agents without hooks.
+        case liveProcessFound
         /// The resume command ended and the shell prompt came back.
         case commandEnded
         /// The verification deadline passed. `hasLiveProcess` says whether a
-        /// live agent process was found for the pane, which counts as success
-        /// for agents without hooks.
+        /// live agent process was found for the pane at that moment.
         case deadline(hasLiveProcess: Bool)
     }
 
@@ -29,6 +31,8 @@ enum AgentWakeVerificationState: Equatable, Sendable {
             return .pending
         case (_, .agentReported):
             // A report after a failure means the agent did come back.
+            return .succeeded
+        case (.pending, .liveProcessFound):
             return .succeeded
         case (.pending, .commandEnded):
             return .failed(.exitedBeforeStart)
