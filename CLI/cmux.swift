@@ -3432,15 +3432,29 @@ final class SocketClient {
         }
 
         // Verify socket is owned by the current user to prevent fake-socket attacks.
-        var st = stat()
-        guard stat(path, &st) == 0 else {
+        // lstat first so a link someone else planted is never followed; a link
+        // this user owns is followed to its socket. Neither check can see a
+        // swap between here and connect, so the listener's credentials are
+        // checked again once connected.
+        func inspectionFailure() -> CLIError {
             let failureKind: CLIError.SocketFailureKind = errno == ENOENT
                 ? .pathMissing
                 : .pathInspectionFailed
-            throw CLIError(
+            return CLIError(
                 message: "Socket not found at \(path)",
                 socketFailureKind: failureKind
             )
+        }
+        var st = stat()
+        guard lstat(path, &st) == 0 else { throw inspectionFailure() }
+        if (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFLNK) {
+            guard st.st_uid == getuid() else {
+                throw CLIError(
+                    message: "Socket link at \(path) is not owned by the current user — refusing to connect",
+                    socketFailureKind: .pathOwnershipConflict
+                )
+            }
+            guard stat(path, &st) == 0 else { throw inspectionFailure() }
         }
         guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
             throw CLIError(
@@ -3496,6 +3510,15 @@ final class SocketClient {
             connectErrno = result == 0 ? 0 : errno
         }
         if connectErrno == 0 {
+            // Nothing, including the socket password, is written until the
+            // process listening on the other end is known to run as this user.
+            guard UnixSocketPeerCheck().isTrustedPeer(socketFD) else {
+                close()
+                throw CLIError(
+                    message: "Socket at \(path) is served by another user — refusing to connect",
+                    socketFailureKind: .pathOwnershipConflict
+                )
+            }
             return
         }
 

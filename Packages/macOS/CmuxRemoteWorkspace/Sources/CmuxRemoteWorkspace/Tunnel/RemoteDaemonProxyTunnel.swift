@@ -674,6 +674,12 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 NSLocalizedDescriptionKey: "failed to connect to local cmux socket",
             ])
         }
+        // Check the listener before the password or request leaves this process.
+        guard peerCheck.isTrustedPeer(fd) else {
+            throw NSError(domain: "cmux.remote.cli-bridge", code: 9, userInfo: [
+                NSLocalizedDescriptionKey: "local cmux socket is not owned by the current user",
+            ])
+        }
 
         if let socketPassword = socketPassword(),
            !socketPassword.isEmpty {

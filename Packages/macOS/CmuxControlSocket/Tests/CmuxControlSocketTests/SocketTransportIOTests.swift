@@ -184,7 +184,10 @@ private final class ResultBox: @unchecked Sendable {
         let commandReceived = ResultBox()
         let handled = UnixSocketFixture.acceptSingleClient(on: listenerFD) { clientFD in
             var buffer = [UInt8](repeating: 0, count: 256)
-            commandReceived.value = Darwin.read(clientFD, &buffer, buffer.count) > 0
+            let received = Darwin.read(clientFD, &buffer, buffer.count) > 0
+            commandReceived.value = received
+            // A refusing probe has already closed; writing would raise SIGPIPE.
+            guard received else { return }
             _ = "PONG\n".withCString { ptr in
                 write(clientFD, ptr, strlen(ptr))
             }

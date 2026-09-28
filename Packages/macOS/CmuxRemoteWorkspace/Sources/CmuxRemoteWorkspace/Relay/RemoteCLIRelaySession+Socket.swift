@@ -69,6 +69,12 @@ extension RemoteCLIRelayServer.Session {
                 NSLocalizedDescriptionKey: "failed to connect to local cmux socket",
             ])
         }
+        // Check the listener before the authenticated request leaves this process.
+        guard peerCheck.isTrustedPeer(fd) else {
+            throw NSError(domain: "cmux.remote.relay", code: 9, userInfo: [
+                NSLocalizedDescriptionKey: "local cmux socket is not owned by the current user",
+            ])
+        }
         guard shouldContinue() else {
             throw NSError(domain: "cmux.remote.relay", code: 6, userInfo: [
                 NSLocalizedDescriptionKey: "failed to read local cmux response",
