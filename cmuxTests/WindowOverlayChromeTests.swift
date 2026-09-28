@@ -110,12 +110,16 @@ struct WindowOverlayChromeTests {
         let content = try #require(window.contentView)
         let browserAnchor = try #require(find("overlay.browser", in: content))
         let terminalAnchor = try #require(find("overlay.terminal", in: content))
+        // With Reduce Transparency on in System Settings, as on hosted CI
+        // Macs, that mount swaps any glass root for the opaque window fill
+        // (#14991), so only install glass the app would keep.
+        let installsGlass = useGlass && !DisplayAccessibilityOptions.current.reduceTransparency
         let glassEffect = WindowGlassEffect()
-        if useGlass {
+        if installsGlass {
             glassEffect.apply(to: window)
         }
         let windowRoot = try #require(window.contentView)
-        if useGlass && glassEffect.isAvailable {
+        if installsGlass && glassEffect.isAvailable {
             #expect(windowRoot !== content)
             #expect(glassEffect.originalContentView(for: window) === content)
         } else {
