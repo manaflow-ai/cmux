@@ -320,7 +320,7 @@ class PlanTests(StubbedTest):
             "repos/o/r/actions/runs/9": run}, {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"})
         self.assertEqual(outputs["build_sha"], self.EARLIER)
 
-    def test_a_pull_request_on_mains_build_compiles_its_head(self) -> None:
+    def test_a_pull_request_on_mains_build_adopts_mains_build(self) -> None:
         run = {"id": 9, "run_attempt": 1, "head_sha": HEAD, "head_branch": "topic", "event": "pull_request",
                "path": media.CI_WORKFLOW_PATH, "head_repository": {"full_name": "o/r"},
                "pull_requests": [{"number": 42}], "status": "completed"}
@@ -333,8 +333,7 @@ class PlanTests(StubbedTest):
                 {"name": "macos", "status": "completed", "conclusion": "skipped"},
                 {"name": "Fast static checks", "status": "completed", "conclusion": "success"}]},
             "repos/o/r/actions/runs/9": run}, {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"})
-        self.assertEqual((outputs["build_sha"], outputs["compile"]), (HEAD, "now"))
-        self.assertEqual(outputs["compile_tour"], "sidebar-and-chrome-tour")
+        self.assertEqual((outputs["build_sha"], outputs["compile"]), (HEAD, media.ADOPT_MAIN))
         self.assertEqual(json.loads(outputs["run"]), ["sidebar-and-chrome-tour"])
 
     def test_app_changes_follow_cis_build_inputs(self) -> None:
@@ -435,8 +434,8 @@ class UploadRetryTests(unittest.TestCase):
 
 
 class TourCacheTests(StubbedTest):
-    def run_tour(self, conclusion: str, media_made: dict, compile_mode: str = "never",
-                 adopt_status: int = 0, refused: bool = False, compile_tour: str = "") -> dict:
+    def run_tour(self, conclusion: str, media_made: dict, compile_mode: str = "ci",
+                 adopt_status: int = 0, refused: bool = False) -> dict:
         import tempfile
         self.stub({})
         commands = self.commands = []
@@ -474,8 +473,7 @@ class TourCacheTests(StubbedTest):
         for signum in (signal.SIGINT, signal.SIGTERM):
             self.addCleanup(signal.signal, signum, signal.getsignal(signum))
         with tempfile.TemporaryDirectory() as tmp:
-            media.tour("o/r", "t", Path(tmp) / "s.json", HEAD, Path(tmp) / "out", compile_mode,
-                       compile_tour=compile_tour)
+            media.tour("o/r", "t", Path(tmp) / "s.json", HEAD, Path(tmp) / "out", compile_mode)
             return json.loads((Path(tmp) / "out/manifest.json").read_text())
 
     def test_only_a_verdict_with_media_is_cached(self) -> None:
@@ -488,32 +486,33 @@ class TourCacheTests(StubbedTest):
                 self.assertNotIn("run_url", manifest)
                 self.assertIn("log_url", manifest)
 
-    def test_an_app_pull_request_compiles_when_no_ci_build_loads(self) -> None:
-        made = {"gif": "tour.gif", "shots": [], "failures": []}
-        for adopt_status, refused in ((media.UNLOADABLE_PRODUCT_EXIT, False), (0, True)):
-            with self.subTest(adopt_status=adopt_status, refused=refused):
-                manifest = self.run_tour("success", made, "fallback", adopt_status, refused)
-                self.assertEqual(["--adopt-only" in command for command in self.commands], [True, False])
-                self.assertTrue(manifest["compiled"])
-                self.assertEqual(manifest["result"], "passed")
-                self.assertIn("compiled for the tour", media.section("o/r", 1, HEAD, [manifest]))
+    def test_no_loadable_ci_build_is_skipped_not_compiled(self) -> None:
+        for mode in (media.ADOPT_CI, media.ADOPT_MAIN):
+            for adopt_status, refused in ((media.UNLOADABLE_PRODUCT_EXIT, False), (0, True)):
+                with self.subTest(mode=mode, adopt_status=adopt_status, refused=refused):
+                    manifest = self.run_tour("success", {"gif": "tour.gif", "shots": []}, mode, adopt_status, refused)
+                    self.assertEqual(["--adopt-only" in command for command in self.commands], [True])
+                    self.assertNotIn("compiled", manifest)
+                    self.assertEqual(manifest["result"], "not run")
+                    self.assertTrue(manifest["note"].startswith("skipped:"))
+
+    def test_mains_build_is_adopted_through_the_dispatcher(self) -> None:
+        self.run_tour("success", {"gif": "tour.gif", "shots": []}, media.ADOPT_MAIN)
+        self.assertIn("--adopt-main", self.commands[0])
+        self.run_tour("success", {"gif": "tour.gif", "shots": []}, media.ADOPT_CI)
+        self.assertNotIn("--adopt-main", self.commands[0])
 
     def test_no_ci_build_yet_never_compiles(self) -> None:
-        manifest = self.run_tour("success", {}, "fallback", media.NO_PRODUCT_EXIT)
+        manifest = self.run_tour("success", {}, media.ADOPT_CI, media.NO_PRODUCT_EXIT)
         self.assertEqual(len(self.commands), 1)
         self.assertNotIn("compiled", manifest)
         self.assertTrue(manifest["note"].startswith("skipped: CI left no app build"))
-
-    def test_only_one_tour_per_head_compiles(self) -> None:
-        manifest = self.run_tour("success", {}, "fallback", media.UNLOADABLE_PRODUCT_EXIT, compile_tour="other")
-        self.assertEqual(len(self.commands), 1)
-        self.assertIn("only other compiles", manifest["note"])
 
     def test_a_reuse_error_is_not_a_refusal(self) -> None:
         original = media.failed_steps
         media.failed_steps = lambda *_: {media.REUSE_ERROR_STEP}
         self.addCleanup(setattr, media, "failed_steps", original)
-        manifest = self.run_tour("failure", {"gif": "tour.gif", "shots": []}, "fallback")
+        manifest = self.run_tour("failure", {"gif": "tour.gif", "shots": []})
         self.assertEqual(len(self.commands), 1)
         self.assertEqual(manifest["result"], "not run")
         self.assertIn("reuse error", manifest["note"])
@@ -540,39 +539,25 @@ class TourCacheTests(StubbedTest):
         workflow = (ROOT / ".github/workflows/test-e2e.yml").read_text()
         self.assertIn(f"- name: {media.REUSE_ERROR_STEP}", workflow)
 
-    def test_a_moved_head_does_not_compile(self) -> None:
-        original = media.head_moved
-        media.head_moved = lambda *_: True
-        self.addCleanup(setattr, media, "head_moved", original)
-        manifest = self.run_tour("success", {}, "fallback", media.UNLOADABLE_PRODUCT_EXIT)
-        self.assertEqual(len(self.commands), 1)
-        self.assertIn("newer push", manifest["note"])
-
     def test_the_adopt_run_is_waited_for_once(self) -> None:
-        self.run_tour("success", {"gif": "tour.gif", "shots": []}, "fallback")
+        self.run_tour("success", {"gif": "tour.gif", "shots": []})
         self.assertEqual(self.waits, 1)
 
     def test_a_compiled_verdict_is_cached_even_without_media(self) -> None:
         manifest = self.run_tour("failure", {"shots": [], "note": "no frames"}, "now")
         self.assertIn("run_url", manifest)
 
-    def test_losing_track_of_the_adopt_run_stops_it_and_does_not_compile(self) -> None:
+    def test_losing_track_of_the_adopt_run_stops_it(self) -> None:
         def boom(*_):
             raise RuntimeError("HTTP 401")
 
         original = media.refused_after
         media.refused_after = boom
         self.addCleanup(setattr, media, "refused_after", original)
-        manifest = self.run_tour("success", {}, "fallback")
+        manifest = self.run_tour("success", {})
         self.assertEqual(len(self.commands), 1)
         self.assertEqual(self.stopped, 1)
         self.assertTrue(manifest["note"].startswith("skipped: could not follow"))
-
-    def test_a_pull_request_without_app_changes_says_why_it_skipped(self) -> None:
-        manifest = self.run_tour("success", {}, "never", media.UNLOADABLE_PRODUCT_EXIT)
-        self.assertEqual(len(self.commands), 1)
-        self.assertEqual(manifest["result"], "not run")
-        self.assertTrue(manifest["note"].startswith("skipped:"))
 
     def test_compile_now_skips_the_adopt_attempt(self) -> None:
         self.run_tour("success", {"gif": "tour.gif", "shots": []}, "now")
@@ -648,13 +633,20 @@ class PublishTests(StubbedTest):
         self.assertIn(f"Dogfood tours of `{HEAD[:8]}`", body)
         self.assertNotIn("e" * 8, body)
 
-    def test_a_moved_head_or_a_comment_for_another_head_is_left_alone(self) -> None:
+    def test_a_moved_head_is_left_alone(self) -> None:
         import tempfile
-        for head, body in (("f" * 40, f"**Dogfood build** of `{HEAD}`"), (HEAD, f"**Dogfood build** of `{'e' * 40}`")):
-            with self.subTest(head=head[:4]), tempfile.TemporaryDirectory() as tmp:
-                stub = self.publish(Path(tmp), head, self.comment(f"{media.DOGFOOD_MARKER}\n{body}"))
-                self.assertFalse(any(w[:4] == ["gh", "api", "-X", "PATCH"] for w in stub.writes))
-                self.assertFalse(any(w[:4] == ["gh", "api", "-X", "POST"] for w in stub.writes))
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = self.publish(Path(tmp), "f" * 40, self.comment(f"{media.DOGFOOD_MARKER}\n**Dogfood build** of `{HEAD}`"))
+        self.assertFalse(any(w[:4] == ["gh", "api", "-X", "PATCH"] for w in stub.writes))
+        self.assertFalse(any(w[:4] == ["gh", "api", "-X", "POST"] for w in stub.writes))
+
+    def test_a_dogfood_build_of_an_older_head_does_not_hold_media_back(self) -> None:
+        # The dogfood build is opt-in (the dev-build label); a comment left by
+        # an older labelled push, or a failed dogfood job, must not block media.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = self.publish(Path(tmp), HEAD, self.comment(f"{media.DOGFOOD_MARKER}\n**Dogfood build** of `{'e' * 40}`"))
+        self.assertIn(f"Dogfood tours of `{HEAD[:8]}`", self.patched_body(stub))
 
 
 class CommentTests(unittest.TestCase):

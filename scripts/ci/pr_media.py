@@ -11,10 +11,10 @@ request CI run, next to CI and never inside it:
   off. With no match it takes DEFAULT_TOUR. Tours already published for this
   head are not run again.
 - `tour` runs one tour through scripts/run-e2e.sh with --adopt-only, so it loads
-  the app and UI test bundle the pull request's CI compiled. When its runner
-  cannot load that build, an app pull request compiles once for the tour
-  (COMPILE_FALLBACK). It turns the tour's frames into a few PNGs and a
-  captioned GIF. A tour that could not run is noted with why, not cached.
+  the app and UI test bundle the pull request's CI compiled (or, when CI reused
+  main's build, main's build of the same inputs). It never compiles unless a
+  manual dispatch passes allow_compile. It turns the tour's frames into a few
+  PNGs and a captioned GIF. A tour that could not run is noted with why.
 - `publish` uploads them to the `pr-media` branch at <pr>/<sha8>/<tour>/ and
   writes a media section into the sticky dogfood comment (DOGFOOD_MARKER),
   unless a newer push has moved the head since.
@@ -61,8 +61,11 @@ NO_PRODUCT_EXIT = 3
 UNLOADABLE_PRODUCT_EXIT = 4
 # When a tour compiles its own app: never, only when no CI build loads on
 # its runner (an app pull request), or straight away (a manual dispatch).
-COMPILE_NEVER, COMPILE_FALLBACK, COMPILE_NOW = "never", "fallback", "now"
-COMPILE_MODES = (COMPILE_NEVER, COMPILE_FALLBACK, COMPILE_NOW)
+# How a tour gets its app: adopt the build a CI run of the pull request made
+# (ADOPT_CI), adopt main's build of the same inputs when CI reused it
+# (ADOPT_MAIN), or compile one (COMPILE_NOW, only for a manual allow_compile).
+ADOPT_CI, ADOPT_MAIN, COMPILE_NOW = "ci", "main", "now"
+COMPILE_MODES = (ADOPT_CI, ADOPT_MAIN, COMPILE_NOW)
 # Product inputs no tour shows (the CLI lane, the app-host unit tests): a
 # pull request that only changes these never compiles an app for its tours.
 NON_TOUR_PRODUCT_PREFIXES = ("CLI/", "cmuxCLITests/", "cmuxCLITestSupport/", "cmuxTests/")
@@ -234,8 +237,6 @@ def published(repository: str, pr: int | str, head_sha: str, tour: str) -> dict 
 
 
 BUILT, REUSED, NO_BUILD = "built", "reused", ""
-# The line ci.yml's dogfood-build job opens its comment with.
-DOGFOOD_HEAD = re.compile(r"\*\*Dogfood build\*\* of `([0-9a-f]{40})`")
 # ci.yml static-preflight, which `macos` needs.
 STATIC_JOB = "Fast static checks"
 
@@ -381,7 +382,8 @@ def plan(repository: str) -> int:
     mains_build = mode == REUSED and not build_run
     if mains_build:
         # CI reused main's build (this pull request changes no build input
-        # main lacks), which no tour can adopt: an app change compiles the head.
+        # main lacks): the tour adopts main's build of the same inputs
+        # (dispatch-focused-test.py --adopt-main).
         build_run = {"head_sha": head_sha}
     if not build_run and not os.environ.get("SOURCE_RUN_ID"):
         # A manual dispatch still runs: the tour reports that no product was
@@ -420,11 +422,9 @@ def plan(repository: str) -> int:
     force = os.environ.get("FORCE", "").lower() == "true"
     pending = [tour for tour in tours if force or published(repository, pr, head_sha, tour) is None]
     print(f"#{pr} at {head_sha}: tours {tours or 'none'} ({reason}); to run: {pending or 'none'}", flush=True)
-    compile_mode = (COMPILE_NEVER if not app_change else COMPILE_NOW if mains_build else COMPILE_FALLBACK)
+    compile_mode = ADOPT_MAIN if mains_build else ADOPT_CI
     write_outputs({"pr": str(pr), "head_sha": head_sha, "build_sha": build_sha, "merge_sha": merge_sha,
                    "compile": compile_mode,
-                   # One compile per head: the top pending tour's (the rest note it).
-                   "compile_tour": pending[0] if pending else "",
                    "tours": json.dumps(tours),
                    "run": json.dumps(pending)})
     return 0
@@ -622,26 +622,19 @@ def tour_media(run_id: str, name: str, head_sha: str, out: Path, repository: str
     return found
 
 
-def head_moved(repository: str, pr: str, head_sha: str) -> bool:
-    if not pr:
-        return False
-    try:
-        pull = gh_json([f"repos/{repository}/pulls/{pr}"]) or {}
-    except RuntimeError:
-        return False
-    return bool((pull.get("head") or {}).get("sha")) and pull["head"]["sha"] != head_sha
+UNLOADABLE_NOTE = ("skipped: CI built this head on a runner pool whose products the UI test Macs cannot "
+                   "load, and media never compiles one; `gh workflow run pr-media.yml -f pr=<n> "
+                   "-f allow_compile=true` does")
 
 
-def tour(repository: str, name: str, scenario: Path, head_sha: str, out: Path, compile_mode: str = COMPILE_NEVER,
-         build_sha: str = "", compile_tour: str = "", pr: str = "") -> int:
+def tour(repository: str, name: str, scenario: Path, head_sha: str, out: Path, compile_mode: str = ADOPT_CI,
+         build_sha: str = "") -> int:
     """Run one tour and write its manifest.
 
-    It first adopts the build CI made. Only when that build exists but the
-    tour's runner cannot load it (UNLOADABLE_PRODUCT_EXIT, or a run that
-    refused to compile) does an app pull request compile its head, once per
-    head (`compile_tour`); COMPILE_NOW compiles straight away (CI reused
-    main's build, or a manual allow_compile). A compiled tour's verdict is
-    cached even without media, so CI re-runs do not compile it again.
+    A tour only ever adopts a build: the one a CI run of the pull request made
+    (ADOPT_CI), or main's build of the same inputs when CI reused it
+    (ADOPT_MAIN). When neither loads on the UI test Macs the tour is skipped
+    with a note; only a manual allow_compile (COMPILE_NOW) compiles.
     """
     if not TOUR_NAME.fullmatch(name) or not SHA.fullmatch(head_sha):
         raise ValueError("bad tour name or head")
@@ -654,41 +647,29 @@ def tour(repository: str, name: str, scenario: Path, head_sha: str, out: Path, c
     if build_sha != head_sha:
         manifest["build_sha"] = build_sha
     base = [str(ROOT / "scripts/run-e2e.sh"), "--scenario", str(scenario), "--ref", build_sha, "--no-video"]
-    needs_compile = compile_mode == COMPILE_NOW
-    status: int | None = None
-    if not needs_compile:
-        status = dispatch.start([*base, "--adopt-only"])
+    if compile_mode == COMPILE_NOW:
+        manifest["compiled"] = True
+        manifest.pop("build_sha", None)
+        status: int | None = dispatch.start([*base[:4], head_sha, *base[5:]])
+    else:
+        status = dispatch.start([*base, "--adopt-only", *(["--adopt-main"] if compile_mode == ADOPT_MAIN else [])])
         if status == 0 and dispatch.run_id:
             try:
-                needs_compile = refused_after(dispatch, repository)
+                if refused_after(dispatch, repository):
+                    manifest["note"] = UNLOADABLE_NOTE if compile_mode == ADOPT_CI else (
+                        "skipped: main's build of these inputs is gone or does not load on the UI test Macs, "
+                        "and media never compiles one")
+                    status = None
             except Exception as error:
                 dispatch.stop()
                 manifest["note"] = f"skipped: could not follow the tour run ({str(error)[:160]})"
                 status = None
         elif status == UNLOADABLE_PRODUCT_EXIT:
-            needs_compile = True
-        elif status == NO_PRODUCT_EXIT:
-            manifest["note"] = ("skipped: CI left no app build yet (it failed, was cancelled, or is still "
-                                "compiling); the next CI attempt tries again")
+            manifest["note"] = UNLOADABLE_NOTE
             status = None
-    if needs_compile:
-        dispatch.run_id = dispatch.tested = None
-        dispatch.completed = None
-        status = None
-        if compile_mode == COMPILE_NEVER:
-            manifest["note"] = ("skipped: the tour's runner cannot load CI's build, and this pull request "
-                                "changes no app code to compile one for")
-        elif compile_tour and compile_tour != name:
-            manifest["note"] = (f"skipped: the tour's runner cannot load CI's build; only {compile_tour} "
-                                "compiles one for this head")
-        elif head_moved(repository, pr, head_sha):
-            manifest["note"] = "skipped: a newer push replaced this head before its compile started"
-        else:
-            print("::notice::Compiling the app for this tour (no CI build its runner can load).", flush=True)
-            # The head itself: a tour-only push compiles to the same app anyway.
-            status = dispatch.start([*base[:4], head_sha, *base[5:]])
-            manifest["compiled"] = True
-            manifest.pop("build_sha", None)
+        elif status == NO_PRODUCT_EXIT:
+            manifest["note"] = "skipped: CI left no app build for this head (its compile failed or was cancelled)"
+            status = None
     if status is None:
         pass
     elif status != 0 or not dispatch.run_id:
@@ -854,12 +835,6 @@ def publish(repository: str, pr: int, head_sha: str, tours: list[str], media: Pa
     if (pull.get("head") or {}).get("sha") != head_sha:
         print(f"#{pr} moved past {head_sha}; not touching its comment.", flush=True)
         return 0
-    # A dogfood link for another head: that push's dogfood job has not
-    # rewritten the comment yet. A media-only comment names no build.
-    named = DOGFOOD_HEAD.search(ours[0].get("body", "")) if ours else None
-    if named and named.group(1) != head_sha:
-        print(f"The dogfood comment does not name {head_sha} yet; leaving it to that push's run.", flush=True)
-        return 0
     if ours:
         body = merge_section(ours[0]["body"], new_section)
         subprocess.run(["gh", "api", "-X", "PATCH", f"repos/{repository}/issues/comments/{ours[0]['id']}",
@@ -880,7 +855,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--name", required=True)
     run.add_argument("--scenario", type=Path, required=True)
     run.add_argument("--out", type=Path, required=True)
-    run.add_argument("--compile", choices=COMPILE_MODES, default=COMPILE_NEVER,
+    run.add_argument("--compile", choices=COMPILE_MODES, default=ADOPT_CI,
                      help="when to compile the app for the tour (default: never)")
     post = sub.add_parser("publish", help="upload media and update the dogfood comment")
     post.add_argument("--media", type=Path, required=True)
@@ -893,7 +868,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"HEAD_SHA {head_sha!r} is not a full commit SHA")
     if args.command == "tour":
         return tour(repository, args.name, args.scenario, head_sha, args.out, args.compile,
-                    os.environ.get("BUILD_SHA", ""), os.environ.get("COMPILE_TOUR", ""), os.environ.get("PR", ""))
+                    os.environ.get("BUILD_SHA", ""))
     return publish(repository, int(os.environ["PR"]), head_sha, json.loads(os.environ.get("TOURS") or "[]"),
                    args.media)
 
