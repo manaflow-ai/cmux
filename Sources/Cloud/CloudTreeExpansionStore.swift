@@ -16,6 +16,12 @@ final class CloudTreeExpansionStore {
     private var collapsedNodeIDs: Set<String>
     private var expandedNodeIDs: Set<String>
     private var missingNodePasses: [String: Int] = [:]
+    private struct Batch {
+        let machines: Set<String>
+        let collapsed: Set<String>
+        let expanded: Set<String>
+    }
+    private var batch: Batch?
 
     init(defaults: any CloudTreeExpansionPersistence = CloudTreeExpansionPreferences()) {
         self.defaults = defaults
@@ -35,13 +41,34 @@ final class CloudTreeExpansionStore {
         return node.kind.isExpandedByDefault
     }
 
+    /// One native operation can explicitly change a subtree. Sort and persist
+    /// each affected key once, after all of its callbacks have completed.
+    func withBatch(_ action: () -> Void) {
+        guard batch == nil else { action(); return }
+        let previous = Batch(machines: collapsedMachineIDs, collapsed: collapsedNodeIDs, expanded: expandedNodeIDs)
+        batch = previous
+        defer {
+            batch = nil
+            if collapsedMachineIDs != previous.machines {
+                defaults.setIfChanged(collapsedMachineIDs.sorted(), forKey: Self.collapsedMachinesKey)
+            }
+            if collapsedNodeIDs != previous.collapsed {
+                defaults.setIfChanged(collapsedNodeIDs.sorted(), forKey: Self.collapsedNodesKey)
+            }
+            if expandedNodeIDs != previous.expanded {
+                defaults.setIfChanged(expandedNodeIDs.sorted(), forKey: Self.expandedNodesKey)
+            }
+        }
+        action()
+    }
+
     func setExpanded(_ expanded: Bool, node: CloudTreeNode) {
         if node.isMachineRow {
             let key = node.machine.rawValue
             let changed = expanded
                 ? collapsedMachineIDs.remove(key) != nil
                 : collapsedMachineIDs.insert(key).inserted
-            if changed { defaults.setIfChanged(collapsedMachineIDs.sorted(), forKey: Self.collapsedMachinesKey) }
+            if changed, batch == nil { defaults.setIfChanged(collapsedMachineIDs.sorted(), forKey: Self.collapsedMachinesKey) }
             return
         }
         let collapse = !expanded && node.kind.isExpandedByDefault
@@ -50,8 +77,8 @@ final class CloudTreeExpansionStore {
             ? collapsedNodeIDs.insert(node.id).inserted : collapsedNodeIDs.remove(node.id) != nil
         let expandedChanged = expand
             ? expandedNodeIDs.insert(node.id).inserted : expandedNodeIDs.remove(node.id) != nil
-        if collapsedChanged { defaults.setIfChanged(collapsedNodeIDs.sorted(), forKey: Self.collapsedNodesKey) }
-        if expandedChanged { defaults.setIfChanged(expandedNodeIDs.sorted(), forKey: Self.expandedNodesKey) }
+        if collapsedChanged, batch == nil { defaults.setIfChanged(collapsedNodeIDs.sorted(), forKey: Self.collapsedNodesKey) }
+        if expandedChanged, batch == nil { defaults.setIfChanged(expandedNodeIDs.sorted(), forKey: Self.expandedNodesKey) }
     }
 
     /// Drops expansion entries for rows that no longer exist after a catalog
@@ -83,6 +110,7 @@ final class CloudTreeExpansionStore {
         collapsedMachineIDs.subtract(removedIDs)
         collapsedNodeIDs.subtract(removedIDs)
         expandedNodeIDs.subtract(removedIDs)
+        guard batch == nil else { return }
         if collapsedMachineIDs != previousMachines {
             defaults.setIfChanged(collapsedMachineIDs.sorted(), forKey: Self.collapsedMachinesKey)
         }

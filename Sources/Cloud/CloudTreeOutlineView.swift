@@ -93,7 +93,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var pendingWorkspaceDeletions: [SurfaceMachineID: Set<String>] = [:]
         private let deletionPresentation = CloudTreeDeletionPresentation()
         private var lastRevealToken: UUID?
-        private var isUpdatingProgrammatically = false
+        private(set) var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
         // NSDraggingItem retains the writer for the live native session. A weak
         // coordinator edge prevents a retained writer/container cycle.
@@ -431,17 +431,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             selectedNodeID = outlineView.selectedRow >= 0
                 ? (outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode)?.id
                 : nil
-        }
-
-        func outlineViewItemDidExpand(_ notification: Notification) {
-            guard !isUpdatingProgrammatically, let node = notification.userInfo?["NSObject"] as? CloudTreeNode else { return }
-            expansionStore.setExpanded(true, node: node)
-            if node.kind.refreshesOnExpansion { nodeActions.refreshMachine(node.machine) }
-        }
-
-        func outlineViewItemDidCollapse(_ notification: Notification) {
-            guard !isUpdatingProgrammatically, let node = notification.userInfo?["NSObject"] as? CloudTreeNode else { return }
-            expansionStore.setExpanded(false, node: node)
         }
 
         // MARK: Opening
