@@ -534,15 +534,15 @@ final class MobileHostService {
         )
     }
 
-    /// Render-grid fast path: frames arrive already JSON-encoded, so the event
-    /// envelope is spliced around them without parsing the grid into a
-    /// dictionary and re-serializing it — this is the hottest producer in the
-    /// app (issue #8842). Each connection receives the anchor variant it
+    /// Render-grid fast path: frames arrive already in their binary wire form
+    /// (`MobileTerminalRenderGridFrame.binaryEncoded()`) and are framed as-is,
+    /// with no JSON envelope; the phone recognizes them by their first byte.
+    /// This is the hottest producer in the app (issue #8842). Each connection receives the anchor variant it
     /// negotiated at subscribe time (viewport = v1 Mac-scroll mirror, screen =
     /// v2 active-area anchor for local scrollback), admitted through the same
     /// synchronous bounded queues as every other event.
     nonisolated static func emitRenderGridEvent(
-        framesByAnchor: [MobileTerminalRenderGridFrame.Anchor: (payloadJSON: Data, isFullFrame: Bool)],
+        framesByAnchor: [MobileTerminalRenderGridFrame.Anchor: (payload: Data, isFullFrame: Bool)],
         surfaceID: String,
         stateSeq: UInt64
     ) {
@@ -553,8 +553,7 @@ final class MobileHostService {
         }
         var encodedByAnchor: [MobileTerminalRenderGridFrame.Anchor: (frame: Data, isFullRenderGridFrame: Bool)] = [:]
         for (anchor, item) in framesByAnchor {
-            let envelope = MobileRenderGridEventSplice.envelope(payloadJSON: item.payloadJSON)
-            guard let frame = try? MobileSyncFrameCodec.encodeFrame(envelope) else {
+            guard let frame = try? MobileSyncFrameCodec.encodeFrame(item.payload) else {
                 mobileHostLog.error("mobile host dropped oversized render-grid event")
                 continue
             }
@@ -2044,8 +2043,8 @@ actor MobileHostConnection {
                 "stream_id": streamID,
                 "removed": removed,
             ])
-        case MobileTerminalViewSetRPC.method:
-            guard let surfaceIDs = MobileTerminalViewSetRPC.surfaceIDs(from: request.params) else {
+        case MobileTerminalViewSet.method:
+            guard let surfaceIDs = MobileTerminalViewSet(params: request.params)?.surfaceIDs else {
                 return .failure(
                     MobileHostRPCError(code: "invalid_params", message: "surface_ids must list terminal ids")
                 )
@@ -2165,7 +2164,7 @@ actor MobileHostConnection {
              // counting that as interactive activity starves host work gated
              // on mobile quiet (e.g. TabManager background git/PR refresh).
              "mobile.events.subscribe", "mobile.events.unsubscribe",
-             "mobile.events.probe", MobileTerminalViewSetRPC.method:
+             "mobile.events.probe", MobileTerminalViewSet.method:
             return false
         default:
             return true

@@ -547,8 +547,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } else {
                 resetWorkspaceChangesState()
             }
-            if supportedHostCapabilities.contains(MobileTerminalViewSetRPC.capability),
-               !oldValue.contains(MobileTerminalViewSetRPC.capability) {
+            if supportedHostCapabilities.contains(MobileTerminalViewSet.capability),
+               !oldValue.contains(MobileTerminalViewSet.capability) {
                 // Capabilities can arrive after the event subscription.
                 syncTerminalViewSet(force: true)
             }
@@ -15834,16 +15834,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func handleTerminalRenderGridEvent(_ event: MobileEventEnvelope) {
-        guard let json = event.payloadJSON else {
-            return
-        }
         #if DEBUG
         let latencyReceiveTime = MobileLatencyTrace.captureTime()
         #endif
-        // Macs send the bare frame; the wrapped `render_grid` form is a
-        // fallback only, so the common case costs exactly one decode.
-        guard let renderGrid = (try? MobileTerminalRenderGridFrame.decode(json))
-                ?? (try? MobileTerminalRenderGridEvent.decode(json))?.frame,
+        // The session actor decoded the binary frame before this hop.
+        guard let renderGrid = event.renderGrid,
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }
@@ -15851,7 +15846,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             recordAppEvent(
                 .terminalOutputReceived,
                 correlationID: renderGrid.surfaceID,
-                count: json.count
+                count: renderGrid.rowSpans.count
             )
         }
         #if DEBUG
@@ -15861,7 +15856,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "ev.grid",
                 at: latencyReceiveTime,
                 "s=\(renderGrid.surfaceID.prefix(8).lowercased()) seq=\(renderGrid.stateSeq) " +
-                    "bytes=\(json.count) dec_us=\(decodeDuration)"
+                    "spans=\(renderGrid.rowSpans.count) dec_us=\(decodeDuration)"
             )
         }
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")

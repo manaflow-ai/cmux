@@ -118,44 +118,64 @@ struct RenderGridWireSizeBenchmarkTests {
 
     @Test func agentSessionDeltaStream() async throws {
         var previous = try Self.screen(frame: 0)
-        var legacyBytes = 0
-        var compactBytes = 0
-        let sink = RecordingSink()
-        let lane = try IrxEncodingLaneWriter(sink, encoding: .deflate)
+        var deltas: [MobileTerminalRenderGridFrame] = []
         let frameCount = 600
         for index in 1...frameCount {
             let current = try Self.screen(frame: index)
             let previousRows = previous.rowSignatures()
             let currentRows = current.rowSignatures()
             let changed = Set((0..<Self.rows).filter { previousRows[$0] != currentRows[$0] })
-            let delta = try current.filteredRows(
+            deltas.append(try current.filteredRows(
                 changed,
                 full: false,
                 deltaBaseHistoryRows: previous.historyRows,
                 deltaBaseRenderRevision: previous.renderRevision
-            )
-            let legacy = try MobileSyncFrameCodec.encodeFrame(
-                MobileRenderGridEventSplice.envelope(payloadJSON: Self.legacyJSON(delta, fullStyles: Self.styles))
-            )
-            let compact = try MobileSyncFrameCodec.encodeFrame(
-                MobileRenderGridEventSplice.envelope(payloadJSON: JSONEncoder().encode(delta))
-            )
-            legacyBytes += legacy.count
-            compactBytes += compact.count
-            try await lane.write(compact)
+            ))
             previous = current
         }
-        let deflatedBytes = await sink.total
-        let perFrame = { (bytes: Int) in bytes / frameCount }
+
+        let legacy = try deltas.map { try Self.legacyJSON($0, fullStyles: Self.styles) }
+        let clock = ContinuousClock()
+        var json: [Data] = []
+        let jsonEncode = try clock.measure { json = try deltas.map { try JSONEncoder().encode($0) } }
+        let jsonDecode = try clock.measure {
+            for payload in json { _ = try MobileTerminalRenderGridFrame.decode(payload) }
+        }
+        var binary: [Data] = []
+        let binaryEncode = try clock.measure { binary = try deltas.map { try $0.binaryEncoded() } }
+        let binaryDecode = try clock.measure {
+            for payload in binary { _ = try MobileTerminalRenderGridFrame.decodeBinary(payload) }
+        }
+
+        func laneBytes(_ payloads: [Data]) async throws -> (raw: Int, deflated: Int) {
+            let sink = RecordingSink()
+            let lane = try IrxEncodingLaneWriter(sink, encoding: .deflate)
+            var raw = 0
+            for payload in payloads {
+                let frame = try MobileSyncFrameCodec.encodeFrame(payload)
+                raw += frame.count
+                try await lane.write(frame)
+            }
+            return (raw, await sink.total)
+        }
+        let legacyBytes = try await laneBytes(legacy)
+        let jsonBytes = try await laneBytes(json)
+        let binaryBytes = try await laneBytes(binary)
+        func perFrame(_ bytes: Int) -> Int { bytes / frameCount }
+        func microsPerFrame(_ duration: Duration) -> Int {
+            Int(duration / .microseconds(1)) / frameCount
+        }
         print(
-            "render-grid wire benchmark (\(frameCount) deltas, 120x40, 37 styles): " +
-                "legacy=\(perFrame(legacyBytes)) B/frame, compact=\(perFrame(compactBytes)) B/frame, " +
-                "compact+deflate=\(perFrame(deflatedBytes)) B/frame"
+            "render-grid wire benchmark (\(frameCount) deltas, 120x40, 37 styles) B/frame: " +
+                "legacy=\(perFrame(legacyBytes.raw)) legacy+deflate=\(perFrame(legacyBytes.deflated)) " +
+                "json=\(perFrame(jsonBytes.raw)) json+deflate=\(perFrame(jsonBytes.deflated)) " +
+                "binary=\(perFrame(binaryBytes.raw)) binary+deflate=\(perFrame(binaryBytes.deflated)); " +
+                "µs/frame: json encode=\(microsPerFrame(jsonEncode)) decode=\(microsPerFrame(jsonDecode)) " +
+                "binary encode=\(microsPerFrame(binaryEncode)) decode=\(microsPerFrame(binaryDecode))"
         )
-        // Measured 2026-09-28: legacy 17,884 B, compact 11,062 B,
-        // compact+deflate 704 B per frame. The bounds leave room for noise.
-        #expect(compactBytes * 3 < legacyBytes * 2)
-        #expect(deflatedBytes * 10 < compactBytes)
+        #expect(binaryBytes.raw * 2 < jsonBytes.raw)
+        #expect(binaryBytes.deflated < jsonBytes.deflated)
+        #expect(jsonBytes.deflated * 10 < legacyBytes.raw)
     }
 }
 

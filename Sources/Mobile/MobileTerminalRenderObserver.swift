@@ -443,7 +443,7 @@ final class MobileTerminalRenderObserver {
         // through the bounded per-connection queues, which may request a
         // full resync for shed frames via requestRenderGridFullResync.
         var sharedTheme: (config: TerminalTheme?, theme: TerminalTheme, revision: UInt64)?
-        var framesByAnchor: [MobileTerminalRenderGridFrame.Anchor: (payloadJSON: Data, isFullFrame: Bool)] = [:]
+        var framesByAnchor: [MobileTerminalRenderGridFrame.Anchor: (payload: Data, isFullFrame: Bool)] = [:]
         var emittedByAnchor: [MobileTerminalRenderGridFrame.Anchor: MobileTerminalRenderGridFrame] = [:]
         var surfaceIDString: String?
 
@@ -463,18 +463,18 @@ final class MobileTerminalRenderObserver {
                 sharedTheme: &sharedTheme
             ) else { continue }
             let emitted = attachHostTiming(to: capturedFrame, surfaceID: surfaceID, resolved: &resolvedHostTiming)
-            guard let payloadJSON = try? JSONEncoder().encode(emitted) else { continue }
+            guard let payload = try? emitted.binaryEncoded() else { continue }
             #if DEBUG
             HostLatencyTrace.stampElapsed(
                 "host.grid",
                 since: latencyExportStart
             ) {
                 "s=\(surfaceID.uuidString.prefix(8).lowercased()) seq=\(emitted.stateSeq) " +
-                    "exp_us=\($0) bytes=\(payloadJSON.count) " +
+                    "exp_us=\($0) bytes=\(payload.count) " +
                     "kind=\(emitted.full ? "full" : "delta")"
             }
             #endif
-            framesByAnchor[anchor] = (payloadJSON, emitted.full)
+            framesByAnchor[anchor] = (payload, emitted.full)
             emittedByAnchor[anchor] = emitted
             surfaceIDString = emitted.surfaceID
         }

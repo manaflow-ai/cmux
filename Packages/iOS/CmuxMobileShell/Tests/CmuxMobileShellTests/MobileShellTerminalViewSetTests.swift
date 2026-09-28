@@ -9,7 +9,7 @@ import Testing
     let router = LivenessHostRouter()
     await router.setCapabilities([
         "events.v1", "terminal.render_grid.v1", "terminal.replay.v1",
-        MobileTerminalViewSetRPC.capability,
+        MobileTerminalViewSet.capability,
     ])
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
@@ -18,13 +18,13 @@ import Testing
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: surfaceID)
     let declared = try await pollUntil {
-        await router.requests(for: MobileTerminalViewSetRPC.method).last?.surfaceIDs == [surfaceID]
+        await router.requests(for: MobileTerminalViewSet.method).last?.surfaceIDs == [surfaceID]
     }
     #expect(declared, "a mounted terminal must be declared so the Mac renders it")
 
     collector.unmount()
     let withdrawn = try await pollUntil {
-        await router.requests(for: MobileTerminalViewSetRPC.method).last?.surfaceIDs == []
+        await router.requests(for: MobileTerminalViewSet.method).last?.surfaceIDs == []
     }
     #expect(withdrawn, "an unmounted terminal must leave the declaration")
 }
@@ -41,8 +41,11 @@ import Testing
     collector.mount(store: store, surfaceID: surfaceID)
     let mounted = try await pollUntil { store.hasTerminalOutputSink(surfaceID: surfaceID) }
     #expect(mounted)
-    // Give an erroneous declaration time to reach the scripted Mac.
-    try await Task.sleep(for: .milliseconds(200))
-    #expect(await router.count(of: MobileTerminalViewSetRPC.method) == 0)
+    // Without the capability the sync returns before starting a request, so
+    // nothing can be in flight and nothing was ever acknowledged.
+    store.syncTerminalViewSet(force: true)
+    #expect(store.terminalViewSetSync.inFlight == nil)
+    #expect(store.terminalViewSetSync.acknowledgedSurfaceIDs == nil)
+    #expect(await router.count(of: MobileTerminalViewSet.method) == 0)
     collector.unmount()
 }

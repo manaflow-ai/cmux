@@ -219,7 +219,7 @@ extension MobileHostService {
             "terminal.render_grid.screen_anchor.v1",
             // The phone may declare the terminals it renders; render grids
             // for every other surface are neither captured nor sent to it.
-            MobileTerminalViewSetRPC.capability,
+            MobileTerminalViewSet.capability,
             "terminal.replay.v1",
             Self.terminalInputOrderedCapability,
             MobileTerminalInputFrame.capability,

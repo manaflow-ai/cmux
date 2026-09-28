@@ -13,14 +13,7 @@ struct MobileIrohReleaseGateRenderGridProbe: Sendable {
     }
 
     func consume(_ event: MobileEventEnvelope) -> Bool {
-        guard event.topic == "terminal.render_grid",
-              let payload = event.payloadJSON else {
-            return false
-        }
-        let wrapped = try? MobileTerminalRenderGridEvent.decode(payload)
-        guard let frame = wrapped?.frame
-                ?? (try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: payload)),
-              frame.surfaceID == surfaceID else {
+        guard let frame = event.renderGrid, frame.surfaceID == surfaceID else {
             return false
         }
         return frame.plainRows().joined().contains(marker)

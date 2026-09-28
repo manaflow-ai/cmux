@@ -750,7 +750,7 @@ actor LivenessHostRouter {
                 return try? Self.errorFrame(id: id, message: "scripted transient sync failure")
             }
             return try? Self.resultFrame(id: id, result: scripted)
-        case MobileTerminalViewSetRPC.method:
+        case MobileTerminalViewSet.method:
             return try? Self.resultFrame(id: id, result: [:])
         case "mobile.terminal.viewport":
             viewportRequestCount += 1
@@ -896,7 +896,7 @@ actor LivenessTransport: CmxByteTransport, CmxByteTransportLivenessObserving {
                 title: params?["title"] as? String,
                 attachToken: auth?["attach_token"] as? String,
                 stackAccessToken: auth?["stack_access_token"] as? String,
-                surfaceIDs: params?[MobileTerminalViewSetRPC.surfaceIDsParameterKey] as? [String]
+                surfaceIDs: params?[MobileTerminalViewSet.surfaceIDsParameterKey] as? [String]
             )
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's

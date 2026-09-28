@@ -28,7 +28,7 @@ extension MobileShellComposite {
     /// the next change or re-subscribe sends again.
     func syncTerminalViewSet(force: Bool = false) {
         guard let client = remoteClient,
-              supportedHostCapabilities.contains(MobileTerminalViewSetRPC.capability) else {
+              supportedHostCapabilities.contains(MobileTerminalViewSet.capability) else {
             return
         }
         if force {
@@ -48,8 +48,8 @@ extension MobileShellComposite {
             let accepted: Bool
             do {
                 let request = try MobileCoreRPCClient.requestData(
-                    method: MobileTerminalViewSetRPC.method,
-                    params: MobileTerminalViewSetRPC.params(surfaceIDs: surfaceIDs)
+                    method: MobileTerminalViewSet.method,
+                    params: MobileTerminalViewSet(surfaceIDs: Set(surfaceIDs.compactMap(UUID.init(uuidString:)))).params
                 )
                 // Bounded so a wedged connection cannot hold the single
                 // in-flight slot; the re-subscribe that follows recovery

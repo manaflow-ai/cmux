@@ -137,7 +137,7 @@ extension MobileHostService {
             return nil
         case "mobile.events.unsubscribe", "mobile.events.probe":
             return nil
-        case MobileTerminalViewSetRPC.method:
+        case MobileTerminalViewSet.method:
             // Narrows which render grids this connection receives; it can
             // never widen access beyond the subscription it filters.
             return nil

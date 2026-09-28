@@ -98,19 +98,3 @@ private func styledScreen() throws -> MobileTerminalRenderGridFrame {
     ]).count
     #expect(compactBytes * 6 < legacyBytes)
 }
-
-@Test func renderGridSpliceRoundTripsAndRejectsOtherEvents() throws {
-    let payload = try JSONEncoder().encode(styledScreen().filteredRows([1], full: false))
-    let envelope = MobileRenderGridEventSplice.envelope(payloadJSON: payload)
-    // The envelope is the event the generic path would also accept.
-    let object = try #require(try JSONSerialization.jsonObject(with: envelope) as? [String: Any])
-    #expect(object["topic"] as? String == "terminal.render_grid")
-    // A slice with a nonzero start index, like a frame cut from a read buffer.
-    var buffer = Data([0, 0, 0])
-    buffer.append(envelope)
-    #expect(MobileRenderGridEventSplice.payloadJSON(of: buffer.dropFirst(3)) == payload)
-    let other = Data(#"{"kind":"event","topic":"terminal.bytes","payload":{"a":1}}"#.utf8)
-    #expect(MobileRenderGridEventSplice.payloadJSON(of: other) == nil)
-    let withStream = Data(#"{"kind":"event","topic":"terminal.render_grid","payload":{"a":1},"stream_id":"x"}"#.utf8)
-    #expect(MobileRenderGridEventSplice.payloadJSON(of: withStream) == nil)
-}
