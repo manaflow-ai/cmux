@@ -88,6 +88,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private(set) var activationTask: Task<Void, Never>?
     private var controlTask: Task<Void, Never>?
     private var renewalWatchdogTask: Task<Void, Never>?
+    private var journalUploader: IrxJournalUploader?
+    private var journalTapID: UUID?
     private var endpointTask: Task<Void, Never>?
     private var endpointRefreshPending = false
     private var relayAddressWatch: WatchHandle?
@@ -349,6 +351,11 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         activationTask?.cancel(); activationTask = nil
         controlTask?.cancel(); controlTask = nil
         renewalWatchdogTask?.cancel(); renewalWatchdogTask = nil
+        if let journalTapID { Self.journal.removeTap(journalTapID) }
+        journalTapID = nil
+        let oldUploader = journalUploader
+        journalUploader = nil
+        Task { await oldUploader?.stop() }
         endpointTask?.cancel(); endpointTask = nil
         endpointRefreshPending = false
         relayAddressWatch = nil; relayAddressWatchGeneration = nil
@@ -512,6 +519,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             }
         }
         startRenewalWatchdog(token: token, service: service)
+        startJournalUpload(auth: auth, scope: scope, identity: tuple, endpointID: key.endpointID)
         await service.start()
         guard isCurrent(token), !Task.isCancelled else { await service.stop(); throw V2ControlFailure.stopped }
         Self.journal.record("v2-host", "control-started", ["cached": String(restored != nil)])
@@ -630,6 +638,48 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         requestEndpointReady(token: token)
         if activeDeviceCapabilities != deviceCapabilities { updateDeviceHostingMetadata() }
         publishIrxSettingsUpdate()
+    }
+
+    /// Ships the credential-lifecycle journal slice to the transport
+    /// observability route, so the next renewal wedge is diagnosable from the
+    /// sink after local log retention has erased the failure window.
+    private func startJournalUpload(
+        auth: AuthCoordinator, scope: AuthenticatedTeamScope, identity: V2Identity, endpointID: String
+    ) {
+        if let journalTapID { Self.journal.removeTap(journalTapID) }
+        let oldUploader = journalUploader
+        Task { await oldUploader?.stop() }
+        let channel: String
+        switch BuildFlavor.current {
+        case .dev: channel = "dev"
+        case .nightly: channel = "nightly"
+        case .stable: channel = "production"
+        case .rc: channel = "unknown"
+        }
+        let bundle = Bundle.main
+        let uploader = IrxJournalUploader(
+            endpoint: AuthEnvironment.vmAPIBaseURL.appendingPathComponent("api/observability/transport"),
+            metadata: IrxJournalUploader.ClientMetadata(
+                platform: "mac",
+                clientChannel: channel,
+                appVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+                buildNumber: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+                bundleIdentifier: bundle.bundleIdentifier,
+                osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
+                endpoint: String(endpointID.prefix(12)),
+                deviceId: identity.deviceID,
+                buildTag: identity.buildTag
+            ),
+            token: { force in try await Self.accessToken(auth: auth, scope: scope, force: force) },
+            transport: { request in
+                let (_, response) = try await URLSession.shared.data(for: request)
+                return (response as? HTTPURLResponse)?.statusCode ?? -1
+            }
+        )
+        journalUploader = uploader
+        journalTapID = Self.journal.addTap { [weak uploader] event in
+            uploader?.offer(event)
+        }
     }
 
     /// Journals loudly when credential renewal has silently stopped: either the
