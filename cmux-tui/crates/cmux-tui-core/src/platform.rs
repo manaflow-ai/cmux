@@ -32,11 +32,18 @@ pub mod transport {
         imp::connect(path)
     }
 
+    /// Connect and refuse a listener that runs as another user before the
+    /// caller writes anything. Windows sockets report no peer credentials, so
+    /// there this is a plain connect.
+    pub fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
+        imp::connect_same_user(path)
+    }
+
     /// A listener serves its owner and root. Root can already open any
     /// socket file, so refusing it would only get in the way of an admin.
     #[cfg(unix)]
-    pub(crate) fn peer_may_connect(_peer_uid: u32, _owner_uid: u32) -> bool {
-        true
+    pub(crate) fn peer_may_connect(peer_uid: u32, owner_uid: u32) -> bool {
+        peer_uid == owner_uid || peer_uid == 0
     }
 
     impl Listener {
@@ -66,9 +73,22 @@ pub mod transport {
             Ok(Box::new(UnixStream::connect(path)?))
         }
 
+        pub(super) fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
+            let stream = UnixStream::connect(path)?;
+            crate::platform::require_unix_peer_uid(&stream, crate::platform::effective_uid())?;
+            Ok(Box::new(stream))
+        }
+
         impl Listener {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
                 let (stream, _) = self.inner.accept()?;
+                let peer_uid = crate::platform::unix_peer_uid(&stream)?;
+                if !super::peer_may_connect(peer_uid, crate::platform::effective_uid()) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        format!("refused a socket client running as uid {peer_uid}"),
+                    ));
+                }
                 Ok(Box::new(stream))
             }
         }
@@ -111,6 +131,10 @@ pub mod transport {
 
         pub(super) fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
             Ok(Box::new(UnixStream::connect(path)?))
+        }
+
+        pub(super) fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
+            connect(path)
         }
 
         impl Listener {
@@ -158,9 +182,16 @@ pub fn unix_peer_uid(socket: &impl std::os::fd::AsRawFd) -> io::Result<u32> {
 /// before writing anything to a socket found at a path the caller derived.
 #[cfg(unix)]
 pub fn require_unix_peer_uid(
-    _socket: &impl std::os::fd::AsRawFd,
-    _expected_uid: u32,
+    socket: &impl std::os::fd::AsRawFd,
+    expected_uid: u32,
 ) -> io::Result<()> {
+    let peer_uid = unix_peer_uid(socket)?;
+    if peer_uid != expected_uid {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("socket peer uid {peer_uid} does not match the expected uid {expected_uid}"),
+        ));
+    }
     Ok(())
 }
 

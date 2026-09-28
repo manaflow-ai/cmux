@@ -4940,14 +4940,7 @@ fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()> {
         if metadata.permissions().mode() & 0o077 != 0 {
             platform::restrict_directory(dir)?;
         }
-        let verified = std::fs::symlink_metadata(dir)?;
-        if verified.file_type().is_symlink()
-            || !verified.is_dir()
-            || verified.uid() != unsafe { libc::geteuid() }
-            || verified.permissions().mode() & 0o077 != 0
-        {
-            anyhow::bail!("runtime socket directory is not private: {}", dir.display());
-        }
+        verify_private_socket_directory(dir)?;
     }
     #[cfg(not(unix))]
     {
@@ -5007,9 +5000,36 @@ pub fn prepare_socket_parent(path: &Path, is_derived: bool) -> anyhow::Result<()
 /// caller-managed semantics.
 pub fn connect_session_socket(
     path: &Path,
-    _is_derived: bool,
+    is_derived: bool,
 ) -> std::io::Result<Box<dyn transport::Stream>> {
-    transport::connect(path)
+    if !is_derived {
+        return transport::connect(path);
+    }
+    #[cfg(unix)]
+    if let Some(dir) = path.parent() {
+        verify_private_socket_directory(dir)?;
+    }
+    transport::connect_same_user(path)
+}
+
+/// Check, without changing anything, that a derived socket directory is still
+/// the private one `prepare_runtime_socket_directory` leaves behind.
+#[cfg(unix)]
+fn verify_private_socket_directory(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let metadata = std::fs::symlink_metadata(dir)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_dir()
+        || metadata.uid() != platform::effective_uid()
+        || metadata.permissions().mode() & 0o077 != 0
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("runtime socket directory is not private: {}", dir.display()),
+        ));
+    }
+    Ok(())
 }
 
 /// Exclusive lock serializing every local server start for one socket path:

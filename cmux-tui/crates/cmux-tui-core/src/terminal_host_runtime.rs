@@ -2878,11 +2878,19 @@ mod unix {
         Ok(attachment)
     }
 
+    /// Connect to a host endpoint. Hosts run as this user, so a listener
+    /// owned by anyone else never receives the owner capability.
     fn connect_with_retry(path: &Path) -> anyhow::Result<UnixStream> {
         let deadline = Instant::now() + HOST_CONNECT_RETRY_WINDOW;
         loop {
             match UnixStream::connect(path) {
-                Ok(stream) => return Ok(stream),
+                Ok(stream) => {
+                    crate::platform::require_unix_peer_uid(
+                        &stream,
+                        crate::platform::effective_uid(),
+                    )?;
+                    return Ok(stream);
+                }
                 Err(error) => {
                     let now = Instant::now();
                     if now >= deadline {
@@ -3069,7 +3077,37 @@ mod unix {
     /// The shared `/tmp` directory that holds host sockets. Every user can
     /// create names there, so the directory must be a real one this user owns.
     fn prepare_endpoint_dir(path: &Path) -> anyhow::Result<()> {
-        prepare_private_dir(path)
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                anyhow::bail!(
+                    "terminal host endpoint directory is not a directory: {}",
+                    path.display()
+                );
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std_io::ErrorKind::NotFound => fs::create_dir_all(path)?,
+            Err(error) => return Err(error.into()),
+        }
+        let metadata = fs::symlink_metadata(path)?;
+        if metadata.file_type().is_symlink()
+            || !metadata.is_dir()
+            || metadata.uid() != crate::platform::effective_uid()
+        {
+            anyhow::bail!(
+                "terminal host endpoint directory is not this user's: {}",
+                path.display()
+            );
+        }
+        if metadata.mode() & 0o077 != 0 {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+            if fs::symlink_metadata(path)?.mode() & 0o077 != 0 {
+                anyhow::bail!(
+                    "terminal host endpoint directory is not private: {}",
+                    path.display()
+                );
+            }
+        }
+        Ok(())
     }
 
     #[derive(Clone)]
