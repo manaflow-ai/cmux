@@ -47,8 +47,12 @@ func newCloudCLIBridge() *cloudCLIBridge {
 }
 
 func defaultCloudCLIBridgeSocketIfExists() string {
-	if info, err := os.Stat(defaultCloudCLIBridgeSocketPath); err == nil && info.Mode()&os.ModeSocket != 0 {
-		return defaultCloudCLIBridgeSocketPath
+	return cloudCLIBridgeSocketIfUsable(defaultCloudCLIBridgeSocketPath, uint32(os.Geteuid()))
+}
+
+func cloudCLIBridgeSocketIfUsable(path string, uid uint32) string {
+	if info, err := os.Stat(path); err == nil && info.Mode()&os.ModeSocket != 0 {
+		return path
 	}
 	return ""
 }
