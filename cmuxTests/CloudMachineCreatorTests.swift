@@ -189,6 +189,13 @@ struct CloudMachineCreatorTests {
         #expect(anonymous.subtitle.hasSuffix("·") == false)
     }
 
+    @Test("a name of only whitespace is not a name")
+    func blankNameShowsNoAuthor() {
+        #expect(CloudMachineCreatorLabel.text(creator: VMCreator(userId: "u", displayName: "   ")) == nil)
+        #expect(CloudMachineCreatorLabel.text(creator: nil) == nil)
+        #expect(CloudMachineCreatorLabel.text(creator: VMCreator(userId: "u", displayName: "Ada")) == "by Ada")
+    }
+
     /// Labelled, so the subtitle also carries the id, and old enough that the
     /// relative age is a stable string rather than "in 0 seconds".
     private static func machine(createdBy: VMCreator?) -> MachineSnapshot {
