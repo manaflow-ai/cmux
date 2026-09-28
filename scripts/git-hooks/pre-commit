@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # cmux pre-commit hook
-# Installed by ./scripts/setup.sh via `git config core.hooksPath scripts/git-hooks`.
+# Installed by ./scripts/setup.sh as a clone-local copy outside the checkout.
 # Normalizes cmux.xcodeproj/project.pbxproj when staged so Xcode's
 # nondeterministic section reordering never reaches a commit.
 set -euo pipefail

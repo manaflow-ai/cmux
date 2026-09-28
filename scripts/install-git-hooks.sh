@@ -9,13 +9,22 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 cd "$REPO_ROOT"
 
+GIT_COMMON_DIR="$(git rev-parse --git-common-dir)"
+if [[ "$GIT_COMMON_DIR" != /* ]]; then
+    GIT_COMMON_DIR="$REPO_ROOT/$GIT_COMMON_DIR"
+fi
+TRUSTED_HOOK_DIR="$GIT_COMMON_DIR/cmux-git-hooks"
+mkdir -p "$TRUSTED_HOOK_DIR"
+install -m 0755 scripts/git-hooks/pre-commit "$TRUSTED_HOOK_DIR/pre-commit"
+install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
+
 # Hooks a contributor already has (a core.hooksPath set in any config scope, or
 # executable hooks such as Git LFS's in .git/hooks) are left in place with a
 # warning, not an error: setup.sh runs this last under `set -e`, and an existing
 # hook setup is not a setup failure.
 # shellcheck disable=SC2016 # printed literally, for the contributor's hook to expand
-TRACKED_PRE_COMMIT='"$(git rev-parse --show-toplevel)/scripts/git-hooks/pre-commit" "$@" || exit $?'
-TRACKED_POST_MERGE='"$(git rev-parse --show-toplevel)/scripts/git-hooks/post-merge" "$@" || exit $?'
+printf -v TRUSTED_PRE_COMMIT '%q "$@" || exit $?' "$TRUSTED_HOOK_DIR/pre-commit"
+printf -v TRUSTED_POST_MERGE '%q "$@" || exit $?' "$TRUSTED_HOOK_DIR/post-merge"
 warn_manual_wiring() {
     local hooks_dir="$1"
     {
@@ -23,12 +32,12 @@ warn_manual_wiring() {
         echo "registration) alongside your hooks, add this line to $hooks_dir/pre-commit"
         echo "(create it with a #!/bin/sh line and chmod +x if it does not exist):"
         echo ""
-        echo "    $TRACKED_PRE_COMMIT"
+        echo "    $TRUSTED_PRE_COMMIT"
         echo ""
         echo "To keep the trusted merge-driver copies current after pulling main, add"
         echo "this line to $hooks_dir/post-merge as well:"
         echo ""
-        echo "    $TRACKED_POST_MERGE"
+        echo "    $TRUSTED_POST_MERGE"
         echo ""
         echo "Or use only the tracked hooks in this clone (your existing hooks then stop"
         echo "running here): git config core.hooksPath scripts/git-hooks"
@@ -36,7 +45,7 @@ warn_manual_wiring() {
 }
 
 CURRENT_HOOKS="$(git config --get core.hooksPath || true)"
-if [[ -n "$CURRENT_HOOKS" && "$CURRENT_HOOKS" != scripts/git-hooks ]]; then
+if [[ -n "$CURRENT_HOOKS" && "$CURRENT_HOOKS" != scripts/git-hooks && "$CURRENT_HOOKS" != "$TRUSTED_HOOK_DIR" ]]; then
     HOOKS_ORIGIN="$(git config --show-origin --get core.hooksPath | cut -f1 || true)"
     echo "warning: core.hooksPath is already $CURRENT_HOOKS${HOOKS_ORIGIN:+ (set in $HOOKS_ORIGIN)}; left unchanged." >&2
     warn_manual_wiring "$CURRENT_HOOKS"
@@ -61,9 +70,8 @@ else
         echo "warning: $DEFAULT_HOOKS already has executable hooks (${EXISTING_HOOKS[*]}), which core.hooksPath would hide; left unchanged." >&2
         warn_manual_wiring "$DEFAULT_HOOKS"
     else
-        git config core.hooksPath scripts/git-hooks
-        chmod +x scripts/git-hooks/*
-        echo "==> Git hooks installed (core.hooksPath = scripts/git-hooks)."
+        git config core.hooksPath "$TRUSTED_HOOK_DIR"
+        echo "==> Trusted Git hooks installed (core.hooksPath = $TRUSTED_HOOK_DIR)."
     fi
 fi
 
@@ -72,10 +80,6 @@ fi
 # Install reviewed copies outside the checked-out tree. A merge can run after
 # checking out a fork branch, so resolving a driver or helper from that branch
 # would execute untrusted code with the contributor's credentials.
-GIT_COMMON_DIR="$(git rev-parse --git-common-dir)"
-if [[ "$GIT_COMMON_DIR" != /* ]]; then
-    GIT_COMMON_DIR="$REPO_ROOT/$GIT_COMMON_DIR"
-fi
 MERGE_DRIVER_DIR="$GIT_COMMON_DIR/cmux-merge-drivers"
 mkdir -p "$MERGE_DRIVER_DIR/ci"
 install -m 0755 scripts/merge-xcstrings.py "$MERGE_DRIVER_DIR/merge-xcstrings.py"

@@ -66,11 +66,20 @@ class InstallGitHooksTests(unittest.TestCase):
     def local_hooks_path(self):
         return self.git("config", "--local", "--get", "core.hooksPath", check=False).stdout.strip()
 
-    def assert_merge_driver_installed(self):
+    def common_dir(self):
         common = Path(self.git("rev-parse", "--git-common-dir").stdout.strip())
-        if not common.is_absolute():
-            common = self.repo / common
-        installed = common / "cmux-merge-drivers"
+        return common if common.is_absolute() else self.repo / common
+
+    def assert_trusted_hooks_installed(self):
+        installed = self.common_dir() / "cmux-git-hooks"
+        self.assertEqual(Path(self.local_hooks_path()).resolve(), installed.resolve())
+        self.assertNotEqual(installed.resolve(), (self.repo / "scripts/git-hooks").resolve())
+        for name in ("pre-commit", "post-merge"):
+            self.assertTrue((installed / name).is_file(), name)
+            self.assertTrue(os.access(installed / name, os.X_OK), name)
+
+    def assert_merge_driver_installed(self):
+        installed = self.common_dir() / "cmux-merge-drivers"
         for name in ("merge-xcstrings.py", "merge-pbxproj.py", "normalize-pbxproj.py"):
             self.assertTrue((installed / name).is_file(), name)
         self.assertTrue((installed / "ci" / "catch_up_pr.py").is_file())
@@ -90,11 +99,28 @@ class InstallGitHooksTests(unittest.TestCase):
             self.assertEqual(words[3:], ["%O", "%A", "%B", "%P"])
             self.assertNotIn(f"scripts/{name}", command)
 
-    def test_clean_clone_uses_tracked_hooks(self):
+    def test_clean_clone_uses_trusted_hook_copies(self):
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.local_hooks_path(), "scripts/git-hooks")
+        self.assert_trusted_hooks_installed()
         self.assert_merge_driver_installed()
+
+    def test_installed_hooks_do_not_follow_checked_out_hook_changes(self):
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        installed_hook = Path(self.local_hooks_path()) / "post-merge"
+        reviewed = installed_hook.read_bytes()
+
+        (self.repo / "scripts/git-hooks/post-merge").write_text(
+            "#!/bin/sh\nexit 99\n",
+            encoding="utf-8",
+        )
+
+        self.assertEqual(installed_hook.read_bytes(), reviewed)
+        self.assertNotEqual(
+            installed_hook.resolve(),
+            (self.repo / "scripts/git-hooks/post-merge").resolve(),
+        )
 
     def test_merge_driver_does_not_follow_checked_out_script_changes(self):
         result = self.install()
@@ -185,6 +211,7 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.git("rev-parse", "HEAD").stdout.strip(), trusted_main)
         self.assertTrue(os.access(hook, os.X_OK), "Git ignores non-executable hooks")
+        self.assert_trusted_hooks_installed()
         self.assert_merge_driver_installed()
 
     def test_post_merge_rejects_lookalike_github_url(self):
@@ -222,8 +249,8 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.local_hooks_path(), "", "must not override the contributor's hooks")
         self.assertIn(str(global_hooks), result.stderr)
-        self.assertIn("scripts/git-hooks/pre-commit", result.stderr, "must say how to wire the hook")
-        self.assertIn("scripts/git-hooks/post-merge", result.stderr, "must say how to refresh merge drivers")
+        self.assertIn("cmux-git-hooks/pre-commit", result.stderr, "must say how to wire the hook")
+        self.assertIn("cmux-git-hooks/post-merge", result.stderr, "must say how to refresh merge drivers")
         self.assert_merge_driver_installed()
 
     def default_hooks_dir(self):
@@ -238,7 +265,7 @@ class InstallGitHooksTests(unittest.TestCase):
         result = self.install()
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.local_hooks_path(), "scripts/git-hooks")
+        self.assert_trusted_hooks_installed()
 
     def test_existing_lfs_hook_warns_and_succeeds(self):
         hook = self.default_hooks_dir() / "pre-push"
@@ -251,8 +278,8 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(self.local_hooks_path(), "", "must not hide the existing hook")
         self.assertEqual(hook.read_text(), LFS_PRE_PUSH)
         self.assertIn("pre-push", result.stderr)
-        self.assertIn("scripts/git-hooks/pre-commit", result.stderr, "must say how to chain the hook")
-        self.assertIn("scripts/git-hooks/post-merge", result.stderr, "must say how to refresh merge drivers")
+        self.assertIn("cmux-git-hooks/pre-commit", result.stderr, "must say how to chain the hook")
+        self.assertIn("cmux-git-hooks/post-merge", result.stderr, "must say how to refresh merge drivers")
         self.assert_merge_driver_installed()
 
     def test_outside_a_git_repository_still_fails(self):
