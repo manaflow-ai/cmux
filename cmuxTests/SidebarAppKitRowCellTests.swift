@@ -449,11 +449,20 @@ struct SidebarAppKitRowCellTests {
             return try #require(titleView.font)
         }
 
-        let size = Self.makeModel().scaled(SidebarRowTitleMetrics.fontSize)
-        #expect(try titleFont(Self.makeModel()) == NSFont.systemFont(ofSize: size, weight: .regular))
-        #expect(try titleFont(Self.makeModel(isActive: true)) == NSFont.systemFont(ofSize: size, weight: .semibold))
-        #expect(try titleFont(Self.makeModel(isMultiSelected: true)) == NSFont.systemFont(ofSize: size, weight: .semibold))
-        #expect(try titleFont(Self.makeModel(unreadCount: 3)) == NSFont.systemFont(ofSize: size, weight: .semibold))
+        // The claim here is about weight, and the family is the interface font
+        // setting's business, so the expected fonts are built from the typeface
+        // the row carries. Naming a family instead would make this test fail
+        // whenever the chrome follows something other than the system font,
+        // while still not checking that the cell drew in the row's own family.
+        let model = Self.makeModel()
+        let size = model.scaled(SidebarRowTitleMetrics.fontSize)
+        let typeface = model.chromeTypeface
+        #expect(try titleFont(model) == typeface.appKitFont(size: size, weight: .regular))
+        #expect(try titleFont(Self.makeModel(isActive: true)) == typeface.appKitFont(size: size, weight: .semibold))
+        #expect(
+            try titleFont(Self.makeModel(isMultiSelected: true)) == typeface.appKitFont(size: size, weight: .semibold)
+        )
+        #expect(try titleFont(Self.makeModel(unreadCount: 3)) == typeface.appKitFont(size: size, weight: .semibold))
     }
 
     /// The selection preview paints colors ahead of the authoritative apply,
@@ -473,7 +482,10 @@ struct SidebarAppKitRowCellTests {
             return try #require(titleView.font)
         }
 
-        let resting = NSFont.systemFont(ofSize: model.scaled(SidebarRowTitleMetrics.fontSize), weight: .regular)
+        let resting = model.chromeTypeface.appKitFont(
+            size: model.scaled(SidebarRowTitleMetrics.fontSize),
+            weight: .regular
+        )
         #expect(try titleFont() == resting)
         cell.showOptimisticSelectionHighlight()
         #expect(cell.hasOptimisticSelectionForTesting)
