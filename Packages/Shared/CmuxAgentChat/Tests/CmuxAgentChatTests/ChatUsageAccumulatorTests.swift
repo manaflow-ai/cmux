@@ -73,10 +73,12 @@ struct ChatUsageAccumulatorTests {
         cacheWrite: Int = 0,
         output: Int = 76,
         reasoning: Int = 0,
+        threadID: String = "t-1",
+        turnID: String = "turn-1",
         omitResponseID: Bool = false
     ) -> String {
         var payload: [String: Any] = [
-            "thread_id": "t-1", "turn_id": "turn-1", "session_id": "s-1",
+            "thread_id": threadID, "turn_id": turnID, "session_id": "s-1",
             "usage": [
                 "input_tokens": input,
                 "cached_input_tokens": cached,
@@ -159,11 +161,35 @@ struct ChatUsageAccumulatorTests {
         ])
     }
 
-    private func codexTurnContextLine(model: String) -> String {
-        Self.json([
+    private func codexTurnContextLine(
+        model: String,
+        turnID: String = "turn-1",
+        threadID: String? = nil
+    ) -> String {
+        var payload: [String: Any] = [
+            "turn_id": turnID, "cwd": "/tmp/x", "model": model,
+        ]
+        if let threadID { payload["thread_id"] = threadID }
+        return Self.json([
             "type": "turn_context", "ordinal": 4,
             "timestamp": "2026-09-28T07:35:34.499Z",
-            "payload": ["turn_id": "turn-1", "cwd": "/tmp/x", "model": model],
+            "payload": payload,
+        ])
+    }
+
+    private func codexCompactedLine() -> String {
+        Self.json([
+            "type": "compacted", "ordinal": 31,
+            "timestamp": "2026-09-28T07:37:47.600Z",
+            "payload": ["message": "history replaced"],
+        ])
+    }
+
+    private func codexSessionMetaLine(model: String, sessionID: String = "session-1") -> String {
+        Self.json([
+            "type": "session_meta", "ordinal": 0,
+            "timestamp": "2026-09-28T07:35:00.000Z",
+            "payload": ["id": sessionID, "model": model],
         ])
     }
 
@@ -427,6 +453,46 @@ struct ChatUsageAccumulatorTests {
         #expect(totals.usage.totalTokens == providerCumulative)
     }
 
+    @Test("a delayed Codex record uses its own turn model, not the latest context")
+    func codexDelayedRecordKeepsTurnModel() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexTurnContextLine(model: "model-a", turnID: "turn-a", threadID: "thread-a"),
+            codexTurnContextLine(model: "model-b", turnID: "turn-b", threadID: "thread-b"),
+            codexRecordLine(
+                responseID: "response-a", input: 100, cached: 0, output: 10,
+                threadID: "thread-a", turnID: "turn-a"
+            ),
+        ])
+
+        let totals = accumulator.totals
+        #expect(totals.usageByModel["model-a"]?.totalTokens == 110)
+        #expect(totals.usageByModel["model-b"] == nil)
+    }
+
+    @Test("only an explicit session model can attribute a record with unknown turn identity")
+    func codexSessionModelIsTheOnlyIdentityFreeFallback() {
+        var turnOnly = ChatUsageAccumulator()
+        turnOnly.ingest(codexLines: [
+            codexTurnContextLine(model: "turn-model", turnID: "known-turn"),
+            codexRecordLine(
+                responseID: "unknown-record", input: 100, cached: 0, output: 10,
+                threadID: "unknown-thread", turnID: "unknown-turn"
+            ),
+        ])
+        #expect(turnOnly.totals.usageByModel.isEmpty)
+
+        var session = ChatUsageAccumulator()
+        session.ingest(codexLines: [
+            codexSessionMetaLine(model: "session-model"),
+            codexRecordLine(
+                responseID: "session-record", input: 100, cached: 0, output: 10,
+                threadID: "unknown-thread", turnID: "unknown-turn"
+            ),
+        ])
+        #expect(session.totals.usageByModel["session-model"]?.totalTokens == 110)
+    }
+
     @Test("a repeated Codex record is counted once")
     func codexRecordRepetitionCountedOnce() {
         var accumulator = ChatUsageAccumulator()
@@ -602,15 +668,16 @@ struct ChatUsageAccumulatorTests {
         #expect(totals.usageByModel.count == 1)
     }
 
-    @Test("a cumulative count that drops is a new thread, so each run is banked")
+    @Test("structured compaction boundaries bank each cumulative run")
     func codexCumulativeResetBanksTheRun() {
         var accumulator = ChatUsageAccumulator()
         // One rollout, three threads. A compaction, a `/new` or a subagent
-        // turn restarts `total_token_usage` from zero, and the payload
-        // carries no thread id, so the drop is the only signal there is.
+        // turn restarts `total_token_usage`; explicit boundaries let the
+        // accumulator bank a run even when the next value is larger.
         let runs = [[10_000, 40_000, 90_000], [5_000, 30_000], [1_000]]
-        accumulator.ingest(codexLines: runs.flatMap { run in
-            run.map { total in
+        accumulator.ingest(codexLines: runs.enumerated().flatMap { index, run in
+            let boundary = index == 0 ? [] : [codexCompactedLine()]
+            return boundary + run.map { total in
                 codexTokenCountLine(
                     cumulativeInput: total - 100, cumulativeOutput: 100,
                     lastInput: 4_000, lastOutput: 100
@@ -624,6 +691,7 @@ struct ChatUsageAccumulatorTests {
         // 90,000 and reporting the last value would say 1,000.
         #expect(totals.usage.totalTokens == 121_000)
         #expect(totals.duplicateReports == 0)
+        #expect(!totals.cumulativeUsageIsAmbiguous)
     }
 
     @Test("a cumulative prefix is dropped once records begin")
@@ -634,6 +702,7 @@ struct ChatUsageAccumulatorTests {
                 cumulativeInput: 100, cumulativeOutput: 0,
                 lastInput: 100, lastOutput: 0
             ),
+            codexCompactedLine(),
             codexTokenCountLine(
                 cumulativeInput: 30, cumulativeOutput: 0,
                 lastInput: 30, lastOutput: 0
@@ -802,6 +871,50 @@ struct ChatUsageAccumulatorTests {
 
         #expect(accumulator.codexSource == .cumulativeEvents)
         #expect(accumulator.totals.usage.totalTokens == 250)
+    }
+
+    @Test("a structured boundary banks a new cumulative thread even when its first total is larger")
+    func codexStructuredBoundaryBanksLargerNewRun() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexTurnContextLine(
+                model: "gpt-6-astra", turnID: "turn-old", threadID: "thread-old"
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 100, cumulativeOutput: 0,
+                lastInput: 100, lastOutput: 0
+            ),
+            codexTurnContextLine(
+                model: "gpt-6-astra", turnID: "turn-new", threadID: "thread-new"
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 150, cumulativeOutput: 0,
+                lastInput: 150, lastOutput: 0
+            ),
+        ])
+
+        let totals = accumulator.totals
+        #expect(totals.usage.totalTokens == 250)
+        #expect(!totals.cumulativeUsageIsAmbiguous)
+    }
+
+    @Test("an unmarked cumulative decrease exposes ambiguity instead of guessing a run")
+    func codexUnmarkedCumulativeDecreaseIsAmbiguous() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexTokenCountLine(
+                cumulativeInput: 100, cumulativeOutput: 0,
+                lastInput: 100, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 30, cumulativeOutput: 0,
+                lastInput: 30, lastOutput: 0
+            ),
+        ])
+
+        let totals = accumulator.totals
+        #expect(totals.usage.totalTokens == 30)
+        #expect(totals.cumulativeUsageIsAmbiguous)
     }
 
     @Test("Codex response identity retention is bounded")

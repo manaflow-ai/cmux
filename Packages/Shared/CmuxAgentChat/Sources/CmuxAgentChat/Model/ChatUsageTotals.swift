@@ -51,6 +51,14 @@ public struct ChatUsageTotals: Sendable, Equatable {
     /// token, leaves this at zero and quietly undercounts.
     public var unidentifiedReports: Int
 
+    /// Whether cumulative-only Codex usage crossed an unmarked decrease.
+    ///
+    /// Without a structured thread/reset event, the accumulator cannot know
+    /// whether the smaller value corrected one run or began another. The
+    /// reported cumulative usage is then the latest known snapshot rather
+    /// than a guessed sum of runs.
+    public var cumulativeUsageIsAmbiguous: Bool
+
     /// Tokens currently occupying the context window, when the provider
     /// reports it.
     public var contextTokens: Int?
@@ -69,6 +77,8 @@ public struct ChatUsageTotals: Sendable, Equatable {
     ///   - responses: Distinct responses counted.
     ///   - duplicateReports: Repeated reports skipped.
     ///   - unidentifiedReports: Usage blocks skipped for lack of an identity.
+    ///   - cumulativeUsageIsAmbiguous: Whether a cumulative-only transition
+    ///     lacked a structured run boundary.
     ///   - contextTokens: Tokens currently in the context window.
     ///   - contextWindowTokens: The context window size.
     ///   - rateLimit: The provider's allowance state.
@@ -78,6 +88,7 @@ public struct ChatUsageTotals: Sendable, Equatable {
         responses: Int = 0,
         duplicateReports: Int = 0,
         unidentifiedReports: Int = 0,
+        cumulativeUsageIsAmbiguous: Bool = false,
         contextTokens: Int? = nil,
         contextWindowTokens: Int? = nil,
         rateLimit: ChatUsageRateLimit? = nil
@@ -87,6 +98,7 @@ public struct ChatUsageTotals: Sendable, Equatable {
         self.responses = responses
         self.duplicateReports = duplicateReports
         self.unidentifiedReports = unidentifiedReports
+        self.cumulativeUsageIsAmbiguous = cumulativeUsageIsAmbiguous
         self.contextTokens = contextTokens
         self.contextWindowTokens = contextWindowTokens
         self.rateLimit = rateLimit

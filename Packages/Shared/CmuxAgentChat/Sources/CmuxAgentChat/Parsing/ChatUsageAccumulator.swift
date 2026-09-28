@@ -40,15 +40,12 @@ import Foundation
 /// appear and cumulative events as the fallback before that. A cumulative-
 /// only prefix remains as an unattributed baseline when records begin.
 ///
-/// The cumulative fallback is not simply the largest value reported.
-/// `total_token_usage` counts from the start of a *thread*, and a rollout
-/// holds more than one: a compaction, a `/new`, or a subagent turn starts
-/// the count over, and the payload carries no thread id to separate them
-/// by. So the count is read as a sequence of monotone runs. Each time the
-/// value drops, the run that just ended is banked and a new one starts, and
-/// the total is every banked run plus the current one. Taking the maximum
-/// instead reports only the largest single thread, which on a long session
-/// with several compactions is a fraction of what was spent.
+/// The cumulative fallback is split only at structured boundaries such as a
+/// `compacted` event or an explicit thread/session identity change. A numeric
+/// drop alone cannot prove a new thread, while a new thread can start above
+/// the old total. An unmarked drop therefore remains a latest-value fallback
+/// and sets ``ChatUsageTotals/cumulativeUsageIsAmbiguous`` instead of silently
+/// guessing a boundary from magnitude.
 ///
 /// Unlike ``ClaudeTranscriptParser``, this deliberately counts sidechain
 /// (subagent) lines. A subagent's tokens are spent tokens. They are hidden
@@ -101,6 +98,10 @@ public struct ChatUsageAccumulator: Sendable {
 
     // Codex per-response accounting, keyed by a bounded response-id window.
     private var codexCountedResponses: RecentIDSet<String>
+    // Delayed records resolve through bounded identity maps rather than the
+    // most recently observed turn, which may belong to another model.
+    private var codexModelByTurn: RecentIDMap<String, String>
+    private var codexModelByThread: RecentIDMap<String, String>
     private var codexResponseCount = 0
     private var codexRecordUsage = ChatTokenUsage()
     private var codexRecordUsageByModel: [String: ChatTokenUsage] = [:]
@@ -111,10 +112,13 @@ public struct ChatUsageAccumulator: Sendable {
     private var codexCumulativeBanked = ChatTokenUsage()
     private var codexCumulativeCurrent: ChatTokenUsage?
     private var codexCumulativeBaseline = ChatTokenUsage()
+    private var cumulativeUsageIsAmbiguous = false
 
     private var duplicateReports = 0
     private var unidentifiedReports = 0
-    private var latestCodexModel: String?
+    private var codexSessionModel: String?
+    private var codexSessionID: String?
+    private var codexThreadID: String?
     private var contextWindowTokens: Int?
     private var rateLimit: ChatUsageRateLimit?
 
@@ -123,6 +127,8 @@ public struct ChatUsageAccumulator: Sendable {
         let limit = Self.recentResponseIdentityLimit
         claudeCountedResponses = RecentIDMap(capacity: limit)
         codexCountedResponses = RecentIDSet(capacity: limit)
+        codexModelByTurn = RecentIDMap(capacity: limit)
+        codexModelByThread = RecentIDMap(capacity: limit)
     }
 
     /// Which Codex source the current totals came from.
@@ -163,6 +169,7 @@ public struct ChatUsageAccumulator: Sendable {
             responses: responses,
             duplicateReports: duplicateReports,
             unidentifiedReports: unidentifiedReports,
+            cumulativeUsageIsAmbiguous: cumulativeUsageIsAmbiguous,
             contextWindowTokens: contextWindowTokens,
             rateLimit: rateLimit
         )
@@ -292,16 +299,39 @@ public struct ChatUsageAccumulator: Sendable {
         else { return }
 
         switch root["type"]?.string {
-        case "turn_context", "session_meta":
-            if let model = payload["model"]?.string, !model.isEmpty {
-                latestCodexModel = model
-            }
+        case "turn_context":
+            ingestCodexTurnContext(payload)
+        case "session_meta":
+            ingestCodexSessionMetadata(payload)
+        case "compacted":
+            beginCodexCumulativeRun()
         case "token_usage_record":
             ingestCodexUsageRecord(payload)
         case "event_msg" where payload["type"]?.string == "token_count":
             ingestCodexTokenCount(payload)
         default:
             break
+        }
+    }
+
+    private mutating func ingestCodexTurnContext(_ payload: TranscriptJSONValue) {
+        observeCodexThreadID(payload["thread_id"]?.string)
+        guard let model = payload["model"]?.string, !model.isEmpty else { return }
+        if let turnID = payload["turn_id"]?.string, !turnID.isEmpty {
+            codexModelByTurn.setValue(model, forKey: turnID)
+        }
+        if let threadID = payload["thread_id"]?.string, !threadID.isEmpty {
+            codexModelByThread.setValue(model, forKey: threadID)
+        }
+    }
+
+    private mutating func ingestCodexSessionMetadata(_ payload: TranscriptJSONValue) {
+        observeCodexSessionID(payload["id"]?.string)
+        observeCodexThreadID(payload["thread_id"]?.string)
+        guard let model = payload["model"]?.string, !model.isEmpty else { return }
+        codexSessionModel = model
+        if let threadID = payload["thread_id"]?.string, !threadID.isEmpty {
+            codexModelByThread.setValue(model, forKey: threadID)
         }
     }
 
@@ -333,12 +363,26 @@ public struct ChatUsageAccumulator: Sendable {
         Self.incrementSaturating(&codexResponseCount)
         let usage = codexUsage(from: usageValue)
         codexRecordUsage += usage
-        // No model yet means no `turn_context` has been seen, so there is
-        // nothing to attribute this to. The tokens still count in the
-        // total; only the split loses them.
-        if let latestCodexModel {
-            codexRecordUsageByModel[latestCodexModel, default: ChatTokenUsage()] += usage
+        // Resolve the record against its own identity. A later turn context
+        // must not steal a delayed record from an earlier turn. Only an
+        // explicitly declared session model is a safe identity-free fallback.
+        if let model = codexModel(for: payload) {
+            codexRecordUsageByModel[model, default: ChatTokenUsage()] += usage
         }
+    }
+
+    private func codexModel(for payload: TranscriptJSONValue) -> String? {
+        if let threadID = payload["thread_id"]?.string,
+           let model = codexModelByThread.value(forKey: threadID)
+        {
+            return model
+        }
+        if let turnID = payload["turn_id"]?.string,
+           let model = codexModelByTurn.value(forKey: turnID)
+        {
+            return model
+        }
+        return codexSessionModel
     }
 
     private mutating func ingestCodexTokenCount(_ payload: TranscriptJSONValue) {
@@ -352,6 +396,32 @@ public struct ChatUsageAccumulator: Sendable {
         }
         readCodexCumulative(info)
         readRateLimit(payload["rate_limits"])
+    }
+
+    private mutating func observeCodexSessionID(_ candidate: String?) {
+        guard let candidate, !candidate.isEmpty else { return }
+        if let codexSessionID, codexSessionID != candidate {
+            beginCodexCumulativeRun()
+            codexSessionModel = nil
+        }
+        codexSessionID = candidate
+    }
+
+    private mutating func observeCodexThreadID(_ candidate: String?) {
+        guard let candidate, !candidate.isEmpty else { return }
+        if let codexThreadID, codexThreadID != candidate {
+            beginCodexCumulativeRun()
+        }
+        codexThreadID = candidate
+    }
+
+    /// Banks a cumulative run at a provider-declared thread/reset boundary.
+    private mutating func beginCodexCumulativeRun() {
+        guard codexSource != .usageRecords,
+              let codexCumulativeCurrent
+        else { return }
+        codexCumulativeBanked += codexCumulativeCurrent
+        self.codexCumulativeCurrent = nil
     }
 
     /// Folds one fallback cumulative report into the monotone-run total.
@@ -387,9 +457,10 @@ public struct ChatUsageAccumulator: Sendable {
         } else if usage.totalTokens == current.totalTokens {
             Self.incrementSaturating(&duplicateReports)
         } else {
-            // A running total never shrinks, so a smaller value is a new
-            // thread counting from zero: bank the run that just ended.
-            codexCumulativeBanked += current
+            // Without a structured boundary this could be either a provider
+            // correction or a new thread. Preserve the latest snapshot and
+            // make the uncertainty visible instead of guessing from size.
+            cumulativeUsageIsAmbiguous = true
             codexCumulativeCurrent = usage
         }
     }
