@@ -239,6 +239,32 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(marker.exists())
 
+    def test_post_merge_rejects_dirty_installer_at_trusted_main(self):
+        self.git("add", ".")
+        self.git(
+            "-c", "user.name=Merge Test",
+            "-c", "user.email=merge@example.invalid",
+            "commit", "-qm", "trusted main",
+        )
+        self.git("remote", "add", "upstream", "https://github.com/manaflow-ai/cmux.git")
+        self.git("update-ref", "refs/remotes/upstream/main", "HEAD")
+        marker = self.root / "dirty-installer-ran"
+        installer = self.repo / INSTALLER
+        installer.write_text(f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\n", encoding="utf-8")
+        installer.chmod(0o755)
+
+        result = subprocess.run(
+            ["bash", "scripts/git-hooks/post-merge"],
+            cwd=self.repo,
+            env=self.env,
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("differ from trusted main", result.stderr)
+        self.assertFalse(marker.exists())
+
     def test_global_hooks_path_warns_and_succeeds(self):
         global_hooks = self.root / "global-hooks"
         global_hooks.mkdir()
@@ -251,6 +277,7 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertIn(str(global_hooks), result.stderr)
         self.assertIn("cmux-git-hooks/pre-commit", result.stderr, "must say how to wire the hook")
         self.assertIn("cmux-git-hooks/post-merge", result.stderr, "must say how to refresh merge drivers")
+        self.assertNotIn("core.hooksPath scripts/git-hooks", result.stderr)
         self.assert_merge_driver_installed()
 
     def default_hooks_dir(self):

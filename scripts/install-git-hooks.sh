@@ -25,6 +25,7 @@ install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
 # shellcheck disable=SC2016 # printed literally, for the contributor's hook to expand
 printf -v TRUSTED_PRE_COMMIT '%q "$@" || exit $?' "$TRUSTED_HOOK_DIR/pre-commit"
 printf -v TRUSTED_POST_MERGE '%q "$@" || exit $?' "$TRUSTED_HOOK_DIR/post-merge"
+printf -v TRUSTED_HOOKS_CONFIG 'git config core.hooksPath %q' "$TRUSTED_HOOK_DIR"
 warn_manual_wiring() {
     local hooks_dir="$1"
     {
@@ -39,8 +40,8 @@ warn_manual_wiring() {
         echo ""
         echo "    $TRUSTED_POST_MERGE"
         echo ""
-        echo "Or use only the tracked hooks in this clone (your existing hooks then stop"
-        echo "running here): git config core.hooksPath scripts/git-hooks"
+        echo "Or use only the trusted clone-local hooks in this clone (your existing"
+        echo "hooks then stop running here): $TRUSTED_HOOKS_CONFIG"
     } >&2
 }
 
