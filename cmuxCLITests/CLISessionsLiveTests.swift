@@ -19,11 +19,17 @@ final class CLISessionsLiveTests {
 
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
-        private(set) var commands: [String] = []
+        private var storage: [String] = []
+
+        var commands: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
 
         func append(_ command: String) {
             lock.lock()
-            commands.append(command)
+            storage.append(command)
             lock.unlock()
         }
     }

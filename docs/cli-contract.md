@@ -330,8 +330,9 @@ conversation title. Sessions arrive in triage order: waiting on a human first
 (longest wait first), then running (longest first), then idle and ended (most
 recent activity first). Ties break on session id, so the order is stable across
 calls. Text output opens with one `key=value` summary line over every match,
-`sessions=<n>  needs_input=<n>  working=<n>`, using the same state names as the
-rows and `--state`, so a truncated list still says how much work is queued.
+`sessions=<n>  needs_input=<n>  working=<n>`, so a truncated list still says how
+much work is queued. Its keys are the canonical row-state names (`needs_input`);
+`--state` accepts the hyphenated spelling `needs-input` for the same state.
 `--json` prints one object with:
 
 | Field | Contract |

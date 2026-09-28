@@ -100294,13 +100294,13 @@
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sessions [list] [options]"
+            "value": "sessions [list|live] [options]"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sessions [list] [options]"
+            "value": "sessions [list|live] [options]"
           }
         },
         "de": {
@@ -100330,7 +100330,7 @@
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sessions [list] [options]"
+            "value": "sessions [list|live] [options]"
           }
         },
         "ja": {
@@ -100342,7 +100342,7 @@
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sessions [list] [options]"
+            "value": "sessions [list|live] [options]"
           }
         },
         "ko": {
@@ -100354,43 +100354,43 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sessions [list] [options]"
+            "value": "sessions [list|live] [options]"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sessions [list] [options]"
+            "value": "sessions [list|live] [options]"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sessions [list] [options]"
+            "value": "sessions [list|live] [options]"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sessions [list] [options]"
+            "value": "sessions [list|live] [options]"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sessions [list] [options]"
+            "value": "sessions [list|live] [options]"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sessions [list] [options]"
+            "value": "sessions [list|live] [options]"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sessions [list] [options]"
+            "value": "sessions [list|live] [options]"
           }
         },
         "zh-Hans": {
