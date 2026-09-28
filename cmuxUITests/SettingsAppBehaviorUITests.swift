@@ -269,7 +269,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             "Expected the Minimal Mode subtitle at default"
         )
         let minimal = toggle(window, id: "SettingsMinimalModeToggle")
-        XCTAssertFalse(isOn(minimal), "Minimal Mode should start off (.standard)")
+        XCTAssertFalse(isOn(minimal), "Minimal Mode should start off (.standard); \(toggleDescription(minimal))")
 
         minimal.click()
         XCTAssertTrue(
@@ -309,7 +309,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             "Expected the inherit subtitle at default"
         )
         let inherit = toggle(window, id: "SettingsWorkspaceInheritWorkingDirectoryToggle")
-        XCTAssertTrue(isOn(inherit), "Inherit Working Directory should start on (true)")
+        XCTAssertTrue(isOn(inherit), "Inherit Working Directory should start on (true); \(toggleDescription(inherit))")
 
         inherit.click()
         XCTAssertTrue(
@@ -337,7 +337,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             "Expected the all-surfaces subtitle at default"
         )
         let palette = toggle(window, id: "CommandPaletteSearchAllSurfacesToggle")
-        XCTAssertFalse(isOn(palette), "All-surfaces search should start off (false)")
+        XCTAssertFalse(isOn(palette), "All-surfaces search should start off (false); \(toggleDescription(palette))")
 
         palette.click()
         XCTAssertTrue(

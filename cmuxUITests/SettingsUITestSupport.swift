@@ -124,24 +124,22 @@ class SettingsUITestCase: XCTestCase {
                 return true
             }
 
-            // Settings rows may carry the identifier while AppKit exposes the
-            // actual switch or checkbox as a child. Prefer that control over
-            // the identifier-bearing container, whose value is often nil.
+            // The identifier can land on an element that is neither a switch
+            // nor a checkbox. Use it when it reports a value; otherwise it is
+            // a container, so prefer the switch or checkbox inside it.
             let row = root.descendants(matching: .any).matching(identifier: id).firstMatch
+            guard row.exists else { return false }
+            if !Self.valueText(of: row).isEmpty {
+                resolved = row
+                return true
+            }
             for candidate in [row.switches.firstMatch, row.checkBoxes.firstMatch]
                 where candidate.exists {
                 resolved = candidate
                 return true
             }
-
-            // Last resort: a control that carries the identifier but is
-            // neither a switch nor a checkbox and has no such child.
-            if row.exists {
-                resolved = row
-                return true
-            }
-
-            return false
+            resolved = row
+            return true
         }
         XCTAssertTrue(found, "Expected toggle \(id) to exist")
         return resolved ?? root.descendants(matching: .any).matching(identifier: id).firstMatch
@@ -150,20 +148,32 @@ class SettingsUITestCase: XCTestCase {
     /// Reads a toggle's on state from its accessibility value, falling back
     /// to `isSelected` only for a control that reports no value.
     func isOn(_ control: XCUIElement) -> Bool {
-        let value = control.value.map { String(describing: $0) }?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() ?? ""
+        let value = Self.valueText(of: control)
         if value.isEmpty {
             return control.isSelected
         }
         return value == "1" || value == "true" || value == "on"
     }
 
+    /// The resolved control's type, identifier, value and selection, for
+    /// failure messages.
+    func toggleDescription(_ control: XCUIElement) -> String {
+        "type=\(control.elementType.rawValue) id=\(control.identifier) "
+            + "value=\(String(describing: control.value)) selected=\(control.isSelected)"
+    }
+
+    /// A control's accessibility value as trimmed lowercase text, or "" when
+    /// it reports none.
+    static func valueText(of control: XCUIElement) -> String {
+        control.value.map { String(describing: $0) }?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+    }
+
     /// Points the app's preferences (`CFFIXED_USER_HOME`), `HOME` and config
     /// directory at a fresh directory, so it starts from factory defaults and
-    /// cmux.json, and nothing it writes outlives the test. `resetDefaults`
-    /// cannot promise that on CI: values an earlier run left in the runner
-    /// user's `com.cmuxterm.app.debug` domain survived it.
+    /// cmux.json whatever earlier tests on the same machine left behind, and
+    /// nothing it writes outlives the test.
     func isolateUserState(_ app: XCUIApplication) {
         let fileManager = FileManager.default
         let home = fileManager.temporaryDirectory.appendingPathComponent(
