@@ -30,6 +30,8 @@ struct AgentsCommand {
 
     static let states = ["needs_input", "working", "idle", "unknown", "ended"]
     private static let detectionSources: Set<String> = ["hook", "plugin", "detected", "socket"]
+    /// Remote daemon badges (SSH, Cloud) use the cmux-tui state names.
+    private static let remoteStateNames = ["blocked": "needs_input", "done": "ended"]
 
     enum Action: Equatable {
         case list
@@ -112,6 +114,7 @@ struct AgentsCommand {
         case nil, "ls", "list":
             guard positional.count <= 1 else { throw Self.argumentError(positional[1]) }
         case "open":
+            if result.includeEnded || !result.states.isEmpty { throw Self.argumentError(result.includeEnded ? "--all" : "--state") }
             let query = positional.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces)
             guard !query.isEmpty else {
                 throw CLIError(message: String(localized: "cli.agents.error.openUsage", defaultValue: "agents: open needs a name, resource ref or session id. See: cmux agents"))
@@ -143,13 +146,14 @@ struct AgentsCommand {
             let label = (item["label"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
             let name = label.isEmpty ? String(resourceRef.split(separator: "/").last ?? Substring(resourceRef)) : label
             for agent in item["agents"] as? [[String: Any]] ?? [] {
-                // A Cloud badge without an agent name reports its detection source
-                // (hook, plugin, detected, socket) in `kind`; that is not an agent.
+                // A remote badge row carries its detection source (hook, plugin,
+                // detected, socket) in `kind` today, not the agent; show unknown.
                 let kind = agent["kind"] as? String ?? "unknown"
+                let state = agent["state"] as? String ?? "unknown"
                 rows.append(Row(
                     name: name,
                     agent: detectionSources.contains(kind) ? "unknown" : kind,
-                    state: agent["state"] as? String ?? "unknown",
+                    state: remoteStateNames[state] ?? state,
                     sessionID: agent["session_id"] as? String,
                     lastActivityAt: agent["last_activity_at"] as? String,
                     resourceRef: resourceRef,
@@ -167,7 +171,8 @@ struct AgentsCommand {
         return rows.sorted { lhs, rhs in
             let left = urgency(lhs.state), right = urgency(rhs.state)
             if left != right { return left < right }
-            return (lhs.lastActivityAt ?? "") > (rhs.lastActivityAt ?? "")
+            if lhs.lastActivityAt != rhs.lastActivityAt { return (lhs.lastActivityAt ?? "") > (rhs.lastActivityAt ?? "") }
+            return lhs.resourceRef < rhs.resourceRef
         }
     }
 
@@ -188,10 +193,19 @@ struct AgentsCommand {
         case ambiguous([Row])
     }
 
+    /// Live agents first, so a name unique among the listed rows never turns
+    /// ambiguous because of ended sessions `cmux agents` hides; ended rows are
+    /// searched only when no live row matches.
+    static func resolve(_ query: String, in rows: [Row]) -> Resolution {
+        let live = resolve(query, among: rows.filter { $0.state != "ended" })
+        if case .none = live { return resolve(query, among: rows) }
+        return live
+    }
+
     /// Narrowest tier wins: exact ids, then an exact name, then a unique part of a
     /// name. Rows that point at the same terminal count as one candidate, and a
     /// live row is preferred over an ended one for the same terminal.
-    static func resolve(_ query: String, in rows: [Row]) -> Resolution {
+    private static func resolve(_ query: String, among rows: [Row]) -> Resolution {
         let needle = query.lowercased()
         let tiers: [(Row) -> Bool] = [
             { $0.resourceRef == query || $0.sessionID?.lowercased() == needle },
@@ -224,10 +238,13 @@ struct AgentsCommand {
         }
         let home = NSHomeDirectory()
         let cells: [[String]] = rows.map { row in
-            var place = row.placementKind
-            if row.placementKind == "cloud" { place += ":" + Self.truncated(row.machine, to: 16) }
+            let isLocal = row.placementKind == "local"
+            // SSH machines already read `ssh:<host>`; Cloud machines are VM ids.
+            let place = isLocal ? row.placementKind
+                : row.machine.hasPrefix(row.placementKind + ":") ? Self.truncated(row.machine, to: 24)
+                : row.placementKind + ":" + Self.truncated(row.machine, to: 16)
             var cwd = row.cwd ?? ""
-            if !home.isEmpty, cwd == home || cwd.hasPrefix(home + "/") { cwd = "~" + cwd.dropFirst(home.count) }
+            if isLocal, !home.isEmpty, cwd == home || cwd.hasPrefix(home + "/") { cwd = "~" + cwd.dropFirst(home.count) }
             var trailing = [place, cwd].filter { !$0.isEmpty }
             let prs = row.pullRequests.compactMap { pr in (pr["number"] as? NSNumber).map { "#" + $0.stringValue } ?? pr["label"] as? String }
             trailing += prs
@@ -255,10 +272,15 @@ struct AgentsCommand {
     }
 
     /// Terminal titles and paths can carry control characters; human output must
-    /// not execute escape sequences or split rows. JSON keeps the exact values.
+    /// not execute escape sequences, split rows or reorder text. Format characters
+    /// such as ZWJ stay, so emoji in titles survive. JSON keeps the exact values.
     private static func display(_ text: String) -> String {
-        String(text.unicodeScalars.map { CharacterSet.controlCharacters.contains($0) ? " " : String($0) }.joined())
+        String(text.unicodeScalars.map { scalar in
+            scalar.properties.generalCategory == .control || bidiControls.contains(scalar.value) ? " " : String(scalar)
+        }.joined())
     }
+
+    private static let bidiControls: Set<UInt32> = [0x200E, 0x200F, 0x061C, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069]
 }
 
 extension CMUXCLI {
@@ -289,10 +311,16 @@ extension CMUXCLI {
             case .none:
                 throw CLIError(message: String.localizedStringWithFormat(String(localized: "cli.agents.error.noMatch", defaultValue: "agents: no agent matches '%@'. See: cmux agents --all"), query))
             case .ambiguous(let candidates):
-                let list = candidates.prefix(10).map { "  \($0.name)  \($0.resourceRef)" }.joined(separator: "\n")
+                var list = candidates.prefix(10).map { "  \($0.name)  \($0.resourceRef)" }.joined(separator: "\n")
+                if candidates.count > 10 { list += "\n  …" }
                 throw CLIError(message: String.localizedStringWithFormat(String(localized: "cli.agents.error.ambiguous", defaultValue: "agents: '%@' matches more than one agent; pass a longer name or a resource ref:"), query) + "\n" + list)
             case .match(let row):
-                let response = try client.sendV2(method: "surface.project", params: ["resource": row.resourceRef, "focus": true], responseTimeout: 180)
+                // Name the workspace that already shows the terminal. Without it the
+                // app projects into the selected workspace, which fails ownership
+                // checks when that workspace belongs to a Cloud machine.
+                var params: [String: Any] = ["resource": row.resourceRef, "focus": true]
+                if let workspaceID = row.workspaceID { params["workspace_id"] = workspaceID }
+                let response = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
                 if wantsJSON {
                     print(jsonString(["agent": row.json, "surface": response]))
                 } else {

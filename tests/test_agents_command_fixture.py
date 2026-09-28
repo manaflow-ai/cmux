@@ -49,6 +49,10 @@ SNAPSHOT = {
              [{"kind": "hook", "state": "idle"}], placement=("cloud", "vm-47d043680f5640e0a6b812d34e309afb"), cwd="/home/cmux"),
         item("local/terminal/f", "Old session",
              [agent("claude", "ended", "ffffffff-6666")]),
+        item("ssh:buildhost/terminal/h", "Remote build",
+             [{"kind": "hook", "state": "blocked"}], placement=("ssh", "ssh:buildhost"), cwd="/home/dev"),
+        item("ssh:buildhost/terminal/i", "Remote done",
+             [{"kind": "hook", "state": "done"}], placement=("ssh", "ssh:buildhost"), cwd="/home/dev"),
     ],
 }
 
@@ -83,20 +87,23 @@ class AgentsCommandFixtureTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], 1)
         rows = payload["agents"]
         self.assertEqual([row.get("session_id") for row in rows],
-                         ["cccccccc-3333", "dddddddd-4444", "aaaaaaaa-1111", "eeeeeeee-5555", None])
+                         ["cccccccc-3333", None, "dddddddd-4444", "aaaaaaaa-1111", "eeeeeeee-5555", None])
+        # Remote daemon states map onto the local names: blocked needs input, done ended.
+        self.assertEqual((rows[1]["name"], rows[1]["state"]), ("Remote build", "needs_input"))
+        self.assertNotIn("Remote done", [row["name"] for row in rows])
         untitled = rows[-1]
         self.assertEqual(untitled["name"], "term_g")
         self.assertEqual(untitled["agent"], "unknown")
         cloud = rows[-2]
         self.assertEqual(cloud["placement"], {"kind": "cloud", "machine": "vm-47d0"})
         self.assertEqual(cloud["resource_ref"], "vm-47d0/terminal/term_e")
-        self.assertEqual(rows[2]["pull_requests"][0]["number"], 6923)
+        self.assertEqual(rows[3]["pull_requests"][0]["number"], 6923)
         self.assertEqual(rows[0]["attention"], ["unread"])
         self.assertEqual(self.calls(result), [{"method": "current.list", "params": {"limit": 200}}])
 
     def test_all_and_state_filters(self):
         rows = json.loads(self.invoke("--all", "--json").stdout)["agents"]
-        self.assertEqual(len(rows), 7)
+        self.assertEqual(len(rows), 9)
         self.assertEqual(rows[-1]["state"], "ended")
         only = json.loads(self.invoke("--state", "needs-input", "--state=idle", "--json").stdout)["agents"]
         self.assertEqual({row["state"] for row in only}, {"needs_input", "idle"})
@@ -109,6 +116,7 @@ class AgentsCommandFixtureTests(unittest.TestCase):
         self.assertIn("cloud:vm-47d0 ", result.stdout)
         self.assertIn("cloud:vm-47d043680f56…", result.stdout)
         self.assertRegex(result.stdout, r"idle +unknown  term_g ")
+        self.assertRegex(result.stdout, r"Remote build +ssh:buildhost  /home/dev")
         self.assertIn("#6923", result.stdout)
         self.assertIn("--all shows them", result.stdout)
         self.assertIn("cmux agents open", result.stdout)
@@ -118,7 +126,8 @@ class AgentsCommandFixtureTests(unittest.TestCase):
         result = self.invoke("open", "FOCUS")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls(result)[-1],
-                         {"method": "surface.project", "params": {"resource": "local/terminal/c", "focus": True}})
+                         {"method": "surface.project",
+                          "params": {"resource": "local/terminal/c", "focus": True, "workspace_id": "ws-c"}})
         self.assertIn("Fix focus flicker", result.stdout)
 
     def test_open_by_session_prefix_and_resource_ref(self):
@@ -126,6 +135,15 @@ class AgentsCommandFixtureTests(unittest.TestCase):
         self.assertEqual(by_prefix["params"]["resource"], "vm-47d0/terminal/term_e")
         by_ref = self.calls(self.invoke("open", "local/terminal/f"))[-1]
         self.assertEqual(by_ref["params"]["resource"], "local/terminal/f")
+
+    def test_open_prefers_live_agents_and_falls_back_to_ended(self):
+        payload = json.loads(json.dumps(SNAPSHOT))
+        payload["items"].append(item("local/terminal/z", "Fix focus flicker again", [agent("claude", "ended", "zzzzzzzz-9999")]))
+        live = self.invoke("open", "focus flicker", payload=payload)
+        self.assertEqual(live.returncode, 0, live.stderr)
+        self.assertEqual(self.calls(live)[-1]["params"]["resource"], "local/terminal/c")
+        ended = self.invoke("open", "old session")
+        self.assertEqual(self.calls(ended)[-1]["params"]["resource"], "local/terminal/f")
 
     def test_open_counts_one_terminal_once_and_refuses_ambiguity(self):
         # Two agent records on local/terminal/d are one candidate, not an ambiguity.
@@ -142,7 +160,8 @@ class AgentsCommandFixtureTests(unittest.TestCase):
         self.assertIn("no agent matches", missing.stderr)
 
     def test_bad_arguments_never_dispatch(self):
-        for args in (("--state", "busy"), ("--state",), ("--refresh",), ("open",), ("kill", "x"), ("ls", "extra")):
+        for args in (("--state", "busy"), ("--state",), ("--refresh",), ("open",), ("kill", "x"), ("ls", "extra"),
+                     ("open", "x", "--all"), ("open", "--state", "idle", "x")):
             with self.subTest(args=args):
                 result = self.invoke(*args)
                 self.assertNotEqual(result.returncode, 0)
@@ -163,6 +182,10 @@ class AgentsCommandFixtureTests(unittest.TestCase):
         text = self.invoke(payload=payload).stdout
         self.assertIn("evil row [2J", text)
         self.assertNotIn("\x1b", text)
+        payload["items"][2]["label"] = "team \U0001F469\u200D\U0001F4BB \u202Egnp.exe"
+        text = self.invoke(payload=payload).stdout
+        self.assertIn("team \U0001F469\u200D\U0001F4BB", text)
+        self.assertNotIn("\u202E", text)
 
 
 if __name__ == "__main__":

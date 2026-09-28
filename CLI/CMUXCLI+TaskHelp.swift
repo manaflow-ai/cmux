@@ -200,6 +200,7 @@ extension CMUXCLI {
 
     private var agentsCommandsHelp: String {
         return """
+        agents [ls|open <name>] [--all] [--state <state>] [--json]
         agent-hibernation <on|off>
         claude-teams [claude-args...]
         codex-teams [codex-args...]
@@ -267,7 +268,6 @@ extension CMUXCLI {
         list-panes [--workspace <id|ref|index>] [--window <id|ref|index>]
         list-pane-surfaces [--workspace <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>]
         current [--limit <1...200>] [--json]
-        agents [ls|open <name>] [--all] [--state <state>] [--json]
         tree [--all] [--workspace <id|ref|index>] [--window <id|ref|index>]
         top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
         memory [--all] [--workspace <id|ref|index>] [--groups <count>]
