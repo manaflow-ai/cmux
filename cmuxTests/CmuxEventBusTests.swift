@@ -104,6 +104,27 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(secondBus.latestSequence, 3)
     }
 
+    func testDurablePublishDoesNotPersistSequenceForEveryEvent() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-sequence-lease-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let bus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL)
+        await bus.waitUntilRestored()
+
+        bus.publish(name: "one", category: "test", source: "test")
+        bus.flushEventLogForTesting()
+        let sequenceURL = logURL.appendingPathExtension("seq")
+        let firstHighWater = try Int64(String(contentsOf: sequenceURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))
+        XCTAssertGreaterThan(firstHighWater, 1)
+
+        bus.publish(name: "two", category: "test", source: "test")
+        bus.flushEventLogForTesting()
+        let secondHighWater = try Int64(String(contentsOf: sequenceURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))
+        XCTAssertEqual(secondHighWater, firstHighWater)
+    }
+
     func testDurableReplayRebasesSequenceAfterAnOlderBootSegment() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-replay-segments-\(UUID().uuidString)", isDirectory: true)
