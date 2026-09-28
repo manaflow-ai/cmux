@@ -458,6 +458,11 @@ extension Workspace {
             sessions.append((agent.kind.rawValue, agent.sessionId))
         }
         guard !sessions.isEmpty else { return }
+        // A session another panel still carries (a restore that lost to a live
+        // owner, or a stale snapshot resumed elsewhere) did not end here.
+        let carriedElsewhere = AppDelegate.shared?.openAgentSessionIdsForRecovery(excludingPanelId: panelId) ?? []
+        sessions.removeAll { carriedElsewhere.contains($0.sessionID) }
+        guard !sessions.isEmpty else { return }
         agentSessionCloseJournal.recordClosed(sessions: sessions, workspaceID: id, surfaceID: panelId)
     }
 

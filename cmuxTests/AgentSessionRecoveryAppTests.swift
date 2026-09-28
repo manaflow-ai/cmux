@@ -117,8 +117,8 @@ struct AgentSessionRecoveryAppTests {
 
         let plainCandidate = try #require(candidates.first { $0.sessionId == "plain" })
         let plainCommand = try #require(AgentSessionRecovery.resumeCommand(for: plainCandidate))
-        #expect(plainCommand.contains("--resume"))
-        #expect(plainCommand.contains("plain"))
+        // Without a launcher prefix, recovery resumes through the restore verb.
+        #expect(plainCommand.hasSuffix(" restore claude plain"))
     }
 
     /// A routed Claude session resumes through `cmux restore`, the path a

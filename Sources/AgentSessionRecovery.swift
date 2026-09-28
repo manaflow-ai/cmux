@@ -195,8 +195,9 @@ extension AppDelegate {
     /// snapshot or bound since launch), which recovery must not duplicate.
     ///
     /// Covers workspace panels, workspace and window Docks, and restores that
-    /// are staged or deferred but have not launched yet.
-    func openAgentSessionIdsForRecovery() -> Set<String> {
+    /// are staged or deferred but have not launched yet. Entries for
+    /// `excludedPanelId` are skipped.
+    func openAgentSessionIdsForRecovery(excludingPanelId excludedPanelId: UUID? = nil) -> Set<String> {
         var managers = mainWindowContexts.values.map(\.tabManager)
         if let tabManager, !managers.contains(where: { $0 === tabManager }) {
             managers.append(tabManager)
@@ -207,9 +208,9 @@ extension AppDelegate {
             bindings: [UUID: SurfaceResumeBindingSnapshot],
             deferred: [UUID: DeferredAgentResumeRestore]
         ) {
-            ids.formUnion(restored.values.map(\.sessionId))
-            ids.formUnion(bindings.values.compactMap(\.checkpointId))
-            for restore in deferred.values {
+            ids.formUnion(restored.filter { $0.key != excludedPanelId }.values.map(\.sessionId))
+            ids.formUnion(bindings.filter { $0.key != excludedPanelId }.values.compactMap(\.checkpointId))
+            for (panelId, restore) in deferred where panelId != excludedPanelId {
                 if let sessionId = restore.restorableAgent?.sessionId { ids.insert(sessionId) }
                 if let checkpointId = restore.resumeBinding?.checkpointId { ids.insert(checkpointId) }
             }
