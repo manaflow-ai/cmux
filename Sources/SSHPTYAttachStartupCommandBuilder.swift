@@ -271,7 +271,8 @@ enum SSHPTYAttachStartupCommandBuilder {
         destination: String,
         options: [String]
     ) -> [String] {
-        guard sharingOptions.cmuxOwnedControlPath(in: options) != nil else {
+        guard sharingOptions.cmuxOwnedControlPath(in: options) != nil,
+              let socketPattern = sharingOptions.resolvedControlPathShellPattern else {
             return []
         }
         let sshPrefix = sshArguments.map(shellQuote).joined(separator: " ")
@@ -288,7 +289,7 @@ enum SSHPTYAttachStartupCommandBuilder {
         return [
             #"cmux_ssh_resolved_control_path="$(command \#(sshPrefix) -G \#(quotedDestination) 2>/dev/null | awk 'tolower($1) == "controlpath" { $1 = ""; sub(/^[[:space:]]+/, ""); print; exit }')" "#,
             "case \"$cmux_ssh_resolved_control_path\" in",
-            "  /tmp/cmux-ssh-\(sharingOptions.userID)-*) ;;",
+            "  \(socketPattern)) ;;",
             "  *) exit 255 ;;",
             "esac",
             "cmux_ssh_resolved_control_basename=\"${cmux_ssh_resolved_control_path##*/}\"",

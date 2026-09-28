@@ -192,7 +192,9 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
             .replacingOccurrences(of: "-", with: "")
             .lowercased() + "01234567"
         let destination = "cleanup-\(socketHash.prefix(8)).example.test"
-        let controlPath = "/tmp/cmux-ssh-\(getuid())-\(socketHash)"
+        let controlPath = try #require(
+            SSHConnectionSharingOptions().controlSocketDirectoryPath
+        ) + "/" + socketHash
         let sshOptions = [
             "ControlMaster=auto",
             "ControlPersist=600",

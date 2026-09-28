@@ -129,7 +129,8 @@ struct SSHTuiMigrationTests {
         let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted).workspaceConfiguration())
         let openedCarrier = try resolvedControlSettings(SSHTuiConnection(configuration: opened))
         #expect(openedCarrier["controlmaster"] == "auto")
-        #expect(openedCarrier["controlpath"]?.hasPrefix("/tmp/cmux-ssh-") == true)
+        let socketDirectory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)
+        #expect(openedCarrier["controlpath"]?.hasPrefix(socketDirectory + "/") == true)
         #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored)) == openedCarrier)
     }
 
