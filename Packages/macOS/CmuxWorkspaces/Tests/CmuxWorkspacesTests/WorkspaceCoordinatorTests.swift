@@ -175,6 +175,7 @@ struct WorkspaceCoordinatorTests {
         #expect(reorder.isAtTopOfUnpinnedTier(group.anchorWorkspaceId))
         #expect(reorder.isAtTopOfUnpinnedTier(child1.id))
         #expect(!reorder.isAtTopOfUnpinnedTier(child2.id))
+        #expect(!reorder.isAtTopOfUnpinnedTier(outside.id))
         reorder.moveTabToTopForNotification(child2.id)
         #expect(reorder.isAtTopOfUnpinnedTier(child2.id))
         #expect(!reorder.isAtTopOfUnpinnedTier(child1.id))
