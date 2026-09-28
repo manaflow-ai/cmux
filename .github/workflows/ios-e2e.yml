@@ -14,10 +14,7 @@ name: iOS E2E
 # still reports green.
 on:
   workflow_dispatch:
-  # The pull_request trigger stays off until the owner approves this check's
-  # promotion (see docs/ci/ios-e2e.md): tests enter a CI lane by proposal and
-  # approval, and the product-download stubs below would red every PR today.
-  # pull_request:
+  pull_request:
 
 permissions:
   contents: read
@@ -75,7 +72,10 @@ jobs:
           # macOS runners; until then every routed run says "run" and the
           # lane's cost is bounded by it not being required (shadow mode,
           # docs/ci/ios-e2e.md#promotion-plan).
-          run_e2e=true
+          run_e2e=false
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            run_e2e=true
+          fi
           # Backend stack selection: a PR that changes web/ (API routes,
           # services, drizzle schema — the code the stack actually runs) must
           # not land its schema or API changes on the shared long-lived
@@ -198,6 +198,9 @@ jobs:
           persist-credentials: false
           # The app arrives prebuilt; the checkout is for the driver scripts.
           submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Download tagged Mac app product
         run: |
