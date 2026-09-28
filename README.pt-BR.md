@@ -441,6 +441,6 @@ O cmux é gratuito, open source, e sempre será. Se você gostaria de apoiar o d
 
 ## Licença
 
-cmux é open source sob [GPL-3.0-or-later](LICENSE).
+cmux é open source sob [GPL-3.0-or-later](LICENSE). O software de servidor do cmux (`web/`, os workers do Cloudflare e os serviços de relay listados em [LICENSE](LICENSE)) usa em vez disso a [Business Source License 1.1](web/LICENSE): você pode ler, modificar e executá-lo para uso fora de produção; uso em produção ou auto-hospedagem exigem uma licença comercial.
 
 Se sua organização não puder cumprir a GPL, uma licença comercial está disponível. Entre em contato com [founders@manaflow.com](mailto:founders@manaflow.com) para detalhes.

@@ -5,7 +5,6 @@ All notable changes to cmux are documented here.
 ## Unreleased
 
 ### Added
-- Settings > Sidebar > Sidebar Density (`sidebar.density`: `full`, `compact`, `quiet`) and matching command palette commands set every sidebar detail toggle's default at once; toggles you set explicitly and `sidebar.hideAllDetails` still win ([#14877](https://github.com/manaflow-ai/cmux/pull/14877))
 - Switch to Nightly (in the stable app) and Switch to Stable (in cmux NIGHTLY) in the app menu, command palette and Settings > App open the other app, downloading, verifying and installing it first when it is missing ([#14995](https://github.com/manaflow-ai/cmux/pull/14995))
 - `cmux session move <session-id> --to <ssh-destination|local>` moves a stopped Claude Code session, its transcript, memory and git working tree, between this Mac and an SSH host and resumes it there ([#14959](https://github.com/manaflow-ai/cmux/pull/14959))
 - Claude Code and Codex agents on a `cmux ssh` host show Running, Needs input, or Idle in the sidebar; cmux installs their hooks on the host when the Integrations toggles are on, including under proxy or account-switching launchers ([#14902](https://github.com/manaflow-ai/cmux/pull/14902), [#14908](https://github.com/manaflow-ai/cmux/pull/14908))
