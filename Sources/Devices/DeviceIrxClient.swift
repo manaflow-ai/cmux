@@ -204,7 +204,8 @@ actor DeviceIrxClient {
                 // has arrived. The dial validates the latest cache at every
                 // admission boundary; stopping it here turns that normal race
                 // into a user-requested cancellation with no retry signal.
-                return cache == nil
+                guard let cache else { return true }
+                return cache.authorityRevoked || cache.device?.revoked == true
             case .verified:
                 guard let cache else { return true }
                 do {
