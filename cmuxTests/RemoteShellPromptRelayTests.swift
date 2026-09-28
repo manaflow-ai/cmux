@@ -347,7 +347,7 @@ struct RemoteShellPromptRelayTests {
             source '\(integrationFile.path)'
             _CMUX_TTY_REPORTED=1
             _CMUX_PWD_LAST_PWD="$PWD"
-            _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
+            _CMUX_PORTS_LAST_RUN="${EPOCHSECONDS:-$SECONDS}"
             \(modeSetup)
             exec 9<> "$CMUX_TEST_LOG"
             \(promptFunction)
@@ -382,6 +382,7 @@ struct RemoteShellPromptRelayTests {
         let error = String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
 
         #expect(process.terminationStatus == 0, "\(error)\n\(output)")
+        #expect(!error.contains("command not found"), Comment(rawValue: error))
         return output
     }
 
