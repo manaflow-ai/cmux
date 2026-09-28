@@ -84,6 +84,18 @@ struct CloudTreeRowToolTipTests {
         #expect(toolTip == expected)
     }
 
+    @Test("An untitled terminal stays labelled without repeating its fallback on hover")
+    func untitledTerminalRowIsLabelled() {
+        let cell = Self.cell(presence: [])
+        cell.configure(
+            node: Self.terminalNode(title: "", machine: .local),
+            machineActions: Self.machineActions(),
+            nodeActions: Self.nodeActions()
+        )
+        #expect(cell.toolTip == nil)
+        #expect(cell.accessibilityLabel() == "terminal")
+    }
+
     @Test("A display row names its transport on hover")
     func displayRowHasToolTip() throws {
         let node = Self.displayNode()
@@ -286,10 +298,13 @@ struct CloudTreeRowToolTipTests {
         )
     }
 
-    private static func terminalRow() -> CloudTreeTerminalRow {
+    private static func terminalRow(
+        title: String = "build",
+        machine: SurfaceMachineID = .cloud("tooltip-test")
+    ) -> CloudTreeTerminalRow {
         let resource = SurfaceResource(
-            id: SurfaceResourceID(machine: .cloud("tooltip-test"), kind: .terminal, key: "term-1"),
-            title: "build",
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-1"),
+            title: title,
             detail: nil,
             lifecycle: .running,
             agent: nil,
@@ -301,8 +316,11 @@ struct CloudTreeRowToolTipTests {
         return CloudTreeTerminalRow(resource: resource, isOpen: false, viewBadge: nil)
     }
 
-    private static func terminalNode() -> CloudTreeNode {
-        CloudTreeNode(id: "terminal/tooltip-test/term-1", kind: .terminal(terminalRow()))
+    private static func terminalNode(
+        title: String = "build",
+        machine: SurfaceMachineID = .cloud("tooltip-test")
+    ) -> CloudTreeNode {
+        CloudTreeNode(id: "terminal/tooltip-test/term-1", kind: .terminal(terminalRow(title: title, machine: machine)))
     }
 
     private static func displayNode() -> CloudTreeNode {
