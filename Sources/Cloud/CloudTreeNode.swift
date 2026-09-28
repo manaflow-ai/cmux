@@ -13,7 +13,9 @@ import Foundation
 /// expansion and selection survive a rebuild. Rows below the outline receive
 /// only the node's values plus a closure bundle (snapshot-boundary rule).
 final class CloudTreeNode: NSObject {
-    enum Kind: Equatable {
+    // Box the payload once: machine/catalog snapshots otherwise enlarge every
+    // case and every row-content copy by hundreds of bytes.
+    indirect enum Kind: Equatable {
         /// A cloud machine: the fleet row (plan/free-access state) plus what the catalog knows.
         case machine(MachineSnapshot, SurfaceMachineInfo?)
         /// A machine being created (or whose create failed): the row that stands
@@ -77,6 +79,7 @@ final class CloudTreeNode: NSObject {
     private(set) var kind: Kind
     var children: [CloudTreeNode]
     var isPinned = false
+    var resourceSection: CloudTreeMachineResourceSection?
     /// For workspace rows: everything the workspace holds, in the order it opens.
     private var explicitDragGroup: SurfaceResourceGroup?
 
@@ -94,7 +97,8 @@ final class CloudTreeNode: NSObject {
             kind: kind,
             explicitDragGroup: explicitDragGroup,
             isPinned: isPinned,
-            hasUnreadAttention: hasUnreadAttention
+            hasUnreadAttention: hasUnreadAttention,
+            resourceSection: resourceSection
         )
     }
     /// The case of `kind` without its payload: what decides row height, menus,
@@ -133,6 +137,7 @@ final class CloudTreeNode: NSObject {
         kind = other.kind
         isPinned = other.isPinned
         explicitDragGroup = other.explicitDragGroup
+        resourceSection = other.resourceSection
         for (child, replacement) in zip(children, other.children) {
             child.adopt(from: replacement)
         }
@@ -567,129 +572,6 @@ enum CloudTreeNodeBuilder {
         guard let workspace = resource.remoteWorkspace else { return [] }
         return [RemoteResourcePlacement(resource: resource, workspace: workspace, view: nil)]
     }
-    static func nodes(
-        machines: [MachineSnapshot],
-        pendingCreates: [MachineCreateOperation] = [],
-        adoptedOperationIDs: [String: UUID] = [:],
-        snapshot: SurfaceCatalogSnapshot,
-        localWorkspaces: [CloudTreeLocalWorkspace],
-        unreadTerminalIDs: [String: Set<String>] = [:],
-        /// Pin state supplied by the account-scoped machine store for rows that
-        /// are present only in the catalog during a fleet refresh.
-        pinnedMachineIDs: Set<String> = [],
-        includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine,
-        source: CloudTreeMachineSource = .cloud,
-        devicesSection: CloudTreeDevicesSection = .init(),
-        canCreateCloudMachine: Bool = false,
-        now: Date = .now
-    ) -> [CloudTreeNode] {
-        let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
-        let resourceNodeBuilder = CloudTreeMachineResourceNodeBuilder()
-        var identities = adoptedOperationIDs
-        for operation in pendingCreates where !operation.request.isBaseSetup &&
-            (operation.isRunning || operation.isReconciling) {
-            if let id = operation.createdMachineID ?? operation.reconcilingMachineID, identities[id] == nil {
-                identities[id] = operation.id
-            }
-        }
-        var nodes: [CloudTreeNode] = []
-        guard source.includesCloudMachines else {
-            // The Devices tab: other Macs only, no fleet, no This Mac.
-            return deviceNodes(snapshot: snapshot, projectionIndex: projectionIndex, grouped: false, section: devicesSection)
-        }
-        if includeLocalMachine, let local = snapshot.machines.first(where: { $0.id.isLocal }) {
-            nodes.append(localMachineNode(
-                info: local,
-                snapshot: snapshot,
-                localWorkspaces: localWorkspaces,
-                projectionIndex: projectionIndex
-            ))
-        }
-        for operation in pendingCreates where !operation.isSuperseded(by: machines, catalogMachines: snapshot.machines) {
-            nodes.append(CloudTreeNode(id: nodeID(pendingCreate: operation.id), kind: .pendingMachine(operation)))
-        }
-        let infoByMachine = Dictionary(snapshot.machines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var seen = Set<String>()
-        for machine in machines {
-            seen.insert(machine.id)
-            let info = infoByMachine[.cloud(machine.id)]
-            let stableID = identities[machine.id].map { nodeID(pendingCreate: $0) }
-                ?? nodeID(machine: .cloud(machine.id))
-            nodes.append(CloudTreeNode(
-                id: stableID,
-                kind: .machine(machine, info),
-                children: cloudChildren(
-                    machine: .cloud(machine.id),
-                    machineSnapshot: machine,
-                    info: info,
-                    snapshot: snapshot,
-                    projectionIndex: projectionIndex,
-                    resourceNodeBuilder: resourceNodeBuilder,
-                    now: now
-                ),
-                // A machine pin is explicit sidebar priority, stamped by the panel;
-                // organization only pins the organizable rows below a machine.
-                isPinned: machine.isPinned || pinnedMachineIDs.contains(machine.id)
-            ))
-        }
-        // Include catalog-only machines so their surfaces remain reachable during fleet refresh.
-        // Device machines have no cloud id and are never fleet rows.
-        for info in snapshot.machines where !info.id.isLocal {
-            guard let id = info.id.cloudMachineID, !seen.contains(id) else { continue }
-            let placeholderSnapshot = MachineSnapshot(
-                id: id,
-                provider: "",
-                image: info.image ?? "",
-                isDesktop: info.hasDesktop,
-                activity: MachineSnapshotBuilder.activity(fromStatus: info.status),
-                createdAt: nil,
-                label: info.name == id ? nil : info.name
-            )
-            nodes.append(CloudTreeNode(
-                id: identities[id].map { nodeID(pendingCreate: $0) }
-                    ?? nodeID(machine: info.id),
-                kind: .machine(placeholderSnapshot, info),
-                children: cloudChildren(
-                    machine: info.id,
-                    machineSnapshot: placeholderSnapshot,
-                    info: info,
-                    snapshot: snapshot,
-                    projectionIndex: projectionIndex,
-                    resourceNodeBuilder: resourceNodeBuilder,
-                    now: now
-                ),
-                isPinned: pinnedMachineIDs.contains(id)
-            ))
-        }
-        if source.groupsDevicesUnderSection {
-            let cloudChildren = nodes.isEmpty
-                ? [CloudTreeNode(
-                    id: "cloud-machines-section/empty",
-                    kind: .placeholder(
-                        machine: .cloud("cloud-machines-section"),
-                        CloudTreePlaceholder(
-                            text: String(localized: "machines.empty.title", defaultValue: "No machines yet"),
-                            style: .dimmed
-                        )
-                    )
-                )]
-                : nodes
-            nodes = [CloudTreeNode(
-                id: "cloud-machines-section",
-                kind: .cloudMachinesSection(canCreateMachine: canCreateCloudMachine),
-                children: cloudChildren
-            )]
-        }
-        if source.includesDevices {
-            nodes.append(contentsOf: deviceNodes(
-                snapshot: snapshot,
-                projectionIndex: projectionIndex,
-                grouped: source.groupsDevicesUnderSection,
-                section: devicesSection
-            ))
-        }
-        return nodes
-    }
     /// True when `nodes(machines:snapshot:localWorkspaces:)` would produce no
     /// rows. The panel swaps the outline for its empty state on this; it must
     /// mirror `nodes` exactly (local catalog entries only count while
@@ -770,7 +652,7 @@ enum CloudTreeNodeBuilder {
     static func nodeID(placeholder machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/placeholder" }
     // MARK: This Mac
 
-    private static func localMachineNode(
+    static func localMachineNode(
         info: SurfaceMachineInfo,
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
