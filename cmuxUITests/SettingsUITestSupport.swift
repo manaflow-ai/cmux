@@ -36,21 +36,26 @@ class SettingsUITestCase: XCTestCase {
 
     // MARK: - Launch / window
 
-    func makeLaunchedApp() -> XCUIApplication {
+    func makeLaunchedApp(additionalArguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
-        app.launchArguments += settingsLaunchArguments
+        app.launchArguments += settingsLaunchArguments + additionalArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "main window did not appear")
         return app
     }
 
-    /// Opens the Settings window via ⌘, and returns it.
+    /// The Settings window, by its identifier (`SettingsWindowPresenter.windowIdentifier`)
+    /// rather than its localized title.
+    static let settingsWindowIdentifier = "cmux.settings"
+
+    /// Opens the Settings window via ⌘, and returns it. Settings mounts its
+    /// sections progressively, so the first open can take a few seconds on CI.
     @discardableResult
     func openSettings(_ app: XCUIApplication) -> XCUIElement {
         app.typeKey(",", modifierFlags: .command)
-        let window = app.windows["Settings"]
-        XCTAssertTrue(poll(timeout: 6.0) { window.exists }, "Settings window did not open")
+        let window = app.windows[Self.settingsWindowIdentifier]
+        XCTAssertTrue(poll(timeout: 10.0) { window.exists }, "Settings window did not open")
         return window
     }
 
@@ -103,6 +108,14 @@ class SettingsUITestCase: XCTestCase {
             timeout: timeout,
             description: "toggle \(id)"
         )
+    }
+
+    /// Reads a toggle's on state from its accessibility value.
+    func isOn(_ control: XCUIElement) -> Bool {
+        let value = String(describing: control.value ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return value == "1" || value == "true" || value == "on"
     }
 
     /// Deletes UserDefaults keys from the debug suite so a test starts

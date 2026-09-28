@@ -697,6 +697,35 @@ final class TerminalDefaultFileOpenRequestTests: XCTestCase {
         XCTAssertEqual(request.initialInput, "'\(executable.path)'\n")
     }
 
+    func testExecutableSourceFileOpensInPreviewInsteadOfRunning() {
+        let url = URL(fileURLWithPath: "/tmp/tool.py")
+
+        XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .pythonScript, isExecutable: true))
+    }
+
+    func testExecutableMarkdownFileOpensInPreviewInsteadOfRunning() {
+        let url = URL(fileURLWithPath: "/tmp/README.md")
+        let contentType = UTType("net.daringfireball.markdown") ?? .plainText
+
+        XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: url, contentType: contentType, isExecutable: true))
+    }
+
+    func testTerminalCommandFileRunsEvenThoughItIsText() throws {
+        let url = URL(fileURLWithPath: "/tmp/Run Me.command")
+
+        let request = try XCTUnwrap(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .shellScript, isExecutable: true))
+
+        XCTAssertEqual(request.initialInput, "'/tmp/Run Me.command'\n")
+    }
+
+    func testExtensionlessExecutableDataFileRuns() throws {
+        let url = URL(fileURLWithPath: "/tmp/runme")
+
+        let request = try XCTUnwrap(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .data, isExecutable: true))
+
+        XCTAssertEqual(request.initialInput, "'/tmp/runme'\n")
+    }
+
     func testIgnoresDirectoriesWithTerminalScriptExtension() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-terminal-default-directory-\(UUID().uuidString).command", isDirectory: true)
@@ -3948,13 +3977,13 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        for _ in 0..<1000 {
-            if !panel.isSaving {
-                return
-            }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while panel.isSaving, ContinuousClock.now < deadline {
             await Task.yield()
         }
-        XCTFail("Timed out waiting for file preview save", file: file, line: line)
+        if panel.isSaving {
+            XCTFail("Timed out waiting for file preview save", file: file, line: line)
+        }
     }
 
     private func waitForPanelPreviewMode(
@@ -3963,13 +3992,13 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        for _ in 0..<1000 {
-            if panel.previewMode == mode {
-                return
-            }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while panel.previewMode != mode, ContinuousClock.now < deadline {
             await Task.yield()
         }
-        XCTFail("Timed out waiting for file preview mode", file: file, line: line)
+        if panel.previewMode != mode {
+            XCTFail("Timed out waiting for file preview mode", file: file, line: line)
+        }
     }
 
     private func waitForPanelTextContent(
@@ -3978,13 +4007,13 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        for _ in 0..<1000 {
-            if panel.textContent == content {
-                return
-            }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while panel.textContent != content, ContinuousClock.now < deadline {
             await Task.yield()
         }
-        XCTFail("Timed out waiting for file preview text content", file: file, line: line)
+        if panel.textContent != content {
+            XCTFail("Timed out waiting for file preview text content", file: file, line: line)
+        }
     }
 
     private func closeWindow(_ window: NSWindow) {
@@ -4330,8 +4359,8 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
 
     func testFocusFlashUsesNotificationRingColor() {
         XCTAssertEqual(
-            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent.strokeColor.hexString(),
-            WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor.hexString()
+            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent.strokeColor(accent: CmuxAccentColor()).hexString(),
+            WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor(accent: CmuxAccentColor()).hexString()
         )
     }
 

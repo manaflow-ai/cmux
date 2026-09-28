@@ -51,6 +51,7 @@ extension KeyboardShortcutSettings.Action {
              .toggleTerminalCopyMode,
              .focusTextBoxInput, .attachTextBoxFile,
              .sendCtrlFToTerminal,
+             .pasteLastScreenshot,
              .clearScreenKeepScrollback,
              .focusLeft, .focusRight, .focusUp, .focusDown,
              .focusPreviousPane, .focusNextPane,

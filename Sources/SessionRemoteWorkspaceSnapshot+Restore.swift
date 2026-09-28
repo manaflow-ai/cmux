@@ -44,6 +44,7 @@ extension SessionRemoteWorkspaceSnapshot {
         }
 
         if let configuration = tuiSSHConfiguration(agentSocketPath: overrideAgentSocketPath) { return configuration }
+        if let configuration = legacyTmuxSSHConfiguration(agentSocketPath: overrideAgentSocketPath) { return configuration }
         if skipDaemonBootstrap != true, (terminalTransport ?? .ssh) == .ssh,
            preserveAfterTerminalExit == true {
             // Preserve the old descriptor for recovery, but never resume its daemon

@@ -124,6 +124,17 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
 
     private static let sortedSafeEnvironmentKeys = safeEnvironmentKeys.sorted()
 
+    /// Every environment key ``selectedEnvironment(from:kind:)`` reads.
+    ///
+    /// Out-of-process hook producers capture exactly these values so the
+    /// consumer's selection matches what it would read from its own process.
+    public var inputEnvironmentKeys: [String] {
+        Self.sortedSafeEnvironmentKeys + [
+            "CMUX_ORIGINAL_NODE_OPTIONS",
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT",
+        ]
+    }
+
     /// Returns the subset of captured environment variables that should be replayed for an agent.
     ///
     /// The optional `kind` applies agent-specific exclusions for values that are safe for one
