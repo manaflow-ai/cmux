@@ -9,6 +9,8 @@ import XCTest
 /// assert the *effect* actually happened — not merely that the control
 /// flipped.
 class SettingsUITestCase: XCTestCase {
+    // Shared setup intentionally lives here so each concrete Settings UI test
+    // class uses the same launch and window-readiness contract.
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
