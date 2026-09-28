@@ -21,10 +21,10 @@ Sorted roughly by how little setup they need:
 | Help without building anything | [`needs-triage`](https://github.com/manaflow-ai/cmux/issues?q=is%3Aissue+is%3Aopen+label%3Aneeds-triage) |
 
 [`docs/triage.md`](triage.md) explains what those labels mean and who assigns
-them. These labels are new, so some of those searches are still thin, and
-`needs-triage` is the largest pile by a distance: reading one, working out which
-part of cmux it belongs to, and saying so in a comment is genuinely useful and
-needs no Xcode.
+them. These labels are new, so some of those searches are still thin. The
+exception is `needs-triage`, which is around 500 issues: the rules could not tell
+which part of cmux each one is about. Reading one, working out where it belongs,
+and saying so in a comment is useful and needs no Xcode.
 
 **Say on the issue that you are picking it up.** One comment. It stops two
 people writing the same patch, and it is how you find out early that an issue
