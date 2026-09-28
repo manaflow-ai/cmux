@@ -886,6 +886,9 @@ struct ContentView: View {
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
+    /// Live macOS Display accessibility settings (Reduce Transparency drives
+    /// the window backdrop plan).
+    @State private var displayAccessibility = DisplayAccessibilityOptions.current
     @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
@@ -901,6 +904,10 @@ struct ContentView: View {
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.notifications.paneFlashColorHex) private var paneFlashColorHex
+    /// Resolved cmux accent, seeded from the app delegate's observer and
+    /// updated from its change notification. This view is the window root,
+    /// so it cannot read the accent from its own environment modifier.
+    @State private var cmuxAccent = AppDelegate.shared?.accentColor ?? CmuxAccentColor()
     /// Canonical sidebar width, deliberately NOT observed by ContentView:
     /// divider ticks re-evaluate only the SidebarWidthReader wrappers that
     /// consume the width, never this body. All reads/writes outside view
@@ -1174,7 +1181,7 @@ struct ContentView: View {
                 activePaneBorderColorHex: nil,
                 flashToken: workspace.tmuxWorkspaceFlashToken,
                 flashReason: workspace.tmuxWorkspaceFlashReason,
-                workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: paneFlashColorHex)
+                workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: cmuxAccent)
             )
         }
 
@@ -1186,7 +1193,7 @@ struct ContentView: View {
             activePaneBorderColorHex: activePaneBorderRect == nil ? nil : resolvedActivePaneBorderColorHex,
             flashToken: workspace.tmuxWorkspaceFlashToken,
             flashReason: workspace.tmuxWorkspaceFlashReason,
-            workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: paneFlashColorHex)
+            workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: cmuxAccent)
         )
     }
 
@@ -2075,7 +2082,8 @@ struct ContentView: View {
                 sidebarBlurOpacity: sidebarBlurOpacity,
                 bgGlassEnabled: bgGlassEnabled,
                 bgGlassTintHex: bgGlassTintHex,
-                bgGlassTintOpacity: bgGlassTintOpacity
+                bgGlassTintOpacity: bgGlassTintOpacity,
+                reduceTransparency: displayAccessibility.reduceTransparency
             )
         )
     }
@@ -2828,6 +2836,12 @@ struct ContentView: View {
             )
         }.onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in scheduleTitlebarThemeRefresh(reason: "systemAppearanceChanged") })
 
+        view = AnyView(view.onDisplayAccessibilityOptionsChange { options in
+            guard displayAccessibility != options else { return }
+            displayAccessibility = options
+            scheduleTitlebarThemeRefresh(reason: "displayAccessibilityOptionsChanged")
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
             refreshCommandPaletteForkableAgentAvailabilityAfterSharedIndexChange(notification)
         })
@@ -2893,7 +2907,19 @@ struct ContentView: View {
                 for: window,
                 createIfNeeded: false
             )?.updateWorkspaceAttentionColor(
-                WorkspaceAttentionColor(configuredHex: newValue)
+                WorkspaceAttentionColor(configuredHex: newValue, accent: cmuxAccent)
+            )
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: CmuxAccentColor.didChangeNotification)) { notification in
+            guard let observer = notification.object as? CmuxAccentColorObserver else { return }
+            cmuxAccent = observer.current
+            guard let window = observedWindow else { return }
+            WindowTmuxWorkspacePaneOverlayController.controller(
+                for: window,
+                createIfNeeded: false
+            )?.updateWorkspaceAttentionColor(
+                WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: observer.current)
             )
         })
 
@@ -3459,7 +3485,7 @@ struct ContentView: View {
             view
                 .environment(
                     \.workspaceAttentionColor,
-                    WorkspaceAttentionColor(configuredHex: paneFlashColorHex)
+                    WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: cmuxAccent)
                 )
                 .cmuxAppearanceColorScheme(appearanceMode)
         )
@@ -7723,6 +7749,16 @@ struct ContentView: View {
                 keywords: ["update", "upgrade", "release"]
             )
         )
+        if let target = AppChannelSwitchTarget.counterpart(ofBundleIdentifier: Bundle.main.bundleIdentifier) {
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: "palette.switchAppChannel",
+                    title: constant(AppChannelSwitchPresenter.actionTitle(for: target)),
+                    subtitle: constant(String(localized: "command.checkForUpdates.subtitle", defaultValue: "Global")),
+                    keywords: ["nightly", "stable", "channel", "switch", "install"]
+                )
+            )
+        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.applyUpdateIfAvailable",
@@ -7954,6 +7990,7 @@ struct ContentView: View {
             panelSubtitle: panelSubtitle
         )
         appendSavedLayoutCommandContributions(to: &contributions, workspaceSubtitle: workspaceSubtitle)
+        appendKeymapPresetCommandContributions(to: &contributions)
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -8346,6 +8383,18 @@ struct ContentView: View {
                 keywords: [
                     "terminal", "ctrl", "control", "f", "send", "key", "passthrough",
                     "force", "stop", "agent", "agents", "claude", "code", "hung", "background", "watchdog", "kill",
+                ],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.terminalPasteLastScreenshot",
+                title: constant(String(localized: "command.terminalPasteLastScreenshot.title", defaultValue: "Paste Last Screenshot")),
+                subtitle: terminalPanelSubtitle,
+                keywords: [
+                    "terminal", "paste", "screenshot", "screen", "shot", "capture", "image",
+                    "picture", "latest", "newest", "recent", "last", "path", "file", "desktop",
                 ],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
@@ -8899,6 +8948,7 @@ struct ContentView: View {
         registerCloudCommandHandlers(&registry)
         registerComputerUseCommandPaletteHandlers(&registry)
         registerSavedLayoutCommandHandlers(&registry)
+        registerKeymapPresetCommandHandlers(&registry)
         registry.register(commandId: "palette.showNotifications") {
             AppDelegate.shared?.toggleNotificationsPopover(animated: false)
         }
@@ -8958,6 +9008,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.checkForUpdates") {
             AppDelegate.shared?.checkForUpdates(nil)
+        }
+        registry.register(commandId: "palette.switchAppChannel") {
+            AppDelegate.shared?.switchAppChannel(nil)
         }
         registry.register(commandId: "palette.applyUpdateIfAvailable") {
             AppDelegate.shared?.applyUpdateIfAvailable(nil)
@@ -9321,6 +9374,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSendCtrlF") {
             if !tabManager.sendCtrlFToFocusedTerminal() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.terminalPasteLastScreenshot") {
+            if !tabManager.pasteLastScreenshotIntoFocusedTerminal() {
                 NSSound.beep()
             }
         }
@@ -11210,25 +11268,44 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
     private let defaults: UserDefaults
     private let sidebarFontSizeProvider: () async -> CGFloat
     private var sidebarFontSize: CGFloat
+    private var accentColor: CmuxAccentColor
     private var sidebarFontSizeLoadTask: Task<Void, Never>?
     private var defaultsObserver: NSObjectProtocol?
     private var sidebarFontSizeObserver: NSObjectProtocol?
+    private var accentColorObserver: NSObjectProtocol?
 
     init(
         defaults: UserDefaults = .standard,
         initialSidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize,
+        accentColor: CmuxAccentColor? = nil,
         sidebarFontSizeProvider: @escaping () async -> CGFloat = SidebarFontSizeProvider.loadFromGhosttyConfig
     ) {
         self.defaults = defaults
         self.sidebarFontSize = GhosttyConfig.clampedSidebarFontSize(initialSidebarFontSize)
+        // Read the app delegate's resolved accent here, on the main actor;
+        // a default argument would evaluate it in a nonisolated context.
+        self.accentColor = accentColor ?? AppDelegate.shared?.accentColor ?? CmuxAccentColor()
         self.sidebarFontSizeProvider = sidebarFontSizeProvider
         self.snapshot = SidebarTabItemSettingsSnapshot(
             defaults: defaults,
-            sidebarFontSize: sidebarFontSize
+            sidebarFontSize: sidebarFontSize,
+            accentColor: self.accentColor
         )
         defaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refreshSnapshot()
+            }
+        }
+        accentColorObserver = NotificationCenter.default.addObserver(
+            forName: CmuxAccentColor.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let observer = notification.object as? CmuxAccentColorObserver
+            Task { @MainActor [weak self] in
+                guard let self, let observer else { return }
+                self.accentColor = observer.current
+                self.refreshSnapshot()
             }
         }
         refreshSidebarFontSize()
@@ -11251,12 +11328,16 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
         if let sidebarFontSizeObserver {
             NotificationCenter.default.removeObserver(sidebarFontSizeObserver)
         }
+        if let accentColorObserver {
+            NotificationCenter.default.removeObserver(accentColorObserver)
+        }
     }
 
     private func refreshSnapshot() {
         let nextSnapshot = SidebarTabItemSettingsSnapshot(
             defaults: defaults,
-            sidebarFontSize: sidebarFontSize
+            sidebarFontSize: sidebarFontSize,
+            accentColor: accentColor
         )
         guard nextSnapshot != snapshot else { return }
         snapshot = nextSnapshot
@@ -11295,6 +11376,7 @@ extension SidebarDragState {
 /// the underlying row's shortcut badges (which would be visible around the
 /// open context menu). All other rows transition live.
 struct VerticalTabsSidebar: View, Equatable {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     // Equatable gates only parent-driven re-evaluation: closures and
     // Bindings are excluded on purpose (recreated per parent eval but
     // functionally identical), and every data source the body renders from
@@ -11429,6 +11511,7 @@ struct VerticalTabsSidebar: View, Equatable {
 #endif
     @Environment(\.colorScheme) private var sidebarColorScheme
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var sidebarGlobalFontMagnificationPercent
+    @State private var sidebarDisplayAccessibility = DisplayAccessibilityOptions.current
 
     // The provider to actually render. Built-in views are always honored; only
     // the hosted-extension selection falls back to the default workspaces
@@ -11866,12 +11949,14 @@ struct VerticalTabsSidebar: View, Equatable {
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: sidebarColorScheme,
             globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
-            lazyContractProbe: sidebarLazyContractProbe
+            lazyContractProbe: sidebarLazyContractProbe,
+            displayAccessibility: sidebarDisplayAccessibility
         )
 #else
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: sidebarColorScheme,
-            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent
+            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
+            displayAccessibility: sidebarDisplayAccessibility
         )
 #endif
         let renderContext = WorkspaceListRenderContext(
@@ -11982,6 +12067,10 @@ struct VerticalTabsSidebar: View, Equatable {
             guard let frozenTabId = frozenShortcutHintsTabId,
                   !tabIds.contains(frozenTabId) else { return }
             frozenShortcutHintsTabId = nil
+        }
+        .onDisplayAccessibilityOptionsChange { options in
+            guard sidebarDisplayAccessibility != options else { return }
+            sidebarDisplayAccessibility = options
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -12680,7 +12769,8 @@ struct VerticalTabsSidebar: View, Equatable {
             editingChecklistItemId: editingChecklistItemIds[tab.id],
             todoControlsEnabled: WorkspaceTodoFeature.isEnabled,
             isMetadataExpanded: expandedMetadataWorkspaceIds.contains(tab.id),
-            isMarkdownExpanded: expandedMarkdownWorkspaceIds.contains(tab.id)
+            isMarkdownExpanded: expandedMarkdownWorkspaceIds.contains(tab.id),
+            displayAccessibility: environment.displayAccessibility
         )
         let commands = SidebarWorkspaceRowCommands(
             tab: tab,
@@ -13703,7 +13793,7 @@ struct VerticalTabsSidebar: View, Equatable {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: compact ? 8 : 10, style: .continuous)
-                    .stroke(isSelected ? cmuxAccentColor().opacity(0.55) : Color.clear, lineWidth: 1)
+                    .stroke(isSelected ? cmuxAccent.color.opacity(0.55) : Color.clear, lineWidth: 1)
             )
             .contentShape(Rectangle())
         }
@@ -13760,7 +13850,7 @@ struct VerticalTabsSidebar: View, Equatable {
     ) -> some View {
         if dragState.dropIndicator == SidebarDropIndicator(tabId: row.workspaceId, edge: edge) {
             Rectangle()
-                .fill(cmuxAccentColor())
+                .fill(cmuxAccent.color)
                 .frame(height: 2)
                 .padding(.horizontal, 8)
         }
@@ -14064,7 +14154,7 @@ struct VerticalTabsSidebar: View, Equatable {
             .overlay(alignment: .bottom) {
                 if emptyAreaTopDropIndicatorVisible() {
                     Rectangle()
-                        .fill(cmuxAccentColor())
+                        .fill(cmuxAccent.color)
                         .frame(height: 2)
                         .padding(.horizontal, 8)
                         .offset(y: tabRowSpacing / 2)
@@ -15416,6 +15506,7 @@ private struct SidebarFooter: View {
 }
 
 struct SidebarFooterButtons: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
@@ -15485,7 +15576,7 @@ struct SidebarFooterButtons: View {
                 .background(TitlebarControlAnchorView { extensionBrowserAnchorView = $0 })
             }
             if shows(.update), let updateActionsHost = AppDelegate.shared {
-                UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost)
+                UpdatePill(model: updateViewModel, accent: cmuxAccent.color, actions: updateActionsHost)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -15803,6 +15894,11 @@ struct TabItemView: View, Equatable {
     // percent here and applying a primitive `.font(...)` keeps magnification
     // working while dropping those per-label modifier bodies.
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
+    // Window activation and Increase Contrast only: the selection wash dims to
+    // neutral when the window is inactive, like Finder. Neither changes per
+    // keystroke.
+    @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 #if DEBUG
     // Plain-value environment probe (closure struct, not an object reference):
     // set only by SidebarLazyLayoutScaleTests, default no-op, excluded from ==
@@ -15905,7 +16001,10 @@ struct TabItemView: View, Equatable {
     private var selectedWorkspaceBackgroundNSColor: NSColor {
         sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
-            sidebarSelectionColorHex: sidebarSelectionColorHex
+            sidebarSelectionColorHex: sidebarSelectionColorHex,
+            activeTabIndicatorStyle: activeTabIndicatorStyle,
+            subtleSelection: settings.subtleSelection,
+            accent: settings.accentColor
         )
     }
 
@@ -15958,21 +16057,21 @@ struct TabItemView: View, Equatable {
         explicitRailColor(for: workspaceSnapshot) != nil
     }
 
-    private var activeBorderLineWidth: CGFloat {
+    private func activeBorderLineWidth(for style: SidebarWorkspaceRowBackgroundStyle) -> CGFloat {
         switch activeTabIndicatorStyle {
         case .leftRail:
-            return 0
+            return style.edgeColor == nil ? 0 : 1
         case .solidFill:
             return isActive ? 1.5 : 0
         }
     }
 
-    private var activeBorderColor: Color {
-        guard isActive else { return .clear }
+    private func activeBorderColor(for style: SidebarWorkspaceRowBackgroundStyle) -> Color {
         switch activeTabIndicatorStyle {
         case .leftRail:
-            return .clear
+            return style.edgeColor.map { Color(nsColor: $0) } ?? .clear
         case .solidFill:
+            guard isActive else { return .clear }
             return Color.primary.opacity(0.5)
         }
     }
@@ -15997,7 +16096,7 @@ struct TabItemView: View, Equatable {
         if let hex = sidebarNotificationBadgeColorHex, let nsColor = NSColor(hex: hex) {
             return Color(nsColor: nsColor)
         }
-        return usesInvertedActiveForeground ? activePrimaryTextColor.opacity(0.25) : cmuxAccentColor()
+        return usesInvertedActiveForeground ? activePrimaryTextColor.opacity(0.25) : settings.accentColor.color
     }
 
     private var activeUnreadBadgeTextColor: Color {
@@ -16009,7 +16108,7 @@ struct TabItemView: View, Equatable {
     }
 
     private var activeProgressFillColor: Color {
-        usesInvertedActiveForeground ? activeSecondaryColor(0.8) : cmuxAccentColor()
+        usesInvertedActiveForeground ? activeSecondaryColor(0.8) : settings.accentColor.color
     }
 
     private var shortcutHintEmphasis: Double {
@@ -16099,7 +16198,10 @@ struct TabItemView: View, Equatable {
 #endif
         let signpost = SidebarProfilingSignposts.begin("sidebar-tab-item-body", "index=\(index) workspace=\(sidebarShortTabId(workspaceId)) active=\(isActive) unread=\(unreadCount)")
         let workspaceSnapshot = self.workspaceSnapshot
-        let rowBackgroundColor = backgroundColor(for: workspaceSnapshot)
+        let rowBackgroundStyle = backgroundStyle(for: workspaceSnapshot)
+        let rowBackgroundColor = rowBackgroundStyle.color.map {
+            Color(nsColor: $0).opacity(rowBackgroundStyle.opacity)
+        } ?? .clear
         let rowRailColor = railColor(for: workspaceSnapshot)
         let accessibilityTitle = workspaceSnapshot.accessibilityLabel(index: index, workspaceCount: accessibilityWorkspaceCount)
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
@@ -16118,7 +16220,12 @@ struct TabItemView: View, Equatable {
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let subtitleLineLimit = latestNotificationSubtitle == nil ? 2 : settings.notificationMessageLineLimit
         // Bound notification payloads before shaping so pathological text stays cheap in lazy, Equatable rows.
-        let displayedSubtitle = effectiveSubtitle?.sidebarBoundedDisplayString(maxDisplayedLines: subtitleLineLimit, maxDisplayedCharacters: 4096)
+        let displayedSubtitle = effectiveSubtitle.map { subtitle in
+            let display = subtitle.sidebarBoundedDisplayString(maxDisplayedLines: subtitleLineLimit, maxDisplayedCharacters: 4096)
+            return latestNotificationSubtitle == nil
+                ? display
+                : SidebarMarkdownRenderer(markdown: display).plainText
+        }
         let detailVisibility = visibleAuxiliaryDetails
         let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
         let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
@@ -16529,7 +16636,10 @@ struct TabItemView: View, Equatable {
                 .fill(rowBackgroundColor)
                 .overlay {
                     RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
+                        .strokeBorder(
+                            activeBorderColor(for: rowBackgroundStyle),
+                            lineWidth: activeBorderLineWidth(for: rowBackgroundStyle)
+                        )
                 }
                 .overlay(alignment: .leading) {
                     if showsLeadingRail(for: workspaceSnapshot) {
@@ -16641,19 +16751,21 @@ struct TabItemView: View, Equatable {
         isEditing = true
     }
 
-    private func backgroundColor(
+    private func backgroundStyle(
         for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
-    ) -> Color {
-        let style = sidebarWorkspaceRowBackgroundStyle(
+    ) -> SidebarWorkspaceRowBackgroundStyle {
+        sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: activeTabIndicatorStyle,
             isActive: isActive,
             isMultiSelected: isMultiSelected,
             customColorHex: workspaceSnapshot.customColorHex,
             colorScheme: colorScheme,
-            sidebarSelectionColorHex: sidebarSelectionColorHex
+            sidebarSelectionColorHex: sidebarSelectionColorHex,
+            subtleSelection: settings.subtleSelection,
+            isEmphasized: controlActiveState != .inactive,
+            increaseContrast: colorSchemeContrast == .increased,
+            accent: settings.accentColor
         )
-        guard let color = style.color else { return .clear }
-        return Color(nsColor: color).opacity(style.opacity)
     }
 
     private func railColor(
@@ -16738,7 +16850,7 @@ struct TabItemView: View, Equatable {
         }
         switch level {
         case .info: return .secondary
-        case .progress: return .blue
+        case .progress: return settings.accentColor.color
         case .success: return .green
         case .warning: return .orange
         case .error: return .red
@@ -16971,6 +17083,8 @@ private struct SidebarMetadataEntryRow: View {
     let activeForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
 
     var body: some View {
         Group {
@@ -17010,13 +17124,12 @@ private struct SidebarMetadataEntryRow: View {
     }
 
     private var foregroundColor: Color {
-        if isActive,
-           let raw = entry.color,
-           Color(hex: raw) != nil {
+        let explicit = cmuxAccent.statusEntryColor(hex: entry.color, isDark: colorScheme == .dark)
+        if isActive, explicit != nil {
             return activeForegroundColor
         }
-        if let raw = entry.color, let explicit = Color(hex: raw) {
-            return explicit
+        if let explicit {
+            return Color(nsColor: explicit)
         }
         return isActive ? activeForegroundColor.opacity(0.84) : .secondary
     }

@@ -20,6 +20,7 @@ have not shipped yet.
 | Custom actions, workspace layouts/commands, tab bar buttons, plus-button behavior, Command Palette entries, notification hooks | `~/.config/cmux/cmux.json` globally or `.cmux/cmux.json` in the project |
 | Dock controls (right-sidebar terminals: logs, test watchers, git TUIs, dev servers, queues, `cmux feed tui --opentui`) | `.cmux/dock.json` or `~/.config/cmux/dock.json`; `cmux docs dock` when available |
 | Terminal rendering and terminal keybindings (fonts, themes, cursor style, copy-on-select, shell integration) | Ghostty config, usually `~/.config/ghostty/config` |
+| Bring fonts, colors and terminal behavior over from iTerm2, Terminal, Alacritty, Kitty, WezTerm or a Warp theme | `cmux import <terminal> --dry-run` to preview, then `cmux import <terminal>`; writes cmux's own Ghostty config and a generated theme, never `~/.config/ghostty/config` |
 | Workspace names, descriptions, colors, read state, sidebar metadata | cmux CLI, see [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) |
 | Feed event sources | `cmux hooks setup` |
 

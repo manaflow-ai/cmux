@@ -1514,6 +1514,9 @@ final class TerminalNotificationStore: ObservableObject {
             tabId: request.tabId,
             surfaceId: request.surfaceId
         )
+        let effects = effects.keepingFocusedWorkspaceInPlace(
+            isFocusedPane: shouldSuppressExternalDelivery
+        )
         let notification = TerminalNotification(
             id: notificationID,
             tabId: request.tabId,
@@ -1662,7 +1665,13 @@ final class TerminalNotificationStore: ObservableObject {
 #endif
         if effects.desktop || effects.sound || effects.command {
             if shouldSuppressExternalDelivery {
-                suppressedNotificationFeedbackHandler(self, notification, effects)
+                suppressedNotificationFeedbackHandler(
+                    self,
+                    notification,
+                    effects.keepingFocusedPaneQuiet(
+                        soundWhenFocused: NotificationSoundSettings.soundWhenFocused()
+                    )
+                )
             } else {
                 notificationDeliveryHandler(self, notification, effects)
             }

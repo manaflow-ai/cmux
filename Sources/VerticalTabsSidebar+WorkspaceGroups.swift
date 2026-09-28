@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxCommandPalette
 import CmuxFoundation
 import CmuxNotifications
@@ -35,7 +36,10 @@ extension VerticalTabsSidebar {
             isMultiSelected: true,
             customColorHex: effectiveColor,
             colorScheme: renderContext.environment.colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            subtleSelection: settings.subtleSelection,
+            increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
+            accent: settings.accentColor
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
@@ -111,7 +115,8 @@ extension VerticalTabsSidebar {
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             colorSchemeIsDark: renderContext.environment.colorScheme == .dark,
-            notificationBadgeColorHex: settings.notificationBadgeColorHex
+            notificationBadgeColorHex: settings.notificationBadgeColorHex,
+            accentColor: settings.accentColor
         )
         let actions = makeWorkspaceGroupHeaderActions(
             groupId: group.id,
@@ -189,7 +194,10 @@ extension VerticalTabsSidebar {
             isMultiSelected: true,
             customColorHex: effectiveColor,
             colorScheme: renderContext.environment.colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            subtleSelection: settings.subtleSelection,
+            increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
+            accent: settings.accentColor
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement

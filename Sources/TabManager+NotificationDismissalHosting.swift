@@ -114,6 +114,11 @@ extension TabManager: NotificationDismissalHosting {
         AppDelegate.shared?.notificationStore?.markRead(forTabId: workspaceId, surfaceId: surfaceId)
     }
 
+    func storeMarkWorkspaceLevelNotificationsRead(workspaceId: UUID) {
+        AppDelegate.shared?.notificationStore?
+            .markWorkspaceLevelNotificationsRead(forTabId: workspaceId)
+    }
+
     @discardableResult
     func storeClearManualUnread(workspaceId: UUID) -> Bool {
         AppDelegate.shared?.notificationStore?.clearManualUnread(forTabId: workspaceId) ?? false

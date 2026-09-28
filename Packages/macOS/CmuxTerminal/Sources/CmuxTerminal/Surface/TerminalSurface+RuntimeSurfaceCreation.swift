@@ -170,6 +170,9 @@ extension TerminalSurface {
         if !spawnPolicy.codexHooksEnabled {
             setManagedEnvironmentValue("CMUX_CODEX_HOOKS_DISABLED", "1")
         }
+        if !spawnPolicy.piHooksEnabled {
+            setManagedEnvironmentValue("CMUX_PI_HOOKS_DISABLED", "1")
+        }
         if let customClaudePath = spawnPolicy.customClaudePath {
             setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
         }

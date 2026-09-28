@@ -40,6 +40,10 @@ extension ControlCommandCoordinator {
             return await context?.controlMobileTaskModelsList(
                 params: request.params
             )
+        case "mobile.chat.send":
+            return await context?.controlMobileChatSend(params: request.params)
+        case "mobile.chat.interrupt":
+            return await context?.controlMobileChatInterrupt(params: request.params)
         default:
             return nil
         }
