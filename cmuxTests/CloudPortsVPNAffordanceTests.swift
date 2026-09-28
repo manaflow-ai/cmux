@@ -14,9 +14,8 @@ import Testing
 @MainActor
 @Suite("Cloud sidebar Ports status controls", .serialized)
 struct CloudPortsVPNAffordanceTests {
-    @Test("A populated live Ports tree keeps visible VPN setup guidance",
-          arguments: [CloudPortDiscoveryState.available, .loopbackOnly])
-    func populatedPortsKeepSetupMessage(state: CloudPortDiscoveryState) throws {
+    @Test("A populated live Ports tree keeps visible VPN setup guidance")
+    func populatedPortsKeepSetupMessage() throws {
         let suite = "ports-vpn-populated-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -24,7 +23,7 @@ struct CloudPortsVPNAffordanceTests {
         let info = SurfaceMachineInfo(id: machine, name: "Test VM", status: "running", image: nil,
             hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
             cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil,
-            privateAddress: "10.16.170.174", portDiscoveryState: state)
+            privateAddress: "10.16.170.174", portDiscoveryState: .available)
         let port = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 33015,
             directURL: "http://10.16.170.174:33015")
         let tree = CloudTreeOutlineView(
@@ -97,6 +96,33 @@ struct CloudPortsVPNAffordanceTests {
             showsCloudVPNWarning: true)
         #expect(children.contains { if case .port(let value, _, _) = $0.kind { value.id == port.id } else { false } })
         #expect(!children.contains { $0.id.hasSuffix("/ports/vpn-guidance") })
+    }
+
+    /// Each status row explains the whole Ports group, so a second one contradicts it:
+    /// loopback-only services and VPN setup guidance cannot both describe the same ports.
+    @Test("Ports show at most one status row, and VPN setup guidance only beside live ports",
+          arguments: [CloudPortDiscoveryState.available, .notRequested, .loading, .loopbackOnly, .stale,
+              .unsupported, .unavailable(.transport), .empty(.otherInterfaceOnly)])
+    func portsShowOneStatusRow(state: CloudPortDiscoveryState) {
+        let machine = SurfaceMachineID.cloud("vpn-guidance-single-status")
+        let info = SurfaceMachineInfo(id: machine, name: "Test VM", status: "running", image: nil,
+            hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
+            cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil,
+            privateAddress: "10.16.170.164", portDiscoveryState: state)
+        let port = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 33015,
+            directURL: "http://10.16.170.164:33015")
+        for resources in [[port], []] {
+            let children = CloudTreeNodeBuilder.portChildren(machine: machine, info: info, resources: resources,
+                projectionIndex: CloudTreeNodeBuilder.LocalProjectionIndex(
+                    snapshot: SurfaceCatalogSnapshot(machines: [info], resources: resources, projections: [])
+                ),
+                showsCloudVPNWarning: true)
+            let statuses = children.filter { if case .placeholder = $0.kind { true } else { false } }
+            #expect(statuses.count <= 1, "\(state) with \(resources.count) ports shows \(statuses.map(\.id))")
+            let showsGuidance = statuses.contains { $0.id.hasSuffix("/ports/vpn-guidance") }
+            #expect(showsGuidance == (state == .available && !resources.isEmpty),
+                "\(state) with \(resources.count) ports shows \(statuses.map(\.id))")
+        }
     }
 
     @Test("Empty Ports rows expose contextual status and actions",
