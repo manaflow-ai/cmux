@@ -30,6 +30,47 @@ struct CloudAttachmentBehaviorTests {
         func detach() { lock.withLock { _detachCount += 1 } }
     }
 
+    /// Holds attaches open the way the real library does: a blocking dial
+    /// that task cancellation cannot interrupt. An AsyncStream gate would
+    /// release its waiter the moment the bridge cancels a superseded attach,
+    /// which is exactly the behavior the library does not have.
+    final class BlockingGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var waiters: [UnsafeContinuation<Void, Never>] = []
+        private var isFinished = false
+
+        func wait() async {
+            await withUnsafeContinuation { continuation in
+                lock.lock()
+                if isFinished {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                waiters.append(continuation)
+                lock.unlock()
+            }
+        }
+
+        /// Releases one held dial.
+        func open() {
+            lock.lock()
+            let next = waiters.isEmpty ? nil : waiters.removeFirst()
+            lock.unlock()
+            next?.resume()
+        }
+
+        /// Releases every held and future dial.
+        func finish() {
+            lock.lock()
+            isFinished = true
+            let held = waiters
+            waiters = []
+            lock.unlock()
+            for waiter in held { waiter.resume() }
+        }
+    }
+
     /// One machine's link. `attachGate` lets a test hold an attach open so the
     /// window where no attachment exists yet is observable.
     private final class FakeMachineLink: CloudMachineLinking, @unchecked Sendable {
@@ -37,7 +78,7 @@ struct CloudAttachmentBehaviorTests {
         private let lock = NSLock()
         private var _attachedTerminalIDs: [String] = []
         private var _outputSinks: [@Sendable (CloudTerminalOutputEvent) -> Void] = []
-        var attachGate: (stream: AsyncStream<Void>, continuation: AsyncStream<Void>.Continuation)?
+        var attachGate: BlockingGate?
 
         var attachedTerminalIDs: [String] { lock.withLock { _attachedTerminalIDs } }
         var attachCount: Int { attachedTerminalIDs.count }
@@ -66,8 +107,7 @@ struct CloudAttachmentBehaviorTests {
         ) async throws -> any CloudTerminalLinking {
             lock.withLock { _attachedTerminalIDs.append(terminalID) }
             if let gate = attachGate {
-                var iterator = gate.stream.makeAsyncIterator()
-                _ = await iterator.next()
+                await gate.wait()
             }
             lock.withLock { _outputSinks.append(output) }
             return terminalLink
@@ -115,7 +155,7 @@ struct CloudAttachmentBehaviorTests {
     ) async -> (CloudWorkspaceBridge, FakeLinkProvider, FakeMachineLink) {
         let link = FakeMachineLink()
         if gateAttach {
-            link.attachGate = AsyncStream<Void>.makeStream()
+            link.attachGate = BlockingGate()
         }
         let provider = FakeLinkProvider()
         provider.linksByMachineID["vm-1"] = link
@@ -137,7 +177,7 @@ struct CloudAttachmentBehaviorTests {
         #expect(link.terminalLink.sent.isEmpty, "nothing can be sent before the link exists")
 
         // Let the attach complete.
-        link.attachGate?.continuation.finish()
+        link.attachGate?.finish()
         await settle(until: { !link.terminalLink.sent.isEmpty })
 
         #expect(link.terminalLink.sentText == "echo hi\r")
@@ -153,7 +193,7 @@ struct CloudAttachmentBehaviorTests {
         await settle()
         #expect(link.terminalLink.resizes.isEmpty)
 
-        link.attachGate?.continuation.finish()
+        link.attachGate?.finish()
         await settle(until: { !link.terminalLink.resizes.isEmpty })
 
         #expect(link.terminalLink.resizes.map(\.cols) == [96])
@@ -195,6 +235,35 @@ struct CloudAttachmentBehaviorTests {
         #expect(link.terminalLink.detachCount == 1)
     }
 
+    @Test("Switching terminals mid-attach hands the slot over in order")
+    func supersededAttachHandsOverInOrder() async {
+        let (bridge, _, link) = await makeBridge(gateAttach: true)
+        let first = Self.surfaceID(terminal: "t-1")
+        let second = Self.surfaceID(terminal: "t-2")
+
+        bridge.externalHostRequestReplay(surfaceID: first)
+        await settle(until: { link.attachedTerminalIDs == ["t-1"] })
+
+        // Supersede while the first dial is still blocked in the library.
+        bridge.externalHostRequestReplay(surfaceID: second)
+        // The successor must NOT dial concurrently; it waits out the first.
+        await settle()
+        #expect(link.attachedTerminalIDs == ["t-1"])
+
+        // Releasing the first dial lets it finish as superseded: it frees the
+        // machine's slot (one detach) BEFORE the successor dials.
+        link.attachGate?.open()
+        await settle(until: { link.attachedTerminalIDs == ["t-1", "t-2"] })
+        #expect(link.terminalLink.detachCount == 1)
+
+        // Input typed while the successor is still dialing is held for it.
+        bridge.externalHostSendInput("whoami\n", surfaceID: second)
+        link.attachGate?.open()
+        await settle(until: { link.terminalLink.sentText.contains("whoami") })
+        #expect(link.terminalLink.sentText == "whoami\n")
+        #expect(link.terminalLink.detachCount == 1)
+    }
+
     @Test("Retiring a machine detaches it and drops its held input")
     func retiringDetaches() async {
         let (bridge, _, link) = await makeBridge(gateAttach: true)
@@ -204,7 +273,7 @@ struct CloudAttachmentBehaviorTests {
         await settle()
 
         bridge.setAdmittedMachines([])
-        link.attachGate?.continuation.finish()
+        link.attachGate?.finish()
         await settle()
 
         // The surface is no longer owned, so nothing more can be routed to it.

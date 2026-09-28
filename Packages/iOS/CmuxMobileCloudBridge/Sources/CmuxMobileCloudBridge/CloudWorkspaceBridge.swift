@@ -54,6 +54,10 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     private var appliedGridBySurfaceID: [String: (columns: Int, rows: Int)] = [:]
     /// One pending repaint per machine after the daemon changed the grid.
     private var resizeRepaintTasks: [String: Task<Void, Never>] = [:]
+    /// Monotonic attach ownership per machine. A machine has one attachment
+    /// slot, and an attach that is no longer the newest must not install its
+    /// result or tear down its successor's.
+    private var attachGenerationsByMachine: [String: UInt64] = [:]
     /// Each machine's last catalog read, republished with a degraded status
     /// when the link drops or a read fails. Emptying the rows instead would
     /// strand an open terminal: its view resolves its surface through them
@@ -380,7 +384,19 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         // keystrokes are queued: a keystroke sent while another terminal holds
         // the machine's single attachment would land in the wrong terminal.
         ensureAttached(surfaceID: surfaceID, machine: machine, terminalID: terminalID)
-        guard attachedSurfaceIDsByMachine[machine.id] == surfaceID else { return }
+        guard attachedSurfaceIDsByMachine[machine.id] == surfaceID else {
+            // No attachment and no link (backgrounding dropped both). The
+            // composer accepted the text, so hold a bounded buffer for the
+            // surface this machine wants and flush it when the link returns;
+            // dropping it here would eat commands typed while the tunnel
+            // comes back.
+            if wantedSurfaceIDsByMachine[machine.id] == surfaceID,
+               (pendingInputBySurfaceID[surfaceID]?.count ?? 0) + text.utf8.count <= Self.pendingInputLimitBytes {
+                pendingInputBySurfaceID[surfaceID, default: Data()].append(Data(text.utf8))
+                bridgeLog.notice("input held for link return machine=\(machine.id, privacy: .public) bytes=\(text.utf8.count, privacy: .public)")
+            }
+            return
+        }
         guard let attachment = attachments[machine.id] else {
             // The attach is still in flight. Hold the keystroke rather than
             // dropping it; `ensureAttached` flushes in order once the link is
@@ -444,7 +460,14 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
             bridgeLog.notice("attach skipped: no link machine=\(machine.id, privacy: .public)")
             return
         }
+        // Serialize on the previous attach: its blocking dial cannot be
+        // interrupted, and were the new dial to overlap it, the old attach
+        // could re-point the machine's single attachment slot after the new
+        // one installed itself.
+        let previousAttach = attachTasks[machine.id]
         teardownAttachment(machineID: machine.id)
+        let generation = (attachGenerationsByMachine[machine.id] ?? 0) &+ 1
+        attachGenerationsByMachine[machine.id] = generation
         attachedSurfaceIDsByMachine[machine.id] = surfaceID
         attachingSurfaceIDsByMachine[machine.id] = surfaceID
         bridgeLog.notice("attach start machine=\(machine.id, privacy: .public) terminal=\(terminalID, privacy: .public)")
@@ -469,11 +492,21 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
 
         attachTasks[machine.id] = Task { [weak self] in
             guard let self else { return }
+            // The predecessor may be past its cancellation check inside the
+            // blocking dial; wait it out so slot ownership transfers in order.
+            _ = await previousAttach?.value
+            guard attachGenerationsByMachine[machine.id] == generation else {
+                continuation.finish()
+                return
+            }
             do {
                 let attachment = try await connection.attach(terminalID: terminalID) { event in
                     continuation.yield(event)
                 }
-                guard !Task.isCancelled else {
+                guard attachGenerationsByMachine[machine.id] == generation, !Task.isCancelled else {
+                    // Superseded while dialing: the successor is serialized
+                    // behind this task, so the slot is still this attach's to
+                    // release, and releasing it cannot touch the successor's.
                     attachment.detach()
                     continuation.finish()
                     return
@@ -495,7 +528,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
                 }
             } catch {
                 continuation.finish()
-                guard !Task.isCancelled else { return }
+                guard attachGenerationsByMachine[machine.id] == generation, !Task.isCancelled else { return }
                 bridgeLog.error("attach failed machine=\(machine.id, privacy: .public) terminal=\(terminalID, privacy: .public) error=\(String(describing: error), privacy: .public)")
                 attachingSurfaceIDsByMachine.removeValue(forKey: machine.id)
                 pendingInputBySurfaceID.removeValue(forKey: surfaceID)
@@ -549,6 +582,11 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
             )
         }
     }
+
+    /// The most input held for one surface while its machine's link is away;
+    /// enough for typed commands, small enough that a paste flood is refused
+    /// rather than replayed as a surprise.
+    static let pendingInputLimitBytes = 8 * 1024
 
     /// The settle before a grid-change repaint, long enough to coalesce a
     /// resize drag, short enough that a corrupted screen barely shows.

@@ -394,6 +394,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// same store paths (``MobileExternalHostSource``), keyed by instance so a
     /// source can be registered and torn down without a name.
     var externalHostSources: [ObjectIdentifier: any MobileExternalHostSource] = [:]
+    /// Hosts with a workspace create in flight, so a double-tap cannot make
+    /// two workspaces (each with a billable starter terminal).
+    var externalHostWorkspaceCreatesInFlight: Set<String> = []
     /// Backing store for ``hiddenExternalHostIDs``; the computed property
     /// re-derives the workspace list when it changes.
     var hiddenExternalHostIDsStorage: Set<String> = []

@@ -262,6 +262,10 @@ extension MobileShellComposite {
         guard let source = externalHostSource(owningHost: hostID) else {
             return .failure(.notConnected(hostDisplayName: hostName))
         }
+        guard externalHostWorkspaceCreatesInFlight.insert(hostID).inserted else {
+            return .failure(.busy(hostDisplayName: hostName))
+        }
+        defer { externalHostWorkspaceCreatesInFlight.remove(hostID) }
         // The source names rows as it published them; the list scopes them.
         guard let created = await source.externalHostCreateWorkspace(onHost: hostID),
               let row = workspaces.first(where: { $0.macDeviceID == hostID && $0.rpcWorkspaceID == created }) else {

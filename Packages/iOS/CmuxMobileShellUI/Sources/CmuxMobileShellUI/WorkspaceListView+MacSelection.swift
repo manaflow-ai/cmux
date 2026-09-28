@@ -133,6 +133,17 @@ extension WorkspaceListView {
         return id
     }
 
+    /// Whether the list's plus control renders at all: it creates on the
+    /// scoped computer when that is allowed, and otherwise still opens the
+    /// menu of Cloud machines. Hiding it entirely on a phone with no Mac
+    /// connected would leave a Cloud-only account no way to create from the
+    /// list.
+    var showsNewWorkspaceControl: Bool {
+        if canCreateWorkspaceForMacSelection { return true }
+        guard createWorkspaceOnCloudMachine != nil, scopedExternalHostID == nil else { return false }
+        return store?.externalHostSummaries.contains { !$0.isHidden } == true
+    }
+
     var canCreateWorkspaceForMacSelection: Bool {
         // A Cloud machine is not the foreground Mac pairing, so the Mac rule
         // below would always deny it; its own liveness is the gate.

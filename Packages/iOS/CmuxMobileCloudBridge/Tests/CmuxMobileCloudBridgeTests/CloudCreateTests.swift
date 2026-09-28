@@ -27,6 +27,12 @@ struct CloudCreateTests {
         ]
         private var nextID = 2
         var refuses = false
+        /// When set, `createWorkspace` waits for one gate element first, so a
+        /// test can hold a create open.
+        var createGate: (stream: AsyncStream<Void>, continuation: AsyncStream<Void>.Continuation)?
+        private var _createWaiters = 0
+        var createWaiters: Int { lock.withLock { _createWaiters } }
+        var createdWorkspaceCount: Int { lock.withLock { workspaces.count - 1 } }
 
         func loadCatalog() async throws -> (
             workspaces: [CloudWorkspaceSummary],
@@ -43,7 +49,12 @@ struct CloudCreateTests {
         }
 
         func createWorkspace(name: String?) async -> String? {
-            lock.withLock {
+            if let gate = createGate {
+                lock.withLock { _createWaiters += 1 }
+                var iterator = gate.stream.makeAsyncIterator()
+                _ = await iterator.next()
+            }
+            return lock.withLock {
                 guard !refuses else { return nil }
                 let workspaceID = "ws-\(nextID)"
                 terminals.append(CloudTerminalSummary(id: "t-\(nextID)", workspaceID: workspaceID))
@@ -136,6 +147,29 @@ struct CloudCreateTests {
         #expect(surfaceID == expected)
         let owner = store.workspaces.first { $0.terminals.contains { $0.id.rawValue == expected } }
         #expect(owner?.rpcWorkspaceID == row("ws-2"))
+    }
+
+    @Test("A second New Workspace tap while one runs is refused, not doubled")
+    func doubleTapCreatesOnce() async {
+        let (_, provider, store) = await makeBridge()
+        provider.link.createGate = AsyncStream<Void>.makeStream()
+
+        async let first = store.createExternalHostWorkspace(onHost: Self.hostID)
+        // The second tap only proves anything once the first is truly inside
+        // the daemon call.
+        await settle(until: { provider.link.createWaiters == 1 })
+        let second = await store.createExternalHostWorkspace(onHost: Self.hostID)
+
+        guard case .failure(.busy) = second else {
+            Issue.record("second create was not refused: \(second)")
+            return
+        }
+        provider.link.createGate?.continuation.finish()
+        guard case .success = await first else {
+            Issue.record("first create failed")
+            return
+        }
+        #expect(provider.link.createdWorkspaceCount == 1)
     }
 
     @Test("A refused create reports nothing made")

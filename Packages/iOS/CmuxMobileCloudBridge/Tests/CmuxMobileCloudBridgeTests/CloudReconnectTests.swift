@@ -13,7 +13,12 @@ struct CloudReconnectTests {
     private struct Unreachable: Error {}
 
     private final class TerminalLink: CloudTerminalLinking, @unchecked Sendable {
-        func send(_ bytes: Data) {}
+        private let lock = NSLock()
+        private var _sent: [Data] = []
+        var sentText: String {
+            lock.withLock { _sent }.map { String(decoding: $0, as: UTF8.self) }.joined()
+        }
+        func send(_ bytes: Data) { lock.withLock { _sent.append(bytes) } }
         func resize(cols: Int, rows: Int) {}
         func detach() {}
     }
@@ -42,13 +47,15 @@ struct CloudReconnectTests {
             )
         }
 
+        let terminalLink = TerminalLink()
+
         func attach(
             terminalID: String,
             output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void
         ) async throws -> any CloudTerminalLinking {
             lock.withLock { _attaches.append(terminalID) }
             output(.snapshot(replay: Data("$ ".utf8), cols: 80, rows: 24))
-            return TerminalLink()
+            return terminalLink
         }
     }
 
@@ -124,6 +131,24 @@ struct CloudReconnectTests {
         // live screen back.
         await settle(until: { provider.link.attaches.count == 2 })
         #expect(provider.link.attaches == ["t-1", "t-1"])
+    }
+
+    @Test("A command typed while the link is away is delivered when it returns")
+    func inputTypedWhileLinkAwayIsDelivered() async {
+        let (bridge, provider, store) = await makeBridge()
+        bridge.externalHostRequestReplay(surfaceID: Self.surfaceID)
+        await settle(until: { provider.link.attaches.count == 1 })
+
+        provider.isReady = false
+        bridge.linksDidBecomeUnavailable()
+        // The user keeps typing while the tunnel comes back; the composer has
+        // already accepted this text, so it must not vanish.
+        store.sendTerminalRawInput(Data("make test\n".utf8), surfaceID: Self.surfaceID)
+
+        provider.isReady = true
+        bridge.refreshCatalog(for: Self.machine)
+        await settle(until: { provider.link.terminalLink.sentText.contains("make test") })
+        #expect(provider.link.terminalLink.sentText == "make test\n")
     }
 
     @Test("A repaint asked for while the link is down happens once it returns")

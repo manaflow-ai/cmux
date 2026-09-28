@@ -139,6 +139,10 @@ public final class CloudMachineConnection {
         output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void
     ) async throws -> CloudTerminalAttachment {
         let session = try await connectedSession()
+        // A superseded caller cancels this attach while the dial above runs;
+        // attaching anyway would re-point the machine's single attachment
+        // slot at the OLD terminal and replace the new one's output handler.
+        try Task.checkCancellation()
         try await session.attach(terminalID: terminalID, output: output)
         lastError = nil
         return CloudTerminalAttachment(session: session, terminalID: terminalID)
