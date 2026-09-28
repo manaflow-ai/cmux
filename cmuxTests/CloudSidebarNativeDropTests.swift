@@ -163,7 +163,7 @@ struct CloudSidebarNativeDropTests {
         // drop or Escape, independently of the data source's endedAt forwarding.
         // Exercise cmux's destination-completion owner without asking AppKit
         // to end an OS drag session that this synthetic fixture never started.
-        outline.reorderPresentation.ended(info)
+        outline.endDragDestination(info)
         #expect(!coordinator.isDragging)
         #expect(outline.activeNativeDragSession == nil)
         #expect(outline.activeNativeDragCoordinator == nil)
@@ -192,11 +192,11 @@ struct CloudSidebarNativeDropTests {
         #expect(coordinator.outlineView(outline, validateDrop: old, proposedItem: parent, proposedChildIndex: 0) == .move)
         #expect(coordinator.outlineView(outline, validateDrop: current, proposedItem: parent, proposedChildIndex: 0) == .move)
         outline.draggingExited(old)
-        #expect(!outline.reorderPresentation.isCurrent(old))
+        #expect(!outline.isCurrentDragDestination(old))
         outline.draggingEnded(old)
-        #expect(!outline.reorderPresentation.isCurrent(old))
+        #expect(!outline.isCurrentDragDestination(old))
         fixture.window.contentView = nil
-        #expect(outline.reorderPresentation.isCurrent(old))
+        #expect(outline.isCurrentDragDestination(old))
         expectNoSidebarHints(outline)
     }
 
@@ -215,11 +215,11 @@ struct CloudSidebarNativeDropTests {
         let current = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero, sequenceNumber: 2)
         #expect(coordinator.outlineView(outline, validateDrop: old, proposedItem: parent, proposedChildIndex: 0) == .move)
         #expect(coordinator.outlineView(outline, validateDrop: current, proposedItem: parent, proposedChildIndex: 0) == .move)
-        #expect(!outline.reorderPresentation.isCurrent(old))
+        #expect(!outline.isCurrentDragDestination(old))
         #expect(coordinator.outlineView(outline, validateDrop: old, proposedItem: nil, proposedChildIndex: 0).isEmpty)
-        #expect(!outline.reorderPresentation.isCurrent(old))
+        #expect(!outline.isCurrentDragDestination(old))
         #expect(coordinator.outlineView(outline, validateDrop: current, proposedItem: nil, proposedChildIndex: 0).isEmpty)
-        #expect(outline.reorderPresentation.isCurrent(old))
+        #expect(outline.isCurrentDragDestination(old))
         expectNoSidebarHints(outline)
         let host = try #require(fixture.window.contentView?.superview)
         #expect(host.subviews.compactMap { $0 as? FileDropHintBadgeView }.isEmpty)
@@ -239,13 +239,13 @@ struct CloudSidebarNativeDropTests {
         let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero)
         #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
         let next = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero, sequenceNumber: 2)
-        #expect(!outline.reorderPresentation.isCurrent(next))
+        #expect(!outline.isCurrentDragDestination(next))
         let organization = fixture.catalog.sidebarOrganization.state
         // The final gate must reject an invalidated pane capability before any
         // sidebar mutation, even if a prior hover admitted the row's reorder.
         board.setString("invalidated", forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
         #expect(!coordinator.outlineView(outline, acceptDrop: info, item: parent, childIndex: 0))
-        #expect(outline.reorderPresentation.isCurrent(next))
+        #expect(outline.isCurrentDragDestination(next))
         expectNoSidebarHints(outline)
         #expect(fixture.catalog.sidebarOrganization.state == organization)
         #expect(fixture.provider.moved.isEmpty && fixture.provider.projected.isEmpty)
