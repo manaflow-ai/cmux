@@ -38,9 +38,10 @@ struct CloudTeamPickerMenuAnchor: NSViewRepresentable {
 }
 
 /// Owns the menu's tracking session. `popUp` runs a modal event loop, so it is
-/// never entered from a SwiftUI update pass: programmatic requests hop to the
-/// next main-queue turn and wait until the trigger has a window and a size.
-/// A request made while the trigger is disabled is dropped, as a click would be.
+/// never entered from a SwiftUI update pass or a main-queue block: programmatic
+/// requests run from the next default-mode run-loop turn and wait until the
+/// trigger has a window and a size. A request made while the trigger is
+/// disabled is dropped, as a click would be.
 final class CloudTeamPickerMenuAnchorView: NSView {
     var makeMenu: (@MainActor () -> NSMenu)?
     var onWillPresent: (@MainActor () -> Void)?
@@ -106,17 +107,24 @@ final class CloudTeamPickerMenuAnchorView: NSView {
     private func presentIfRequested() {
         guard isPresentationRequested, trackingMenu == nil, !isPresentationScheduled else { return }
         isPresentationScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.isPresentationScheduled = false
-            guard self.isPresentationRequested else { return }
-            guard self.isEnabled else {
-                self.isPresentationRequested = false
-                self.onDismiss?()
-                return
+        // A run-loop block, not DispatchQueue.main.async: the menu's nested
+        // tracking loop cannot drain the main queue from inside a main-queue
+        // callout, so every main-queue and main-actor job would wait for the
+        // menu to close (the same starvation as #10788). `.default` also keeps
+        // the open out of another menu's event-tracking loop.
+        RunLoop.main.perform(inModes: [.default]) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.isPresentationScheduled = false
+                guard self.isPresentationRequested else { return }
+                guard self.isEnabled else {
+                    self.isPresentationRequested = false
+                    self.onDismiss?()
+                    return
+                }
+                guard self.window != nil, !self.bounds.isEmpty else { return }
+                self.present()
             }
-            guard self.window != nil, !self.bounds.isEmpty else { return }
-            self.present()
         }
     }
 

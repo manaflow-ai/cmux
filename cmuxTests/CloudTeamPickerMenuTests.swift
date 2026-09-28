@@ -106,10 +106,10 @@ struct CloudTeamPickerMenuTests {
         anchor.isEnabled = false
 
         anchor.syncPresentation(true)
-        await nextMainQueueTurn()
+        await nextRunLoopTurn()
         anchor.isEnabled = true
         anchor.setFrameSize(NSSize(width: 140, height: 22))
-        await nextMainQueueTurn()
+        await nextRunLoopTurn()
 
         #expect(dismissCount == 1)
         #expect(menuCount == 0)
@@ -142,9 +142,11 @@ struct CloudTeamPickerMenuTests {
         #expect(probe.drainedWhileTracking == true, "The menu tracked inside a main-queue callout.")
     }
 
-    private func nextMainQueueTurn() async {
+    /// Run-loop blocks run in FIFO order, so a scheduled open has run by the
+    /// time this later block does.
+    private func nextRunLoopTurn() async {
         await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
+            RunLoop.main.perform(inModes: [.default]) { continuation.resume() }
         }
     }
 }
