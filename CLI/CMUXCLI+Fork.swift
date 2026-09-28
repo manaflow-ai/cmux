@@ -266,8 +266,11 @@ extension CMUXCLI {
                 sessionDidEnd: true
             )
             guard clearOutcome == .cleared else {
+                let errorKind: ForkErrorKind = clearOutcome == .checkpointDidNotOwnBinding
+                    ? .checkpointMismatch
+                    : .codexCheckpointUnavailable
                 throw loggedForkError(
-                    .checkpointMismatch,
+                    errorKind,
                     stage: "binding.clear",
                     detail: String(describing: clearOutcome)
                 )
