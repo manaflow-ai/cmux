@@ -321,6 +321,21 @@ struct PhysicalKeyRemapTests {
         #expect(empty.remap(for: builtIn).resolve(agentKey: "ctrl+o") == .asPrinted)
     }
 
+    @Test func unreadableHidutilMappingIsUnknownNotUnmapped() {
+        let swap = SystemModifierKeyMappings(mappings: [
+            .init(vendorID: 0, productID: 0): HIDKeyMapping(destinations: [.capsLock: .leftControl, .leftControl: .capsLock]),
+        ])
+        let setup = PhysicalKeyboardSetup(
+            connectedKeyboards: [builtIn],
+            karabiner: nil,
+            userKeyMapping: nil,
+            modifierKeys: swap,
+            application: cmux
+        )
+        #expect(setup.remap(for: builtIn).resolve(agentKey: "ctrl+o") == .asPrinted)
+        #expect(setup.advice(forAgentKeys: ["ctrl+o"]).isEmpty)
+    }
+
     @Test func karabinerKeyNameAliasesAreRead() throws {
         let json = profile(simple: """
         [{"from": {"key_code": "left_gui"}, "to": [{"key_code": "left_control"}]},

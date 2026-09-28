@@ -12,27 +12,28 @@ import Foundation
 /// click sends is unaffected.
 @MainActor
 final class AgentKeyHintPhysicalKeyboardStore {
-    static let shared = AgentKeyHintPhysicalKeyboardStore(reader: .live)
+    static let shared = AgentKeyHintPhysicalKeyboardStore(reader: AgentKeyHintPhysicalKeyboardReader.live)
 
     /// How long hover trusts an earlier check of `karabiner.json`.
     static let karabinerCheckInterval: TimeInterval = 5
     /// How long a read of the other sources stays good.
     static let rereadInterval: TimeInterval = 60
 
-    private let reader: AgentKeyHintPhysicalKeyboardReader
+    private let reader: any AgentKeyHintPhysicalKeyboardReading
     private let now: () -> TimeInterval
     private var setup: PhysicalKeyboardSetup?
     private var adviceByKeys: [[String]: [PhysicalKeyAdvice]] = [:]
     private var readAt: TimeInterval?
     private var karabinerCheckedAt: TimeInterval?
-    private var karabinerStamp: AgentKeyHintPhysicalKeyboardReader.FileStamp?
-    private var isReading = false
+    private var karabinerStamp: AgentKeyHintFileStamp?
+    /// The read in flight, if any; tests await it.
+    private(set) var readTask: Task<Void, Never>?
 
     /// - Parameters:
     ///   - reader: Where the sources are read from.
     ///   - now: A monotonic clock in seconds.
     init(
-        reader: AgentKeyHintPhysicalKeyboardReader,
+        reader: any AgentKeyHintPhysicalKeyboardReading,
         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
         self.reader = reader
@@ -51,7 +52,7 @@ final class AgentKeyHintPhysicalKeyboardStore {
     }
 
     private func refreshIfNeeded() {
-        guard !isReading else { return }
+        guard readTask == nil else { return }
         let time = now()
         var due = readAt.map { time - $0 >= Self.rereadInterval } ?? true
         if !due, karabinerCheckedAt.map({ time - $0 >= Self.karabinerCheckInterval }) ?? true {
@@ -59,21 +60,20 @@ final class AgentKeyHintPhysicalKeyboardStore {
             due = reader.karabinerStamp() != karabinerStamp
         }
         guard due else { return }
-        isReading = true
         let reader = reader
-        Task.detached(priority: .utility) { [weak self] in
+        readTask = Task.detached(priority: .utility) { [weak self] in
             let result = reader.read()
             await self?.finishRead(setup: result.setup, karabinerStamp: result.karabinerStamp)
         }
     }
 
-    private func finishRead(setup: PhysicalKeyboardSetup, karabinerStamp: AgentKeyHintPhysicalKeyboardReader.FileStamp) {
+    private func finishRead(setup: PhysicalKeyboardSetup, karabinerStamp: AgentKeyHintFileStamp) {
         self.setup = setup
         self.karabinerStamp = karabinerStamp
         adviceByKeys = [:]
         let time = now()
         readAt = time
         karabinerCheckedAt = time
-        isReading = false
+        readTask = nil
     }
 }

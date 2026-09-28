@@ -21,7 +21,8 @@ public struct PhysicalKeyboardSetup: Sendable {
     var karabiner: KarabinerProfile?
     /// Karabiner's virtual keyboard, present while Karabiner runs.
     var karabinerVirtualKeyboard: KeyboardDevice?
-    var userKeyMapping: HIDKeyMapping
+    /// `hidutil`'s `UserKeyMapping`; `nil` when it couldn't be read.
+    var userKeyMapping: HIDKeyMapping?
     var modifierKeys: SystemModifierKeyMappings
     var application: KarabinerFrontmostApplication
 
@@ -33,13 +34,15 @@ public struct PhysicalKeyboardSetup: Sendable {
     ///     ``KarabinerProfile/empty`` when there is no `karabiner.json`, and
     ///     `nil` when it exists but can't be read, which makes every keyboard
     ///     Karabiner manages unknown.
-    ///   - userKeyMapping: `hidutil`'s `UserKeyMapping`.
+    ///   - userKeyMapping: `hidutil`'s `UserKeyMapping`, or `nil` when it
+    ///     couldn't be read (`hidutil` failed or timed out), which makes every
+    ///     keyboard unknown rather than unmapped.
     ///   - modifierKeys: System Settings' modifier keys per keyboard.
     ///   - application: cmux, for Karabiner's frontmost-application conditions.
     public init(
         connectedKeyboards: [KeyboardDevice],
         karabiner: KarabinerProfile?,
-        userKeyMapping: HIDKeyMapping,
+        userKeyMapping: HIDKeyMapping?,
         modifierKeys: SystemModifierKeyMappings,
         application: KarabinerFrontmostApplication
     ) {
@@ -61,6 +64,7 @@ public struct PhysicalKeyboardSetup: Sendable {
     ///   keyboards are unknown; then per-keyboard settings don't apply and
     ///   Karabiner rules that check the keyboard count as unreadable.
     public func remap(for keyboard: KeyboardDevice?) -> PhysicalKeyRemap {
+        guard let userKeyMapping else { return .unknown }
         var stage: PhysicalKeyRemap.KarabinerStage?
         var reachesMacOSAs = keyboard
         if let virtual = karabinerVirtualKeyboard {

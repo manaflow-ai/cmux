@@ -140,8 +140,11 @@
 		A77A000EA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A000DA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift */; };
 		A77A000CA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A000BA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift */; };
 		C11757000000000000000041 /* AgentJournalTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A000BA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift */; };
+		0DE6D91EE3C4326FCE74B8A9 /* AgentKeyHintFileStamp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 165380B7193A0C8B9028A86A /* AgentKeyHintFileStamp.swift */; };
 		FCA2E7019ACB85B94989255F /* AgentKeyHintPhysicalKeyboardReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29E0D5BFDDE7870681397E63 /* AgentKeyHintPhysicalKeyboardReader.swift */; };
+		27E064772E216E900DCF1B40 /* AgentKeyHintPhysicalKeyboardReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6783F068F010CF293BAD993 /* AgentKeyHintPhysicalKeyboardReading.swift */; };
 		E28FF0D5FB44BB76C28FFFD2 /* AgentKeyHintPhysicalKeyboardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB69B35E77E63BC3E290724 /* AgentKeyHintPhysicalKeyboardStore.swift */; };
+		48392D1EE00CC94EF5B5EDFB /* AgentKeyHintPhysicalKeyboardStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A42DA2B42BEF3EF074662FC /* AgentKeyHintPhysicalKeyboardStoreTests.swift */; };
 		E506942F7E8A3C80F94EA4EB /* AgentNotificationAdmissionWaiters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0F23A5D074809C236E5C607 /* AgentNotificationAdmissionWaiters.swift */; };
 		0A1107110000000000000010 /* AgentNotificationDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000011 /* AgentNotificationDelivery.swift */; };
 		A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */; };
@@ -4346,8 +4349,11 @@
 		A77A0006A1B2C3D4E5F60001 /* AgentJournalLifecycleCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentJournalLifecycleCenter.swift; sourceTree = "<group>"; };
 		A77A000DA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentJournalLifecycleCenterTests.swift; sourceTree = "<group>"; };
 		A77A000BA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentJournalTestSupport.swift; sourceTree = "<group>"; };
+		165380B7193A0C8B9028A86A /* AgentKeyHintFileStamp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentKeyHintFileStamp.swift; sourceTree = "<group>"; };
 		29E0D5BFDDE7870681397E63 /* AgentKeyHintPhysicalKeyboardReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentKeyHintPhysicalKeyboardReader.swift; sourceTree = "<group>"; };
+		F6783F068F010CF293BAD993 /* AgentKeyHintPhysicalKeyboardReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentKeyHintPhysicalKeyboardReading.swift; sourceTree = "<group>"; };
 		5DB69B35E77E63BC3E290724 /* AgentKeyHintPhysicalKeyboardStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentKeyHintPhysicalKeyboardStore.swift; sourceTree = "<group>"; };
+		5A42DA2B42BEF3EF074662FC /* AgentKeyHintPhysicalKeyboardStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentKeyHintPhysicalKeyboardStoreTests.swift"; sourceTree = "<group>"; };
 		A0F23A5D074809C236E5C607 /* AgentNotificationAdmissionWaiters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationAdmissionWaiters.swift; sourceTree = "<group>"; };
 		0A1107110000000000000011 /* AgentNotificationDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationDelivery.swift; sourceTree = "<group>"; };
 		A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGate.swift; sourceTree = "<group>"; };
@@ -10962,6 +10968,8 @@
 				C29C74CD93ABC0AD224843AA /* TerminalPanel+AgentKeyHints.swift */,
 				29E0D5BFDDE7870681397E63 /* AgentKeyHintPhysicalKeyboardReader.swift */,
 				5DB69B35E77E63BC3E290724 /* AgentKeyHintPhysicalKeyboardStore.swift */,
+				F6783F068F010CF293BAD993 /* AgentKeyHintPhysicalKeyboardReading.swift */,
+				165380B7193A0C8B9028A86A /* AgentKeyHintFileStamp.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -12359,6 +12367,7 @@
 				6F27EA9972F21B98FB4A7312 /* SurfaceCatalogObservationTests.swift */,
 				29C4A4BD09A65729D5CABC98 /* TerminalAgentTurnControlTests.swift */,
 				63FC8361FA46F1BDB73BB497 /* TerminalAgentKeyHintTests.swift */,
+				5A42DA2B42BEF3EF074662FC /* AgentKeyHintPhysicalKeyboardStoreTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -13227,7 +13236,9 @@
 				C3C8079F2C1B6648739BA1A6 /* AgentJournalLifecycleCenter+Notifications.swift in Sources */,
 				009E54A15EB3D846E02D2650 /* AgentJournalLifecycleCenter+Projection.swift in Sources */,
 				A77A0005A1B2C3D4E5F60001 /* AgentJournalLifecycleCenter.swift in Sources */,
+				0DE6D91EE3C4326FCE74B8A9 /* AgentKeyHintFileStamp.swift in Sources */,
 				FCA2E7019ACB85B94989255F /* AgentKeyHintPhysicalKeyboardReader.swift in Sources */,
+				27E064772E216E900DCF1B40 /* AgentKeyHintPhysicalKeyboardReading.swift in Sources */,
 				E28FF0D5FB44BB76C28FFFD2 /* AgentKeyHintPhysicalKeyboardStore.swift in Sources */,
 				E506942F7E8A3C80F94EA4EB /* AgentNotificationAdmissionWaiters.swift in Sources */,
 				0A1107110000000000000010 /* AgentNotificationDelivery.swift in Sources */,
@@ -15922,6 +15933,7 @@
 				751AA9D65BBB1979C7957BAE /* AgentHookTestNotificationPipeline.swift in Sources */,
 				A77A000EA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift in Sources */,
 				A77A000CA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift in Sources */,
+				48392D1EE00CC94EF5B5EDFB /* AgentKeyHintPhysicalKeyboardStoreTests.swift in Sources */,
 				A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */,
 				79390003AA11BB22CC33DD03 /* AgentNotificationLiveRetargetTests.swift in Sources */,
 				7939000FAA11BB22CC33DD0F /* AgentNotificationMoveRaceTests.swift in Sources */,
