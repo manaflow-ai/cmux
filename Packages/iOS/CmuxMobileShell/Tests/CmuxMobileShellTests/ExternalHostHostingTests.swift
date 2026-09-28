@@ -83,6 +83,23 @@ struct ExternalHostHostingTests {
         )
     }
 
+    @Test("Mounting an external host's terminal asks the host for its screen, with no Mac connected")
+    func mountRequestsTheScreenFromTheHost() {
+        let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)
+        let composite = Self.composite(with: host)
+
+        // Registering the mounted view's output is its cold attach. Without a
+        // Mac client the Mac path parks the request until a Mac connects,
+        // which for a Cloud terminal is never, so the view stays blank.
+        let stream = composite.terminalOutputStream(
+            surfaceID: Self.surfaceID,
+            ownerID: UUID(),
+            releaseViewportOnTermination: false
+        )
+        #expect(host.replayRequests == [Self.surfaceID])
+        _ = stream
+    }
+
     @Test("An external host's workspaces join the ordinary aggregated list")
     func rowsAppear() {
         let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)
