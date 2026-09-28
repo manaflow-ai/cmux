@@ -148,4 +148,45 @@ struct SidebarMarkdownRendererTests {
         #expect(linkRuns.allSatisfy { $0.foregroundColor == .white })
         #expect(String(styled.characters) == "safe local")
     }
+
+    @Test
+    func metadataBlockLinksASelfNamingGitHubReference() throws {
+        let rendered = try #require(
+            SidebarMetadataMarkdownRenderer.rendered("pushed to manaflow-ai/cmux#847")
+        )
+        let linkRuns = rendered.runs.filter { $0.link != nil }
+
+        #expect(
+            linkRuns.compactMap { $0.link?.absoluteString }
+                == ["https://github.com/manaflow-ai/cmux/issues/847"]
+        )
+        #expect(String(rendered.characters) == "pushed to manaflow-ai/cmux#847")
+    }
+
+    @Test
+    func aLinkedReferenceSurvivesTheSelectedRowLinkPolicy() throws {
+        // The policy strips link activation from anything that is not a web
+        // URL. A GitHub reference resolves to https, so it has to come through
+        // clickable and take the selected-row color like an authored link.
+        let rendered = try #require(
+            SidebarMetadataMarkdownRenderer.rendered("see manaflow-ai/cmux#847")
+        )
+        let styled = rendered.applyingSidebarRowLinkPolicy(activeForegroundColor: .white)
+        let linkRuns = styled.runs.filter { $0.link != nil }
+
+        #expect(
+            linkRuns.compactMap { $0.link?.absoluteString }
+                == ["https://github.com/manaflow-ai/cmux/issues/847"]
+        )
+        #expect(linkRuns.allSatisfy { $0.foregroundColor == .white })
+    }
+
+    @Test
+    func metadataBlockLeavesABareReferenceAlone() throws {
+        // The sidebar snapshot carries no repository slug, so `#847` cannot be
+        // resolved to a repository and must stay plain text rather than guess.
+        let rendered = try #require(SidebarMetadataMarkdownRenderer.rendered("pushed to #847"))
+
+        #expect(!rendered.runs.contains { $0.link != nil })
+    }
 }
