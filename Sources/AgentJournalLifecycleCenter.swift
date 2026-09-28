@@ -142,13 +142,10 @@ final class AgentJournalLifecycleCenter: Sendable {
             func publishInterruptBoundary(
                 surfaceId: String,
                 agentKey: String,
+                sessionSequences: [String: Int64],
                 observedHeadSequence: Int64
             ) {
                 let scope = InterruptScope(surfaceId: surfaceId, agentKey: agentKey)
-                let sessionSequences = state.userInterruptSessionBoundary(
-                    surfaceId: surfaceId,
-                    agentKey: agentKey
-                )
                 interruptSnapshots.withLock { snapshot in
                     if sessionSequences.isEmpty {
                         snapshot.boundaries.removeValue(forKey: scope)
@@ -163,7 +160,9 @@ final class AgentJournalLifecycleCenter: Sendable {
                     }
                 }
             }
-            func publishAllInterruptBoundaries(observedHeadSequence: Int64) {
+            func allInterruptBoundaries(
+                observedHeadSequence: Int64
+            ) -> [InterruptScope: UserInterruptBoundary] {
                 var boundaries: [InterruptScope: UserInterruptBoundary] = [:]
                 for (surfaceId, byAgent) in state.sessions {
                     for agentKey in byAgent.keys {
@@ -180,7 +179,7 @@ final class AgentJournalLifecycleCenter: Sendable {
                         }
                     }
                 }
-                interruptSnapshots.withLock { $0.boundaries = boundaries }
+                return boundaries
             }
             // Loaded once from the store, then maintained in memory as
             // restore records new aliases: canonicalizing a replay fold via
@@ -233,10 +232,14 @@ final class AgentJournalLifecycleCenter: Sendable {
                         state: &state
                     )
                 }
-                if let surfaceId = snapshotEvent.draft.surfaceId {
-                    publishInterruptBoundary(
+                let interruptBoundary = snapshotEvent.draft.surfaceId.map { surfaceId in
+                    (
                         surfaceId: surfaceId,
                         agentKey: snapshotEvent.agentKey,
+                        sessionSequences: state.userInterruptSessionBoundary(
+                            surfaceId: surfaceId,
+                            agentKey: snapshotEvent.agentKey
+                        ),
                         observedHeadSequence: event.sequence
                     )
                 }
@@ -247,7 +250,22 @@ final class AgentJournalLifecycleCenter: Sendable {
                             workspaceHint: application.workspaceHint,
                             activity: application.activity
                         )
+                        if let interruptBoundary {
+                            publishInterruptBoundary(
+                                surfaceId: interruptBoundary.surfaceId,
+                                agentKey: interruptBoundary.agentKey,
+                                sessionSequences: interruptBoundary.sessionSequences,
+                                observedHeadSequence: interruptBoundary.observedHeadSequence
+                            )
+                        }
                     }
+                } else if let interruptBoundary {
+                    publishInterruptBoundary(
+                        surfaceId: interruptBoundary.surfaceId,
+                        agentKey: interruptBoundary.agentKey,
+                        sessionSequences: interruptBoundary.sessionSequences,
+                        observedHeadSequence: interruptBoundary.observedHeadSequence
+                    )
                 }
                 Self.clearInvalidatedNotifications(canonical, decision: decision)
                 let notificationEvent = Self.canonicalized(decision.notificationEvent ?? canonical, aliases: eventAliases)
@@ -472,15 +490,14 @@ final class AgentJournalLifecycleCenter: Sendable {
                         notifications: &notifications
                     ) else { continue }
                     noteReconciledScan(through: replay.scannedThroughSequence)
-                    publishAllInterruptBoundaries(
+                    let replayBoundaries = allInterruptBoundaries(
                         observedHeadSequence: replay.scannedThroughSequence
                     )
-                    if !replay.assignments.isEmpty {
-                        await MainActor.run {
-                            for assignment in replay.assignments {
-                                Self.apply(assignment, workspaceHint: nil)
-                            }
+                    await MainActor.run {
+                        for assignment in replay.assignments {
+                            Self.apply(assignment, workspaceHint: nil)
                         }
+                        interruptSnapshots.withLock { $0.boundaries = replayBoundaries }
                     }
                 }
             }
