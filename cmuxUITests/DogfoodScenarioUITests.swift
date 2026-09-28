@@ -230,11 +230,8 @@ final class DogfoodScenarioUITests: XCTestCase {
         owner.menus.firstMatch.children(matching: .menuItem)[title]
     }
 
-    /// Each item is looked up among the direct children of the menu the step
-    /// before it opened. Two top-level menus can carry the same title, and a
-    /// menu can carry the same title twice at different depths; an app-wide
-    /// `menuItems[title]` raises "Multiple matching elements" for both instead
-    /// of clicking the one the path asked for.
+    /// Every element after the first names a direct child of the menu the one
+    /// before it opened, so a submenu item needs its submenu in the path.
     private func clickMenu(_ path: [String], in app: XCUIApplication) throws {
         guard let top = path.first else { throw DogfoodError("empty menu path") }
         let bar = app.menuBars.menuBarItems[top]
@@ -251,7 +248,14 @@ final class DogfoodScenarioUITests: XCTestCase {
                 // carries on, so every later click landed on the menu overlay
                 // and every later shot, `99-final` included, was taken through
                 // it. One bad title cost the rest of the tour.
-                for _ in reached { app.typeKey(.escape, modifierFlags: []) }
+                //
+                // `reached` bounds the loop but does not set it: a middle
+                // element that named a plain command ran it and closed the
+                // menus already, and an extra Escape would go to the app, where
+                // it is a keystroke to whatever the focused terminal is running.
+                for _ in reached where app.menus.count > 0 {
+                    app.typeKey(.escape, modifierFlags: [])
+                }
                 // Name the prefix that resolved, not the whole path: a middle
                 // element with no submenu fails here, and blaming the last
                 // element for that points at the wrong step.
@@ -347,7 +351,10 @@ final class DogfoodScenarioUITests: XCTestCase {
     /// tours read better filling the display. Not every locale says "Zoom".
     private func zoomFrontWindow(in app: XCUIApplication) {
         let windowMenu = app.menuBars.menuBarItems["Window"]
-        guard windowMenu.waitForExistence(timeout: 3) else { return }
+        guard windowMenu.waitForExistence(timeout: 3) else {
+            log.append("launch: no Window menu, so the window was left at its default size")
+            return
+        }
         windowMenu.click()
         // Scoped like `clickMenu`: `Zoom` is unique app-wide today, but this
         // runs before every tour, so one new duplicate title would break all
@@ -357,6 +364,9 @@ final class DogfoodScenarioUITests: XCTestCase {
             zoom.click()
             RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         } else {
+            // Say so. Every shot in the tour is then a default-size window, and
+            // a silent miss here reads as the app having changed, not the menu.
+            log.append("launch: no Zoom item, so the window was left at its default size")
             app.typeKey(.escape, modifierFlags: [])
         }
     }

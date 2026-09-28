@@ -1,5 +1,11 @@
 {
   "launch": {"args": ["-fileExplorer.isVisible", "YES"]},
+  "paths": [
+    "Sources/Cloud/*",
+    "Packages/macOS/CmuxCloud/*",
+    "Sources/RightSidebar*",
+    "Sources/Surfaces/CloudWorkspace*"
+  ],
   "steps": [
     {"wait": 1.5},
     {"click": "RightSidebarModeButton.files"},
