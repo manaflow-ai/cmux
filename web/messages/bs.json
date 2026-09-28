@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
           "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
+          "tabBarVisibility": "Određuje kada okno iscrtava svoju traku tabova. \"always\" je iscrtava i kada okno ima samo jedan tab; \"multiple-tabs\" je skriva dok okno ima jedan tab i iscrtava je čim se otvori drugi. Minimalni način rada (app.minimalMode) je iscrtava uvijek, jer traka tabova gornjeg okna tu ujedno služi kao naslovna traka prozora.",
           "forkConversationDefaultDestination": "Zadano odredište za primarnu radnju Fork Conversation u kontekstnom meniju kartice. Podmeni i dalje prikazuje sva odredišta.",
           "globalFontMagnification": "Procentualno uvećanje za sve što cmux sam iscrtava: tekst terminala, naslove kartica, bočne trake, Settings, preklopne elemente i okvir prozora. Web stranice unutar površina preglednika zadržavaju vlastitu veličinu."
         },
@@ -1370,7 +1371,9 @@
           "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
         },
         "notifications": {
+          "soundWhenFocused": "Reprodukuj zvuk obavještenja čak i kada je panel koji je poslao obavještenje već u fokusu. Isključeno po zadanom, pa fokusirani panel prikazuje samo prsten i bljesak.",
           "suppressOnlyFocusedSurface": "Kada je uključeno, baner notifikacije se automatski povlači samo kada je njegova površina tačno fokusirana površina. Baner isporučen za nefokusiranu površinu u trenutno vidljivom workspaceu ostaje prikazan dok ne fokusirate tu površinu (ili je kliknete/odbacite), umjesto da bude povučen kada workspace postane vidljiv. Isključeno zadržava staro ponašanje povlačenja na osnovu vidljivosti workspacea.",
+          "suppressWhenAppFocused": "Kada je uključeno, cmux preskače baner na radnoj površini za svaku notifikaciju dok je cmux aktivna aplikacija, a ne samo za fokusirani panel. Notifikacije se i dalje prikazuju u bočnoj traci, zvuk i prilagođena komanda se i dalje pokreću, a prosljeđivanje na telefon ostaje isto. Isključeno i dalje prikazuje banere za druge workspaceove i panele dok je cmux u fokusu.",
           "agentIdleReminder": "Pošalji obavijest kada agent miruje i čeka vaš unos (oko 60 sekundi nakon završetka turna). Utišano je dok je pozadinski rad prethodnog turna još na čekanju, pa pokrenuta izgradnja ili nadzor ne izazivaju pogrešnu obavijest o čekanju.",
           "soundOverrides": "Rijetka nadjačavanja zvuka obavijesti po agentu i vrsti upozorenja. Ćelije koje nedostaju koriste notifications.sound.",
           "soundOverride": "Nadjačavanje zvuka obavijesti. default koristi notifications.sound, none onemogućava reprodukciju, a ostale vrijednosti biraju ugrađeni ili prilagođeni zvuk."
@@ -1393,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Prikaži svaki radni prostor u jednom redu: jedna obojena ikona ispred naslova prikazuje stanje agenta, nepročitanog i pull requesta te zamjenjuje redove statusa agenata (na primjer Radi ili Potreban unos), red grane i direktorija i redove pull requestova, čiji detalji prelaze u opis ikone. Ostali unosi statusa zadržavaju svoje redove.",
+          "compactStatusIcons": "Nazivi SF Symbols koji zamjenjuju compactAgentStatus glif za svako stanje, na primjer {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Stanja bez vrijednosti zadržavaju ugrađeni simbol, a naziv koji se ne može prikazati vraća se na njega.",
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
         },
