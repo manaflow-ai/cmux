@@ -112,6 +112,7 @@ struct PredictionBreakShellTests {
             }
             s.frame(at: t + 8)
         }
-        #expect(drawnKeys > 40, "only \(drawnKeys)/80 keys drawn with a 1 s status repaint; status \(s.engine.status(at: .milliseconds(10_000)))")
+        let finalStatus = s.engine.status(at: .milliseconds(10_000))
+        #expect(drawnKeys > 40, "only \(drawnKeys)/80 keys drawn with a 1 s status repaint; status \(finalStatus)")
     }
 }
