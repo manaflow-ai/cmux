@@ -466,9 +466,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.textEditingGestures"),
                 String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"),
-                subtitle: textEditingGestures.current
-                    ? String(localized: "settings.terminal.textEditingGestures.subtitleOn", defaultValue: "Command and Option arrow and delete keys move and delete by line and word at the shell prompt.")
-                    : String(localized: "settings.terminal.textEditingGestures.subtitleOff", defaultValue: "Command and Option key combinations reach the terminal unchanged.")
+                subtitle: String(localized: "settings.terminal.textEditingGestures.subtitle", defaultValue: "Command and Option arrow and delete keys move and delete by line and word at the shell prompt.")
             ) {
                 Toggle("", isOn: Binding(get: { textEditingGestures.current }, set: { textEditingGestures.set($0) }))
                     .labelsHidden()
@@ -493,9 +491,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.textEditingGesturesInFullScreenApps"),
                 String(localized: "settings.terminal.textEditingGesturesInFullScreenApps", defaultValue: "Text Editing Gestures in Full-Screen Apps"),
-                subtitle: textEditingGesturesInFullScreenApps.current
-                    ? String(localized: "settings.terminal.textEditingGesturesInFullScreenApps.subtitleOn", defaultValue: "Gestures also apply while a full-screen app such as vim, less, or tmux is running, so they keep working at a shell inside tmux, screen, or zellij.")
-                    : String(localized: "settings.terminal.textEditingGesturesInFullScreenApps.subtitleOff", defaultValue: "Full-screen apps such as vim, less, and tmux get keys as if gestures were off. tmux, screen, and zellij count as full-screen apps, including at their shell prompt.")
+                subtitle: String(localized: "settings.terminal.textEditingGesturesInFullScreenApps.subtitle", defaultValue: "Gestures also apply while a full-screen app such as vim, less, or tmux is running, so they keep working at a shell inside tmux, screen, or zellij.")
             ) {
                 Toggle("", isOn: Binding(get: { textEditingGesturesInFullScreenApps.current }, set: { textEditingGesturesInFullScreenApps.set($0) }))
                     .labelsHidden()

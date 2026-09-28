@@ -567534,7 +567534,7 @@
         }
       }
     },
-    "settings.terminal.textEditingGestures.subtitleOn": {
+    "settings.terminal.textEditingGestures.subtitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -567589,65 +567589,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "셸 프롬프트에서 Command 및 Option 화살표와 삭제 키가 줄 및 단어 단위로 이동하고 삭제합니다."
-          }
-        }
-      }
-    },
-    "settings.terminal.textEditingGestures.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Command and Option key combinations reach the terminal unchanged."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Command と Option のキーの組み合わせは変更されずにターミナルに送られます。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Command 和 Option 组合键会原样传递给终端。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tastenkombinationen mit Befehls- und Wahltaste erreichen das Terminal unverändert."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les combinaisons avec Commande et Option parviennent au terminal sans modification."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تصل تركيبات مفاتيح Command وOption إلى الطرفية دون تغيير."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Las combinaciones con Comando y Opción llegan a la terminal sin cambios."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Command 與 Option 組合鍵會原封不動傳送到終端機。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Command 및 Option 키 조합이 변경 없이 터미널로 전달됩니다."
           }
         }
       }
@@ -567888,7 +567829,7 @@
         }
       }
     },
-    "settings.terminal.textEditingGesturesInFullScreenApps.subtitleOn": {
+    "settings.terminal.textEditingGesturesInFullScreenApps.subtitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -567943,65 +567884,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "在 vim、less 或 tmux 等全螢幕 App 執行時手勢也會生效，因此在 tmux、screen 或 zellij 中的 shell 裡仍可使用。"
-          }
-        }
-      }
-    },
-    "settings.terminal.textEditingGesturesInFullScreenApps.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Full-screen apps such as vim, less, and tmux get keys as if gestures were off. tmux, screen, and zellij count as full-screen apps, including at their shell prompt."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تتلقى التطبيقات بملء الشاشة مثل vim وless وtmux المفاتيح كما لو كانت الإيماءات متوقفة. تُعد tmux وscreen وzellij تطبيقات بملء الشاشة، حتى عند موجه الصدفة فيها."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vollbild-Apps wie vim, less und tmux erhalten Tasten so, als wären die Gesten ausgeschaltet. tmux, screen und zellij gelten als Vollbild-Apps, auch an ihrer Shell-Eingabeaufforderung."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Las apps a pantalla completa como vim, less y tmux reciben las teclas como si los gestos estuvieran desactivados. tmux, screen y zellij cuentan como apps a pantalla completa, incluso en su prompt de shell."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les apps plein écran comme vim, less et tmux reçoivent les touches comme si les gestes étaient désactivés. tmux, screen et zellij comptent comme des apps plein écran, y compris à leur invite du shell."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vim、less、tmux などのフルスクリーンアプリには、ジェスチャーがオフのときと同じキーが届きます。tmux、screen、zellij は、そのシェルのプロンプトでもフルスクリーンアプリとして扱われます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vim, less, tmux 같은 전체 화면 앱은 제스처가 꺼져 있을 때와 같은 키를 받습니다. tmux, screen, zellij는 셸 프롬프트에서도 전체 화면 앱으로 간주됩니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vim、less 和 tmux 等全屏应用收到的按键与关闭手势时相同。tmux、screen 和 zellij 都算作全屏应用，即使在其 shell 提示符下也是如此。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vim、less 與 tmux 等全螢幕 App 收到的按鍵與關閉手勢時相同。tmux、screen 與 zellij 都算是全螢幕 App，即使在其 shell 提示字元下也是如此。"
           }
         }
       }
