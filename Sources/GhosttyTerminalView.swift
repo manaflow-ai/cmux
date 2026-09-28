@@ -10240,6 +10240,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlayRoot>?
+    /// Agent turn rail for Claude Code and Codex sessions in this surface.
+    var agentTurnRailHost: AgentTurnRailHost?
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
     private lazy var pasteFailureNoticePresenter = TerminalPasteFailureNoticePresenter()
@@ -10978,7 +10980,8 @@ final class GhosttySurfaceScrollView: NSView {
             _ = setFrameIfNeeded(sharedBackdropCutoutView, to: bounds)
         }
         _ = setFrameIfNeeded(backgroundView, to: bounds)
-        let contentFrame = sessionContentFrame
+        let contentFrame = agentTurnRailHost?.layout(sessionFrame: sessionContentFrame, bounds: bounds)
+            ?? sessionContentFrame
         _ = setFrameIfNeeded(scrollView, to: contentFrame)
         // Resolve the clip view after scroller tiling and layout. Reading the
         // scroll view's bounds can include a legacy scroller gutter while the
@@ -11029,6 +11032,7 @@ final class GhosttySurfaceScrollView: NSView {
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: contentFrame)
         }
+        agentTurnRailHost?.bringToFront(in: self)
         bringPaneDropTargetToFrontIfNeeded()
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
@@ -13775,6 +13779,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleScrollbarUpdate(_ notification: Notification) {
         guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else { return }
+        defer {
+            installAgentTurnRailIfNeeded()
+            agentTurnRailHost?.model.viewportDidChange()
+        }
         let preservedReviewOriginY = scrollbackViewportIntent.preservesViewportDuringPendingSync
             ? max(scrollView.contentView.bounds.origin.y, 0)
             : nil

@@ -16,6 +16,8 @@ final class AgentChatTranscriptService {
 
     let registry: AgentChatSessionRegistry
     let resolver: AgentChatTranscriptResolver
+    /// Wakes per-surface turn outline observers (the terminal turn rail).
+    let turnOutlineChanges = AgentTurnOutlineChangeBus()
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
     private let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
@@ -445,6 +447,29 @@ final class AgentChatTranscriptService {
         }
     }
 
+    /// The tailer that serves a live session's turn outline, created on
+    /// first use. Unlike ``history(sessionID:beforeSeq:limit:)`` this never
+    /// retries a transcript that already failed to resolve, so change-driven
+    /// outline refreshes cannot loop on Codex's recursive fallback scan.
+    func turnOutlineTailer(for record: AgentChatSessionRecord) async -> AgentChatTranscriptTailer? {
+        guard !didShutdown, record.state != .ended else { return nil }
+        if let existing = tailers[record.sessionID] { return existing }
+        guard !failedResolutions.contains(record.sessionID) else { return nil }
+        let resolver = resolver
+        let fallbackPath: String?
+        if let initialPath = resolver.boundedTranscriptPath(for: record) {
+            fallbackPath = initialPath
+        } else {
+            fallbackPath = await fallbackResolutionCoordinator.resolve(for: record)
+        }
+        guard let current = registry.record(sessionID: record.sessionID), current.state != .ended else {
+            return nil
+        }
+        return ensureTailer(for: current) {
+            resolver.boundedTranscriptPath(for: current) ?? fallbackPath
+        }
+    }
+
     // MARK: - Internals
 
     @discardableResult
@@ -493,6 +518,7 @@ final class AgentChatTranscriptService {
 
     private func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
         guard !didShutdown else { return }
+        turnOutlineChanges.yield(surfaceIDs: [registry.record(sessionID: sessionID)?.surfaceID])
         #if DEBUG
         cmuxDebugLog(
             "agentChat.transcript.batch session=\(sessionID.prefix(8)) "
@@ -561,6 +587,9 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
+        if AgentTurnOutlineChangeBus.affectsOutline(record, previous: previous) {
+            turnOutlineChanges.yield(surfaceIDs: [previous?.surfaceID, record.surfaceID])
+        }
         let endedRecordIsListable: Bool
         if record.state == .ended {
             endedRecordIsListable = record.agentKind == .codex
@@ -610,6 +639,7 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
+        turnOutlineChanges.yield(surfaceIDs: [record.surfaceID])
         fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
         endProseTurn(sessionID: record.sessionID)
         latestTranscriptSeqBySessionID[record.sessionID] = nil
