@@ -1358,6 +1358,7 @@
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
+          "tabBarVisibility": "Określa, kiedy panel rysuje swój pasek kart. \"always\" rysuje go nawet w panelu z jedną kartą; \"multiple-tabs\" ukrywa go, dopóki panel ma jedną kartę, i rysuje, gdy otworzy się druga. Tryb minimalny (app.minimalMode) rysuje go zawsze, ponieważ pasek kart górnego panelu pełni tam także rolę paska tytułu okna.",
           "forkConversationDefaultDestination": "Domyślne miejsce docelowe głównej akcji Fork Conversation w menu kontekstowym karty. Podmenu nadal pokazuje wszystkie miejsca docelowe.",
           "globalFontMagnification": "Procentowe powiększenie wszystkiego, co cmux rysuje samodzielnie: tekstu terminala, tytułów kart, pasków bocznych, Settings, nakładek i obramowania okna. Strony internetowe w powierzchniach przeglądarki zachowują własny rozmiar."
         },
@@ -1371,7 +1372,9 @@
           "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
         },
         "notifications": {
+          "soundWhenFocused": "Odtwarzaj dźwięk powiadomienia nawet wtedy, gdy panel, który je wysłał, jest już aktywny. Domyślnie wyłączone, więc aktywny panel pokazuje tylko obwódkę i błysk.",
           "suppressOnlyFocusedSurface": "Gdy włączone, baner powiadomienia jest automatycznie wycofywany tylko wtedy, gdy jego Surface jest dokładnie tym Surface, który ma fokus. Baner dostarczony dla Surface bez fokusu w aktualnie widocznym workspace pozostaje wyświetlony, dopóki nie ustawisz fokusu na tym Surface (albo go nie klikniesz/odrzucisz), zamiast być wycofywany, gdy workspace stanie się widoczny. Wyłączone zachowuje dawne wycofywanie oparte na widoczności workspace.",
+          "suppressWhenAppFocused": "Po włączeniu cmux pomija baner na pulpicie dla każdego powiadomienia, gdy cmux jest aktywną aplikacją, a nie tylko dla panelu z fokusem. Powiadomienia nadal pojawiają się na pasku bocznym, dźwięk i niestandardowe polecenie nadal są uruchamiane, a przekazywanie na telefon się nie zmienia. Po wyłączeniu banery dla innych workspace'ów i paneli są nadal wyświetlane, gdy cmux ma fokus.",
           "agentIdleReminder": "Powiadamiaj, gdy agent jest bezczynny i czeka na dane wejściowe (około 60 sekund po zakończeniu tury). Powiadomienie jest wstrzymywane, dopóki trwa praca w tle z poprzedniej tury, aby uruchomiony build lub obserwator nie wywołał fałszywego alertu oczekiwania.",
           "soundOverrides": "Rzadkie zastąpienia dźwięku powiadomień dla agenta i typu alertu. Brakujące komórki używają notifications.sound.",
           "soundOverride": "Zastąpienie dźwięku powiadomienia. default używa notifications.sound, none wyłącza odtwarzanie, a pozostałe wartości wybierają dźwięk wbudowany lub niestandardowy."
