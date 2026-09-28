@@ -855,7 +855,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             )
 
             XCTAssertNil(defaults.string(forKey: key))
-            XCTAssertEqual(InterfaceDensity.stored(in: defaults), .comfortable)
+            XCTAssertEqual(InterfaceDensity.stored(in: defaults), .standard)
             XCTAssertFalse(Workspace.paneTabBarActionsFoldBehindHover(defaults: defaults))
         }
     }

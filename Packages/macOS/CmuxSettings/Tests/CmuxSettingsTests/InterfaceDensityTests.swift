@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxSettings
 
 struct InterfaceDensityTests {
-    @Test func storedReadsCatalogKeyAndFallsBackToComfortable() throws {
+    @Test func storedReadsCatalogKeyAndFallsBackToStandard() throws {
         let suite = "InterfaceDensityTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -11,8 +11,8 @@ struct InterfaceDensityTests {
 
         #expect(key.id == "app.density")
         #expect(key.userDefaultsKey == InterfaceDensity.userDefaultsKey)
-        #expect(key.defaultValue == .comfortable)
-        #expect(InterfaceDensity.stored(in: defaults) == .comfortable)
+        #expect(key.defaultValue == .standard)
+        #expect(InterfaceDensity.stored(in: defaults) == .standard)
 
         for density in InterfaceDensity.allCases {
             defaults.set(density.rawValue, forKey: InterfaceDensity.userDefaultsKey)
@@ -21,7 +21,7 @@ struct InterfaceDensityTests {
         }
 
         defaults.set("cozy", forKey: InterfaceDensity.userDefaultsKey)
-        #expect(InterfaceDensity.stored(in: defaults) == .comfortable)
+        #expect(InterfaceDensity.stored(in: defaults) == .standard)
     }
 
     @Test func onlyCompactFoldsActionsBehindHover() {

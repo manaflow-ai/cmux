@@ -17,8 +17,10 @@ public enum InterfaceDensity: String, CaseIterable, Sendable, SettingCodable {
     /// UserDefaults key storing the raw value.
     public static let userDefaultsKey = "interfaceDensity"
 
-    /// Density used when nothing is stored.
-    public static let defaultValue: InterfaceDensity = .comfortable
+    /// Density used when nothing is stored. `standard` is the set cmux
+    /// shipped before this setting, so upgrading changes nothing until the
+    /// setting is chosen.
+    public static let defaultValue: InterfaceDensity = .standard
 
     /// Reads the stored density, falling back to ``defaultValue`` for a
     /// missing or unrecognized value.
