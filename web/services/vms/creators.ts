@@ -131,19 +131,27 @@ export async function readCreatorDisplayNames(
 
 /**
  * The name map a response needs for machines owned by `teamId`: the caller's
- * own name from the session, and a snapshot read for everyone else. The
- * caller is left out of the read, so a personal list, or a team list of only
- * the caller's machines, costs no query at all.
+ * own name from the session, and a snapshot read for everyone else. A caller
+ * with a session name is left out of the read, so a team list of only their
+ * machines costs no query at all (a personal list never queries).
  */
 export async function readCreatorNames(input: {
   readonly userIds: readonly string[];
   readonly teamId: string | null | undefined;
   readonly caller: { readonly id: string; readonly displayName: string | null };
   readonly onFailure?: (error: unknown) => void;
+  readonly db?: CreatorDb;
 }): Promise<Map<string, string>> {
-  const others = input.userIds.filter((id) => id !== input.caller.id);
+  // Only a usable session name replaces the read; a caller with a blank one
+  // still gets whatever their snapshot holds.
+  const sessionNamed = Boolean(input.caller.displayName?.trim());
+  const others = input.userIds.filter((id) => !sessionNamed || id !== input.caller.id);
   return withCallerName(
-    await readCreatorDisplayNames(others, { teamId: input.teamId, onFailure: input.onFailure }),
+    await readCreatorDisplayNames(others, {
+      teamId: input.teamId,
+      onFailure: input.onFailure,
+      db: input.db,
+    }),
     input.caller,
   );
 }

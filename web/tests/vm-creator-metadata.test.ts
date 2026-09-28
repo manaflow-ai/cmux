@@ -258,17 +258,28 @@ describe("cloud machine creator metadata", () => {
   });
 
   test("readCreatorNames never queries for the caller's own name", async () => {
-    // The session already has it, so a list of only the caller's machines,
-    // which every personal list is, costs no snapshot read.
+    // The session already has it, so a team list of only the caller's
+    // machines costs no snapshot read.
+    const captured: CapturedQuery = { calls: 0 };
     const names = await readCreatorNames({
       userIds: ["user-a"],
-      teamId: "user-a",
+      teamId: "team-shared",
       caller: { id: "user-a", displayName: "Ada Lovelace" },
-      onFailure: () => {
-        throw new Error("unexpected read");
-      },
+      db: throwingSelectDb(captured),
     });
     expect(names.get("user-a")).toBe("Ada Lovelace");
+    expect(captured.calls).toBe(0);
+  });
+
+  test("readCreatorNames still reads the caller's snapshot when the session has no name", async () => {
+    const captured: CapturedQuery = { calls: 0 };
+    await readCreatorNames({
+      userIds: ["user-a"],
+      teamId: "team-shared",
+      caller: { id: "user-a", displayName: "  " },
+      db: fakeSelectDb([], captured),
+    });
+    expect(captured.calls).toBe(1);
   });
 
   test("listUserVms carries each machine's owning team", async () => {
