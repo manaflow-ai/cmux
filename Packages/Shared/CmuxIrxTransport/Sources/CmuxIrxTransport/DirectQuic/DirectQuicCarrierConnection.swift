@@ -323,7 +323,9 @@ public final class DirectQuicCarrierConnection: IrxCarrierConnection, @unchecked
     }
 
     /// QUIC CONNECTION_CLOSE reasons do not reach Network.framework peers
-    /// promptly, so the reason travels on its own stream before the close.
+    /// promptly, so the reason travels best-effort on its own stream — but
+    /// teardown never waits on the peer: a wedged or hostile remote gets a
+    /// bounded window, then the group is cancelled unconditionally.
     public func close(errorCode: UInt64, reason: Data) {
         let wasOpen = lock.withLock { cause == nil && isReady }
         finish(cause: "local close: " + String(decoding: reason, as: UTF8.self))
@@ -334,9 +336,11 @@ public final class DirectQuicCarrierConnection: IrxCarrierConnection, @unchecked
         let group = group
         let queue = queue
         Task {
-            if let stream = try? await DirectQuicStream.open(in: group, kind: .close, queue: queue) {
+            _ = try? await withIrxDeadlineResult(.milliseconds(500)) {
+                let stream = try await DirectQuicStream.open(in: group, kind: .close, queue: queue)
                 let bounded = reason.prefix(255)
-                try? await stream.writeAll(Data([UInt8(bounded.count)]) + bounded)
+                try await stream.writeAll(Data([UInt8(bounded.count)]) + bounded)
+                return true
             }
             group.cancel()
         }
