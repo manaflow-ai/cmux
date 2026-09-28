@@ -3040,6 +3040,13 @@ jobs:
 
       - name: Run shell and CLI no-socket regressions
         if: ${{ !cancelled() }}
+        env:
+          # Owned Macs share their host with other runner slots. These tests
+          # deliberately use short wall-clock deadlines around nested shell,
+          # socket, Node, and Bun processes, so eight-way fanout turns host
+          # contention into unrelated fixture failures. Keep the fast fanout
+          # on isolated hosted runners and serialize it on the shared fleet.
+          CMUX_CLI_REGRESSION_JOBS: ${{ runner.environment == 'github-hosted' && '8' || '1' }}
         run: |
           set -euo pipefail
 
@@ -3051,10 +3058,8 @@ jobs:
             exit 1
           }
 
-          # The lanes run together, eight tests at a time; serial registry
-          # entries run alone first. Run one after another, these ~70 files
-          # took about seven minutes.
-          CMUX_CLI_BIN="$CMUX_CLI_PATH" python3 scripts/ci/run_python_test_lane.py --jobs 8 --lane macos-shell --lane macos-cli-no-socket --lane macos-shell-fish --lane macos-cli-no-socket-post-fish
+          # Run one after another, these ~70 files took about seven minutes.
+          CMUX_CLI_BIN="$CMUX_CLI_PATH" python3 scripts/ci/run_python_test_lane.py --jobs "$CMUX_CLI_REGRESSION_JOBS" --lane macos-shell --lane macos-cli-no-socket --lane macos-shell-fish --lane macos-cli-no-socket-post-fish
 
       - name: Run terminal creation interactive-shell CLI regression
         if: ${{ !cancelled() }}
