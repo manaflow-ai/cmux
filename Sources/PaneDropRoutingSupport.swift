@@ -237,6 +237,7 @@ final class PaneDropZoneOverlayAnimator {
     /// Short with a steep ease-out, so about half the distance is covered on
     /// the first frame and the highlight keeps pace with the pointer.
     private static let slideDuration: CFTimeInterval = 0.16
+    private static let slideKeyPrefix = "paneDropZone.slide."
 
     /// Pins Reduce Motion for tests; nil reads the system setting.
     static var reduceMotionOverrideForTesting: Bool?
@@ -338,9 +339,19 @@ final class PaneDropZoneOverlayAnimator {
         return .moved
     }
 
-    /// Sets the frame without animation, leaving any in-flight slide running.
+    /// Moves the overlay straight to `frame` for a layout change. An in-flight
+    /// slide is dropped, since its offsets were measured from the old layout.
     func snapFrame(_ frame: CGRect) {
         guard !Self.rectApproximatelyEqual(overlayView.frame, frame) else { return }
+        if let layer = overlayView.layer {
+            for key in layer.animationKeys() ?? [] where key.hasPrefix(Self.slideKeyPrefix) {
+                layer.removeAnimation(forKey: key)
+            }
+        }
+        setModelFrame(frame)
+    }
+
+    private func setModelFrame(_ frame: CGRect) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         overlayView.frame = frame
@@ -357,7 +368,8 @@ final class PaneDropZoneOverlayAnimator {
 
     private func slide(to frame: CGRect) {
         let displayedFrame = overlayView.frame
-        snapFrame(frame)
+        // Running slides stay, so the new offset stacks on where the overlay is drawn.
+        setModelFrame(frame)
         guard let layer = overlayView.layer else { return }
         let sizeOffset = CGSize(
             width: displayedFrame.width - frame.width,
@@ -384,7 +396,7 @@ final class PaneDropZoneOverlayAnimator {
         animation.isAdditive = true
         animation.duration = Self.slideDuration
         animation.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
-        layer.add(animation, forKey: "paneDropZone.slide.\(keyPath).\(animationGeneration)")
+        layer.add(animation, forKey: "\(Self.slideKeyPrefix)\(keyPath).\(animationGeneration)")
     }
 
     private static var reducesMotion: Bool {
