@@ -221,6 +221,8 @@ final class SplitDividerDragUITests: SettingsUITestCase {
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
+        let logPath = "/tmp/cmux-ui-test-split-drag-tool-log-\(UUID().uuidString).log"
+        app.launchEnvironment["CMUX_DEBUG_LOG"] = logPath
         launchAndActivate(app)
         defer {
             app.terminate()
@@ -251,6 +253,15 @@ final class SplitDividerDragUITests: SettingsUITestCase {
 
         let split = poll(timeout: 6) { terminal.frame.width < before.width * 0.75 }
         attach(window.screenshot(), name: "02 after sidebar tool drag")
+        let dragLog = ((try? String(contentsOfFile: logPath, encoding: .utf8)) ?? "")
+            .split(separator: "\n")
+            .filter { line in ["drag", "drop", "Drag", "Drop", "route", "portal", "rightSidebar"].contains { line.contains($0) } }
+            .suffix(120)
+            .joined(separator: "\n")
+        let logAttachment = XCTAttachment(string: dragLog)
+        logAttachment.name = "app drag log"
+        logAttachment.lifetime = .keepAlways
+        add(logAttachment)
         XCTAssertTrue(
             split,
             "Expected dropping the Find tool on the pane's right edge to split it. " +
