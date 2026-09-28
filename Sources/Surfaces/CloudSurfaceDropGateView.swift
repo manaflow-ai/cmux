@@ -142,7 +142,8 @@ final class CloudSurfaceDropGateView: NSView {
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
         feedback.clear()
         forwardedDestination?.concludeDragOperation(sender)
-        forwardedDestination = nil
+        // Keep the reference: AppKit sends draggingEnded after conclude, and
+        // the forwarded destination should get it too.
     }
 
     override func viewDidHide() {
