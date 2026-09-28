@@ -91,8 +91,11 @@ public final class CmuxResolvedIconRenderer {
                     tintColor.setFill()
                     NSRect(origin: .zero, size: imageSize).fill(using: .sourceIn)
                 }
-                let isVisible = containsVisiblePixels(in: bitmap)
+                graphicsContext.flushGraphics()
                 NSGraphicsContext.restoreGraphicsState()
+                let isVisible = request.centersVisibleContent
+                    ? centerVisiblePixels(in: bitmap)
+                    : containsVisiblePixels(in: bitmap)
                 guard isVisible else {
                     failure = .blankOutput
                     continue
@@ -194,6 +197,58 @@ public final class CmuxResolvedIconRenderer {
             }
         }
         return false
+    }
+
+    /// Shifts the bitmap by whole pixels so its visible bounds split the
+    /// leftover space evenly. An odd leftover pixel goes to the right and
+    /// bottom, so the glyph never reads low or left of center.
+    /// - Returns: `false` when the bitmap has no visible pixels.
+    private func centerVisiblePixels(in bitmap: NSBitmapImageRep) -> Bool {
+        guard let data = bitmap.bitmapData,
+              !bitmap.isPlanar,
+              bitmap.samplesPerPixel == 4,
+              bitmap.bitsPerPixel == 32 else {
+            return containsVisiblePixels(in: bitmap)
+        }
+        let width = bitmap.pixelsWide
+        let height = bitmap.pixelsHigh
+        let rowBytes = bitmap.bytesPerRow
+        let alphaOffset = bitmap.bitmapFormat.contains(.alphaFirst) ? 0 : 3
+        // Matches the 0.01 alpha floor used by `containsVisiblePixels`.
+        let visibleAlpha: UInt8 = 2
+        var minX = width, maxX = -1, minY = height, maxY = -1
+        for y in 0..<height {
+            let row = data + y * rowBytes
+            for x in 0..<width where row[x * 4 + alphaOffset] > visibleAlpha {
+                minX = min(minX, x)
+                maxX = max(maxX, x)
+                minY = min(minY, y)
+                maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= 0 else { return false }
+        // Row 0 of `bitmapData` is the top row.
+        let dx = (width - (maxX - minX + 1)) / 2 - minX
+        let dy = (height - (maxY - minY + 1)) / 2 - minY
+        guard dx != 0 || dy != 0 else { return true }
+        let byteCount = rowBytes * height
+        let original = Data(bytes: data, count: byteCount)
+        data.update(repeating: 0, count: byteCount)
+        let sourceX = max(0, -dx)
+        let destinationX = max(0, dx)
+        let spanBytes = (width - abs(dx)) * 4
+        original.withUnsafeBytes { source in
+            guard let source = source.baseAddress, spanBytes > 0 else { return }
+            for destinationY in max(0, dy)..<min(height, height + dy) {
+                let sourceY = destinationY - dy
+                (data + destinationY * rowBytes + destinationX * 4).update(
+                    from: source.advanced(by: sourceY * rowBytes + sourceX * 4)
+                        .assumingMemoryBound(to: UInt8.self),
+                    count: spanBytes
+                )
+            }
+        }
+        return true
     }
 
     private func normalizedSize(_ size: NSSize) -> NSSize? {
