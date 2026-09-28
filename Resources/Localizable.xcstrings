@@ -569543,6 +569543,537 @@
           }
         }
       }
+    },
+    "cli.themes.export.error.appearance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: --appearance must be light or dark"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: يجب أن تكون قيمة --appearance هي light أو dark"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: --appearance muss light oder dark sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: --appearance debe ser light o dark"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export : --appearance doit valoir light ou dark"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: --appearance には light か dark を指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: --appearance는 light 또는 dark여야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export：--appearance 必须是 light 或 dark"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export：--appearance 必須是 light 或 dark"
+          }
+        }
+      }
+    },
+    "cli.themes.export.error.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: --name needs at least one letter or digit"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: يجب أن يحتوي --name على حرف أو رقم واحد على الأقل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: --name braucht mindestens einen Buchstaben oder eine Ziffer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: --name necesita al menos una letra o un dígito"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export : --name doit contenir au moins une lettre ou un chiffre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: --name には英字か数字を 1 文字以上含めてください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: --name에는 문자나 숫자가 하나 이상 있어야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export：--name 至少需要一个字母或数字"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export：--name 至少需要一個字母或數字"
+          }
+        }
+      }
+    },
+    "cli.themes.export.error.noHome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: HOME is not set, so the theme folder can't be found"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: لم يتم تعيين HOME، لذا تعذر العثور على مجلد السمات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: HOME ist nicht gesetzt, daher wird der Theme-Ordner nicht gefunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: HOME no está definido, así que no se encuentra la carpeta de temas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export : HOME n'est pas défini, le dossier des thèmes est donc introuvable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: HOME が設定されていないため、テーマフォルダが見つかりません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: HOME이 설정되지 않아 테마 폴더를 찾을 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export：未设置 HOME，因此找不到主题文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export：未設定 HOME，因此找不到主題資料夾"
+          }
+        }
+      }
+    },
+    "cli.themes.export.error.target": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: --to must be claude or opencode"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: يجب أن تكون قيمة --to هي claude أو opencode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: --to muss claude oder opencode sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: --to debe ser claude u opencode"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export : --to doit valoir claude ou opencode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: --to には claude か opencode を指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: --to는 claude 또는 opencode여야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export：--to 必须是 claude 或 opencode"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export：--to 必須是 claude 或 opencode"
+          }
+        }
+      }
+    },
+    "cli.themes.export.error.themeNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme '%@' not found. Run 'cmux themes list' to see available themes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على السمة '%@'. شغّل 'cmux themes list' لعرض السمات المتاحة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme „%@“ nicht gefunden. Mit „cmux themes list“ siehst du die verfügbaren Themes."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró el tema '%@'. Ejecuta 'cmux themes list' para ver los temas disponibles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thème « %@ » introuvable. Lancez « cmux themes list » pour voir les thèmes disponibles."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマ「%@」が見つかりません。「cmux themes list」で利用できるテーマを確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 테마를 찾을 수 없습니다. 'cmux themes list'를 실행해 사용 가능한 테마를 확인하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到主题“%@”。运行“cmux themes list”查看可用的主题。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到主題「%@」。執行「cmux themes list」查看可用的主題。"
+          }
+        }
+      }
+    },
+    "cli.themes.export.error.unknownArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: unexpected argument '%@'. Run 'cmux themes export --help'."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: وسيط غير متوقع '%@'. شغّل 'cmux themes export --help'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: unerwartetes Argument „%@“. Siehe „cmux themes export --help“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: argumento inesperado '%@'. Ejecuta 'cmux themes export --help'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export : argument inattendu « %@ ». Consultez « cmux themes export --help »."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: 想定外の引数「%@」です。「cmux themes export --help」を実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export: 예상하지 못한 인수 '%@'. 'cmux themes export --help'를 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export：意外的参数“%@”。请运行“cmux themes export --help”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "themes export：非預期的引數「%@」。請執行「cmux themes export --help」。"
+          }
+        }
+      }
+    },
+    "cli.themes.export.hint.claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select it in Claude Code with /theme."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختره في Claude Code باستخدام /theme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle es in Claude Code mit /theme aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecciónalo en Claude Code con /theme."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionnez-le dans Claude Code avec /theme."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code で /theme から選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code에서 /theme으로 선택하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Claude Code 中用 /theme 选择它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Claude Code 中用 /theme 選取它。"
+          }
+        }
+      }
+    },
+    "cli.themes.export.hint.opencode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select it in OpenCode with /theme, or set \"theme\": \"%@\" in tui.json."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختره في OpenCode باستخدام /theme، أو عيّن \"theme\": \"%@\" في tui.json."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle es in OpenCode mit /theme aus oder setze \"theme\": \"%@\" in tui.json."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecciónalo en OpenCode con /theme o define \"theme\": \"%@\" en tui.json."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionnez-le dans OpenCode avec /theme, ou définissez \"theme\": \"%@\" dans tui.json."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode で /theme から選択するか、tui.json に \"theme\": \"%@\" を設定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode에서 /theme으로 선택하거나 tui.json에 \"theme\": \"%@\"를 설정하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 OpenCode 中用 /theme 选择它，或在 tui.json 中设置 \"theme\": \"%@\"。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 OpenCode 中用 /theme 選取它，或在 tui.json 中設定 \"theme\": \"%@\"。"
+          }
+        }
+      }
+    },
+    "cli.themes.export.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux themes export --to <claude|opencode> [--write] [--name <name>] [--appearance <light|dark>]\n\nRenders the terminal colors cmux uses (the Ghostty theme plus any colors\nset in your config) as a theme file for an agent, so Claude Code or\nOpenCode matches your terminal.\n\nPrints the theme JSON by default. With --write, saves it to the agent's\ntheme folder as cmux-<name>.json and prints how to select it. Only files\nnamed cmux-* are ever written.\n\nOptions:\n  --to <agent>            claude (~/.claude/themes) or opencode (~/.config/opencode/themes)\n  --write                 Save the file instead of printing it\n  --name <name>           File and display name (default: the theme name)\n  --appearance <mode>     Export the light or dark theme only. Claude Code\n                          themes have one appearance and default to the\n                          current macOS one; OpenCode gets both.\n\nExamples:\n  cmux themes export --to claude\n  cmux themes export --to claude --write\n  cmux themes export --to opencode --write --name mocha"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux themes export --to <claude|opencode> [--write] [--name <name>] [--appearance <light|dark>]\n\nيحوّل ألوان الطرفية التي يستخدمها cmux (سمة\nGhostty وأي ألوان محددة في إعداداتك) إلى ملف\nسمة لوكيل، ليتطابق Claude Code أو OpenCode مع طرفيتك.\n\nيطبع JSON السمة افتراضيًا. مع --write يحفظه\nباسم cmux-<name>.json في مجلد سمات الوكيل\nويطبع طريقة اختياره. لا يُكتب إلا ملفات باسم cmux-*.\n\nالخيارات:\n  --to <agent>            claude (~/.claude/themes) أو opencode (~/.config/opencode/themes)\n  --write                 حفظ الملف بدلًا من طباعته\n  --name <name>           اسم الملف والاسم المعروض (الافتراضي: اسم السمة)\n  --appearance <mode>     تصدير السمة الفاتحة أو الداكنة فقط. سمات Claude Code\n                          لها مظهر واحد وتتبع افتراضيًا مظهر macOS الحالي؛\n                          ويحصل OpenCode على كليهما.\n\nأمثلة:\n  cmux themes export --to claude\n  cmux themes export --to claude --write\n  cmux themes export --to opencode --write --name mocha"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux themes export --to <claude|opencode> [--write] [--name <name>] [--appearance <light|dark>]\n\nRendert die Terminalfarben, die cmux verwendet (das Ghostty-Theme plus alle\nin deiner Konfiguration gesetzten Farben), als Theme-Datei für einen Agenten,\ndamit Claude Code oder OpenCode zu deinem Terminal passt.\n\nGibt standardmäßig das Theme-JSON aus. Mit --write wird es als cmux-<name>.json\nim Theme-Ordner des Agenten gespeichert und angezeigt, wie man es auswählt. Es\nwerden nur Dateien mit dem Namen cmux-* geschrieben.\n\nOptionen:\n  --to <agent>            claude (~/.claude/themes) oder opencode (~/.config/opencode/themes)\n  --write                 Datei speichern statt ausgeben\n  --name <name>           Datei- und Anzeigename (Standard: der Theme-Name)\n  --appearance <mode>     Nur das helle oder dunkle Theme exportieren. Claude-Code-\n                          Themes haben ein Erscheinungsbild und nutzen standardmäßig\n                          das aktuelle von macOS; OpenCode erhält beide.\n\nBeispiele:\n  cmux themes export --to claude\n  cmux themes export --to claude --write\n  cmux themes export --to opencode --write --name mocha"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux themes export --to <claude|opencode> [--write] [--name <name>] [--appearance <light|dark>]\n\nConvierte los colores de terminal que usa cmux (el tema de Ghostty más los\ncolores definidos en tu configuración) en un archivo de tema para un agente,\npara que Claude Code u OpenCode combine con tu terminal.\n\nPor defecto imprime el JSON del tema. Con --write, lo guarda como\ncmux-<name>.json en la carpeta de temas del agente e indica cómo\nseleccionarlo. Solo se escriben archivos llamados cmux-*.\n\nOpciones:\n  --to <agent>            claude (~/.claude/themes) u opencode (~/.config/opencode/themes)\n  --write                 Guardar el archivo en lugar de imprimirlo\n  --name <name>           Nombre de archivo y nombre visible (por defecto: el nombre del tema)\n  --appearance <mode>     Exportar solo el tema claro u oscuro. Los temas de\n                          Claude Code tienen una sola apariencia y usan por defecto\n                          la actual de macOS; OpenCode recibe ambas.\n\nEjemplos:\n  cmux themes export --to claude\n  cmux themes export --to claude --write\n  cmux themes export --to opencode --write --name mocha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux themes export --to <claude|opencode> [--write] [--name <name>] [--appearance <light|dark>]\n\nConvertit les couleurs de terminal utilisées par cmux (le thème Ghostty et les\ncouleurs définies dans votre configuration) en fichier de thème pour un agent,\npour que Claude Code ou OpenCode s'accorde avec votre terminal.\n\nAffiche le JSON du thème par défaut. Avec --write, l'enregistre sous\ncmux-<name>.json dans le dossier des thèmes de l'agent et indique comment le\nsélectionner. Seuls des fichiers nommés cmux-* sont écrits.\n\nOptions :\n  --to <agent>            claude (~/.claude/themes) ou opencode (~/.config/opencode/themes)\n  --write                 Enregistrer le fichier au lieu de l'afficher\n  --name <name>           Nom du fichier et nom affiché (par défaut : le nom du thème)\n  --appearance <mode>     Exporter uniquement le thème clair ou sombre. Les thèmes\n                          Claude Code n'ont qu'une apparence et suivent par défaut\n                          celle de macOS ; OpenCode reçoit les deux.\n\nExemples :\n  cmux themes export --to claude\n  cmux themes export --to claude --write\n  cmux themes export --to opencode --write --name mocha"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux themes export --to <claude|opencode> [--write] [--name <name>] [--appearance <light|dark>]\n\ncmux が使うターミナルの色（Ghostty テーマと設定で指定した色）を\nエージェント用のテーマファイルに変換し、\nClaude Code や OpenCode をターミナルに合わせます。\n\n既定ではテーマの JSON を出力します。--write を付けると、エージェントのテーマ\nフォルダに cmux-<name>.json として保存し、選択方法を表示します。書き込むのは\ncmux-* という名前のファイルだけです。\n\nオプション:\n  --to <agent>            claude (~/.claude/themes) または opencode (~/.config/opencode/themes)\n  --write                 出力せずにファイルとして保存\n  --name <name>           ファイル名と表示名（既定: テーマ名）\n  --appearance <mode>     ライトまたはダークのテーマだけを書き出します。Claude Code の\n                          テーマは外観が 1 つで、既定では現在の macOS の外観を使います。\n                          OpenCode には両方が入ります。\n\n例:\n  cmux themes export --to claude\n  cmux themes export --to claude --write\n  cmux themes export --to opencode --write --name mocha"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux themes export --to <claude|opencode> [--write] [--name <name>] [--appearance <light|dark>]\n\ncmux가 사용하는 터미널 색상(Ghostty 테마와 설정에 지정한\n색상)을 에이전트용 테마 파일로 만들어 Claude Code나\nOpenCode가 터미널과 어울리게 합니다.\n\n기본적으로 테마 JSON을 출력합니다. --write를 사용하면 에이전트의 테마 폴더에\ncmux-<name>.json으로 저장하고 선택 방법을 출력합니다. cmux-* 이름의 파일만\n씁니다.\n\n옵션:\n  --to <agent>            claude (~/.claude/themes) 또는 opencode (~/.config/opencode/themes)\n  --write                 출력하는 대신 파일로 저장\n  --name <name>           파일 이름과 표시 이름 (기본값: 테마 이름)\n  --appearance <mode>     라이트 또는 다크 테마만 내보냅니다. Claude Code 테마는\n                          모양이 하나이며 기본적으로 현재 macOS 모양을 따릅니다.\n                          OpenCode는 둘 다 받습니다.\n\n예시:\n  cmux themes export --to claude\n  cmux themes export --to claude --write\n  cmux themes export --to opencode --write --name mocha"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux themes export --to <claude|opencode> [--write] [--name <name>] [--appearance <light|dark>]\n\n将 cmux 使用的终端颜色（Ghostty 主题\n加上配置中设置的颜色）转换为智能体的主题文件，\n让 Claude Code 或 OpenCode 与终端保持一致。\n\n默认输出主题 JSON。加上 --write 时，会以 cmux-<name>.json\n保存到智能体的主题文件夹，并显示选用方法。\n只会写入名为 cmux-* 的文件。\n\n选项：\n  --to <agent>            claude（~/.claude/themes）或 opencode（~/.config/opencode/themes）\n  --write                 保存文件而不是输出\n  --name <name>           文件名和显示名称（默认：主题名称）\n  --appearance <mode>     仅导出浅色或深色主题。\n                          Claude Code 主题只有一种外观，默认使用当前的 macOS 外观；\n                          OpenCode 会获得两者。\n\n示例：\n  cmux themes export --to claude\n  cmux themes export --to claude --write\n  cmux themes export --to opencode --write --name mocha"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux themes export --to <claude|opencode> [--write] [--name <name>] [--appearance <light|dark>]\n\n將 cmux 使用的終端機顏色（Ghostty 主題\n加上設定中指定的顏色）轉成代理程式的主題檔，\n讓 Claude Code 或 OpenCode 與終端機一致。\n\n預設輸出主題 JSON。加上 --write 時，會以 cmux-<name>.json\n存到代理程式的主題資料夾，並顯示選用方式。\n只會寫入名為 cmux-* 的檔案。\n\n選項：\n  --to <agent>            claude（~/.claude/themes）或 opencode（~/.config/opencode/themes）\n  --write                 儲存檔案而不輸出\n  --name <name>           檔名與顯示名稱（預設：主題名稱）\n  --appearance <mode>     只匯出淺色或深色主題。\n                          Claude Code 主題只有一種外觀，預設使用目前的 macOS 外觀；\n                          OpenCode 會取得兩者。\n\n範例：\n  cmux themes export --to claude\n  cmux themes export --to claude --write\n  cmux themes export --to opencode --write --name mocha"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

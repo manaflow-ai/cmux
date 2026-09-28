@@ -83,7 +83,7 @@ extension CMUXCLI {
         return defaultAppearancePrefersDarkThemes() ? .dark : .light
     }
 
-    private func defaultAppearancePrefersDarkThemes() -> Bool {
+    func defaultAppearancePrefersDarkThemes() -> Bool {
         let globalDefaults = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)
         let interfaceStyle = (globalDefaults?["AppleInterfaceStyle"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return interfaceStyle?.caseInsensitiveCompare("Dark") == .orderedSame
@@ -277,6 +277,12 @@ extension CMUXCLI {
                 targetBundleIdentifier: targetBundleIdentifier,
                 explicitPassword: explicitPassword
             )
+        case "export":
+            try runThemesExport(
+                args: Array(commandArgs.dropFirst()),
+                jsonOutput: jsonOutput,
+                targetBundleIdentifier: targetBundleIdentifier
+            )
         case "clear":
             if commandArgs.count > 1 {
                 throw CLIError(message: "themes clear does not take any positional arguments")
@@ -457,7 +463,7 @@ extension CMUXCLI {
         print("OK cleared config=\(configURL.path) reload=requested")
     }
 
-    private func currentThemeSelection(targetBundleIdentifier: String) -> ThemeSelection {
+    func currentThemeSelection(targetBundleIdentifier: String) -> ThemeSelection {
         var rawValue: String?
         var sourcePath: String?
 

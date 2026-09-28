@@ -291,7 +291,7 @@ extension CMUXCLI {
         shortcuts
         feedback [--email <email> --body <text> [--image <path> ...]]
         feed tui|clear
-        themes [list|set|clear]
+        themes [list|set|clear|export]
         import [<terminal>] [--dry-run] [--yes] [--path <file>] [--json]
         reload-config
         right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud|devices> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
