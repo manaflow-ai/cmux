@@ -495,7 +495,7 @@ runs:
             -xctestrun "$XCTESTRUN_PATH"
             -destination "platform=macOS"
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
-            "${ONLY_TESTING[@]}"
+            ${ONLY_TESTING[@]+"${ONLY_TESTING[@]}"}
             test-without-building
           )
         else
@@ -507,7 +507,7 @@ runs:
             -resultBundlePath "$RUNNER_TEMP/cmux-app-host-xcresults/cmuxUITests.xcresult"
             -destination "platform=macOS"
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
-            "${ONLY_TESTING[@]}"
+            ${ONLY_TESTING[@]+"${ONLY_TESTING[@]}"}
             test-without-building
           )
         fi
