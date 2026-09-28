@@ -60,16 +60,22 @@ struct CloudMachinesHeaderCountTests {
 
     @Test("VoiceOver reads the header with its spelled-out usage")
     func headerCellSpeaksTheUsage() {
-        let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        let node = CloudTreeNode(
-            id: "cloud-machines-section",
-            kind: .cloudMachinesSection(
-                canCreateMachine: true,
-                usage: CloudMachinesUsage(activeCount: 1, maxActiveVms: 50, isPaidPlan: false)
-            )
-        )
-        cell.configure(node: node, machineActions: machineActions(), nodeActions: nodeActions())
+        let cell = headerCell(usage: CloudMachinesUsage(activeCount: 1, maxActiveVms: 50, isPaidPlan: false))
         #expect(cell.accessibilityLabel() == "Cloud Machines, 1 of 50 machines")
+    }
+
+    @Test("Hovering the header shows the plan's help", arguments: [
+        (1, "Machines on your plan. Sleeping machines cost nothing."),
+        (50, "Your plan includes 50 machines. Upgrade to create more."),
+    ])
+    func headerRowCarriesThePlanHelp(activeCount: Int, help: String) {
+        // The count's own view never hit-tests, so the tooltip has to live on the row.
+        let cell = headerCell(usage: CloudMachinesUsage(activeCount: activeCount, maxActiveVms: 50, isPaidPlan: false))
+        #expect(cell.toolTip == help)
+
+        cell.configure(node: CloudTreeNode(id: "cloud-machines-section", kind: .cloudMachinesSection(canCreateMachine: true)),
+                       machineActions: machineActions(), nodeActions: nodeActions())
+        #expect(cell.toolTip == nil, "No plan, no help: a reused row must not keep the last team's")
     }
 
     @Test("A usage change updates the existing header row without a rebuild")
@@ -129,15 +135,7 @@ struct CloudMachinesHeaderCountTests {
 
     @Test("The hover + never overlaps the header count")
     func hoverPlusLeavesRoomForTheCount() throws {
-        let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 160, height: 24))
-        let node = CloudTreeNode(
-            id: "cloud-machines-section",
-            kind: .cloudMachinesSection(
-                canCreateMachine: true,
-                usage: CloudMachinesUsage(activeCount: 50, maxActiveVms: 50, isPaidPlan: false)
-            )
-        )
-        cell.configure(node: node, machineActions: machineActions(), nodeActions: nodeActions())
+        let cell = headerCell(usage: CloudMachinesUsage(activeCount: 50, maxActiveVms: 50, isPaidPlan: false), width: 160)
         cell.setHovered(true)
         cell.layoutSubtreeIfNeeded()
         let display = try #require(cell.subviews.first { $0 is CloudTreePassthroughHostingView })
@@ -191,6 +189,13 @@ struct CloudMachinesHeaderCountTests {
     /// The mounted header cell only; never makes a fresh one that would read current state.
     private func onScreenHeaderLabel(_ outline: NSOutlineView) -> String? {
         (outline.view(atColumn: 0, row: 0, makeIfNecessary: false) as? CloudTreeCellView)?.accessibilityLabel()
+    }
+
+    private func headerCell(usage: CloudMachinesUsage, width: CGFloat = 240) -> CloudTreeCellView {
+        let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: width, height: 24))
+        let node = CloudTreeNode(id: "cloud-machines-section", kind: .cloudMachinesSection(canCreateMachine: true, usage: usage))
+        cell.configure(node: node, machineActions: machineActions(), nodeActions: nodeActions())
+        return cell
     }
 
     private func headerCount(_ usage: CloudMachinesUsage) -> CloudTreeGroupCount? {
