@@ -565155,64 +565155,130 @@
       }
     },
     "settings.search.alias.setting.automation.pi": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "automation.piIntegration pi hooks agent integration status notifications"
-        }
-      },
-      "ar": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "automation.piIntegration تكامل Pi خطافات وكيل حالة إشعارات"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "automation.piIntegration Pi Hooks Agent Integration Status Benachrichtigungen"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "automation.piIntegration Pi hooks integración de agente estado notificaciones"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "automation.piIntegration Pi hooks intégration agent état notifications"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "automation.piIntegration Pi フック エージェント連携 ステータス 通知"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "automation.piIntegration Pi 훅 에이전트 연동 상태 알림"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "automation.piIntegration Pi 钩子 代理集成 状态 通知"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "automation.piIntegration Pi 掛鉤 代理程式整合 狀態 通知"
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration pi hooks agent integration status notifications"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration تكامل Pi خطافات وكيل حالة إشعارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi kukice integracija agenta status obavijesti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi-hooks agentintegration status notifikationer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi Hooks Agent Integration Status Benachrichtigungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi hooks integración de agente estado notificaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi hooks intégration agent état notifications"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration hook Pi integrazione agente stato notifiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi フック エージェント連携 ステータス 通知"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration hooks Pi ការរួមបញ្ចូលភ្នាក់ងារ ស្ថានភាព ការជូនដំណឹង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi 훅 에이전트 연동 상태 알림"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi-hook agentintegrasjon status varsler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration hooki Pi integracja agenta stan powiadomienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration hooks do Pi integração do agente status notificações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration хуки Pi интеграция агента состояние уведомления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration hooks ของ Pi การผสานรวมเอเจนต์ สถานะ การแจ้งเตือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi kancaları aracı entegrasyonu durum bildirimler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration хуки Pi інтеграція агента стан сповіщення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi 钩子 代理集成 状态 通知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi 掛鉤 代理程式整合 狀態 通知"
+          }
         }
       }
-    }
-  },
+    },
     "cli.hooks.setup.wrapperNote": {
       "extractionState": "manual",
       "localizations": {
