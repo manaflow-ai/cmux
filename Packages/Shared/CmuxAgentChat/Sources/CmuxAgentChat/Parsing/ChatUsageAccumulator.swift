@@ -37,11 +37,8 @@ import Foundation
 /// total, beside `last_token_usage`, which is the most recent call.
 /// Summing every cumulative report grows quadratically and sails past the
 /// context window. So the accumulator uses per-response records once they
-/// appear and cumulative events as the fallback before that. A cumulative
-/// prefix before the first record is dropped rather than kept as a baseline,
-/// because `total_token_usage` outlives a fork or a compaction: a delegated
-/// transcript opens with its parent's lifetime spend, and adding that would
-/// count the parent again in every child.
+/// appear and cumulative events as the fallback before that. A cumulative-
+/// only prefix remains as an unattributed baseline when records begin.
 ///
 /// The cumulative fallback is not simply the largest value reported.
 /// `total_token_usage` counts from the start of a *thread*, and a rollout
@@ -109,10 +106,11 @@ public struct ChatUsageAccumulator: Sendable {
     private var codexRecordUsageByModel: [String: ChatTokenUsage] = [:]
 
     // `banked` holds finished monotone cumulative runs and `current` the run
-    // still climbing. Both stop updating once records take over, because the
-    // cumulative stream is a thread figure rather than a transcript one.
+    // still climbing. Once response records appear, their cumulative prefix
+    // freezes as the unattributed baseline and records own all later usage.
     private var codexCumulativeBanked = ChatTokenUsage()
     private var codexCumulativeCurrent: ChatTokenUsage?
+    private var codexCumulativeBaseline = ChatTokenUsage()
 
     private var duplicateReports = 0
     private var unidentifiedReports = 0
@@ -140,6 +138,7 @@ public struct ChatUsageAccumulator: Sendable {
         case .none:
             break
         case .usageRecords:
+            usage += codexCumulativeBaseline
             usage += codexRecordUsage
             responses = ChatTokenUsage.saturatedSum(responses, codexResponseCount)
             for (model, modelUsage) in codexRecordUsageByModel {
@@ -323,14 +322,13 @@ public struct ChatUsageAccumulator: Sendable {
             Self.incrementSaturating(&duplicateReports)
             return
         }
-        // Records are precise, so they replace the cumulative reading rather
-        // than adding to it. A cumulative prefix is dropped on purpose: a
-        // `total_token_usage` figure is a thread total that survives forking
-        // and compaction, so a delegated transcript opens with its parent's
-        // lifetime spend. Adding that prefix would count the parent again in
-        // every child, which overstates by orders of magnitude; losing the
-        // handful of tokens a records-era transcript spent before its first
-        // record understates by a little. Understating is the safe direction.
+        if codexSource != .usageRecords {
+            codexCumulativeBaseline = codexCumulativeTotal
+        }
+        // Records are precise from this point forward. Freeze any cumulative
+        // prefix as an unattributed baseline; later cumulative snapshots can
+        // repeat or reset independently and cannot identify which records
+        // they already include.
         codexSource = .usageRecords
         Self.incrementSaturating(&codexResponseCount)
         let usage = codexUsage(from: usageValue)
@@ -356,14 +354,12 @@ public struct ChatUsageAccumulator: Sendable {
         readRateLimit(payload["rate_limits"])
     }
 
-    /// Folds one cumulative report into the monotone-run total.
+    /// Folds one fallback cumulative report into the monotone-run total.
     ///
-    /// Ignored entirely once records have taken over. Reading it there would
-    /// let a thread-lifetime figure back into a per-transcript total, and it
-    /// would also make repeated reads of the same file disagree with each
-    /// other, since a re-fed monotone run banks a second time.
+    /// Once response records appear they are authoritative. A cumulative
+    /// snapshot carries no response identities, so it cannot prove which
+    /// records it reflects and must not revise the frozen prefix.
     private mutating func readCodexCumulative(_ info: TranscriptJSONValue) {
-        guard codexSource != .usageRecords else { return }
         guard let cumulative = info["total_token_usage"],
               cumulative.object != nil
         else { return }
@@ -371,12 +367,16 @@ public struct ChatUsageAccumulator: Sendable {
             Self.incrementSaturating(&unidentifiedReports)
             return
         }
+        guard codexSource != .usageRecords else { return }
         let usage = codexUsage(from: cumulative)
-        // A leading zero report says a thread started, not that it spent
-        // anything, and flipping the source on it would claim the
-        // transcript is accounted for when nothing has been read.
-        guard !usage.isEmpty else { return }
-
+        if usage.isEmpty {
+            // Zero is a reset delimiter only after a run exists. A leading
+            // zero must not claim that cumulative accounting is active.
+            guard let current = codexCumulativeCurrent else { return }
+            codexCumulativeBanked += current
+            codexCumulativeCurrent = nil
+            return
+        }
         codexSource = .cumulativeEvents
         guard let current = codexCumulativeCurrent else {
             codexCumulativeCurrent = usage

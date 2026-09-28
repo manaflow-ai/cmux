@@ -747,6 +747,63 @@ struct ChatUsageAccumulatorTests {
         #expect(accumulator.totals.responses == 2)
     }
 
+    @Test("an unchanged cumulative snapshot cannot erase a record-only compaction")
+    func codexRecordOnlyCompactionAfterCumulativeTransition() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexTokenCountLine(
+                cumulativeInput: 100, cumulativeOutput: 0,
+                lastInput: 100, lastOutput: 0
+            ),
+            codexRecordLine(responseID: "record-1", input: 20, cached: 0, output: 0),
+            codexTokenCountLine(
+                cumulativeInput: 120, cumulativeOutput: 0,
+                lastInput: 20, lastOutput: 0
+            ),
+            // A compaction response is reported precisely, while the next
+            // cumulative snapshot repeats the prior thread total.
+            codexRecordLine(responseID: "record-2", input: 30, cached: 0, output: 0),
+            codexTokenCountLine(
+                cumulativeInput: 120, cumulativeOutput: 0,
+                lastInput: 30, lastOutput: 0
+            ),
+        ])
+
+        let totals = accumulator.totals
+        #expect(accumulator.codexSource == .usageRecords)
+        #expect(totals.responses == 2)
+        #expect(totals.usage.totalTokens == 150)
+    }
+
+    @Test("an explicit cumulative zero banks the current run without activating an empty stream")
+    func codexExplicitZeroDelimitsCumulativeRuns() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLine: codexTokenCountLine(
+            cumulativeInput: 0, cumulativeOutput: 0,
+            lastInput: 0, lastOutput: 0
+        ))
+        #expect(accumulator.codexSource == .none)
+        #expect(accumulator.totals.usage.isEmpty)
+
+        accumulator.ingest(codexLines: [
+            codexTokenCountLine(
+                cumulativeInput: 100, cumulativeOutput: 0,
+                lastInput: 100, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 0, cumulativeOutput: 0,
+                lastInput: 0, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 150, cumulativeOutput: 0,
+                lastInput: 150, lastOutput: 0
+            ),
+        ])
+
+        #expect(accumulator.codexSource == .cumulativeEvents)
+        #expect(accumulator.totals.usage.totalTokens == 250)
+    }
+
     @Test("Codex response identity retention is bounded")
     func codexResponseIdentityRetentionIsBounded() {
         var accumulator = ChatUsageAccumulator()
