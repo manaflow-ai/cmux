@@ -6,6 +6,7 @@ import CmuxWorkspaces
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSwiftRenderUI
+import CmuxUpdater
 import CmuxFoundation
 import Foundation
 import OSLog
@@ -188,6 +189,41 @@ final class HostSettingsActions: SettingsHostActions {
         } catch {
             hostSettingsLogger.error("Failed to open Settings \(purpose, privacy: .public) terminal")
         }
+    }
+
+    func terminalThemeGalleryContext() -> TerminalThemeGalleryContext? {
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            return nil
+        }
+        let configURL = CmuxGhosttyConfigPathResolver().editableConfigURL(
+            currentBundleIdentifier: Bundle.main.bundleIdentifier,
+            appSupportDirectory: appSupport
+        )
+        let themeDirectories = GhosttyThemeDirectories(
+            environment: ProcessInfo.processInfo.environment,
+            bundledThemeDirectories: [Bundle.main.resourceURL?.appendingPathComponent("ghostty/themes", isDirectory: true)]
+                .compactMap { $0 }
+        ).urls
+        return TerminalThemeGalleryContext(
+            configFile: CmuxManagedThemeConfigFile(url: configURL),
+            themeDirectories: themeDirectories,
+            readCurrentThemeValue: { GhosttyApp.userAppearanceConfigSummary().lastThemeDirective },
+            prefersDarkAppearance: NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        )
+    }
+
+    func terminalThemeConfigDidChange(phase: TerminalThemeReloadPhase) {
+        let phaseName: String
+        switch phase {
+        case .preview: phaseName = "preview"
+        case .final: phaseName = "final"
+        }
+        AppDelegate.shared?.reloadGhosttyConfigurationForCmuxThemeSource(
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(phase: phaseName)
+        )
     }
 
     func notifyShortcutSettingsDidChange() {
@@ -668,6 +704,18 @@ final class HostSettingsActions: SettingsHostActions {
         ProUpgradePresenter.present(source: .settingsCloudMachines)
     }
 
+    func appChannelSwitchTarget() -> SettingsAppChannelSwitchTarget? {
+        switch AppDelegate.shared?.appChannelSwitchTarget {
+        case .nightly: .nightly
+        case .stable: .stable
+        case nil: nil
+        }
+    }
+
+    func switchAppChannel() {
+        AppDelegate.shared?.switchAppChannel(nil)
+    }
+
     func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot {
         Self.mobilePhonePushSettingsSnapshot(
             from: PhonePushClient.shared.configuration()
@@ -815,6 +863,32 @@ final class HostSettingsActions: SettingsHostActions {
 
     func formattedFontSize(_ points: Double) -> String {
         CmuxGhosttyConfigSettingEditor().formattedFontSize(points)
+    }
+
+    func terminalGhosttyOptions() async -> GhosttyTerminalOptionsSnapshot {
+        await Task.detached(priority: .userInitiated) {
+            let resolved = GhosttyConfig.resolvedDirectiveValues(forKeys: GhosttyTerminalOptions.configKeys)
+            let environment = ConfigSourceEnvironment.live()
+            var sourcePaths: [GhosttyTerminalOptionKey: String] = [:]
+            for (key, path) in resolved.lastSourcePaths {
+                guard let optionKey = GhosttyTerminalOptionKey(rawValue: key) else { continue }
+                sourcePaths[optionKey] = environment.abbreviatedPath(for: URL(fileURLWithPath: path))
+            }
+            return GhosttyTerminalOptionsSnapshot(
+                options: GhosttyTerminalOptions(directives: resolved.values),
+                sourcePaths: sourcePaths
+            )
+        }.value
+    }
+
+    func applyTerminalGhosttyOption(_ change: GhosttyTerminalOptionChange) async -> Bool {
+        let key = change.key.rawValue
+        guard await fontConfigWriter.write(key: key, values: change.configValues) else {
+            hostSettingsLogger.warning("failed to persist \(key, privacy: .public)")
+            return false
+        }
+        GhosttyApp.shared.reloadConfiguration(source: "settings.terminal.ghosttyOption")
+        return true
     }
 
     func mobilePairingStatus() -> MobilePairingStatusSnapshot? {
@@ -999,7 +1073,8 @@ final class MobileHostStatusObserverToken: @unchecked Sendable {
     }
 }
 
-/// Serializes cmux Ghostty config writes for the font-size settings so rapid
+/// Serializes cmux Ghostty config writes from Settings (font sizes and the
+/// Terminal section's Ghostty option rows) so rapid
 /// successive saves apply in submission order instead of racing.
 ///
 /// The Settings sliders fire a save on every release and Reset tap. Routed
@@ -1016,6 +1091,17 @@ private actor FontConfigWriter {
     func write(key: String, value: String) -> Bool {
         do {
             try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, value: value)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Writes one `key = value` line per value, replacing every existing
+    /// assignment to `key` (for list keys such as `font-family`).
+    func write(key: String, values: [String]) -> Bool {
+        do {
+            try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, values: values)
             return true
         } catch {
             return false

@@ -298,12 +298,10 @@ class GhosttyApp {
         engine: GhosttyApp.shared,
         viewProvider: {
             let pasteboardService = GhosttyApp.terminalPasteboard
+            let client = TerminalPastePreparationWorkerClient
+                .reexecingCurrentBinary(pasteboardService: pasteboardService)
             let preparationService = TerminalImageTransferPreparationService(
                 operation: { request in
-                    let client = TerminalPastePreparationWorkerClient
-                        .reexecingCurrentBinary(
-                            pasteboardService: pasteboardService
-                    )
                     return try await client.prepare(request)
                 },
                 cleanup: { result in
@@ -355,6 +353,13 @@ class GhosttyApp {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
+    /// Diagnostics from the most recent full load of the user's Ghostty
+    /// config (launch or reload), read by the config-error notice.
+    private(set) var lastLoadedConfigDiagnosticMessages: [String] = []
+    /// Runs on the main actor immediately before a full configuration reload
+    /// reads the user's config files, so the config file watcher records
+    /// exactly what that load sees.
+    @MainActor var configurationFilesWillLoad: (@MainActor () -> Void)?
 #if DEBUG
     /// Installs `newConfig` as the app config and returns the previous one,
     /// which the caller then owns. Tests change a setting on a clone through
@@ -813,6 +818,7 @@ class GhosttyApp {
             primaryConfig,
             preferredColorScheme: initialColorScheme
         )
+        lastLoadedConfigDiagnosticMessages = Self.configDiagnosticMessages(primaryConfig)
         updateDefaultBackground(
             from: primaryConfig,
             source: "initialize.primaryConfig",
@@ -2094,10 +2100,12 @@ class GhosttyApp {
             completion()
             return
         }
+        configurationFilesWillLoad?()
         let renderingModeChanged = loadDefaultConfigFilesWithLegacyFallback(
             newConfig,
             preferredColorScheme: reloadColorScheme
         )
+        lastLoadedConfigDiagnosticMessages = Self.configDiagnosticMessages(newConfig)
         let stagedBaselineAppearance =
             defaultBackgroundValues(from: newConfig)
         GhosttyConfig.invalidateLoadCache()
@@ -3349,9 +3357,18 @@ class GhosttyApp {
             guard mode == GHOSTTY_SECURE_INPUT_ON || mode == GHOSTTY_SECURE_INPUT_OFF else { return false }
             let echoDisabled = mode == GHOSTTY_SECURE_INPUT_ON
             let terminalSurface = surfaceView.terminalSurface
-            DispatchQueue.main.async {
-                guard surfaceView.terminalSurface === terminalSurface else { return }
-                terminalSurface?.hostedView.setPasswordInputActive(echoDisabled)
+            // The model outlives its runtime (hibernation, stale-runtime
+            // release), so also pin the runtime the action came from. An
+            // action queued by a released runtime must not re-show the badge
+            // that terminalSurfaceRuntimeDidRelease() cleared. The per-runtime
+            // callback context is compared instead of the native pointer,
+            // which an allocator may reuse for the replacement runtime.
+            DispatchQueue.main.async { [weak callbackContext] in
+                guard surfaceView.terminalSurface === terminalSurface,
+                      let callbackContext,
+                      let terminalSurface,
+                      terminalSurface.isActiveRuntimeCallbackContext(callbackContext) else { return }
+                terminalSurface.hostedView.setPasswordInputActive(echoDisabled)
             }
             return true
         case GHOSTTY_ACTION_SCROLLBAR:
@@ -4422,7 +4439,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func setupKeyboardCopyModeCursorOverlay() {
         keyboardCopyModeCursorOverlayView.wantsLayer = true
         keyboardCopyModeCursorOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
-        keyboardCopyModeCursorOverlayView.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        keyboardCopyModeCursorOverlayView.layer?.borderColor = (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).themeNSColor.cgColor
         keyboardCopyModeCursorOverlayView.layer?.borderWidth = 1
         keyboardCopyModeCursorOverlayView.isHidden = true
         addSubview(keyboardCopyModeCursorOverlayView, positioned: .above, relativeTo: nil)
@@ -10211,7 +10228,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     private var lastFlashStyle: FlashStyle = .navigation
     private var workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
-    private var workspaceAttentionNSColor = NSColor.systemBlue
+    private var workspaceAttentionNSColor = WorkspaceAttentionColor(configuredHex: nil).nsColor
     private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
@@ -10222,7 +10239,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
-    private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
+    private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlayRoot>?
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
     private lazy var pasteFailureNoticePresenter = TerminalPasteFailureNoticePresenter()
@@ -10510,8 +10527,7 @@ final class GhosttySurfaceScrollView: NSView {
         inactiveOverlayView.isHidden = true
         addSubview(inactiveOverlayView)
         dropZoneOverlayView.wantsLayer = true
-        dropZoneOverlayView.layer?.backgroundColor = cmuxAccentNSColor().withAlphaComponent(0.25).cgColor
-        dropZoneOverlayView.layer?.borderColor = cmuxAccentNSColor().cgColor
+        applyAccentColor(AppDelegate.shared?.accentColor ?? CmuxAccentColor())
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true
@@ -10520,7 +10536,7 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingOverlayView.layer?.masksToBounds = false
         notificationRingOverlayView.autoresizingMask = [.width, .height]
         let notificationRingStyle = WorkspaceAttentionCoordinator.notificationRingStyle
-        let notificationRingColor = NSColor.systemBlue
+        let notificationRingColor = WorkspaceAttentionColor(configuredHex: nil).nsColor
         notificationRingLayer.fillColor = NSColor.clear.cgColor
         notificationRingLayer.strokeColor = notificationRingColor.cgColor
         notificationRingLayer.lineWidth = NotificationRingMetrics.lineWidth
@@ -10539,7 +10555,7 @@ final class GhosttySurfaceScrollView: NSView {
         flashOverlayView.layer?.masksToBounds = false
         flashOverlayView.autoresizingMask = [.width, .height]
         let flashStyle = WorkspaceAttentionCoordinator.flashStyle(for: .navigation)
-        let flashColor = NSColor.systemBlue
+        let flashColor = WorkspaceAttentionColor(configuredHex: nil).nsColor
         flashLayer.fillColor = NSColor.clear.cgColor
         flashLayer.strokeColor = flashColor.cgColor
         flashLayer.lineWidth = NotificationRingMetrics.lineWidth
@@ -10685,6 +10701,13 @@ final class GhosttySurfaceScrollView: NSView {
         passwordInputIndicatorView.frame = bounds
         passwordInputIndicatorView.autoresizingMask = [.width, .height]
         addSubview(passwordInputIndicatorView)
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(cmuxAccentColorDidChange(_:)),
+            name: CmuxAccentColor.didChangeNotification,
+            object: nil
+        )
 
         scrollView.contentView.postsBoundsChangedNotifications = true
         observers.append(NotificationCenter.default.addObserver(
@@ -11388,7 +11411,26 @@ final class GhosttySurfaceScrollView: NSView {
     func setWorkspaceAttentionColor(_ color: WorkspaceAttentionColor) {
         guard color != workspaceAttentionColor else { return }
         workspaceAttentionColor = color
-        workspaceAttentionNSColor = color.nsColor
+        applyWorkspaceAttentionNSColor()
+    }
+
+    /// Re-applies the cached drop-zone and copy-mode accent `CGColor`s after
+    /// the resolved cmux accent changes. The attention ring and flash get
+    /// theirs through ``setWorkspaceAttentionColor(_:)``.
+    @objc private func cmuxAccentColorDidChange(_ notification: Notification) {
+        guard let observer = notification.object as? CmuxAccentColorObserver else { return }
+        applyAccentColor(observer.current)
+    }
+
+    private func applyAccentColor(_ accentColor: CmuxAccentColor) {
+        let accent = accentColor.themeNSColor
+        dropZoneOverlayView.layer?.backgroundColor = accent.withAlphaComponent(0.25).cgColor
+        dropZoneOverlayView.layer?.borderColor = accent.cgColor
+        surfaceView.keyboardCopyModeCursorOverlayView.layer?.borderColor = accent.cgColor
+    }
+
+    private func applyWorkspaceAttentionNSColor() {
+        workspaceAttentionNSColor = workspaceAttentionColor.nsColor
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -11508,7 +11550,7 @@ final class GhosttySurfaceScrollView: NSView {
     private func makeSearchOverlayRootView(
         terminalSurface: TerminalSurface,
         searchState: TerminalSurface.SearchState
-    ) -> SurfaceSearchOverlay {
+    ) -> SurfaceSearchOverlayRoot {
         SurfaceSearchOverlay(
             tabId: terminalSurface.tabId,
             surfaceId: terminalSurface.id,
@@ -11529,6 +11571,7 @@ final class GhosttySurfaceScrollView: NSView {
                 self?.moveFocus()
             }
         )
+        .cmuxAccentColorEnvironment()
     }
 
     private func findEditableSearchField(in view: NSView?) -> NSTextField? {
@@ -13238,7 +13281,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard let view = resolvedKeyboardFocusOwnerView(for: responder) else { return false }
         var current: NSView? = view
         while let v = current {
-            if v is NSHostingView<SurfaceSearchOverlay> { return true }
+            if v is NSHostingView<SurfaceSearchOverlayRoot> { return true }
             let typeName = String(describing: type(of: v))
             if typeName.contains("BrowserSearchOverlay") { return true }
             current = v.superview
@@ -13716,6 +13759,13 @@ final class GhosttySurfaceScrollView: NSView {
             bottomThreshold: Double(Self.scrollToBottomThreshold)
         )
 
+        guard surfaceView.terminalSurface?.ioMode != .manualMirror else {
+            // A source-Mac grid can overflow a smaller local mirror pane. Its
+            // scroll is local presentation state; never send it back as a
+            // viewport mutation that could reflow the source terminal.
+            return
+        }
+
         let row = Int(topBasedScrollOffset / cellHeight)
 
         guard row != lastSentRow else { return }
@@ -13848,7 +13898,9 @@ final class GhosttySurfaceScrollView: NSView {
         TerminalScrollBarPresencePolicy(
             allowedBySettings: terminalScrollBarAllowedBySettings(),
             scrollerStyle: scrollView.scrollerStyle == .legacy ? .legacy : .overlay,
-            hasScrollback: surfaceHasScrollback()
+            hasScrollback: surfaceHasScrollback(),
+            hasManualMirrorOverflow: surfaceView.terminalSurface?.ioMode == .manualMirror
+                && documentView.frame.height > scrollView.contentView.bounds.height + 0.5
         ).isPresent
     }
 

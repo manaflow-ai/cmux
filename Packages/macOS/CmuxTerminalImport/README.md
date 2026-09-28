@@ -9,7 +9,8 @@ resulting `GhosttyImportPlan` as a diff and writes cmux's own config and theme f
   literal top-level WezTerm Lua assignments, and Warp theme YAML.
 - `GhosttyImportMapper` turns `ImportedTerminalSettings` into a theme file, config
   settings and notes about what was skipped or approximated.
-- `GhosttyConfigPatcher` applies settings to a config body and reports old and new values.
+- `GhosttyConfigDiffer` compares settings with a config body and reports old and new values;
+  the CLI writes through cmux's shared `CmuxGhosttyConfigSettingEditor`.
 
 Tests use fixtures and inject every outside dependency:
 

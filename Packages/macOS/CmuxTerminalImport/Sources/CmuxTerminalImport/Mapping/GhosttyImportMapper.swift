@@ -123,9 +123,9 @@ public struct GhosttyImportMapper: Sendable {
     private func appendFont(for settings: ImportedTerminalSettings, to plan: inout GhosttyImportPlan) {
         if let name = settings.fontName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
             if !settings.fontNameIsPostScript {
-                plan.settings.append(.init(key: "font-family", value: "\"\(name)\""))
+                plan.settings.append(Self.fontFamily(name))
             } else if let family = fontResolver.familyName(forPostScriptName: name) {
-                plan.settings.append(.init(key: "font-family", value: "\"\(family)\""))
+                plan.settings.append(Self.fontFamily(family))
             } else {
                 // A name Ghostty can't find would fall back silently, so keep the current font.
                 plan.notes.append("Font \"\(name)\" is not installed system-wide (it may ship inside the app), so the font family stays as is.")
@@ -173,6 +173,12 @@ public struct GhosttyImportMapper: Sendable {
         case let (a?, b?):
             return points(a) == points(b) ? "\(points(a))" : "\(points(a)),\(points(b))"
         }
+    }
+
+    /// `font-family` as a reset followed by the family, so the import replaces the
+    /// user's font list rather than adding a fallback after it.
+    static func fontFamily(_ family: String) -> GhosttyConfigSetting {
+        GhosttyConfigSetting(key: "font-family", values: ["\"\"", "\"\(family)\""])
     }
 
     /// Formats a number without a trailing `.0` and with at most two decimals.

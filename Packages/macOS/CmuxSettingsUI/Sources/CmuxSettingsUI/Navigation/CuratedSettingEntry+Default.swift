@@ -17,19 +17,20 @@ extension Array where Element == CuratedSettingEntry {
     /// a different set of entries pass their own array via
     /// ``SettingsSearchIndex/init(catalog:curatedEntries:)``.
     public static func cmuxDefault(catalog: SettingCatalog) -> [CuratedSettingEntry] {
-        [
+        appendingDevicesEntries(to: [
             // Account / integrations
             .init(section: .account, id: "account", title: String(localized: "settings.section.account", defaultValue: "Account"), synonyms: "Account auth authentication login logout signin sign-in signout sign-out email user profile stack team"),
             .init(section: .automation, id: "claude-code", title: String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), synonyms: "Claude Code Integration automation.claudeCodeIntegration claude code hooks agent integration status notifications"),
+            .init(section: .automation, id: "pi", title: String(localized: "settings.automation.pi", defaultValue: "Pi Integration", bundle: .module), paths: ["automation.piIntegration"], synonyms: "Pi Integration automation.piIntegration pi agent hooks notifications status"),
             .init(section: .automation, id: "claude-path", title: String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), synonyms: "Claude Binary Path automation.claudeBinaryPath claude binary executable path cli command custom"),
             .init(section: .automation, id: "ripgrep-path", title: String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"), synonyms: "Ripgrep Binary Path automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"),
             .init(section: .automation, id: "subagent-notifications", title: String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"), synonyms: "Suppress Subagent Notifications automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"),
             .init(section: .automation, id: "cursor", title: String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), synonyms: "Cursor Integration automation.cursorIntegration cursor ide agent hooks notifications"),
             .init(section: .automation, id: "gemini", title: String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), synonyms: "Gemini CLI Integration automation.geminiIntegration gemini cli google agent hooks notifications"),
-
             // App
             .init(section: .app, id: "language", title: String(localized: "settings.app.language", defaultValue: "Language"), synonyms: "Language app.language locale l10n localization translation japanese english ja en nihongo restart"),
             .init(section: .app, id: "appearance", title: String(localized: "settings.app.appearance", defaultValue: "Appearance"), synonyms: "Appearance app.appearance theme color scheme light mode dark mode system mode"),
+            .init(section: .app, id: "accent-color", title: String(localized: "settings.app.accentColor", defaultValue: "Accent Color"), synonyms: "Accent Color app.accentColor accent highlight tint blue purple system accent macOS accent cmux blue"),
             .init(section: .app, id: "app-icon", title: String(localized: "settings.app.appIcon", defaultValue: "App Icon"), synonyms: "App Icon app.appIcon dock icon application icon app switcher alternate icon"),
             .init(section: .app, id: "new-workspace-placement", title: String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"), synonyms: "New Workspace Placement app.newWorkspacePlacement new tab insert position order top bottom end"),
             .init(section: .app, id: "workspace-layouts", title: String(localized: "settings.app.workspaceLayouts", defaultValue: "Workspace Layouts"), synonyms: "workspace layouts customize layout default new workspace menu save delete cmux.json actions"),
@@ -93,6 +94,8 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "warn-before-quit", title: String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), synonyms: "Warn Before Quit app.confirmQuit quit confirmation command-q cmd-q exit close app"),
             .init(userFacing: catalog.app.warnBeforeClosingTab),
             .init(section: .app, id: "warn-before-closing-tab-x-button", title: String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before Tab Close Button"), synonyms: "Warn Before Tab Close Button app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),
+            .init(userFacing: catalog.app.warnBeforeClosingWorkspace),
+            .init(userFacing: catalog.app.warnBeforeClosingWindow),
             .init(userFacing: catalog.app.hideTabCloseButton),
             .init(userFacing: catalog.app.renameSelectsExistingName),
             .init(section: .app, id: "palette-search-all", title: String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), synonyms: "Command Palette Searches All Surfaces app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
@@ -196,7 +199,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "password-input-indicator",
                 title: String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
-                detailText: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Shows a lock badge in the terminal corner while a program such as sudo or ssh reads a password with echo off."),
+                detailText: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Shows a lock badge in the terminal corner while a program such as sudo or ssh reads a password with echo off. Only local prompts are detected: ssh's own password prompt counts, but sudo inside an ssh session does not."),
                 paths: ["terminal.showPasswordInputIndicator"],
                 synonyms: "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"
             ),
@@ -204,7 +207,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "password-input-dots",
                 title: String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"),
-                detailText: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Shows one dot in the badge per typed character. cmux keeps only a count, never the characters."),
+                detailText: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Shows one dot in the badge per typed character. cmux keeps only a count, never the characters. Pasted text is not counted."),
                 paths: ["terminal.showPasswordInputDots"],
                 synonyms: "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"
             ),
@@ -499,11 +502,13 @@ extension Array where Element == CuratedSettingEntry {
                 ].joined(separator: " ")
             ),
             .init(section: .keyboardShortcuts, id: "modifier-hold-hints", title: String(localized: "settings.shortcuts.showModifierHoldHints", defaultValue: "Show Shortcut Hints While Holding Modifier Keys"), synonyms: "Show Shortcut Hints While Holding Modifier Keys shortcuts.showModifierHoldHints shortcut hints hotkey hints command cmd modifier hold chips badges"),
+            .init(section: .keyboardShortcuts, id: "base-keymap", title: String(localized: "settings.shortcuts.baseKeymap", defaultValue: "Base Keymap"), synonyms: "Base Keymap preset keybindings iterm iterm2 terminal app terminal.app tmux prefix ctrl-b coming from switch shortcuts macos conflicts"),
             .init(section: .keyboardShortcuts, id: "shortcut-chords", title: String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"), synonyms: "Shortcut Chords tmux prefix ctrl-b control-b multi key sequence chord cmux json"),
             .init(section: .keyboardShortcuts, id: "reset-defaults", title: String(localized: "settings.shortcuts.resetDefaults", defaultValue: "Reset Default Shortcuts"), synonyms: "Reset Default Shortcuts reset restore default defaults built in builtin shortcuts hotkeys keybindings commands"),
 
             // Workspace colors
             .init(section: .workspaceColors, id: "indicator", title: String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), synonyms: "Workspace Color Indicator workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
+            .init(section: .workspaceColors, id: "subtle-selection", title: String(localized: "settings.workspaceColors.subtleSelection", defaultValue: "Subtle Selection Highlight"), synonyms: "Subtle Selection Highlight workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent"),
             .init(section: .workspaceColors, id: "selection", title: String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), synonyms: "Selection Highlight workspaceColors.selectionColor selected workspace color highlight background active tab"),
             .init(section: .workspaceColors, id: "badge", title: String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), synonyms: "Notification Badge workspaceColors.notificationBadgeColor unread notification badge color dot count"),
             .init(
@@ -522,7 +527,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // Reset
             .init(section: .reset, id: "reset-all", title: String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), synonyms: "Reset All Settings factory reset restore defaults clear preferences"),
-        ]
+        ]) + terminalGhosttyOptionEntries
     }
 
     private static var keyboardShortcutActionSynonyms: String {

@@ -146,7 +146,13 @@ PATH_OWNERS = {
     "scripts/ci/check_reusable_workflow_permissions.py": frozenset(("ci",)),
     "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution",)),
     "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
+    # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
+    "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
+    # tests/test_ci_ui_tests_dispatch.py imports the script and reads the
+    # workflow; owned_pool_rescue.py and classify_failures.py import it too.
+    "scripts/ci/ui_tests_dispatch.py": frozenset(("app-host-execution", "ci")),
+    ".github/workflows/ci-ui-tests.yml": frozenset(("app-host-execution", "ci")),
     # detect_ci_change_areas.py imports this to decide the swift-package-tests
     # route, so the ci group's router tests observe an edit to it even though
     # no guard step names it in a `run:`.

@@ -8,6 +8,7 @@ import SwiftUI
 /// Renders the project chrome (project name, scheme/configuration pickers,
 /// tab strip) and dispatches into the per-tab subviews.
 struct ProjectPanelView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @ObservedObject var panel: ProjectPanel
     let isFocused: Bool
     let onRequestPanelFocus: () -> Void
@@ -163,7 +164,7 @@ struct ProjectPanelView: View {
                         .background(
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(panel.activeTab == tab
-                                      ? Color.accentColor
+                                      ? cmuxAccent.color
                                       : Color.secondary.opacity(0.10))
                         )
                         .foregroundStyle(panel.activeTab == tab ? Color.white : Color.primary)

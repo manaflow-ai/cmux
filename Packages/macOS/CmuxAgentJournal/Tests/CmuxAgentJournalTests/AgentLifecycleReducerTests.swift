@@ -77,6 +77,15 @@ struct AgentLifecycleReducerTests {
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .running)
     }
 
+    @Test func idleAttentionResolutionUsesDeclaredPhase() {
+        let state = fold([
+            event(1, .turnStarted),
+            event(2, .questionRequested),
+            event(3, .attentionResolved, declaredPhase: .idle),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
+    }
+
     @Test func sessionEndedClearsEntry() {
         let state = fold([event(1, .turnStarted), event(2, .sessionEnded)])
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == nil)

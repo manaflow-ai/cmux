@@ -190,6 +190,14 @@ enum AppSettingsFileMapping {
             defaultsKey: app.warnBeforeClosingTabXButton.userDefaultsKey
         ),
         .init(
+            jsonKey: "warnBeforeClosingWorkspace",
+            defaultsKey: app.warnBeforeClosingWorkspace.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "warnBeforeClosingWindow",
+            defaultsKey: app.warnBeforeClosingWindow.userDefaultsKey
+        ),
+        .init(
             jsonKey: "hideTabCloseButton",
             defaultsKey: app.hideTabCloseButton.userDefaultsKey
         ),
@@ -387,6 +395,7 @@ enum AutomationSettingsFileMapping {
 
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(jsonKey: "claudeCodeIntegration", defaultsKey: automation.claudeCodeIntegration.userDefaultsKey),
+        .init(jsonKey: "piIntegration", defaultsKey: automation.piIntegration.userDefaultsKey),
         .init(
             jsonKey: "suppressSubagentNotifications",
             defaultsKey: automation.suppressSubagentNotifications.userDefaultsKey

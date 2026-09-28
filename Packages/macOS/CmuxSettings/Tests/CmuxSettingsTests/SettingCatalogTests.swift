@@ -23,6 +23,10 @@ struct SettingCatalogTests {
                 "automation.claudeCodeIntegration",
                 "integrations.claudeCode.hooksEnabled",
             ],
+            "piHooksEnabled": [
+                "automation.piIntegration",
+                "integrations.pi.hooksEnabled",
+            ],
             "codexHooksEnabled": [
                 "automation.codexIntegration",
                 "integrations.codex.hooksEnabled",
