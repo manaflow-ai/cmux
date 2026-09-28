@@ -19,7 +19,7 @@ struct AgentTranscriptLastReplyTests {
             #"{"type":"user","timestamp":"2026-09-28T14:43:00.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
             #"{"type":"assistant","timestamp":"2026-09-28T14:43:01.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"}]}}"#,
         ]
-        #expect(AgentTranscriptLastReply.lastReplyDate(inJSONLLines: lines) == Self.date("2026-09-28T14:41:03.250Z"))
+        #expect(AgentTranscriptLastReply().lastReplyDate(inJSONLLines: lines) == Self.date("2026-09-28T14:41:03.250Z"))
     }
 
     @Test("sidechain, blank, synthetic and API-error text do not count as a reply")
@@ -31,7 +31,7 @@ struct AgentTranscriptLastReplyTests {
             #"{"type":"assistant","timestamp":"2026-09-28T09:07:00.000Z","message":{"role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"No response requested."}]}}"#,
             #"{"type":"assistant","isApiErrorMessage":true,"timestamp":"2026-09-28T09:08:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"API Error: overloaded"}]}}"#,
         ]
-        #expect(AgentTranscriptLastReply.lastReplyDate(inJSONLLines: lines) == Self.date("2026-09-28T09:00:00.000Z"))
+        #expect(AgentTranscriptLastReply().lastReplyDate(inJSONLLines: lines) == Self.date("2026-09-28T09:00:00.000Z"))
     }
 
     @Test("a Codex rollout assistant message counts; reasoning and function calls do not")
@@ -41,14 +41,14 @@ struct AgentTranscriptLastReplyTests {
             #"{"timestamp":"2026-09-28T10:00:02.000Z","type":"response_item","payload":{"type":"reasoning","summary":[]}}"#,
             #"{"timestamp":"2026-09-28T10:00:03.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"role\":\"assistant\"}"}}"#,
         ]
-        #expect(AgentTranscriptLastReply.lastReplyDate(inJSONLLines: lines) == Self.date("2026-09-28T10:00:00.000Z"))
+        #expect(AgentTranscriptLastReply().lastReplyDate(inJSONLLines: lines) == Self.date("2026-09-28T10:00:00.000Z"))
     }
 
     @Test("no reply, malformed lines and whole-second timestamps")
     func edgeCases() {
-        #expect(AgentTranscriptLastReply.lastReplyDate(inJSONLLines: []) == nil)
-        #expect(AgentTranscriptLastReply.lastReplyDate(inJSONLLines: ["{\"assistant\"", "not json"]) == nil)
+        #expect(AgentTranscriptLastReply().lastReplyDate(inJSONLLines: []) == nil)
+        #expect(AgentTranscriptLastReply().lastReplyDate(inJSONLLines: ["{\"assistant\"", "not json"]) == nil)
         let whole = [#"{"type":"assistant","timestamp":"2026-09-28T10:00:00Z","message":{"role":"assistant","content":"plain string reply"}}"#]
-        #expect(AgentTranscriptLastReply.lastReplyDate(inJSONLLines: whole) == Self.date("2026-09-28T10:00:00.000Z"))
+        #expect(AgentTranscriptLastReply().lastReplyDate(inJSONLLines: whole) == Self.date("2026-09-28T10:00:00.000Z"))
     }
 }

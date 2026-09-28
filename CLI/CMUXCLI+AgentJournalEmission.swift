@@ -277,7 +277,7 @@ extension CMUXCLI {
         var repliedAt: Date?
         if let path = normalizedHookValue(transcriptPath),
            let lines = readRecentTextFileLines(path: path, maxBytes: Self.agentLastReplyTranscriptTailBytes) {
-            repliedAt = AgentTranscriptLastReply.lastReplyDate(inJSONLLines: lines)
+            repliedAt = AgentTranscriptLastReply().lastReplyDate(inJSONLLines: lines)
         } else if payloadCarriesReply {
             repliedAt = Date()
         }

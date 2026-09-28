@@ -11,11 +11,14 @@ public import Foundation
 ///
 /// - Claude Code: `{"type":"assistant","timestamp":…,"message":{"role":"assistant","content":[{"type":"text",…}]}}`
 /// - Codex rollouts: `{"timestamp":…,"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text",…}]}}`
-public enum AgentTranscriptLastReply {
+public struct AgentTranscriptLastReply: Sendable {
+    /// Creates a reader; it holds no state.
+    public init() {}
+
     /// The timestamp of the newest reply in `lines`, or nil when none of them
     /// holds one. Lines are scanned newest first and parsing stops at the
     /// first match, so callers can pass a bounded tail of a large file.
-    public static func lastReplyDate(inJSONLLines lines: [String]) -> Date? {
+    public func lastReplyDate(inJSONLLines lines: [String]) -> Date? {
         for line in lines.reversed() {
             // Cheap filter before JSON parsing; tool output dominates the tail.
             guard line.contains("\"assistant\""),
@@ -29,7 +32,7 @@ public enum AgentTranscriptLastReply {
         return nil
     }
 
-    static func replyDate(in object: [String: Any]) -> Date? {
+    func replyDate(in object: [String: Any]) -> Date? {
         // Subagent messages and Claude's synthetic or API-error assistant
         // lines are not something the agent said to the person.
         if object["isSidechain"] as? Bool == true || object["isApiErrorMessage"] as? Bool == true {
@@ -55,7 +58,7 @@ public enum AgentTranscriptLastReply {
         return parseTimestamp(rawTimestamp)
     }
 
-    private static func hasVisibleText(_ content: Any?) -> Bool {
+    private func hasVisibleText(_ content: Any?) -> Bool {
         if let text = content as? String {
             return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
@@ -70,7 +73,7 @@ public enum AgentTranscriptLastReply {
         }
     }
 
-    private static func parseTimestamp(_ raw: String) -> Date? {
+    private func parseTimestamp(_ raw: String) -> Date? {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = fractional.date(from: raw) { return date }
