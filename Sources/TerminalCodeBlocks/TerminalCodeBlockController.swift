@@ -398,7 +398,7 @@ final class TerminalCodeBlockController {
         let surfaceID = terminalSurface.id
         let tabID = terminalSurface.tabId
         guard let app = AppDelegate.shared,
-              app.remoteTmuxController?.isMirrorPaneSurface(surfaceID) != true,
+              !app.remoteTmuxController.isMirrorPaneSurface(surfaceID),
               let manager = app.tabManagerFor(tabId: tabID) ?? app.tabManager,
               let panel = manager.createSplitOutcome(tabId: tabID, surfaceId: surfaceID, direction: .right).panel else {
             _ = GhosttyApp.terminalPasteboard.writeString(text, to: .general)
