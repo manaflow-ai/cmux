@@ -392,6 +392,11 @@ extension MobileShellComposite {
                                 reason: "connectionRecovery.\(trigger)",
                                 restartEventStream: true
                             )
+                        } else {
+                            // Retaining the terminal subscription must not
+                            // skip foreground notification cleanup. Wait for
+                            // this probe so recovery keeps ownership of dialing.
+                            self.scheduleNotificationReconcile(client: expectedClient)
                         }
                         self.applyConnectionRecoveryOwnerState()
                         return
@@ -416,6 +421,8 @@ extension MobileShellComposite {
                                 reason: "connectionRecovery.\(trigger).transportAlive",
                                 restartEventStream: true
                             )
+                        } else {
+                            self.scheduleNotificationReconcile(client: expectedClient)
                         }
                         self.applyConnectionRecoveryOwnerState()
                         return
@@ -481,6 +488,8 @@ extension MobileShellComposite {
                 // shared reconnect entry owns the hard deadline after claiming
                 // its generation synchronously, so every lifecycle caller gets
                 // the same wedge protection without a second race here.
+                let reconnectGenerationBeforeAttempt =
+                    self.storedMacReconnectGeneration
                 let reconnectOutcome = await self.reconnectActiveMacOutcome(
                     stackUserID: stackUserID,
                     refreshBackupBeforeDial: false
@@ -490,7 +499,8 @@ extension MobileShellComposite {
                 guard self.settleConnectionRecovery(
                     attempt,
                     outcome: reconnectOutcome,
-                    connectionGeneration: self.connectionGeneration
+                    connectionGeneration: self.connectionGeneration,
+                    reconnectGenerationBeforeAttempt: reconnectGenerationBeforeAttempt
                 ) else { return }
                 if !reconnectOutcome.didConnect {
                     self.connectionState = .disconnected
@@ -573,22 +583,64 @@ extension MobileShellComposite {
     }
 
     @discardableResult
+    /// Settles a recovery attempt from its reconnect outcome. Returns `true`
+    /// when the caller must tear the connection down.
+    ///
+    /// A recovery that did not connect never owns the live connection, so it
+    /// must not tear down one that another path established (a user retry,
+    /// a Mac switch). It stands down instead, and fails only when no newer
+    /// reconnect is left that could still connect.
+    /// `reconnectGenerationBeforeAttempt` separates reconnects started after
+    /// this attempt from older ones; `nil` treats every in-flight reconnect as
+    /// newer.
     func settleConnectionRecovery(
         _ attempt: MobileConnectionRecoveryOwner.Attempt,
         outcome: StoredMacReconnectOutcome,
-        connectionGeneration: UUID
+        connectionGeneration: UUID,
+        reconnectGenerationBeforeAttempt: Int? = nil
     ) -> Bool {
+        let failure: DiagnosticFailureKind
         switch outcome {
         case .connected:
             return settleSuccessfulConnectionRecovery(
                 attempt,
                 connectionGeneration: connectionGeneration
             )
-        case .failed(let failure):
-            return failConnectionRecovery(attempt, failure: failure)
+        case .failed(let kind):
+            failure = kind
         case .superseded:
-            return failConnectionRecovery(attempt, failure: .superseded)
+            failure = .superseded
         }
+        guard newerStoredMacReconnectOwnsConnection(
+            than: reconnectGenerationBeforeAttempt
+        ) else {
+            return failConnectionRecovery(attempt, failure: failure)
+        }
+        standDownConnectionRecovery(attempt, failure: failure)
+        return false
+    }
+
+    /// Defers this attempt's verdict to the connection or newer reconnect
+    /// that owns the shell now, without touching either.
+    private func standDownConnectionRecovery(
+        _ attempt: MobileConnectionRecoveryOwner.Attempt,
+        failure: DiagnosticFailureKind
+    ) {
+        guard connectionRecoveryOwner.standDownForNewerOwner(attempt) else { return }
+        recordConnectionRecoveryFailed(attempt, failure: failure)
+        settleStoodDownConnectionRecoveryIfOwnerless()
+        applyConnectionRecoveryOwnerState()
+    }
+
+    /// Resolves a stood-down recovery once no newer reconnect is in flight:
+    /// quietly when a connection is live, otherwise as a failed recovery so
+    /// the UI offers Retry instead of staying at Reconnecting.
+    func settleStoodDownConnectionRecoveryIfOwnerless() {
+        guard case .supersededAwaitingOwner = connectionRecoveryOwner.phase else { return }
+        let connected = hasActiveMacConnection
+        guard connected || storedMacReconnectGenerationsInFlight.isEmpty else { return }
+        _ = connectionRecoveryOwner.settleStoodDownAttempt(connected: connected)
+        applyConnectionRecoveryOwnerState()
     }
 
     @discardableResult
@@ -682,6 +734,10 @@ extension MobileShellComposite {
             isRecoveringConnection = true
             connectionRecoveryFailed = false
             markMacConnectionReconnecting()
+        case .supersededAwaitingOwner:
+            // A newer reconnect owns the visible state until it settles.
+            isRecoveringConnection = true
+            connectionRecoveryFailed = false
         case .failed:
             isRecoveringConnection = false
             connectionRecoveryFailed = true
@@ -1379,6 +1435,7 @@ extension MobileShellComposite {
 
     static func raceAgainstDeadline<Value: Sendable>(
         nanoseconds: UInt64,
+        sleep: @escaping RPCTaskTimeout.Sleep = RPCTaskTimeout.continuousClockSleep,
         _ operation: @escaping @Sendable () async -> Value
     ) async -> DeadlineRaceOutcome<Value> {
         let operationTask = Task { await operation() }
@@ -1393,7 +1450,7 @@ extension MobileShellComposite {
         let didTimeOut: Bool
         let wasCancelled: Bool
         do {
-            value = try await RPCTaskTimeout().value(
+            value = try await RPCTaskTimeout(sleep: sleep).value(
                 deadlineWaiter,
                 timeoutNanoseconds: nanoseconds
             )
