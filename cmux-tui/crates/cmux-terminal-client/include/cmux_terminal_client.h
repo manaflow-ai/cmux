@@ -118,6 +118,16 @@ void cmux_terminal_client_set_output_callback(
     CmuxTerminalClient *client,
     CmuxTerminalClientOutputCallback callback,
     void *context);
+// Asks for viewer-size priority on the next attach: while this client is
+// attached, the terminal grid follows its reported size instead of the
+// smallest size among all attached viewers, and other viewers (a Mac showing
+// the same terminal) crop or pan. Like the output callback's delivery mode,
+// the choice is read when an attach begins and holds for that attachment and
+// its automatic reconnects; to change it for the attached terminal, detach and
+// attach again. A daemon or terminal host that predates priority keeps the
+// smallest-viewer behavior without failing the attach. Returns false only for a
+// NULL client.
+bool cmux_terminal_client_set_viewer_size_priority(CmuxTerminalClient *client, bool preferred);
 // Stops all work and frees client. The pointer must not be used afterward.
 void cmux_terminal_client_disconnect(CmuxTerminalClient *client);
 

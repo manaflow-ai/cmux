@@ -71,6 +71,20 @@ A resync (the daemon asks the client to start over) arrives as a new
 embedding emulator encodes keys itself, so `send_key` is unavailable in this
 mode.
 
+## Viewer-size priority
+
+By default the terminal host sizes a shared terminal to the smallest grid among
+its attached viewers, so a phone and a Mac on the same terminal both get a size
+neither asked for. `cmux_terminal_client_set_viewer_size_priority(client, true)`
+before attaching makes this client's size win: other viewers crop or pan
+instead. The choice is fixed per attachment, like the output callback, and
+every automatic reconnect repeats it. The client asks by adding
+`viewer_size_priority: preferred` to the `terminal-bytes-v1` open. A daemon
+without `terminal-viewer-size-priority-v1` rejects that key as
+`invalid-argument`; the client then reopens once without it, keeps the
+smallest-viewer behavior, and stops asking on that connection. A current daemon
+in front of an older terminal host falls back the same way without an error.
+
 ## Terminal catalog
 
 `cmux_terminal_client_list_terminals` and `cmux_terminal_client_create_terminal`

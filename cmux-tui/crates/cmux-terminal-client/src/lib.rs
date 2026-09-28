@@ -20,7 +20,10 @@ use cmux_remote::provider::{
     ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL, TransportProvider, WireGuardDialer,
 };
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer, ServiceStream};
-use cmux_remote_protocol::{Lane, LanePolicy, Service, ServiceControl, SessionId};
+use cmux_remote_protocol::{
+    Lane, LanePolicy, Service, ServiceControl, SessionId, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY,
+    TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
+};
 use cmux_tui_core::apply_terminal_color_overrides;
 use cmux_tui_core::resource::TerminalPublicId;
 use cmux_tui_core::terminal_host_protocol::{
@@ -40,6 +43,9 @@ use url::Url;
 use zeroize::Zeroizing;
 
 const CONNECTION_TIMEOUT_ERROR: &str = "terminal connection timed out";
+const INVALID_OPENED: &str = "terminal service returned an invalid Opened acknowledgement";
+/// Service rejection code a daemon returns for unknown open metadata.
+const INVALID_ARGUMENT: &str = "invalid-argument";
 const TERMINAL_RECONNECT_MAX_ATTEMPTS: u32 = 8;
 const TERMINAL_RECONNECT_INITIAL_DELAY: StdDuration = StdDuration::from_millis(250);
 const TERMINAL_RECONNECT_MAX_DELAY: StdDuration = StdDuration::from_secs(4);
@@ -55,6 +61,9 @@ pub struct CmuxTerminalClient {
     terminal: Mutex<Option<ActiveTerminal>>,
     mux: tokio::sync::Mutex<Option<Arc<MuxLineClient>>>,
     next_request: AtomicU64,
+    /// Read when an attach begins; see `TerminalOpenOptions`.
+    viewer_size_priority: AtomicBool,
+    viewer_size_priority_unsupported: Arc<AtomicBool>,
 }
 
 /// The carrier a client was connected over. Iroh owns an endpoint that must
@@ -702,32 +711,97 @@ fn resolve_iroh_route(route: &str) -> Result<(Url, BTreeMap<String, String>), St
     Ok((endpoint, routing))
 }
 
+/// Terminal-open choices fixed when an attach begins, like raw output
+/// delivery, so every reconnect of that attachment repeats them.
+#[derive(Clone, Default)]
+struct TerminalOpenOptions {
+    viewer_size_priority: bool,
+    /// Shared by the client's attachments: set once its daemon rejects the
+    /// priority metadata key, so later opens skip the extra round trip.
+    priority_unsupported: Arc<AtomicBool>,
+}
+
+impl TerminalOpenOptions {
+    fn requests_priority(&self) -> bool {
+        self.viewer_size_priority && !self.priority_unsupported.load(Ordering::Acquire)
+    }
+}
+
+enum TerminalOpenError {
+    Rejected { code: String, message: String },
+    Failed(String),
+}
+
+impl TerminalOpenError {
+    fn into_message(self) -> String {
+        match self {
+            Self::Rejected { code, message } => {
+                format!("terminal service rejected the open ({code}): {message}")
+            }
+            Self::Failed(message) => message,
+        }
+    }
+}
+
 async fn open_terminal_stream(
     multiplexer: &Arc<ServiceMultiplexer>,
     terminal_id: &TerminalPublicId,
+    options: &TerminalOpenOptions,
 ) -> Result<Arc<ServiceStream>, String> {
-    open_terminal_stream_with_timeout(multiplexer, terminal_id, None).await
+    open_terminal_stream_with_timeout(multiplexer, terminal_id, options, None).await
 }
 
 async fn open_terminal_stream_with_timeout(
     multiplexer: &Arc<ServiceMultiplexer>,
     terminal_id: &TerminalPublicId,
+    options: &TerminalOpenOptions,
     timeout: Option<StdDuration>,
 ) -> Result<Arc<ServiceStream>, String> {
     let started = Instant::now();
+    let remaining = || timeout.map(|limit| limit.saturating_sub(started.elapsed()));
+    if options.requests_priority() {
+        match open_terminal_stream_once(multiplexer, terminal_id, true, remaining()).await {
+            Err(TerminalOpenError::Rejected { code, .. }) if code == INVALID_ARGUMENT => {}
+            result => return result.map_err(TerminalOpenError::into_message),
+        }
+        // A daemon that predates viewer-size priority rejects the key but
+        // still serves the ordinary smallest-viewer stream.
+        let stream = open_terminal_stream_once(multiplexer, terminal_id, false, remaining())
+            .await
+            .map_err(TerminalOpenError::into_message)?;
+        options.priority_unsupported.store(true, Ordering::Release);
+        return Ok(stream);
+    }
+    open_terminal_stream_once(multiplexer, terminal_id, false, remaining())
+        .await
+        .map_err(TerminalOpenError::into_message)
+}
+
+async fn open_terminal_stream_once(
+    multiplexer: &Arc<ServiceMultiplexer>,
+    terminal_id: &TerminalPublicId,
+    viewer_size_priority: bool,
+    timeout: Option<StdDuration>,
+) -> Result<Arc<ServiceStream>, TerminalOpenError> {
+    let started = Instant::now();
+    let mut metadata = BTreeMap::from([("terminal".to_string(), terminal_id.to_string())]);
+    if viewer_size_priority {
+        metadata.insert(
+            TERMINAL_BYTES_VIEWER_SIZE_PRIORITY.into(),
+            TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED.into(),
+        );
+    }
     let open = async {
         multiplexer
-            .open(
-                Service::TerminalBytes,
-                BTreeMap::from([("terminal".into(), terminal_id.to_string())]),
-            )
+            .open(Service::TerminalBytes, metadata)
             .await
             .map_err(|error| format!("open terminal-bytes-v1: {error}"))
     };
-    let stream = Arc::new(match timeout {
-        Some(timeout) => connect_with_timeout(open, timeout).await?,
-        None => open.await?,
-    });
+    let opened = match timeout {
+        Some(timeout) => connect_with_timeout(open, timeout).await,
+        None => open.await,
+    };
+    let stream = Arc::new(opened.map_err(TerminalOpenError::Failed)?);
     let handshake = async {
         let opened = stream
             .receive()
@@ -736,12 +810,7 @@ async fn open_terminal_stream_with_timeout(
             .ok_or_else(|| "terminal service closed before Opened".to_string())?;
         let control: ServiceControl =
             serde_json::from_slice(&opened.payload).map_err(|error| error.to_string())?;
-        if opened.lane != Lane::Interactive
-            || control != (ServiceControl::Opened { service: Service::TerminalBytes })
-        {
-            return Err("terminal service returned an invalid Opened acknowledgement".into());
-        }
-        Ok::<(), String>(())
+        Ok::<_, String>((opened.lane, control))
     };
     let handshake = match timeout {
         Some(timeout) => {
@@ -749,11 +818,18 @@ async fn open_terminal_stream_with_timeout(
         }
         None => handshake.await,
     };
-    if let Err(error) = handshake {
-        let _ = stream.close().await;
-        return Err(error);
-    }
-    Ok(stream)
+    let error = match handshake {
+        Ok((Lane::Interactive, ServiceControl::Opened { service: Service::TerminalBytes })) => {
+            return Ok(stream);
+        }
+        Ok((_, ServiceControl::Rejected { code, message })) => {
+            TerminalOpenError::Rejected { code, message }
+        }
+        Ok(_) => TerminalOpenError::Failed(INVALID_OPENED.into()),
+        Err(error) => TerminalOpenError::Failed(error),
+    };
+    let _ = stream.close().await;
+    Err(error)
 }
 
 async fn connect_client(
@@ -832,7 +908,8 @@ async fn connect_client(
         .map_err(|error| format!("libghostty: {error}"))?,
     ));
     let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
-    let stream = open_terminal_stream(&multiplexer, &terminal_id).await?;
+    let stream =
+        open_terminal_stream(&multiplexer, &terminal_id, &TerminalOpenOptions::default()).await?;
     Ok((stream, connection, provider, multiplexer, state))
 }
 
@@ -953,6 +1030,7 @@ struct TerminalStreamSupervisor {
     state: Arc<Mutex<ClientState>>,
     updates: Arc<ClientUpdates>,
     raw_output: Arc<RawOutput>,
+    open_options: TerminalOpenOptions,
 }
 
 impl TerminalStreamSupervisor {
@@ -967,6 +1045,7 @@ impl TerminalStreamSupervisor {
             state,
             updates,
             raw_output,
+            open_options,
         } = self;
         let mut stream = initial_stream;
         loop {
@@ -995,7 +1074,7 @@ impl TerminalStreamSupervisor {
                 if closed.load(Ordering::Acquire) {
                     return;
                 }
-                match open_terminal_stream(&multiplexer, &terminal_id).await {
+                match open_terminal_stream(&multiplexer, &terminal_id, &open_options).await {
                     Ok(next) => {
                         stream = next;
                         streams.send_replace(Some(stream.clone()));
@@ -1137,6 +1216,7 @@ async fn supervise_resizes(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn start_terminal_tasks(
     runtime: &Runtime,
     stream: Arc<ServiceStream>,
@@ -1145,6 +1225,7 @@ fn start_terminal_tasks(
     state: Arc<Mutex<ClientState>>,
     updates: Arc<ClientUpdates>,
     raw_output: Arc<RawOutput>,
+    open_options: TerminalOpenOptions,
 ) -> ActiveTerminal {
     let closed = Arc::new(AtomicBool::new(false));
     let close_notify = Arc::new(tokio::sync::Notify::new());
@@ -1167,6 +1248,7 @@ fn start_terminal_tasks(
             state: state.clone(),
             updates: updates.clone(),
             raw_output,
+            open_options,
         }
         .run(),
     );
@@ -1261,9 +1343,16 @@ impl CmuxTerminalClient {
         if let Some(stale) = terminal.take() {
             self.runtime.block_on(stale.close());
         }
+        // Viewer-size priority, like the delivery mode below, is fixed per
+        // attach and repeated by every reconnect of this attachment.
+        let open_options = TerminalOpenOptions {
+            viewer_size_priority: self.viewer_size_priority.load(Ordering::Acquire),
+            priority_unsupported: self.viewer_size_priority_unsupported.clone(),
+        };
         let stream = self.runtime.block_on(open_terminal_stream_with_timeout(
             &self.multiplexer,
             &terminal_id,
+            &open_options,
             timeout,
         ))?;
         let snapshot = self.runtime.block_on(self.connection.snapshot());
@@ -1300,6 +1389,7 @@ impl CmuxTerminalClient {
             self.state.clone(),
             self.updates.clone(),
             self.raw_output.clone(),
+            open_options,
         ));
         Ok(())
     }
@@ -1441,6 +1531,7 @@ unsafe fn connect_terminal_client(
                 state.clone(),
                 updates.clone(),
                 raw_output.clone(),
+                TerminalOpenOptions::default(),
             );
             Box::into_raw(Box::new(CmuxTerminalClient {
                 runtime,
@@ -1453,6 +1544,8 @@ unsafe fn connect_terminal_client(
                 terminal: Mutex::new(Some(terminal)),
                 mux: tokio::sync::Mutex::new(None),
                 next_request: AtomicU64::new(1),
+                viewer_size_priority: AtomicBool::new(false),
+                viewer_size_priority_unsupported: Arc::default(),
             }))
         }
         Err(error) => {
@@ -2436,6 +2529,8 @@ unsafe fn connect_route_from_ffi(
                 terminal: Mutex::new(None),
                 mux: tokio::sync::Mutex::new(None),
                 next_request: AtomicU64::new(1),
+                viewer_size_priority: AtomicBool::new(false),
+                viewer_size_priority_unsupported: Arc::default(),
             }))
         }
         Err(error) => fail(error),
@@ -2530,6 +2625,30 @@ pub unsafe extern "C" fn cmux_terminal_client_set_output_callback(
     // SAFETY: the caller guarantees a live handle.
     let client = unsafe { &*client };
     client.raw_output.set_callback(callback, context);
+}
+
+/// Chooses whether the next attach asks for viewer-size priority, so the
+/// terminal grid follows this client's size instead of the smallest attached
+/// viewer's. Returns false only for a null client.
+///
+/// Like the output callback's delivery mode, the choice is read when an
+/// attach begins and holds for that attachment and its reconnects. A daemon
+/// that predates priority keeps the smallest-viewer behavior.
+///
+/// # Safety
+///
+/// `client` may be null. A non-null value must be a live handle returned by a
+/// connect function, and it must not be disconnected during this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_set_viewer_size_priority(
+    client: *mut CmuxTerminalClient,
+    preferred: bool,
+) -> bool {
+    let Some(client) = (unsafe { client.as_ref() }) else {
+        return false;
+    };
+    client.viewer_size_priority.store(preferred, Ordering::Release);
+    true
 }
 
 /// Bytes of a `cmux.protocol/2` request id or idempotency key.
@@ -3456,9 +3575,11 @@ mod tests {
                 }
             });
 
-            let first = open_terminal_stream(&client, &test_terminal_id()).await.unwrap();
+            let options = TerminalOpenOptions::default();
+            let terminal = test_terminal_id();
+            let first = open_terminal_stream(&client, &terminal, &options).await.unwrap();
             first.close().await.unwrap();
-            let second = open_terminal_stream(&client, &test_terminal_id()).await.unwrap();
+            let second = open_terminal_stream(&client, &terminal, &options).await.unwrap();
             assert_ne!(first.id(), second.id());
             second.close().await.unwrap();
 
@@ -3497,7 +3618,8 @@ mod tests {
                 }
             });
 
-            assert!(open_terminal_stream(&client, &test_terminal_id()).await.is_err());
+            let options = TerminalOpenOptions::default();
+            assert!(open_terminal_stream(&client, &test_terminal_id(), &options).await.is_err());
             daemon_task.await.unwrap();
             client.shutdown().await;
             daemon.shutdown().await;
@@ -3526,6 +3648,7 @@ mod tests {
             let error = open_terminal_stream_with_timeout(
                 &client,
                 &test_terminal_id(),
+                &TerminalOpenOptions::default(),
                 Some(StdDuration::from_millis(25)),
             )
             .await
@@ -3713,7 +3836,8 @@ mod tests {
             });
 
             let terminal_id = test_terminal_id();
-            let stream = open_terminal_stream(&client, &terminal_id).await.unwrap();
+            let options = TerminalOpenOptions::default();
+            let stream = open_terminal_stream(&client, &terminal_id, &options).await.unwrap();
             let state = Arc::new(Mutex::new(
                 ClientState::new("test".into(), "memory".into(), 1, terminal_id.clone()).unwrap(),
             ));
@@ -3725,6 +3849,7 @@ mod tests {
                 state.clone(),
                 Arc::new(ClientUpdates::default()),
                 Arc::new(RawOutput::default()),
+                options,
             );
 
             tokio::time::timeout(std::time::Duration::from_secs(3), async {
@@ -3787,7 +3912,8 @@ mod tests {
             });
 
             let terminal_id = test_terminal_id();
-            let stream = open_terminal_stream(&client, &terminal_id).await.unwrap();
+            let options = TerminalOpenOptions::default();
+            let stream = open_terminal_stream(&client, &terminal_id, &options).await.unwrap();
             let state = Arc::new(Mutex::new(
                 ClientState::new("test".into(), "memory".into(), 1, terminal_id.clone()).unwrap(),
             ));
@@ -3799,6 +3925,7 @@ mod tests {
                 state.clone(),
                 Arc::new(ClientUpdates::default()),
                 Arc::new(RawOutput::default()),
+                options,
             );
 
             tokio::time::timeout(std::time::Duration::from_secs(3), async {
@@ -3819,5 +3946,145 @@ mod tests {
             client.shutdown().await;
             daemon.shutdown().await;
         });
+    }
+
+    /// Serves two accepted terminal opens; the first asks the client to
+    /// resync so its supervisor reopens. With `reject_priority`, an open that
+    /// carries the priority key is rejected the way an older daemon does.
+    /// Returns every open's metadata in order.
+    async fn serve_priority_opens(
+        daemon: Arc<ServiceMultiplexer>,
+        reject_priority: bool,
+    ) -> Vec<BTreeMap<String, String>> {
+        let mut opens = Vec::new();
+        let mut round = 0;
+        while round < 2 {
+            let incoming = daemon.accept().await.unwrap().unwrap();
+            opens.push(incoming.metadata.clone());
+            let requests_priority =
+                incoming.metadata.contains_key(TERMINAL_BYTES_VIEWER_SIZE_PRIORITY);
+            if reject_priority && requests_priority {
+                let message = "terminal byte stream metadata only supports terminal".to_string();
+                incoming.stream.reject(INVALID_ARGUMENT.into(), message).await.unwrap();
+                continue;
+            }
+            let opened =
+                serde_json::to_vec(&ServiceControl::Opened { service: Service::TerminalBytes })
+                    .unwrap();
+            incoming.stream.send_on(Lane::Interactive, Bytes::from(opened)).await.unwrap();
+            let boundary = 10 * (round + 1);
+            let replay: &[u8] = if round == 0 { b"first" } else { b"second" };
+            let mut snapshot = Frame::new(MessageKind::Snapshot, test_snapshot_payload(replay));
+            snapshot.sequence = boundary;
+            send_test_terminal_frame(&incoming.stream, snapshot).await;
+            let mut ready = Frame::new(MessageKind::Ready, Vec::new());
+            ready.sequence = boundary;
+            send_test_terminal_frame(&incoming.stream, ready).await;
+            let mut next = if round == 0 {
+                Frame::new(MessageKind::ResyncRequired, Vec::new())
+            } else {
+                Frame::new(MessageKind::Output, b" recovered".to_vec())
+            };
+            next.sequence = boundary + 1;
+            send_test_terminal_frame(&incoming.stream, next).await;
+            let closed = incoming.stream.receive().await.unwrap().unwrap();
+            assert!(closed.finished || closed.reset);
+            round += 1;
+        }
+        opens
+    }
+
+    /// Opens with priority requested, lets the supervisor reconnect once, and
+    /// returns the daemon's view of every open plus the shared options.
+    fn priority_reconnect_opens(
+        reject_priority: bool,
+    ) -> (Vec<BTreeMap<String, String>>, TerminalOpenOptions) {
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(async {
+            let (client_endpoint, daemon_endpoint) = endpoint_pair();
+            let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+            let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+            let daemon_task = tokio::spawn(serve_priority_opens(daemon.clone(), reject_priority));
+
+            let terminal_id = test_terminal_id();
+            let options = TerminalOpenOptions { viewer_size_priority: true, ..Default::default() };
+            let stream = open_terminal_stream(&client, &terminal_id, &options).await.unwrap();
+            let state = Arc::new(Mutex::new(
+                ClientState::new("test".into(), "memory".into(), 1, terminal_id.clone()).unwrap(),
+            ));
+            let active = start_terminal_tasks(
+                &runtime,
+                stream,
+                client.clone(),
+                terminal_id,
+                state.clone(),
+                Arc::new(ClientUpdates::default()),
+                Arc::new(RawOutput::default()),
+                options.clone(),
+            );
+
+            tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                loop {
+                    let recovered = {
+                        let mut state = state.lock().unwrap();
+                        state.materialize_frame().unwrap();
+                        state.ready
+                            && state.resync_count == 1
+                            && state.frame_text.contains("second recovered")
+                    };
+                    if recovered {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("renderer did not reconnect after ResyncRequired");
+
+            active.close().await;
+            let opens = daemon_task.await.unwrap();
+            client.shutdown().await;
+            daemon.shutdown().await;
+            (opens, options)
+        })
+    }
+
+    fn open_requests_priority(metadata: &BTreeMap<String, String>) -> bool {
+        let terminal = test_terminal_id();
+        assert_eq!(metadata.get("terminal"), Some(&terminal.to_string()));
+        match metadata.get(TERMINAL_BYTES_VIEWER_SIZE_PRIORITY) {
+            Some(value) => {
+                assert_eq!(value, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED);
+                true
+            }
+            None => false,
+        }
+    }
+
+    #[test]
+    fn viewer_size_priority_reconnect_repeats_the_open_metadata() {
+        let (opens, options) = priority_reconnect_opens(false);
+        assert_eq!(opens.iter().map(open_requests_priority).collect::<Vec<_>>(), [true, true]);
+        assert!(!options.priority_unsupported.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn viewer_size_priority_rejection_retries_without_the_key_and_is_remembered() {
+        let (opens, options) = priority_reconnect_opens(true);
+        // The rejected first open is retried at once without the key, and the
+        // supervisor's reconnect no longer asks for it on this connection.
+        assert_eq!(
+            opens.iter().map(open_requests_priority).collect::<Vec<_>>(),
+            [true, false, false]
+        );
+        assert!(options.priority_unsupported.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn viewer_size_priority_setter_rejects_a_null_client() {
+        // SAFETY: null is an accepted input and is never dereferenced.
+        let accepted =
+            unsafe { cmux_terminal_client_set_viewer_size_priority(std::ptr::null_mut(), true) };
+        assert!(!accepted);
     }
 }
