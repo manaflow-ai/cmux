@@ -12,8 +12,13 @@ extension AgentJournalLifecycleCenter {
         let activity: AgentLifecycleActivity?
     }
 
+    /// - Parameter sourceKind: The kind the producer emitted. The notification
+    ///   reconciler rewrites some kinds (idle observations, attention
+    ///   resolutions, child events) into phase assertions before reduction;
+    ///   ordering must classify the original kind, not the rewrite.
     static func reduceIngest(
         _ event: AgentJournalEvent,
+        sourceKind: AgentJournalEventKind? = nil,
         aliases: AgentJournalAliasResolver,
         reducer: AgentLifecycleReducer,
         state: inout AgentLifecycleReducerState
@@ -41,7 +46,11 @@ extension AgentJournalLifecycleCenter {
                 phase: phase
             ),
             workspaceHint: canonical.draft.workspaceId,
-            activity: AgentLifecycleActivity.classify(event: canonical.kind, from: previousPhase, to: phase)
+            activity: AgentLifecycleActivity.classify(
+                event: sourceKind ?? canonical.kind,
+                from: previousPhase,
+                to: phase
+            )
         )
     }
 

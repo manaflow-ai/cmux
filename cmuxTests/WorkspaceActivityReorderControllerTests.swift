@@ -135,6 +135,22 @@ final class WorkspaceActivityReorderControllerTests: XCTestCase {
         XCTAssertTrue(fixture.controller.pendingWorkspaceIds.isEmpty)
     }
 
+    func testNotificationForAnEventThatAlreadyMovedLeavesNoTrailingMove() {
+        let fixture = makeFixture(cooldown: 10)
+        fixture.controller.agentActivity(.turnFinished, workspaceId: fixture.bottom.id)
+        XCTAssertEqual(fixture.manager.tabs.first?.id, fixture.bottom.id)
+        // The same journal event's notification arrives right after.
+        fixture.clock.now += 0.1
+        fixture.controller.notificationRequestsReorder(workspaceId: fixture.bottom.id)
+        XCTAssertTrue(fixture.controller.pendingWorkspaceIds.isEmpty)
+        // Newer activity elsewhere is not overturned when the cooldown ends.
+        fixture.clock.now += 1
+        fixture.controller.agentActivity(.needsInput, workspaceId: fixture.middle.id)
+        fixture.clock.now += 10
+        fixture.controller.drainPendingMoves()
+        XCTAssertEqual(fixture.manager.tabs.first?.id, fixture.middle.id)
+    }
+
     func testNotificationOrderingFollowsTheMode() throws {
         let suiteName = "WorkspaceActivityReorderControllerTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -143,30 +159,40 @@ final class WorkspaceActivityReorderControllerTests: XCTestCase {
         let key = SettingCatalog().app.reorderOnNotification
         var effects = TerminalNotificationPolicyEffects()
         effects.reorderWorkspace = true
-        let moves = Counter()
+        let localMoves = Counter()
+        let cloudRaises = Counter()
+        func apply() {
+            effects.applySidebarOrdering(
+                defaults: defaults,
+                workspaceId: fixture.bottom.id,
+                controller: fixture.controller,
+                raiseCloudRow: { cloudRaises.value += 1 },
+                moveLocalWorkspace: { localMoves.value += 1 }
+            )
+        }
 
         UserDefaultsSettingsClient(defaults: defaults).set(.off, for: key)
-        effects.applySidebarOrdering(defaults: defaults, workspaceId: fixture.bottom.id, controller: fixture.controller) {
-            moves.value += 1
-        }
-        XCTAssertEqual(moves.value, 0)
+        apply()
+        XCTAssertEqual(localMoves.value, 0)
+        XCTAssertEqual(cloudRaises.value, 0)
 
         // The legacy mode moves immediately, even while the sidebar is hovered.
         interacting = true
         UserDefaultsSettingsClient(defaults: defaults).set(.notifications, for: key)
-        effects.applySidebarOrdering(defaults: defaults, workspaceId: fixture.bottom.id, controller: fixture.controller) {
-            moves.value += 1
-        }
-        XCTAssertEqual(moves.value, 1)
+        apply()
+        XCTAssertEqual(localMoves.value, 1)
+        XCTAssertEqual(cloudRaises.value, 1)
 
-        // Agent-activity mode routes notifications through the same gate.
+        // Agent-activity mode raises the Cloud row at once and routes the
+        // local move through the gate, which defers it while hovered.
+        let before = fixture.manager.tabs.map(\.id)
         UserDefaultsSettingsClient(defaults: defaults).set(.agentActivity, for: key)
-        effects.applySidebarOrdering(defaults: defaults, workspaceId: fixture.bottom.id, controller: fixture.controller) {
-            moves.value += 1
-        }
-        XCTAssertEqual(moves.value, 1)
+        apply()
+        XCTAssertEqual(cloudRaises.value, 2)
+        XCTAssertEqual(localMoves.value, 1)
+        XCTAssertEqual(fixture.manager.tabs.map(\.id), before)
         interacting = false
         fixture.controller.drainPendingMoves()
-        XCTAssertEqual(moves.value, 2)
+        XCTAssertEqual(fixture.manager.tabs.first?.id, fixture.bottom.id)
     }
 }

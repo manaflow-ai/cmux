@@ -3,12 +3,13 @@ import CmuxSettings
 import CmuxWorkspaces
 import Foundation
 
-/// Applies `app.reorderOnNotification` for notifications and agent activity.
+/// Applies the `agentActivity` mode of `app.reorderOnNotification`.
 ///
 /// ``WorkspaceActivityReorderGate`` owns the decisions; this type supplies
-/// the clock, each workspace's live context (pinned, selected, sidebar
-/// interaction), and runs the moves, including deferred ones once the
-/// pointer leaves the sidebar or a cooldown ends.
+/// the clock and each workspace's live context (pinned, selected, already on
+/// top, sidebar interaction), and moves workspaces to the top of their pin
+/// tier, including deferred moves once the pointer leaves the sidebar or a
+/// cooldown ends. The `notifications` mode never reaches this type.
 @MainActor
 final class WorkspaceActivityReorderController {
     static let shared = WorkspaceActivityReorderController()
@@ -18,7 +19,6 @@ final class WorkspaceActivityReorderController {
     static let interactionRecheckInterval: TimeInterval = 0.5
 
     private var gate: WorkspaceActivityReorderGate
-    private var pendingMoves: [UUID: @MainActor () -> Void] = [:]
     private var drainTimer: Timer?
     private let now: @MainActor () -> Date
     private let mode: @MainActor () -> WorkspaceAutoReorderMode
@@ -41,21 +41,18 @@ final class WorkspaceActivityReorderController {
         self.tabManagerForWorkspace = tabManagerForWorkspace
     }
 
-    /// An admitted notification asked to reorder its workspace. `move` runs
-    /// now, later, or never, depending on the mode and gate.
-    func notificationRequestsReorder(workspaceId: UUID, move: @escaping @MainActor () -> Void) {
-        request(workspaceId: workspaceId, trigger: .notification, move: move)
+    /// An admitted notification asked to reorder its workspace.
+    func notificationRequestsReorder(workspaceId: UUID) {
+        request(workspaceId: workspaceId, trigger: .notification)
     }
 
-    /// A live agent event changed a surface's combined lifecycle phase in
-    /// this workspace. Only meaningful transitions reach here.
+    /// A live agent event caused a meaningful lifecycle transition on a
+    /// surface in this workspace.
     func agentActivity(_ activity: AgentLifecycleActivity, workspaceId: UUID) {
 #if DEBUG
         cmuxDebugLog("workspace.activityReorder.agent workspace=\(workspaceId.uuidString.prefix(8)) activity=\(activity.rawValue)")
 #endif
-        request(workspaceId: workspaceId, trigger: .agentActivity) { [weak self] in
-            self?.tabManagerForWorkspace(workspaceId)?.moveTabToTopForNotification(workspaceId)
-        }
+        request(workspaceId: workspaceId, trigger: .agentActivity)
     }
 
     /// Releases deferred moves that may run now. Also runs on a timer while
@@ -63,44 +60,30 @@ final class WorkspaceActivityReorderController {
     func drainPendingMoves() {
         drainTimer?.invalidate()
         drainTimer = nil
-        let currentMode = mode()
-        let ready = gate.drain(mode: currentMode, now: now()) { [self] workspaceId in
+        let ready = gate.drain(mode: mode(), now: now()) { [self] workspaceId in
             context(for: workspaceId)
         }
-        let pendingIds = gate.pendingWorkspaceIds
         for workspaceId in ready {
-            pendingMoves.removeValue(forKey: workspaceId)?()
+            move(workspaceId)
         }
-        pendingMoves = pendingMoves.filter { pendingIds.contains($0.key) }
         scheduleDrainIfNeeded()
     }
 
     var pendingWorkspaceIds: Set<UUID> { gate.pendingWorkspaceIds }
 
-    private func request(
-        workspaceId: UUID,
-        trigger: WorkspaceActivityReorderGate.Trigger,
-        move: @escaping @MainActor () -> Void
-    ) {
+    private func request(workspaceId: UUID, trigger: WorkspaceActivityReorderGate.Trigger) {
         let currentMode = mode()
-        if currentMode == .notifications, trigger == .notification {
-            // Legacy path, unchanged: no context lookup, no throttle.
-            move()
-            return
-        }
         guard currentMode == .agentActivity else { return }
         guard let context = context(for: workspaceId) else { return }
-        switch gate.admit(workspaceId: workspaceId, trigger: trigger, mode: currentMode, context: context, now: now()) {
-        case .ignore:
-            pendingMoves.removeValue(forKey: workspaceId)
-        case .moveNow:
-            pendingMoves.removeValue(forKey: workspaceId)
-            move()
-        case .deferred:
-            pendingMoves[workspaceId] = move
+        if gate.admit(workspaceId: workspaceId, trigger: trigger, mode: currentMode, context: context, now: now()) == .moveNow {
+            move(workspaceId)
         }
         // Give other deferred moves a chance whenever anything happens.
         drainPendingMoves()
+    }
+
+    private func move(_ workspaceId: UUID) {
+        tabManagerForWorkspace(workspaceId)?.moveTabToTopForNotification(workspaceId)
     }
 
     private func context(for workspaceId: UUID) -> WorkspaceActivityReorderGate.Context? {
@@ -109,6 +92,7 @@ final class WorkspaceActivityReorderController {
         return WorkspaceActivityReorderGate.Context(
             isPinned: workspace.isPinned,
             isSelected: manager.selectedTabId == workspaceId,
+            isAtTop: manager.tabs.first(where: { !$0.isPinned })?.id == workspaceId,
             isSidebarInteracting: isSidebarInteracting()
         )
     }

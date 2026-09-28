@@ -3,23 +3,28 @@ import Foundation
 
 extension TerminalNotificationPolicyEffects {
     /// Both sidebars receive exactly the same admitted ordering effect and live
-    /// setting. `off` never reorders, `notifications` runs `action` at once, and
-    /// `agentActivity` routes it through the shared activity throttle.
+    /// setting. `off` never reorders. `notifications` raises the Cloud row and
+    /// moves the local workspace at once. `agentActivity` raises the Cloud row
+    /// at once but routes the local move through the shared activity throttle,
+    /// which moves the workspace itself.
     @MainActor
     func applySidebarOrdering(
         defaults: UserDefaults,
         workspaceId: UUID,
-        controller: WorkspaceActivityReorderController = .shared,
-        action: @escaping @MainActor () -> Void
+        controller: @autoclosure () -> WorkspaceActivityReorderController = .shared,
+        raiseCloudRow: () -> Void,
+        moveLocalWorkspace: () -> Void
     ) {
         guard reorderWorkspace else { return }
         switch UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification) {
         case .off:
             return
         case .notifications:
-            action()
+            moveLocalWorkspace()
+            raiseCloudRow()
         case .agentActivity:
-            controller.notificationRequestsReorder(workspaceId: workspaceId, move: action)
+            raiseCloudRow()
+            controller().notificationRequestsReorder(workspaceId: workspaceId)
         }
     }
 }

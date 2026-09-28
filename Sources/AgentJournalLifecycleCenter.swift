@@ -95,7 +95,8 @@ final class AgentJournalLifecycleCenter: Sendable {
                 let canonical = Self.canonicalized(event, aliases: eventAliases)
                 let decision = notifications.apply(canonical)
                 if decision.disposition != .stale, decision.projectsLifecycle,
-                   let application = Self.reduceIngest(notifications.lifecycleEvent(canonical), aliases: eventAliases,
+                   let application = Self.reduceIngest(notifications.lifecycleEvent(canonical), sourceKind: canonical.kind,
+                       aliases: eventAliases,
                        reducer: reducer, state: &state) {
                     await MainActor.run {
                         Self.apply(

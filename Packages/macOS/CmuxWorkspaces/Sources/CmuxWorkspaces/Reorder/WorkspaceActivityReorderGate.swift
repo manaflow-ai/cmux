@@ -11,6 +11,10 @@ public import Foundation
 ///
 /// - Pinned and selected workspaces never move; the user is already looking
 ///   at the selected one, and pinned rows keep their place.
+/// - A workspace already first in its tier is left alone, and a deferred
+///   request for it is dropped: one agent event that also notifies must not
+///   produce a second, trailing move that lifts the row back over newer
+///   activity or a manual drag.
 /// - While the pointer is over the sidebar or a sidebar drag is running, the
 ///   move is deferred, never dropped, so rows do not jump under the cursor.
 /// - A workspace that moved less than ``cooldown`` ago is deferred until the
@@ -36,13 +40,17 @@ public struct WorkspaceActivityReorderGate: Sendable {
         public var isPinned: Bool
         /// The workspace is the selected one in its window.
         public var isSelected: Bool
+        /// The workspace already sits first in its pin tier, so a move would
+        /// change nothing now and a deferred one could only undo later order.
+        public var isAtTop: Bool
         /// The pointer is over the sidebar, or a sidebar drag is running.
         public var isSidebarInteracting: Bool
 
         /// Creates a context.
-        public init(isPinned: Bool, isSelected: Bool, isSidebarInteracting: Bool) {
+        public init(isPinned: Bool, isSelected: Bool, isAtTop: Bool = false, isSidebarInteracting: Bool) {
             self.isPinned = isPinned
             self.isSelected = isSelected
+            self.isAtTop = isAtTop
             self.isSidebarInteracting = isSidebarInteracting
         }
     }
@@ -107,7 +115,7 @@ public struct WorkspaceActivityReorderGate: Sendable {
             break
         }
         forgetExpiredMoves(now: now)
-        guard !context.isPinned, !context.isSelected else {
+        guard !context.isPinned, !context.isSelected, !context.isAtTop else {
             pendingSince.removeValue(forKey: workspaceId)
             return .ignore
         }
@@ -122,7 +130,8 @@ public struct WorkspaceActivityReorderGate: Sendable {
 
     /// Releases deferred moves that may run now.
     ///
-    /// Requests whose workspace is gone, pinned, or selected are dropped.
+    /// Requests whose workspace is gone, pinned, selected, or already on top
+    /// are dropped.
     /// Requests still blocked by sidebar interaction or a cooldown stay
     /// pending.
     ///
@@ -148,7 +157,7 @@ public struct WorkspaceActivityReorderGate: Sendable {
         }
         var ready: [UUID] = []
         for (workspaceId, _) in ordered {
-            guard let context = context(workspaceId), !context.isPinned, !context.isSelected else {
+            guard let context = context(workspaceId), !context.isPinned, !context.isSelected, !context.isAtTop else {
                 pendingSince.removeValue(forKey: workspaceId)
                 continue
             }

@@ -28,14 +28,24 @@ final class SidebarReorderInteractionState {
         }
     }
 
-    /// True while a sidebar drag runs or the pointer is over a visible sidebar
-    /// table that is the frontmost window at that point.
+    /// A pointer resting over the sidebar this long no longer counts as
+    /// interacting: clicking a row and then typing leaves the pointer parked
+    /// there, and that should not hold every reorder back.
+    static let restingPointerGrace: TimeInterval = 5
+
+    /// True while a sidebar drag runs, or while the pointer has recently moved
+    /// over a visible sidebar table that is the frontmost window at that point.
     var isInteracting: Bool {
-        if dragOwners.allObjects.isEmpty == false { return true }
+        // A drag holds a mouse button down. Checking that as well means a
+        // drag end AppKit never reported cannot block reordering for good.
+        if NSEvent.pressedMouseButtons != 0, dragOwners.allObjects.isEmpty == false { return true }
+        let secondsSincePointerMoved = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .mouseMoved)
+        guard secondsSincePointerMoved < Self.restingPointerGrace else { return false }
         let screenPoint = NSEvent.mouseLocation
         let frontWindowNumber = NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0)
         return tables.allObjects.contains { table in
-            guard let window = table.window, window.isVisible,
+            guard !table.isHiddenOrHasHiddenAncestor,
+                  let window = table.window, window.isVisible,
                   window.windowNumber == frontWindowNumber else { return false }
             let windowPoint = window.convertPoint(fromScreen: screenPoint)
             return table.visibleRect.contains(table.convert(windowPoint, from: nil))

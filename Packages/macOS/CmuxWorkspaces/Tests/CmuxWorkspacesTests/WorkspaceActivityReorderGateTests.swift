@@ -74,6 +74,21 @@ struct WorkspaceActivityReorderGateTests {
         #expect(gate.pendingWorkspaceIds.isEmpty)
     }
 
+    @Test func workspaceAlreadyOnTopIsLeftAloneAndItsPendingMoveDropped() {
+        var gate = WorkspaceActivityReorderGate(cooldown: 10)
+        let id = UUID()
+        let onTop = WorkspaceActivityReorderGate.Context(isPinned: false, isSelected: false, isAtTop: true, isSidebarInteracting: false)
+        // The journal event moved the row; its notification arrives next.
+        #expect(gate.admit(workspaceId: id, trigger: .agentActivity, mode: .agentActivity, context: idle, now: start) == .moveNow)
+        #expect(gate.admit(workspaceId: id, trigger: .notification, mode: .agentActivity, context: onTop, now: at(0.1)) == .ignore)
+        #expect(gate.pendingWorkspaceIds.isEmpty)
+
+        // A request deferred while displaced is dropped if the row is back on top.
+        #expect(gate.admit(workspaceId: id, trigger: .agentActivity, mode: .agentActivity, context: idle, now: at(1)) == .deferred)
+        #expect(gate.drain(mode: .agentActivity, now: at(10)) { _ in onTop }.isEmpty)
+        #expect(gate.pendingWorkspaceIds.isEmpty)
+    }
+
     // MARK: Hover and drag
 
     @Test func hoverOrDragDefersInsteadOfMoving() {
