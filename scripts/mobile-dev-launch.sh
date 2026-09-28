@@ -409,6 +409,11 @@ if [[ "$TARGET" == "simulator" ]]; then
     # A returning-user measurement must exercise persisted authentication and
     # saved routes. Injecting either would select the dogfood attach startup
     # owner and silently bypass the production restore path.
+    # Enrollment itself uses an in-memory onboarding bypass. Persist the one
+    # completion marker that a user would create by finishing the tour so the
+    # measured launch reaches the real workspace shell.
+    xcrun simctl spawn "$SIM_UDID" defaults write "$BUNDLE_ID" \
+      "dev.cmux.mobile.onboarding.redesign.progress.v1" complete >/dev/null
     CMUX_UITEST_STACK_EMAIL=""
     CMUX_UITEST_STACK_PASSWORD=""
     ATTACH_URL=""

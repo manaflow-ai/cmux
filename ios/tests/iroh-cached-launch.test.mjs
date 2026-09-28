@@ -10,9 +10,15 @@ const simulatorBranch = launcher.slice(start, launcher.indexOf("\nelse\n", start
 test("cached simulator relaunch cannot inject a password or pairing URL", () => {
   const result = spawnSync("bash", ["-c", `
     set -euo pipefail
+    ONBOARDING_MARKER="$(mktemp)"
     xcrun() {
+      if [[ "$2" == spawn ]]; then
+        [[ "$4" == defaults && "$5" == write ]] || exit 42
+        printf '%s' "$8" > "$ONBOARDING_MARKER"
+      fi
       if [[ "$2" == launch ]]; then
-        printf '%s\\n' "email=$SIMCTL_CHILD_CMUX_UITEST_STACK_EMAIL" \
+        printf '%s\\n' "onboarding=$(cat "$ONBOARDING_MARKER")" \
+          "email=$SIMCTL_CHILD_CMUX_UITEST_STACK_EMAIL" \
           "password=$SIMCTL_CHILD_CMUX_UITEST_STACK_PASSWORD" \
           "attach=$SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL" \
           "test_attach=\${SIMCTL_CHILD_CMUX_UITEST_ATTACH_URL:-}" \
@@ -32,7 +38,7 @@ test("cached simulator relaunch cannot inject a password or pairing URL", () => 
   `], { encoding: "utf8", env: { ...process.env, SIMULATOR_BRANCH: simulatorBranch,
     CMUX_IROH_SOAK_PROFILE: "", CMUX_DEV_AUTH_REPLACE_SESSION: "1" } });
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout, "email=\npassword=\nattach=\ntest_attach=\nreplace=0\ndevice=retained-device\n");
+  assert.equal(result.stdout, "onboarding=complete\nemail=\npassword=\nattach=\ntest_attach=\nreplace=0\ndevice=retained-device\n");
 });
 
 test("cached launch is restricted to a simulator release gate", () => {
