@@ -1406,6 +1406,19 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         label, calls, _ = self.decide(queue(), variable=OLD)
         self.assertEqual((label, calls), (OLD, []))
 
+    def test_an_explicit_owned_pool_takes_its_root_runners(self):
+        # glaeda gives an E2E build a canonical root: on the pool label a non-root runner took it, and two such
+        # builds held both of a mini's roots while its root runner's compile admission waited (2026-09-28)
+        root = "glaeda-root-std-xcode-26.6"
+        for slots, want in (({MINI: 8, root: 4}, root), ({MINI: 8}, MINI), ({MINI: 8, root: 0}, MINI)):
+            with self.subTest(slots=slots):
+                label = self.pool.resolve(MINI, "", overflow="", order="", max_queued="", measure=lambda: None,
+                                          now=NOW, owned_slots=json.dumps(slots),
+                                          pr_xcode_app="/Applications/Xcode_26.6.app")
+                self.assertEqual(label, want)
+        self.assertEqual(self.pool.resolve(root, "", overflow="", order="", max_queued="", measure=lambda: None,
+                                           now=NOW, owned_slots=json.dumps({root: 4})), root)
+
     def test_the_commit_does_not_decide(self):
         for commit in self.COMMITS:
             with self.subTest(commit=commit):

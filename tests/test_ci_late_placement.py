@@ -405,8 +405,9 @@ class Workflow(unittest.TestCase):
 
     def test_late_placement_runs_only_where_the_picker_may_use_owned_runners(self):
         spec = self.jobs["late-placement"]
-        # Any attempt that runs compile admission again runs it too.
-        self.assertNotIn("run_attempt", spec["if"])
+        # Any attempt that runs compile admission again runs it too, except the bot's attempt 3 (the
+        # rescue's move of a stuck attempt 2), whose jobs all take the retry runner.
+        self.assertIn("(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]')", spec["if"])
         for clause in ("vars.CI_PR_POOL_OWNED == '1'",
                        "github.event.pull_request.head.repo.full_name == github.repository",
                        "needs.macos-compile-admission.result == 'success'"):
@@ -446,4 +447,4 @@ class Workflow(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(buffer=True)

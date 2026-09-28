@@ -188,6 +188,54 @@ def refusing_run(refused_at=60, **kwargs):
     return jobs
 
 
+def setup_job(*, started=41, past_setup=False):
+    """An owned job its runner took, still in glaeda's hook ("Set up runner") unless past_setup."""
+    found = job("macos / macOS compile admission", status="in_progress", labels=[MINI], created=40, runner="mini-1")
+    found.update(started_at=stamp(started), steps=[
+        {"name": "Set up job", "status": "completed", "conclusion": "success"},
+        {"name": "Set up runner", "status": "completed" if past_setup else "in_progress", "conclusion": None,
+         "started_at": stamp(started + 3)},
+        {"name": "Checkout", "status": "in_progress" if past_setup else "queued", "conclusion": None}])
+    return found
+
+
+class SetupWait(unittest.TestCase):
+    def test_a_job_waiting_in_setup_is_watched_then_rescued(self):
+        waiting = setup_job()
+        self.assertTrue(rescue.in_setup(waiting))
+        self.assertFalse(rescue.in_setup(setup_job(past_setup=True)))
+        early = START + dt.timedelta(seconds=41 + rescue.REFUSAL_SECONDS + 60)
+        self.assertFalse(rescue.accepted(waiting, early), "a job in setup has not been accepted yet")
+        self.assertTrue(rescue.accepted(setup_job(past_setup=True), early))
+        look = rescue.assess([changes()(60), waiting], now=early, budget_seconds=90)
+        self.assertEqual((look.action, look.waiting), ("watch", True))
+        # measured from the setup step the hook waits in, not from the job's start
+        self.assertEqual(rescue.assess([changes()(60), waiting], budget_seconds=90,
+                                       now=START + dt.timedelta(seconds=41 + rescue.SETUP_WAIT_SECONDS)).action,
+                         "watch")
+        late = START + dt.timedelta(seconds=44 + rescue.SETUP_WAIT_SECONDS)
+        look = rescue.assess([changes()(60), waiting], now=late, budget_seconds=90)
+        self.assertEqual(look.action, "rescue")
+        self.assertIn("runner setup", look.reason)
+        self.assertEqual(rescue.assess([changes()(60), setup_job(past_setup=True)], now=late,
+                                       budget_seconds=90).action, "watch")
+        # a job that entered setup late is judged before the watch ends, but not before the queued budget
+        soon = START + dt.timedelta(seconds=44 + 300)
+        self.assertEqual(rescue.assess([changes()(60), waiting], now=soon, budget_seconds=90,
+                                       deadline=soon + dt.timedelta(seconds=rescue.END_MARGIN_SECONDS)).action,
+                         "rescue")
+        early_close = START + dt.timedelta(seconds=44 + 30)
+        self.assertEqual(rescue.assess([changes()(60), waiting], now=early_close, budget_seconds=90,
+                                       deadline=early_close).action, "watch")
+        # a sibling still running is not cancelled for it, until the watch is about to end
+        shard = job("macos / shard", status="in_progress", labels=[MINI], runner="mini-2")
+        look = rescue.assess([changes()(60), waiting, shard], now=late, budget_seconds=90)
+        self.assertEqual((look.action, look.waiting), ("watch", True))
+        look = rescue.assess([changes()(60), waiting, shard], now=late, budget_seconds=90,
+                             deadline=late + dt.timedelta(seconds=rescue.END_MARGIN_SECONDS - 1))
+        self.assertEqual(look.action, "rescue")
+
+
 class Refusal(unittest.TestCase):
     def test_what_counts_as_a_refusal(self):
         self.assertTrue(rescue.refused(refused_job()))

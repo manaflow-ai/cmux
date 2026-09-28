@@ -86,8 +86,17 @@ struct WindowOverlayChromeTests {
         #expect(tabsFrame.height == 28)
     }
 
-    @Test("Browser content stays inside the content hierarchy without covering either chrome strip", arguments: [false, true])
-    func browserAndTerminalRespectChrome(useGlass: Bool) throws {
+    @Test("Browser content stays inside the content hierarchy without covering either chrome strip")
+    func browserAndTerminalRespectChrome() throws {
+        // Swift Testing starts parameterized cases concurrently even inside
+        // this serialized suite. Each case temporarily changes process-wide
+        // window backdrop defaults, so exercise the two settings sequentially.
+        for useGlass in [false, true] {
+            try exerciseBrowserAndTerminalRespectChrome(useGlass: useGlass)
+        }
+    }
+
+    private func exerciseBrowserAndTerminalRespectChrome(useGlass: Bool) throws {
         // A terminal surface re-applies the configured window backdrop when it
         // mounts (`GhosttyNSView.viewDidMoveToWindow` →
         // `applyWindowBackgroundIfActive`). With glass off in settings, that
