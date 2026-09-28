@@ -38,6 +38,9 @@ import Testing
         #expect(filter.isExpectedCLIProtocolOutcomeCode("invalid_params"))
         #expect(filter.isExpectedCLIProtocolOutcomeCode(" not_found "))
         #expect(filter.isExpectedCLIProtocolOutcomeCode("protected"))
+        // A terminal that is hibernated or still starting has no readable
+        // text; that is routine surface state (Sentry CMUXTERM-MACOS-3JFD).
+        #expect(filter.isExpectedCLIProtocolOutcomeCode("surface_unavailable"))
         #expect(!filter.isExpectedCLIProtocolOutcomeCode("invalid_state"))
         #expect(!filter.isExpectedCLIProtocolOutcomeCode("internal_error"))
         #expect(!filter.isExpectedCLIProtocolOutcomeCode("server_failure"))
