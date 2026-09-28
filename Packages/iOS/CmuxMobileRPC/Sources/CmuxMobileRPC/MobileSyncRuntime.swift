@@ -78,6 +78,17 @@ public protocol MobileSyncRuntime: Sendable {
     /// throwing if cancelled first. The runtime owns the clock so the
     /// deadline follows the same time source as ``now``.
     func sleepUntilReconnectAttemptDeadline(nanoseconds: UInt64) async throws
+
+    /// Ceiling on one Mac's dial inside a reconnect attempt. A reconnect can
+    /// try several Macs; without a per-Mac bound, the first unreachable Mac
+    /// spends the whole ``reconnectAttemptDeadlineNanoseconds`` and live Macs
+    /// behind it are never dialed. Must be shorter than the attempt deadline.
+    var macDialDeadlineNanoseconds: UInt64 { get }
+
+    /// Suspends until one Mac's dial deadline of `nanoseconds` elapses,
+    /// throwing if cancelled first. Same clock contract as
+    /// ``sleepUntilReconnectAttemptDeadline(nanoseconds:)``.
+    func sleepUntilMacDialDeadline(nanoseconds: UInt64) async throws
 }
 
 public extension MobileSyncRuntime {
@@ -109,6 +120,16 @@ public extension MobileSyncRuntime {
 
     /// Default deadline clock: the process's monotonic clock.
     func sleepUntilReconnectAttemptDeadline(nanoseconds: UInt64) async throws {
+        try await RPCTaskTimeout.continuousClockSleep(nanoseconds: nanoseconds)
+    }
+
+    /// Default per-Mac dial ceiling: long enough for a healthy relay dial and
+    /// host-status round trip, short enough that two dead Macs still leave
+    /// room inside the default 30s attempt for a live one.
+    var macDialDeadlineNanoseconds: UInt64 { 10_000_000_000 }
+
+    /// Default per-Mac dial clock: the process's monotonic clock.
+    func sleepUntilMacDialDeadline(nanoseconds: UInt64) async throws {
         try await RPCTaskTimeout.continuousClockSleep(nanoseconds: nanoseconds)
     }
 }
