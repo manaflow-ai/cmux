@@ -102,6 +102,11 @@ class Layout:
         return "{" + self.lead + body + self.tail + "}"
 
 
+def _canonical(value: object) -> str:
+    """Type-strict identity for JSON values: `True` and `1` are different edits."""
+    return json.dumps(value, sort_keys=True, ensure_ascii=False)
+
+
 def merge_keys(
     base: dict, ours: dict, theirs: dict, label: str
 ) -> tuple[list[tuple[str, str]], list[str]]:
@@ -114,12 +119,13 @@ def merge_keys(
     for key in list(ours) + [k for k in theirs if k not in ours]:
         in_base, in_ours, in_theirs = key in base, key in ours, key in theirs
         base_value, ours_value, theirs_value = base.get(key), ours.get(key), theirs.get(key)
-        ours_changed = ours_value != base_value if in_base else in_ours
-        theirs_changed = theirs_value != base_value if in_base else in_theirs
+        base_key, ours_key, theirs_key = (_canonical(v) for v in (base_value, ours_value, theirs_value))
+        ours_changed = ours_key != base_key if in_base else in_ours
+        theirs_changed = theirs_key != base_key if in_base else in_theirs
         if not in_ours and not in_theirs:
             continue
         if ours_changed and theirs_changed:
-            if ours_value == theirs_value:
+            if in_ours == in_theirs and ours_key == theirs_key:
                 if in_ours:
                     ordered.append((key, "ours"))
                 continue

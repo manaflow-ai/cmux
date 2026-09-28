@@ -128,6 +128,21 @@ struct MobileIrxDiscoveryProviderTests {
         #expect(revoked.values == ["123e4567-e89b-42d3-a456-426614174001"])
     }
 
+    @Test("forget includes stale UUID aliases and the live row, scoped to the selected channel")
+    func forgetRevokesDuplicateBindings() async throws {
+        let mac = "123e4567-e89b-42d3-a456-426614174011"
+        let response = try Self.discovery(bindings: [
+            Self.binding(bindingID: "stale", deviceID: mac.uppercased(), platform: "mac", endpointFill: "a"),
+            Self.binding(bindingID: "live", deviceID: mac, platform: "mac", endpointFill: "b"),
+            Self.binding(bindingID: "nightly", deviceID: mac, platform: "mac", tag: "nightly", endpointFill: "c"),
+            Self.binding(bindingID: "other", deviceID: "123e4567-e89b-42d3-a456-426614174033", platform: "mac", endpointFill: "d"),
+        ])
+        let revoked = RevokedBox()
+        let provider = Self.provider(discovery: response) { revoked.append($0) }
+        try await provider.forgetComputer(macDeviceID: mac, instanceTag: "default", expectedAccountID: "account-a")
+        #expect(revoked.values == ["stale", "live"])
+    }
+
     @Test("forget refuses when the live account is not the expected owner")
     func forgetAccountGuard() async throws {
         let response = try Self.discovery(bindings: [])

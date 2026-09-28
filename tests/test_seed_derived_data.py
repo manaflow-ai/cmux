@@ -7,10 +7,13 @@ from pathlib import Path
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest import mock
 
 import yaml
+
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
@@ -156,6 +159,73 @@ class SeedDerivedData(unittest.TestCase):
         (self.derived / "Build/App.o").write_text("rebuilt")
         self.assertEqual((cache / key / "Build/App.o").read_text(), "object")
 
+    def test_a_seed_job_keeps_what_it_built_for_the_next_one(self):
+        """A trusted seed Mac keeps the seed it just saved, so the next seed
+        job on it clones it instead of downloading it back from R2."""
+        self.derived.mkdir(parents=True, exist_ok=True)
+        (self.derived / seed.MANIFEST).write_text("{}")
+        (self.derived / "Build").mkdir()
+        (self.derived / "Build/App.o").write_text("built")
+        self.assertEqual(seed.main(["seed", "keep", str(self.derived), "p-j14-abc"]), 0)
+        self.assertIsNone(seed.cached("p-j14-abc"), "no local cache: nothing kept")
+        cache = self.root / "seeds"
+        os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
+        try:
+            self.assertEqual(seed.main(["seed", "keep", str(self.derived), "p-j14-abc"]), 0)
+            self.assertEqual(seed.cached("p-j14-abc"), cache / "p-j14-abc")
+            self.assertEqual((cache / "p-j14-abc/Build/App.o").read_text(), "built")
+            (self.derived / "Build/App.o").write_text("product staging rewrote it")
+            self.assertEqual((cache / "p-j14-abc/Build/App.o").read_text(), "built")
+        finally:
+            del os.environ["CMUX_SEED_LOCAL_CACHE"]
+
+    def test_a_seed_job_records_its_prefix_so_the_mac_prefetches_between_jobs(self):
+        """With a prefix, `keep` records it beside the root's cache, where
+        glaeda-seed-prefetch reads it, so a seed the other trusted Mac builds in
+        between is fetched into this cache before the next seed job needs it."""
+        self.derived.mkdir(parents=True, exist_ok=True)
+        (self.derived / seed.MANIFEST).write_text("{}")
+        prefix = "admission-derived-data-v1-macOS-ARM64-fp-"
+        cache = self.root / "cmux-ci-2" / "seeds"
+        with mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(cache), "RUNNER_OS": "macOS",
+                                          "RUNNER_ARCH": "ARM64", "CI_CACHE_R2_PUBLIC_URL": "https://cache.test"}):
+            self.assertEqual(seed.main(["seed", "keep", str(self.derived), prefix + "j14-abc", prefix]), 0)
+        source = json.loads((self.root / "cmux-ci-2" / seed.SEED_SOURCE).read_text())
+        self.assertEqual(source, {"prefix": prefix, "runner_os": "macOS", "runner_arch": "ARM64",
+                                  "public_url": "https://cache.test"})
+        # prefetch reads exactly that record (and points the cache at it: restore the environment after).
+        with mock.patch.dict(os.environ), mock.patch.object(seed, "lineage", return_value=["head"]), \
+                mock.patch.object(seed, "seed_exists", return_value=False):
+            self.assertEqual(seed.prefetch(self.root / "cmux-ci-2", "head")["reason"],
+                             "no seed of any seeded width in REVISION's history")
+        # Without a local cache nothing is recorded; a bad prefix is ignored.
+        (self.root / "cmux-ci-2" / seed.SEED_SOURCE).unlink()
+        self.assertEqual(seed.main(["seed", "keep", str(self.derived), "k", prefix]), 0)
+        with mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(cache)}):
+            self.assertEqual(seed.main(["seed", "keep", str(self.derived), "k2", "../evil-"]), 0)
+        self.assertFalse((self.root / "cmux-ci-2" / seed.SEED_SOURCE).exists())
+
+    def test_the_trusted_seed_job_keeps_its_seeds_between_save_and_the_product_steps(self):
+        seeder = steps("seed-derived-data.yml", "seed")
+        choose_at, choose = named(seeder, "Keep seeds on a trusted Mac")
+        adopt_at, _ = named(seeder, "Adopt the newest seed")
+        save_at, _ = named(seeder, "Save seed")
+        keep_at, keep = named(seeder, "Keep the seed on this Mac")
+        stage_at, _ = named(seeder, "Stage compiled package frameworks")
+        self.assertLess(choose_at, adopt_at)
+        self.assertLess(save_at, keep_at)
+        self.assertLess(keep_at, stage_at)
+        self.assertIn("matrix.pool == vars.CI_SEED_TRUSTED_POOL", choose["if"])
+        # only runners that run nothing else as this user: a kept seed becomes the next R2 seed
+        self.assertIn("vars.CI_SEED_KEEP_LOCAL_RUNNERS", choose["if"])
+        self.assertIn('[ -d "$cache" ]', choose["run"])  # once on, prune_local holds the disk
+        self.assertIn("CMUX_SEED_LOCAL_CACHE=$cache", choose["run"])
+        self.assertIn('cache="$state/cmux-ci-$CMUX_SEED_ROOT/seeds"', choose["run"])
+        self.assertIs(keep["continue-on-error"], True)
+        self.assertEqual(keep["env"]["SEED_KEY"], "${{ steps.key.outputs.scoped }}${{ github.sha }}")
+        self.assertEqual(keep["env"]["SEED_PREFIX"], "${{ steps.key.outputs.prefix }}")
+        self.assertIn('keep "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_KEY" "$SEED_PREFIX"', keep["run"])
+
     def test_start_downloads_nothing_for_a_kept_seed(self):
         cache = self.root / "seeds"
         (cache / "p-j6-base").mkdir(parents=True)
@@ -208,6 +278,8 @@ class SeedDerivedData(unittest.TestCase):
         return store
 
     def test_prefetch_downloads_the_nearest_seed_into_the_local_cache_once(self):
+        # The URL must come from the recorded source, not a runner's environment.
+        os.environ.pop("CI_CACHE_R2_PUBLIC_URL", None)
         store = self.prefetch_store()
         key = "admission-derived-data-v1-macOS-ARM64-fp-j6-p1"
         fetched = []
@@ -231,6 +303,30 @@ class SeedDerivedData(unittest.TestCase):
         self.assertTrue((store / "seeds" / key / seed.MANIFEST).is_file())
         self.assertEqual([p.name for p in (store / "seeds").iterdir()], [key])
         self.assertEqual(os.environ["CI_CACHE_R2_PUBLIC_URL"], "https://cache.test")
+
+    def test_prefetch_falls_back_to_the_width_adopt_would_take(self):
+        """A 10-core light mini has no seeds of its own width: it keeps the
+        seed adopt would fall back to (12 before 6 before 14), and still
+        prefers its own width when one exists, however far."""
+        os.environ["CMUX_SEED_SWIFT_JOBS"] = "10"
+        store = self.prefetch_store()
+        prefix = "admission-derived-data-v1-macOS-ARM64-fp-"
+        exists = {prefix + "j14-head", prefix + "j12-p1", prefix + "j6-head"}
+
+        def fake_fetch(derived, exact, _prefix):
+            staging = derived.with_name(derived.name + ".seed")
+            (staging / "Build").mkdir(parents=True)
+            (staging / seed.MANIFEST).write_text("{}")
+            return exact
+
+        with mock.patch.object(seed, "lineage", return_value=["head", "p1", "p2"]), \
+                mock.patch.object(seed, "seed_exists", side_effect=lambda k: k in exists), \
+                mock.patch.object(seed, "fetch", side_effect=fake_fetch):
+            got = seed.prefetch(store, "head")
+            self.assertEqual((got["fetched"], got["key"], got["distance"]), ("true", prefix + "j12-p1", 1))
+            self.assertEqual(seed.locate(prefix, "head"), (prefix + "j12-p1", 1), "the same key adopt takes")
+            exists.add(prefix + "j10-p2")
+            self.assertEqual(seed.prefetch(store, "head")["key"], prefix + "j10-p2")
 
     def test_prefetch_never_replaces_a_copy_a_job_kept_meanwhile(self):
         store = self.prefetch_store()
@@ -565,6 +661,7 @@ def evaluate(expression, context):
     and '' are 0, and a string that is not a number never compares true.
     `&&` and `||` short-circuit, as in Actions, so `x && fromJSON(x)` never
     parses an empty x; fromJSON() and `[index]` read JSON arrays and objects.
+    contains() on an array compares whole elements, as in Actions.
     """
     text = expression.strip()
     if text.startswith("${{") and text.endswith("}}"):
@@ -643,8 +740,11 @@ def evaluate(expression, context):
             needle = either()
             if take() != ")":
                 raise ValueError("unbalanced parentheses")
-            haystack = ("" if haystack is None else str(haystack)).lower()
             needle = ("" if needle is None else str(needle)).lower()
+            if token == "contains" and isinstance(haystack, list):
+                # An array holds the item when an element equals it, ignoring case.
+                return any(str(item).lower() == needle for item in haystack)
+            haystack = ("" if haystack is None else str(haystack)).lower()
             if token == "startsWith":
                 return haystack.startswith(needle)
             return haystack.endswith(needle) if token == "endsWith" else needle in haystack
@@ -957,6 +1057,70 @@ class Wiring(unittest.TestCase):
         code, lines = prepare_root("blacksmith-12vcpu-macos-26", "")
         self.assertEqual((code, lines[0]), (0, "CMUX_COMPILE_ADMISSION_DERIVED_DATA=/root1/derived-data-compile-admission"))
 
+    def test_a_far_seed_queues_in_its_own_lane_per_pool_and_root(self):
+        """seed_decide.py's `far` puts a push far from its covering seed in a
+        second concurrency group, so a newer near push never replaces it; a
+        near push keeps the pool's one group, as before."""
+        workflow = load("seed-derived-data.yml")
+        self.assertEqual(workflow["jobs"]["decide"]["outputs"]["far"], "${{ steps.inputs.outputs.far }}")
+        job = workflow["jobs"]["seed"]
+        self.assertIs(job["concurrency"]["cancel-in-progress"], False)
+        label = "glaeda-trusted-std-xcode-26.6"
+
+        def group(pool, root, far):
+            context = github_context("push")
+            context["matrix"] = {"pool": pool, "root": root}
+            context["needs"] = {"decide": {"outputs": {"far": far}}}
+            # A string with several ${{ }} parts, each rendered as Actions does.
+            return re.sub(r"\$\{\{(.*?)\}\}", lambda part: str(evaluate(part.group(1), context) or ""),
+                          job["concurrency"]["group"])
+
+        self.assertEqual(group("blacksmith-12vcpu-macos-26", "", "[]"), "seed-derived-data-blacksmith-12vcpu-macos-26")
+        self.assertEqual(group("blacksmith-12vcpu-macos-26", "", '["blacksmith-12vcpu-macos-26"]'),
+                         "seed-derived-data-blacksmith-12vcpu-macos-26-far")
+        # A lane is named LABEL@K in decide's lists; root 1's far entry is not root 2's.
+        self.assertEqual(group(label, "2", f'["{label}"]'), f"seed-derived-data-{label}-root-2")
+        self.assertEqual(group(label, "2", f'["{label}@2"]'), f"seed-derived-data-{label}-root-2-far")
+        self.assertEqual(group(label, "", f'["{label}@2"]'), f"seed-derived-data-{label}")
+        # An output missing entirely (an older decide) is the near lane.
+        self.assertEqual(group(label, "", ""), f"seed-derived-data-{label}")
+
+    def test_a_seed_job_holds_its_canonical_root_on_an_owned_mac(self):
+        """The far lane can run two seeds of one root at once, so on an owned
+        Mac the job takes its root through glaeda's helper before clearing it;
+        a hook that already placed the job (exit 2) keeps today's behaviour,
+        and any other failure stops the job before it touches the root."""
+        import subprocess
+        _, prepare = named(load("seed-derived-data.yml")["jobs"]["seed"]["steps"], "Prepare admission build paths")
+        text = prepare["run"]
+        self.assertIn("/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root", text)
+        self.assertLess(text.index('"$helper" take "$root"'), text.index("scripts/ci/clear-dirs.sh"))
+
+        def run(status, placed=None):
+            with tempfile.TemporaryDirectory() as tmp:
+                if placed:
+                    Path(tmp, "glaeda-canonical-root").write_text(placed + "\n")
+                helper = Path(tmp, "helper")
+                helper.write_text(f"#!/bin/bash\necho \"$@\" >> {tmp}/calls\nexit {status}\n")
+                helper.chmod(0o755)
+                script = (text.replace("/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root", str(helper))
+                          .replace("scripts/ci/clear-dirs.sh", "true"))
+                env = {"PATH": "/usr/bin:/bin", "GITHUB_ENV": str(Path(tmp, "env")), "MATRIX_POOL": "p",
+                       "TRUSTED_POOL": "t", "CMUX_SEED_ROOT": "", "CMUX_CI_CANONICAL_ROOT": "/private/tmp/cmux-ci",
+                       "RUNNER_TEMP": tmp}
+                out = subprocess.run(["bash", "-ceu", script], env=env, capture_output=True, text=True)
+                calls = Path(tmp, "calls").read_text().split() if Path(tmp, "calls").exists() else []
+                return out.returncode, calls, "" if "::warning" not in out.stdout else out.stdout
+
+        self.assertEqual(run(0)[:2], (0, ["take", "/private/tmp/cmux-ci", "--wait", "1800"]))
+        # 2: the hook placed the job; quiet when it placed it here, a warning when elsewhere.
+        self.assertEqual(run(2, placed="/private/tmp/cmux-ci")[::2], (0, ""))
+        code, _, out = run(2, placed="/private/tmp/cmux-ci-2")
+        self.assertEqual(code, 0)
+        self.assertIn("::warning::glaeda holds /private/tmp/cmux-ci-2 for this job, not /private/tmp/cmux-ci", out)
+        self.assertIn("::warning::glaeda holds no root", run(2)[2])
+        self.assertNotEqual(run(1)[0], 0)
+
     def test_the_macos_15_pool_seeds_with_the_xcode_an_overflowed_run_compiles_with(self):
         import sys as _sys
         _sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -1163,7 +1327,8 @@ class Wiring(unittest.TestCase):
 
     def test_a_rerun_of_an_owned_pool_run_takes_the_retry_runner(self):
         # pr_runner_pool.py names pr_retry_runner only for an owned-pool pick; a
-        # re-run of failed jobs (attempt 2) reuses attempt 1's inputs.
+        # re-run of failed jobs (attempt 2) reuses attempt 1's inputs. Here the
+        # bot's re-run, after a host fault (a person's: test below).
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
         # Attempt 1 takes the owned pool only when the picker placed admission
         # there (pr_owned_jobs); otherwise the retry runner.
@@ -1176,6 +1341,7 @@ class Wiring(unittest.TestCase):
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
+                                     triggering_actor="github-actions[bot]",
                                      event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
             context["inputs"].update(pr_runner="glaeda-std-xcode-26.6", pr_retry_runner=retry,
                                      pr_owned_jobs=owned_jobs)
@@ -1183,23 +1349,82 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(admission["runs-on"], context), runner)
                 self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
 
-    def test_only_the_rescue_retries_a_refused_owned_job_on_the_fleet(self):
-        # owned_pool_rescue.py re-runs a refused job's failed jobs with
-        # github.token, so attempt 2 is triggered by github-actions[bot] and
-        # takes the owned label once more. A person's "Re-run failed jobs" is
-        # also attempt 2 with the same outputs, but nothing watches it, so it
-        # takes the Blacksmith retry runner.
+    def test_a_retry_goes_to_blacksmith_after_a_host_fault_and_to_the_fleet_after_a_code_failure(self):
+        # github-actions[bot] re-runs only after a host fault: owned_pool_rescue.py
+        # after a refusal, ci-failure-attribution when every failure is the
+        # machine's. That retry takes the Blacksmith retry runner, never the mini
+        # that refused or failed it. A person's "Re-run failed jobs" follows a
+        # code or test failure and goes back to the owned label; a mini failing
+        # it there is re-run by the attribution bot onto Blacksmith, so it never loops.
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
-        for actor, runner in (("github-actions[bot]", "glaeda-std-xcode-26.6"),
-                              ("someone", "blacksmith-12vcpu-macos-26")):
+        for actor, attempt, runner in (("github-actions[bot]", "2", "blacksmith-12vcpu-macos-26"),
+                                       ("someone", "2", "glaeda-std-xcode-26.6"),
+                                       ("github-actions[bot]", "3", "blacksmith-12vcpu-macos-26"),
+                                       ("someone", "3", "glaeda-std-xcode-26.6")):
             context = github_context("pull_request", ref="refs/pull/1/merge")
-            context["github"].update(repository="manaflow-ai/cmux", run_attempt="2", triggering_actor=actor,
+            context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
                                      event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
             context["inputs"].update(pr_runner="glaeda-std-xcode-26.6", pr_retry_runner="blacksmith-12vcpu-macos-26",
-                                     pr_refused_retry_runner="glaeda-std-xcode-26.6", pr_owned_jobs=" admission ")
-            with self.subTest(actor=actor):
+                                     pr_owned_jobs=" admission ")
+            with self.subTest(actor=actor, attempt=attempt):
                 self.assertEqual(evaluate(admission["runs-on"], context), runner)
                 self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
+
+    def test_no_retry_attempt_of_any_workflow_takes_an_owned_label(self):
+        # Every macOS job an owned mini may take, in every workflow: with the
+        # picker's owned outputs, the side-lane variables and late placement's
+        # labels all set, attempt 1 may take a glaeda-* label, but attempts 2
+        # and 3 of a host-fault re-run (github-actions[bot]'s: the rescue's or
+        # the failure attribution's) never do, so such a retry cannot land on
+        # the mini that refused or failed it. A person's re-run follows a code
+        # failure and may (test_a_retry_goes_to_blacksmith_after_a_host_fault_...).
+        mini, root, gui, side = ("glaeda-std-xcode-26.6", "glaeda-root-std-xcode-26.6",
+                                 "glaeda-gui-std-xcode-26.6", "glaeda-side-std-xcode-26.6")
+        owned_jobs = (" admission shard-1 lag cli-product swift-package claude-wrapper remote-daemon ")
+        late = json.dumps({"shard-1": root, "lag": gui, "cli-product": root})
+        checked = set()
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            for name, job in (load(path.name).get("jobs") or {}).items():
+                runs_on = job.get("runs-on")
+                if not isinstance(runs_on, str) or not any(
+                        key in runs_on for key in ("pr_owned_jobs", "SIDE_LANE_RUNNER", "LIGHT_LANE_RUNNER")):
+                    continue
+                runs_on = (runs_on.replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
+                           .replace("format('shard-{0}', matrix.shard)", "'shard-1'"))
+                for attempt in ("1", "2", "3"):
+                    context = github_context("pull_request", ref="refs/pull/1/merge",
+                                             CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=side,
+                                             CI_LIGHT_LANE_RUNNER="glaeda-side-light-xcode-26.6")
+                    context["github"].update(
+                        repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor="github-actions[bot]",
+                        workflow_ref=f"manaflow-ai/cmux/.github/workflows/{path.name}@refs/pull/1/merge",
+                        event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+                    context["inputs"].update(pr_runner=mini, pr_retry_runner="blacksmith-12vcpu-macos-26",
+                                             pr_root_runner=root, pr_gui_runner=gui, pr_side_runner=side,
+                                             pr_owned_jobs=owned_jobs)
+                    outputs = {"macos_pr_runner": mini, "macos_pr_retry_runner": "blacksmith-12vcpu-macos-26",
+                               "macos_pr_side_runner": side, "macos_pr_owned_jobs": owned_jobs}
+                    context["needs"] = {"changes": {"outputs": outputs},
+                                        "late-placement": {"outputs": {"runners": late}},
+                                        "macos-compile-admission": {"outputs": {"runner": root}}}
+                    label = evaluate(runs_on, context)
+                    labels = label if isinstance(label, list) else [label]
+                    with self.subTest(workflow=path.name, job=name, attempt=attempt):
+                        if attempt == "1":
+                            checked.add((path.name, name, any(str(item).startswith("glaeda-") for item in labels)))
+                        else:
+                            self.assertFalse(any(str(item).startswith("glaeda-") for item in labels), labels)
+        # Matrix-picked runners (cmux-tui) and input-gated lanes (reload-build)
+        # are not evaluated above: no workflow may name a later attempt at all.
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(workflow=path.name):
+                self.assertIsNone(re.search(r"run_attempt (?:<= ?[2-9]|== ?[2-9])", text))
+        # The guard reaches owned jobs at all: attempt 1 of the main lanes takes the fleet.
+        owned = {(workflow, job) for workflow, job, on_fleet in checked if on_fleet}
+        self.assertTrue({("ci-macos.yml", "macos-compile-admission"), ("ci-macos.yml", "cli-product-tests"),
+                         ("ci-macos.yml", "app-host-unit-tests"), ("ci.yml", "claude-wrapper"),
+                         ("auth-refresh-tests.yml", next(iter(load("auth-refresh-tests.yml")["jobs"])))} <= owned, owned)
 
     def test_full_suite_shards_take_the_shard_runner_on_admissions_xcode(self):
         shards = load("ci-macos.yml")["jobs"]["app-host-unit-tests"]
@@ -1220,22 +1445,24 @@ class Wiring(unittest.TestCase):
 
     def test_root_jobs_take_the_root_label_when_the_picker_names_one(self):
         # glaeda refuses a canonical-root job on a mini whose root is taken, so
-        # a placed root job takes the root label, on attempt 1 and on the
-        # rescue's attempt 2. Without pr_root_runner nothing changes.
+        # a placed root job takes the root label on attempt 1; any retry takes
+        # the Blacksmith retry runner. Without pr_root_runner nothing changes.
         macos = load("ci-macos.yml")["jobs"]
         root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
         for attempt, actor, owned_jobs, root_runner, runner in (
             ("1", "someone", " admission shard-1 lag cli-product ", root, root),
             ("1", "someone", " admission shard-1 lag cli-product ", "", mini),
             ("1", "someone", " cli-pipe ", root, retry),
-            ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", root, root),
-            ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", "", mini),
-            ("2", "someone", " admission shard-1 lag cli-product ", root, retry),
+            # A retry never comes back to the fleet, whoever re-ran it.
+            ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", root, retry),
+            ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", "", retry),
+            ("2", "someone", " admission shard-1 lag cli-product ", root, root),  # a code failure's re-run
+            ("3", "github-actions[bot]", " admission shard-1 lag cli-product ", root, retry),
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
                                      event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
-            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry, pr_refused_retry_runner=mini,
+            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry,
                                      pr_root_runner=root_runner, pr_owned_jobs=owned_jobs)
             with self.subTest(attempt=attempt, actor=actor, owned_jobs=owned_jobs, root_runner=root_runner):
                 admission = evaluate(macos["macos-compile-admission"]["runs-on"], context)
@@ -1250,24 +1477,52 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(shard, context), runner)
                 self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), runner)
 
+    def test_cli_product_takes_the_gui_label_like_the_shards(self):
+        # glaeda runs cli-product-tests under the mini's gui token, so on the
+        # root label it was refused behind a shard's token (run 36316398822).
+        job = load("ci-macos.yml")["jobs"]["cli-product-tests"]
+        root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
+        gui = "glaeda-gui-std-xcode-26.6"
+        owned = " admission shard-1 lag cli-product "
+        for attempt, owned_jobs, gui_runner, runner in (
+            ("1", owned, gui, gui),
+            ("1", owned, "", root),
+            # A retry never comes back to the fleet.
+            ("2", owned, gui, retry),
+            ("2", owned, "", retry),
+            ("1", " admission ", gui, retry),
+            ("3", owned, gui, retry),
+        ):
+            context = github_context("pull_request", ref="refs/pull/1/merge")
+            context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
+                                     triggering_actor="github-actions[bot]",
+                                     event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry,
+                                     pr_root_runner=root, pr_gui_runner=gui_runner, pr_owned_jobs=owned_jobs)
+            context["needs"] = {"macos-compile-admission": {"outputs": {"runner": root}}}
+            with self.subTest(attempt=attempt, owned_jobs=owned_jobs, gui_runner=gui_runner):
+                self.assertEqual(evaluate(job["runs-on"], context), runner)
+                self.assertEqual(evaluate(job["steps"][0]["env"]["REQUESTED_RUNNER"], context), runner)
+
     def test_a_warm_admission_takes_the_warm_labels_on_attempt_one_only(self):
         # pr_admission_runner names a root runner that kept a build of the
         # run's merge base. Admission's attempt 1 asks for both labels; its
         # consumers, and every retry, keep the root label.
         macos = load("ci-macos.yml")["jobs"]
         root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
-        warm = json.dumps([root, "glaeda-warm-0123456789ab"])
+        warm = json.dumps([root, "glaeda-runner-cmux7-glaeda"])
         owned_jobs = " admission shard-1 lag cli-product "
         for attempt, actor, admission_runner, runner in (
-            ("1", "someone", warm, [root, "glaeda-warm-0123456789ab"]),
+            ("1", "someone", warm, [root, "glaeda-runner-cmux7-glaeda"]),
             ("1", "someone", "", root),
-            ("2", "github-actions[bot]", warm, root),
-            ("2", "someone", warm, retry),
+            ("2", "github-actions[bot]", warm, retry),
+            ("2", "someone", warm, root),  # a code failure's re-run: the root label, never the pin
+            ("3", "someone", warm, root),
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
                                      event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
-            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry, pr_refused_retry_runner=mini,
+            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry,
                                      pr_root_runner=root, pr_admission_runner=admission_runner,
                                      pr_owned_jobs=owned_jobs)
             with self.subTest(attempt=attempt, actor=actor, admission_runner=admission_runner):
@@ -1287,12 +1542,14 @@ class Wiring(unittest.TestCase):
         root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-6vcpu-macos-26"
         owned_jobs = " admission shard-1 shard-2 lag cli-product "
         for attempt, actor, runner in (("1", "github-actions[bot]", root),
-                                       ("2", "github-actions[bot]", root),
-                                       ("2", "someone", retry)):
+                                       ("2", "github-actions[bot]", retry),
+                                       # Main has no failure attribution or re-run watch: every retry on Blacksmith.
+                                       ("2", "someone", retry),
+                                       ("3", "someone", retry)):
             context = github_context("workflow_dispatch")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
                                      sha="head")
-            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry, pr_refused_retry_runner=mini,
+            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry,
                                      pr_root_runner=root, pr_owned_jobs=owned_jobs, source_parent1="parent")
             with self.subTest(attempt=attempt, actor=actor):
                 admission = macos["macos-compile-admission"]
@@ -1370,6 +1627,78 @@ class Wiring(unittest.TestCase):
             if bare.search(line)
         ]
         self.assertEqual(offenders, [], "an unset variable is null, which equals '0'; give it a default first")
+
+
+class PruneLocal(unittest.TestCase):
+    """Kept seeds use the disk: only the count cap or a short disk prunes them."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state = Path(self.tmp.name)
+        self.cache = self.state / "seeds"
+        self.make(self.cache, "s", 10, offset=0)
+
+    def make(self, cache, name, count, offset):
+        """COUNT seeds past the grace period, NAME0 newest; OFFSET shifts them older."""
+        cache.mkdir(parents=True, exist_ok=True)
+        now = time.time()
+        for index in range(count):
+            path = cache / f"{name}{index}"
+            path.mkdir()
+            old = now - seed.PRUNE_GRACE_SECONDS - 60 * (index + 1 + offset)
+            os.utime(path, (old, old))
+
+    def left(self, cache=None):
+        return sorted(entry.name for entry in (cache or self.cache).iterdir())
+
+    def disk(self, short_by_seeds):
+        """A disk SHORT_BY_SEEDS deletes under the floor, each delete freeing 8 GiB."""
+        start = seed.LOCAL_KEEP_MIN_FREE_BYTES - short_by_seeds * 8 * 1024**3
+        roots = [self.cache, *(p for p in self.state.glob("cmux-ci-*/seeds"))]
+        total = sum(len(list(root.iterdir())) for root in roots)
+
+        def free(_):
+            now = sum(len(list(root.iterdir())) for root in roots)
+            return start + (total - now) * 8 * 1024**3
+        return mock.patch.object(seed, "free_bytes", side_effect=free)
+
+    def test_a_roomy_disk_keeps_every_seed_under_the_cap(self):
+        with self.disk(0):
+            seed.prune_local(self.cache)
+        self.assertEqual(len(self.left()), 10)
+        with self.disk(0), mock.patch.object(seed, "LOCAL_KEEP", 4):
+            seed.prune_local(self.cache)
+        self.assertEqual(self.left(), ["s0", "s1", "s2", "s3"])
+
+    def test_a_short_disk_drops_the_oldest_until_there_is_room(self):
+        with self.disk(3):
+            seed.prune_local(self.cache)
+        self.assertEqual(self.left(), [f"s{index}" for index in range(7)])
+
+    def test_a_short_disk_drops_the_oldest_of_any_root(self):
+        """The root that triggers the prune is not the one holding the oldest seeds."""
+        other = self.state / "cmux-ci-2" / "seeds"
+        self.make(other, "t", 5, offset=20)  # all older than every s seed
+        with self.disk(2):
+            seed.prune_local(self.cache)
+        self.assertEqual(self.left(other), ["t0", "t1", "t2"])
+        self.assertEqual(len(self.left()), 10)
+        with self.disk(3):
+            seed.prune_local(other)
+        self.assertEqual(self.left(other), ["t0", "t1"])  # each root keeps its newest two
+        self.assertEqual(len(self.left()), 8)
+
+    def test_a_delete_that_frees_nothing_stops_the_prune(self):
+        with mock.patch.object(seed, "free_bytes", return_value=0):
+            seed.prune_local(self.cache)
+        self.assertEqual(len(self.left()), 9)
+
+    def test_the_newest_two_the_spared_and_the_recent_always_stay(self):
+        os.utime(self.cache / "s8")
+        with self.disk(20):
+            seed.prune_local(self.cache, spare=self.cache / "s5")
+        self.assertEqual(self.left(), ["s0", "s5", "s8"])  # touching s8 made it one of the newest two
 
 
 if __name__ == "__main__":

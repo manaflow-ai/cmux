@@ -9,6 +9,8 @@ BUILD_WORK_DIR="${TARGET_TEMP_DIR:-${CRATE_DIR}/target/cmux-diff-sidecar-build}"
 CARGO_RUNNER="${ROOT}/scripts/run-diff-sidecar-cargo.sh"
 TOOLCHAIN="$(awk -F '"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' "${CRATE_DIR}/rust-toolchain.toml")"
 
+# shellcheck source=scripts/build-phase-caller-path.sh
+. "${ROOT}/scripts/build-phase-caller-path.sh"
 # Xcode build phases do not inherit a login-shell PATH. Prefer rustup's
 # conventional bin directory, then the standard Homebrew prefixes.
 export PATH="${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"

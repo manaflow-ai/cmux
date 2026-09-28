@@ -54,6 +54,27 @@ class Decide(unittest.TestCase):
         placed, _ = late.decide(env, roots(idle=2))
         self.assertEqual(placed, {"shard-3": ROOT_STD, "shard-4": ROOT_STD})
 
+    def test_gui_jobs_take_idle_gui_runners_and_the_rest_idle_roots(self):
+        gui = "glaeda-gui-std-xcode-26.6"
+        runners = [*roots(idle=3), *(runner(f"gui-{i}", "self-hosted", gui) for i in range(2)),
+                   runner("gui-busy", gui, busy=True)]
+        slots = '{"std": 40, "root-std": 19, "gui-std": 10}'
+        # Admission ran on Blacksmith (the picker named no gui runner): the slots still route GUI jobs.
+        placed, why = late.decide(dict(FULL, OWNED_SLOTS=slots), runners)
+        # cli-product-tests holds the gui token too, so it queues behind the shards for a gui runner.
+        self.assertEqual(placed, {"shard-1": gui, "shard-2": gui})
+        self.assertIn(f"2 idle `{gui}`", why)
+        # No gui count yet: the GUI jobs take the root label as before.
+        self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS='{"std": 40, "root-std": 19}'), runners)[0],
+                         {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
+        self.assertEqual(late.decide(FULL, runners)[0],
+                         {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
+        # No idle gui runner: the gui-token jobs stay where the picker put them.
+        self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), roots(idle=3))[0], {})
+        # Enough gui runners: cli-product-tests takes one, never the root label.
+        many = [*roots(idle=3), *(runner(f"gui-{i}", "self-hosted", gui) for i in range(10))]
+        self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), many)[0]["cli-product"], gui)
+
     def test_no_idle_root_changes_nothing(self):
         self.assertEqual(late.decide(FULL, roots(idle=0, busy=16))[0], {})
 
@@ -106,8 +127,17 @@ class Workflow(unittest.TestCase):
                 self.assertIn("late-placement", spec["needs"])
                 late = (prefix % key).removeprefix("${{ ")
                 owner = "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                # tests-build-and-lag keeps the fork-owner branch first (test_ci_fork_runner_routing).
-                self.assertTrue(spec["runs-on"].startswith("${{ " + late) or spec["runs-on"].startswith(owner + late),
+                # tests-build-and-lag keeps the fork-owner branch and then the fork
+                # pull-request branch first (test_ci_fork_runner_routing). Late
+                # placement skips fork heads, so its output is {} there anyway.
+                fork_pr = (
+                    "(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
+                    " != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner"
+                    " || 'blacksmith-6vcpu-macos-15') || "
+                )
+                self.assertTrue(spec["runs-on"].startswith("${{ " + late)
+                                or spec["runs-on"].startswith(owner + late)
+                                or spec["runs-on"].startswith(owner + fork_pr + late),
                                 spec["runs-on"][:200])
                 # The job-level if never requires late-placement, so a skipped or failed one
                 # leaves the consumer running where the picker put it.
@@ -123,7 +153,13 @@ class Workflow(unittest.TestCase):
                        "needs.macos-compile-admission.result == 'success'"):
             self.assertIn(clause, spec["if"])
         self.assertTrue(all(step.get("continue-on-error") for step in spec["steps"]))
-        self.assertEqual(spec["outputs"]["runners"], "${{ steps.place.outputs.runners || '{}' }}")
+        # Jobs move only once both markers the rescue watch reads uploaded.
+        self.assertEqual(spec["outputs"]["runners"],
+                         "${{ steps.late-marker.outcome == 'success' && steps.late-watch-marker.outcome == 'success'"
+                         " && steps.place.outputs.runners || '{}' }}")
+        steps = {step.get("id"): step for step in spec["steps"]}
+        for marker in ("late-marker", "late-watch-marker"):
+            self.assertEqual(steps[marker]["with"]["if-no-files-found"], "error", marker)
 
     def test_moved_jobs_leave_the_marker_the_rescue_watch_looks_for(self):
         steps = {step["name"]: step for step in self.jobs["late-placement"]["steps"]}
@@ -134,7 +170,7 @@ class Workflow(unittest.TestCase):
         self.assertIn('LATE_MARKER_PREFIX = "macos-pool-late"', rescue)
         self.assertEqual(marker["with"]["name"], "macos-pool-late-${{ github.run_id }}-${{ github.run_attempt }}")
         self.assertIn('LATE_JOB = "macos / late-placement"', rescue)
-        # It starts nothing itself: ci.yml's owned-pool-watch holds the only actions: write.
+        # It starts nothing itself: the rescue sweeper finds the run by its marker.
         self.assertEqual(self.jobs["late-placement"]["permissions"], {"contents": "read"})
 
 

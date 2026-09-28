@@ -673,7 +673,8 @@ import Testing
         )
 
         fixture.connection.cancelPaneSeed(paneId: 7, seedID: blockingSeedID)
-        for _ in 0..<10 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if fixture.connection.pendingPaneSeeds[8] != nil { break }
             await Task.yield()
         }
