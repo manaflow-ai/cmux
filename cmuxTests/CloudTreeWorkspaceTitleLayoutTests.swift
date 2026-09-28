@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxFoundation
 import AppKit
 import CmuxSurfaceCatalogModel
 import Testing
@@ -29,8 +30,9 @@ struct CloudTreeWorkspaceTitleLayoutTests {
             let host = try #require(cell.subviews.first { $0 is CloudTreePassthroughHostingView })
             let content = outline.convert(host.bounds, from: host)
             let disclosure = outline.frameOfOutlineCell(atRow: row)
-            #expect(content.minX - disclosure.maxX >= CloudTreeStyle.compact.rowGrid.disclosureGap,
-                    "Chevron crowds the content for \(node.structureTag) in \(style.id)")
+            let expectedGap = GlobalFontMagnification.scaledSize(style.rowGrid.disclosureGap)
+            #expect(content.minX - disclosure.maxX >= expectedGap - 0.001,
+                    "Chevron crowds the content for \(node.structureTag) in \(style.id): expected \(expectedGap)")
             if style.machineRowLayout == .singleLine {
                 #expect(abs(disclosure.midY - outline.rect(ofRow: row).midY) <= 1)
             }
