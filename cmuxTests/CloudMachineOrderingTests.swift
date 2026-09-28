@@ -13,6 +13,11 @@ import Testing
 @MainActor
 @Suite("Cloud machine ordering", .serialized)
 struct CloudMachineOrderingTests {
+    /// The Cloud sidebar draws no drag hints (#15123), including for machine headers.
+    private func expectNoReorderIndicator(_ outline: NSOutlineView) {
+        #expect(!outline.subviews.contains { $0.identifier?.rawValue == "sidebarReorderIndicator" })
+    }
+
     @Test("Header edges move whole machines and retain selection and expansion",
           arguments: [false, true], [false, true])
     func headers(collapsed: Bool, after: Bool) throws {
@@ -34,11 +39,10 @@ struct CloudMachineOrderingTests {
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,
             proposedItem: target, proposedChildIndex: NSOutlineViewDropOnItemIndex) == .move)
         #expect(fixture.base.defaults.data(forKey: CloudMachinePinStore.defaultsKey) == before)
-        // Cloud machine drags intentionally draw no sidebar hint. The drop
-        // geometry still drives ordering while the outline remains silent.
-        #expect(outline.subviews.first { $0.identifier?.rawValue == "sidebarReorderIndicator" } == nil)
+        expectNoReorderIndicator(outline)
         #expect(coordinator.outlineView(outline, acceptDrop: drag.info, item: nil, childIndex: after ? 5 : 1))
         #expect(fixture.order == (after ? ["b", "c", "d", "a"] : ["d", "a", "b", "c"]))
+        expectNoReorderIndicator(outline)
         #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == source.id)
         #expect(outline.isItemExpanded(target) == !collapsed)
         let moved = try fixture.root(try #require(source.machineOrderID))
@@ -50,7 +54,7 @@ struct CloudMachineOrderingTests {
         #expect(fixture.base.provider.refreshCount == 0)
     }
 
-    @Test("Crossing the pin boundary clamps both the move and insertion line", arguments: [false, true])
+    @Test("Crossing the pin boundary clamps the move without drawing a hint", arguments: [false, true])
     func pinBoundary(pinnedSource: Bool) throws {
         let fixture = CloudMachineOrderingFixture()
         defer { fixture.close() }
@@ -62,7 +66,7 @@ struct CloudMachineOrderingTests {
         let drag = try fixture.begin(pinnedSource ? "a" : "d")
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,
             proposedItem: nil, proposedChildIndex: pinnedSource ? 5 : 0) == .move)
-        #expect(outline.subviews.first { $0.identifier?.rawValue == "sidebarReorderIndicator" } == nil)
+        expectNoReorderIndicator(outline)
         #expect(coordinator.outlineView(outline, acceptDrop: drag.info, item: nil, childIndex: 3))
         #expect(fixture.order == (pinnedSource ? ["b", "a", "c", "d"] : ["a", "b", "d", "c"]))
         #expect(fixture.store.pinnedMachineIDs == ["a", "b"])
@@ -112,7 +116,7 @@ struct CloudMachineOrderingTests {
         #expect(fixture.order == (accept ? ["d", "a", "c", "new"] : ["a", "c", "d", "new"]))
         #expect(coordinator.nodes.filter(\.canReorderMachine).allSatisfy { $0.searchableTitle.hasPrefix("fresh-") })
         #expect(coordinator.deferredNodes == nil)
-        #expect(outline.subviews.filter { $0.identifier?.rawValue == "sidebarReorderIndicator" }.allSatisfy { $0.isHidden })
+        expectNoReorderIndicator(outline)
         #expect(!coordinator.outlineView(outline, acceptDrop: drag.info, item: nil, childIndex: 1))
     }
 
