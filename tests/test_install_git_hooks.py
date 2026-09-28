@@ -335,6 +335,37 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertIn("differ from trusted main", result.stderr)
         self.assertFalse(marker.exists())
 
+    def test_post_merge_rejects_dirty_trusted_pre_commit_helpers(self):
+        self.git("add", ".")
+        self.git(
+            "-c", "user.name=Merge Test",
+            "-c", "user.email=merge@example.invalid",
+            "commit", "-qm", "trusted main",
+        )
+        self.git("remote", "add", "upstream", "https://github.com/manaflow-ai/cmux.git")
+        self.git("update-ref", "refs/remotes/upstream/main", "HEAD")
+
+        for relative in (
+            "scripts/ci/validate_test_execution_registry.py",
+            "scripts/ci/test_execution_registry.py",
+            "scripts/ci/workload_entrypoints.py",
+        ):
+            path = self.repo / relative
+            reviewed = path.read_bytes()
+            try:
+                path.write_bytes(reviewed + b"\n# dirty candidate\n")
+                result = subprocess.run(
+                    ["/bin/bash", "scripts/git-hooks/post-merge"],
+                    cwd=self.repo,
+                    env=self.env,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("differ from trusted main", result.stderr, relative)
+            finally:
+                path.write_bytes(reviewed)
+
     def test_global_hooks_path_warns_and_succeeds(self):
         global_hooks = self.root / "global-hooks"
         global_hooks.mkdir()

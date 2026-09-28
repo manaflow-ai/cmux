@@ -46,6 +46,9 @@ class PreflightTrustTests(unittest.TestCase):
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
             "scripts/ci/catch_up_pr.py",
+            "scripts/ci/validate_test_execution_registry.py",
+            "scripts/ci/test_execution_registry.py",
+            "scripts/ci/workload_entrypoints.py",
             "scripts/normalize-pbxproj.py",
             "scripts/verify-push.py",
         ):
