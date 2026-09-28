@@ -231,6 +231,14 @@ Right-sidebar file explorer routing for file previews.
 |---|---|---|---|
 | `fileExplorer.doubleClickAction` | `"preview"` or `"defaultEditor"` or `"preferredEditor"` | `"preview"` | What double-clicking a file in the file explorer does. `preview` opens the built-in cmux file preview; the editor choices use the macOS default app or `app.preferredEditor`. |
 
+## emptyPane
+
+What a pane with no surfaces shows.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `emptyPane.artFile` | string | `""` | Path to a text or ANSI art file shown in empty panes above the Terminal and Browser buttons, for example ~/.config/cmux/empty-pane.ans. Supports a leading ~. ANSI colors (16, 256 and 24-bit), bold and dim are drawn; other escape sequences are ignored. The art uses the terminal font and palette and shrinks to fit the pane. Leave empty, or point at a missing file or one over 64 KB, for the default empty pane. |
+
 ## diffViewer
 
 Built-in diff viewer settings. See [the detailed diff configuration](https://cmux.com/docs/configuration#schema-diffViewer) for invocation overrides.

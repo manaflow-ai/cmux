@@ -167,6 +167,7 @@ extension CmuxSettingsFileStore {
         "fileEditor.currentLineHighlight",
         "fileEditor.tabWidth",
         "fileExplorer.doubleClickAction",
+        "emptyPane.artFile",
         "shortcuts.bindings",
         "shortcuts.showModifierHoldHints",
     ]

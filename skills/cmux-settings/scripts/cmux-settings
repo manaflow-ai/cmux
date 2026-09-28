@@ -697,6 +697,7 @@ def supported_paths_from_source(source: Path) -> list[str]:
         "markdown.",
         "fileEditor.",
         "fileExplorer.",
+        "emptyPane.",
         "diffViewer.",
         "shortcuts.",
     )

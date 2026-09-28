@@ -1748,6 +1748,10 @@
 		D75280040000000000000001 /* DynamicTracingSignpostInterval.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280040000000000000002 /* DynamicTracingSignpostInterval.swift */; };
 		D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */; };
 		A7206C010000000000000001 /* EffectiveAppearanceObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206C020000000000000001 /* EffectiveAppearanceObservation.swift */; };
+		3885593FA2243AD1AE350170 /* EmptyPaneArtLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5522055D0773CDAA4A518E /* EmptyPaneArtLayout.swift */; };
+		20C99BFE8B8F28881B602C4A /* EmptyPaneArtLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AA06C32C1C485B64A4E215 /* EmptyPaneArtLoader.swift */; };
+		FF928B2DB273143E97FF88F8 /* EmptyPaneArtSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B36E5D53531F23C7B88BE9E2 /* EmptyPaneArtSettingsTests.swift */; };
+		93E6F005809EFB52E85B23B8 /* EmptyPaneArtView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5FF4955E0CBF493F98993E1 /* EmptyPaneArtView.swift */; };
 		0F76FAA66E964A3F86F9EE55 /* EmptyPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7CE6E525878BE3988B9D3D /* EmptyPanelView.swift */; };
 		5732A0095732A0095732A009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */; };
 		5732A0135732A0135732A013 /* EnvironmentValues+SidebarLazyContractProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0135732B0135732B013 /* EnvironmentValues+SidebarLazyContractProbe.swift */; };
@@ -5800,6 +5804,10 @@
 		D75280040000000000000002 /* DynamicTracingSignpostInterval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicTracingSignpostInterval.swift; sourceTree = "<group>"; };
 		D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableTextViewArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
 		A7206C020000000000000001 /* EffectiveAppearanceObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectiveAppearanceObservation.swift; sourceTree = "<group>"; };
+		6D5522055D0773CDAA4A518E /* EmptyPaneArtLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyPaneArtLayout.swift; sourceTree = "<group>"; };
+		11AA06C32C1C485B64A4E215 /* EmptyPaneArtLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyPaneArtLoader.swift; sourceTree = "<group>"; };
+		B36E5D53531F23C7B88BE9E2 /* EmptyPaneArtSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EmptyPaneArtSettingsTests.swift"; sourceTree = "<group>"; };
+		E5FF4955E0CBF493F98993E1 /* EmptyPaneArtView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyPaneArtView.swift; sourceTree = "<group>"; };
 		3C7CE6E525878BE3988B9D3D /* EmptyPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyPanelView.swift; sourceTree = "<group>"; };
 		C11609000000000000000009 /* en */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = en; path = "en.lproj/cloud-agent-skill.md"; sourceTree = "<group>"; };
 		5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/EnvironmentValues+MinimalModeInvalidationProbe.swift"; sourceTree = "<group>"; };
@@ -10940,6 +10948,9 @@
 				7611B3AEEB664825A7DD8733 /* TerminalSSHSessionDetector+Async.swift */,
 				61BF07E91B28C5740AD10DD9 /* TerminalSSHSessionDetector+ProcessInfo.swift */,
 				3C7CE6E525878BE3988B9D3D /* EmptyPanelView.swift */,
+				6D5522055D0773CDAA4A518E /* EmptyPaneArtLayout.swift */,
+				E5FF4955E0CBF493F98993E1 /* EmptyPaneArtView.swift */,
+				11AA06C32C1C485B64A4E215 /* EmptyPaneArtLoader.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -12335,6 +12346,7 @@
 				23E35F95320CBED308AD98CF /* CloudTreeTogglePerformanceTests.swift */,
 				0C37EA14DE74095FB1BB23E1 /* CloudTreeDisclosureIntentTests.swift */,
 				6F27EA9972F21B98FB4A7312 /* SurfaceCatalogObservationTests.swift */,
+				B36E5D53531F23C7B88BE9E2 /* EmptyPaneArtSettingsTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -13919,6 +13931,9 @@
 				D10799040000000000000001 /* DragPasteboardCapabilityCleaner.swift in Sources */,
 				D75280040000000000000001 /* DynamicTracingSignpostInterval.swift in Sources */,
 				A7206C010000000000000001 /* EffectiveAppearanceObservation.swift in Sources */,
+				3885593FA2243AD1AE350170 /* EmptyPaneArtLayout.swift in Sources */,
+				20C99BFE8B8F28881B602C4A /* EmptyPaneArtLoader.swift in Sources */,
+				93E6F005809EFB52E85B23B8 /* EmptyPaneArtView.swift in Sources */,
 				0F76FAA66E964A3F86F9EE55 /* EmptyPanelView.swift in Sources */,
 					5732A0095732A0095732A009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift in Sources */,
 					5732A0135732A0135732A013 /* EnvironmentValues+SidebarLazyContractProbe.swift in Sources */,
@@ -16387,6 +16402,7 @@
 				D86860000000000000000001 /* DockWorkingDirectoryInheritanceTests.swift in Sources */,
 				0BD2AA506F906B6A5382A280 /* DuplicateInstanceHandlerTests.swift in Sources */,
 				D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */,
+				FF928B2DB273143E97FF88F8 /* EmptyPaneArtSettingsTests.swift in Sources */,
 				E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */,
 				C0A716900000000000000002 /* ExternalApplicationWindowTrackerTests.swift in Sources */,
 				C0A717100000000000000002 /* ExternalWindowSamplingServiceTests.swift in Sources */,

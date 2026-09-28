@@ -260,6 +260,11 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "emptyPane": [
+                    "artFile": EmptyPaneCatalogSection().artFile.defaultValue,
+                ],
+            ],
+            [
                 "diffViewer": [
                     "defaultLayout": "unified",
                 ],
