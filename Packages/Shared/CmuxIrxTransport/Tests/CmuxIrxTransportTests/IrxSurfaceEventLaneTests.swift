@@ -155,6 +155,40 @@ private actor FakeLaneOpener {
     }
 }
 
+/// Opener whose opens stay pending until released, like `openUni` waiting
+/// for stream credit the phone has not granted yet.
+private actor PendingLaneOpener {
+    private var pending: [CheckedContinuation<Void, Never>] = []
+    private(set) var openCount = 0
+
+    func open(_ descriptor: IrxLaneDescriptor) async -> any IrxEventLaneWriting {
+        openCount += 1
+        await withCheckedContinuation { pending.append($0) }
+        return FakeEventLaneWriter(descriptor: descriptor, blocked: false)
+    }
+
+    func releaseAll() {
+        let waiting = pending
+        pending.removeAll()
+        for continuation in waiting { continuation.resume() }
+    }
+}
+
+/// Counts sends that returned or threw, so a test can wait on outcomes.
+private actor SendOutcomes {
+    private(set) var failures: [any Error] = []
+    private(set) var successes = 0
+
+    func record(_ result: Result<Void, any Error>) {
+        switch result {
+        case .success: successes += 1
+        case .failure(let error): failures.append(error)
+        }
+    }
+
+    var total: Int { successes + failures.count }
+}
+
 private func frame(_ text: String) -> Data {
     var length = UInt32(text.utf8.count).bigEndian
     var data = Data(bytes: &length, count: 4)
@@ -453,16 +487,82 @@ struct IrxSurfaceEventLanesTests {
         await lanes.closeAll()
     }
 
-    @Test func laneCountIsBoundedByEvictingTheLeastRecentlyUsedLane() async throws {
+    @Test func laneLimitRefusesANewSurfaceInsteadOfEvictingAnother() async throws {
         let opener = FakeLaneOpener()
         let lanes = makeLanes(opener, configuration: .init(maximumLaneCount: 2))
         try await lanes.send(frame("1"), surfaceID: "one", generation: 0)
         try await lanes.send(frame("2"), surfaceID: "two", generation: 0)
-        try await lanes.send(frame("1b"), surfaceID: "one", generation: 0)
-        try await lanes.send(frame("3"), surfaceID: "three", generation: 0)
-        #expect(await lanes.openSurfaceIDs() == ["one", "three"])
-        let evicted = try #require(await opener.writers(surfaceID: "two").first)
-        #expect(try await waitUntil { await evicted.finished })
+        await #expect(throws: IrxSurfaceEventLanes.LaneError.laneLimit) {
+            try await lanes.send(frame("3"), surfaceID: "three", generation: 0)
+        }
+        #expect(await lanes.openSurfaceIDs() == ["one", "two"])
+        #expect(await opener.writers(surfaceID: "three").isEmpty)
+        let kept = try #require(await opener.writers(surfaceID: "one").first)
+        #expect(await !kept.finished)
+    }
+
+    @Test func releaseResetsTheLaneAndRefusesOlderGenerations() async throws {
+        let opener = FakeLaneOpener()
+        let lanes = makeLanes(opener)
+        try await lanes.send(frame("1"), surfaceID: "S", generation: 0)
+        let released = try #require(await opener.writers(surfaceID: "s").first)
+        await lanes.release(surfaceID: "S", belowGeneration: 1)
+        #expect(await lanes.openSurfaceIDs().isEmpty)
+        #expect(try await waitUntil {
+            await released.resetCodes == [IrxSurfaceEventLanes.releasedResetCode]
+        })
+        // A frame dequeued before the release must not reopen a stream.
+        await #expect(throws: IrxSurfaceEventLanes.LaneError.released) {
+            try await lanes.send(frame("stale"), surfaceID: "s", generation: 0)
+        }
+        #expect(await opener.writers(surfaceID: "s").count == 1)
+        // Focusing the surface again opens a fresh stream at the new generation.
+        try await lanes.send(frame("full"), surfaceID: "s", generation: 1)
+        let writers = await opener.writers(surfaceID: "s")
+        #expect(writers.count == 2)
+        #expect(await writers[1].written == [frame("full")])
+    }
+
+    @Test func releaseLeavesANewerGenerationLaneOpen() async throws {
+        let opener = FakeLaneOpener()
+        let lanes = makeLanes(opener)
+        try await lanes.send(frame("1"), surfaceID: "s", generation: 2)
+        await lanes.release(surfaceID: "s", belowGeneration: 1)
+        #expect(await lanes.openSurfaceIDs() == ["s"])
+        let writer = try #require(await opener.writers(surfaceID: "s").first)
+        #expect(await writer.resetCodes.isEmpty)
+    }
+
+    /// Streams still waiting for credit count toward the lane limit. Without
+    /// that, every concurrent open passes the room check before any of them
+    /// lands, which is how a phone's 40-stream credit got exhausted.
+    @Test func pendingOpensCountTowardTheLaneLimit() async throws {
+        let opener = PendingLaneOpener()
+        let lanes = IrxSurfaceEventLanes(configuration: .init(maximumLaneCount: 2)) { descriptor in
+            await opener.open(descriptor)
+        }
+        let outcomes = SendOutcomes()
+        let surfaceIDs = (0..<5).map { "s\($0)" }
+        let sends = surfaceIDs.map { surfaceID in
+            Task {
+                do {
+                    try await lanes.send(frame(surfaceID), surfaceID: surfaceID, generation: 0)
+                    await outcomes.record(.success(()))
+                } catch {
+                    await outcomes.record(.failure(error))
+                }
+            }
+        }
+        // Every send either reached the opener or was refused.
+        #expect(try await waitUntil {
+            await opener.openCount + outcomes.failures.count == surfaceIDs.count
+        })
+        #expect(await opener.openCount == 2)
+        await opener.releaseAll()
+        for send in sends { await send.value }
+        #expect(await outcomes.successes == 2)
+        #expect(await lanes.openSurfaceIDs().count == 2)
+        await lanes.closeAll()
     }
 
     @Test func disabledLanesRefuseToOpen() async throws {

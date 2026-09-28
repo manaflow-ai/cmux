@@ -148,11 +148,15 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
     /// Lanes with a running drain. At most one drain per lane.
     private var drainingLanes: Set<MobileHostEventLane> = []
     private var isClosed = false
-    /// Maximum concurrently assigned surface lanes; 0 disables surface lanes.
+    /// How many focused surfaces hold their own lane; 0 disables surface lanes.
     private var surfaceLaneLimit = 0
-    /// Assigned surface lanes and their last-use tick (for LRU reassignment).
-    private var surfaceLaneLastUse: [String: UInt64] = [:]
-    private var surfaceLaneUseTick: UInt64 = 0
+    /// Canonical keys of the surfaces the user most recently focused, oldest
+    /// first. Only these ride their own lanes; background output never earns
+    /// or takes a lane, so it cannot churn streams.
+    private var focusedSurfaceKeys: [String] = []
+    /// Coalesce key each focused surface's frames were admitted under, so a
+    /// release can find them whatever spelling the focus signal used.
+    private var surfaceLaneCoalesceKeysByCanonicalKey: [String: String] = [:]
     private var surfaceLaneGenerations: [String: UInt64] = [:]
     private var surfaceLaneFailureCounts: [String: Int] = [:]
     private var sharedLanePinnedSurfaceIDs: Set<String> = []
@@ -391,14 +395,54 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
 
     // MARK: Surface lanes
 
-    /// Routes future render-grid frames onto per-surface lanes, at most
-    /// `limit` at once. Surfaces beyond the limit ride the shared lane.
+    /// Routes future render-grid frames of the `limit` most recently focused
+    /// surfaces (``focusSurfaceLane(_:)``) onto their own lanes. Every other
+    /// surface rides the shared lane. Starts with no focused surface.
     func enableSurfaceLanes(limit: Int) {
         lock.lock()
         surfaceLaneLimit = max(0, limit)
+        focusedSurfaceKeys.removeAll()
+        surfaceLaneCoalesceKeysByCanonicalKey.removeAll()
         sharedLanePinnedSurfaceIDs.removeAll()
         surfaceLaneFailureCounts.removeAll()
         lock.unlock()
+    }
+
+    /// One spelling per surface: focus signals carry the phone's surface ID
+    /// string while render-grid events carry the Mac's, and the two can differ
+    /// in case.
+    static func canonicalSurfaceKey(_ rawSurfaceKey: String) -> String {
+        let trimmed = rawSurfaceKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        return UUID(uuidString: trimmed)?.uuidString ?? trimmed.lowercased()
+    }
+
+    /// Gives the surface the user just focused its own lane. When that
+    /// exceeds the limit, the least recently focused surface is released: its
+    /// queued frames are dropped, its chain is poisoned, and its lane gets a
+    /// new generation. Returns each released surface's coalesce key with that
+    /// new generation; the caller resets those streams and requests a
+    /// full-frame resync, which then rides the shared lane.
+    func focusSurfaceLane(_ rawSurfaceKey: String) -> [String: UInt64] {
+        let key = Self.canonicalSurfaceKey(rawSurfaceKey)
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isClosed, surfaceLaneLimit > 0, !key.isEmpty else { return [:] }
+        if let index = focusedSurfaceKeys.firstIndex(of: key) {
+            focusedSurfaceKeys.remove(at: index)
+        }
+        focusedSurfaceKeys.append(key)
+        var released: [String: UInt64] = [:]
+        while focusedSurfaceKeys.count > surfaceLaneLimit {
+            let victim = focusedSurfaceKeys.removeFirst()
+            guard let coalesceKey = surfaceLaneCoalesceKeysByCanonicalKey
+                .removeValue(forKey: victim) else { continue }
+            let generation = surfaceLaneGenerations[coalesceKey, default: 0] &+ 1
+            surfaceLaneGenerations[coalesceKey] = generation
+            dropQueuedRenderGridFramesLocked(surfaceID: coalesceKey)
+            poisonedRenderGridSurfaceIDs.insert(coalesceKey)
+            released[coalesceKey] = generation
+        }
+        return released
     }
 
     var surfaceLanesEnabled: Bool {
@@ -416,7 +460,8 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         defer { lock.unlock() }
         guard surfaceLaneLimit > 0 else { return [] }
         surfaceLaneLimit = 0
-        surfaceLaneLastUse.removeAll()
+        focusedSurfaceKeys.removeAll()
+        surfaceLaneCoalesceKeysByCanonicalKey.removeAll()
         var resync = Set<String>()
         var droppedByteCount = 0
         queuedEvents.removeAll { event in
@@ -445,12 +490,17 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
             return []
         }
         surfaceLaneGenerations[surfaceID] = generation &+ 1
-        surfaceLaneLastUse.removeValue(forKey: surfaceID)
         let failures = surfaceLaneFailureCounts[surfaceID, default: 0] + 1
         surfaceLaneFailureCounts[surfaceID] = failures
         if failures >= Self.maximumSurfaceLaneFailureCount {
             sharedLanePinnedSurfaceIDs.insert(surfaceID)
         }
+        dropQueuedRenderGridFramesLocked(surfaceID: surfaceID)
+        poisonedRenderGridSurfaceIDs.insert(surfaceID)
+        return [surfaceID]
+    }
+
+    private func dropQueuedRenderGridFramesLocked(surfaceID: String) {
         var droppedByteCount = 0
         queuedEvents.removeAll { event in
             guard event.topic == MobileHostEventTopicPolicy.renderGridTopic,
@@ -460,8 +510,6 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
             return true
         }
         queuedByteCount -= droppedByteCount
-        poisonedRenderGridSurfaceIDs.insert(surfaceID)
-        return [surfaceID]
     }
 
     /// Clears a surface's consecutive-failure count after a delivered frame.
@@ -490,25 +538,9 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
               !sharedLanePinnedSurfaceIDs.contains(surfaceID) else {
             return (.shared, 0)
         }
-        surfaceLaneUseTick &+= 1
-        if surfaceLaneLastUse[surfaceID] == nil {
-            if surfaceLaneLastUse.count >= surfaceLaneLimit {
-                // Reassign the least recently used idle lane; a lane with
-                // queued or in-flight frames keeps its surface.
-                let idle = surfaceLaneLastUse.filter { entry in
-                    let lane = MobileHostEventLane.surface(entry.key)
-                    return queuedCountByLane[lane, default: 0] == 0
-                        && !drainingLanes.contains(lane)
-                }
-                guard let victim = idle.min(by: { $0.value < $1.value })?.key else {
-                    return (.shared, 0)
-                }
-                surfaceLaneLastUse.removeValue(forKey: victim)
-                // The victim's next frame opens a new stream.
-                surfaceLaneGenerations[victim, default: 0] &+= 1
-            }
-        }
-        surfaceLaneLastUse[surfaceID] = surfaceLaneUseTick
+        let key = Self.canonicalSurfaceKey(surfaceID)
+        guard focusedSurfaceKeys.contains(key) else { return (.shared, 0) }
+        surfaceLaneCoalesceKeysByCanonicalKey[key] = surfaceID
         return (.surface(surfaceID), surfaceLaneGenerations[surfaceID, default: 0])
     }
 
@@ -566,7 +598,8 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         subscribedTopics.removeAll()
         queuedCountByLane.removeAll()
         surfaceLaneLimit = 0
-        surfaceLaneLastUse.removeAll()
+        focusedSurfaceKeys.removeAll()
+        surfaceLaneCoalesceKeysByCanonicalKey.removeAll()
         lastRenderGridRouteBySurfaceID.removeAll()
         lock.unlock()
     }
