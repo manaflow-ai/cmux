@@ -121,4 +121,39 @@ struct CloudImagePasteRoutingTests {
         #expect(TerminalImageTransferPlanner.plan(preparedContent: .insertText("ordinary clipboard text"), target: .cloud)
             == .insertText("ordinary clipboard text"))
     }
+
+    @Test @MainActor
+    func stalledAdHocSSHDetectionFallsBackToLocalPaste() async throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelID))
+        workspace.surfaceTTYNames[panelID] = "/dev/ttys15073"
+        let url = URL(fileURLWithPath: "/tmp/cmux-image-15073.png")
+        let startedAt = Date()
+
+        let target = await panel.surface.resolvedImageTransferTargetAsync(
+            in: workspace,
+            detector: { _ in
+                Thread.sleep(forTimeInterval: 1)
+                return DetectedSSHSession(
+                    destination: "slow-host", port: nil, identityFile: nil,
+                    configFile: nil, jumpHost: nil, controlPath: nil,
+                    useIPv4: false, useIPv6: false,
+                    forwardAgent: false, compressionEnabled: false,
+                    sshOptions: []
+                )
+            }
+        )
+
+        #expect(Date().timeIntervalSince(startedAt) < 0.75)
+        #expect(target == .local)
+        #expect(
+            TerminalImageTransferPlanner.plan(
+                fileURLs: [url],
+                target: target
+            ) == .insertText(
+                TerminalImageTransferPlanner.escapeForShell(url.path)
+            )
+        )
+    }
 }
