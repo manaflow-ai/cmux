@@ -28,8 +28,8 @@ import Testing
         ))
         #expect(image.size == Self.canvas)
 
-        let bitmap = try #require(bitmap(of: image))
-        let margins = try #require(visibleMargins(in: bitmap))
+        let rendered = try #require(bitmap(of: image))
+        let margins = try #require(visibleMargins(in: rendered))
         // An odd leftover pixel goes to the right and bottom, so a glyph
         // never reads low or left of the canvas center.
         #expect(margins.left == (margins.left + margins.right) / 2, "\(systemName) \(margins)")
