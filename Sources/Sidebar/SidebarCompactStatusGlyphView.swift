@@ -19,7 +19,11 @@ final class SidebarCompactStatusGlyphImageView: NSImageView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        imageScaling = .scaleNone
+        // One mode for both engines, set here so no host can disagree.
+        // Proportionally-down keeps a symbol that is wider than it is tall
+        // (a warning triangle, a branch) inside the square slot instead of
+        // clipping it, and leaves the smaller dot images at natural size.
+        imageScaling = .scaleProportionallyDown
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
             selector: #selector(visibilityChanged),

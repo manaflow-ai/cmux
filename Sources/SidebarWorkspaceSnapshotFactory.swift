@@ -19,10 +19,10 @@ struct SidebarWorkspaceSnapshotFactory {
     /// Creates the current immutable presentation snapshot for the workspace row.
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         let detailVisibility = settings.visibleAuxiliaryDetails
-        // Compact status keeps every row to one line: the branch/directory
-        // line and the pull request rows fold into the glyph's tooltip. The
-        // visibility itself stays, since it also drives git and PR polling,
-        // which the glyph reads.
+        // Compact status folds the lines cmux generates for you into the
+        // glyph's tooltip: the branch/directory line and the pull request
+        // rows. The visibility itself stays, since it also drives git and PR
+        // polling, which the glyph reads.
         let showsBranchDirectoryRows = detailVisibility.showsBranchDirectory && !settings.compactsAgentStatus
         let showsPullRequestRows = detailVisibility.showsPullRequests && !settings.compactsAgentStatus
         let orderedPanelIds = workspace.sidebarOrderedPanelIds()
@@ -381,7 +381,7 @@ struct SidebarWorkspaceSnapshotFactory {
             // visibility), so the glyph still works under Hide All Details.
             pullRequests: settings.details.showPullRequests
                 ? workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds).map {
-                    .init(label: $0.label, number: $0.number, status: $0.status)
+                    .init(label: $0.label, number: $0.number, status: $0.status, isStale: $0.isStale)
                 }
                 : [],
             branch: settings.showsGitBranch

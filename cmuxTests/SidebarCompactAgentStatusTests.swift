@@ -5,7 +5,7 @@ import Testing
 
 /// `sidebar.compactAgentStatus`: agent hook status rows fold into one
 /// leading glyph that also carries pull request and branch state.
-@Suite
+@Suite(.serialized)
 @MainActor
 struct SidebarCompactAgentStatusTests {
     private typealias Glyph = SidebarCompactStatusGlyph
@@ -34,7 +34,7 @@ struct SidebarCompactAgentStatusTests {
     func groupRollUpShowsTheLoudestMemberAndNamesEveryOneAskingForAttention() {
         let glyph = Glyph.rollUp([
             Self.member("api", .running, "Claude Code: Running"),
-            Self.member("docs", .pullRequest(.open(.passing))),
+            Self.member("docs", .pullRequest(.open)),
             Self.member("web", .needsInput, "Codex: Needs input\nfeat/web"),
             Self.member("cli", .unseen, "Finished"),
         ])
@@ -56,14 +56,15 @@ struct SidebarCompactAgentStatusTests {
     }
 
     @Test
-    func groupRollUpRanksBrokenChecksAboveRunningAgents() {
+    func groupRollUpRanksErrorAboveEveryOtherAttentionState() {
+        // A pull request asks for nothing, so it never speaks for a group.
         #expect(Glyph.rollUp([
             Self.member("a", .running),
-            Self.member("b", .pullRequest(.open(.conflict))),
-        ])?.kind == .pullRequest(.open(.conflict)))
+            Self.member("b", .pullRequest(.open)),
+        ])?.kind == .running)
         #expect(Glyph.rollUp([
-            Self.member("a", .pullRequest(.open(.conflict))),
-            Self.member("b", .pullRequest(.open(.failing))),
+            Self.member("a", .running),
+            Self.member("b", .needsInput),
             Self.member("c", .error),
         ])?.kind == .error)
     }
@@ -168,25 +169,36 @@ struct SidebarCompactAgentStatusTests {
         #expect(!glyph.pulses)
     }
 
+    /// cmux does not fetch a pull request's checks or mergeability, so merge
+    /// state is the only thing that colors the glyph.
     @Test
-    func pullRequestColorsFollowMergeAndChecks() {
-        let cases: [(SidebarPullRequestStatus, Glyph.Checks?, NSColor, String)] = [
-            (.open, .conflict, .systemOrange, "cmux.pullrequest"),
-            (.open, .passing, .systemGreen, "cmux.pullrequest"),
-            (.open, .failing, .systemRed, "cmux.pullrequest"),
-            (.open, nil, .gray, "cmux.pullrequest"),
-            (.merged, nil, .systemPurple, "cmux.merge"),
-            (.closed, nil, .gray, "cmux.pullrequest"),
+    func pullRequestColorsFollowMergeStateAlone() {
+        let cases: [(SidebarPullRequestStatus, NSColor, String)] = [
+            (.open, .gray, "cmux.pullrequest"),
+            (.merged, .systemPurple, "cmux.merge"),
+            (.closed, .gray, "cmux.pullrequest"),
         ]
-        for (status, checks, color, symbol) in cases {
+        for (status, color, symbol) in cases {
             let glyph = Glyph.resolve(.init(
                 lifecycleStates: [.idle],
-                pullRequests: [.init(label: "PR", number: 7, status: status, checks: checks)],
+                pullRequests: [.init(label: "PR", number: 7, status: status)],
                 branch: "feature"
             ))
             #expect(glyph.color(isActive: false, selected: .white, secondary: .gray) == color)
             #expect(glyph.symbolName == symbol)
         }
+    }
+
+    @Test
+    func aStalePullRequestDoesNotSetTheGlyphButStaysInTheTooltip() {
+        // Three failed refreshes in a row mark the row stale; an unconfirmed
+        // state must not color the glyph.
+        let stale = Glyph.Input.PullRequest(label: "PR", number: 9, status: .merged, isStale: true)
+        let glyph = Glyph.resolve(.init(pullRequests: [stale], branch: "feature"))
+        #expect(glyph.kind == .branch)
+        #expect(glyph.tooltip.contains("PR #9"))
+        // A confirmed row behind a stale one still sets the glyph.
+        #expect(Glyph.resolve(.init(pullRequests: [stale, Self.openPR])).kind == .pullRequest(.open))
     }
 
     @Test
@@ -221,17 +233,14 @@ struct SidebarCompactAgentStatusTests {
     }
 
     @Test
-    func pullRequestStatesShareOneGlyphWithABadge() {
-        let badges: [(Glyph.Checks?, SidebarPullRequestStatus, String?)] = [
-            (.passing, .open, "checkmark.circle.fill"),
-            (.failing, .open, "xmark.circle.fill"),
-            (.conflict, .open, "exclamationmark.circle.fill"),
-            (nil, .open, nil),
-            (nil, .closed, "minus.circle.fill"),
-            (nil, .merged, nil),
+    func onlyAClosedPullRequestCarriesABadge() {
+        let badges: [(SidebarPullRequestStatus, String?)] = [
+            (.open, nil),
+            (.closed, "minus.circle.fill"),
+            (.merged, nil),
         ]
-        for (checks, status, badge) in badges {
-            let glyph = Glyph.resolve(.init(pullRequests: [.init(label: "PR", number: 3, status: status, checks: checks)]))
+        for (status, badge) in badges {
+            let glyph = Glyph.resolve(.init(pullRequests: [.init(label: "PR", number: 3, status: status)]))
             #expect(glyph.badgeSymbolName == badge)
         }
     }
@@ -240,12 +249,12 @@ struct SidebarCompactAgentStatusTests {
     func configuredIconsReplaceTheSymbolAndBadgeAndSurviveUnread() {
         let icons = Glyph.validIconOverrides([
             "terminal": " apple.terminal ",
-            "pullRequestFailing": "flame.fill",
+            "pullRequestClosed": "flame.fill",
             "unseen": "envelope.badge.fill",
             "notAState": "star",
             "idle": "   ",
         ])
-        #expect(icons == ["terminal": "apple.terminal", "pullRequestFailing": "flame.fill", "unseen": "envelope.badge.fill"])
+        #expect(icons == ["terminal": "apple.terminal", "pullRequestClosed": "flame.fill", "unseen": "envelope.badge.fill"])
 
         let terminal = Glyph.resolve(.init(iconOverrides: icons))
         #expect(terminal.isDrawn)
@@ -253,13 +262,14 @@ struct SidebarCompactAgentStatusTests {
         #expect(terminal.defaultSymbolName == "terminal")
         #expect(terminal.applyingUnread(1, latestNotificationText: nil).symbolName == "envelope.badge.fill")
 
-        let failing = Glyph.resolve(.init(
-            pullRequests: [.init(label: "PR", number: 3, status: .open, checks: .failing)],
+        // A configured symbol replaces the whole glyph, closed badge included.
+        let closed = Glyph.resolve(.init(
+            pullRequests: [.init(label: "PR", number: 3, status: .closed)],
             iconOverrides: icons
         ))
-        #expect(failing.symbolName == "flame.fill")
-        #expect(failing.badgeSymbolName == nil)
-        #expect(failing.color(isActive: false, selected: .white, secondary: .gray) == .systemRed)
+        #expect(closed.symbolName == "flame.fill")
+        #expect(closed.badgeSymbolName == nil)
+        #expect(closed.color(isActive: false, selected: .white, secondary: .gray) == .gray)
 
         let idle = Glyph.resolve(.init(lifecycleStates: [.idle], iconOverrides: icons))
         #expect(idle.symbolName == "checkmark.circle")
@@ -267,8 +277,14 @@ struct SidebarCompactAgentStatusTests {
 
     @Test
     func everyIconSlotHasADistinctState() {
-        #expect(Glyph.IconSlot.allCases.count == 14)
-        #expect(Set(Glyph.IconSlot.allCases.map(\.rawValue)).count == 14)
+        #expect(Glyph.IconSlot.allCases.count == 11)
+        #expect(Set(Glyph.IconSlot.allCases.map(\.rawValue)).count == 11)
+        // Every slot is a state the app can actually reach.
+        #expect(Set(Glyph.IconSlot.allCases) == Set([
+            .error, .needsInput, .running, .starting, .unseen,
+            .pullRequestOpen, .pullRequestMerged, .pullRequestClosed,
+            .idle, .branch, .terminal,
+        ]))
     }
 
     @Test
@@ -276,6 +292,9 @@ struct SidebarCompactAgentStatusTests {
         let settled = [
             Glyph.resolve(.init(lifecycleStates: [.idle])),
             Glyph.resolve(.init(pullRequests: [Self.openPR])),
+            // "Starting" asks for nothing, so unread outranks it and a group
+            // header still shows the unread state instead of a count badge.
+            Glyph.resolve(.init(lifecycleStates: [.unknown])),
         ]
         #expect(Glyph.resolve(.init()).applyingUnread(1, latestNotificationText: nil).isDrawn)
         for glyph in settled {
@@ -288,7 +307,6 @@ struct SidebarCompactAgentStatusTests {
         for input in [
             Glyph.Input(lifecycleStates: [.needsInput]),
             Glyph.Input(hasActiveAgent: true),
-            Glyph.Input(lifecycleStates: [.unknown]),
         ] {
             let glyph = Glyph.resolve(input)
             let unread = glyph.applyingUnread(1, latestNotificationText: "Finished")
@@ -462,5 +480,160 @@ struct SidebarCompactAgentStatusTests {
         let badges = views.compactMap { $0 as? SidebarRowUnreadBadgeView }
         let visibleBadges = badges.filter { !$0.isHidden }
         #expect(visibleBadges.isEmpty)
+    }
+
+    @Test
+    func aConfiguredSymbolForADotStateDrawsFullSize() {
+        let cases: [(Glyph.IconSlot, Glyph.Input)] = [
+            (.needsInput, Glyph.Input(lifecycleStates: [.needsInput])),
+            (.running, Glyph.Input(hasActiveAgent: true)),
+        ]
+        for (slot, input) in cases {
+            #expect(Glyph.resolve(input).sizeScale < 1)
+            var configured = input
+            configured.iconOverrides = [slot.rawValue: "bolt.fill"]
+            let glyph = Glyph.resolve(configured)
+            #expect(glyph.symbolName == "bolt.fill")
+            #expect(glyph.sizeScale == 1)
+        }
+        let unseen = Glyph
+            .resolve(.init(lifecycleStates: [.idle], iconOverrides: ["unseen": "envelope.fill"]))
+            .applyingUnread(1, latestNotificationText: nil)
+        #expect(unseen.symbolName == "envelope.fill")
+        #expect(unseen.sizeScale == 1)
+    }
+
+    @Test
+    func compactRowsHoldTheTitleToOneLineEvenWhenTitleWrappingIsOn() {
+        let defaults = Self.makeDefaults()
+        defaults.set(true, forKey: SidebarWorkspaceTitleWrapSettings.key)
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(settings.wrapsWorkspaceTitles)
+
+        func titleLines(compact: Bool) -> Int {
+            let model = SidebarAppKitRowCellTests.makeModel(
+                settings: settings,
+                compactStatusGlyph: compact ? Glyph.resolve(.init(lifecycleStates: [.idle])) : nil
+            )
+            let cell = SidebarAppKitRowCellTests.configuredCell(model: model)
+            cell.frame = NSRect(x: 0, y: 0, width: 280, height: 60)
+            _ = cell.layoutContent(model: model, width: 280, apply: true)
+            return SidebarAppKitRowCellTests.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowTextView }
+                .first { !$0.isHidden && $0.stringValue == model.snapshot.title }?
+                .maximumNumberOfLines ?? 0
+        }
+
+        #expect(titleLines(compact: false) > 1)
+        #expect(titleLines(compact: true) == 1)
+    }
+
+    @Test
+    func compactGroupHeadersDropTheUnreadCountBadgeEvenWithNothingToRollUp() {
+        func visibleBadgeCount(compacts: Bool) -> Int {
+            let cell = SidebarGroupHeaderTableCellView()
+            cell.configurePresentation(model: Self.makeGroupHeaderModel(compacts: compacts))
+            return SidebarAppKitRowCellTests.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .filter { !$0.isHidden }
+                .count
+        }
+
+        // Off: the header still counts its anchor's unread notifications.
+        #expect(visibleBadgeCount(compacts: false) == 1)
+        // On: unread shows as the blue glyph, so no count badge comes back
+        // even for a state that does not roll up.
+        #expect(visibleBadgeCount(compacts: true) == 0)
+    }
+
+    private static func makeGroupHeaderModel(compacts: Bool) -> SidebarGroupHeaderRowModel {
+        var model = SidebarGroupHeaderRowModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            name: "Group",
+            iconSymbol: "folder",
+            tintHex: nil,
+            isCollapsed: false,
+            isPinned: false,
+            isAnchorActive: false,
+            isMultiSelected: false,
+            multiSelectionBackgroundStyle: .clear,
+            memberCount: 2,
+            anchorUnreadCount: 3,
+            canMarkRead: true,
+            canMarkUnread: false,
+            hasLatestNotifications: true,
+            canMarkAllRead: false,
+            canMarkAllUnread: false,
+            shortcutHintText: nil,
+            shortcutHintXOffset: 0,
+            shortcutHintYOffset: 0,
+            fontScale: 1,
+            globalFontMagnificationPercent: 100,
+            cwdContextMenuItems: [],
+            rowSpacing: 2,
+            isFirstRow: true,
+            isBeingDragged: false,
+            topDropIndicatorVisible: false,
+            bottomDropIndicatorVisible: false,
+            colorSchemeIsDark: true,
+            notificationBadgeColorHex: nil
+        )
+        model.compactsAgentStatus = compacts
+        return model
+    }
+
+    // MARK: Factory
+
+    /// The snapshot factory is the single place both sidebar engines read, so
+    /// it is where a pull request's real state has to arrive.
+    @Test
+    func factoryGivesAnOpenPullRequestTheGrayGlyphAndIgnoresAStaleOne() throws {
+        let defaults = Self.makeDefaults()
+        defaults.set(true, forKey: "sidebarCompactAgentStatus")
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let workspace = Workspace(
+            title: "Project",
+            workingDirectory: FileManager.default.currentDirectoryPath,
+            portOrdinal: 0
+        )
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        let url = try #require(URL(string: "https://github.com/manaflow-ai/cmux/pull/42"))
+        let factory = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: settings,
+            showsAgentActivity: false
+        )
+
+        workspace.updatePanelPullRequest(panelId: panelId, number: 42, label: "cmux", url: url, status: .open)
+        let open = try #require(factory.makeSnapshot().compactStatusGlyph)
+        #expect(open.kind == .pullRequest(.open))
+        // No checks or mergeability data reaches the sidebar, so an open pull
+        // request draws secondary gray whatever its CI says.
+        #expect(open.color(isActive: false, selected: .white, secondary: .gray) == .gray)
+        #expect(open.badgeSymbolName == nil)
+        #expect(open.tooltip.contains("cmux #42"))
+
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 42,
+            label: "cmux",
+            url: url,
+            status: .merged,
+            isStale: true
+        )
+        let stale = try #require(factory.makeSnapshot().compactStatusGlyph)
+        #expect(stale.kind == .terminal)
+        #expect(stale.tooltip.contains("cmux #42"))
+
+        // With the setting off the row keeps its pull request line and no glyph.
+        let plain = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults()),
+            showsAgentActivity: false
+        ).makeSnapshot()
+        #expect(plain.compactStatusGlyph == nil)
+        #expect(!plain.pullRequestRows.isEmpty)
     }
 }

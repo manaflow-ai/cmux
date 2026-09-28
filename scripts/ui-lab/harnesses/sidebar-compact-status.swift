@@ -5,8 +5,7 @@
 // Every compact status glyph in a mock sidebar laid out with the AppKit
 // cell's metrics (SidebarWorkspaceRowTableCellView.layoutContent): 16 pt
 // leading, glyph pulled 4 pt into the padding, 12.5 pt semibold titles, plus
-// a selected row and group headers. Includes pull request check states the
-// app cannot show until check data is fetched.
+// a selected row and group headers.
 
 import AppKit
 
@@ -24,10 +23,7 @@ let rows: [(String, Glyph.Kind?, Bool)] = [
     ("unseen", .unseen, false),
     ("error", .error, false),
     ("starting agent", .pending, false),
-    ("open PR", .pullRequest(.open(nil)), false),
-    ("PR passing", .pullRequest(.open(.passing)), false),
-    ("PR failing", .pullRequest(.open(.failing)), false),
-    ("PR conflict", .pullRequest(.open(.conflict)), false),
+    ("open PR", .pullRequest(.open), false),
     ("merged PR", .pullRequest(.merged), false),
     ("closed PR", .pullRequest(.closed), false),
     ("idle agent", .idle, false),
@@ -39,7 +35,7 @@ let rows: [(String, Glyph.Kind?, Bool)] = [
 
 let groups: [(String, Glyph.Kind?, Bool)] = [
     ("agents", .needsInput, true),
-    ("review", .pullRequest(.open(.failing)), true),
+    ("busy", .running, true),
     ("quiet", nil, false),
 ]
 

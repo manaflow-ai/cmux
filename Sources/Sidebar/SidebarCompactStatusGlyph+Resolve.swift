@@ -12,7 +12,9 @@ extension SidebarCompactStatusGlyph {
             let label: String
             let number: Int
             let status: SidebarPullRequestStatus
-            var checks: Checks? = nil
+            /// True when repeated refresh failures left the row unconfirmed.
+            /// A stale pull request never sets the glyph; see ``resolve(_:)``.
+            var isStale = false
         }
 
         /// Agent-owned status entries in display order.
@@ -45,9 +47,11 @@ extension SidebarCompactStatusGlyph {
             kind = .running
         } else if input.lifecycleStates.contains(.unknown) {
             kind = .pending
-        } else if let pullRequest = input.pullRequests.first {
+        // A stale pull request is data repeated refresh failures could not
+        // confirm, so it never colors the glyph; it still lists in the tooltip.
+        } else if let pullRequest = input.pullRequests.first(where: { !$0.isStale }) {
             switch pullRequest.status {
-            case .open: kind = .pullRequest(.open(pullRequest.checks))
+            case .open: kind = .pullRequest(.open)
             case .merged: kind = .pullRequest(.merged)
             case .closed: kind = .pullRequest(.closed)
             }

@@ -30,6 +30,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     private var model: SidebarGroupHeaderRowModel?
     private var actions: SidebarGroupHeaderRowActions?
+    /// Mirrors the table controller's flag, as workspace row cells do, so a
+    /// cell configured while the sidebar is hidden does not restart the pulse.
+    private var isPresentationActive = true
     private var isPointerHovering = false
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
@@ -103,6 +106,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         hintPill.resetForReuse()
     }
 
+    func setPresentationActive(_ isActive: Bool) {
+        isPresentationActive = isActive
+        statusGlyphView.isPresentationActive = isActive
+    }
+
     func suspendPresentation() {
         actions = nil
         contextMenuDidOpen = nil
@@ -129,7 +137,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         contextMenuDidClose: @escaping () -> Void
     ) {
         let requiresFullApply = self.actions == nil
-        statusGlyphView.isPresentationActive = true
+        statusGlyphView.isPresentationActive = isPresentationActive
         let previous = self.model
         self.actions = actions
         self.contextMenuDidOpen = contextMenuDidOpen
@@ -194,7 +202,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             : colorResolver.resolvedColor(.labelColor, for: colorScheme, opacity: 0.9)
 
         // In compact status mode unread folds into the glyph (blue), so the
-        // count badge only shows without one.
+        // count badge stays off even when no member state rolls up.
         statusGlyphView.isHidden = model.statusGlyph == nil
         if let glyph = model.statusGlyph {
             statusGlyphView.configure(
@@ -207,7 +215,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 )
             )
         }
-        let showsBadge = model.statusGlyph == nil && model.anchorUnreadCount > 0
+        let showsBadge = model.statusGlyph == nil && !model.compactsAgentStatus && model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
         if showsBadge {
             unreadBadgeFont = .systemFont(

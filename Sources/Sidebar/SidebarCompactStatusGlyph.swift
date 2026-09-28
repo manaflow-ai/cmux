@@ -3,24 +3,36 @@ import Foundation
 
 /// The single leading glyph a workspace row shows when
 /// `sidebar.compactAgentStatus` is on, modeled on the Claude desktop session
-/// list: every row is one line, glyph then title, with the details in the
-/// glyph's tooltip. Agent hooks report their lifecycle as keyed status
-/// entries (`set_status claude_code Running --icon=bolt.fill`); compact mode
-/// drops those agent-owned rows, the branch/directory line and the pull
-/// request rows, and folds all of it into the glyph. Other status entries
-/// stay as metadata rows.
+/// list: glyph then title on one line, with the details in the glyph's
+/// tooltip.
+///
+/// Compact mode folds in the lines cmux generates on your behalf: the
+/// agent-owned status entries (agent hooks report their lifecycle as keyed
+/// entries, `set_status claude_code Running --icon=bolt.fill`), the
+/// branch/directory line, the pull request rows, the notification preview,
+/// the unread count badge and the loading spinner. It also holds the title to
+/// one line, so title wrapping does not undo it.
+///
+/// Lines you asked for yourself stay where they are: the workspace
+/// description, your own `cmux set-status` keys, logs, progress, ports, the
+/// checklist, and a remote workspace's connection row with its Reconnect
+/// button. Those carry text and controls a user chose to put there, so
+/// compact mode does not hide them; `set-status` under your own key stays the
+/// way to keep a line in compact mode.
 ///
 /// Precedence, loudest first:
 /// 1. Error (an agent reported a failure): red warning triangle. Only for
 ///    something that broke.
-/// 2. Needs input: yellow dot.
+/// 2. Needs input: amber dot.
 /// 3. Running: pulsing gray dot. It replaces the row's loading spinner.
 /// 4. Starting (agent present, state not reported yet): hollow ring.
-/// 5. Done and unseen (unread notifications): blue dot. Applied by the row,
-///    which owns the unread count; see ``applyingUnread(_:latestNotificationText:)``.
-/// 6. Pull request: merged purple; open orange with a "!" badge on a merge
-///    conflict, red with an "x" badge when CI fails, green with a check badge
-///    when CI passes, gray while checks are unknown; closed gray with a minus.
+/// 5. Unseen (unread notifications): blue dot. Applied by the row, which owns
+///    the unread count; see ``applyingUnread(_:latestNotificationText:)``. It
+///    outranks "starting", which asks for nothing.
+/// 6. Pull request: merged purple, open gray, closed gray with a minus badge.
+///    cmux does not fetch CI or mergeability for a pull request, so there is
+///    no passing/failing/conflict glyph: adding one would advertise a color
+///    no user could see. See #12807.
 /// 7. Agent idle (done and seen): gray checkmark.
 /// 8. Branch, no pull request: gray branch.
 /// 9. Otherwise, a plain terminal: nothing, so the title starts at the
@@ -41,16 +53,9 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
     }
 
     enum PullRequestState: Equatable, Hashable {
-        case open(Checks?)
+        case open
         case merged
         case closed
-    }
-
-    /// CI and mergeability of an open pull request, when known.
-    enum Checks: Equatable, Hashable {
-        case passing
-        case failing
-        case conflict
     }
 
     let kind: Kind
@@ -68,9 +73,6 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
         case starting
         case unseen
         case pullRequestOpen
-        case pullRequestPassing
-        case pullRequestFailing
-        case pullRequestConflict
         case pullRequestMerged
         case pullRequestClosed
         case idle
@@ -85,10 +87,7 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
         case .running: return .running
         case .pending: return .starting
         case .unseen: return .unseen
-        case .pullRequest(.open(nil)): return .pullRequestOpen
-        case .pullRequest(.open(.passing)): return .pullRequestPassing
-        case .pullRequest(.open(.failing)): return .pullRequestFailing
-        case .pullRequest(.open(.conflict)): return .pullRequestConflict
+        case .pullRequest(.open): return .pullRequestOpen
         case .pullRequest(.merged): return .pullRequestMerged
         case .pullRequest(.closed): return .pullRequestClosed
         case .idle: return .idle
@@ -136,9 +135,6 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
         // A configured symbol replaces the whole glyph, badge included.
         guard customSymbolName == nil else { return nil }
         switch kind {
-        case .pullRequest(.open(.passing)): return "checkmark.circle.fill"
-        case .pullRequest(.open(.failing)): return "xmark.circle.fill"
-        case .pullRequest(.open(.conflict)): return "exclamationmark.circle.fill"
         case .pullRequest(.closed): return "minus.circle.fill"
         default: return nil
         }
@@ -149,16 +145,19 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
     static let leadingPullIn: CGFloat = 4
     static let titleSpacing: CGFloat = 5
 
-    /// Dots draw smaller than symbols so they read as status, not icons.
+    /// The built-in dots draw smaller than symbols so they read as status,
+    /// not icons. A symbol configured through `sidebar.compactStatusIcons`
+    /// draws full size, like every other configured symbol.
     var sizeScale: CGFloat {
+        guard customSymbolName == nil else { return 1 }
         switch kind {
         case .needsInput, .running, .unseen: return 0.6
         default: return 1
         }
     }
 
-    /// Needs input: an amber between system yellow and the conflict orange,
-    /// warmer than system yellow, which reads too bright in the sidebar.
+    /// Needs input: an amber warmer than system yellow, which reads too
+    /// bright in the sidebar.
     static let needsInputColor = NSColor(srgbRed: 0.98, green: 0.69, blue: 0.04, alpha: 1)
 
     /// A plain terminal draws nothing unless an icon is configured for it.
@@ -179,9 +178,12 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
             .compactMap { $0?.isEmpty == false ? $0 : nil }
             .joined(separator: "\n")
         switch kind {
-        case .pullRequest, .idle, .branch, .terminal:
+        // "Starting" is not an attention state, so unread outranks it; that
+        // also keeps unread visible on a group header, which only rolls up
+        // states that ask for attention.
+        case .pullRequest, .idle, .branch, .terminal, .pending:
             return SidebarCompactStatusGlyph(kind: .unseen, tooltip: unreadTooltip, iconOverrides: iconOverrides)
-        case .error, .needsInput, .running, .pending, .unseen:
+        case .error, .needsInput, .running, .unseen:
             return SidebarCompactStatusGlyph(kind: kind, tooltip: unreadTooltip, iconOverrides: iconOverrides)
         }
     }
@@ -199,10 +201,8 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
         switch kind {
         case .error: return 0
         case .needsInput: return 1
-        case .pullRequest(.open(.failing)): return 2
-        case .pullRequest(.open(.conflict)): return 3
-        case .running: return 4
-        case .unseen: return 5
+        case .running: return 2
+        case .unseen: return 3
         case .pending, .pullRequest, .idle, .branch, .terminal: return nil
         }
     }
@@ -263,13 +263,11 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
     func color(isActive: Bool, selected: NSColor, secondary: NSColor) -> NSColor {
         if isActive { return selected }
         switch kind {
-        case .error, .pullRequest(.open(.failing)): return .systemRed
+        case .error: return .systemRed
         case .needsInput: return Self.needsInputColor
         case .unseen: return .systemBlue
-        case .pullRequest(.open(.conflict)): return .systemOrange
-        case .pullRequest(.open(.passing)): return .systemGreen
         case .pullRequest(.merged): return .systemPurple
-        case .running, .pending, .idle, .branch, .terminal, .pullRequest(.open(nil)), .pullRequest(.closed):
+        case .running, .pending, .idle, .branch, .terminal, .pullRequest(.open), .pullRequest(.closed):
             return secondary
         }
     }

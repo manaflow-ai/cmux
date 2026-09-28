@@ -29,6 +29,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.canMarkAllRead == rhs.canMarkAllRead &&
             lhs.canMarkAllUnread == rhs.canMarkAllUnread &&
             lhs.statusGlyph == rhs.statusGlyph &&
+            lhs.compactsAgentStatus == rhs.compactsAgentStatus &&
             lhs.shortcutDigit == rhs.shortcutDigit &&
             lhs.shortcutModifierSymbol == rhs.shortcutModifierSymbol &&
             lhs.showsShortcutHint == rhs.showsShortcutHint &&
@@ -64,6 +65,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let canMarkAllRead: Bool
     let canMarkAllUnread: Bool
     let statusGlyph: SidebarCompactStatusGlyph?
+    /// Whether `sidebar.compactAgentStatus` is on; see the AppKit row model.
+    var compactsAgentStatus = false
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
@@ -90,11 +93,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cmuxAccentColor) private var accentColor
 
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
+
 #if DEBUG
     // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
     // default no-op. See SidebarLazyContractProbe.
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
-    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
 #endif
 
     private var metrics: SidebarWorkspaceGroupHeaderMetrics {
@@ -185,7 +189,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                         pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: globalFontMagnificationPercent),
                         color: statusGlyph.color(isActive: false, selected: .labelColor, secondary: .secondaryLabelColor)
                     )
-                } else if anchorUnreadCount > 0 {
+                } else if anchorUnreadCount > 0, !compactsAgentStatus {
                     Text("\(anchorUnreadCount)")
                         .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
                         .foregroundStyle(.white)
