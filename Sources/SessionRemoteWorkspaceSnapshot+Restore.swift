@@ -332,7 +332,7 @@ extension SessionRemoteWorkspaceSnapshot {
         // POSIX lifecycle/relay script by making /bin/sh the command's
         // outermost interpreter explicitly.
         let remoteCommandTemplate = "/bin/sh -c \(Self.shellQuote(remoteCommandScript))"
-        let script = [
+        let script = ([
             "cmux_restore_fail() { \(failureScript); }",
             "cmux_restore_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_restore_cli\" ] || [ ! -x \"$cmux_restore_cli\" ]; then cmux_restore_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
@@ -351,7 +351,7 @@ extension SessionRemoteWorkspaceSnapshot {
             "cmux_restore_remote_command_template=\(Self.shellQuote(remoteCommandTemplate))",
             "cmux_restore_remote_command=\"$(printf '%s' \"$cmux_restore_remote_command_template\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_restore_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_restore_surface_id/g; s/__CMUX_TERMINAL_LIFECYCLE_ID__/$cmux_restore_terminal_lifecycle_id/g; s/__CMUX_SSH_ATTEMPT_ID__/$cmux_restore_attempt_id/g\")\"",
             "exec \(sshInvocation) \"$cmux_restore_remote_command\"",
-        ].joined(separator: "\n")
+        ]).joined(separator: "\n")
         return "/bin/sh -c \(Self.shellQuote(script))"
     }
 
