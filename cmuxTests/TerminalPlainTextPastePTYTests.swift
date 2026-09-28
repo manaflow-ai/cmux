@@ -35,7 +35,13 @@ extension TerminalPlainTextPasteStartupTests {
                     windowNumber: fixture.window.windowNumber, context: nil,
                     characters: "v", charactersIgnoringModifiers: "v", isARepeat: false, keyCode: 9
                 ))
-                try #require(fixture.view.performKeyEquivalent(with: event))
+                // The fixture window is not necessarily key on the live runner;
+                // restore the terminal responder before sending Cmd+V.
+                try #require(fixture.window.makeFirstResponder(fixture.view))
+                try #require(
+                    fixture.view.performKeyEquivalent(with: event),
+                    "Cmd+V was not handled; firstResponder=\(String(describing: fixture.window.firstResponder))"
+                )
             case 1:
                 fixture.view.paste(nil)
             default:
