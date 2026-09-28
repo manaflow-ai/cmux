@@ -32,10 +32,24 @@ struct CloudTreeLayoutMetricsTests {
         #expect(metrics.titleWidth(rowWidth: 180, leadingContentWidth: 92, trailingContentWidth: 76) == 0)
     }
 
-    @Test("the compact content inset keeps the established sidebar geometry")
-    func referenceInsetIsTwelvePoints() {
-        #expect(metrics.referenceInset == 12)
-        #expect(CloudTreeStyle.compact.rowGrid.trailingPadding == metrics.referenceInset)
+    /// CmuxCloud cannot import the app target, so `CloudSidebarChromeMetrics`
+    /// restates the sidebar's chrome numbers for the Cloud surfaces. This test
+    /// runs in the app target, where both types are visible, and is the only
+    /// thing stopping the copy from drifting from the original.
+    @Test("the Cloud package's copy of the sidebar chrome matches the original")
+    func cloudChromeMatchesSidebarChrome() {
+        #expect(CloudSidebarChromeMetrics.barHorizontalPadding == RightSidebarChromeMetrics.barHorizontalPadding)
+        #expect(CloudSidebarChromeMetrics.barVerticalPadding == RightSidebarChromeMetrics.barVerticalPadding)
+        #expect(CloudSidebarChromeMetrics.headerTrailingPadding == RightSidebarChromeMetrics.headerTrailingPadding)
+    }
+
+    @Test("the tree's trailing column is the sidebar's trailing column")
+    func trailingColumnFollowsSidebarChrome() {
+        #expect(CloudTreeStyle.compact.rowGrid.trailingPadding == RightSidebarChromeMetrics.headerTrailingPadding)
+        // The outline document and the hosted row content compute their own
+        // trailing reservation. If these two disagree a title truncates before
+        // the space it was given runs out.
+        #expect(metrics.referenceInset == CloudTreeStyle.compact.rowGrid.trailingPadding)
     }
 
     @Test("compact rows keep the established disclosure and icon grid")
@@ -49,11 +63,20 @@ struct CloudTreeLayoutMetricsTests {
         #expect(style.rowGrid.disclosureGap == 2)
         #expect(style.rowGrid.detailGap == 5)
         #expect(style.rowGrid.trailingGap == 10)
-        #expect(style.rowGrid.trailingPadding == 12)
         #expect(style.machineVerticalPadding == 2)
     }
 
 #if DEBUG
+    /// The spacing lab starts from the shipped geometry, so opening it must not
+    /// be what moves the trailing column.
+    @Test("the spacing lab starts on the shipped trailing column")
+    func debugMetricsStartOnShippedInset() {
+        #expect(
+            CloudSidebarDebugMetrics.default.referenceInset
+                == Double(CloudTreeStyle.compact.rowGrid.trailingPadding)
+        )
+    }
+
     @MainActor
     @Test("Tuning snapshots stay independent and survive reopening")
     func tuningSnapshots() throws {
