@@ -43,9 +43,8 @@ final class SidebarCompactStatusGlyphImageView: NSImageView {
     }
 
     func configure(_ glyph: SidebarCompactStatusGlyph, pointSize: CGFloat, color: NSColor) {
-        let size = (pointSize * glyph.sizeScale).rounded()
-        image = Self.image(symbol: glyph.symbolName, badge: glyph.badgeSymbolName, pointSize: size)
-            ?? Self.image(symbol: glyph.defaultSymbolName, badge: nil, pointSize: size)
+        image = Self.image(glyph, pointSize: pointSize)
+            ?? Self.image(glyph.droppingCustomSymbol, pointSize: pointSize)
         contentTintColor = color
         toolTip = glyph.tooltip.isEmpty ? nil : glyph.tooltip
         setAccessibilityElement(!glyph.tooltip.isEmpty)
@@ -63,7 +62,34 @@ final class SidebarCompactStatusGlyphImageView: NSImageView {
         let pointSize: CGFloat
     }
 
+    /// A dozen glyph slots times the handful of point sizes the sidebar's font
+    /// scale and global magnification produce, plus room for user-configured
+    /// `sidebar.compactStatusIcons` symbols. Bounded because the point size is
+    /// continuous: dragging the font scale slider would otherwise mint a new
+    /// entry per intermediate value and never release one, the same reason
+    /// `RenderableSystemSymbol` bounds its own AppKit image cache.
+    private static let imageCacheLimit = 64
+
     @MainActor private static var imageCache: [ImageKey: NSImage] = [:]
+    @MainActor private static var imageCacheInsertionOrder: [ImageKey] = []
+
+    @MainActor private static func cache(_ image: NSImage, for key: ImageKey) {
+        guard imageCache.updateValue(image, forKey: key) == nil else { return }
+        imageCacheInsertionOrder.append(key)
+        while imageCacheInsertionOrder.count > imageCacheLimit {
+            imageCache.removeValue(forKey: imageCacheInsertionOrder.removeFirst())
+        }
+    }
+
+    /// The glyph's image at the row's point size, scaled by the glyph's own
+    /// ``SidebarCompactStatusGlyph/sizeScale`` so the built-in dots stay small.
+    @MainActor static func image(_ glyph: SidebarCompactStatusGlyph, pointSize: CGFloat) -> NSImage? {
+        image(
+            symbol: glyph.symbolName,
+            badge: glyph.badgeSymbolName,
+            pointSize: (pointSize * glyph.sizeScale).rounded()
+        )
+    }
 
     /// The glyph's template image; a badge is knocked out of the base symbol's
     /// lower trailing corner so it reads at sidebar size. Cached per key.
@@ -77,7 +103,7 @@ final class SidebarCompactStatusGlyphImageView: NSImageView {
         guard let badge, let badgeImage = RenderableSystemSymbol.configuredAppKitImage(
             systemName: badge, pointSize: pointSize * 0.62, weight: .bold
         ) else {
-            imageCache[key] = base
+            cache(base, for: key)
             return base
         }
         let size = base.size
@@ -94,7 +120,7 @@ final class SidebarCompactStatusGlyphImageView: NSImageView {
             return true
         }
         composed.isTemplate = true
-        imageCache[key] = composed
+        cache(composed, for: key)
         return composed
     }
 

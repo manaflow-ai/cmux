@@ -116,6 +116,19 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
         customSymbolName ?? defaultSymbolName
     }
 
+    /// The same glyph with this state's configured symbol dropped, so a name
+    /// that no SF Symbols version resolves falls back to the built-in glyph
+    /// exactly as an unconfigured one draws: at the built-in ``sizeScale`` and
+    /// keeping ``badgeSymbolName``. Without this a bad symbol on a dot state
+    /// drew the dot at full size, and a bad one on a closed pull request lost
+    /// the minus badge and became indistinguishable from an open one.
+    var droppingCustomSymbol: SidebarCompactStatusGlyph {
+        guard customSymbolName != nil else { return self }
+        var fallback = self
+        fallback.iconOverrides.removeValue(forKey: iconSlot.rawValue)
+        return fallback
+    }
+
     var defaultSymbolName: String {
         switch kind {
         case .error: return "exclamationmark.triangle.fill"

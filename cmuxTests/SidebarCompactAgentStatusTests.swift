@@ -503,6 +503,38 @@ struct SidebarCompactAgentStatusTests {
         #expect(unseen.sizeScale == 1)
     }
 
+    /// A symbol name that no installed SF Symbols version resolves must fall
+    /// back to the built-in glyph as if nothing were configured: the dot states
+    /// back at their small scale, and a closed pull request keeping the minus
+    /// badge that tells it apart from an open one.
+    @Test
+    func anUnresolvableConfiguredSymbolFallsBackToTheBuiltInGlyph() {
+        let dot = Glyph.resolve(
+            .init(lifecycleStates: [.needsInput], iconOverrides: ["needsInput": "not.a.real.symbol"])
+        )
+        #expect(dot.sizeScale == 1)
+        let dotFallback = dot.droppingCustomSymbol
+        #expect(dotFallback.customSymbolName == nil)
+        #expect(dotFallback.symbolName == "circle.fill")
+        #expect(dotFallback.sizeScale < 1)
+
+        var closedInput = Glyph.Input(
+            pullRequests: [Glyph.Input.PullRequest(label: "PR", number: 7, status: .closed)]
+        )
+        closedInput.iconOverrides = ["pullRequestClosed": "not.a.real.symbol"]
+        let closed = Glyph.resolve(closedInput)
+        #expect(closed.kind == .pullRequest(.closed))
+        #expect(closed.badgeSymbolName == nil)
+        let closedFallback = closed.droppingCustomSymbol
+        #expect(closedFallback.symbolName == SidebarCompactStatusDrawnGlyph.pullRequest.rawValue)
+        #expect(closedFallback.badgeSymbolName == "minus.circle.fill")
+
+        // A resolvable configured symbol is not a fallback candidate.
+        let good = Glyph.resolve(.init(lifecycleStates: [.idle], iconOverrides: ["idle": "moon.zzz"]))
+        #expect(good.droppingCustomSymbol.symbolName == "checkmark.circle")
+        #expect(SidebarCompactStatusGlyphImageView.image(good, pointSize: 11) != nil)
+    }
+
     @Test
     func compactRowsHoldTheTitleToOneLineEvenWhenTitleWrappingIsOn() {
         let defaults = Self.makeDefaults()

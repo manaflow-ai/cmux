@@ -16298,7 +16298,7 @@ struct TabItemView: View, Equatable {
                 }
 
                 if let compactStatusGlyph, compactStatusGlyph.isDrawn {
-                    SidebarCompactStatusGlyphView(glyph: compactStatusGlyph, pointSize: scaledFontSize(11), color: compactStatusGlyph.color(isActive: usesInvertedActiveForeground, selected: selectedWorkspaceForegroundNSColor(opacity: 0.95), secondary: usesInvertedActiveForeground ? selectedWorkspaceForegroundNSColor(opacity: 0.8) : .secondaryLabelColor))
+                    SidebarCompactStatusGlyphView(glyph: compactStatusGlyph, pointSize: GlobalFontMagnification.scaledSize(scaledFontSize(11), percent: globalFontMagnificationPercent), color: compactStatusGlyph.color(isActive: usesInvertedActiveForeground, selected: selectedWorkspaceForegroundNSColor(opacity: 0.95), secondary: usesInvertedActiveForeground ? selectedWorkspaceForegroundNSColor(opacity: 0.8) : .secondaryLabelColor))
                         // Same geometry as the AppKit row: pulled into the leading padding, tighter gap to the title.
                         .padding(.leading, -SidebarCompactStatusGlyph.leadingPullIn)
                         .padding(.trailing, SidebarCompactStatusGlyph.titleSpacing - titleRowSpacing)
