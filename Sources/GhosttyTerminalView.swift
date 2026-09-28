@@ -8915,22 +8915,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let line = snapshot.line
         let column = snapshot.column
-        let detector = TerminalGitHubReferenceDetector()
+        let policy = TerminalGitHubReferenceClickPolicy()
 
-        if let reference = detector.reference(
-            inVisibleLine: line,
-            column: column,
-            repositorySlug: nil
-        ) {
+        switch policy.decision(runtimeOutcome: runtimeOutcome, inVisibleLine: line, column: column) {
+        case .ignore:
+            return
+        case .open(let reference):
             openGitHubReference(reference)
             return
+        case .resolveRepository:
+            break
         }
 
-        guard detector.needsRepositorySlug(inVisibleLine: line, column: column),
-              let cwd = resolvedWordPathWorkingDirectory(
-                  workspace: workspace,
-                  terminalSurface: termSurface
-              ) else { return }
+        guard let cwd = resolvedWordPathWorkingDirectory(
+            workspace: workspace,
+            terminalSurface: termSurface
+        ) else { return }
 
         // The pane the click landed in, captured now. A portal can detach the
         // runtime and a pane can be reassigned while git is being read, and
@@ -8940,11 +8940,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let clickedWorkspaceId = tabId
 
         Task { @MainActor [weak self] in
-            guard let slug = await GitHubRepositorySlugCache.shared.slug(forDirectory: cwd),
-                  let self,
+            let slug = await GitHubRepositorySlugCache.shared.slug(forDirectory: cwd)
+            guard let self,
                   self.terminalSurface?.id == clickedPanelId,
                   self.tabId == clickedWorkspaceId,
-                  let reference = TerminalGitHubReferenceDetector().reference(
+                  case .open(let reference) = policy.decision(
                       inVisibleLine: line,
                       column: column,
                       repositorySlug: slug
