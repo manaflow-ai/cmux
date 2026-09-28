@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -12,7 +13,8 @@ struct MobileDevicesToolbarLabel: View {
     let gateWarningPairingIDs: Set<String>
     /// The physical Macs represented by the Computers sheet opened by this
     /// button. List-auth state is filtered to this set so an unrelated stale
-    /// entry cannot light the toolbar badge.
+    /// entry cannot light the toolbar badge. SSH computers are dropped: they
+    /// have no Mac version, so the Mac floor would read them as outdated.
     let computerPairingIDs: Set<String>
 
     private var showsWarning: Bool {
@@ -32,10 +34,17 @@ struct MobileDevicesToolbarLabel: View {
         computerPairingIDs: Set<String> = []
     ) {
         self.gateWarningPairingIDs = gateWarningPairingIDs
-        self.computerPairingIDs = computerPairingIDs
+        self.computerPairingIDs = Self.macPairingIDs(computerPairingIDs)
     }
 
-    static func warningVisible(
+    /// The paired-Mac ids among the computers a button represents. Pure and
+    /// nonisolated: the view's inferred main-actor isolation would otherwise
+    /// make the filter closure trap when called off the main actor.
+    nonisolated static func macPairingIDs(_ computerIDs: Set<String>) -> Set<String> {
+        computerIDs.filter { !MobileShellComposite.isSSHComputerID($0) }
+    }
+
+    nonisolated static func warningVisible(
         hasGateWarning: Bool,
         hasOutdatedListAuth: Bool,
         hasComputers: Bool = true
