@@ -640,6 +640,10 @@ struct AgentNotificationRegressionTests {
 
         #expect(await waitForFile(at: completionURL))
         await waitForNotifications(in: fixture.store) { $0.title == "Relay live" }
+        // Both hooks touch the same marker, so the stale "Relay" delivery may
+        // still be applying; give it the settling window the negative
+        // assertion below relied on before.
+        for _ in 0..<100 { await Task.yield() }
         let recorded = fixture.store.notifications.filter { $0.title.hasPrefix("Relay") }
         #expect(recorded.map(\.tabId) == [fixture.destination.id])
         #expect(recorded.map(\.body) == ["Must survive stale source clear"])
