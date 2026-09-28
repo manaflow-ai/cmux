@@ -76,7 +76,8 @@ struct BrowserInlineHostAttachmentTests {
         #expect(waitUntil { host.window === visibleWindow })
         #expect(waitUntil { panel.webView.isDescendant(of: host) })
         #expect(waitUntil { panel.webView.window === visibleWindow })
-        #expect(waitUntil {
+        #expect(waitUntil(timeout: 5) {
+            host.layoutSubtreeIfNeeded()
             abs(panel.webView.frame.width - host.bounds.width) < 1 &&
                 abs(panel.webView.frame.height - host.bounds.height) < 1
         })
