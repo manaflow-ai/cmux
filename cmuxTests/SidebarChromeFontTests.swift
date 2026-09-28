@@ -171,10 +171,15 @@ struct SidebarChromeFontTests {
 @Suite
 @MainActor
 struct SidebarChromeFontTitleRoomTests {
+    /// Titles whose characters are mostly one advance wide, which is what the
+    /// "cuts off around a dozen characters" complaint was counted in.
     static let titles = SidebarWorkspaceTitleRoomTests.titles + [
-        "サイドバーのタイトル切り詰め",
-        "🚀 Release 0.42 shipping checklist",
+        "🚀 Release 0.42 shipping checklist"
     ]
+
+    /// A title in a full-width script. Each glyph is about two Latin advances,
+    /// so it is held to half the character count rather than the same one.
+    static let fullWidthTitle = "サイドバーのタイトル切り詰め"
 
     /// Leading characters of `title` that fit on the title line at the default
     /// sidebar width, drawn in `typeface`.
@@ -200,14 +205,20 @@ struct SidebarChromeFontTitleRoomTests {
     @Test
     func monospacedTitlesStillReadPastADozenCharacters() {
         var report = ["title | system | monospaced"]
-        for title in Self.titles {
+        for title in Self.titles + [Self.fullWidthTitle] {
             let system = Self.visibleCharacters(of: title, typeface: .system)
             let monospaced = Self.visibleCharacters(of: title, typeface: .monospacedSystem)
             report.append("\(title) | \(system) | \(monospaced)")
             // The complaint this work answers was titles cutting off around a
             // dozen characters. A wider family may cost characters; it may not
-            // put the titles back where they were.
-            #expect(monospaced > 12, "\(title) cuts off at \(monospaced) monospaced characters")
+            // put the titles back where they were, and it may not cost half the
+            // line either.
+            let floor = title == Self.fullWidthTitle ? 6 : 12
+            #expect(monospaced > floor, "\(title) cuts off at \(monospaced) monospaced characters")
+            #expect(
+                monospaced * 2 >= system,
+                "\(title) keeps only \(monospaced) of \(system) characters under a monospaced family"
+            )
         }
         print(
             "sidebar title room at \(Int(SessionPersistencePolicy.defaultSidebarWidth))pt "
