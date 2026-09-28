@@ -26,6 +26,7 @@ struct CodexForkSessionWatcher {
     let sessionsRoot: URL
     let launchedAt: Date
     let launchID: String
+    let ownerPID: Int
     let claimsDirectory: URL
     let fileManager: FileManager
 
@@ -37,6 +38,7 @@ struct CodexForkSessionWatcher {
         self.parentSessionID = parentSessionID
         self.fileManager = fileManager
         launchID = environment[Self.launchIDEnvironmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        ownerPID = Int(environment["CMUX_CODEX_PID"] ?? "") ?? 0
         sessionsRoot = URL(
             fileURLWithPath: CodexHomeResolver().resolve(ambientEnvironment: environment),
             isDirectory: true
@@ -57,6 +59,7 @@ struct CodexForkSessionWatcher {
             parentSessionID: parentSessionID,
             sessionsRoot: sessionsRoot,
             launchedAt: launchedAt,
+            ownerPID: ownerPID,
             excludingSessionIDs: excludedSessionIDs,
             fileManager: fileManager
         ) {
@@ -75,6 +78,7 @@ struct CodexForkSessionWatcher {
                 parentSessionID: parentSessionID,
                 sessionsRoot: sessionsRoot,
                 launchedAt: launchedAt,
+                ownerPID: ownerPID,
                 excludingSessionIDs: excludedSessionIDs,
                 fileManager: fileManager
             ) {
@@ -91,6 +95,7 @@ struct CodexForkSessionWatcher {
             parentSessionID: parentSessionID,
             sessionsRoot: sessionsRoot,
             launchedAt: launchedAt,
+            ownerPID: ownerPID,
             excludingSessionIDs: excludedSessionIDs,
             fileManager: fileManager
         ) {
@@ -104,6 +109,7 @@ struct CodexForkSessionWatcher {
         parentSessionID: String,
         sessionsRoot: URL,
         launchedAt: Date,
+        ownerPID: Int,
         excludingSessionIDs: Set<String> = [],
         fileManager: FileManager = .default
     ) -> ChildSession? {
@@ -116,7 +122,12 @@ struct CodexForkSessionWatcher {
             return nil
         }
 
-        var candidates: [(ChildSession, Date)] = []
+        guard ownerPID > 0 else { return nil }
+        let ownerRolloutPaths = Set(Self.openCodexRolloutPaths(pid: ownerPID).map {
+            URL(fileURLWithPath: $0).standardizedFileURL.path
+        })
+        guard !ownerRolloutPaths.isEmpty else { return nil }
+        var candidates: [CodexForkSessionCandidate] = []
         var scanned = 0
         while let item = enumerator.nextObject() as? URL, scanned < Self.maximumRollouts {
             scanned += 1
@@ -137,12 +148,20 @@ struct CodexForkSessionWatcher {
             guard candidateDate.timeIntervalSince1970 >= launchedAt.timeIntervalSince1970 - 2 else {
                 continue
             }
-            candidates.append((ChildSession(sessionID: metadata.sessionID, transcriptPath: item.path), candidateDate))
+            candidates.append(CodexForkSessionCandidate(
+                sessionID: metadata.sessionID,
+                parentSessionID: parentSessionID,
+                transcriptPath: item.standardizedFileURL.path,
+                createdAt: candidateDate
+            ))
         }
-        return candidates.max { lhs, rhs in
-            if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
-            return lhs.0.transcriptPath < rhs.0.transcriptPath
-        }?.0
+        guard let match = CodexForkSessionMatcher().match(
+            parentSessionID: parentSessionID,
+            launchedAt: launchedAt,
+            candidates: candidates,
+            ownerRolloutPaths: ownerRolloutPaths
+        ) else { return nil }
+        return ChildSession(sessionID: match.sessionID, transcriptPath: match.transcriptPath)
     }
 
     private struct Metadata {
@@ -202,10 +221,11 @@ struct CodexForkSessionWatcher {
     private func claim(_ child: ChildSession) -> Bool {
         guard !launchID.isEmpty,
               child.sessionID.range(of: #"^[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil else {
-            return launchID.isEmpty
+            return false
         }
         do {
             try fileManager.createDirectory(at: claimsDirectory, withIntermediateDirectories: true)
+            pruneClaims()
             let claimURL = claimsDirectory.appendingPathComponent("\(child.sessionID).claim", isDirectory: false)
             let descriptor = open(claimURL.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
             guard descriptor >= 0 else { return false }
@@ -217,6 +237,50 @@ struct CodexForkSessionWatcher {
         } catch {
             return false
         }
+    }
+
+    private func pruneClaims() {
+        let cutoff = Date.now.addingTimeInterval(-7 * 24 * 60 * 60)
+        guard let urls = try? fileManager.contentsOfDirectory(
+            at: claimsDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        for url in urls {
+            guard let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                  modified < cutoff else { continue }
+            try? fileManager.removeItem(at: url)
+        }
+    }
+
+    private static func openCodexRolloutPaths(pid: Int) -> [String] {
+        let listSize = proc_pidinfo(pid_t(pid), PROC_PIDLISTFDS, 0, nil, 0)
+        guard listSize > 0 else { return [] }
+        let count = Int(listSize) / MemoryLayout<proc_fdinfo>.stride
+        guard count > 0 else { return [] }
+        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: count)
+        let used = proc_pidinfo(pid_t(pid), PROC_PIDLISTFDS, 0, &fds, listSize)
+        guard used > 0 else { return [] }
+        let actual = Int(used) / MemoryLayout<proc_fdinfo>.stride
+        var paths: [String] = []
+        for index in 0..<min(actual, fds.count) {
+            guard fds[index].proc_fdtype == UInt32(PROX_FDTYPE_VNODE) else { continue }
+            var info = vnode_fdinfowithpath()
+            let size = proc_pidfdinfo(
+                pid_t(pid),
+                fds[index].proc_fd,
+                PROC_PIDFDVNODEPATHINFO,
+                &info,
+                Int32(MemoryLayout<vnode_fdinfowithpath>.size)
+            )
+            guard size > 0 else { continue }
+            let path = withUnsafeBytes(of: &info.pvip.vip_path) { raw -> String in
+                guard let base = raw.baseAddress else { return "" }
+                return String(cString: base.assumingMemoryBound(to: CChar.self))
+            }
+            if path.hasSuffix(".jsonl") { paths.append(path) }
+        }
+        return paths
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -234,7 +298,13 @@ extension CMUXCLI {
         parentSessionID: String,
         client: SocketClient
     ) {
-        let environment = ProcessInfo.processInfo.environment
+        var environment = ProcessInfo.processInfo.environment
+        if let launchID = optionValue(commandArgs, name: "--fork-launch-id"), !launchID.isEmpty {
+            environment[CodexForkSessionWatcher.launchIDEnvironmentKey] = launchID
+        }
+        if let ownerPID = optionValue(commandArgs, name: "--fork-owner-pid"), !ownerPID.isEmpty {
+            environment["CMUX_CODEX_PID"] = ownerPID
+        }
         let workspaceID = optionValue(commandArgs, name: "--workspace")
             ?? environment["CMUX_WORKSPACE_ID"]
         let surfaceID = optionValue(commandArgs, name: "--surface")
@@ -302,13 +372,16 @@ extension CMUXCLI {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
-            let payload: [String: Any] = [
+            var payload: [String: Any] = [
                 "session_id": child.sessionID,
                 "forked_from_id": parentSessionID,
                 "transcript_path": child.transcriptPath,
                 "cwd": childEnvironment["PWD"] ?? FileManager.default.currentDirectoryPath,
                 "hook_event_name": "SessionStart",
             ]
+            if let launchID = childEnvironment[CodexForkSessionWatcher.launchIDEnvironmentKey] {
+                payload["fork_launch_id"] = launchID
+            }
             if let data = try? JSONSerialization.data(withJSONObject: payload) {
                 input.fileHandleForWriting.write(data)
             }

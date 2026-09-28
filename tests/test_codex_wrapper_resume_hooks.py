@@ -37,6 +37,7 @@ def run_wrapper(
     inject_args_available: bool = True,
     subrouter_marker: str | None = None,
     fork_parent_session_id: str | None = None,
+    fork_launch_id: str | None = None,
 ) -> tuple[int, list[str], list[str], dict[str, str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -126,6 +127,12 @@ exit 1
         env["CMUX_WORKSPACE_ID"] = "22222222-2222-2222-2222-222222222222"
         env["CMUX_SOCKET_PATH"] = str(socket_path)
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli)
+        for key in (
+            "CMUX_CUSTOM_CODEX_PATH",
+            "CMUX_CODEX_WRAPPER_SHIM",
+            "CMUX_CODEX_WRAPPER_SHIM_ROOT",
+        ):
+            env.pop(key, None)
         env["FAKE_REAL_ARGS_LOG"] = str(real_args_log)
         env["FAKE_REAL_ENV_LOG"] = str(real_env_log)
         env["FAKE_CMUX_LOG"] = str(cmux_log)
@@ -152,9 +159,11 @@ exit 1
         if fork_parent_session_id is not None:
             env["CMUX_AGENT_FORK_PARENT_SESSION_ID"] = fork_parent_session_id
             env["CMUX_AGENT_FORK_LAUNCH_AT"] = str(time.time())
+            env["CMUX_AGENT_FORK_LAUNCH_ID"] = fork_launch_id or "fork-launch-test"
         else:
             env.pop("CMUX_AGENT_FORK_PARENT_SESSION_ID", None)
             env.pop("CMUX_AGENT_FORK_LAUNCH_AT", None)
+            env.pop("CMUX_AGENT_FORK_LAUNCH_ID", None)
 
         try:
             proc = subprocess.run(
@@ -279,10 +288,18 @@ def test_direct_fork_starts_identity_watch(failures: list[str]) -> None:
         socket_state="live",
         argv=["fork", parent],
         fork_parent_session_id=parent,
+        fork_launch_id="fork-launch-test",
     )
     expect(code == 0, f"fork-watch: wrapper exited {code}: {stderr}", failures)
     expect(
-        any("hooks codex monitor" in line and "--fork-parent" in line and parent in line for line in cmux_log),
+        any(
+            "hooks codex monitor" in line
+                and "--fork-parent" in line
+                and parent in line
+                and "--fork-launch-id fork-launch-test" in line
+                and "--fork-owner-pid" in line
+            for line in cmux_log
+        ),
         f"fork-watch: wrapper did not start a parent-correlated watcher: {cmux_log}",
         failures,
     )
