@@ -4,5 +4,4 @@
 // module cache with the older public surface during an incremental admission
 // build.
 #include "ghostty.h"
-@import GhosttyKit;
 #import "Sources/TerminationWatchdogAtomic.h"
