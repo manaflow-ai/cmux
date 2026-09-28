@@ -19140,7 +19140,7 @@ struct CMUXCLI {
               pin | unpin
               rename | clear-name
               set-description | clear-description
-              move-up | move-down | move-top
+              move-up | move-down | move-top | move-bottom
               close-others | close-above | close-below
               mark-read | mark-unread
               set-color | clear-color
