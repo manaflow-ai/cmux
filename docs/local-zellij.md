@@ -72,7 +72,10 @@ started outside `cmux local-zellij` are never adopted.
 
 `start` and `close` hold a profile-wide lock around both the zellij call and
 the registry update, so a `close` racing a `start` of the same name cannot
-leave a live session without a record.
+leave a live session without a record. `start` saves the record before it creates the
+session, so if creation can't be confirmed (say, the follow-up listing
+fails), rerunning `start` finds the same session instead of starting a second
+one; with `--command` it refuses rather than running the command again.
 
 The state and socket directories are created mode `0700` and the registry
 `0600`; cmux refuses to use them if another user owns them or they are group-
@@ -87,9 +90,11 @@ surface never ends the session.
 
 - Requires a local `zellij` executable on `PATH` or in a common install
   location, or set `CMUX_LOCAL_ZELLIJ_BIN`. Tested with zellij 0.43.
-- Session names must match `[A-Za-z0-9_-]+` and fit in a Unix socket path
-  (macOS allows 104 bytes). zellij hangs instead of failing on a longer
-  socket path, so cmux rejects such names up front. Set
+- Session names must match `[A-Za-z0-9_][A-Za-z0-9_-]*` (no leading dash,
+  which zellij would read as an option) and fit in a Unix socket path, with
+  room for the 9-byte ownership token (macOS allows 104 bytes). zellij hangs
+  instead of failing on a longer socket path, so cmux rejects such names up
+  front. Set
   `CMUX_LOCAL_ZELLIJ_STATE_DIR` to a shorter directory if your home path
   leaves too little room.
 - Unlike local-tmux, there is no `detach` or `cleanup` subcommand yet, and the

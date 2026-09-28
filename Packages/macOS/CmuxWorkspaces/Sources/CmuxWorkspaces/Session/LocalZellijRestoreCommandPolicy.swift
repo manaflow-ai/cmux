@@ -29,7 +29,7 @@ struct LocalZellijRestoreCommandPolicy: Sendable {
         guard isStandardizedAbsolutePath(socketDirectory),
               (socketDirectory as NSString).lastPathComponent == "sock",
               isStandardizedAbsolutePath(zellijPath),
-              sessionName.range(of: "^[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil else {
+              sessionName.range(of: "^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$", options: .regularExpression) != nil else {
             return nil
         }
         let arguments = ["attach", sessionName, "options", "--on-force-close", "detach"]

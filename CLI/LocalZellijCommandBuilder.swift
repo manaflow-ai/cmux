@@ -8,10 +8,11 @@ struct LocalZellijSessionNameValidator {
 
     func validate(_ raw: String) throws -> String {
         let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A leading dash would reach zellij as an option, not a session name.
         guard !name.isEmpty,
               name.utf8.count <= min(128, maxNameBytes),
-              name.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil else {
-            throw CLIError(message: String(localized: "cli.localZellij.error.invalidName", defaultValue: "local-zellij session names must contain only letters, numbers, underscore, or dash, and be short enough for a Unix socket path"))
+              name.range(of: "^[A-Za-z0-9_][A-Za-z0-9_-]*$", options: .regularExpression) != nil else {
+            throw CLIError(message: String(localized: "cli.localZellij.error.invalidName", defaultValue: "local-zellij session names must start with a letter, number, or underscore, contain only letters, numbers, underscores, or dashes, and be short enough for a Unix socket path"))
         }
         return name
     }

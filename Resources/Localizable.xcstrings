@@ -568133,55 +568133,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "local-zellij session names must contain only letters, numbers, underscore, or dash, and be short enough for a Unix socket path"
+            "value": "local-zellij session names must start with a letter, number, or underscore, contain only letters, numbers, underscores, or dashes, and be short enough for a Unix socket path"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يجب أن تحتوي أسماء جلسات local-zellij على أحرف وأرقام وشرطات سفلية أو شرطات فقط، وأن تكون قصيرة بما يكفي لمسار مقبس Unix"
+            "value": "يجب أن تبدأ أسماء جلسات local-zellij بحرف أو رقم أو شرطة سفلية، وأن تحتوي على أحرف وأرقام وشرطات سفلية أو شرطات فقط، وأن تكون قصيرة بما يكفي لمسار مقبس Unix"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "local-zellij-Sitzungsnamen dürfen nur Buchstaben, Ziffern, Unterstriche oder Bindestriche enthalten und müssen kurz genug für einen Unix-Socket-Pfad sein"
+            "value": "local-zellij-Sitzungsnamen müssen mit einem Buchstaben, einer Ziffer oder einem Unterstrich beginnen, dürfen nur Buchstaben, Ziffern, Unterstriche oder Bindestriche enthalten und müssen kurz genug für einen Unix-Socket-Pfad sein"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "los nombres de sesión de local-zellij solo pueden contener letras, números, guiones bajos o guiones, y deben ser lo bastante cortos para una ruta de socket Unix"
+            "value": "los nombres de sesión de local-zellij deben empezar por una letra, un número o un guion bajo, contener solo letras, números, guiones bajos o guiones, y ser lo bastante cortos para una ruta de socket Unix"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "les noms de session local-zellij ne doivent contenir que des lettres, des chiffres, des traits de soulignement ou des tirets, et être assez courts pour un chemin de socket Unix"
+            "value": "les noms de session local-zellij doivent commencer par une lettre, un chiffre ou un trait de soulignement, ne contenir que des lettres, des chiffres, des traits de soulignement ou des tirets, et être assez courts pour un chemin de socket Unix"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "local-zellij のセッション名には英字、数字、アンダースコア、ダッシュのみを使用でき、Unix ソケットパスに収まる長さである必要があります"
+            "value": "local-zellij のセッション名は英字、数字、アンダースコアのいずれかで始まり、英字、数字、アンダースコア、ダッシュのみを使用し、Unix ソケットパスに収まる長さである必要があります"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "local-zellij 세션 이름에는 문자, 숫자, 밑줄 또는 대시만 사용할 수 있으며 Unix 소켓 경로에 맞을 만큼 짧아야 합니다"
+            "value": "local-zellij 세션 이름은 문자, 숫자 또는 밑줄로 시작해야 하며 문자, 숫자, 밑줄 또는 대시만 사용할 수 있고 Unix 소켓 경로에 맞을 만큼 짧아야 합니다"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "local-zellij 会话名称只能包含字母、数字、下划线或连字符，且长度必须适合 Unix 套接字路径"
+            "value": "local-zellij 会话名称必须以字母、数字或下划线开头，只能包含字母、数字、下划线或连字符，且长度必须适合 Unix 套接字路径"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "local-zellij 工作階段名稱只能包含字母、數字、底線或連字號，且長度須符合 Unix socket 路徑限制"
+            "value": "local-zellij 工作階段名稱必須以字母、數字或底線開頭，只能包含字母、數字、底線或連字號，且長度須符合 Unix socket 路徑限制"
           }
         }
       }

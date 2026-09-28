@@ -130,17 +130,27 @@ struct LocalTmuxSessionRegistry {
         }
     }
 
-    /// Replaces a record only if it is still registered. Returns `false`
-    /// without writing when it was removed meanwhile, for example by a close
-    /// that ran while an attach was waiting on the app.
+    /// Records where a session was last attached, on the record as it is
+    /// now. Only attachment fields change, so a delayed attach cannot restore
+    /// a name or binding the record has since moved away from. Returns
+    /// `false` without writing when the record was removed meanwhile, for
+    /// example by a close that ran while the attach waited on the app.
     @discardableResult
-    func updateIfPresent(_ record: LocalTmuxSessionRecord) throws -> Bool {
+    func recordAttachment(
+        id: UUID,
+        workspaceID: String?,
+        workspaceTitle: String?,
+        surfaceID: String?
+    ) throws -> Bool {
         try ensureSecureStorage()
         return try withLockedState { state in
-            guard let index = state.sessions.firstIndex(where: { $0.id == record.id }) else {
+            guard let index = state.sessions.firstIndex(where: { $0.id == id }) else {
                 return false
             }
-            state.sessions[index] = record
+            state.sessions[index].workspaceID = workspaceID
+            state.sessions[index].workspaceTitle = workspaceTitle
+            state.sessions[index].surfaceID = surfaceID
+            state.sessions[index].updatedAt = Date.now.timeIntervalSince1970
             return true
         }
     }

@@ -179,6 +179,15 @@ extension CMUXCLI {
         }
 
         let cwd = try requestedCwd ?? localZellijWorkingDirectory(nil)
+        // Save the identity before creating the session. If creation succeeds
+        // but its result can't be confirmed, a retry finds this record and the
+        // same zellij name instead of starting a second session.
+        var record = existingRecord ?? newRecord
+        record.cwd = cwd
+        record.socketPath = builder.socketDirectory
+        record.updatedAt = Date.now.timeIntervalSince1970
+        try runtime.registry.upsert(record)
+
         let layoutURL = try command.map { command in
             let url = runtime.registry.rootURL.appendingPathComponent(".layout-\(UUID().uuidString).kdl", isDirectory: false)
             guard FileManager.default.createFile(
@@ -199,18 +208,18 @@ extension CMUXCLI {
             workingDirectory: cwd,
             layoutPath: layoutURL?.path
         ))
-        guard created.succeeded,
-              try runtime.sessions().contains(where: { $0.name == zellijName && !$0.exited }) else {
+        // A listing failure propagates and leaves the record for a retry.
+        let isLive = try runtime.sessions().contains { $0.name == zellijName && !$0.exited }
+        guard created.succeeded, isLive else {
+            if existingRecord == nil, !isLive {
+                // Nothing was started, so the new record has nothing to track.
+                _ = try? runtime.registry.remove(id: record.id)
+            }
             throw CLIError(message: String.localizedStringWithFormat(
                 String(localized: "cli.localZellij.error.startFailed", defaultValue: "local-zellij could not start session %@"),
                 name
             ))
         }
-        var record = existingRecord ?? newRecord
-        record.cwd = cwd
-        record.socketPath = builder.socketDirectory
-        record.updatedAt = Date.now.timeIntervalSince1970
-        try runtime.registry.upsert(record)
         return record
     }
 

@@ -171,9 +171,14 @@ extension CMUXCLI {
             ?? "\(profile.workspaceTitlePrefix)\(originalRecord.name)"
         updated.surfaceID = surfaceID ?? originalRecord.surfaceID
         updated.updatedAt = Date.now.timeIntervalSince1970
-        // The surface call can take a while; a close that ran meanwhile has
-        // already removed the record, and must not see it come back.
-        try registry.updateIfPresent(updated)
+        // The surface call can take a while. Update the record as it is now:
+        // a close may have removed it, or a rename may have changed it.
+        try registry.recordAttachment(
+            id: updated.id,
+            workspaceID: updated.workspaceID,
+            workspaceTitle: updated.workspaceTitle,
+            surfaceID: updated.surfaceID
+        )
 
         payload["session_id"] = updated.id.uuidString
         payload["session_name"] = updated.name
