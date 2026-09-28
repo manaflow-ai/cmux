@@ -237,8 +237,10 @@ private func isCmuxInjectedCodexHookConfigValue(
     guard let companion = event.companion else {
         return isCmuxCodexHookCommand(inner, subcommand: event.cmuxSubcommand)
     }
-    // Two handlers in one group. Generated commands never contain a triple
-    // single quote, so the separator between them occurs exactly once.
+    // Two handlers in one group, split on the exact separator cmux emits.
+    // Generated commands never contain a triple single quote. A crafted value
+    // can still pass the inline command check below, which is as loose as it
+    // is for single-handler values; stripping it only drops it from replay.
     let separator = "''',timeout=\(event.timeoutMs)},{type=\"command\",command='''"
     let commands = inner.components(separatedBy: separator)
     guard commands.count == 2 else { return false }

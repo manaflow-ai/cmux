@@ -367,12 +367,17 @@ extension CMUXCLI {
     }
 
     /// A companion handler runs directly: its stdout (agent messages for
-    /// Codex) must reach Codex. `cmux hooks codex inbox-*` fails open to `{}`.
+    /// Codex) must reach Codex. It runs on every prompt and stop, so any
+    /// failure, including an unreachable app, answers `{}`.
     private static func codexWrapperCompanionHookBody(
         _ companion: CodexHookCompanion,
         for def: AgentHookDef
     ) -> String {
-        codexSynchronousAgentHookShellCommand("cmux hooks codex \(companion.cmuxSubcommand)", for: def)
+        codexSynchronousAgentHookShellCommand(
+            "cmux hooks codex \(companion.cmuxSubcommand)",
+            for: def,
+            failOpen: true
+        )
     }
 
     private static func codexWrapperHookBody(

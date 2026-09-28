@@ -512,7 +512,8 @@ codex_known_subcommand() {
 codex_option_consumes_value() {
     case "$1" in
         -c|--config|-m|--model|-p|--profile|-C|--cd|--remote|-a|--ask-for-approval|\
-        -s|--sandbox|--output-last-message|--enable|--disable)
+        -s|--sandbox|--output-last-message|--enable|--disable|--add-dir|-i|--image|\
+        --local-provider|--remote-auth-token-env)
             return 0
             ;;
     esac
