@@ -3056,7 +3056,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     var agentListeningPorts: [Int] = []
-    @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
+    @Published var remoteConfiguration: WorkspaceRemoteConfiguration? {
+        didSet {
+            // Window titles append the host (`hostLabel`); refresh them only when
+            // an input of that label changed, not on every lease or relay update.
+            guard oldValue?.destination != remoteConfiguration?.destination
+                || oldValue?.port != remoteConfiguration?.port
+                || oldValue?.managedCloudVMID != remoteConfiguration?.managedCloudVMID else { return }
+            owningTabManager?.workspaceHostLabelDidChange(self)
+        }
+    }
     /// The cloud machine whose cmux-tui session runs in this workspace's pane. Unlike
     /// `remoteConfiguration` (app-managed SSH/websocket transports) the session belongs
     /// to the pane's own `cmux vm-tui-connect` process, so this binding is what the
@@ -3070,6 +3079,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             let previous = cloudBindingState.binding
             cloudBindingState.binding = newValue
             guard previous != newValue else { return }
+            owningTabManager?.workspaceHostLabelDidChange(self)
             (owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id))?
                 .sidebarGitMetadataService
                 .clearWorkspaceGitProbes(workspaceId: id)

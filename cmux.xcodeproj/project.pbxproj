@@ -3885,6 +3885,7 @@
 		112950000000000000000010 /* Workspace+ForkStartupInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11295000000000000000000F /* Workspace+ForkStartupInput.swift */; };
 		F17F00000000000000000005 /* Workspace+FullWidthTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000006 /* Workspace+FullWidthTab.swift */; };
 		D9466FDCDB9B4670943C3E7A /* Workspace+GeometryDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F949FFE94E234BC39DDDCE34 /* Workspace+GeometryDiagnostics.swift */; };
+		9E77D08F10D2FE24E08A47D0 /* Workspace+HostLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F15D090697E0FDC40F8A6A4C /* Workspace+HostLabel.swift */; };
 		C0DE1A050000000000000001 /* Workspace+LayoutCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A050000000000000002 /* Workspace+LayoutCapture.swift */; };
 				B11D00000000000000000003 /* Workspace+MobileAgentStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11D00000000000000000004 /* Workspace+MobileAgentStatus.swift */; };
 		9504A0010000000000000001 /* Workspace+MovingTabSplit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9504A0010000000000000002 /* Workspace+MovingTabSplit.swift */; };
@@ -3977,6 +3978,7 @@
 		C9A57001C9A57001C9A57001 /* WorkspaceGroupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */; };
 		D92310030000000000000001 /* WorkspaceHandoffRetirementGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92310030000000000000002 /* WorkspaceHandoffRetirementGate.swift */; };
 		D92310040000000000000001 /* WorkspaceHandoffRetirementGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92310040000000000000002 /* WorkspaceHandoffRetirementGateTests.swift */; };
+		FADC2463EE41BE7A49A5DD5C /* WorkspaceHostLabelWindowTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5C719FD6475859397B53EB9 /* WorkspaceHostLabelWindowTitleTests.swift */; };
 		E3B7A4000000000000000007 /* WorkspaceIndicatorStyle+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000008 /* WorkspaceIndicatorStyle+Display.swift */; };
 		A17C0A110000000000000001 /* WorkspaceInitialCommandLoginShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C0A110000000000000002 /* WorkspaceInitialCommandLoginShell.swift */; };
 		B63E1257BB174740A44F458C /* WorkspaceIsStaleAgentHookBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B714B27E46014592B9CB2D3A /* WorkspaceIsStaleAgentHookBindingTests.swift */; };
@@ -7908,6 +7910,7 @@
 		11295000000000000000000F /* Workspace+ForkStartupInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ForkStartupInput.swift"; sourceTree = "<group>"; };
 		F17F00000000000000000006 /* Workspace+FullWidthTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+FullWidthTab.swift"; sourceTree = "<group>"; };
 		F949FFE94E234BC39DDDCE34 /* Workspace+GeometryDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+GeometryDiagnostics.swift"; sourceTree = "<group>"; };
+		F15D090697E0FDC40F8A6A4C /* Workspace+HostLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+HostLabel.swift"; sourceTree = "<group>"; };
 		C0DE1A050000000000000002 /* Workspace+LayoutCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+LayoutCapture.swift"; sourceTree = "<group>"; };
 				B11D00000000000000000004 /* Workspace+MobileAgentStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+MobileAgentStatus.swift"; sourceTree = "<group>"; };
 		9504A0010000000000000002 /* Workspace+MovingTabSplit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+MovingTabSplit.swift"; sourceTree = "<group>"; };
@@ -8000,6 +8003,7 @@
 		C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupTests.swift; sourceTree = "<group>"; };
 		D92310030000000000000002 /* WorkspaceHandoffRetirementGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceHandoffRetirementGate.swift; sourceTree = "<group>"; };
 		D92310040000000000000002 /* WorkspaceHandoffRetirementGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceHandoffRetirementGateTests.swift; sourceTree = "<group>"; };
+		C5C719FD6475859397B53EB9 /* WorkspaceHostLabelWindowTitleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceHostLabelWindowTitleTests.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000008 /* WorkspaceIndicatorStyle+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceIndicatorStyle+Display.swift"; sourceTree = "<group>"; };
 		A17C0A110000000000000002 /* WorkspaceInitialCommandLoginShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceInitialCommandLoginShell.swift; sourceTree = "<group>"; };
 		B714B27E46014592B9CB2D3A /* WorkspaceIsStaleAgentHookBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceIsStaleAgentHookBindingTests.swift; sourceTree = "<group>"; };
@@ -10937,6 +10941,7 @@
 				2DA313712597F71E6015ABBC /* TerminalSSHSessionDetectionTimeoutGate.swift */,
 				7611B3AEEB664825A7DD8733 /* TerminalSSHSessionDetector+Async.swift */,
 				61BF07E91B28C5740AD10DD9 /* TerminalSSHSessionDetector+ProcessInfo.swift */,
+				F15D090697E0FDC40F8A6A4C /* Workspace+HostLabel.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -12332,6 +12337,7 @@
 				23E35F95320CBED308AD98CF /* CloudTreeTogglePerformanceTests.swift */,
 				0C37EA14DE74095FB1BB23E1 /* CloudTreeDisclosureIntentTests.swift */,
 				6F27EA9972F21B98FB4A7312 /* SurfaceCatalogObservationTests.swift */,
+				C5C719FD6475859397B53EB9 /* WorkspaceHostLabelWindowTitleTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15372,6 +15378,7 @@
 				112950000000000000000010 /* Workspace+ForkStartupInput.swift in Sources */,
 				F17F00000000000000000005 /* Workspace+FullWidthTab.swift in Sources */,
 				D9466FDCDB9B4670943C3E7A /* Workspace+GeometryDiagnostics.swift in Sources */,
+				9E77D08F10D2FE24E08A47D0 /* Workspace+HostLabel.swift in Sources */,
 				C0DE1A050000000000000001 /* Workspace+LayoutCapture.swift in Sources */,
 				B11D00000000000000000003 /* Workspace+MobileAgentStatus.swift in Sources */,
 				9504A0010000000000000001 /* Workspace+MovingTabSplit.swift in Sources */,
@@ -16987,6 +16994,7 @@
 				9164A0019164A0019164A001 /* WorkspaceGroupNumberedSelectionTests.swift in Sources */,
 				C9A57001C9A57001C9A57001 /* WorkspaceGroupTests.swift in Sources */,
 				D92310040000000000000001 /* WorkspaceHandoffRetirementGateTests.swift in Sources */,
+				FADC2463EE41BE7A49A5DD5C /* WorkspaceHostLabelWindowTitleTests.swift in Sources */,
 				B63E1257BB174740A44F458C /* WorkspaceIsStaleAgentHookBindingTests.swift in Sources */,
 				0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */,
 				1A1B2C3D4E5F607180000003 /* WorkspacePromptSubmitTests.swift in Sources */,
