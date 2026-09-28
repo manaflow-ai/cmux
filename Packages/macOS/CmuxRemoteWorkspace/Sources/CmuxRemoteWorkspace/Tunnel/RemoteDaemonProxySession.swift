@@ -43,6 +43,7 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
     let id = UUID()
 
     private let connection: NWConnection
+    private let credential: BrowserProxyCredential?
     private let rpcClient: any RemoteDaemonTunnelRPCClient
     private let queue: DispatchQueue
     private let onClose: (UUID) -> Void
@@ -60,11 +61,13 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
 
     init(
         connection: NWConnection,
+        credential: BrowserProxyCredential? = nil,
         rpcClient: any RemoteDaemonTunnelRPCClient,
         queue: DispatchQueue,
         onClose: @escaping (UUID) -> Void
     ) {
         self.connection = connection
+        self.credential = credential
         self.rpcClient = rpcClient
         self.queue = queue
         self.onClose = onClose
