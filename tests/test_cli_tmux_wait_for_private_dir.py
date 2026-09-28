@@ -12,7 +12,6 @@ from pathlib import Path
 import stat
 import subprocess
 import tempfile
-import time
 import unittest
 import uuid
 
@@ -77,20 +76,21 @@ class TmuxWaitForSignalPrivateDirectory(unittest.TestCase):
 
     def test_wait_wakes_on_later_signal(self) -> None:
         self.prepare_directory()
-        waiter = subprocess.Popen([str(self.binary), "wait", self.name, "20"],
+        # The waiter's own timeout is far past communicate()'s, so its OK can
+        # only come from the signal, not from the wait running out.
+        waiter = subprocess.Popen([str(self.binary), "wait", self.name, "600"],
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
-            time.sleep(0.5)
-            self.assertIsNone(waiter.poll(), "wait returned before the signal")
-            started = time.monotonic()
+            # The waiter reports once its watch is armed and it has found no signal.
+            self.assertEqual(waiter.stderr.readline().strip(), "watching")
+            self.assertFalse(os.path.lexists(self.path))
             self.assertEqual(self.run_fixture("signal").stdout.strip(), "OK")
-            out, err = waiter.communicate(timeout=10)
+            out, err = waiter.communicate(timeout=60)
         finally:
             if waiter.poll() is None:
                 waiter.kill()
                 waiter.communicate()
         self.assertEqual(out.strip(), "OK", err)
-        self.assertLess(time.monotonic() - started, 5)
         self.assertFalse(os.path.lexists(self.path))
 
     def test_wait_does_not_accept_a_symlink(self) -> None:

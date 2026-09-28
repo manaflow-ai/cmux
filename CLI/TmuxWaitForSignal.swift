@@ -44,7 +44,9 @@ struct TmuxWaitForSignal {
     }
 
     /// Returns true once the signal has arrived and been consumed, false on timeout.
-    func wait(timeout: TimeInterval) throws -> Bool {
+    /// `watching` runs once, after the directory watch is registered and the
+    /// first check found no signal, so any signal sent after it wakes this wait.
+    func wait(timeout: TimeInterval, watching: () -> Void = {}) throws -> Bool {
         let directory = try openDirectory()
         defer { Darwin.close(directory) }
         let queue = kqueue()
@@ -66,9 +68,14 @@ struct TmuxWaitForSignal {
         }
 
         let deadline = Date().addingTimeInterval(max(0, timeout))
+        var announcedWatching = false
         while true {
             if consume(in: directory) {
                 return true
+            }
+            if !announcedWatching {
+                announcedWatching = true
+                watching()
             }
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else {
