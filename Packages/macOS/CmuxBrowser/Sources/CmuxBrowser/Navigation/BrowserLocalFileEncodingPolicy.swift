@@ -98,17 +98,42 @@ public final class BrowserLocalFileEncodingPolicy {
             }
             guard let tagEnd = uncommentedText[afterName...].firstIndex(of: ">") else { break }
             let attributes = htmlAttributes(in: uncommentedText[afterName..<tagEnd])
-            if let charset = attributes["charset"], !charset.isEmpty {
+            if let charset = attributes["charset"], isSupportedEncodingLabel(charset) {
                 return true
             }
             if attributes["http-equiv"] == "content-type",
                let content = attributes["content"],
-               content.range(of: #"charset\s*="#, options: .regularExpression) != nil {
+               let charset = declaredCharsetLabel(in: content),
+               isSupportedEncodingLabel(charset) {
                 return true
             }
-            searchStart = text.index(after: tagEnd)
+            searchStart = uncommentedText.index(after: tagEnd)
         }
         return false
+    }
+
+    nonisolated private static func isSupportedEncodingLabel(_ label: String) -> Bool {
+        let name = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return false }
+        let encoding = CFStringConvertIANACharSetNameToEncoding(name as CFString)
+        return encoding != kCFStringEncodingInvalidId
+    }
+
+    nonisolated private static func declaredCharsetLabel(in content: String) -> String? {
+        guard let charsetStart = content.range(of: "charset") else { return nil }
+        let afterName = content[charsetStart.upperBound...]
+        guard let equals = afterName.firstIndex(of: "=") else { return nil }
+        var label = afterName[afterName.index(after: equals)...]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let quote = label.first, quote == "\"" || quote == "'" {
+            label.removeFirst()
+            if let end = label.firstIndex(of: quote) {
+                label = String(label[..<end])
+            }
+        } else if let semicolon = label.firstIndex(of: ";") {
+            label = String(label[..<semicolon])
+        }
+        return String(label.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     /// Removes HTML comments before inspecting metadata so commented-out

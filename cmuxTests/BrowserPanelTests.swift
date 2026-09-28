@@ -102,11 +102,24 @@ struct BrowserLocalFileEncodingTests {
             "<html><head><meta charset=\"windows-1252\"></head><body>산책</body></html>"
                 .data(using: .utf8)
         ).write(to: declaredCharsetURL)
+        let unsupportedCharsetURL = directory.appendingPathComponent("unsupported.html")
+        try XCTUnwrap(
+            "<html><head><meta charset=\"unsupported-encoding\"></head><body>산책</body></html>"
+                .data(using: .utf8)
+        ).write(to: unsupportedCharsetURL)
 
         #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: utf8URL) == "UTF-8")
         #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: nonUTF8URL) == nil)
         #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: declaredCharsetURL) == nil)
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: unsupportedCharsetURL) == "UTF-8")
         #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: URL(string: "about:blank")!) == nil)
+
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        panel.navigate(to: unsupportedCharsetURL)
+        let snapshot = try await waitForDocument(at: unsupportedCharsetURL, in: panel)
+        #expect(snapshot.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(snapshot.text.contains("산책"))
     }
 
     private func waitForDocument(
