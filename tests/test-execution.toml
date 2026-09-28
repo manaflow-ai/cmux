@@ -57,6 +57,11 @@ requirements = ["cmux-cli"]
 serial = true
 
 [[test]]
+path = "tests/test_cli_hook_enqueue_wall_clock.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_simulator_contract.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -517,6 +522,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_runner_pool.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ui_fuzzer_engine.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1407,4 +1416,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_ui_tests_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_media.py"
 lane = "linux-guard"
