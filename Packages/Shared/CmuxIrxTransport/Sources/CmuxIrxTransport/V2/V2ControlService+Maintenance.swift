@@ -79,10 +79,18 @@ extension V2ControlService {
                 return
             }
             guard socket != nil || httpMode else {
-                // Nothing restarts maintenance until the next reconnect or
-                // foreground. Renewals stop here while status stays .ready.
-                journal("maintenance-exited", ["reason": "no-transport", "status": String(describing: status)])
-                return
+                // The socket died in the window between renewal sleep and
+                // wake. Exiting here used to end renewals for good while
+                // status stayed .ready; instead hold at a bounded cadence
+                // until either the transport returns or the reconnect owner
+                // moves status off .ready and this loop ends normally.
+                journal("maintenance-idle", ["reason": "no-transport", "status": String(describing: status)])
+                do { try await dependencies.sleep(30) }
+                catch {
+                    journal("maintenance-exited", ["reason": "sleep-cancelled"])
+                    return
+                }
+                continue
             }
             let deadline = dependencies.now().timeIntervalSince1970 + 0.1
 #if DEBUG

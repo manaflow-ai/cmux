@@ -63,7 +63,8 @@ extension V2ControlService {
         guard (200..<300).contains(response.status) else {
             let error = V2ControlFailure.http(status: response.status, retryAfter: response.retryAfter)
             if response.status == 429 {
-                cooldowns[operation(schema)] = dependencies.now().addingTimeInterval(max(1, response.retryAfter ?? 60))
+                cooldowns[operation(schema)] = dependencies.now().addingTimeInterval(
+                    min(max(1, response.retryAfter ?? 60), Self.maximumBackoff))
             }
             record(error, schema: schema)
             throw error

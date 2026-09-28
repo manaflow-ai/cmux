@@ -296,13 +296,17 @@ extension V2ControlService {
         return false
     }
 
+    /// Only a deliberate revocation of this device's authority stops the run.
+    /// Every other failure, including identity or wire-shape rejections that
+    /// used to be permanent, retries at a bounded cadence: a stopped service
+    /// is invisible until relaunch, and a wedged Mac must keep announcing
+    /// itself to the backend rather than go silent.
     func terminal(_ error: V2ControlFailure) -> Bool {
         switch error {
-        case .scopeMismatch, .persistenceFailed, .capacityExceeded, .invalidWireData: return true
-        case .socketClosed(let code, _): return code == 1008 || code == 1009
+        case .socketClosed(let code, let reason):
+            return code == 1008 && ["device_revoked", "team_access_revoked"].contains(reason ?? "")
         case .server(let response):
-            return [.teamAccessRevoked, .deviceRevoked, .identityMismatch, .environmentMismatch, .keyReplacementRequired, .endpointAlreadyOwned, .invalidDeviceProof].contains(response.code)
-        case .http(let status, _): return [400, 403, 404, 405, 413, 415].contains(status)
+            return [.teamAccessRevoked, .deviceRevoked].contains(response.code)
         default: return false
         }
     }
@@ -317,6 +321,8 @@ extension V2ControlService {
         if let until = [cooldowns["session.open.v1"], cooldowns["session.open"]].compactMap({ $0 }).max() {
             delay = max(delay, until.timeIntervalSince(dependencies.now()))
         }
-        return delay
+        // No reconnect ever waits longer than the app-wide backoff ceiling,
+        // whatever a server retry-after or an accumulated cooldown says.
+        return min(delay, V2ControlService.maximumBackoff)
     }
 }

@@ -257,6 +257,15 @@ struct MobileHostIrxActivationRetryTests {
         )
         #expect(delay == 75)
     }
+
+    @Test func serverRetryAfterCannotPushTheDelayPastTheBackoffCeiling() {
+        let delay = MobileHostIrxRuntime.activationRetryDelay(
+            after: CmxRateLimitedError(retryAfterSeconds: 24 * 3600),
+            failureCount: 0,
+            jitterUnitInterval: 0
+        )
+        #expect(delay == 30 * 60)
+    }
 }
 
 @MainActor
