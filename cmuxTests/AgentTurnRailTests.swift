@@ -52,6 +52,11 @@ private final class FakeViewport: AgentTurnTerminalViewport {
     var offset: UInt64 = 0
     var length: UInt64 = 10
     var revision: UInt64 = 1
+    var isOnScreen = true
+    /// Simulates output landing between the row read and the scroll: the
+    /// next scroll finds a new row space with `rowsInsertedOnRace` more rows.
+    var rowsInsertedOnRace = 0
+    private(set) var screenReads = 0
     private(set) var scrolls: [(row: Int, isAtBottom: Bool)] = []
 
     func agentTurnRailGeometry() -> NotificationScrollRestoreGeometry? {
@@ -61,11 +66,19 @@ private final class FakeViewport: AgentTurnTerminalViewport {
         )
     }
 
+    var agentTurnRailIsOnScreen: Bool { isOnScreen }
+
     func agentTurnRailScreenRows() -> String? {
-        rows.joined(separator: "\n")
+        screenReads += 1
+        return rows.joined(separator: "\n")
     }
 
     func agentTurnRailScroll(toRow row: Int, revision: UInt64, isAtBottom: Bool) -> Bool {
+        if rowsInsertedOnRace > 0 {
+            rows.insert(contentsOf: Array(repeating: "streamed", count: rowsInsertedOnRace), at: 0)
+            rowsInsertedOnRace = 0
+            self.revision += 1
+        }
         guard revision == self.revision else { return false }
         scrolls.append((row, isAtBottom))
         offset = UInt64(row)
@@ -80,15 +93,11 @@ private func waitUntil(_ condition: @MainActor () -> Bool) async {
     }
 }
 
-/// 60 rows: prompts "alpha" at 5, "beta" at 25, "gamma" at 45.
-private func agentScreen() -> [String] {
+/// 60 rows with prompts at the given rows (default: "alpha" at 5, "beta" at
+/// 25, "gamma" at 45).
+private func agentScreen(_ prompts: [Int: String] = [5: "alpha", 25: "beta", 45: "gamma"]) -> [String] {
     (0..<60).map { row in
-        switch row {
-        case 5: return "> alpha"
-        case 25: return "> beta"
-        case 45: return "> gamma"
-        default: return "output \(row)"
-        }
+        prompts[row].map { "> \($0)" } ?? "output \(row)"
     }
 }
 
@@ -103,12 +112,15 @@ struct AgentTurnRailModelTests {
         let viewport = FakeViewport()
         let model = AgentTurnRailModel(surfaceID: UUID())
         var visibilityChanges: [Bool] = []
-        model.onVisibilityChange = { visibilityChanges.append($0) }
+        model.onPresentationChange = { visibilityChanges.append(model.isVisible) }
 
         source.publish(["only prompt"])
         model.start(source: source, viewport: viewport)
         await waitUntil { model.entries.count == 1 }
         #expect(!model.isVisible)
+        // The gutter is reserved from the first prompt, so the rail appearing
+        // later does not reflow the agent's interface.
+        #expect(model.reservesGutter)
 
         source.publish(["only prompt", "second prompt"])
         await waitUntil { model.isVisible }
@@ -117,7 +129,8 @@ struct AgentTurnRailModelTests {
         source.snapshot = nil
         await model.refresh()
         #expect(!model.isVisible)
-        #expect(visibilityChanges == [true, false])
+        #expect(!model.reservesGutter)
+        #expect(visibilityChanges == [false, true, false])
     }
 
     @Test("clicking a turn scrolls one row above its prompt")
@@ -173,6 +186,65 @@ struct AgentTurnRailModelTests {
         #expect(await model.jumpToNextTurn())
         #expect(viewport.scrolls.last?.row == 50)
         #expect(viewport.scrolls.last?.isAtBottom == true)
+    }
+
+    @Test("next and previous stop at a short turn whose prompt shares the screen with the previous one")
+    func shortTurnsAreNotSkipped() async {
+        let source = FakeOutlineSource()
+        let viewport = FakeViewport()
+        viewport.rows = agentScreen([5: "alpha", 25: "beta", 27: "gamma", 45: "delta"])
+        viewport.offset = 0
+        let model = AgentTurnRailModel(surfaceID: UUID())
+        source.publish(["alpha", "beta", "gamma", "delta"])
+        model.start(source: source, viewport: viewport)
+        await waitUntil { model.hasResolvedAnchors }
+
+        #expect(await model.jump(toEntryAt: 1))
+        #expect(viewport.scrolls.last?.row == 24)
+        #expect(await model.jumpToNextTurn())
+        #expect(viewport.scrolls.last?.row == 26)
+        #expect(model.currentIndex == 2)
+        #expect(await model.jumpToNextTurn())
+        #expect(viewport.scrolls.last?.row == 44)
+        #expect(await model.jumpToPreviousTurn())
+        #expect(viewport.scrolls.last?.row == 26)
+        #expect(await model.jumpToPreviousTurn())
+        #expect(viewport.scrolls.last?.row == 24)
+    }
+
+    @Test("a hidden terminal never reads scrollback in the background, but still jumps on demand")
+    func hiddenTerminalResolvesOnDemand() async {
+        let source = FakeOutlineSource()
+        let viewport = FakeViewport()
+        viewport.rows = agentScreen()
+        viewport.isOnScreen = false
+        let model = AgentTurnRailModel(surfaceID: UUID())
+        source.publish(["alpha", "beta", "gamma"])
+        model.start(source: source, viewport: viewport)
+        await waitUntil { model.isVisible }
+        model.viewportDidChange()
+        await Task.yield()
+        #expect(viewport.screenReads == 0)
+        #expect(!model.hasResolvedAnchors)
+
+        #expect(await model.jump(toEntryAt: 1))
+        #expect(viewport.scrolls.last?.row == 24)
+        #expect(viewport.screenReads == 1)
+    }
+
+    @Test("output that renumbers rows during a jump re-reads rows and still lands on the prompt")
+    func jumpRetriesAfterRowSpaceChange() async {
+        let source = FakeOutlineSource()
+        let viewport = FakeViewport()
+        viewport.rows = agentScreen()
+        let model = AgentTurnRailModel(surfaceID: UUID())
+        source.publish(["alpha", "beta", "gamma"])
+        model.start(source: source, viewport: viewport)
+        await waitUntil { model.hasResolvedAnchors }
+
+        viewport.rowsInsertedOnRace = 3
+        #expect(await model.jump(toEntryAt: 1))
+        #expect(viewport.scrolls.last?.row == 27)
     }
 
     @Test("a reflow re-resolves rows before jumping")

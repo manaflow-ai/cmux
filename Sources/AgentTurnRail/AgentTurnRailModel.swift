@@ -21,6 +21,9 @@ protocol AgentTurnTerminalViewport: AnyObject {
     /// Scrolls so `row` is the top viewport row, only if the row space is
     /// still `revision`.
     func agentTurnRailScroll(toRow row: Int, revision: UInt64, isAtBottom: Bool) -> Bool
+    /// Whether the terminal is on screen. Scrollback is read in the
+    /// background only for visible terminals; hidden ones resolve on demand.
+    var agentTurnRailIsOnScreen: Bool { get }
 }
 
 /// State behind one terminal's turn rail: the session's prompts, where each
@@ -52,9 +55,16 @@ final class AgentTurnRailModel {
         agentKind != nil && entries.count >= Self.minimumVisibleTurns
     }
 
-    /// Called when ``isVisible`` flips, so the host can reserve or release
-    /// the rail gutter.
-    @ObservationIgnored var onVisibilityChange: ((Bool) -> Void)?
+    /// Whether the terminal keeps a rail gutter: any live agent session,
+    /// even before its second prompt, so the terminal does not reflow the
+    /// agent's interface when the rail first appears.
+    var reservesGutter: Bool {
+        agentKind != nil
+    }
+
+    /// Called when ``isVisible`` or ``reservesGutter`` flips, so the host can
+    /// lay out the gutter and rail.
+    @ObservationIgnored var onPresentationChange: (() -> Void)?
 
     @ObservationIgnored private weak var source: (any AgentTurnOutlineSource)?
     @ObservationIgnored private weak var viewport: (any AgentTurnTerminalViewport)?
@@ -129,6 +139,7 @@ final class AgentTurnRailModel {
 
     private func apply(snapshot: AgentTurnOutlineSnapshot?) {
         let wasVisible = isVisible
+        let wasReserving = reservesGutter
         let nextEntries = snapshot?.entries ?? []
         agentKind = snapshot?.agentKind
         if nextEntries != entries {
@@ -141,8 +152,8 @@ final class AgentTurnRailModel {
             hasResolvedAnchors = false
             currentIndex = nil
         }
-        if wasVisible != isVisible {
-            onVisibilityChange?(isVisible)
+        if wasVisible != isVisible || wasReserving != reservesGutter {
+            onPresentationChange?()
         }
     }
 
@@ -153,10 +164,17 @@ final class AgentTurnRailModel {
         guard isVisible, let geometry = viewport?.agentTurnRailGeometry() else { return }
         let snapshot = GhosttyScrollbarSnapshot(geometry)
         lastGeometry = snapshot
-        if needsReresolve(for: snapshot) {
+        if needsResolve || needsReresolve(for: snapshot) {
             scheduleResolve()
         }
         updateCurrentIndex(snapshot)
+    }
+
+    /// Starts a resolve deferred while the terminal was hidden. Safe to call
+    /// from layout: it mutates no observed state.
+    func resumeDeferredResolve() {
+        guard needsResolve, resolveTask == nil else { return }
+        scheduleResolve()
     }
 
     private func needsReresolve(for geometry: GhosttyScrollbarSnapshot) -> Bool {
@@ -178,7 +196,10 @@ final class AgentTurnRailModel {
     private func scheduleResolve() {
         guard isVisible else { return }
         needsResolve = true
-        guard resolveTask == nil else { return }
+        // A hidden terminal defers the read until it is shown (the next
+        // layout or scrollbar update calls ``viewportDidChange()``) or a
+        // jump needs rows.
+        guard resolveTask == nil, viewport?.agentTurnRailIsOnScreen == true else { return }
         resolveTask = Task { [weak self] in
             await self?.runResolveLoop()
         }
@@ -187,6 +208,7 @@ final class AgentTurnRailModel {
     private func runResolveLoop() async {
         defer { resolveTask = nil }
         while needsResolve, !Task.isCancelled {
+            guard viewport?.agentTurnRailIsOnScreen == true else { return }
             needsResolve = false
             let started = ContinuousClock.now
             await resolveAnchors()
@@ -239,15 +261,24 @@ final class AgentTurnRailModel {
         return true
     }
 
+    @ObservationIgnored private var cachedNavigator: (ids: [String], rows: [String: Int], navigator: ChatOutlineNavigator)?
+
     private var navigator: ChatOutlineNavigator {
-        ChatOutlineNavigator(anchorRows: entries.map { anchorRows[$0.id] })
+        let ids = entries.map(\.id)
+        if let cachedNavigator, cachedNavigator.ids == ids, cachedNavigator.rows == anchorRows {
+            return cachedNavigator.navigator
+        }
+        let navigator = ChatOutlineNavigator(anchorRows: ids.map { anchorRows[$0] })
+        cachedNavigator = (ids, anchorRows, navigator)
+        return navigator
     }
 
     private func updateCurrentIndex(_ geometry: GhosttyScrollbarSnapshot) {
         guard hasResolvedAnchors, geometry.revision == resolvedRevision else { return }
         let next = navigator.currentIndex(
             viewportTop: Int(clamping: geometry.offset),
-            viewportRows: Int(clamping: geometry.len)
+            viewportRows: Int(clamping: geometry.len),
+            isAtBottom: geometry.isAtBottom
         )
         if next != currentIndex { currentIndex = next }
     }
@@ -267,11 +298,28 @@ final class AgentTurnRailModel {
     @discardableResult
     func jump(toEntryAt index: Int) async -> Bool {
         guard entries.indices.contains(index) else { return false }
-        if await !ensureFreshAnchors() { return false }
-        guard let row = anchorRows[entries[index].id] else { return false }
-        guard scroll(toPromptRow: row) else { return false }
-        currentIndex = index
-        return true
+        return await jump(toEntryID: entries[index].id)
+    }
+
+    /// Scrolls so the prompt of entry `id` sits at the top of the viewport.
+    ///
+    /// Streaming output at the scrollback limit renumbers rows between the
+    /// read and the scroll; the jump re-reads rows once when that happens.
+    @discardableResult
+    func jump(toEntryID id: String) async -> Bool {
+        for attempt in 0..<2 {
+            let fresh = attempt == 0 ? await ensureFreshAnchors() : await resolveAnchors()
+            guard fresh, !Task.isCancelled,
+                  let index = entries.firstIndex(where: { $0.id == id }),
+                  let row = anchorRows[id] else {
+                return false
+            }
+            if scroll(toPromptRow: row) {
+                currentIndex = index
+                return true
+            }
+        }
+        return false
     }
 
     /// Jumps to the previous turn (or the start of the current one when its
@@ -281,7 +329,8 @@ final class AgentTurnRailModel {
         guard isVisible, await ensureFreshAnchors(), let geometry = lastGeometry else { return false }
         guard let target = navigator.previousTarget(
             viewportTop: Int(clamping: geometry.offset),
-            viewportRows: Int(clamping: geometry.len)
+            viewportRows: Int(clamping: geometry.len),
+            isAtBottom: geometry.isAtBottom
         ) else { return false }
         return await jump(toEntryAt: target)
     }
@@ -292,7 +341,8 @@ final class AgentTurnRailModel {
         guard isVisible, await ensureFreshAnchors(), let geometry = lastGeometry else { return false }
         if let target = navigator.nextTarget(
             viewportTop: Int(clamping: geometry.offset),
-            viewportRows: Int(clamping: geometry.len)
+            viewportRows: Int(clamping: geometry.len),
+            isAtBottom: geometry.isAtBottom
         ) {
             return await jump(toEntryAt: target)
         }
@@ -346,6 +396,11 @@ struct GhosttyScrollbarSnapshot: Equatable {
     let offset: UInt64
     let len: UInt64
     let revision: UInt64
+
+    /// Whether the viewport shows the newest rows.
+    var isAtBottom: Bool {
+        offset + len >= total
+    }
 
     init(_ geometry: NotificationScrollRestoreGeometry) {
         total = geometry.scrollbar.total

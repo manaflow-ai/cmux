@@ -20,8 +20,8 @@ extension GhosttySurfaceScrollView: AgentTurnTerminalViewport {
         }
         agentTurnRailHost?.tearDown()
         let model = AgentTurnRailModel(surfaceID: surfaceID)
-        let host = AgentTurnRailHost(model: model, container: self)
-        model.onVisibilityChange = { [weak self] _ in
+        let host = AgentTurnRailHost(model: model, container: self, scrollTarget: agentTurnRailScrollTarget)
+        model.onPresentationChange = { [weak self] in
             // Reserve or release the gutter now so the terminal reflows once.
             _ = self?.reconcileGeometryNow()
         }
@@ -47,6 +47,10 @@ extension GhosttySurfaceScrollView: AgentTurnTerminalViewport {
 
     func agentTurnRailGeometry() -> NotificationScrollRestoreGeometry? {
         surfaceView.authoritativeScrollbarGeometry()
+    }
+
+    var agentTurnRailIsOnScreen: Bool {
+        window != nil && !isHiddenOrHasHiddenAncestor && bounds.width > 0 && bounds.height > 0
     }
 
     func agentTurnRailScreenRows() -> String? {

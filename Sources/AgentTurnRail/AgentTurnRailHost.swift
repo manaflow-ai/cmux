@@ -20,10 +20,11 @@ final class AgentTurnRailHost {
     private var hoveredIndex: Int?
     private var hoveredTickY: CGFloat = 0
 
-    init(model: AgentTurnRailModel, container: NSView) {
+    init(model: AgentTurnRailModel, container: NSView, scrollTarget: NSView?) {
         self.model = model
         self.container = container
         railView = AgentTurnRailHostingView(rootView: AnyView(EmptyView()))
+        railView.scrollTarget = scrollTarget
         cardView = AgentTurnHoverCardHostingView(rootView: AnyView(EmptyView()))
         railView.isHidden = true
         cardView.isHidden = true
@@ -41,55 +42,78 @@ final class AgentTurnRailHost {
     /// Whether the rail currently occupies a gutter.
     private(set) var isShowingRail = false
 
-    /// Places the rail for the pane and returns the frame the terminal
-    /// content should use.
+    /// Where the rail and the terminal content go for a pane.
     ///
     /// The rail goes in free space left of a width-limited session when that
     /// space is wide enough; otherwise it reserves a gutter by narrowing the
-    /// terminal, so it never draws over terminal text.
-    func layout(sessionFrame: CGRect, bounds: CGRect) -> CGRect {
-        guard let container else { return sessionFrame }
-        let shows = model.isVisible && sessionFrame.width >= Self.minimumContentWidth + Self.railWidth
-        isShowingRail = shows
-        guard shows else {
-            railView.isHidden = true
-            hideCard()
-            return sessionFrame
+    /// terminal, so it never draws over terminal text. The gutter is kept for
+    /// the whole live agent session so the rail appearing or disappearing
+    /// never reflows the agent's interface.
+    ///
+    /// - Returns: `nil` when the pane keeps its full width and has no rail.
+    func placement(sessionFrame: CGRect, bounds: CGRect) -> (rail: CGRect, content: CGRect)? {
+        guard model.reservesGutter,
+              sessionFrame.width >= Self.minimumContentWidth + Self.railWidth else {
+            return nil
         }
-        mountIfNeeded(in: container)
-        var contentFrame = sessionFrame
-        let railFrame: CGRect
         if sessionFrame.minX - bounds.minX >= Self.railWidth {
-            railFrame = CGRect(
+            let rail = CGRect(
                 x: sessionFrame.minX - Self.railWidth,
                 y: sessionFrame.minY,
                 width: Self.railWidth,
                 height: sessionFrame.height
             )
-        } else {
-            railFrame = CGRect(
-                x: sessionFrame.minX,
-                y: sessionFrame.minY,
-                width: Self.railWidth,
-                height: sessionFrame.height
-            )
-            contentFrame.origin.x += Self.railWidth
-            contentFrame.size.width -= Self.railWidth
+            return (rail, sessionFrame)
         }
-        if railView.frame != railFrame { railView.frame = railFrame }
-        railView.isHidden = false
-        if hoveredIndex != nil { positionCard() }
-        return contentFrame
+        let rail = CGRect(x: sessionFrame.minX, y: sessionFrame.minY, width: Self.railWidth, height: sessionFrame.height)
+        var content = sessionFrame
+        content.origin.x += Self.railWidth
+        content.size.width -= Self.railWidth
+        return (rail, content)
     }
 
-    /// Keeps the rail and card above views added after them.
+    /// Terminal content frame for `sessionFrame`, without side effects. Other
+    /// overlays that cover the terminal use this so they stay off the rail.
+    func contentFrame(sessionFrame: CGRect, bounds: CGRect) -> CGRect {
+        placement(sessionFrame: sessionFrame, bounds: bounds)?.content ?? sessionFrame
+    }
+
+    /// Places the rail for the pane and returns the frame the terminal
+    /// content should use.
+    func layout(sessionFrame: CGRect, bounds: CGRect) -> CGRect {
+        guard let container, let placement = placement(sessionFrame: sessionFrame, bounds: bounds) else {
+            isShowingRail = false
+            railView.isHidden = true
+            hideCard()
+            return sessionFrame
+        }
+        isShowingRail = true
+        mountIfNeeded(in: container)
+        if railView.frame != placement.rail { railView.frame = placement.rail }
+        // The gutter is reserved as soon as an agent session attaches; ticks
+        // appear with the second prompt.
+        railView.isHidden = !model.isVisible
+        if !model.isVisible {
+            hoveredIndex = nil
+            hideCard()
+        } else if hoveredIndex != nil {
+            positionCard()
+        }
+        // A pane coming on screen resolves anchors it deferred while hidden.
+        model.resumeDeferredResolve()
+        return placement.content
+    }
+
+    /// Keeps the rail and card above views added after them, without
+    /// reordering subviews when they already are on top.
     func bringToFront(in container: NSView) {
         guard isShowingRail else { return }
-        if railView.superview === container {
-            container.addSubview(railView, positioned: .above, relativeTo: nil)
-        }
-        if cardView.superview === container, !cardView.isHidden {
-            container.addSubview(cardView, positioned: .above, relativeTo: nil)
+        var wanted: [NSView] = []
+        if railView.superview === container { wanted.append(railView) }
+        if cardView.superview === container, !cardView.isHidden { wanted.append(cardView) }
+        guard !container.subviews.suffix(wanted.count).elementsEqual(wanted, by: ===) else { return }
+        for view in wanted {
+            container.addSubview(view, positioned: .above, relativeTo: nil)
         }
     }
 
@@ -130,7 +154,7 @@ final class AgentTurnRailHost {
             hideCard()
             return
         }
-        if cardView.superview !== container {
+        if cardView.superview !== container || container.subviews.last !== cardView {
             container.addSubview(cardView, positioned: .above, relativeTo: nil)
         }
         let size = cardView.fittingSize
@@ -139,9 +163,9 @@ final class AgentTurnRailHost {
         var origin = NSPoint(x: tickPoint.x + Self.cardGap, y: tickPoint.y - size.height / 2)
         origin.y = min(max(origin.y, bounds.minY), bounds.maxY - size.height)
         origin.x = min(origin.x, max(bounds.minX, bounds.maxX - size.width))
-        cardView.frame = CGRect(origin: origin, size: size)
+        let frame = CGRect(origin: origin, size: size)
+        if cardView.frame != frame { cardView.frame = frame }
         cardView.isHidden = false
-        container.addSubview(cardView, positioned: .above, relativeTo: nil)
     }
 
     private func hideCard() {
@@ -151,8 +175,11 @@ final class AgentTurnRailHost {
     private func select(index: Int) {
         hideCard()
         hoveredIndex = nil
+        guard model.entries.indices.contains(index) else { return }
+        // Capture the entry now: the outline can grow before the jump runs.
+        let id = model.entries[index].id
         Task { @MainActor [model] in
-            if await !model.jump(toEntryAt: index) {
+            if await !model.jump(toEntryID: id) {
                 NSSound.beep()
             }
         }

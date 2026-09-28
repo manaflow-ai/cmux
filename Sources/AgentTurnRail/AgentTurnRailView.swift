@@ -158,7 +158,19 @@ struct AgentTurnHoverCard: View {
 
 /// Rail host that takes clicks and hover.
 final class AgentTurnRailHostingView: NSHostingView<AnyView> {
+    /// Receives scrolling over the rail, so the gutter scrolls the terminal
+    /// like the rest of the pane.
+    weak var scrollTarget: NSView?
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard let scrollTarget else {
+            super.scrollWheel(with: event)
+            return
+        }
+        scrollTarget.scrollWheel(with: event)
+    }
 }
 
 /// Card host that never takes pointer events, so the terminal under it keeps

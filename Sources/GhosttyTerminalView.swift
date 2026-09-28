@@ -10242,6 +10242,8 @@ final class GhosttySurfaceScrollView: NSView {
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlayRoot>?
     /// Agent turn rail for Claude Code and Codex sessions in this surface.
     var agentTurnRailHost: AgentTurnRailHost?
+    /// The terminal scroll view, which receives scrolling over the turn rail.
+    var agentTurnRailScrollTarget: NSView { scrollView }
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
     private lazy var pasteFailureNoticePresenter = TerminalPasteFailureNoticePresenter()
@@ -10980,8 +10982,8 @@ final class GhosttySurfaceScrollView: NSView {
             _ = setFrameIfNeeded(sharedBackdropCutoutView, to: bounds)
         }
         _ = setFrameIfNeeded(backgroundView, to: bounds)
-        let contentFrame = agentTurnRailHost?.layout(sessionFrame: sessionContentFrame, bounds: bounds)
-            ?? sessionContentFrame
+        let contentFrame = agentTurnRailHost?.layout(sessionFrame: sessionPresentationFrame, bounds: bounds)
+            ?? sessionPresentationFrame
         _ = setFrameIfNeeded(scrollView, to: contentFrame)
         // Resolve the clip view after scroller tiling and layout. Reading the
         // scroll view's bounds can include a legacy scroller gutter while the
@@ -11053,8 +11055,16 @@ final class GhosttySurfaceScrollView: NSView {
         _ = synchronizeGeometryAndContent()
     }
 
-    private var sessionContentFrame: CGRect {
+    /// Frame of the session content before the agent turn rail gutter.
+    private var sessionPresentationFrame: CGRect {
         sessionContentWidthPresentation.contentFrame(in: bounds)
+    }
+
+    /// Frame the terminal content occupies; overlays that cover the terminal
+    /// (find, reconnect) use it so they never cover the agent turn rail.
+    private var sessionContentFrame: CGRect {
+        let frame = sessionPresentationFrame
+        return agentTurnRailHost?.contentFrame(sessionFrame: frame, bounds: bounds) ?? frame
     }
 
     func setMobileViewportBorder(size: CGSize?, drawRight: Bool, drawBottom: Bool) {

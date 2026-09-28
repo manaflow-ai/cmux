@@ -50,8 +50,9 @@ extension AppDelegate {
         return true
     }
 
-    /// Keyboard entrypoint: consumes the event only when a jump started, so
-    /// terminals without a rail keep Ghostty's own binding for the keys.
+    /// Keyboard entrypoint: consumes the event only when a terminal has focus
+    /// and a jump started, so text fields and terminals without a rail keep
+    /// their own binding for the keys.
     func handleAgentTurnNavigationShortcut(event: NSEvent) -> Bool {
         let direction: AgentTurnNavigationDirection
         if matchConfiguredShortcut(event: event, action: .previousAgentTurn) {
@@ -59,6 +60,12 @@ extension AppDelegate {
         } else if matchConfiguredShortcut(event: event, action: .nextAgentTurn) {
             direction = .next
         } else {
+            return false
+        }
+        // Only a focused terminal owns the keys. Text fields (the find bar,
+        // the TextBox, sidebar editors) keep their own Command-Shift-arrow
+        // selection behavior.
+        guard (event.window?.firstResponder).cmuxTerminalKeyEquivalentOwningGhosttyView() != nil else {
             return false
         }
         let handled = performAgentTurnNavigation(direction, preferredWindow: event.window)
