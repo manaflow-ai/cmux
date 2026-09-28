@@ -2664,7 +2664,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "trap 'cmux_ssh_auth_capture_signal_exit 143 TERM' TERM",
             "if ! /usr/bin/mkfifo \"$cmux_ssh_auth_classifier_fifo\"; then exit 255; fi",
             "exec {cmux_ssh_auth_classifier_guard_fd}<> \"$cmux_ssh_auth_classifier_fifo\" || exit 255",
-            "( exec {cmux_ssh_auth_classifier_guard_fd}>&-; zmodload zsh/system || exit 255; exec {cmux_ssh_auth_classifier_fd}< \"$cmux_ssh_auth_classifier_fifo\" || exit 255; while sysread -i \"$cmux_ssh_auth_classifier_fd\" -s 4096 cmux_ssh_auth_classifier_chunk; do print -r -- \"$cmux_ssh_auth_classifier_chunk\"; done; exec {cmux_ssh_auth_classifier_fd}<&- ) | ( exec {cmux_ssh_auth_classifier_guard_fd}>&-; LC_ALL=C /usr/bin/awk -v cmux_ssh_auth_classification=\"$cmux_ssh_auth_capture_state\" -v cmux_ssh_auth_transient_pattern=\(shellQuote(transientFailurePattern)) -v cmux_ssh_auth_permanent_pattern=\(shellQuote(permanentFailurePattern)) \(shellQuote(classifierProgram)) ) &",
+            // Open the reader before starting either pipeline child. If a
+            // fork-starved shell delayed the reader until after the writer and
+            // guard exited, opening the FIFO in the child could block forever.
+            "exec {cmux_ssh_auth_classifier_fd}< \"$cmux_ssh_auth_classifier_fifo\" || exit 255",
+            "( exec {cmux_ssh_auth_classifier_guard_fd}>&-; zmodload zsh/system || exit 255; while sysread -i \"$cmux_ssh_auth_classifier_fd\" -s 4096 cmux_ssh_auth_classifier_chunk; do print -r -- \"$cmux_ssh_auth_classifier_chunk\"; done; exec {cmux_ssh_auth_classifier_fd}<&- ) | ( exec {cmux_ssh_auth_classifier_guard_fd}>&-; exec {cmux_ssh_auth_classifier_fd}<&-; LC_ALL=C /usr/bin/awk -v cmux_ssh_auth_classification=\"$cmux_ssh_auth_capture_state\" -v cmux_ssh_auth_transient_pattern=\(shellQuote(transientFailurePattern)) -v cmux_ssh_auth_permanent_pattern=\(shellQuote(permanentFailurePattern)) \(shellQuote(classifierProgram)) ) &",
             "cmux_ssh_auth_classifier_pid=$!",
             // In event mode the helper must keep `script` alive until the
             // nested TERM handler publishes its completion marker. Ignore
@@ -2677,6 +2681,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "cmux_ssh_auth_command_pid=",
             "exec {cmux_ssh_auth_classifier_guard_fd}>&-",
             "cmux_ssh_auth_classifier_guard_fd=",
+            "exec {cmux_ssh_auth_classifier_fd}<&-",
+            "cmux_ssh_auth_classifier_fd=",
             "wait \"$cmux_ssh_auth_classifier_pid\" 2>/dev/null || true",
             "cmux_ssh_auth_classifier_pid=",
             "if [ \"$cmux_ssh_auth_capture_status\" -eq 255 ]; then",
