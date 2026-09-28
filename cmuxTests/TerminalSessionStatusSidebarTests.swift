@@ -159,10 +159,14 @@ struct TerminalSessionStatusSidebarTests {
         consume("\u{1B}]21337;status=Working;indicator=#ffa500\u{07}", in: context)
         consume("\u{1B}]21337;status=;indicator=\u{07}", in: context)
         try await waitForPublishes(published, count: 1)
-        // Let a second, wrongly scheduled publish arrive if there is one.
-        try await Task.sleep(for: .milliseconds(500))
+        // A later status is the fence: any second, wrongly scheduled publish
+        // of the first window would land before it.
+        consume("\u{1B}]21337;status=Done\u{07}", in: context)
+        try await waitForPublishes(published, count: 2)
 
-        #expect(published.values == [TerminalSessionStatus()])
+        #expect(published.values.first == TerminalSessionStatus())
+        #expect(published.values.count == 2)
+        #expect(published.values.last?.status == "Done")
     }
 
     @Test func resentUnchangedStatusRestoresAClearedEntry() async throws {
