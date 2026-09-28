@@ -93,6 +93,12 @@ operations the `cmux-tui` CLI sends through the sidecar's local socket. They
 return the operation's JSON result. Create uses `workspace.create` with
 `initial_content: terminal`, so one call yields a workspace and a terminal.
 
+`cmux_terminal_client_session_snapshot` returns `session.snapshot`: every
+workspace, screen, pane, tab, and terminal in one result. `terminal.list` has no
+workspace, so a caller that groups terminals by workspace follows the snapshot's
+links instead: a terminal's `tab_id`, the tab's `pane_id`, the pane's
+`screen_id`, then the screen's `workspace_id`.
+
 ## Threads
 
 Callbacks run on library worker threads and are serialized. The output
