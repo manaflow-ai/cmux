@@ -64,14 +64,23 @@ extension TerminalController {
     private nonisolated func agentHibernationTarget(
         _ request: ControlRequest
     ) async -> Result<(workspaceId: UUID?, panelId: UUID), AgentHibernationTargetError> {
-        let relayError = await v2MainAsync {
-            self.controlRemoteRelayDispatchError(method: request.method, params: request.params)
+        // Refs (`surface:3`) resolve on the main actor; one async hop keeps
+        // the socket worker from blocking on the main queue.
+        let resolved = await v2MainAsync { () -> (relayError: ControlCallResult?, workspaceId: UUID?, panelId: UUID?) in
+            if let relayError = self.controlRemoteRelayDispatchError(method: request.method, params: request.params) {
+                return (relayError, nil, nil)
+            }
+            self.v2RefreshKnownRefs()
+            return (
+                nil,
+                self.v2UUIDAny(request.params["workspace_id"]?.foundationObject),
+                self.v2UUIDAny(request.params["surface_id"]?.foundationObject)
+            )
         }
-        if let relayError {
+        if let relayError = resolved.relayError {
             return .failure(AgentHibernationTargetError(body: Self.v2Encoder.response(id: request.id, relayError)))
         }
-        let params = request.params.mapValues(\.foundationObject)
-        guard let panelId = v2UUID(params, "surface_id") else {
+        guard let panelId = resolved.panelId else {
             return .failure(AgentHibernationTargetError(body: Self.v2Encoder.error(
                 id: request.id,
                 code: "invalid_params",
@@ -81,6 +90,6 @@ extension TerminalController {
                 )
             )))
         }
-        return .success((v2UUID(params, "workspace_id"), panelId))
+        return .success((resolved.workspaceId, panelId))
     }
 }

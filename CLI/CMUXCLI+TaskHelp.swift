@@ -201,7 +201,8 @@ extension CMUXCLI {
 
     private var agentsCommandsHelp: String {
         return """
-        agent-hibernation <on|off|hibernate <surface>|wake <surface>>
+        agent-hibernation <on|off>
+        agent-hibernation <hibernate|wake> <surface>
         claude-teams [claude-args...]
         codex-teams [codex-args...]
         omo [opencode-args...]

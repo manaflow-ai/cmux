@@ -119,6 +119,65 @@
         }
       }
     },
+    "agentHibernation.manual.lifecycleUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can't tell whether this agent is idle, so it was left running."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこのエージェントがアイドル状態か判断できないため、実行したままにしました。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kann nicht erkennen, ob dieser Agent untätig ist, daher läuft er weiter."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas savoir si cet agent est inactif, il continue donc de tourner."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستطيع cmux معرفة ما إذا كان هذا الوكيل خاملًا، لذا تُرك قيد التشغيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede saber si este agente está inactivo, así que sigue en ejecución."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法判斷此代理程式是否閒置，因此保持執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法判断此智能体是否空闲，因此保持运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 에이전트의 유휴 여부를 알 수 없어 실행 상태로 두었습니다."
+          }
+        }
+      }
+    },
     "agentHibernation.manual.notRestorable": {
       "extractionState": "manual",
       "localizations": {
@@ -292,6 +351,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "이 터미널에서 백그라운드 작업 등 휴면하면 중단될 다른 작업이 실행 중입니다."
+          }
+        }
+      }
+    },
+    "agentHibernation.manual.recentlyActive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent was active a moment ago. Try again in a few seconds."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントは少し前まで動作していました。数秒後にもう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Agent war gerade eben aktiv. Versuche es in ein paar Sekunden erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet agent était actif il y a un instant. Réessayez dans quelques secondes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كان هذا الوكيل نشطًا قبل لحظة. حاول مرة أخرى بعد بضع ثوانٍ."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este agente estuvo activo hace un momento. Inténtalo de nuevo en unos segundos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理程式剛剛仍在活動。請幾秒後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此智能体刚刚仍在活动。请几秒后再试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트는 방금 전까지 활동했습니다. 몇 초 후 다시 시도하세요."
           }
         }
       }

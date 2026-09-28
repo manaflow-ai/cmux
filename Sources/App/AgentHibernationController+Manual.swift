@@ -13,6 +13,11 @@ enum AgentHibernationManualRefusal: String, Sendable, Equatable {
     case visible
     /// The agent is working or waiting for an answer.
     case agentBusy = "agent_busy"
+    /// No hook has reported whether the agent is idle.
+    case lifecycleUnknown = "lifecycle_unknown"
+    /// The agent reported activity moments ago; its last output may still be
+    /// landing even though it reports idle.
+    case recentlyActive = "recently_active"
     /// Typed input has not reached the agent yet.
     case unconfirmedInput = "unconfirmed_input"
     /// The pane runs work cmux can't account for, such as background jobs.
@@ -36,6 +41,10 @@ enum AgentHibernationManualRefusal: String, Sendable, Equatable {
             String(localized: "agentHibernation.manual.visible", defaultValue: "This agent is on screen. Switch away from it first.")
         case .agentBusy:
             String(localized: "agentHibernation.manual.agentBusy", defaultValue: "This agent is working or waiting for input.")
+        case .lifecycleUnknown:
+            String(localized: "agentHibernation.manual.lifecycleUnknown", defaultValue: "cmux can't tell whether this agent is idle, so it was left running.")
+        case .recentlyActive:
+            String(localized: "agentHibernation.manual.recentlyActive", defaultValue: "This agent was active a moment ago. Try again in a few seconds.")
         case .unconfirmedInput:
             String(localized: "agentHibernation.manual.unconfirmedInput", defaultValue: "This agent has typed input it has not received yet.")
         case .processScopeUnsafe:
@@ -73,9 +82,15 @@ extension AgentHibernationController {
     /// The first reason a manual request must not hibernate `record`, checked
     /// in the order a user can act on. Manual requests skip only the idle
     /// delay, the live-terminal limit and the confirmation window.
+    /// Manual requests skip the configured idle delay but still wait this long
+    /// after the last activity: a lifecycle hook can report idle just before
+    /// the agent's final output lands.
+    static let manualMinimumQuietSeconds: TimeInterval = 5
+
     static func manualHibernationRefusal(
         for record: AgentHibernationRecord,
-        teardownInFlight: Bool
+        teardownInFlight: Bool,
+        now: TimeInterval = Date().timeIntervalSince1970
     ) -> AgentHibernationManualRefusal? {
         if record.terminalPanel.isAgentHibernated {
             return teardownInFlight || record.terminalPanel.agentHibernationPhase.isAwaitingCommit
@@ -84,8 +99,10 @@ extension AgentHibernationController {
         }
         if teardownInFlight { return .teardownInProgress }
         if record.isProtected { return .visible }
+        if record.lifecycle == .unknown { return .lifecycleUnknown }
         if !record.lifecycle.allowsHibernation { return .agentBusy }
         if record.hasUnconfirmedTerminalInput { return .unconfirmedInput }
+        if now - record.lastActivityAt < manualMinimumQuietSeconds { return .recentlyActive }
         if !record.processSafetyAllowsHibernation { return .processScopeUnsafe }
         if !record.terminalPanel.surface.hasLiveSurface { return .notRunning }
         return nil

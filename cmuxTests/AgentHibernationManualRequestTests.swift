@@ -24,6 +24,20 @@ struct AgentHibernationManualRequestTests {
     }
 
     @Test
+    func anAgentWithoutLifecycleReportsIsRefused() throws {
+        #expect(try refusal(lifecycle: .unknown) == .lifecycleUnknown)
+    }
+
+    @Test
+    func anAgentActiveMomentsAgoIsRefused() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let record = makeRecord(workspace: workspace, panel: panel, lastActivityAt: 1_000)
+        #expect(AgentHibernationController.manualHibernationRefusal(for: record, teardownInFlight: false, now: 1_002) == .recentlyActive)
+        #expect(AgentHibernationController.manualHibernationRefusal(for: record, teardownInFlight: false, now: 1_010) == .notRunning)
+    }
+
+    @Test
     func unconfirmedInputIsRefused() throws {
         #expect(try refusal(hasUnconfirmedTerminalInput: true) == .unconfirmedInput)
     }
@@ -117,7 +131,8 @@ struct AgentHibernationManualRequestTests {
         lifecycle: AgentHibernationLifecycleState = .idle,
         hasUnconfirmedTerminalInput: Bool = false,
         containsUnrelatedProcess: Bool = false,
-        liveness: RestorableAgentProcessLiveness = .exited
+        liveness: RestorableAgentProcessLiveness = .exited,
+        lastActivityAt: TimeInterval = 0
     ) -> AgentHibernationRecord {
         AgentHibernationRecord(
             key: AgentHibernationPanelKey(workspaceId: workspace.id, panelId: panel.id),
@@ -126,7 +141,7 @@ struct AgentHibernationManualRequestTests {
             agent: agent(),
             lifecycle: lifecycle,
             hasUnconfirmedTerminalInput: hasUnconfirmedTerminalInput,
-            lastActivityAt: 0,
+            lastActivityAt: lastActivityAt,
             isProtected: isProtected,
             hasLiveProcess: false,
             containsUnrelatedProcess: containsUnrelatedProcess,
