@@ -283,31 +283,31 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
 
         XCTAssertTrue(
             poll(timeout: 4.0) { subtitleText(window, Subtitle.minimal).exists },
-            "Expected the Minimal Mode subtitle at default"
+            "Expected the Minimal Mode subtitle"
         )
         let minimal = toggle(window, id: "SettingsMinimalModeToggle")
-        XCTAssertFalse(isOn(minimal), "Minimal Mode should start off (.standard)")
+        let initial = isOn(minimal)
 
         minimal.click()
         XCTAssertTrue(
-            poll(timeout: 4.0) { self.isOn(minimal) },
-            "Minimal Mode should be on after one click"
+            poll(timeout: 4.0) { self.isOn(minimal) != initial },
+            "Minimal Mode should flip after one click"
         )
         XCTAssertTrue(
             subtitleText(window, Subtitle.minimal).exists,
-            "The same subtitle should be shown while Minimal Mode is on"
+            "The same subtitle should be shown after Minimal Mode flips"
         )
 
         // Toggle back to confirm the bind is two-way and tracks the stored
-        // value, not a latch.
+        // value, not a latch, and to leave the machine's setting as it was.
         minimal.click()
         XCTAssertTrue(
-            poll(timeout: 4.0) { !self.isOn(minimal) },
-            "Minimal Mode should be off after a second click"
+            poll(timeout: 4.0) { self.isOn(minimal) == initial },
+            "Minimal Mode should return to its starting state after a second click"
         )
         XCTAssertTrue(
             subtitleText(window, Subtitle.minimal).exists,
-            "The same subtitle should be shown after Minimal Mode turns off"
+            "The same subtitle should be shown after Minimal Mode flips back"
         )
 
         closeSettings(app, window)

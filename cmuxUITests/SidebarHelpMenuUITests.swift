@@ -277,6 +277,9 @@ final class SidebarHelpMenuUITests: XCTestCase {
     }
 
     private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
+        // Minimal Mode hides the footer's Help button. Pin the standard
+        // layout, since a machine can keep Minimal Mode from an earlier run.
+        app.launchArguments += ["-workspacePresentationMode", "standard"]
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
         XCTExpectFailure("Headless CI may launch the app without foreground activation", options: options) {
