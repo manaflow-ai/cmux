@@ -162,7 +162,12 @@ extension TerminalController {
         }
     }
 
-    private nonisolated static func recordingErrorCode(for error: Error) -> String {
+    /// Maps a recorder error onto the socket error code the caller sees.
+    ///
+    /// Internal rather than private so a test can pin every case: the codes are
+    /// what a CLI or a tour branches on, and "a recording is already running"
+    /// has to stay distinguishable from "your output path is wrong".
+    nonisolated static func recordingErrorCode(for error: Error) -> String {
         if let failure = error as? WindowRecordingRegistry.Failure {
             switch failure {
             case .busy:
@@ -177,6 +182,10 @@ extension TerminalController {
                 return "unsupported"
             case .windowGone:
                 return "not_found"
+            case .outputNotAFile:
+                // The caller's `out` names something that is not a file the
+                // recorder may replace, so this is their parameter, not our bug.
+                return "invalid_params"
             case .captureFailed, .composeFailed, .alreadyFinished:
                 return "internal_error"
             }

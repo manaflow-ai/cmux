@@ -3824,6 +3824,7 @@
 		8770D0F2D2BB45359D6BE5E3 /* WindowKeyDownReplayGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */; };
 		129170000000000000000001 /* WindowOverlayChromeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 129170000000000000000002 /* WindowOverlayChromeTests.swift */; };
 		973DC7D4CD41516D459E17FC /* WindowPointHitTestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02BCEFD7668C02FB795ED26F /* WindowPointHitTestTests.swift */; };
+		3D9E5674AF892C5F1A2C7720 /* WindowRecordingErrorCodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A01C2D99463F9AB538969F /* WindowRecordingErrorCodeTests.swift */; };
 		9065A1020000000000000001 /* WindowRecordingFrameComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A1020000000000000002 /* WindowRecordingFrameComposer.swift */; };
 		9065A1030000000000000001 /* WindowRecordingFrameWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A1030000000000000002 /* WindowRecordingFrameWriter.swift */; };
 		A6CC55B334F22314E39BE6A6 /* WindowRecordingPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AB0A04BC0DF676A62F70094 /* WindowRecordingPipelineTests.swift */; };
@@ -7848,6 +7849,7 @@
 		B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowKeyDownReplayGuardTests.swift; sourceTree = "<group>"; };
 		129170000000000000000002 /* WindowOverlayChromeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowOverlayChromeTests.swift; sourceTree = "<group>"; };
 		02BCEFD7668C02FB795ED26F /* WindowPointHitTestTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WindowPointHitTestTests.swift; sourceTree = "<group>"; };
+		04A01C2D99463F9AB538969F /* WindowRecordingErrorCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WindowRecordingErrorCodeTests.swift"; sourceTree = "<group>"; };
 		9065A1020000000000000002 /* WindowRecordingFrameComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRecordingFrameComposer.swift; sourceTree = "<group>"; };
 		9065A1030000000000000002 /* WindowRecordingFrameWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRecordingFrameWriter.swift; sourceTree = "<group>"; };
 		7AB0A04BC0DF676A62F70094 /* WindowRecordingPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WindowRecordingPipelineTests.swift"; sourceTree = "<group>"; };
@@ -12332,6 +12334,7 @@
 				23E35F95320CBED308AD98CF /* CloudTreeTogglePerformanceTests.swift */,
 				0C37EA14DE74095FB1BB23E1 /* CloudTreeDisclosureIntentTests.swift */,
 				7AB0A04BC0DF676A62F70094 /* WindowRecordingPipelineTests.swift */,
+				04A01C2D99463F9AB538969F /* WindowRecordingErrorCodeTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16957,6 +16960,7 @@
 				8770D0F2D2BB45359D6BE5E3 /* WindowKeyDownReplayGuardTests.swift in Sources */,
 		129170000000000000000001 /* WindowOverlayChromeTests.swift in Sources */,
 				973DC7D4CD41516D459E17FC /* WindowPointHitTestTests.swift in Sources */,
+				3D9E5674AF892C5F1A2C7720 /* WindowRecordingErrorCodeTests.swift in Sources */,
 				A6CC55B334F22314E39BE6A6 /* WindowRecordingPipelineTests.swift in Sources */,
 				606600010000000000000001 /* WindowTerminalHostViewTitlebarHitTests.swift in Sources */,
 				604500100000000000000003 /* WindowTitleTemplateTests.swift in Sources */,
