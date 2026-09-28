@@ -1,0 +1,148 @@
+name: Cloud VM agent refresh
+
+# Weekly rebake of the cmux Cloud devbox with the npm registry's current
+# Claude Code, Codex, OpenCode, Pi and agent-browser. Machines never update
+# their agents by themselves (the image disables every self-updater), so the
+# snapshot is the only way a new release reaches a new machine. This job does
+# the documented manual sequence (web/services/vms/images/devbox/README.md,
+# "Agent pins: bump, epoch, promote"): rewrite the pins, bump the epoch,
+# promote the desktop and base ladders (bake, boot-verify, derive every size),
+# and open a PR with the Dockerfile and manifest diff. Nothing reaches users
+# until a person merges that PR; a failed verify writes no manifest entry and
+# fails this run.
+on:
+  schedule:
+    - cron: "23 9 * * 1"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Rebake even when every pin is already the registry's latest (bumps the epoch only)"
+        required: false
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: cloud-vm-agent-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 300
+    # The production Freestyle key lives in this environment (see
+    # cloud-vm-image-reachability.yml), not in a repo-wide secret.
+    environment: cloud-vm-image-checks
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Skip while an earlier refresh PR is still open
+        id: open
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          open="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --search 'head:automation/devbox-agent-refresh-' --json url --jq '.[0].url // ""')"
+          if [ -n "$open" ]; then
+            echo "an earlier refresh is still open: $open; merge or close it first"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Bun
+        if: steps.open.outputs.skip != 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        if: steps.open.outputs.skip != 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Rewrite the pins and the epoch
+        if: steps.open.outputs.skip != 'true'
+        id: pins
+        env:
+          FORCE: ${{ inputs.force && 'true' || 'false' }}
+        run: |
+          set -o pipefail
+          if bun run devbox:pins:check | tee "$RUNNER_TEMP/pins-before.txt"; then
+            if [ "$FORCE" != "true" ]; then
+              echo "every pin is current; nothing to bake"
+              echo "bake=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            bun -e 'import { writeFileSync } from "node:fs"; import { devboxDockerfilePath, devboxImageEpoch, nextDevboxImageEpoch, readDevboxDockerfile, rewriteDevboxImageEpoch } from "./scripts/devbox-image-common"; const d = readDevboxDockerfile(); writeFileSync(devboxDockerfilePath, rewriteDevboxImageEpoch(d, nextDevboxImageEpoch(devboxImageEpoch(d), new Date().toISOString().slice(0, 10))));'
+          else
+            bun run devbox:pins:check --write --bump-epoch
+          fi
+          epoch="$(bun -e 'import { devboxImageEpoch } from "./scripts/devbox-image-common"; console.log(devboxImageEpoch())')"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
+          echo "bake=true" >> "$GITHUB_OUTPUT"
+
+      - name: Promote the desktop ladder
+        if: steps.pins.outputs.bake == 'true'
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          EPOCH: ${{ steps.pins.outputs.epoch }}
+        run: bun run devbox:promote -- freestyle --kinds desktop --slug "cmux-devbox-$EPOCH" --pointer-slug "cmux-devbox-$EPOCH" --out "$RUNNER_TEMP/desktop.json"
+
+      - name: Promote the base ladder
+        if: steps.pins.outputs.bake == 'true'
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          EPOCH: ${{ steps.pins.outputs.epoch }}
+        run: bun run devbox:promote -- freestyle --kinds base --no-desktop --slug "cmux-devbox-$EPOCH-base" --pointer-slug "cmux-devbox-$EPOCH-base" --out "$RUNNER_TEMP/base.json"
+
+      - name: Check the manifest against these sources
+        if: steps.pins.outputs.bake == 'true'
+        run: |
+          bun run devbox:manifest:check
+          bun test tests/vm-devbox-image.test.ts tests/vm-image-manifest.test.ts
+
+      - name: Open the refresh PR
+        if: steps.pins.outputs.bake == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EPOCH: ${{ steps.pins.outputs.epoch }}
+        run: |
+          branch="automation/devbox-agent-refresh-$EPOCH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add services/vms/images/devbox/Dockerfile services/vms/images/manifest.json
+          git commit -m "Cloud: refresh devbox coding agents (epoch $EPOCH)"
+          git push origin "$branch"
+          bun run devbox:pins:check > "$RUNNER_TEMP/pins-after.txt" || true
+          {
+            echo "Weekly devbox agent refresh from [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). Both ladders were baked, boot-verified and derived by \`devbox:promote\`; merging makes these snapshots the default for new Cloud machines."
+            echo
+            echo "Before:"
+            echo '```'
+            cat "$RUNNER_TEMP/pins-before.txt"
+            echo '```'
+            echo "After:"
+            echo '```'
+            cat "$RUNNER_TEMP/pins-after.txt"
+            echo '```'
+            echo "Rollback is a revert of this PR as a whole (Dockerfile and manifest together)."
+          } > "$RUNNER_TEMP/body.md"
+          url="$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" --title "Cloud: refresh devbox coding agents ($EPOCH)" --body-file "$RUNNER_TEMP/body.md")"
+          echo "opened $url"
+          # A PR opened with the job token starts no pull_request workflows, so
+          # dispatch the image checks on the branch explicitly.
+          gh workflow run cloud-vm-image-contract.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+          gh workflow run cloud-vm-image-reachability.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"

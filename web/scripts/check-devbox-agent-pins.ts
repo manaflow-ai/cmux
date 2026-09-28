@@ -6,14 +6,17 @@
  *
  *   bun run devbox:pins:check            # table; exit 1 when any pin is behind
  *   bun run devbox:pins:check --write    # rewrite the ARG lines to the latest releases
+ *   bun run devbox:pins:check --write --bump-epoch   # also move CMUX_IMAGE_EPOCH to today (UTC)
  *
  * Pins are exact releases (never ranges or tags), the bake installs exactly
  * them, and machines never self-update (DISABLE_AUTOUPDATER,
  * check_for_update_on_startup = false), so the only way a new Claude Code or
  * Codex reaches cmux Cloud is: bump here, bump CMUX_IMAGE_EPOCH, then
  * `bun run devbox:promote -- freestyle` for both ladders and merge the
- * manifest diff. `--write` rewrites the pins only; the epoch bump and the
- * promotion stay explicit steps, printed at the end.
+ * manifest diff. `--write` rewrites the pins only; `--bump-epoch` also moves
+ * the epoch (nextDevboxImageEpoch), which the weekly refresh workflow
+ * (.github/workflows/cloud-vm-agent-refresh.yml) uses before it promotes.
+ * The promotion itself stays a separate step, printed at the end.
  */
 import { writeFileSync } from "node:fs";
 import {
@@ -22,8 +25,10 @@ import {
   devboxDockerfilePath,
   devboxImageEpoch,
   hasFlag,
+  nextDevboxImageEpoch,
   readDevboxDockerfile,
   rewriteDevboxAgentPins,
+  rewriteDevboxImageEpoch,
   type AgentPinDrift,
 } from "./devbox-image-common";
 
@@ -62,10 +67,17 @@ if (!hasFlag("--write")) {
   console.log(`${behind.length} pin(s) behind; rerun with --write to rewrite them`);
   process.exit(1);
 }
-writeFileSync(devboxDockerfilePath, rewriteDevboxAgentPins(dockerfile, Object.fromEntries(behind.map((row) => [row.pkg, row.latest]))));
+let next = rewriteDevboxAgentPins(dockerfile, Object.fromEntries(behind.map((row) => [row.pkg, row.latest])));
+const bumpEpoch = hasFlag("--bump-epoch");
+if (bumpEpoch) {
+  const epoch = nextDevboxImageEpoch(devboxImageEpoch(dockerfile), new Date().toISOString().slice(0, 10));
+  next = rewriteDevboxImageEpoch(next, epoch);
+  console.log(`CMUX_IMAGE_EPOCH ${devboxImageEpoch(dockerfile)} -> ${epoch}`);
+}
+writeFileSync(devboxDockerfilePath, next);
 console.log(
   `rewrote ${behind.length} pin(s) in ${devboxDockerfilePath}\n` +
-    "next: bump CMUX_IMAGE_EPOCH in the same file, then promote both ladders:\n" +
+    `next: ${bumpEpoch ? "" : "bump CMUX_IMAGE_EPOCH in the same file, then "}promote both ladders:\n` +
     "  FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --kinds desktop --slug cmux-devbox-<tag> --pointer-slug cmux-devbox-<tag>\n" +
     "  FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --kinds base --no-desktop --slug cmux-devbox-<tag>-base --pointer-slug cmux-devbox-<tag>-base",
 );

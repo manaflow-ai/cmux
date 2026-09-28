@@ -25,13 +25,16 @@ import {
   devboxAgentPins,
   devboxCuaDriverVersion,
   devboxGhosttyVersion,
+  devboxImageEpoch,
   devboxWaitForDaemonCommand,
   devboxParkDaemonCommand,
   devboxSourceDigest,
   devboxSourceManifest,
   normalizedBakeScript,
   normalizedDockerfileInstructions,
+  nextDevboxImageEpoch,
   rewriteDevboxAgentPins,
+  rewriteDevboxImageEpoch,
 } from "../scripts/devbox-image-common";
 import { DEVBOX_DESKTOP_USER } from "../services/vms/images/desktop";
 import {
@@ -604,6 +607,18 @@ describe("devbox image template", () => {
     expect(drift.filter((row) => row.behind).map((row) => row.pkg)).toEqual(["@openai/codex"]);
     expect(() => agentPinDrift(pins, {})).toThrow(/no registry version/);
     expect(AGENT_PIN_ARGS.map((row) => row.binary)).toEqual(["claude", "codex", "opencode", "pi", "agent-browser"]);
+  });
+
+  test("the weekly refresh moves the epoch to the bake day and nothing else", () => {
+    expect(nextDevboxImageEpoch("2026-09-10-r2", "2026-09-28")).toBe("2026-09-28");
+    expect(nextDevboxImageEpoch("2026-09-28", "2026-09-28")).toBe("2026-09-28-r2");
+    expect(nextDevboxImageEpoch("2026-09-28-r2", "2026-09-28")).toBe("2026-09-28-r3");
+    expect(() => nextDevboxImageEpoch("2026-09-10", "Sep 28")).toThrow(/YYYY-MM-DD/);
+    const rewritten = rewriteDevboxImageEpoch(dockerfile, "2099-01-01");
+    expect(devboxImageEpoch(rewritten)).toBe("2099-01-01");
+    expect(rewriteDevboxImageEpoch(rewritten, devboxImageEpoch(dockerfile))).toBe(dockerfile);
+    expect(() => rewriteDevboxImageEpoch(dockerfile, "a b")).toThrow(/not a valid devbox epoch/);
+    expect(() => rewriteDevboxImageEpoch("FROM ubuntu:24.04\n", "2099-01-01")).toThrow(/missing ENV CMUX_IMAGE_EPOCH/);
   });
 
   test("the source digest covers what the Freestyle bake takes from this checkout, per layer set", () => {

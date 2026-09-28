@@ -355,6 +355,26 @@ export function devboxImageEpoch(dockerfile = readDevboxDockerfile()): string {
 }
 
 /**
+ * The epoch for a bake on `day` (UTC `YYYY-MM-DD`): the day itself, or
+ * `<day>-r<n+1>` when `current` is already that day (`<day>` counts as r1).
+ * The weekly agent refresh uses it, so two bakes on one day still differ.
+ */
+export function nextDevboxImageEpoch(current: string, day: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error(`${day} is not a YYYY-MM-DD day`);
+  if (current === day) return `${day}-r2`;
+  const revision = new RegExp(`^${day}-r(\\d+)$`).exec(current);
+  return revision ? `${day}-r${Number(revision[1]) + 1}` : day;
+}
+
+/** Rewrites the Dockerfile's one `ENV CMUX_IMAGE_EPOCH=` line, leaving every other byte alone. */
+export function rewriteDevboxImageEpoch(dockerfile: string, epoch: string): string {
+  if (!/^[0-9A-Za-z.-]+$/.test(epoch)) throw new Error(`${epoch} is not a valid devbox epoch`);
+  const line = /^ENV CMUX_IMAGE_EPOCH=\S+$/m;
+  if (!line.test(dockerfile)) throw new Error("devbox Dockerfile is missing ENV CMUX_IMAGE_EPOCH");
+  return dockerfile.replace(line, `ENV CMUX_IMAGE_EPOCH=${epoch}`);
+}
+
+/**
  * The source-digest formula version a manifest entry was recorded with.
  * Schema 1 covered the verbatim files, the ARG pins and the epoch; schema 2
  * adds the Dockerfile's instructions (comments dropped by the Dockerfile

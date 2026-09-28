@@ -42,7 +42,12 @@ bun run devbox:pins:check --write    # rewrite the ARG lines to those releases
 ```
 
 then bump `CMUX_IMAGE_EPOCH` in the same file and promote both ladders (see
-"Promote" below). `--write` touches only the ARG lines and refuses ranges,
+"Promote" below). The weekly workflow
+`.github/workflows/cloud-vm-agent-refresh.yml` runs this whole sequence every
+Monday (`--write --bump-epoch`, then both promotions) and opens a PR with the
+Dockerfile and manifest diff; a week with every pin current bakes nothing, and
+a manual dispatch with `force` rebakes anyway. New machines get the new agents
+only after a person merges that PR. `--write` touches only the ARG lines and refuses ranges,
 tags and packages the image does not bake; the chatmux devbox template
 (`chatmux:infra/sandbox-images/Dockerfile`) is bumped by hand in its own
 repo to keep the parity the header describes.
