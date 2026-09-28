@@ -419,7 +419,10 @@ public struct CMUXMobileRootScene: View {
                 \.mobileCloudTabContent,
                 cloudSessionController == nil
                     ? nil
-                    : MobileCloudTabContent { CloudPrimaryTabView() }
+                    : MobileCloudTabContent(
+                        content: { CloudPrimaryTabView() },
+                        embedded: { CloudPrimaryTabView(embedsNavigationStack: false) }
+                    )
             )
             .onChange(of: cloudSessionController?.machines.elements ?? [], initial: true) { _, machines in
                 // Every machine the account owns joins the workspace list;

@@ -7,13 +7,18 @@ public import SwiftUI
 /// mounted independently of the Mac connection and other tabs' navigation.
 public struct CloudPrimaryTabView: View {
     @Environment(\.cloudSessionController) private var controller
+    private let embedsNavigationStack: Bool
 
     /// Creates the primary destination using the scene's Cloud controller.
-    public init() {}
+    /// - Parameter embedsNavigationStack: False inside a navigation container
+    ///   the shell already owns, such as the iPad sidebar.
+    public init(embedsNavigationStack: Bool = true) {
+        self.embedsNavigationStack = embedsNavigationStack
+    }
 
     public var body: some View {
         if let controller {
-            CloudFlowView(controller: controller)
+            CloudFlowView(controller: controller, embedsNavigationStack: embedsNavigationStack)
         } else {
             ContentUnavailableView(
                 L10n.string("mobile.cloud.notConfigured.title", defaultValue: "Cloud unavailable"),

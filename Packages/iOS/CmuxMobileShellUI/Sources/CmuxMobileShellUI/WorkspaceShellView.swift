@@ -955,6 +955,11 @@ struct WorkspaceShellView: View {
                     projection: notificationFeedProjection,
                     selectedMacDeviceIDs: selectedMacDeviceIDs
                 )
+            case .cloud where cloudTabContent != nil:
+                // The sidebar column already owns a navigation container and
+                // the destination bar, so Cloud renders inside it rather than
+                // bringing a stack of its own.
+                cloudTabContent?.makeEmbeddedView()
             case .workspaces, .cloud, .search:
                 workspaceList(
                     navigationStyle: .sidebar,
@@ -965,7 +970,8 @@ struct WorkspaceShellView: View {
             }
         }
         .toolbar {
-            if splitSidebarDestination == .notifications {
+            if splitSidebarDestination == .notifications
+                || (splitSidebarDestination == .cloud && cloudTabContent != nil) {
                 ToolbarItem(placement: .topBarTrailing) {
                     // Notifications has no WorkspaceListView toolbar, so the
                     // sidebar owns its trailing control directly in this path.
@@ -1030,7 +1036,10 @@ struct WorkspaceShellView: View {
             WorkspaceSidebarDestinationControl(
                 selection: splitSidebarDestinationSelection,
                 workspacesTitle: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
-                notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount)
+                notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount),
+                cloudTitle: cloudTabContent == nil
+                    ? nil
+                    : L10n.string("mobile.tabs.cloud", defaultValue: "Cloud")
             )
         }
         if #available(iOS 26.0, *) {
@@ -1056,6 +1065,8 @@ struct WorkspaceShellView: View {
         let selection: Binding<MobilePrimaryTab>
         let workspacesTitle: String
         let notificationsTitle: String
+        /// Nil in a build without Cloud, which omits the destination.
+        let cloudTitle: String?
 
         var body: some View {
             HStack(spacing: 0) {
@@ -1069,6 +1080,13 @@ struct WorkspaceShellView: View {
                     title: notificationsTitle,
                     accessibilityID: "MobileSplitSidebarNotifications"
                 )
+                if let cloudTitle {
+                    destinationButton(
+                        .cloud,
+                        title: cloudTitle,
+                        accessibilityID: "MobileSplitSidebarCloud"
+                    )
+                }
             }
             .frame(minHeight: 44)
             .fixedSize(horizontal: true, vertical: false)

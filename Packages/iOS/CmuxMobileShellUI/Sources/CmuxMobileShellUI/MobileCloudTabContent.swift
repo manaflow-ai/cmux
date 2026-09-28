@@ -10,15 +10,28 @@ public import SwiftUI
 /// omitted.
 public struct MobileCloudTabContent: Sendable {
     private let content: @MainActor @Sendable () -> AnyView
+    private let embedded: @MainActor @Sendable () -> AnyView
 
-    /// Wraps the view the Cloud tab shows.
-    public init(@ViewBuilder content: @escaping @MainActor @Sendable () -> some View) {
+    /// Wraps the views Cloud shows.
+    /// - Parameters:
+    ///   - content: The phone tab's view, which owns its navigation stack.
+    ///   - embedded: The same screen for a navigation container the shell
+    ///     already owns (the iPad sidebar), so the shell's own bars stay.
+    public init(
+        @ViewBuilder content: @escaping @MainActor @Sendable () -> some View,
+        @ViewBuilder embedded: @escaping @MainActor @Sendable () -> some View
+    ) {
         self.content = { AnyView(content()) }
+        self.embedded = { AnyView(embedded()) }
     }
 
     /// Builds the tab's view.
     @MainActor
     public func makeView() -> AnyView { content() }
+
+    /// Builds the view for a navigation container the shell owns.
+    @MainActor
+    public func makeEmbeddedView() -> AnyView { embedded() }
 }
 
 extension EnvironmentValues {
