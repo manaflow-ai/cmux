@@ -38,10 +38,18 @@ class SettingsUITestCase: XCTestCase {
 
     // MARK: - Launch / window
 
+    /// Whether `makeLaunchedApp` gives the app a fresh home (see
+    /// `isolateUserState`). Subclasses that assert a setting's default
+    /// override this to `true`.
+    var isolatesUserState: Bool { false }
+
     func makeLaunchedApp() -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += settingsLaunchArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        if isolatesUserState {
+            isolateUserState(app)
+        }
         launchAndActivate(app)
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "main window did not appear")
         return app
@@ -139,15 +147,38 @@ class SettingsUITestCase: XCTestCase {
         return resolved ?? root.descendants(matching: .any).matching(identifier: id).firstMatch
     }
 
-    /// Reads a toggle's on state from its accessibility value.
+    /// Reads a toggle's on state from its accessibility value, falling back
+    /// to `isSelected` only for a control that reports no value.
     func isOn(_ control: XCUIElement) -> Bool {
-        if control.isSelected {
-            return true
-        }
-        let value = String(describing: control.value ?? "")
+        let value = control.value.map { String(describing: $0) }?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+            .lowercased() ?? ""
+        if value.isEmpty {
+            return control.isSelected
+        }
         return value == "1" || value == "true" || value == "on"
+    }
+
+    /// Points the app's preferences (`CFFIXED_USER_HOME`), `HOME` and config
+    /// directory at a fresh directory, so it starts from factory defaults and
+    /// cmux.json, and nothing it writes outlives the test. `resetDefaults`
+    /// cannot promise that on CI: values an earlier run left in the runner
+    /// user's `com.cmuxterm.app.debug` domain survived it.
+    func isolateUserState(_ app: XCUIApplication) {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-settings-ui-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try? fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        app.launchEnvironment["HOME"] = home.path
+        app.launchEnvironment["CFFIXED_USER_HOME"] = home.path
+        app.launchEnvironment["XDG_CONFIG_HOME"] =
+            home.appendingPathComponent(".config", isDirectory: true).path
+        addTeardownBlock {
+            app.terminate()
+            try? FileManager.default.removeItem(at: home)
+        }
     }
 
     /// Deletes UserDefaults keys from the debug suite so a test starts

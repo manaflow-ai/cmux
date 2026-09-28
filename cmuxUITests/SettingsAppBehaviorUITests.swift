@@ -98,6 +98,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             let app = XCUIApplication.cmuxTestApplication()
             app.launchArguments += settingsLaunchArguments + ["-appearanceMode", appearance]
             app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+            isolateUserState(app)
             launchAndActivate(app)
             defer { app.terminate() }
             let window = openSettings(app)
@@ -166,6 +167,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             "-NSForceRightToLeftWritingDirection", rightToLeft ? "YES" : "NO",
         ]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        isolateUserState(app)
         launchAndActivate(app)
         defer { app.terminate() }
         // Open Settings after launch activation so the main window cannot
@@ -187,34 +189,18 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         search.click()
         search.typeText(languageLabel)
         XCTAssertTrue(sidebar.staticTexts[languageLabel].firstMatch.waitForExistence(timeout: 5))
-        search.typeKey("a", modifierFlags: .command)
-        search.typeText("Language")
+        // Typing into the search field can replace its accessibility
+        // element, so select and retype through the app, which sends the
+        // keys to the field that still has focus.
+        app.typeKey("a", modifierFlags: .command)
+        app.typeText("Language")
         XCTAssertTrue(sidebar.staticTexts[languageLabel].firstMatch.waitForExistence(timeout: 5))
     }
 
-    // UserDefaults keys (the catalog `userDefaultsKey`s) touched here, so
-    // each test starts from the documented default regardless of prior
-    // local state.
-    private static let touchedKeys = [
-        "workspacePresentationMode",          // Minimal Mode (default .standard)
-        "workspaceInheritWorkingDirectory",   // Inherit CWD (default true)
-        "menuBarOnly",                        // Menu Bar Only (default false)
-        "showMenuBarExtra",                   // Show in Menu Bar (gated row)
-        "commandPalette.switcherSearchAllSurfaces", // Palette all surfaces (default false)
-        "forwardNotificationsToPhone",
-        "forwardNotificationsToPhoneMode",
-        "forwardNotificationsHideContent",
-    ]
-
-    override func setUp() {
-        super.setUp()
-        resetDefaults(Self.touchedKeys)
-    }
-
-    override func tearDown() {
-        resetDefaults(Self.touchedKeys)
-        super.tearDown()
-    }
+    // Every launch here gets a fresh home, so each test starts from the
+    // documented defaults and a toggle it flips cannot leak into the next
+    // test or the next CI run on the same machine.
+    override var isolatesUserState: Bool { true }
 
     // MARK: - English subtitle strings (must match AppSection defaultValues)
 
