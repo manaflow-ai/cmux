@@ -543,6 +543,32 @@ extension ReconnectRouteSelectionTests {
         #expect(failures[0].diagnosticFailureKind == .superseded)
     }
 
+    /// A dead-session recovery's redial stalls, a user retry reconnects the
+    /// Mac, and the stale redial then returns superseded. The retry's live
+    /// connection must survive: the recovery lost ownership and may not tear
+    /// down a session it did not create.
+    @Test func supersededRecoveryLeavesNewerConnectionAlive() async throws {
+        let fixture = try await makeRecoveryOwnerFixture(heldConnectAttempts: [2])
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
+        let deadClient = try #require(fixture.store.remoteClient)
+        fixture.store.recoverDeadConnection(trigger: .liveness, expectedClient: deadClient)
+        #expect(await fixture.factory.waitForAttemptCount(2))
+        #expect(fixture.store.connectionRecoveryOwner.isRedialingOrValidating)
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        let retryClient = try #require(fixture.store.remoteClient)
+        #expect(retryClient !== deadClient)
+
+        fixture.factory.releaseHeldConnects()
+        #expect(try await pollUntil { !fixture.store.connectionRecoveryOwner.isActive })
+        #expect(fixture.store.connectionState == .connected)
+        #expect(fixture.store.remoteClient === retryClient)
+        #expect(!fixture.store.connectionRecoveryFailed)
+    }
+
     @Test func replacementStreamDeathRecordsOneTerminalFailure() async throws {
         let fixture = try await makeRecoveryOwnerFixture()
         defer { fixture.release() }
