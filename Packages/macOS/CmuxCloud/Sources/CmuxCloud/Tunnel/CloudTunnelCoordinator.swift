@@ -322,6 +322,16 @@ public actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     /// it while the start itself carries on.
     private func ensureUp() async throws {
         if state == .up { return }
+
+        // A failed start publishes `.failed` before its cleanup (including
+        // the controller stop) and `defer` have finished. An explicit retry
+        // can therefore arrive while that task is still installed in
+        // `startTask`; wait for it to release ownership before creating the
+        // replacement, otherwise the retry simply observes the same failure.
+        if case .failed = state, let previousStart = startTask {
+            _ = try? await previousStart.value
+        }
+        if state == .up { return }
         _ = startTaskIfNeeded()
         let updates = subscribeToState(current: state)
         for await candidate in updates {
