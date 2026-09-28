@@ -99,6 +99,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "agent.restore.admit",
         // Releases only the tokenized claim owned by a failed restore exec.
         "agent.restore.release",
+        // Manual hibernation awaits a transcript snapshot and a fresh process
+        // census before teardown; wake shares the lane so both verbs route alike.
+        "agent.hibernate",
+        "agent.wake",
         "browser.download.list", "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",

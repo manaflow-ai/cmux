@@ -5607,7 +5607,13 @@ struct CMUXCLI {
             }
 
         case "agent":
-            try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+            // `cmux agent hibernate|wake` act on local agents; everything else
+            // is the cloud `vm agent` alias.
+            if let verb = commandArgs.first?.lowercased(), verb == "hibernate" || verb == "wake" {
+                try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+            } else {
+                try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+            }
 
         case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"
@@ -18798,10 +18804,17 @@ struct CMUXCLI {
             return String(localized: "cli.socketControlStatus.help", defaultValue: "Usage: cmux socket-status [--json]")
         case "agent-hibernation":
             return """
-            Usage: cmux agent-hibernation <on|off> [--json]
+            \(Self.agentHibernationUsage)
 
-            Enable or disable routine Agent Hibernation.
+            on|off: enable or disable routine Agent Hibernation.
             Configure idle and live-terminal limits from Settings or cmux settings JSON.
+
+            hibernate <surface>: stop one idle agent now and keep its session for
+            resume. The agent must be off screen, idle, and free of background work.
+            wake <surface>: resume a hibernated agent in place.
+            `cmux agent hibernate|wake <surface>` are aliases.
+
+            <surface> is a UUID, a ref like surface:3, or an index with --workspace.
             """
         case "restore-session":
             return String(localized: "cli.restoreSession.help", defaultValue: """
@@ -29335,7 +29348,7 @@ struct CMUXCLI {
         jsonOutput: Bool
     ) throws {
         guard let subcommand = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "Usage: cmux agent-hibernation <on|off> [--json]")
+            throw CLIError(message: Self.agentHibernationUsage)
         }
         let response: String
         switch subcommand {
@@ -29343,8 +29356,16 @@ struct CMUXCLI {
             response = try sendV1Command("agent_hibernation on", client: client)
         case "off", "disable":
             response = try sendV1Command("agent_hibernation off", client: client)
+        case "hibernate", "wake":
+            try runAgentHibernationTarget(
+                subcommand: subcommand,
+                args: Array(commandArgs.dropFirst()),
+                client: client,
+                jsonOutput: jsonOutput
+            )
+            return
         default:
-            throw CLIError(message: "Usage: cmux agent-hibernation <on|off> [--json]")
+            throw CLIError(message: Self.agentHibernationUsage)
         }
 
         if jsonOutput {

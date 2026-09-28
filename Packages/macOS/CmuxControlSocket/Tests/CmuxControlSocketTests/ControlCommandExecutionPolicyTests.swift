@@ -74,7 +74,7 @@ struct ControlCommandExecutionPolicyTests {
         ] {
             #expect(ControlCommandExecutionPolicy(forMethod: method).runsOnSocketWorker, "\(method)")
         }
-        for method in ["agent.restore.admit", "agent.restore.release"] {
+        for method in ["agent.restore.admit", "agent.restore.release", "agent.hibernate", "agent.wake"] {
             #expect(
                 ControlCommandExecutionPolicy(forMethod: method)
                     == .socketWorker(mainThreadCallable: false),

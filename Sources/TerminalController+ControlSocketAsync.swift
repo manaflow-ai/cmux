@@ -205,6 +205,12 @@ extension TerminalController {
         if request.method == "agent.restore.release" {
             return await agentRestoreAdmissionReleaseResponse(request)
         }
+        if request.method == "agent.hibernate" {
+            return await agentHibernateResponse(request)
+        }
+        if request.method == "agent.wake" {
+            return await agentWakeResponse(request)
+        }
         if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] == nil,
            ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let snapshotResult = socketReadSnapshotStore.response(

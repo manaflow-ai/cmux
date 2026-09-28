@@ -254,6 +254,8 @@ extension TerminalController {
             "surface.resume.clear",
             "agent.restore.admit",
             "agent.restore.release",
+            "agent.hibernate",
+            "agent.wake",
             "debug.terminals",
             "surface.send_text",
             "surface.send_key",
