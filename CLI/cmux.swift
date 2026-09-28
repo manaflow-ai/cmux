@@ -4527,6 +4527,13 @@ struct CMUXCLI {
                 "omo",
                 "omx",
                 "omc",
+                "omp",
+                "pi",
+                "amp",
+                "grok",
+                "hermes-agent",
+                "claudeteams",
+                "codexteams",
             ]
             if agentKinds.contains(kind) {
                 return true
@@ -4590,38 +4597,46 @@ struct CMUXCLI {
 
     /// `--focus`, `--focus <true|false>`, `--focus=<bool>` and `--no-focus` for the
     /// commands that open UI. Returns the explicit choice (nil when none was given; the
-    /// last flag wins) and the arguments without those flags. A bare `--focus` does not
-    /// consume a following token unless it is a boolean. Arguments after `--` are left alone.
+    /// last flag wins) and the arguments without those flags. Arguments after `--` are
+    /// left alone.
     func parseOpenFocusFlags(_ args: [String], command: String) throws -> (focus: Bool?, rest: [String]) {
         var focus: Bool?
         var rest: [String] = []
         var index = 0
         while index < args.count {
-            let arg = args[index]
-            if arg == "--" {
+            if args[index] == "--" {
                 rest.append(contentsOf: args[index...])
                 break
             }
-            if arg == "--no-focus" {
-                focus = false
-            } else if arg == "--focus" {
-                if index + 1 < args.count, let value = parseBoolString(args[index + 1]) {
-                    focus = value
-                    index += 1
-                } else {
-                    focus = true
-                }
-            } else if arg.hasPrefix("--focus=") {
-                guard let value = parseBoolString(String(arg.dropFirst("--focus=".count))) else {
-                    throw CLIError(message: "\(command): --focus takes true or false")
-                }
-                focus = value
+            if let flag = try Self.openFocusFlag(in: args, at: index, command: command) {
+                focus = flag.focus
+                index += flag.consumed
             } else {
-                rest.append(arg)
+                rest.append(args[index])
+                index += 1
             }
-            index += 1
         }
         return (focus, rest)
+    }
+
+    /// The focus flag at `args[index]` and how many tokens it used, or nil when that
+    /// token is not one. For commands that walk their own arguments; the value after a
+    /// bare `--focus` is taken only when it is exactly a boolean
+    /// (`CmuxTuiRemoteRouting.focusFlagValue`).
+    static func openFocusFlag(in args: [String], at index: Int, command: String) throws -> (focus: Bool, consumed: Int)? {
+        let arg = args[index]
+        if arg == "--no-focus" { return (false, 1) }
+        if arg == "--focus" {
+            if index + 1 < args.count, let value = CmuxTuiRemoteRouting.focusFlagValue(args[index + 1]) {
+                return (value, 2)
+            }
+            return (true, 1)
+        }
+        guard arg.hasPrefix("--focus=") else { return nil }
+        guard let value = CmuxTuiRemoteRouting.focusFlagValue(String(arg.dropFirst("--focus=".count))) else {
+            throw CLIError(message: "\(command): --focus takes true or false")
+        }
+        return (value, 1)
     }
 
     private static func vmCreateIdempotencySignature(image: String?, provider: String?, workspace: String?) -> String {
@@ -11811,12 +11826,10 @@ struct CMUXCLI {
                 }
                 workspaceName = commandArgs[index + 1]
                 index += 2
-            case "--no-focus":
-                focus = false
-                index += 1
-            case "--focus":
-                focus = true
-                index += 1
+            case "--no-focus", "--focus", _ where arg.hasPrefix("--focus="):
+                let flag = try Self.openFocusFlag(in: commandArgs, at: index, command: "ssh-tmux")
+                focus = flag?.focus
+                index += flag?.consumed ?? 1
             case "--new-window":
                 newWindow = true
                 index += 1
@@ -12534,12 +12547,10 @@ struct CMUXCLI {
                 }
                 windowRaw = commandArgs[index + 1]
                 index += 2
-            case "--no-focus":
-                focus = false
-                index += 1
-            case "--focus":
-                focus = true
-                index += 1
+            case "--no-focus", "--focus", _ where arg.hasPrefix("--focus="):
+                let flag = try Self.openFocusFlag(in: commandArgs, at: index, command: "ssh")
+                focus = flag?.focus
+                index += flag?.consumed ?? 1
             case "-A", "--forward-agent":
                 forwardAgentOverride = true
                 index += 1

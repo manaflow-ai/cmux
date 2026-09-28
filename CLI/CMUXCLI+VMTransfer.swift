@@ -1713,6 +1713,11 @@ extension CMUXCLI {
                 index += 1
                 return flags[index]
             }
+            if let flag = try Self.openFocusFlag(in: flags, at: index, command: "vm agent") {
+                focus = flag.focus
+                index += flag.consumed
+                continue
+            }
             switch arg {
             case "--agent": agent = try takeValue().lowercased()
             case "--machine": machineOverride = try takeValue()
@@ -1720,8 +1725,6 @@ extension CMUXCLI {
             case "--cwd": cwdOption = try takeValue()
             case "--name": nameOption = try takeValue()
             case "--no-open": noOpen = true
-            case "--focus": focus = true
-            case "--no-focus": focus = false
             case "--remote-workspace": remoteWorkspaceOption = try takeValue()
             case "--new": forceNew = true
             case "--size": sizeOption = try takeValue()
@@ -1804,18 +1807,27 @@ extension CMUXCLI {
             "open": !noOpen,
             "focus": focus ?? Self.defaultFocusForUserOpen(),
         ]
-        // The pane opens beside the caller (its own workspace and pane when run inside
-        // cmux), not in whichever workspace happens to be selected.
-        if !noOpen {
-            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
-        }
         // --remote-workspace: land the agent's terminal in a staged machine
         // workspace (from `vm workspace new --no-open` or `vm tree`), so it joins
         // that group instead of the detached pool.
         if let remoteWorkspaceOption, !remoteWorkspaceOption.isEmpty {
             params["remote_workspace_id"] = remoteWorkspaceOption
         }
-        let response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 240)
+        // The pane opens in the caller's own workspace when run inside cmux, not in
+        // whichever workspace happens to be selected. The server rejects an unknown
+        // workspace before it creates anything, so a stale CMUX_WORKSPACE_ID (the tab
+        // moved or its workspace closed) retries once in the selected workspace.
+        var callerParams = params
+        if !noOpen,
+           let callerWorkspace = try? normalizeWorkspaceHandle(ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"], client: client) {
+            callerParams["workspace_id"] = callerWorkspace
+        }
+        let response: [String: Any]
+        do {
+            response = try client.sendV2(method: "surface.new_terminal", params: callerParams, responseTimeout: 240)
+        } catch let error as CLIError where error.v2Code == "invalid_params" && callerParams["workspace_id"] != nil {
+            response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 240)
+        }
         let terminalId = (response["terminal_id"] as? String) ?? "?"
         let workspaceId = (response["remote_workspace_id"] as? String) ?? "?"
         let surfaceId = (response["surface_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }

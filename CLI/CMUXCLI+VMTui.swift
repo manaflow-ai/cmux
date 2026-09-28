@@ -1062,6 +1062,12 @@ extension CMUXCLI {
         var index = 1
         while index < rest.count {
             let arg = rest[index]
+            if let flag = try Self.openFocusFlag(in: rest, at: index, command: "vm workspace \(verb)") {
+                guard verb == "new" || verb == "open" else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                focus = flag.focus
+                index += flag.consumed
+                continue
+            }
             if let equals = arg.firstIndex(of: "=") {
                 let flag = String(arg[..<equals])
                 let value = String(arg[arg.index(after: equals)...])
@@ -1109,10 +1115,6 @@ extension CMUXCLI {
             case "--no-open":
                 guard verb == "new" else { throw CLIError(message: Self.vmWorkspaceUsage) }
                 noOpen = true
-                index += 1
-            case "--focus", "--no-focus":
-                guard verb == "new" || verb == "open" else { throw CLIError(message: Self.vmWorkspaceUsage) }
-                focus = arg == "--focus"
                 index += 1
             case "--here":
                 guard verb == "open" else { throw CLIError(message: Self.vmWorkspaceUsage) }
