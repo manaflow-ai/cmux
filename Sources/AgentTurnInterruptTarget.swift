@@ -37,6 +37,15 @@ enum AgentTurnInterruptTarget: String, CaseIterable, Equatable, Sendable {
     /// Named keys that interrupt the running turn.
     var interruptKeys: [TextBoxTerminalKey] { [.escape] }
 
+    /// The supported agent with a session on a pane in any lifecycle state,
+    /// preferring one that is running.
+    static func present(
+        statusKeyedStates: [String: AgentHibernationLifecycleState]
+    ) -> AgentTurnInterruptTarget? {
+        resolve(statusKeyedStates: statusKeyedStates)
+            ?? allCases.first { statusKeyedStates[$0.statusKey] != nil }
+    }
+
     /// The running agent on a pane, or `nil` when none of the supported
     /// agents is running there.
     static func resolve(

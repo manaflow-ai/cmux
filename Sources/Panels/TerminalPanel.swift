@@ -31,6 +31,10 @@ final class TerminalPanel: Panel, ObservableObject {
     private(set) var workspaceId: UUID
     /// Follows Claude's input queue while it runs here with prompt editing on.
     var claudeQueuedPromptMonitor: (token: UUID, monitor: ClaudeQueuedPromptMonitor)?
+    /// The open Turns popover, so the Turns button toggles it.
+    weak var agentTurnsPopover: NSPopover?
+    /// Set while the Turns button is looking up the pane's session.
+    var isLoadingAgentTurns = false
 
     var ownedSessionScrollbackReplayFileURL: URL? = nil
     /// The workspace-env key/value pairs this panel inherited from its workspace's

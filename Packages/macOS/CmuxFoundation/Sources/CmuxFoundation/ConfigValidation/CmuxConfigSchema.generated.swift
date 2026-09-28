@@ -1572,7 +1572,7 @@ enum CmuxEmbeddedConfigSchema {
         "promptEditing": {
           "type": "boolean",
           "default": false,
-          "description": "While Claude Code has prompts waiting in its input queue, show an Edit Queued button over the terminal. Clicking it sends Up, which moves the queued prompts back into Claude's input for editing."
+          "description": "Show a Turns button over agent terminals, listing the session's prompts to edit one again or fork from it, and, while Claude Code has prompts waiting in its input queue, an Edit Queued button that sends Up to move them back into the input."
         }
       }
     },

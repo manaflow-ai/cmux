@@ -15,9 +15,13 @@ extension TerminalPanel {
             view.onSettingsChange = { [weak self] in
                 self?.refreshAgentTurnControl()
             }
+            view.onShowTurns = { [weak self] anchor in
+                self?.showAgentTurns(relativeTo: anchor)
+            }
         }
-        let target = AgentTurnInterruptTarget.resolve(statusKeyedStates: containerAgentLifecycleStates)
-        view.setRunningTarget(target)
+        let states = containerAgentLifecycleStates
+        let target = AgentTurnInterruptTarget.resolve(statusKeyedStates: states)
+        view.setAgents(running: target, present: AgentTurnInterruptTarget.present(statusKeyedStates: states))
         watchClaudeQueuedPrompts(target == .claudeCode && view.isPromptEditingEnabled)
     }
 
@@ -68,7 +72,7 @@ extension TerminalPanel {
     }
 
     /// Per-agent lifecycle for this pane from whichever container owns it.
-    private var containerAgentLifecycleStates: [String: AgentHibernationLifecycleState] {
+    var containerAgentLifecycleStates: [String: AgentHibernationLifecycleState] {
         if let dock = DockSplitStore.liveStore(containingPanel: id) {
             return dock.agentRuntimeByPanelId[id]?.agentLifecycleStates ?? [:]
         }

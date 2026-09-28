@@ -77,22 +77,11 @@ actor ClaudeQueuedPromptMonitor {
         watcher = nil
     }
 
-    /// Transcript of the session the Claude hook store marks active on the
-    /// surface. The active pointer, not the newest entry, so a nested
-    /// `claude -p` run in the pane is never mistaken for the pane's session.
+    /// Transcript of the session the Claude hook store marks active on the surface.
     static func activeTranscriptPath(surfaceID: UUID, hookStoreURL: URL) -> String? {
-        guard let data = try? Data(contentsOf: hookStoreURL),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let active = root["activeSessionsBySurface"] as? [String: Any],
-              let binding = active[surfaceID.uuidString] as? [String: Any],
-              let sessionID = binding["sessionId"] as? String,
-              let sessions = root["sessions"] as? [String: Any],
-              let session = sessions[sessionID] as? [String: Any],
-              let transcriptPath = session["transcriptPath"] as? String,
-              transcriptPath.hasPrefix("/") else {
-            return nil
-        }
-        return transcriptPath
+        AgentPaneSessionLocator(agent: .claude, hookStoreURL: hookStoreURL)
+            .session(surfaceID: surfaceID)?
+            .transcriptPath
     }
 
     private func drain(initial: Bool) async {
