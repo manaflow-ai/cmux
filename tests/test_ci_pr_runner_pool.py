@@ -2747,6 +2747,18 @@ class MainFullSuite(unittest.TestCase):
         # A pull request with the same load still splits.
         pull = owned_choice(snap, owned_slots=self.SLOTS, jobs=9, root_jobs=9, split="1", queue_rounds="2")
         self.assertEqual((pull.runner, pull.root_budget), (MINI, 6))
+        # A pool too small for the whole run (light: 4 machines, 2 root
+        # runners) keeps the split: the excess would wait past the rescue.
+        light_root = "glaeda-root-light-xcode-26.6"
+        snap = self.snap(roots_busy=14)
+        snap["pools"][ROOT_MINI]["queued"] = 30
+        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
+        snap["pools"][light_root] = {"queued": 0, "running": 0}
+        small = self.main_choice(snap, split="1", queue_rounds="2",
+                                 owned_slots=json.dumps({MINI: 36, ROOT_MINI: 14, LIGHT: 4, light_root: 2}))
+        self.assertEqual(small.runner, LIGHT, small.reason)
+        self.assertNotIn("the whole run queues there", small.reason)
+        self.assertLess(small.root_budget, pool.root_peak(self.PLAN))
         # With the rounds at 0 (no queueing) main splits as before.
         self.assertIn("the rest on the retry runner",
                       self.main_choice(self.snap(roots_busy=6), split="1", queue_rounds="0").reason)
