@@ -34,4 +34,13 @@ import Testing
         #expect(other.contains("no space for new pane"))
         #expect(!other.contains("channelRequestRejected"))
     }
+
+    /// A host whose key was deleted keeps a dangling `keyID`, so a connect
+    /// loads a key whose secret is gone and throws `SSHKeyStoreError.missingSecret`.
+    /// That reads as the "choose a key" sentence, not the raw enum case name.
+    @Test func aDeletedKeyReadsAsChooseAKey() {
+        let text = MobileSSHComputers.describe(SSHKeyStoreError.missingSecret)
+        #expect(text == L10nSSH().noKey)
+        #expect(!text.contains("missingSecret"))
+    }
 }
