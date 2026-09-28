@@ -437,6 +437,10 @@ DEFAULT_QUEUE_ROUNDS = 1
 # (owned_pool_rescue.QUEUE_ROUND_SECONDS), which must stay well inside its
 # 60-minute watch so a stuck job is still moved.
 MAX_QUEUE_ROUNDS = 3
+# One round of queue on an owned pool as the rescue counts it (owned_pool_rescue.QUEUE_ROUND_SECONDS):
+# a queued owned job is moved to Blacksmith after about this much wait per round, so no job is put
+# on an owned queue it would not leave within its rounds.
+QUEUE_ROUND_MINUTES = 15
 # A pool on another Xcode than the lane's pin (the macOS 15 pool, 26.3) has no
 # DerivedData seed: seed-derived-data.yml seeds the lane's Xcode only. Its
 # compile admission runs cold, 10 to 20 minutes longer than a seeded one
@@ -1352,6 +1356,10 @@ class Pick:
     root_room: int | None = None  # owned with a root count only
     limit: float = 0.0  # owned only: the wait allowed there, in minutes
     blacksmith_wait: float | None = None  # the least expected wait on Blacksmith, when queueing
+    # Split only: admission's expected wait for a root runner past the queue bound, and its wait on
+    # Blacksmith, when it queues for the root runner because that is shorter (pick()).
+    root_wait: float | None = None
+    admission_blacksmith_wait: float | None = None
 
 
 def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable: Sequence[str],
@@ -1441,6 +1449,22 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
         # A pool with a root runner free first, when the run needs one.
         fits = [max(rooms, key=lambda label: (not root_jobs or rooms[label].root_room is None
                                               or rooms[label].root_room >= 1, rooms[label].room))]
+        label = fits[0]
+        room = rooms[label]
+        if queue_rounds and best and root_jobs > 0 and room.root_room is not None and room.root_room < 1:
+            # No root runner within the queue bound: admission, and so every job after it, would take
+            # the retry runner however long Blacksmith's queue is. On 2026-09-28 from 07:00 to 10:30Z
+            # 79 first-attempt admissions took Blacksmith (one at an expected 58 minutes); they waited
+            # 16 minutes on average there, while the root runners' queue drained with a p90 of 11.
+            # Admission queues for a root runner
+            # instead when its expected wait there is the shorter and ends half a job before the rescue's
+            # budget for the rounds (QUEUE_ROUND_MINUTES each), which would move it to Blacksmith's tail:
+            # a mini's admission runs past the 10 minutes a round is priced at (median 638 s), and runs
+            # 3 to 10 minutes old are missing from the live root count.
+            root_wait = expected_wait(label, roots[label], added[label] + root_taken_now.get(label, 0) + 1)
+            if root_wait < waits[best] and root_wait + job_minutes(label) / 2 <= queue_rounds * QUEUE_ROUND_MINUTES:
+                rooms[label] = dataclasses.replace(room, root_room=1, root_wait=root_wait,
+                                                   admission_blacksmith_wait=waits[best])
     for label in usable:
         if label in fits:
             return rooms[label]
@@ -1603,6 +1627,9 @@ def decide(
             if chosen.root_room > root_now:
                 root += f" and {chosen.root_room - root_now} queue places"
             root += f", it needs {root_jobs}"
+            if chosen.root_wait is not None:
+                root += (f"; admission queues for a root runner, about {chosen.root_wait:.0f} min against "
+                         f"{chosen.admission_blacksmith_wait:.0f} min on Blacksmith")
         whole = chosen.room >= jobs and (chosen.root_room is None or chosen.root_room >= root_jobs)
         kept = f", and {reserve} kept free for pull requests" if reserve else ""
         earlier = [other for other in candidates[:candidates.index(label)] if persistent(other)]

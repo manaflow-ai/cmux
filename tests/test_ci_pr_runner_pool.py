@@ -2852,6 +2852,51 @@ class MainFullSuite(unittest.TestCase):
         self.assertEqual(picker["env"]["OWNED_MAIN_RESERVE"], "${{ vars.CI_OWNED_MAIN_RESERVE }}")
 
 
+class PullRequestAdmissionRootQueue(unittest.TestCase):
+    """A split pull request whose root runners are past the queue bound queues admission there while shorter."""
+
+    SLOTS = MainFullSuite.SLOTS
+    PLAN = MainFullSuite.PLAN
+
+    def choice(self, *, roots_queued, blacksmith, rounds="2"):
+        snap = backlog(**blacksmith)
+        snap["pools"][MINI] = {"queued": 0, "running": 0}
+        snap["pools"][ROOT_MINI] = {"queued": roots_queued, "running": 14}
+        return owned_choice(snap, owned_slots=self.SLOTS, jobs=pool.owned_peak(self.PLAN),
+                            root_jobs=pool.root_peak(self.PLAN), split="1", queue_rounds=rounds)
+
+    def test_admission_queues_for_a_root_runner_when_blacksmith_is_longer(self):
+        # 30 queued behind 14 busy root runners is past two rounds' bound, so before this admission and
+        # every job after it took the retry runner. Its root wait (31 on 14, 22 min) is under 12vcpu's
+        # (41 on 5 at 5 min a job, 41 min), so it queues for a root runner and hands it on to one shard.
+        choice = self.choice(roots_queued=30, blacksmith={"small": 60, "large": 40, "old": 40})
+        self.assertEqual((choice.runner, choice.root_runner, choice.root_budget), (MINI, ROOT_MINI, 1))
+        self.assertEqual(pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0],
+                         ("admission", "shard-1"))
+        self.assertIn("admission queues for a root runner, about 22 min against 41 min on Blacksmith",
+                      choice.reason)
+
+    def test_admission_takes_blacksmith_when_its_queue_is_shorter(self):
+        choice = self.choice(roots_queued=30, blacksmith={"small": 0, "large": 0, "old": 0})
+        self.assertEqual(choice.root_budget, 0)
+        self.assertNotIn("admission queues for a root runner", choice.reason)
+        self.assertNotIn("admission", pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0])
+
+    def test_admission_ends_half_a_job_before_the_rescues_budget(self):
+        # Two rounds give the rescue 30 minutes. A root wait of 25 (34 queued, 35 on 14) leaves half a
+        # job; 26 (36 queued, 37 on 14) does not, and the rescue would move it to Blacksmith's tail.
+        blacksmith = {"small": 80, "large": 57, "old": 60}
+        self.assertEqual(self.choice(roots_queued=34, blacksmith=blacksmith).root_budget, 1)
+        late = self.choice(roots_queued=36, blacksmith=blacksmith)
+        self.assertEqual(late.root_budget, 0)
+        self.assertNotIn("admission queues for a root runner", late.reason)
+
+    def test_the_kill_switch_keeps_the_split(self):
+        choice = self.choice(roots_queued=30, blacksmith={"small": 60, "large": 40, "old": 40}, rounds="0")
+        self.assertNotIn("admission queues for a root runner", choice.reason)
+        self.assertNotIn("admission", pool.place(self.PLAN, choice.owned_budget,
+                                                 root_budget=choice.root_budget)[0])
+
 class IOSRouting(unittest.TestCase):
     """ios_runner_pool.py: the E2E rule, owned Macs only, with counted simulator capacity."""
 
