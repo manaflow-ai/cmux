@@ -178,12 +178,25 @@ export function parseNetworkPolicy(input: unknown): NetworkPolicy {
 export function storedNetworkPolicy(value: unknown): NetworkPolicy {
   if (value === null || value === undefined) return DEFAULT_NETWORK_POLICY;
   try {
-    return parseNetworkPolicy(value);
+    return parseNetworkPolicy(withoutRetiredPresets(value));
   } catch {
     // A row that no longer validates keeps the machine usable rather than
     // silently opening it: treat it as `none`, which the UI shows for repair.
     return { ...DEFAULT_NETWORK_POLICY, mode: "none" };
   }
+}
+
+/**
+ * A stored row may name a preset that was later removed from the catalog.
+ * Input validation must still refuse unknown ids, but a stored row drops them
+ * so a catalog change never turns a valid machine policy into `none`.
+ */
+function withoutRetiredPresets(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const row = value as Record<string, unknown>;
+  if (!Array.isArray(row.presets)) return value;
+  const known = new Set(NETWORK_POLICY_PRESETS.map((preset) => preset.id));
+  return { ...row, presets: row.presets.filter((id) => typeof id === "string" && known.has(id)) };
 }
 
 /** The provider-neutral rule set a policy compiles to. */
