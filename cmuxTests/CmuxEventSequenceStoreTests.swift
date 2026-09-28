@@ -38,7 +38,7 @@ final class CmuxEventSequenceStoreTests: XCTestCase {
         bus.flushEventLogForTesting()
         let sequenceURL = logURL.appendingPathExtension("seq")
         let firstHighWater = try Int64(String(contentsOf: sequenceURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))
-        XCTAssertGreaterThan(firstHighWater, 1)
+        XCTAssertGreaterThan(firstHighWater, Int64(1))
 
         bus.publish(name: "two", category: "test", source: "test")
         bus.flushEventLogForTesting()
