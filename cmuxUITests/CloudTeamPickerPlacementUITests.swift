@@ -220,7 +220,8 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         XCTAssertTrue(unavailable.waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["CloudTeamPickerButton"].exists)
         capture("shortcut-cloud-unavailable")
-        app.buttons["OK"].click()
+        // Runners with a Touch Bar also expose the alert's OK there.
+        app.sheets.firstMatch.buttons["OK"].click()
         XCTAssertTrue(unavailable.waitForNonExistence(timeout: 5))
 
         invokePickerFromPalette(app)
