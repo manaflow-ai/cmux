@@ -563185,6 +563185,65 @@
           }
         }
       }
+    },
+    "socket.authTeam.busy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another team change is in progress. Try again when it finishes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هناك تغيير آخر في الفريق قيد التنفيذ. حاول مرة أخرى عند انتهائه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine andere Teamänderung läuft noch. Versuche es erneut, wenn sie abgeschlossen ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay otro cambio de equipo en curso. Inténtalo de nuevo cuando termine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une autre modification d’équipe est en cours. Réessayez une fois terminée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のチーム変更を処理中です。完了してからもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 팀 변경이 진행 중입니다. 완료된 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一项团队更改正在进行中，请在完成后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一項團隊變更正在進行中，請在完成後再試一次。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

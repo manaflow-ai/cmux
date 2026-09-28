@@ -30,10 +30,9 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Cloud requests keep using the confirmed coordinator scope until success.
     var pendingTeamSelection: (requestID: UUID, teamID: String?)?
     var isSelectingTeam: Bool { pendingTeamSelection != nil }
-    /// Team creates in flight. A switch during a create fails the create, so
-    /// the Cloud picker holds switches until they finish.
-    var pendingTeamCreations = 0
-    var isCreatingTeam: Bool { pendingTeamCreations > 0 }
+    /// A team create is in flight. Switches and creates from every surface
+    /// are refused until it finishes, since a later change would fail it.
+    var isCreatingTeam = false
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator

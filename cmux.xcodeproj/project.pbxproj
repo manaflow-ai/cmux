@@ -3324,6 +3324,7 @@
 		7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00F7490D00F7490D00F /* TaskVMInfoMemoryPressureFootprintSampler.swift */; };
 		B82090010000000000000001 /* TCCUsageDescriptionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */; };
 		60B6B31B3D982694EFDFF85A /* TeamChangeAuthClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 463126C4EC99FFF15A6DB847 /* TeamChangeAuthClient.swift */; };
+		4146C0FDC6AD61A318F4FE9A /* TeamChangeInProgressError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5177F4A60D55EBC0B59312F8 /* TeamChangeInProgressError.swift */; };
 		0044CBDD567D9CD29E6A6F12 /* TelemetrySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 257DFD20F0961FE0BDAF70F2 /* TelemetrySettings.swift */; };
 		A10199010000000000000001 /* TerminalAdaptiveDefaultThemeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10199010000000000000002 /* TerminalAdaptiveDefaultThemeSettings.swift */; };
 		C10190010000000000000002 /* TerminalAgentPanelInitialTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10190010000000000000001 /* TerminalAgentPanelInitialTitleTests.swift */; };
@@ -7324,6 +7325,7 @@
 		7490D00F7490D00F7490D00F /* TaskVMInfoMemoryPressureFootprintSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TaskVMInfoMemoryPressureFootprintSampler.swift; sourceTree = "<group>"; };
 		B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCCUsageDescriptionUITests.swift; sourceTree = "<group>"; };
 		463126C4EC99FFF15A6DB847 /* TeamChangeAuthClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TeamChangeAuthClient.swift"; sourceTree = "<group>"; };
+		5177F4A60D55EBC0B59312F8 /* TeamChangeInProgressError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamChangeInProgressError.swift; sourceTree = "<group>"; };
 		257DFD20F0961FE0BDAF70F2 /* TelemetrySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TelemetrySettings.swift"; sourceTree = "<group>"; };
 		A10199010000000000000002 /* TerminalAdaptiveDefaultThemeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdaptiveDefaultThemeSettings.swift; sourceTree = "<group>"; };
 		C10190010000000000000001 /* TerminalAgentPanelInitialTitleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAgentPanelInitialTitleTests.swift; sourceTree = "<group>"; };
@@ -8384,6 +8386,7 @@
 				A5C017000000000000000006 /* StackAccountAvatarView.swift */,
 				A11C00020000000000000002 /* StackAccountAvatarImageLoader.swift */,
 				4F6B1A593C13D2BAEE34B912 /* UITestFixtureTeamsAuthClient.swift */,
+				5177F4A60D55EBC0B59312F8 /* TeamChangeInProgressError.swift */,
 			);
 			name = Auth;
 			path = Auth;
@@ -14871,6 +14874,7 @@
 				C7A506000000000000000002 /* TaskManagerView.swift in Sources */,
 				C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */,
 				7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */,
+				4146C0FDC6AD61A318F4FE9A /* TeamChangeInProgressError.swift in Sources */,
 				0044CBDD567D9CD29E6A6F12 /* TelemetrySettings.swift in Sources */,
 				A10199010000000000000001 /* TerminalAdaptiveDefaultThemeSettings.swift in Sources */,
 				8362A0030000000000000003 /* TerminalCallerTTYBinding.swift in Sources */,

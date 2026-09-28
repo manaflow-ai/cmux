@@ -31,7 +31,16 @@ extension HostAccountFlow {
 
     /// Projects pending selection immediately; a rejected request restores the
     /// confirmed selection by clearing only this request's pending projection.
+    /// A switch during a team create is refused, since it would fail the
+    /// create after the server made the team. A later switch still replaces
+    /// a pending one.
     func selectTeam(id: String?) async throws {
+        guard !isCreatingTeam else {
+            // Re-emit so a picker already showing the requested team returns
+            // to the confirmed one.
+            teamObservationRevision &+= 1
+            throw TeamChangeInProgressError()
+        }
         let requestID = UUID()
         pendingTeamSelection = (requestID, id)
         defer {
@@ -40,10 +49,13 @@ extension HostAccountFlow {
         try await coordinator.selectTeam(id: id)
     }
 
-    /// Creates a team through Stack Auth and makes it the active team.
+    /// Creates a team through Stack Auth and makes it the active team. Refused
+    /// while a switch or another create is in flight, before it reaches the
+    /// server, so neither change fails the other after the server acted.
     func createTeam(displayName: String) async throws -> AccountTeamSummary {
-        pendingTeamCreations += 1
-        defer { pendingTeamCreations -= 1 }
+        guard !isSelectingTeam, !isCreatingTeam else { throw TeamChangeInProgressError() }
+        isCreatingTeam = true
+        defer { isCreatingTeam = false }
         let team = try await coordinator.createTeam(displayName: displayName)
         return AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
     }

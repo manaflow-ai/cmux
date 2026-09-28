@@ -4,8 +4,8 @@ import SwiftUI
 /// Names a new Cloud team. A sheet rather than an alert so a rejected name
 /// keeps the dialog open with its error beside the field. Create makes the new
 /// team active; Cancel waits for an in-flight request, since the server may
-/// still create the team. Create waits for a pending team switch, which would
-/// otherwise fail the create.
+/// still create the team. Create waits, with a status, while another team
+/// switch or create is pending, which the account flow would refuse.
 struct CloudCreateTeamSheet: View {
     let accountFlow: HostAccountFlow
     let onFinish: () -> Void
@@ -17,6 +17,17 @@ struct CloudCreateTeamSheet: View {
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// A pending team switch, or another create, that Create has to wait for.
+    private var pendingChangeStatus: String? {
+        if accountFlow.isSelectingTeam {
+            return String(localized: "cloud.teamPicker.switching", defaultValue: "Switching teams…")
+        }
+        if accountFlow.isCreatingTeam, !isSubmitting {
+            return String(localized: "cloud.teamPicker.creating", defaultValue: "Creating team…")
+        }
+        return nil
     }
 
     var body: some View {
@@ -42,6 +53,11 @@ struct CloudCreateTeamSheet: View {
             HStack(spacing: 8) {
                 if isSubmitting {
                     ProgressView().controlSize(.small)
+                } else if let pendingChangeStatus {
+                    Text(pendingChangeStatus)
+                        .cmuxFont(size: 11)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("CloudCreateTeamSheet.pendingChange")
                 }
                 Spacer()
                 Button(String(localized: "sidebar.account.createTeamCancel", defaultValue: "Cancel"), action: onFinish)
@@ -52,7 +68,7 @@ struct CloudCreateTeamSheet: View {
                 Button(String(localized: "cloud.teamPicker.createSheet.create", defaultValue: "Create"), action: submit)
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
-                    .disabled(trimmedName.isEmpty || isSubmitting || accountFlow.isSelectingTeam)
+                    .disabled(trimmedName.isEmpty || isSubmitting || pendingChangeStatus != nil)
                     .accessibilityIdentifier("CloudCreateTeamSheet.create")
             }
         }
@@ -64,7 +80,7 @@ struct CloudCreateTeamSheet: View {
 
     private func submit() {
         let displayName = trimmedName
-        guard !displayName.isEmpty, !isSubmitting, !accountFlow.isSelectingTeam else { return }
+        guard !displayName.isEmpty, !isSubmitting, pendingChangeStatus == nil else { return }
         isSubmitting = true
         errorMessage = nil
         Task { @MainActor in
