@@ -268,7 +268,13 @@ struct RemoteDaemonProxySessionAuthenticationTests {
         configuration.proxyConfigurations = [proxy]
         configuration.timeoutIntervalForRequest = 5
         configuration.timeoutIntervalForResource = 10
-        let session = URLSession(configuration: configuration)
+        // Without the delegate, the refused CONNECT case asks the user for a
+        // proxy password in a system dialog.
+        let session = URLSession(
+            configuration: configuration,
+            delegate: ManagedProxySessionDelegate(),
+            delegateQueue: nil
+        )
         defer { session.invalidateAndCancel() }
         return try await session.data(from: URL(string: "http://example.test/")!)
     }
