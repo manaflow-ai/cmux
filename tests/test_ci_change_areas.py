@@ -5063,10 +5063,9 @@ def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
         assert outputs(["Sources/Workspace.swift"])["unit_in_admission"] == "false"
 
     ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
-    # A compile admission on an owned Mac holds glaeda's compile token, not the
-    # gui token, so a persistent pick moves the changed suites to shard 8.
-    assert ci["jobs"]["changes"]["outputs"]["unit_in_admission"] == (
-        "${{ steps.macos-pool.outputs.persistent != 'true' && steps.suite.outputs.unit_in_admission || 'false' }}")
+    # An owned compile admission takes its Mac's gui token for the suites
+    # itself, so the pool no longer decides where they run.
+    assert ci["jobs"]["changes"]["outputs"]["unit_in_admission"] == "${{ steps.suite.outputs.unit_in_admission }}"
     assert ci["jobs"]["macos"]["with"]["unit_in_admission"] == "${{ needs.changes.outputs.unit_in_admission }}"
 
     workflow = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))
@@ -5074,20 +5073,47 @@ def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
     assert call_inputs["unit_in_admission"]["default"] == "", call_inputs["unit_in_admission"]
     admission = workflow["jobs"]["macos-compile-admission"]
     shards = workflow["jobs"]["app-host-unit-tests"]
-    assert shards["if"].endswith("&& inputs.unit_in_admission != 'true' }}"), shards["if"]
+    assert shards["if"].endswith(
+        "&& (inputs.unit_in_admission != 'true' || needs.macos-compile-admission.outputs.unit_tested == 'false') }}"
+    ), shards["if"]
     assert admission["outputs"]["changed_suites"] == "${{ steps.run-changed-suites.outcome }}"
+    assert admission["outputs"]["unit_tested"] == "${{ steps.test-here.outputs.tested }}"
 
     names = [step.get("name") for step in admission["steps"]]
     by_name = {step.get("name"): step for step in admission["steps"]}
     shard_steps = {step.get("name"): step for step in shards["steps"]}
+    take_gui = names.index("Take this Mac's gui token for the changed suites")
+    assert by_name[names[take_gui]]["if"] == "${{ inputs.unit_in_admission == 'true' }}"
+    assert "take-gui" in by_name[names[take_gui]]["run"]
+    take_step = by_name[names[take_gui]]
+
+    def take_gui_output(helper_status, *, owned_gui: str = "", helper: bool = True) -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "glaeda-canonical-root"
+            if helper:
+                fake.write_text(f"#!/bin/bash\nexit {helper_status}\n")
+                fake.chmod(0o755)
+            output = Path(tmp) / "output"
+            env = {**os.environ, "GITHUB_OUTPUT": str(output), "POOL_OWNED_GUI": owned_gui,
+                   "GLAEDA_CANONICAL_ROOT": str(fake)}
+            subprocess.run(["bash", "-e", "-c", take_step["run"]], env=env, check=True, capture_output=True)
+            return output.read_text().strip()
+
+    assert take_step["env"]["GLAEDA_CANONICAL_ROOT"] == "/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root"
+    assert take_gui_output(0) == "tested=true"
+    for gave_way in (1, 2, 3):
+        assert take_gui_output(gave_way) == "tested=false", gave_way
+    assert take_gui_output(0, owned_gui="0") == "tested=false"
+    assert take_gui_output(0, helper=False) == "tested=true"
     first_test = names.index("Prepare isolated DerivedData")
+    assert take_gui == first_test - 1
     # The product is packaged, uploaded and seeded before any test can fail.
     for producer in ("Package compiled app-host test product", "Upload compiled app-host test product",
                      "Seed node-local compiled product cache"):
         assert names.index(producer) < first_test, producer
     for name in names[first_test:]:
         condition = str(by_name[name].get("if", ""))
-        assert "inputs.unit_in_admission == 'true'" in condition or "steps.test-derived-data.outcome" in condition \
+        assert "steps.test-here.outputs.tested == 'true'" in condition or "steps.test-derived-data.outcome" in condition \
             or "steps.run-changed-suites.outcome" in condition \
             or name in {"Report evidence collection outcomes", "Hold consumers behind the fast Linux gate"}, name
     # Admission runs the worker's own scripts, not copies of them.
@@ -5119,15 +5145,22 @@ def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
     route = {"macos": "true", "full_suite": "false", "unit_suite": "true", "compile_admitted": "",
              "release_build": "false", "unit_selectors": "cmuxTests/AlphaTests"}
 
-    def macos_status(in_admission: str, admission: str, shards: str, suites: str) -> subprocess.CompletedProcess[str]:
+    def macos_status(in_admission: str, admission: str, shards: str, suites: str,
+                     tested: str = "") -> subprocess.CompletedProcess[str]:
         needs = {name: {"result": "skipped", "outputs": {}} for name in MACOS_JOBS}
-        needs["macos-compile-admission"] = {"result": admission, "outputs": {"changed_suites": suites}}
+        needs["macos-compile-admission"] = {"result": admission,
+                                            "outputs": {"changed_suites": suites, "unit_tested": tested}}
         needs["app-host-unit-tests"]["result"] = shards
         env = {**os.environ, "MACOS_INPUTS": json.dumps({**route, "unit_in_admission": in_admission}),
                "MACOS_NEEDS": json.dumps(needs)}
         return subprocess.run(["bash", "-c", status], cwd=ROOT, env=env, text=True, capture_output=True)
 
     assert macos_status("true", "success", "skipped", "success").returncode == 0
+    assert macos_status("true", "success", "skipped", "success", "true").returncode == 0
+    # An owned admission that could not take its Mac's gui token handed the
+    # suites to the worker, which must then pass.
+    assert macos_status("true", "success", "skipped", "skipped", "false").returncode != 0
+    assert macos_status("true", "success", "success", "skipped", "false").returncode == 0
     failed = macos_status("true", "failure", "skipped", "failure")
     assert failed.returncode != 0
     assert "the changed suites failed" in failed.stderr, failed.stderr
