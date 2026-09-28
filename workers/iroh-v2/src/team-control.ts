@@ -382,7 +382,13 @@ export class TeamControl extends DurableObject<Environment> {
   private close(ws: WebSocket, reason: string) {
     try {
       const attachment = this.load(ws);
-      if (!attachment.closed) this.save(ws, { ...attachment, closed: true });
+      if (!attachment.closed) {
+        this.save(ws, { ...attachment, closed: true });
+        // One row per server-initiated close, attributed, so "this device's
+        // socket kept being closed for <reason>" is a direct sink query.
+        observe(this.ctx, this.env, { event: "iroh.socket.closed", environment: this.env.ENVIRONMENT, reason,
+          ...sessionObservability(attachment.session) });
+      }
       const code = reason === "payload_too_large" ? 1009
         : ["input_capacity", "slow_consumer"].includes(reason) ? 1013
         : ["device_revoked", "team_access_revoked", "identity_mismatch", "key_replacement_required"].includes(reason) ? 1008
