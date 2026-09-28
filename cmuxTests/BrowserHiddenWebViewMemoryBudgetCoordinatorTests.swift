@@ -124,7 +124,7 @@ final class BrowserHiddenWebViewMemoryBudgetCoordinatorTests: XCTestCase {
             AppDelegate.shared = previousAppDelegate
         }
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = try XCTUnwrap(manager.addWorkspaceIfActive(select: true))
         let workspaceDock = try XCTUnwrap(workspace.dockSplit)
         let workspaceDockBrowser = try workspaceDock.seedBrowserPanelForBudgetTest(
             BrowserPanel(
