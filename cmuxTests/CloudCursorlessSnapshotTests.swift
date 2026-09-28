@@ -50,6 +50,19 @@ struct CloudCursorlessSnapshotTests {
         #expect(provider.cloudState?.lookupIndex.workspace(id: "ws_main")?.name == "After")
     }
 
+    @Test("A cursorless read that started before a newer install does not overwrite it")
+    func staleCursorlessReadIsRefused() throws {
+        let (provider, _) = makeProvider()
+        // The first install moves the install version from 0 to 1.
+        let first = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot(workspaceName: "Newer"), machine: provider.machine))
+        #expect(provider.installSnapshotIfNewer(first))
+
+        let stale = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot(workspaceName: "Older"), machine: provider.machine))
+        #expect(!provider.installSnapshotIfNewer(stale, requestVersion: 0))
+        #expect(provider.cloudState?.lookupIndex.workspace(id: "ws_main")?.name == "Newer")
+        #expect(provider.installSnapshotIfNewer(stale, requestVersion: 1))
+    }
+
     @Test("A cursorless snapshot still never replaces a journaled graph")
     func cursorlessSnapshotDoesNotReplaceCursoredGraph() throws {
         let (provider, _) = makeProvider()

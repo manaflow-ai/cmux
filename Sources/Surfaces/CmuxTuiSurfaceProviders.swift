@@ -485,6 +485,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 requestVersion != cloudStateInstallVersion {
                 return false
             }
+            // Without cursors only the install version orders reads: a read
+            // that started before a newer install must not overwrite it.
+            if let current = cloudState, current.cursor == nil, incoming.cursor == nil,
+               let requestVersion, requestVersion != cloudStateInstallVersion, incoming != current {
+                return false
+            }
             guard incomingPassesPendingRenameFence(incoming) else {
                 #if DEBUG
                 cmuxDebugLog("cloud.state.snapshotIgnored machine=\(machineID) reason=pending-rename-fence")
