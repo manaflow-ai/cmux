@@ -855,31 +855,6 @@ _cmux_ports_kick() {
     fi
 }
 
-_cmux_pr_cache_clear() {
-    # Remove cache and force-signal files left by older integrations. The app
-    # owns PR refresh now, but an opt-out must still stop legacy processes and
-    # leave no stale per-panel state behind.
-    [[ -n "${CMUX_PANEL_ID:-}" ]] || return 0
-    local prefix="/tmp/cmux-pr-cache-${CMUX_PANEL_ID}"
-    local force="/tmp/cmux-pr-force-${CMUX_PANEL_ID}"
-    local cache_file
-    local -a cache_files=()
-    for cache_file in \
-        "${prefix}.branch" \
-        "${prefix}.repo" \
-        "${prefix}.result" \
-        "${prefix}.timestamp" \
-        "${prefix}.no-pr-branch" \
-        "$force"; do
-        if [[ -e "$cache_file" || -L "$cache_file" ]]; then
-            cache_files+=("$cache_file")
-        fi
-    done
-    if (( ${#cache_files[@]} )); then
-        /bin/rm -f -- "${cache_files[@]}" >/dev/null 2>&1 || true
-    fi
-}
-
 _cmux_clear_pr_for_panel() {
     [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]] && return 0
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
@@ -1024,7 +999,6 @@ _cmux_emit_pr_command_hint() {
 # cmux's SidebarGitMetadataService/PullRequestPollService. Bash reports prompt
 # changes and PR command hints only; do not reintroduce per-pane timer processes.
 _cmux_bash_cleanup() {
-    _cmux_pr_cache_clear
     [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] && /bin/rm -f -- "$_CMUX_GIT_ACTIVE_PWD_FILE" >/dev/null 2>&1 || true
 }
 
@@ -1252,14 +1226,6 @@ _cmux_prompt_command() {
         if [[ -n "$_CMUX_GIT_JOB_PID" ]] && kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
             kill "$_CMUX_GIT_JOB_PID" >/dev/null 2>&1 || true
         fi
-        # Older sourced integrations may still expose the retired PR poller.
-        # Stop it when the opt-out is enabled so inherited shells cannot keep
-        # running a background watcher after the implementation was removed.
-        if [[ -n "${_CMUX_PR_POLL_PID:-}" ]] && kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
-            kill "$_CMUX_PR_POLL_PID" >/dev/null 2>&1 || true
-        fi
-        _CMUX_PR_POLL_PID=""
-        _cmux_pr_cache_clear
         _CMUX_GIT_JOB_PID=""
         _CMUX_GIT_JOB_STARTED_AT=0
         _CMUX_GIT_HEAD_LAST_PWD=""
