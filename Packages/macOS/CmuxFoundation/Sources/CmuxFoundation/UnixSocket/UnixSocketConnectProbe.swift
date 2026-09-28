@@ -1,10 +1,12 @@
 public import Darwin
 
-/// Probes whether a Unix domain socket path has a live listener, without
-/// writing anything to it.
+/// Probes whether a Unix domain socket path has a live listener running as the
+/// expected user, without writing anything to it.
 ///
 /// Socket discovery uses this to choose among candidate control sockets, some
-/// of which sit at predictable paths in the shared `/tmp` directory:
+/// of which sit at predictable paths in the shared `/tmp` directory. A
+/// listener owned by another user fails the probe, so discovery moves on to
+/// the next candidate:
 ///
 /// ```swift
 /// if UnixSocketConnectProbe().acceptsConnections(atPath: candidate) {
@@ -31,10 +33,12 @@ public struct UnixSocketConnectProbe: Sendable, Equatable {
         self.timeoutMilliseconds = timeoutMilliseconds
     }
 
-    /// Whether a listener accepts a connection at `path`.
+    /// Whether a listener accepts a connection at `path` and passes
+    /// ``peerCheck``.
     ///
     /// - Parameter path: The socket path to probe.
-    /// - Returns: `true` when a connection completes within the timeout.
+    /// - Returns: `true` when a connection completes within the timeout and
+    ///   the listener runs as the expected user.
     public func acceptsConnections(atPath path: String) -> Bool {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
@@ -63,7 +67,7 @@ public struct UnixSocketConnectProbe: Sendable, Equatable {
             }
         }
         if result == 0 {
-            return true
+            return peerCheck.isTrustedPeer(fd)
         }
         let connectErrno = errno
         guard connectErrno == EINPROGRESS || connectErrno == EAGAIN || connectErrno == EWOULDBLOCK else {
@@ -85,6 +89,6 @@ public struct UnixSocketConnectProbe: Sendable, Equatable {
                 getsockopt(fd, SOL_SOCKET, SO_ERROR, errorPointer, lengthPointer)
             }
         }
-        return optionResult == 0 && socketError == 0
+        return optionResult == 0 && socketError == 0 && peerCheck.isTrustedPeer(fd)
     }
 }
