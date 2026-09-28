@@ -3001,6 +3001,179 @@ class IOSRouting(unittest.TestCase):
         partial = ios_pool.Placements(frozenset({1}), since=pool.iso(NOW - dt.timedelta(minutes=20)))
         self.assertEqual(charged(run(2, 30), partial, NOW), 2)
         self.assertEqual(charged(run(8, 10), partial, NOW), 0)
+        # A run whose macOS jobs wait on Blacksmith reads `queued`: its status says nothing about its picker.
+        self.assertEqual(charged(dict(run(9, 30), status="queued"), placed, NOW), 0)
+
+    def test_live_capacity_charges_runs_by_what_their_jobs_hold(self):
+        # 2026-09-28: every in-flight run was charged its whole need from its title wherever it went,
+        # so a burst of pull request runs sent to Blacksmith within a minute read as "-2 glaeda-ios-sim
+        # free" and a pool of -1 with std runners idle, and every run behind them overflowed too.
+        def runner(host, k, busy=False):
+            name = f"{host}-glaeda" + (f"-{k}" if k else "")
+            return {"name": name, "status": "online", "busy": busy,
+                    "labels": [{"name": MINI}, {"name": IOS_SIM}]}
+        # Four simulator minis, two runners each: a-0 runs a simulator job, b-0 a build.
+        runners = [runner(host, k, busy=(host, k) in (("mini-a", 0), ("mini-b", 0)))
+                   for host in ("mini-a", "mini-b", "mini-c", "mini-d") for k in range(2)]
+        title = "iOS tests · main · simulator · full suite · {} · iOS default · on {}"
+
+        def run(run_id, family="both", on="auto", attempt=1):
+            return {"id": run_id, "run_attempt": attempt, "display_title": title.format(family, on),
+                    "created_at": pool.iso(NOW - dt.timedelta(minutes=1))}
+
+        def job(name, status="queued", labels=(), runner_name=None, conclusion=None):
+            if status == "completed" and conclusion is None:
+                conclusion = "success"
+            return {"name": name, "status": status, "labels": list(labels), "runner_name": runner_name,
+                    "conclusion": conclusion}
+
+        picker = job("runner", "completed", ["blacksmith-4vcpu-ubuntu-2404"])
+        owned = [MINI, IOS_SIM]
+        runs = [run(1), run(2), run(3), run(4), run(5), run(6, attempt=2),
+                run(7, on="blacksmith-6vcpu-macos-26"), run(8)]
+        jobs = {
+            # Sent to Blacksmith: its picker finished without a marker.
+            1: [picker, job("ios-simulator-build", labels=["blacksmith-6vcpu-macos-26"])],
+            2: [picker],
+            # Placed owned, jobs not created yet: its whole need.
+            3: [picker],
+            # Still picking: its whole need.
+            4: [job("runner", "in_progress", ["blacksmith-4vcpu-ubuntu-2404"])],
+            # Owned: one simulator job running on mini-a, the other queued.
+            5: [picker, job("ios-simulator-build", "completed", owned, "mini-b-glaeda"),
+                job("ios-simulator (iphone)", "in_progress", owned, "mini-a-glaeda"),
+                job("ios-simulator (ipad)", "queued", owned)],
+        }
+        placed = ios_pool.Placements(frozenset({3, 5}))
+        free = ios_pool.live_free(runners, MINI, runs, now=NOW, capacity=8, placements=placed, jobs=jobs)
+        # Pool: 6 idle, less run 3 (2), run 4 (2), run 5's queued job (1); run 8 unread and young (2).
+        # Simulators: mini-a is held, so 3 minis; less run 3 (2), run 4 (2), run 5 (1), run 8 (2): never below 0.
+        self.assertEqual(free, ios_pool.LiveFree(pool=0, sim=0))
+        holds = {item["id"]: ios_pool.hold(item, jobs.get(item["id"]), MINI, placed, NOW) for item in runs}
+        self.assertEqual(holds[1], ios_pool.Hold())
+        self.assertEqual(holds[2], ios_pool.Hold())
+        self.assertEqual(holds[3], ios_pool.Hold(2, 2))
+        self.assertEqual(holds[4], ios_pool.Hold(2, 2))
+        self.assertEqual(holds[5], ios_pool.Hold(1, 1, frozenset({"mini-a"})))
+        self.assertEqual(holds[6], ios_pool.Hold())
+        self.assertEqual(holds[7], ios_pool.Hold())
+        self.assertEqual(holds[8], ios_pool.Hold(2, 2))
+        # The burst alone, all on Blacksmith, holds nothing.
+        free = ios_pool.live_free(runners, MINI, runs[:2], now=NOW, capacity=8, placements=placed, jobs=jobs)
+        self.assertEqual(free, ios_pool.LiveFree(pool=6, sim=4))
+        # Without the markers a finished picker proves nothing: charged in full.
+        self.assertEqual(ios_pool.hold(runs[1], jobs[2], MINI, None, NOW), ios_pool.Hold(2, 2))
+        # A build running on the fleet: its simulator jobs are not created yet; the build's machine serves one.
+        building = [picker, job("ios-simulator-build", "in_progress", owned, "mini-b-glaeda"),
+                    job("mobile-core-package", "completed", [MINI], "mini-c-glaeda")]
+        self.assertEqual(ios_pool.hold(runs[2], building, MINI, placed, NOW), ios_pool.Hold(1, 2))
+        # A finished run holds nothing, whatever its title says.
+        done = [picker, job("ios-simulator-build", "completed", owned, "mini-b-glaeda"),
+                job("ios-simulator (iphone)", "completed", owned, "mini-a-glaeda"),
+                job("ios-simulator (ipad)", "completed", owned, "mini-c-glaeda")]
+        self.assertEqual(ios_pool.hold(runs[2], done, MINI, placed, NOW), ios_pool.Hold())
+        # All still queued: the build and the package now, then the package beside two simulator jobs.
+        queued = [picker, job("mobile-core-package", labels=[MINI]), job("ios-simulator-build", labels=owned)]
+        self.assertEqual(ios_pool.hold(runs[2], queued, MINI, placed, NOW), ios_pool.Hold(3, 2))
+        # A failed build creates no simulator jobs; the package keeps its busy runner.
+        failed = [picker, job("ios-simulator-build", "completed", owned, "mini-b-glaeda", "failure"),
+                  job("mobile-core-package", "in_progress", [MINI], "mini-c-glaeda")]
+        self.assertEqual(ios_pool.hold(runs[2], failed, MINI, placed, NOW), ios_pool.Hold())
+        # A picked run older than the markers read may be on an unread page: charged its need.
+        partial = ios_pool.Placements(frozenset({3, 5}), since=pool.iso(NOW))
+        self.assertEqual(ios_pool.hold(runs[1], jobs[2], MINI, partial, NOW), ios_pool.Hold(2, 2))
+        # An unread run past the live window holds its simulators, not unstarted machines.
+        old = dict(run(9), created_at=pool.iso(NOW - dt.timedelta(minutes=90)))
+        self.assertEqual(ios_pool.hold(old, None, MINI, None, NOW), ios_pool.Hold(0, 2))
+
+    def test_a_screenshots_run_needs_one_machine_and_one_simulator(self):
+        capture = {"id": 1, "run_attempt": 1, "display_title": "iOS App Store screenshots (42)",
+                   "path": ".github/workflows/ios-screenshots.yml",
+                   "created_at": pool.iso(NOW - dt.timedelta(minutes=1))}
+        picker = {"name": "runner", "status": "completed", "labels": ["blacksmith-4vcpu-ubuntu-2404"]}
+        placed = ios_pool.Placements(frozenset())
+        self.assertEqual((ios_pool.charged_jobs(capture), ios_pool.charged_sim_jobs(capture)), (1, 1))
+        # It uploads no watch marker, so a finished picker alone does not put it on Blacksmith.
+        self.assertEqual(ios_pool.hold(capture, [picker], MINI, placed, NOW), ios_pool.Hold(1, 1))
+        waiting = {"name": "screenshots", "status": "queued", "labels": [MINI, IOS_SIM]}
+        self.assertEqual(ios_pool.hold(capture, [picker, waiting], MINI, placed, NOW), ios_pool.Hold(1, 1))
+        running = dict(waiting, status="in_progress", runner_name="mini-a-glaeda-1")
+        self.assertEqual(ios_pool.hold(capture, [picker, running], MINI, placed, NOW),
+                         ios_pool.Hold(0, 0, frozenset({"mini-a"})))
+        hosted = dict(waiting, labels=["blacksmith-6vcpu-macos-26"])
+        self.assertEqual(ios_pool.hold(capture, [picker, hosted], MINI, placed, NOW), ios_pool.Hold())
+
+    def test_live_placements_reads_markers_again_after_a_picker_finishes(self):
+        title = "iOS tests · main · simulator · full suite · both · iOS default · on auto"
+        runs = [{"id": n, "run_attempt": 1, "display_title": title,
+                 "created_at": pool.iso(NOW - dt.timedelta(minutes=minutes))} for n, minutes in ((1, 1), (2, 30))]
+
+        class Client:
+            def __init__(self, picker_status, markers):
+                self.paths, self.picker_status, self.markers = [], picker_status, list(markers)
+
+            def get(self, path):
+                self.paths.append(path.split("?", 1)[0])
+                if path.startswith("/actions/artifacts"):
+                    found = self.markers.pop(0)
+                    return {"artifacts": [{"name": "owned-pool-watch", "workflow_run": {"id": n}} for n in found]}
+                return {"jobs": [{"name": "runner", "status": self.picker_status, "labels": []}]}
+
+        # Run 2 is old and unmarked: settled without a read. Run 1's picker finished after the first
+        # listing, which missed its marker; the second listing, read after its jobs, has it.
+        client = Client("completed", [[], [1]])
+        jobs, placed = ios_pool.live_placements(client, runs, NOW)
+        self.assertEqual(client.paths, ["/actions/artifacts", "/actions/runs/1/jobs", "/actions/artifacts"])
+        self.assertEqual(placed.runs, frozenset({1}))
+        self.assertEqual(ios_pool.hold(runs[0], jobs[1], MINI, placed, NOW), ios_pool.Hold(2, 2))
+        # Still picking: no second listing is needed.
+        client = Client("in_progress", [[]])
+        jobs, placed = ios_pool.live_placements(client, runs, NOW)
+        self.assertEqual(client.paths, ["/actions/artifacts", "/actions/runs/1/jobs"])
+
+        class Broken(Client):
+            def get(self, path):
+                if path.startswith("/actions/artifacts") and not self.markers:
+                    raise RuntimeError("GET /actions/artifacts failed (500)")
+                return super().get(path)
+        # The second listing failed: the picked run cannot be settled, so it keeps its need.
+        with unittest.mock.patch("sys.stderr", io.StringIO()):
+            jobs, placed = ios_pool.live_placements(Broken("completed", [[]]), runs, NOW)
+        self.assertIsNone(placed)
+        self.assertEqual(ios_pool.hold(runs[0], jobs[1], MINI, placed, NOW), ios_pool.Hold(2, 2))
+
+    def test_run_jobs_read_skips_blacksmith_runs_and_reads_the_newest(self):
+        title = "iOS tests · main · simulator · full suite · both · iOS default · on {}"
+
+        def run(run_id, minutes, on="auto", attempt=1):
+            return {"id": run_id, "run_attempt": attempt, "display_title": title.format(on),
+                    "created_at": pool.iso(NOW - dt.timedelta(minutes=minutes))}
+
+        class Client:
+            def __init__(self, broken=()):
+                self.paths, self.broken = [], broken
+
+            def get(self, path):
+                self.paths.append(path)
+                run_id = int(path.split("/actions/runs/", 1)[1].split("/", 1)[0])
+                if run_id in self.broken:
+                    raise RuntimeError(f"GET {path} failed (500)")
+                return {"jobs": [{"name": "runner", "status": "completed"}]}
+
+        client = Client(broken={3})
+        runs = [run(1, 1), run(2, 1, attempt=2), run(3, 2), run(4, 3, on="blacksmith-6vcpu-macos-26"),
+                {"id": 5, "display_title": "iOS screenshots", "created_at": pool.iso(NOW)}]
+        with unittest.mock.patch("sys.stderr", io.StringIO()):
+            read = ios_pool.run_jobs_read(client, runs, None, NOW)
+        self.assertEqual(sorted(read), [1, 5])
+        self.assertEqual(client.paths, [f"/actions/runs/{n}/jobs?filter=latest&per_page=100" for n in (5, 1, 3)])
+        many = [run(n, n) for n in range(1, ios_pool.MAX_JOB_READS + 5)]
+        self.assertEqual(sorted(ios_pool.run_jobs_read(Client(), many, None, NOW)),
+                         list(range(1, ios_pool.MAX_JOB_READS + 1)))
+        # A run the markers and age settle on Blacksmith is not read.
+        client = Client()
+        ios_pool.run_jobs_read(client, [run(1, 30), run(2, 30)], ios_pool.Placements(frozenset({2})), NOW)
+        self.assertEqual(client.paths, ["/actions/runs/2/jobs?filter=latest&per_page=100"])
 
     def test_owned_placements_reads_one_page_of_watch_markers(self):
         def marker(run_id, minutes):
@@ -3160,8 +3333,9 @@ class IOSRouting(unittest.TestCase):
                   {"display_title": title.format("CmuxSyncStore", "all", "auto"), "created_at": fresh},  # 1, 0
                   {"display_title": title.format("simulator", "all", "blacksmith-6vcpu-macos-26")},  # none
                   {"display_title": "iOS screenshots"}]  # unparsed: in full
+        # Unread runs are charged their whole need, and neither count goes below zero.
         self.assertEqual(ios_pool.live_free(runners, MINI, recent, now=NOW, capacity=3),
-                         ios_pool.LiveFree(pool=8 - 5, sim=2 - 3))
+                         ios_pool.LiveFree(pool=8 - 5, sim=0))
         # A run past the live window holds its simulators (mini-a's busy one), not unstarted machines.
         older = [{"display_title": title.format("simulator", "iphone", "auto"),
                   "created_at": pool.iso(NOW - dt.timedelta(minutes=90))}]

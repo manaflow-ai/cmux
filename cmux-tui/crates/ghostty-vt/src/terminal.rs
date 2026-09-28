@@ -3264,7 +3264,7 @@ impl Terminal {
     /// Feeding `bytes` into a fresh terminal of the same size and restoring
     /// `kitty_image_aliases` reproduces
     /// the screen contents, styles, cursor, modes, palette, keyboard
-    /// state, charsets, and tabstops. This is the attach primitive: a new
+    /// state, charsets, tabstops, and title. This is the attach primitive: a new
     /// frontend replays this, then follows the live pty stream.
     pub fn vt_replay(&mut self) -> Result<VtReplay> {
         self.vt_replay_bounded(usize::MAX)
@@ -3280,7 +3280,7 @@ impl Terminal {
     /// destructive geometry change, then build the full replay afterward.
     pub fn preflight_vt_replay_bounded(&self, max_bytes: usize) -> Result<()> {
         self.kitty_inflight.replay_prefix_fits(max_bytes)?;
-        let suffix_len = self.mouse_format_replay_suffix().len();
+        let suffix_len = self.replay_state_suffix().len();
         let prefix_len = self.kitty_inflight.replay_prefix_checked(max_bytes)?.len();
         if prefix_len.checked_add(suffix_len).is_none_or(|total| total > max_bytes) {
             return Err(Error::OutOfSpace);
@@ -3320,6 +3320,28 @@ impl Terminal {
         max_bytes: usize,
     ) -> Result<VtReplay> {
         self.vt_replay_bounded_with_palette(max_bytes, false)
+    }
+
+    /// Bytes appended after the formatted replay for state Ghostty's VT
+    /// formatter does not emit.
+    fn replay_state_suffix(&self) -> Vec<u8> {
+        let mut suffix = self.mouse_format_replay_suffix();
+        suffix.extend_from_slice(&self.title_replay_suffix());
+        suffix
+    }
+
+    /// OSC 2 that restores the title. The formatter emits OSC 7 for the
+    /// working directory but never the title, so without this every mirror
+    /// rebuilt from a replay (attach, resync, host resize) loses the title an
+    /// application set. Control characters cannot appear inside an OSC
+    /// payload, so they are replaced with spaces.
+    fn title_replay_suffix(&self) -> Vec<u8> {
+        let Some(title) = self.title() else {
+            return Vec::new();
+        };
+        let title: String =
+            title.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+        format!("\x1b]2;{title}\x1b\\").into_bytes()
     }
 
     /// Correction bytes appended to a serialized replay so the replayed
@@ -3366,10 +3388,10 @@ impl Terminal {
         include_palette: bool,
     ) -> Result<VtReplay> {
         let inflight = self.kitty_inflight.replay_prefix_checked(max_bytes)?;
-        let mouse_format_suffix = self.mouse_format_replay_suffix();
+        let state_suffix = self.replay_state_suffix();
         let remaining = max_bytes
             .checked_sub(inflight.len())
-            .and_then(|remaining| remaining.checked_sub(mouse_format_suffix.len()))
+            .and_then(|remaining| remaining.checked_sub(state_suffix.len()))
             .ok_or(Error::OutOfSpace)?;
         let mut pixel_cache = std::mem::take(&mut self.kitty_replay_pixel_cache.0);
         let snapshot = kitty::snapshot_for_replay(self, &mut pixel_cache, true);
@@ -3409,7 +3431,7 @@ impl Terminal {
             .len()
             .checked_add(interleaved.len())
             .and_then(|total| total.checked_add(inflight.len()))
-            .and_then(|total| total.checked_add(mouse_format_suffix.len()))
+            .and_then(|total| total.checked_add(state_suffix.len()))
             .ok_or(Error::OutOfSpace)?;
         if total > max_bytes || graphics.total_len > graphics_budget {
             return Err(Error::OutOfSpace);
@@ -3422,11 +3444,9 @@ impl Terminal {
             bytes.extend_from_slice(&graphics.image_bytes);
             bytes.extend_from_slice(&interleaved);
         }
-        // The formatter dumps DEC modes in numeric order, which destroys the
-        // last-set-wins semantics of the extended mouse coordinate formats.
-        // Reduce the flag dump to the single active selector so replay
-        // reproduces the semantic, not the numeric flag order.
-        bytes.extend_from_slice(&mouse_format_suffix);
+        // State the formatter cannot express: the active mouse coordinate
+        // format and the OSC 0/2 title.
+        bytes.extend_from_slice(&state_suffix);
         let replay_cursor_offset = u32::try_from(bytes.len()).map_err(|_| Error::OutOfSpace)?;
         bytes.extend_from_slice(&inflight);
         Ok(VtReplay {
@@ -4797,6 +4817,40 @@ mod tests {
         let text = String::from_utf8_lossy(&replay);
         assert!(!text.contains("[?1006l"), "suffix must not reset the only format");
         assert_eq!(text.matches("[?1006h").count(), 1, "active selector emitted once");
+    }
+
+    #[test]
+    fn replay_restores_the_osc_title() {
+        let mut host = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        host.vt_write(b"\x1b]2;renamed tab\x07");
+        let mut mirror = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        mirror.apply_vt_replay(&host.vt_replay().unwrap()).unwrap();
+        assert_eq!(mirror.title().as_deref(), Some("renamed tab"));
+
+        let mut theme_portable = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        theme_portable
+            .apply_vt_replay(&host.vt_replay_bounded_theme_portable_with_aliases(1 << 20).unwrap())
+            .unwrap();
+        assert_eq!(theme_portable.title(), mirror.title());
+    }
+
+    #[test]
+    fn replay_without_a_title_carries_no_title_suffix() {
+        let mut host = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        assert!(host.title_replay_suffix().is_empty());
+        let mut mirror = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        mirror.apply_vt_replay(&host.vt_replay().unwrap()).unwrap();
+        assert_eq!(mirror.title(), None);
+    }
+
+    #[test]
+    fn replay_preflight_reserves_title_suffix_at_exact_boundary() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]2;title\x07");
+        let suffix_len = terminal.replay_state_suffix().len();
+        assert!(suffix_len > 0);
+        assert!(terminal.preflight_vt_replay_bounded(suffix_len).is_ok());
+        assert!(terminal.preflight_vt_replay_bounded(suffix_len - 1).is_err());
     }
 
     #[test]
