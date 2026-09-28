@@ -454,7 +454,14 @@ class Placements:
     since: str | None = None
 
     def off_fleet(self, run: Mapping[str, Any], now: dt.datetime) -> bool:
-        """True when `run` certainly holds no owned machine: a re-run, or picked a while ago without a marker."""
+        """True when `run` certainly holds no owned machine: a re-run, or picked a while ago without a marker.
+
+        "A while ago" counts from when the run started a job, not from its
+        creation: a run still `queued` has not started its picker (a Linux
+        queue can hold it longer than the grace), and the picker job is the
+        run's first, with a 5-minute timeout. A run without run_started_at
+        counts from its creation.
+        """
         attempt = run.get("run_attempt")
         if isinstance(attempt, int) and attempt > 1:
             return True
@@ -463,7 +470,10 @@ class Placements:
         created = str(run.get("created_at") or "")
         if not created or self.since is not None and created < self.since:
             return False
-        age = pr_runner_pool.run_age_minutes(run, now)
+        if run.get("status") == "queued":
+            return False
+        started = run.get("run_started_at") or created
+        age = pr_runner_pool.run_age_minutes({"created_at": started}, now)
         return age is not None and age >= PLACEMENT_GRACE_MINUTES
 
 
@@ -570,10 +580,15 @@ def on_runner(job: Mapping[str, Any]) -> bool:
     return job.get("status") == "in_progress" and bool(job.get("runner_name"))
 
 
+def hosted_macos(label: str) -> bool:
+    """A Blacksmith (blacksmith-*-macos-*) or GitHub-hosted (macos-*) label: owned labels are glaeda-*."""
+    return not label.startswith("glaeda-") and "macos" in label
+
+
 def picked_unmarked(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
     """The run's picker finished and no macOS job exists yet: its marker alone says where it went."""
     return (any(job.get("name") == PICKER_JOB and job.get("status") == "completed" for job in jobs)
-            and not any("macos" in label for job in jobs for label in job_labels(job)))
+            and not any(hosted_macos(label) for job in jobs for label in job_labels(job)))
 
 
 def hold(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]] | None, pool: str,
@@ -593,7 +608,7 @@ def hold(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]] | None, pool:
         return Hold(need.machines if young else 0, need.sims)
     owned = [job for job in jobs if job_labels(job) & {pool, SIM_LABEL}]
     if not owned:
-        if any("macos" in label for job in jobs for label in job_labels(job)):
+        if any(hosted_macos(label) for job in jobs for label in job_labels(job)):
             # Its macOS jobs asked for a Blacksmith (or hosted) label.
             return Hold()
         created = str(run.get("created_at") or "")

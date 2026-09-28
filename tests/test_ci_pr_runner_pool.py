@@ -3001,6 +3001,12 @@ class IOSRouting(unittest.TestCase):
         partial = ios_pool.Placements(frozenset({1}), since=pool.iso(NOW - dt.timedelta(minutes=20)))
         self.assertEqual(charged(run(2, 30), partial, NOW), 2)
         self.assertEqual(charged(run(8, 10), partial, NOW), 0)
+        # Age counts from the run's first job: a run whose picker still waits in the Linux queue may go owned.
+        waiting = dict(run(9, 30), status="queued")
+        self.assertEqual(charged(waiting, placed, NOW), 2)
+        late = dict(run(10, 30), status="in_progress", run_started_at=pool.iso(NOW - dt.timedelta(minutes=2)))
+        self.assertEqual(charged(late, placed, NOW), 2)
+        self.assertEqual(charged(dict(late, run_started_at=pool.iso(NOW - dt.timedelta(minutes=6))), placed, NOW), 0)
 
     def test_live_capacity_charges_runs_by_what_their_jobs_hold(self):
         # 2026-09-28: every in-flight run was charged its whole need from its title wherever it went,
