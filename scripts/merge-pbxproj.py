@@ -36,8 +36,8 @@ CATCH_UP = ROOT / "scripts" / "ci" / "catch_up_pr.py"
 NORMALIZER = ROOT / "scripts" / "normalize-pbxproj.py"
 
 
-def load_union():
-    """The union used by PR catch-up, so both paths resolve conflicts identically."""
+def load_mergers():
+    """The union and textual fallback used by PR catch-up."""
     spec = importlib.util.spec_from_file_location("merge_pbxproj_catch_up", CATCH_UP)
     if spec is None or spec.loader is None:
         raise ImportError(f"cannot load {CATCH_UP}")
@@ -47,7 +47,7 @@ def load_union():
     # registered before it is executed or the decorator raises.
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    return module.union_pbxproj
+    return module.union_pbxproj, module.merge_file
 
 
 def normalized(text: str, name: str) -> str | None:
@@ -86,13 +86,21 @@ def main(argv: list[str]) -> int:
     base_path, ours_path, theirs_path = (Path(p) for p in argv[1:4])
     name = argv[4] if len(argv) > 4 else str(ours_path)
     try:
-        union_pbxproj = load_union()
+        union_pbxproj, merge_file = load_mergers()
+        base = base_path.read_text(encoding="utf-8")
+        ours = ours_path.read_text(encoding="utf-8")
+        theirs = theirs_path.read_text(encoding="utf-8")
         merged = union_pbxproj(
-            base_path.read_text(encoding="utf-8"),
-            ours_path.read_text(encoding="utf-8"),
-            theirs_path.read_text(encoding="utf-8"),
+            base,
+            ours,
+            theirs,
         )
     except ValueError as error:
+        # A custom merge driver owns %A even when it returns failure: Git does
+        # not rerun the built-in text merge for us. Leave the ordinary diff3
+        # conflict there so a person cannot mistake an ours-only file for the
+        # complete project and stage away the incoming change.
+        ours_path.write_text(merge_file(base, ours, theirs), encoding="utf-8")
         print(f"merge-pbxproj: {name}: {error}; falling back", file=sys.stderr)
         return 1
     except (OSError, ImportError, AttributeError, UnicodeDecodeError) as error:

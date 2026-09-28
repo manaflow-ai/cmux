@@ -193,8 +193,50 @@ def test_the_same_entry_added_differently_is_refused():
     theirs = project(["Alpha.swift", "Ours.swift"]).replace("path = Ours.swift;", "path = Other.swift;")
     code, merged, stderr = run(base, ours, theirs)
     assert code == 1, "a duplicated object id must not be written to the project"
-    assert merged == ours, "ours must be left exactly as git handed it over"
+    assert "<" * 32 in merged, "a failed custom merge must materialize the conflict in %A"
+    assert "path = Ours.swift;" in merged and "path = Other.swift;" in merged
     assert "only distinct added lines can be merged" in stderr, stderr
+
+
+def test_a_real_git_merge_leaves_markers_and_unmerged_stages():
+    """Git does not provide its own conflict text after a custom driver fails."""
+    with tempfile.TemporaryDirectory() as directory:
+        repo = Path(directory)
+        project_path = repo / "cmux.xcodeproj" / "project.pbxproj"
+
+        def git(*args, check=True):
+            return subprocess.run(
+                ["git", *args], cwd=repo, capture_output=True, text=True, check=check,
+            )
+
+        git("init", "-q")
+        git("config", "user.name", "Merge Test")
+        git("config", "user.email", "merge@example.com")
+        git("config", "merge.pbxproj.driver",
+            f"{sys.executable} {DRIVER} %O %A %B %P")
+        (repo / ".gitattributes").write_text(
+            "cmux.xcodeproj/project.pbxproj merge=pbxproj\n", encoding="utf-8"
+        )
+        project_path.parent.mkdir()
+        project_path.write_text(project(["Alpha.swift"], settings="5.0"), encoding="utf-8")
+        git("add", ".")
+        git("commit", "-qm", "base")
+        git("branch", "theirs")
+
+        project_path.write_text(project(["Alpha.swift"], settings="6.0"), encoding="utf-8")
+        git("commit", "-qam", "ours")
+        git("switch", "-q", "theirs")
+        project_path.write_text(project(["Alpha.swift"], settings="6.1"), encoding="utf-8")
+        git("commit", "-qam", "theirs")
+        git("switch", "-q", "master")
+
+        merge = git("merge", "theirs", check=False)
+        assert merge.returncode != 0
+        assert git("ls-files", "--unmerged").stdout.strip(), "the index must remain unmerged"
+        conflicted = project_path.read_text(encoding="utf-8")
+        assert "<" * 32 in conflicted
+        assert "SWIFT_VERSION = 6.0" in conflicted
+        assert "SWIFT_VERSION = 6.1" in conflicted
 
 
 def test_a_union_the_normalizer_rejects_is_refused():
