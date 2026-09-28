@@ -277,6 +277,9 @@ import Testing
         reader.startReading()
         var times: [Double] = []
         while let sample = output.copyNextSampleBuffer() {
+            // The reader also hands back empty marker buffers; only buffers
+            // that carry a frame count.
+            guard CMSampleBufferGetNumSamples(sample) > 0 else { continue }
             times.append(CMSampleBufferGetPresentationTimeStamp(sample).seconds)
         }
         return times
