@@ -900,7 +900,15 @@ extension ControlCommandCoordinator {
         guard let workspaceID = resolution.workspaceID else {
             return .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
         }
-        return workspaceRemoteResult(context?.controlWorkspaceRemoteStatus(workspaceID: workspaceID))
+        var status = context?.controlWorkspaceRemoteStatus(workspaceID: workspaceID)
+        if case .resolved(let windowID, let resolvedWorkspaceID, let remoteStatus)? = status {
+            status = .resolved(
+                windowID: windowID,
+                workspaceID: resolvedWorkspaceID,
+                remoteStatus: self.remoteStatus(remoteStatus, for: params)
+            )
+        }
+        return workspaceRemoteResult(status)
     }
 
     /// `workspace.remote.pty_attach_end` — record a remote PTY attach end.
