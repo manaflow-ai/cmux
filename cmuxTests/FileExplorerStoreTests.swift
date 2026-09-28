@@ -273,6 +273,26 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func testSSHListingCommandsKeepNFCPathsOutOfProcessArguments() {
+        // https://github.com/manaflow-ai/cmux/issues/14891 applies to both the
+        // dated listing and its `ls` fallback: either command reaching ssh with
+        // a literal precomposed name would list the NFD spelling instead.
+        for name in ["モデル", "보고서", "résumé", "it's é"] {
+            let path = "/tmp/nfd/" + name.precomposedStringWithCanonicalMapping
+            for showHidden in [false, true] {
+                let dated = ProcessSSHFileExplorerTransport.posixShellBootstrap(
+                    script: ProcessSSHFileExplorerTransport.remoteListingScript(path: path, showHidden: showHidden)
+                )
+                let legacy = ProcessSSHFileExplorerTransport.legacyListingCommand(path: path, showHidden: showHidden)
+                let datedIsASCII = dated.unicodeScalars.allSatisfy { $0.isASCII }
+                let legacyIsASCII = legacy.unicodeScalars.allSatisfy { $0.isASCII }
+                #expect(datedIsASCII)
+                #expect(legacyIsASCII)
+            }
+        }
+    }
+
+    @Test
     func testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath() async throws {
         let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
         transport.listings["/home/dev"] = .success([
