@@ -142,12 +142,25 @@ export const cloudVmObservedDestroyCleanups = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index("cloud_vm_observed_destroy_cleanups_updated_idx").on(table.updatedAt, table.vmId),
+    index("cloud_vm_observed_destroy_cleanups_updated_idx")
+      .on(table.updatedAt, table.vmId)
+      .where(sql`coalesce(
+        jsonb_typeof(${table.cleanup}) = 'object' and (
+          ${table.cleanup} @> '{"modelPlane":true}'::jsonb or (
+            jsonb_typeof(${table.cleanup}->'homeVolume') = 'string'
+            and length(btrim(${table.cleanup}->>'homeVolume')) > 0
+          )
+        ), false
+      )`),
     check(
       "cloud_vm_observed_destroy_cleanups_pending_step",
-      sql`${table.cleanup} @> '{"modelPlane":true}'::jsonb or (
-        jsonb_typeof(${table.cleanup}->'homeVolume') = 'string'
-        and length(btrim(${table.cleanup}->>'homeVolume')) > 0
+      sql`coalesce(
+        jsonb_typeof(${table.cleanup}) = 'object' and (
+          ${table.cleanup} @> '{"modelPlane":true}'::jsonb or (
+            jsonb_typeof(${table.cleanup}->'homeVolume') = 'string'
+            and length(btrim(${table.cleanup}->>'homeVolume')) > 0
+          )
+        ), false
       )`,
     ),
   ],

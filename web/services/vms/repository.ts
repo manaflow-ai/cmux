@@ -115,6 +115,23 @@ export const OBSERVED_DESTROY_CLEANUP_CANDIDATE_PREDICATE: SQL = sql`
     )
   )
 `;
+/**
+ * Defensively quarantine malformed rows written before the outbox constraint
+ * existed. Filtering before LIMIT keeps them from starving actionable work;
+ * retaining them preserves evidence for operator inspection.
+ */
+export const OBSERVED_DESTROY_OUTBOX_CANDIDATE_PREDICATE: SQL = sql`
+  coalesce(
+    jsonb_typeof(${cloudVmObservedDestroyCleanups.cleanup}) = 'object'
+    and (
+      ${cloudVmObservedDestroyCleanups.cleanup} @> '{"modelPlane":true}'::jsonb
+      or (
+        jsonb_typeof(${cloudVmObservedDestroyCleanups.cleanup}->'homeVolume') = 'string'
+        and length(btrim(${cloudVmObservedDestroyCleanups.cleanup}->>'homeVolume')) > 0
+      )
+    ), false
+  )
+`;
 export type VmObservedDestroyCleanup = {
   /** Model-plane revocation is idempotent and remains pending until acknowledged. */
   readonly modelPlane: true;
@@ -2858,6 +2875,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           updatedAt: cloudVmObservedDestroyCleanups.updatedAt,
         })
         .from(cloudVmObservedDestroyCleanups)
+        .where(OBSERVED_DESTROY_OUTBOX_CANDIDATE_PREDICATE)
         .orderBy(
           asc(cloudVmObservedDestroyCleanups.updatedAt),
           asc(cloudVmObservedDestroyCleanups.vmId),

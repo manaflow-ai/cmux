@@ -6162,6 +6162,60 @@ describe("VM Effect workflows", () => {
     expect(count).toBe("0");
   });
 
+  dbTest("malformed legacy outbox rows cannot starve actionable cleanup", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_observed_destroy_cleanups, cloud_vms restart identity cascade`;
+    const malformedIds = Array.from(
+      { length: 20 },
+      (_, index) => `00000000-0000-4000-8000-${String(200 + index).padStart(12, "0")}`,
+    );
+    const validId = "00000000-0000-4000-8000-000000000220";
+    const allIds = [...malformedIds, validId];
+
+    await sql.begin(async (tx) => {
+      await tx`
+        alter table cloud_vm_observed_destroy_cleanups
+        drop constraint cloud_vm_observed_destroy_cleanups_pending_step
+      `;
+      for (const [index, vmId] of malformedIds.entries()) {
+        await tx`
+          insert into cloud_vm_observed_destroy_cleanups (vm_id, provider, cleanup, updated_at)
+          values (${vmId}, 'freestyle', '{}'::jsonb, now() - interval '2 days' + ${index} * interval '1 second')
+        `;
+      }
+      await tx`
+        insert into cloud_vm_observed_destroy_cleanups (vm_id, provider, cleanup, updated_at)
+        values (${validId}, 'freestyle', '{"homeVolume":"actionable-after-malformed"}'::jsonb, now() - interval '1 day')
+      `;
+      await tx`
+        alter table cloud_vm_observed_destroy_cleanups
+        add constraint cloud_vm_observed_destroy_cleanups_pending_step check (
+          coalesce(
+            jsonb_typeof(cleanup) = 'object' and (
+              cleanup @> '{"modelPlane":true}'::jsonb or (
+                jsonb_typeof(cleanup->'homeVolume') = 'string'
+                and length(btrim(cleanup->>'homeVolume')) > 0
+              )
+            ), false
+          )
+        ) not valid
+      `;
+    });
+
+    try {
+      const candidates = await Effect.runPromise(
+        vmRepositoryLiveShape.observedDestroyCleanupCandidates!({ limit: 1 }),
+      );
+      expect(candidates.map((candidate) => candidate.id)).toEqual([validId]);
+    } finally {
+      await sql`delete from cloud_vm_observed_destroy_cleanups where vm_id in ${sql(allIds)}`;
+      await sql`
+        alter table cloud_vm_observed_destroy_cleanups
+        validate constraint cloud_vm_observed_destroy_cleanups_pending_step
+      `;
+    }
+  });
+
   dbTest("cron reconcile retires missing compute even when a detached home volume remains", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;

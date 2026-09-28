@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import postgres, { type Sql } from "postgres";
 import { cloudVmObservedDestroyCleanups, cloudVms } from "../db/schema";
-import { OBSERVED_DESTROY_CLEANUP_CANDIDATE_PREDICATE } from "../services/vms/repository";
+import {
+  OBSERVED_DESTROY_CLEANUP_CANDIDATE_PREDICATE,
+  OBSERVED_DESTROY_OUTBOX_CANDIDATE_PREDICATE,
+} from "../services/vms/repository";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -48,7 +51,7 @@ describe("Cloud VM database schema", () => {
 
   test("compiles observed-destroy candidates with literal partial-index predicates", () => {
     const compiled = new PgDialect().sqlToQuery(OBSERVED_DESTROY_CLEANUP_CANDIDATE_PREDICATE);
-    const normalized = compiled.sql.replace(/\s+/g, " ");
+    const normalized = compiled.sql.replace(/\s+/g, " ").trim();
 
     expect(compiled.params).toEqual([]);
     expect(normalized).toContain(`"cloud_vms"."status" = 'destroyed'`);
@@ -67,6 +70,7 @@ describe("Cloud VM database schema", () => {
       "updated_at",
       "vm_id",
     ]);
+    expect(index?.config.where).toBeDefined();
     expect(config.checks.map((check) => check.name)).toContain(
       "cloud_vm_observed_destroy_cleanups_pending_step",
     );
@@ -76,9 +80,54 @@ describe("Cloud VM database schema", () => {
       import.meta.url,
     ), "utf8").replace(/\s+/g, " ");
     expect(migration).toContain(
-      'CREATE INDEX "cloud_vm_observed_destroy_cleanups_updated_idx" ON "cloud_vm_observed_destroy_cleanups" ("updated_at", "vm_id")',
+      'CREATE INDEX "cloud_vm_observed_destroy_cleanups_updated_idx" ON "cloud_vm_observed_destroy_cleanups" ("updated_at", "vm_id") WHERE coalesce(',
+    );
+    expect(migration).toContain('jsonb_typeof("cleanup") = \'object\'');
+    expect(migration).toContain(
+      'CONSTRAINT "cloud_vm_observed_destroy_cleanups_pending_step" CHECK ( coalesce(',
     );
     expect(migration).not.toContain("REFERENCES");
+  });
+
+  test("filters malformed legacy outbox rows before the bounded oldest-first scan", () => {
+    const compiled = new PgDialect().sqlToQuery(OBSERVED_DESTROY_OUTBOX_CANDIDATE_PREDICATE);
+    const normalized = compiled.sql.replace(/\s+/g, " ").trim();
+
+    expect(compiled.params).toEqual([]);
+    expect(normalized).toContain(
+      `coalesce( jsonb_typeof("cloud_vm_observed_destroy_cleanups"."cleanup") = 'object'`,
+    );
+    expect(normalized).toContain(
+      `"cloud_vm_observed_destroy_cleanups"."cleanup" @> '{"modelPlane":true}'::jsonb`,
+    );
+    expect(normalized).toContain(
+      `length(btrim("cloud_vm_observed_destroy_cleanups"."cleanup"->>'homeVolume')) > 0`,
+    );
+    expect(normalized).toEndWith(
+      `), false )`,
+    );
+  });
+
+  dbTest("rejects malformed transferred cleanup rows", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_observed_destroy_cleanups`;
+    const malformed = [null, "collision", [], {}, { modelPlane: false }, { homeVolume: "   " }];
+
+    for (const [index, cleanup] of malformed.entries()) {
+      let insertError: unknown;
+      try {
+        await sql`
+          insert into cloud_vm_observed_destroy_cleanups (vm_id, provider, cleanup)
+          values (
+            ${`00000000-0000-4000-8000-${String(180 + index).padStart(12, "0")}`},
+            'freestyle', ${JSON.stringify(cleanup)}::jsonb
+          )
+        `;
+      } catch (error) {
+        insertError = error;
+      }
+      expect((insertError as { code?: string } | undefined)?.code).toBe("23514");
+    }
   });
 
   dbTest("applies migrations and enforces create idempotency by account owner", async () => {
