@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { getTableConfig } from "drizzle-orm/pg-core";
+import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import postgres, { type Sql } from "postgres";
 import { cloudVms } from "../db/schema";
+import { OBSERVED_DESTROY_CLEANUP_CANDIDATE_PREDICATE } from "../services/vms/repository";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -42,6 +43,17 @@ describe("Cloud VM database schema", () => {
     );
     expect(migration).toContain(
       '"provider_metadata"->\'cmuxObservedDestroyCleanup\' @> \'{"modelPlane":true}\'::jsonb',
+    );
+  });
+
+  test("compiles observed-destroy candidates with literal partial-index predicates", () => {
+    const compiled = new PgDialect().sqlToQuery(OBSERVED_DESTROY_CLEANUP_CANDIDATE_PREDICATE);
+    const normalized = compiled.sql.replace(/\s+/g, " ");
+
+    expect(compiled.params).toEqual([]);
+    expect(normalized).toContain(`"cloud_vms"."status" = 'destroyed'`);
+    expect(normalized).toContain(
+      `"cloud_vms"."provider_metadata" ? 'cmuxObservedDestroyCleanup'`,
     );
   });
 

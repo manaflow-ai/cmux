@@ -8223,6 +8223,76 @@ describe("status read that observes a gone machine", () => {
     expect(volumeDeleteCalls).toBe(2);
   });
 
+  test("acknowledges an already-missing volume after deletion succeeds before the database ack", async () => {
+    const homeVolume = "cmux-home-observed-destroy-ack-crash";
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000162",
+      userId: "user-observed-destroy-ack-crash",
+      providerVmId: "provider-observed-destroy-ack-crash",
+      status: "destroyed",
+      destroyedAt: new Date(),
+    });
+    let pending = true;
+    let ackCalls = 0;
+    const baseRepo = testWorkflowRepo({ vm });
+    const repo: VmRepositoryShape = {
+      ...baseRepo,
+      observedDestroyCleanupCandidates: () => Effect.succeed(
+        pending
+          ? [{
+            ...vm,
+            providerMetadata: {
+              [OBSERVED_DESTROY_CLEANUP_METADATA_KEY]: { homeVolume },
+            },
+          }]
+          : [],
+      ),
+      completeObservedDestroyCleanup: () => Effect.suspend(() => {
+        ackCalls += 1;
+        if (ackCalls === 1) {
+          return Effect.fail(new VmDatabaseError({
+            operation: "completeObservedDestroyCleanup",
+            cause: new Error("database acknowledgement lost"),
+          }));
+        }
+        pending = false;
+        return Effect.succeed(true);
+      }),
+    };
+    let volumeDeleteCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...providerGone,
+      deleteHomeVolume: () => Effect.suspend(() => {
+        volumeDeleteCalls += 1;
+        if (volumeDeleteCalls === 1) return Effect.void;
+        return Effect.fail(new VmProviderOperationError({
+          provider: "freestyle",
+          operation: "deleteHomeVolume",
+          cause: {
+            status: 404,
+            code: "NOT_FOUND",
+            message: "volume already missing",
+          },
+        }));
+      }),
+    };
+    const layer = workflowLayer(repo, provider);
+
+    await Effect.runPromise(reconcileVmProviderStatuses({}).pipe(Effect.provide(layer)));
+    expect(pending).toBe(true);
+    expect(volumeDeleteCalls).toBe(1);
+    expect(ackCalls).toBe(1);
+
+    await Effect.runPromise(reconcileVmProviderStatuses({}).pipe(Effect.provide(layer)));
+    expect(pending).toBe(false);
+    expect(volumeDeleteCalls).toBe(2);
+    expect(ackCalls).toBe(2);
+
+    await Effect.runPromise(reconcileVmProviderStatuses({}).pipe(Effect.provide(layer)));
+    expect(volumeDeleteCalls).toBe(2);
+    expect(ackCalls).toBe(2);
+  });
+
   test("a full batch of failing model-plane work cannot starve older-first volume cleanup", async () => {
     const modelRows = [
       testCloudVmRow({

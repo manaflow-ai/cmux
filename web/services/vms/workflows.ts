@@ -796,8 +796,9 @@ function drainObservedDestroyCleanup(
           onTimeout: () => new Error("observed-destroy volume cleanup deadline"),
         }),
         Effect.as(true),
-        Effect.catchAll((err) =>
-          Effect.sync(() => {
+        Effect.catchAll((err) => isProviderDeletionConfirmed(err)
+          ? Effect.succeed(true)
+          : Effect.sync(() => {
             console.error(
               `[vm] observed-destroy home volume cleanup failed for ${vm.id} (${cleanup.homeVolume})`,
               errorMessage(err.cause),

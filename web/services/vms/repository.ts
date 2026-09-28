@@ -93,6 +93,27 @@ export type VmResizeReservation = {
 export type CloudVmStatus = CloudVmRow["status"];
 export type CloudVmSessionStatus = CloudVmSessionRow["status"];
 export const OBSERVED_DESTROY_CLEANUP_METADATA_KEY = "cmuxObservedDestroyCleanup";
+/**
+ * Keep every partial-index predicate value literal. PostgreSQL generic prepared
+ * plans cannot prove that a bound status parameter implies the partial index.
+ */
+export const OBSERVED_DESTROY_CLEANUP_CANDIDATE_PREDICATE: SQL = sql`
+  ${cloudVms.status} = 'destroyed'
+  and ${cloudVms.providerMetadata} ? ${sql.raw(`'${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}'`)}
+  and jsonb_typeof(${cloudVms.providerMetadata}->${sql.raw(`'${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}'`)}) = 'object'
+  and (
+    ${cloudVms.providerMetadata}->${sql.raw(`'${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}'`)}
+      @> '{"modelPlane":true}'::jsonb
+    or (
+      jsonb_typeof(
+        ${cloudVms.providerMetadata}->${sql.raw(`'${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}'`)}->'homeVolume'
+      ) = 'string'
+      and length(btrim(
+        ${cloudVms.providerMetadata}->${sql.raw(`'${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}'`)}->>'homeVolume'
+      )) > 0
+    )
+  )
+`;
 export type VmObservedDestroyCleanup = {
   /** Model-plane revocation is idempotent and remains pending until acknowledged. */
   readonly modelPlane: true;
@@ -2813,22 +2834,10 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   observedDestroyCleanupCandidates: (input) =>
     dbEffect("observedDestroyCleanupCandidates", async () => {
       const db = cloudDb();
-      const cleanup = sql`${cloudVms.providerMetadata}->${sql.raw(`'${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}'`)}`;
       return await db
         .select()
         .from(cloudVms)
-        .where(and(
-          eq(cloudVms.status, "destroyed"),
-          // Keep the reserved key literal so PostgreSQL can prove the query
-          // implies the partial-index predicate even under prepared plans.
-          sql`${cloudVms.providerMetadata} ? ${sql.raw(`'${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}'`)}`,
-          sql`jsonb_typeof(${cleanup}) = 'object'`,
-          or(
-            sql`${cleanup} @> '{"modelPlane":true}'::jsonb`,
-            sql`jsonb_typeof(${cleanup}->'homeVolume') = 'string'
-              and length(btrim(${cleanup}->>'homeVolume')) > 0`,
-          ),
-        ))
+        .where(OBSERVED_DESTROY_CLEANUP_CANDIDATE_PREDICATE)
         .orderBy(asc(cloudVms.updatedAt), asc(cloudVms.id))
         .limit(input.limit);
     }),
