@@ -41,25 +41,26 @@ extension Workspace {
         }
     }
 
-    /// Clearing one pane's status leaves the key showing while another pane
-    /// still owns it (a second Claude pane keeps running after the first ends).
     func clearStatusEntry(key: String, panelId: UUID?) {
-        if let panelId {
-            agentStatusEntriesByPanelId[panelId]?.removeValue(forKey: key)
-            if agentStatusEntriesByPanelId[panelId]?.isEmpty == true {
-                agentStatusEntriesByPanelId.removeValue(forKey: panelId)
-            }
-            if let remaining = mostUrgentPanelStatusEntry(forKey: key) {
-                statusEntries[key] = remaining
-                return
-            }
-        }
-        statusEntries.removeValue(forKey: key)
+        removeStatusEntry(forKey: key)
+    }
+
+    /// Removes the key and every pane's copy of it, so a later report for the
+    /// key never revives an older pane's text.
+    @discardableResult
+    func removeStatusEntry(forKey key: String) -> Bool {
         for panelId in Array(agentStatusEntriesByPanelId.keys) {
-            agentStatusEntriesByPanelId[panelId]?.removeValue(forKey: key)
-            if agentStatusEntriesByPanelId[panelId]?.isEmpty == true {
-                agentStatusEntriesByPanelId.removeValue(forKey: panelId)
-            }
+            removePanelStatusEntry(key: key, panelId: panelId)
+        }
+        return statusEntries.removeValue(forKey: key) != nil
+    }
+
+    /// Drops one pane's copy, e.g. when its agent lifecycle for the key ends;
+    /// the row then falls back to the workspace entry for that pane.
+    func removePanelStatusEntry(key: String, panelId: UUID) {
+        agentStatusEntriesByPanelId[panelId]?.removeValue(forKey: key)
+        if agentStatusEntriesByPanelId[panelId]?.isEmpty == true {
+            agentStatusEntriesByPanelId.removeValue(forKey: panelId)
         }
     }
 
@@ -170,9 +171,7 @@ extension Workspace {
         let localAgentKeys = Set(agentPIDs.keys)
         for statusKey in AgentHibernationLifecycleStatusKeys.allowedStatusKeys
             where !localAgentKeys.contains(statusKey) {
-            if statusEntries[statusKey] != nil {
-                statusEntries.removeValue(forKey: statusKey)
-            }
+            removeStatusEntry(forKey: statusKey)
             _ = clearAgentLifecycle(key: statusKey)
         }
     }

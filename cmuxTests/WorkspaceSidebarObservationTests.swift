@@ -418,9 +418,9 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
-    /// Two panes running the same agent share one status key. The row is a
-    /// workspace aggregate: the pane waiting on the person wins over a pane
-    /// that reported Running later, and ending one pane keeps the other's.
+    /// Two Claude panes share the `claude_code` key (and its one PID, held by
+    /// the pane that started last). The row is a workspace aggregate: the pane
+    /// waiting on the person wins over a pane that reported Running later.
     @Test func sharedAgentStatusKeyShowsTheMostUrgentPane() throws {
         let workspace = Workspace()
         let waitingPanelId = try #require(workspace.focusedPanelId)
@@ -428,8 +428,7 @@ struct WorkspaceSidebarObservationTests {
             workspace.newTerminalSplit(from: waitingPanelId, orientation: .horizontal, focus: false)?.id
         )
         let owner = ControlSidebarPanelOwner.workspace(workspace)
-        workspace.recordAgentPID(key: "claude_code.a", pid: 12_401, panelId: waitingPanelId, refreshPorts: false)
-        workspace.recordAgentPID(key: "claude_code.b", pid: 12_402, panelId: runningPanelId, refreshPorts: false)
+        workspace.recordAgentPID(key: "claude_code", pid: 12_402, panelId: runningPanelId, refreshPorts: false)
 
         owner.setStatusEntry(
             SidebarStatusEntry(key: "claude_code", value: "Needs input", timestamp: Date(timeIntervalSince1970: 1_000)),
@@ -449,11 +448,10 @@ struct WorkspaceSidebarObservationTests {
             "A later Running report from another pane must not hide the pane waiting on the person."
         )
 
-        owner.clearStatusEntry(key: "claude_code", panelId: waitingPanelId)
         _ = workspace.clearAgentLifecycle(key: "claude_code", panelId: waitingPanelId)
         #expect(
             workspace.sidebarStatusEntriesInDisplayOrder().first { $0.key == "claude_code" }?.value == "Running",
-            "Clearing one pane's status keeps the key showing for the pane that still runs the agent."
+            "Once the waiting pane's lifecycle ends, its old Needs input text must not linger."
         )
     }
 
