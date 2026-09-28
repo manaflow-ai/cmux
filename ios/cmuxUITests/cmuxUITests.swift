@@ -12,6 +12,87 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testForegroundRemovesOnlyReadDeliveredNotifications() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+        let tag = mockHostInstanceTag()
+        let read1 = "11111111-1111-4111-8111-111111111111"
+        let read2 = "22222222-2222-4222-8222-222222222222"
+        let unread = "33333333-3333-4333-8333-333333333333"
+        let notifications: [[String: String]] = [
+            ["requestID": "cleanup-read-1", "title": "Read on Mac 1", "notificationId": read1],
+            ["requestID": "cleanup-read-2", "title": "Read on Mac 2", "notificationId": read2],
+            ["requestID": "cleanup-unread", "title": "Still unread", "notificationId": unread],
+            ["requestID": "cleanup-other", "title": "Other computer", "notificationId": read1, "macDeviceId": "other-mac"],
+            ["requestID": "cleanup-unrelated", "title": "Unrelated alert"],
+        ].map { $0.merging(["macInstanceTag": tag]) { _, tag in tag } }
+        let fixture = String(decoding: try JSONEncoder().encode(notifications), as: UTF8.self)
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": try attachURL(port: port).absoluteString,
+            "CMUX_UITEST_NOTIFICATION_CLEANUP": fixture,
+        ])
+        defer { app.terminate() }
+        grantNotificationAuthorizationIfRequested()
+        waitForWorkspaceShell(in: app)
+        func awaitReconcile(_ minimumCount: Int = 1) async {
+            let received = await server.waitForRequest(
+                method: "notification.reconcile", minimumCount: minimumCount
+            )
+            XCTAssertTrue(received, "Foreground must reconcile delivered notifications")
+        }
+        await awaitReconcile()
+
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        func openNotificationCenter() async {
+            XCUIDevice.shared.press(.home)
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            let top = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.01))
+            top.press(forDuration: 0.1, thenDragTo: springboard.coordinate(
+                withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)
+            ))
+        }
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: springboard.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        await openNotificationCenter()
+        capture("01-delivered-before-cleanup")
+
+        await server.setNotificationReadState(handledIDs: [read1, read2], available: false)
+        var nextReconcile = await server.notificationReconcileRequests().count + 1
+        app.activate()
+        await awaitReconcile(nextReconcile)
+        await openNotificationCenter()
+        capture("02-read-state-unavailable-keeps-notifications")
+
+        await server.setNotificationReadState(handledIDs: [read1, read2], available: true)
+        nextReconcile = await server.notificationReconcileRequests().count + 1
+        app.activate()
+        await awaitReconcile(nextReconcile)
+        await openNotificationCenter()
+        capture("03-read-notifications-cleared-unread-and-unrelated-retained")
+
+        // The next real system enumeration proves removal independently of
+        // Notification Center's grouping and accessibility presentation.
+        nextReconcile = await server.notificationReconcileRequests().count + 1
+        app.activate()
+        await awaitReconcile(nextReconcile)
+        let requests = await server.notificationReconcileRequests()
+        XCTAssertTrue(requests.contains { Set($0) == [read1, read2, unread] })
+        XCTAssertEqual(Set(requests.last ?? []), [unread])
+        let log = XCTAttachment(string: String(
+            decoding: try JSONEncoder().encode(requests), as: UTF8.self
+        ))
+        log.name = "notification-reconcile-delivered-ids"
+        log.lifetime = .keepAlways
+        add(log)
+    }
+
+    @MainActor
     func testFilesChipsScrollThroughSheetEdge() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_MAC_SURFACE_GALLERY": "files",
@@ -1876,6 +1957,38 @@ final class cmuxUITests: XCTestCase {
 
         tap(invalidPortPairButton, in: invalidPortApp)
         assertPairingError(contains: "Enter a port from 1 to 65535", in: invalidPortApp)
+    }
+
+    /// The error row sits below the pinned Pair button. A failed attempt must
+    /// bring it into view on its own, or tapping Pair looks like it did nothing.
+    @MainActor
+    func testAddDevicePairingErrorIsVisibleWithoutScrolling() throws {
+        let app = launchAddDeviceApp(environment: [
+            "CMUX_UITEST_ADD_DEVICE_HOST": "dev/path.local"
+        ])
+        defer { app.terminate() }
+
+        let pairButton = app.buttons["MobilePairButton"]
+        XCTAssertTrue(pairButton.waitForExistence(timeout: 8))
+        tap(pairButton, in: app)
+
+        let error = app.staticTexts["MobilePairingError"]
+        XCTAssertTrue(error.waitForExistence(timeout: 4))
+        // Frames are in screen space, so also require both to sit inside the
+        // app window: an error scrolled off the top is not visible either.
+        let appFrame = app.windows.firstMatch.frame
+        let visible = expectation(
+            for: NSPredicate { _, _ in
+                error.exists
+                    && error.frame.intersects(appFrame)
+                    && pairButton.frame.intersects(appFrame)
+                    && error.frame.maxY <= pairButton.frame.minY
+            },
+            evaluatedWith: nil
+        )
+        wait(for: [visible], timeout: 4)
+        XCTAssertTrue(error.frame.intersects(appFrame))
+        XCTAssertLessThanOrEqual(error.frame.maxY, pairButton.frame.minY)
     }
 
     @MainActor
@@ -8468,13 +8581,54 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     private func launchAddDeviceApp(environment: [String: String] = [:]) -> XCUIApplication {
+        // The Tailscale method below makes the Auto-Connect migration sheet
+        // eligible, and it would take the one root sheet slot before the Add
+        // Computer form. These tests are about the form, so opt out of it.
+        let migrationDefaults = [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+        ]
         let app = launchApp(
             mockData: true,
-            environment: environment,
+            environment: migrationDefaults.merging(environment) { _, caller in caller },
             launchArguments: ["-dev.cmux.mobile.connectionMethod.v1", "tailscale"]
         )
-        XCTAssertTrue(app.otherElements["MobileAddDeviceForm"].waitForExistence(timeout: 8))
+        let form = app.otherElements["MobileAddDeviceForm"]
+        if !form.waitForExistence(timeout: 4) {
+            // A launch-time What's New sheet can take the modal slot from the
+            // seeded form. Finish it, then open Add Computer the way a user would.
+            try? finishLaunchWhatsNewIfPresented(app)
+            let addDeviceButton = app.buttons["MobileShowAddDeviceButton"].firstMatch
+            let toolbarButton = app.buttons["MobileShowAddDeviceToolbarButton"]
+            if addDeviceButton.waitForExistence(timeout: 4) {
+                tap(addDeviceButton, in: app)
+            } else if toolbarButton.waitForExistence(timeout: 2) {
+                tap(toolbarButton, in: app)
+            }
+        }
+        XCTAssertTrue(form.waitForExistence(timeout: 8))
         return app
+    }
+
+    /// Advances through every unseen What's New page shown at launch.
+    @MainActor
+    private func finishLaunchWhatsNewIfPresented(_ app: XCUIApplication) throws {
+        let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
+        guard whatsNewContinue.waitForExistence(timeout: 4) else { return }
+        // Each tap either advances a page or dismisses the sheet. Let the
+        // transition settle before deciding whether another page remains, so
+        // a sheet that is animating away is never tapped again.
+        for _ in 0..<6 {
+            guard whatsNewContinue.waitForExistence(timeout: 1) else { break }
+            if whatsNewContinue.isHittable {
+                whatsNewContinue.tap()
+            }
+            _ = whatsNewContinue.waitForNonExistence(timeout: 2)
+        }
+        _ = try XCTUnwrap(
+            whatsNewContinue.waitForNonExistence(timeout: 4) ? true : nil,
+            "Finish every What's New page before continuing"
+        )
     }
 
     @MainActor
@@ -10904,6 +11058,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var selectedTerminalID = "terminal-build"
     private var workspaceCreateRequests: [WorkspaceCreateRequest] = []
     private var requestCountsByMethod: [String: Int] = [:]
+    private var notificationReconcileDeliveries: [[String]] = []
+    private var handledNotificationIDs: Set<String> = []
+    private var notificationReadStateAvailable = true
     private var eventSubscriptionStreamIDsByConnection:
         [ObjectIdentifier: Set<String>] = [:]
     private var replayCounts: [String: Int] = [:]
@@ -11124,6 +11281,22 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                     .joined(separator: ", ")
                 continuation.resume(returning: description.isEmpty ? "none" : description)
             }
+        }
+    }
+
+    func setNotificationReadState(handledIDs: [String], available: Bool) async {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                self.handledNotificationIDs = Set(handledIDs)
+                self.notificationReadStateAvailable = available
+                continuation.resume()
+            }
+        }
+    }
+
+    func notificationReconcileRequests() async -> [[String]] {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume(returning: self.notificationReconcileDeliveries) }
         }
     }
 
@@ -11448,6 +11621,16 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         let id = request["id"] as? String ?? ""
         let params = request["params"] as? [String: Any] ?? [:]
         requestCountsByMethod[method, default: 0] += 1
+        if method == "notification.reconcile" {
+            notificationReconcileDeliveries.append(params["delivered_ids"] as? [String] ?? [])
+            if !notificationReadStateAvailable {
+                return Self.frame(try JSONSerialization.data(withJSONObject: [
+                    "id": id,
+                    "ok": false,
+                    "error": ["code": "unavailable", "message": "Read state unavailable"],
+                ]))
+            }
+        }
         if method == "mobile.attach_ticket.create", !supportsManualAttachTicket {
             let envelope: [String: Any] = [
                 "id": id,
@@ -11524,6 +11707,13 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             ]
         case "mobile.host.status":
             result = mobileHostStatusResult()
+        case "notification.reconcile":
+            result = [
+                "handled_ids": (params["delivered_ids"] as? [String] ?? []).filter {
+                    handledNotificationIDs.contains($0)
+                },
+                "unread_count": 1,
+            ]
         case "caffeine.status":
             result = ["enabled": caffeineEnabled]
         case "caffeine.set":

@@ -63,6 +63,31 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         }
     }
 
+    /// Whether ``moveTabToTopForNotification(_:)`` would leave the order
+    /// unchanged because the workspace (or, when grouped, its top-level row)
+    /// already sits first in the unpinned tier. Pinned and unknown rows
+    /// return `false`; callers check pinning separately.
+    public func isAtTopOfUnpinnedTier(_ tabId: UUID) -> Bool {
+        guard let tab = model.tabs.first(where: { $0.id == tabId }), !tab.isPinned else { return false }
+        if !model.workspaceGroups.isEmpty {
+            guard let topLevelId = model.topLevelWorkspaceIds(for: [tab]).first else { return false }
+            let pinnedTopLevelIds = model.sidebarTopLevelPinnedWorkspaceIdsIncludingEmptyGroups()
+            guard !pinnedTopLevelIds.contains(topLevelId) else { return false }
+            let topLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
+            let pinnedCount = topLevelIds.filter { pinnedTopLevelIds.contains($0) }.count
+            guard topLevelIds.firstIndex(of: topLevelId) == pinnedCount else { return false }
+            // A group member is on top only when it also leads its group's
+            // unpinned members, the slot moveTabToTopForNotification promotes
+            // it to (after the anchor and any pinned members).
+            guard let groupId = tab.groupId,
+                  let group = model.workspaceGroups.first(where: { $0.id == groupId }),
+                  tab.id != group.anchorWorkspaceId else { return true }
+            let firstMember = model.tabs.first { $0.groupId == groupId && $0.id != group.anchorWorkspaceId && !$0.isPinned }
+            return firstMember?.id == tabId
+        }
+        return model.tabs.first(where: { !$0.isPinned })?.id == tabId
+    }
+
     /// Moves a workspace to the top of the unpinned tier for a notification
     /// bump; no-ops for pinned rows or rows already at the boundary.
     public func moveTabToTopForNotification(_ tabId: UUID) {

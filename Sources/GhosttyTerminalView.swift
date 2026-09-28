@@ -356,6 +356,10 @@ class GhosttyApp {
     /// Diagnostics from the most recent full load of the user's Ghostty
     /// config (launch or reload), read by the config-error notice.
     private(set) var lastLoadedConfigDiagnosticMessages: [String] = []
+    /// Runs on the main actor immediately before a full configuration reload
+    /// reads the user's config files, so the config file watcher records
+    /// exactly what that load sees.
+    @MainActor var configurationFilesWillLoad: (@MainActor () -> Void)?
 #if DEBUG
     /// Installs `newConfig` as the app config and returns the previous one,
     /// which the caller then owns. Tests change a setting on a clone through
@@ -2092,6 +2096,7 @@ class GhosttyApp {
             completion()
             return
         }
+        configurationFilesWillLoad?()
         let renderingModeChanged = loadDefaultConfigFilesWithLegacyFallback(
             newConfig,
             preferredColorScheme: reloadColorScheme
@@ -3348,9 +3353,18 @@ class GhosttyApp {
             guard mode == GHOSTTY_SECURE_INPUT_ON || mode == GHOSTTY_SECURE_INPUT_OFF else { return false }
             let echoDisabled = mode == GHOSTTY_SECURE_INPUT_ON
             let terminalSurface = surfaceView.terminalSurface
-            DispatchQueue.main.async {
-                guard surfaceView.terminalSurface === terminalSurface else { return }
-                terminalSurface?.hostedView.setPasswordInputActive(echoDisabled)
+            // The model outlives its runtime (hibernation, stale-runtime
+            // release), so also pin the runtime the action came from. An
+            // action queued by a released runtime must not re-show the badge
+            // that terminalSurfaceRuntimeDidRelease() cleared. The per-runtime
+            // callback context is compared instead of the native pointer,
+            // which an allocator may reuse for the replacement runtime.
+            DispatchQueue.main.async { [weak callbackContext] in
+                guard surfaceView.terminalSurface === terminalSurface,
+                      let callbackContext,
+                      let terminalSurface,
+                      terminalSurface.isActiveRuntimeCallbackContext(callbackContext) else { return }
+                terminalSurface.hostedView.setPasswordInputActive(echoDisabled)
             }
             return true
         case GHOSTTY_ACTION_SCROLLBAR:
@@ -13741,6 +13755,13 @@ final class GhosttySurfaceScrollView: NSView {
             bottomThreshold: Double(Self.scrollToBottomThreshold)
         )
 
+        guard surfaceView.terminalSurface?.ioMode != .manualMirror else {
+            // A source-Mac grid can overflow a smaller local mirror pane. Its
+            // scroll is local presentation state; never send it back as a
+            // viewport mutation that could reflow the source terminal.
+            return
+        }
+
         let row = Int(topBasedScrollOffset / cellHeight)
 
         guard row != lastSentRow else { return }
@@ -13873,7 +13894,9 @@ final class GhosttySurfaceScrollView: NSView {
         TerminalScrollBarPresencePolicy(
             allowedBySettings: terminalScrollBarAllowedBySettings(),
             scrollerStyle: scrollView.scrollerStyle == .legacy ? .legacy : .overlay,
-            hasScrollback: surfaceHasScrollback()
+            hasScrollback: surfaceHasScrollback(),
+            hasManualMirrorOverflow: surfaceView.terminalSurface?.ioMode == .manualMirror
+                && documentView.frame.height > scrollView.contentView.bounds.height + 0.5
         ).isPresent
     }
 
