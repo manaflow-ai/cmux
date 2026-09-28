@@ -105,11 +105,31 @@ class SettingsUITestCase: XCTestCase {
     /// Resolves a toggle by accessibility id across the control kinds a
     /// SwiftUI `Toggle(.switch)` can surface as in XCUITest.
     func toggle(_ root: XCUIElement, id: String, timeout: TimeInterval = 4.0) -> XCUIElement {
-        requireElement(
-            candidates: [root.switches[id], root.checkBoxes[id], root.descendants(matching: .any)[id]],
-            timeout: timeout,
-            description: "toggle \(id)"
-        )
+        var resolved: XCUIElement?
+        let found = poll(timeout: timeout) {
+            let candidates = [
+                root.switches[id],
+                root.checkBoxes[id],
+            ]
+            for candidate in candidates where candidate.exists {
+                resolved = candidate
+                return true
+            }
+
+            // Settings rows may carry the identifier while AppKit exposes the
+            // actual switch or checkbox as a child. Prefer that control over
+            // the identifier-bearing container, whose value is often nil.
+            let row = root.descendants(matching: .any)[id]
+            for candidate in [row.switches.firstMatch, row.checkBoxes.firstMatch]
+                where candidate.exists {
+                resolved = candidate
+                return true
+            }
+
+            return false
+        }
+        XCTAssertTrue(found, "Expected toggle \(id) to exist")
+        return resolved ?? root.descendants(matching: .any)[id]
     }
 
     /// Reads a toggle's on state from its accessibility value.
