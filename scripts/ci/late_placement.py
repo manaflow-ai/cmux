@@ -44,6 +44,7 @@ to label. Any failure prints a warning and outputs {} (no change).
 """
 from __future__ import annotations
 
+import concurrent.futures
 import datetime as dt
 import importlib.util
 import json
@@ -71,6 +72,7 @@ GUI_QUEUE_ROUNDS = 1
 # jobs queue only once its admission finished (p50 about 9 minutes), so a run younger than BACKLOG_MIN_AGE has none,
 # and one older than the window has finished its shards.
 BACKLOG_LOOKUPS = 30
+BACKLOG_READERS = 8
 BACKLOG_WINDOW_MINUTES = 120
 BACKLOG_MIN_AGE_MINUTES = 4
 
@@ -123,13 +125,19 @@ def gui_backlog(github: Any, label: str, *, exclude_run_id: int | None, enough: 
             created = pool.parse_time(str(run.get("created_at") or ""))
             if run.get("id") != exclude_run_id and created is not None and created <= newest:
                 runs[run.get("id")] = run
-    queued = 0
-    for run in sorted(runs.values(), key=lambda run: str(run.get("created_at")))[:BACKLOG_LOOKUPS]:
-        if queued >= enough:
-            break
+    def queued_in(run: Mapping[str, Any]) -> int:
         jobs = github.get(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page={pool.PAGE_SIZE}").get("jobs") or []
-        queued += sum(1 for job in jobs if isinstance(job, Mapping) and job.get("status") == "queued"
-                      and label in (job.get("labels") or []))
+        return sum(1 for job in jobs if isinstance(job, Mapping) and job.get("status") == "queued"
+                   and label in (job.get("labels") or []))
+
+    # Read BACKLOG_READERS runs at a time: one by one, 30 job lists under load outran the step's minute.
+    ordered = sorted(runs.values(), key=lambda run: str(run.get("created_at")))[:BACKLOG_LOOKUPS]
+    queued = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=BACKLOG_READERS) as readers:
+        for start in range(0, len(ordered), BACKLOG_READERS):
+            if queued >= enough:
+                break
+            queued += sum(readers.map(queued_in, ordered[start:start + BACKLOG_READERS]))
     return queued
 
 
