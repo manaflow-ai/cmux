@@ -42,17 +42,32 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     /// screen and accepting input from the first frame, so without this the
     /// first characters after opening a terminal are lost.
     private var pendingInputBySurfaceID: [String: Data] = [:]
+    /// Consecutive failed catalog reads per machine, which pace the retry.
+    private var catalogFailureCounts: [String: Int] = [:]
+    private let retryClock: any Clock<Duration>
 
     /// Creates a bridge over a source of machine links.
     ///
     /// Production passes the app's ``CloudSessionController``; tests pass a
     /// fake so attachment behavior is exercised without a tunnel.
+    /// - Parameter retryClock: Paces retries after a failed catalog read;
+    ///   tests inject a test clock.
     public init(
         links: any CloudMachineLinkProviding,
-        visibility: (any CloudMachineVisibilityStoring)? = nil
+        visibility: (any CloudMachineVisibilityStoring)? = nil,
+        retryClock: any Clock<Duration> = ContinuousClock()
     ) {
         self.links = links
         self.visibility = visibility
+        self.retryClock = retryClock
+    }
+
+    /// The wait before retrying a machine whose catalog read failed `failures`
+    /// times in a row: 5 s, doubling, capped at a minute. A machine that
+    /// cannot be reached keeps being retried at that pace while its tunnel
+    /// is up, so a transient control-plane or daemon failure heals on its own.
+    static func catalogRetryDelay(afterFailures failures: Int) -> Duration {
+        .seconds(min(5 << min(max(failures - 1, 0), 4), 60))
     }
 
     // MARK: Lifecycle
@@ -141,6 +156,11 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         }
         attachedSurfaceIDsByMachine = [:]
         pendingInputBySurfaceID = [:]
+        // Pending retries would only find no link; the tunnel coming back
+        // re-reads every catalog from a fresh start.
+        for task in catalogTasks.values { task.cancel() }
+        catalogTasks = [:]
+        catalogFailureCounts = [:]
         for machine in admittedMachines {
             publish(
                 machine: machine,
@@ -175,6 +195,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
             do {
                 let (workspaces, terminals) = try await connection.loadCatalog()
                 guard !Task.isCancelled else { return }
+                catalogFailureCounts.removeValue(forKey: machine.id)
                 publish(
                     machine: machine,
                     workspaces: workspaces,
@@ -194,6 +215,16 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
                     status: .unavailable,
                     isAuthoritative: false
                 )
+                let failures = (catalogFailureCounts[machine.id] ?? 0) + 1
+                catalogFailureCounts[machine.id] = failures
+                do {
+                    try await retryClock.sleep(for: Self.catalogRetryDelay(afterFailures: failures))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled,
+                      let current = admittedMachines.first(where: { $0.id == machine.id }) else { return }
+                refreshCatalog(for: current)
             }
         }
     }
@@ -395,7 +426,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         store.applyExternalHostWorkspaceState(
             CloudWorkspaceProjector(
                 machineID: machine.id,
-                displayName: machine.displayName
+                displayName: machine.preferredName
             ).hostState(
                 workspaces: [],
                 terminals: [],
@@ -416,7 +447,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         store.applyExternalHostWorkspaceState(
             CloudWorkspaceProjector(
                 machineID: machine.id,
-                displayName: machine.displayName
+                displayName: machine.preferredName
             ).hostState(
                 workspaces: workspaces,
                 terminals: terminals,
@@ -428,6 +459,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
 
     private func retire(machineID: String) {
         catalogTasks.removeValue(forKey: machineID)?.cancel()
+        catalogFailureCounts.removeValue(forKey: machineID)
         teardownAttachment(machineID: machineID)
         if let surfaceID = attachedSurfaceIDsByMachine.removeValue(forKey: machineID) {
             lastReportedGridBySurfaceID.removeValue(forKey: surfaceID)
@@ -447,6 +479,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
             teardownAttachment(machineID: machineID)
         }
         catalogTasks = [:]
+        catalogFailureCounts = [:]
         attachedSurfaceIDsByMachine = [:]
         lastReportedGridBySurfaceID = [:]
         pendingInputBySurfaceID = [:]

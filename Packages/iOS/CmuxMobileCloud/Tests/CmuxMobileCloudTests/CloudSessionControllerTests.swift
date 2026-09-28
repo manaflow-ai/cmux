@@ -220,6 +220,40 @@ import Testing
         #expect(service.calls.enroll.count == 2)
     }
 
+    @Test func aRefusedAttachIsVisibleAndARetryDialsFresh() async throws {
+        let service = FakeCloudVMService()
+        let machine = CloudMachine(id: "vm1", provider: "freestyle", status: "running")
+        service.machines = .success([machine])
+        service.attach = .failure(CloudAPIError.httpStatus(
+            502,
+            message: "Cloud VM service is temporarily unavailable.",
+            action: "Try again in a minute."
+        ))
+        let controller = makeController(service: service)
+        controller.setShellLease(true)
+        await settle { if case .ready = controller.tunnel { return true } else { return false } }
+
+        let connection = try #require(controller.connection(for: machine))
+        await #expect(throws: CloudAPIError.self) { _ = try await connection.loadCatalog() }
+        let failure = try #require(controller.connectionFailure(for: machine.id))
+        #expect(failure.kind == .controlPlane(status: 502))
+        #expect(failure.detail == "Cloud VM service is temporarily unavailable.")
+        #expect(failure.action == "Try again in a minute.")
+
+        let generation = controller.connectionRetryGeneration
+        controller.retryConnections()
+        #expect(controller.connectionRetryGeneration == generation + 1)
+        #expect(controller.connectionFailure(for: machine.id) == nil)
+        // The failed link was dropped, so the next read dials a new one.
+        let fresh = try #require(controller.connection(for: machine))
+        #expect(fresh !== connection)
+
+        service.attach = .success(CloudAttachEndpoint(route: "ws://[fd00::10]:1337/v1/link", session: "s1"))
+        _ = try await fresh.loadCatalog()
+        #expect(controller.connectionFailure(for: machine.id) == nil)
+        #expect(service.calls.attach.count == 2)
+    }
+
     @Test func signedOutIsClassified() async {
         let service = FakeCloudVMService()
         service.enrollment = .failure(CloudAPIError.notSignedIn)

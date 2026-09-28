@@ -137,10 +137,19 @@ public final class CloudMachineConnection {
         workspaces: [CloudWorkspaceSummary],
         terminals: [CloudTerminalSummary]
     ) {
-        let session = try await connectedSession()
-        async let workspaceRows = session.listWorkspaces()
-        async let terminalRows = session.listTerminals()
-        return try await (workspaceRows, terminalRows)
+        do {
+            let session = try await connectedSession()
+            async let workspaceRows = session.listWorkspaces()
+            async let terminalRows = session.listTerminals()
+            let catalog = try await (workspaceRows, terminalRows)
+            lastError = nil
+            return catalog
+        } catch {
+            if !(error is CancellationError) {
+                lastError = CloudSessionFailure.classify(error, stage: .link)
+            }
+            throw error
+        }
     }
 
     /// Close the link.

@@ -33,7 +33,10 @@ public struct CloudSectionView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(L10n.string("mobile.cloud.title", defaultValue: "Cloud"))
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { controller.refreshMachines() }
+        .refreshable {
+            controller.refreshMachines()
+            controller.retryConnections()
+        }
         .confirmationDialog(
             pendingDelete.map {
                 String(format: L10n.string("mobile.cloud.delete.titleFormat", defaultValue: "Delete %@?"), $0.preferredName)
@@ -118,6 +121,10 @@ public struct CloudSectionView: View {
                             failure: controller.lastMachineActionFailure?.machineID == machine.id
                                 ? controller.lastMachineActionFailure
                                 : nil,
+                            connectionFailure: machine.isRunning
+                                ? controller.connectionFailure(for: machine.id)
+                                : nil,
+                            retryConnection: { controller.retryConnections() },
                             pause: { Task { await controller.pauseMachine(machine) } },
                             resume: { Task { await controller.resumeMachine(machine) } },
                             requestDelete: { pendingDelete = machine }
@@ -274,6 +281,10 @@ struct CloudMachineRow: View {
     let isBusy: Bool
     /// The last lifecycle failure, when it hit this machine.
     let failure: CloudMachineActionFailure?
+    /// Why the machine's terminal service could not be reached, while it is
+    /// running but unreachable. The bridge keeps retrying on its own.
+    let connectionFailure: CloudSessionFailure?
+    let retryConnection: () -> Void
     let pause: () -> Void
     let resume: () -> Void
     let requestDelete: () -> Void
@@ -295,6 +306,19 @@ struct CloudMachineRow: View {
                         .font(.caption)
                         .foregroundStyle(.red)
                         .accessibilityIdentifier("CloudMachineActionFailure")
+                }
+                if let connectionFailure {
+                    Text(L10n.string(
+                        "mobile.cloud.machine.connectFailed",
+                        defaultValue: "Couldn't connect. Retrying automatically."
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .accessibilityIdentifier("CloudMachineConnectionFailure")
+                    Text(connectionReason(connectionFailure))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("CloudMachineConnectionReason")
                 }
             }
             Spacer(minLength: 0)
@@ -332,6 +356,14 @@ struct CloudMachineRow: View {
 
     @ViewBuilder
     private var actions: some View {
+        if connectionFailure != nil {
+            Button(action: retryConnection) {
+                Label(
+                    L10n.string("mobile.cloud.action.retryNow", defaultValue: "Try Again Now"),
+                    systemImage: "arrow.clockwise"
+                )
+            }
+        }
         if machine.lifecycle.canResume {
             Button(action: resume) {
                 Label(L10n.string("mobile.cloud.action.resume", defaultValue: "Resume"), systemImage: "play.circle")
@@ -370,6 +402,15 @@ struct CloudMachineRow: View {
         case .failed: return .red
         default: return .secondary
         }
+    }
+
+    /// The control plane writes its own user-facing reason for an attach it
+    /// refused; anything else gets the local copy for its kind.
+    private func connectionReason(_ failure: CloudSessionFailure) -> String {
+        guard case .controlPlane = failure.kind else { return failure.localizedMessage }
+        return [failure.detail, failure.action ?? ""]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     private func failureText(_ failure: CloudMachineActionFailure) -> String {

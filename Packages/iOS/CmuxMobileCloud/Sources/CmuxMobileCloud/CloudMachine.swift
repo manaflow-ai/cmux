@@ -62,10 +62,13 @@ public struct CloudMachine: Sendable, Equatable, Identifiable, Hashable {
         self.displayName = displayName
     }
 
-    /// The name to show: the label when set, otherwise the id.
+    /// The name to show everywhere a machine appears: the label when set,
+    /// otherwise the id shortened to its first eight characters after the
+    /// `vm-` prefix, which is what the control plane's ids share.
     public var preferredName: String {
         if let displayName, !displayName.isEmpty { return displayName }
-        return id
+        guard id.hasPrefix("vm-"), id.count > 11 else { return id }
+        return String(id.prefix(11))
     }
 
     /// Whether the provider reports the machine as running, which is the only

@@ -462,6 +462,14 @@ public struct CMUXMobileRootScene: View {
                 default: break
                 }
             }
+            .onChange(of: cloudSessionController?.connectionRetryGeneration) { _, _ in
+                // The user asked to try again; failed links were dropped, so
+                // re-reading each catalog dials them fresh.
+                guard let bridge = cloudWorkspaceBridge else { return }
+                for machine in bridge.admittedMachines {
+                    bridge.refreshCatalog(for: machine)
+                }
+            }
             .onChange(of: cloudSessionController?.tunnel) { _, phase in
                 // A catalog read attempted before the tunnel was up published
                 // the machine as reconnecting. Nothing else re-reads it, so

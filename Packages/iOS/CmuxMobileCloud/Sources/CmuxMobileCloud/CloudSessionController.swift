@@ -209,6 +209,27 @@ public final class CloudSessionController {
         reconcile()
     }
 
+    /// Why the last attempt to reach `machineID`'s terminal service failed,
+    /// or nil when it has not failed since it last succeeded.
+    public func connectionFailure(for machineID: String) -> CloudSessionFailure? {
+        connections[machineID]?.lastError
+    }
+
+    /// Bumped by ``retryConnections()``; the workspace bridge re-reads every
+    /// machine's catalog when it changes.
+    public private(set) var connectionRetryGeneration = 0
+
+    /// The user asked to try again: a failed tunnel re-enrolls, and every
+    /// machine whose link failed is re-dialed from scratch.
+    public func retryConnections() {
+        retryTunnel()
+        for (id, connection) in connections where connection.lastError != nil {
+            connection.close()
+            connections.removeValue(forKey: id)
+        }
+        connectionRetryGeneration &+= 1
+    }
+
     private var wantsTunnel: Bool { (sectionIsVisible || shellLeaseActive) && isForeground }
 
     private func reconcile() {
