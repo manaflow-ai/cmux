@@ -134,13 +134,13 @@ struct DictationTextCleanupTests {
         (" uh okay", " okay"),
     ])
     func dropsFillers(input: String, expected: String) {
-        #expect(DictationTextCleanup.cleaned(input) == expected)
+        #expect(input.removingDictationFillers == expected)
     }
 
     @Test func onlyAppliesToEnglish() {
-        #expect(DictationTextCleanup.supports(Locale(identifier: "en_GB")))
-        #expect(!DictationTextCleanup.supports(Locale(identifier: "pt_BR")))
-        #expect(!DictationTextCleanup.supports(Locale(identifier: "de_DE")))
+        #expect(Locale(identifier: "en_GB").supportsDictationFillerCleanup)
+        #expect(!Locale(identifier: "pt_BR").supportsDictationFillerCleanup)
+        #expect(!Locale(identifier: "de_DE").supportsDictationFillerCleanup)
     }
 }
 

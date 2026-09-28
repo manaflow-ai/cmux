@@ -23,6 +23,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.sendFeedback`
 - `shortcuts.bindings.showHideAllWindows`
 - `shortcuts.bindings.toggleFullScreen`
+- `shortcuts.bindings.toggleVoiceDictation`
 
 ## Tabs
 

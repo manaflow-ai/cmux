@@ -17,7 +17,7 @@ import WebKit
 ///
 /// When the target is an agent prompt (a terminal running a coding agent, or
 /// web content such as the agent chat composer) and the setting is on,
-/// spoken fillers are removed first (`DictationTextCleanup`).
+/// spoken fillers are removed first (`String.removingDictationFillers`).
 @MainActor
 final class VoiceDictationInsertionRouter: DictationTextInserting {
     private static let javaScriptEvaluationTimeout: TimeInterval = 2
@@ -186,7 +186,7 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
     /// `DictationTranscript` adds between segments.
     static func cleaned(_ delta: String) -> String {
         let body = delta.drop { $0 == " " }
-        let cleanedBody = DictationTextCleanup.cleaned(String(body))
+        let cleanedBody = String(body).removingDictationFillers
         guard !cleanedBody.isEmpty else { return "" }
         return String(delta.prefix(delta.count - body.count)) + cleanedBody
     }

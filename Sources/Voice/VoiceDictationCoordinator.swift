@@ -81,7 +81,7 @@ final class VoiceDictationCoordinator {
         let router = VoiceDictationInsertionRouter(
             focusedTerminalTarget: focusedTerminalTarget,
             cleanUpAgentPrompts: { [defaults] in
-                cleanupKey.value(in: defaults) && DictationTextCleanup.supports(dictationLocale())
+                cleanupKey.value(in: defaults) && dictationLocale().supportsDictationFillerCleanup
             }
         )
         let transcriberProvider = SystemSpeechTranscriberProvider()

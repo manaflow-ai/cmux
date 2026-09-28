@@ -8,24 +8,19 @@ import Foundation
 /// agent reads. Applied per finalized segment; each call is independent.
 ///
 /// ```swift
-/// DictationTextCleanup.cleaned("um so, uh, fix the build")  // "so, fix the build"
+/// "um so, uh, fix the build".removingDictationFillers  // "so, fix the build"
 /// ```
-public enum DictationTextCleanup {
+extension String {
     /// Fillers removed as whole words, case-insensitively. Words that are
     /// also units or real words ("mm", "er", "ah") are left alone.
-    static let fillers: Set<String> = [
+    static let dictationFillers: Set<String> = [
         "um", "umm", "uh", "uhh", "uhm", "erm", "hmm", "mhm",
     ]
 
-    /// Whether cleanup applies to dictation in `locale`. The filler list is
-    /// English: "um" is an article in Portuguese, for example.
-    public static func supports(_ locale: Locale) -> Bool {
-        locale.language.languageCode == .english
-    }
-
-    /// Returns `text` with fillers removed. Returns an empty string when the
-    /// segment was only fillers.
-    public static func cleaned(_ text: String) -> String {
+    /// This text with fillers removed; empty when the segment was only
+    /// fillers.
+    public var removingDictationFillers: String {
+        let text = self
         // Alternating runs: each word keeps the whitespace that preceded it.
         var pieces: [(space: Substring, word: Substring)] = []
         var index = text.startIndex
@@ -42,7 +37,7 @@ public enum DictationTextCleanup {
             let bare = piece.word.trimmingCharacters(in: .punctuationCharacters).lowercased()
             // "20 um" is more likely a misheard unit than a filler; keep it.
             let followsNumber = offset > 0 && pieces[offset - 1].word.last?.isNumber == true
-            guard fillers.contains(bare), !followsNumber else {
+            guard Self.dictationFillers.contains(bare), !followsNumber else {
                 kept.append((piece.space, String(piece.word)))
                 continue
             }
@@ -74,5 +69,13 @@ public enum DictationTextCleanup {
             .map { String($0.space) + $0.word }
             .joined()
             .replacingOccurrences(of: " ,", with: ",")
+    }
+}
+
+extension Locale {
+    /// Whether filler cleanup applies to dictation in this locale. The
+    /// filler list is English: "um" is an article in Portuguese, for example.
+    public var supportsDictationFillerCleanup: Bool {
+        language.languageCode == .english
     }
 }
