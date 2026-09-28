@@ -56,6 +56,15 @@ struct TerminalLinkOpenCoordinator {
     func open(_ request: TerminalLinkOpenRequest) -> Bool {
         log("link.openURL raw=\(request.rawValue)")
 
+        // Remote guests do not provide a user gesture. Stop before any file,
+        // browser, or external routing branch so a future branch cannot
+        // accidentally turn an automatic request into a local open. Returning
+        // false lets the guest print the URL for an explicit user click.
+        guard !request.isRemoteInitiated else {
+            log("link.openURL refused remote-initiated request before routing")
+            return false
+        }
+
         let trimmed = request.rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let container = containerResolver(request.sourceWorkspaceId, request.sourcePanelId)
         if !request.isLocalExport, let sourcePanelId = request.sourcePanelId, let container,
