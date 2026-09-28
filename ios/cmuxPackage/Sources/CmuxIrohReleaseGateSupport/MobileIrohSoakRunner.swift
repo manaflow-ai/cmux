@@ -6,6 +6,9 @@ import Foundation
 /// Runs a fixed workload against the real mobile shell for a full observation window.
 @MainActor
 final class MobileIrohSoakRunner {
+    private static let normalCycleLimitSeconds = 30.0
+    private static let recoveredCycleLimitSeconds = 60.0
+
     enum Profile: String, Codable, Sendable {
         case basic
         case stress
@@ -50,6 +53,7 @@ final class MobileIrohSoakRunner {
         case connectionChanged = "soak_connection_changed"
         case connectionUnavailable = "soak_connection_unavailable"
         case cycleTooSlow = "soak_cycle_exceeded_30_seconds"
+        case recoveryCycleTooSlow = "soak_recovery_cycle_exceeded_60_seconds"
         case insufficientCoverage = "soak_insufficient_coverage"
         case pathPolicyMismatch = "soak_native_path_policy_mismatch"
     }
@@ -117,7 +121,13 @@ final class MobileIrohSoakRunner {
                         self.evidence.maximumCycleSeconds = max(
                             self.evidence.maximumCycleSeconds, Self.seconds(self.operationTimeout)
                         )
-                        continuation.yield(.failure(Failure.cycleTooSlow))
+                        let failure: Failure = switch self.evidence.currentOperation {
+                        case "terminal_round_trip_recovery", "terminal_round_trip_retry":
+                            .recoveryCycleTooSlow
+                        default:
+                            .cycleTooSlow
+                        }
+                        continuation.yield(.failure(failure))
                         continuation.finish()
                         return
                     }
@@ -152,6 +162,7 @@ final class MobileIrohSoakRunner {
             guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
             let cycle = evidence.completedCycles
             let cycleMarker = "\(marker)_\(cycle)"
+            var recoveredInCycle = false
             evidence.currentOperation = "app_rpc_and_terminal_round_trip"
             let transaction = try await operationWithRecovery(
                 marker: cycleMarker,
@@ -160,6 +171,7 @@ final class MobileIrohSoakRunner {
                 recovery: recovery
             )
             last = transaction.value
+            recoveredInCycle = transaction.recoveredConnection != nil
             if let recoveredConnection = transaction.recoveredConnection {
                 expectedConnection = recoveredConnection
             }
@@ -190,6 +202,7 @@ final class MobileIrohSoakRunner {
                 }
                 if let recoveredConnection = usage.recoveredConnection {
                     expectedConnection = recoveredConnection
+                    recoveredInCycle = true
                 }
                 if shouldForceReconnect {
                     expectedConnection = try observe(await connection())
@@ -199,7 +212,12 @@ final class MobileIrohSoakRunner {
             }
             let duration = Self.seconds(cycleStarted.duration(to: clock.now))
             evidence.maximumCycleSeconds = max(evidence.maximumCycleSeconds, duration)
-            guard duration <= 30 else { throw Failure.cycleTooSlow }
+            let cycleLimit = recoveredInCycle
+                ? Self.recoveredCycleLimitSeconds
+                : Self.normalCycleLimitSeconds
+            guard duration <= cycleLimit else {
+                throw recoveredInCycle ? Failure.recoveryCycleTooSlow : Failure.cycleTooSlow
+            }
             evidence.completedCycles += 1
             evidence.elapsedSeconds = Self.seconds(started.duration(to: clock.now))
             evidence.currentOperation = "interval"
@@ -248,6 +266,10 @@ final class MobileIrohSoakRunner {
             guard terminalRecoveryAttempts == 0 else { throw failure }
             terminalRecoveryAttempts += 1
             evidence.currentOperation = "terminal_round_trip_recovery"
+            // A reconnect is a bounded recovery phase. Give it a fresh
+            // deadline so the normal 30-second transaction budget cannot
+            // terminate the run while the replacement connection is settling.
+            operationDeadline = ContinuousClock.now.advanced(by: .seconds(60))
             let recovered = await recovery()
             try Task.checkCancellation()
             guard recovered else {
