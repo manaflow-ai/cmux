@@ -1,0 +1,27 @@
+{
+  "tour": "voice-dictation-tour",
+  "head_sha": "9618e1b10a6ee31b6024d4e727914116c6baaba8",
+  "result": "passed",
+  "shots": [
+    {
+      "name": "03-tab-bar-with-mic",
+      "file": "03-tab-bar-with-mic.png"
+    },
+    {
+      "name": "12-hud-second-sentence",
+      "file": "12-hud-second-sentence.png"
+    },
+    {
+      "name": "22-palette-dictation-command",
+      "file": "22-palette-dictation-command.png"
+    },
+    {
+      "name": "34-settings-voice",
+      "file": "34-settings-voice.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36425344397",
+  "failures": [],
+  "frames": 11
+}
