@@ -71,11 +71,31 @@ describe("feedback route", () => {
     expect(await res.json()).toEqual({ error: "service_unavailable" });
     expect(sendEmail).not.toHaveBeenCalled();
   });
+
+  test("sends anonymous feedback without a reply-to when email is omitted", async () => {
+    const res = await POST(feedbackRequest(null));
+
+    expect(res.status).toBe(200);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    const sent = (sendEmail.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+    expect(sent.replyTo).toBeUndefined();
+    expect(sent.subject).toStartWith("cmux feedback from anonymous");
+    expect(sent.text).toContain("From: anonymous");
+  });
+
+  test("still rejects a malformed email", async () => {
+    const res = await POST(feedbackRequest("not-an-email"));
+
+    expect(res.status).toBe(400);
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
 });
 
-function feedbackRequest(): Request {
+function feedbackRequest(email: string | null = "user@example.test"): Request {
   const form = new FormData();
-  form.set("email", "user@example.test");
+  if (email !== null) {
+    form.set("email", email);
+  }
   form.set("message", "The app crashed while opening a workspace.");
   return new Request("https://cmux.test/api/feedback", {
     method: "POST",
