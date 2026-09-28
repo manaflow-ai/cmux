@@ -148,6 +148,29 @@ describe("agent updates workflows", () => {
     expect(h.execs).toHaveLength(0);
   });
 
+  test("an opted-in create starts the updater after the response", async () => {
+    // The create response carries the first connection, so no later attach
+    // is guaranteed; without this a new machine kept its image's agents.
+    const create = (agentUpdates: "latest" | undefined, h: ReturnType<typeof harness>) => Effect.runPromise(createVm({
+      userId: "user-agents",
+      billingCustomerType: "team",
+      billingTeamId: "team-agents",
+      billingPlanId: "pro",
+      maxActiveVms: 50,
+      provider: "freestyle",
+      image: "snapshot-test",
+      ...(agentUpdates ? { agentUpdates } : {}),
+      deferAfterResponse: h.deferAfterResponse,
+    }).pipe(Effect.provide(h.layer)));
+    const updater = guestAgentUpdatesCommand("latest");
+
+    const opted = harness();
+    await create("latest", opted);
+    expect(opted.execs).not.toContain(updater);
+    for (const work of opted.deferred) await Effect.runPromise(work);
+    expect(opted.execs.filter((command) => command === updater)).toHaveLength(1);
+  });
+
   test("create stores the opt-in on the new row", async () => {
     const h = harness();
     const entry = await Effect.runPromise(createVm({
