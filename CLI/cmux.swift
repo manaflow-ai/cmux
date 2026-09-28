@@ -7092,6 +7092,9 @@ struct CMUXCLI {
         case "current":
             try runCurrentCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "agents":
+            try runAgentsCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
         case "tree":
             try runTreeCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, preserveStableWorkspaceIDs: preservesStableIDsByDefault)
 
@@ -19764,6 +19767,8 @@ struct CMUXCLI {
             return Self.glaedaUsage
         case "current":
             return CurrentCommand.usage
+        case "agents":
+            return AgentsCommand.usage
         case "tree":
             return """
             Usage: cmux tree [flags]

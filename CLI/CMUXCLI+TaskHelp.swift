@@ -201,6 +201,7 @@ extension CMUXCLI {
 
     private var agentsCommandsHelp: String {
         return """
+        agents [ls|open <name>] [--all] [--state <state>] [--json]
         agent-hibernation <on|off>
         claude-teams [claude-args...]
         codex-teams [codex-args...]
