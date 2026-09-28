@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
+          "tabBarVisibility": "Bir bölmenin sekme çubuğunu ne zaman çizeceğini belirler. \"always\", tek sekmesi olan bir bölmede bile çizer; \"multiple-tabs\", bölmede tek sekme varken gizler ve ikinci sekme açılır açılmaz çizer. Minimal mod (app.minimalMode) her zaman çizer, çünkü orada en üstteki bölmenin sekme çubuğu aynı zamanda pencerenin başlık çubuğudur.",
           "forkConversationDefaultDestination": "Sekme bağlam menüsündeki birincil Fork Conversation eylemi için varsayılan hedef. Alt menü tüm hedefleri göstermeye devam eder.",
           "globalFontMagnification": "cmux'un kendi çizdiği her şey için yüzde cinsinden yakınlaştırma: terminal metni, sekme başlıkları, kenar çubukları, Settings, katmanlar ve pencere çerçevesi. Tarayıcı yüzeylerindeki web sayfaları kendi boyutlarını korur."
         },
