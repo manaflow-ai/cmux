@@ -49,8 +49,17 @@ public struct TerminalGitHubReferenceDetector: Sendable {
     /// Characters stripped from the end of a token before matching.
     private static let trailingTrim = Set(")]}>'\"`*_,.;:!?")
 
-    /// Git abbreviates to 7 characters by default and never exceeds 40.
-    private static let shaLengthRange = 7...40
+    /// Abbreviated SHAs only, until commit existence is checked against the
+    /// repository.
+    ///
+    /// Git abbreviates to 7 characters and grows the prefix as a repository
+    /// gets larger, so 12 covers even very large repositories. The full 40 is
+    /// deliberately excluded: it is character-for-character what `sha1sum`
+    /// prints, and 32 is what `md5sum` and a dashless UUID print, so accepting
+    /// those lengths turns ordinary checksum output into a link to a commit
+    /// that does not exist. Those lengths come back once a candidate is
+    /// verified against the pane's repository.
+    private static let shaLengthRange = 7...12
     /// GitHub issue numbers stay well inside nine digits.
     private static let maxIssueNumberDigits = 9
 
@@ -240,6 +249,9 @@ public struct TerminalGitHubReferenceDetector: Sendable {
     /// letters is far more likely to be a word such as `deadbeef`. This drops a
     /// small share of genuine short SHAs in exchange for not sending clicks on
     /// numbers and words to GitHub.
+    ///
+    /// Length is bounded to the abbreviated range as well, so checksum output
+    /// is not mistaken for a commit. See ``shaLengthRange``.
     private func isCommitSHA(_ token: String) -> Bool {
         guard Self.shaLengthRange.contains(token.count) else { return false }
         var sawDigit = false

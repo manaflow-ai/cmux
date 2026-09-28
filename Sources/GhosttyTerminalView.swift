@@ -8932,9 +8932,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                   terminalSurface: termSurface
               ) else { return }
 
+        // The pane the click landed in, captured now. A portal can detach the
+        // runtime and a pane can be reassigned while git is being read, and
+        // opening the link against whatever pane this view points at by then
+        // would split the wrong one.
+        let clickedPanelId = termSurface.id
+        let clickedWorkspaceId = tabId
+
         Task { @MainActor [weak self] in
             guard let slug = await GitHubRepositorySlugCache.shared.slug(forDirectory: cwd),
                   let self,
+                  self.terminalSurface?.id == clickedPanelId,
+                  self.tabId == clickedWorkspaceId,
                   let reference = TerminalGitHubReferenceDetector().reference(
                       inVisibleLine: line,
                       column: column,

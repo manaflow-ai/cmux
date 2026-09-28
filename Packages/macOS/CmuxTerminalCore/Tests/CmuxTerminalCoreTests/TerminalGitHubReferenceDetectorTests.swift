@@ -57,9 +57,29 @@ import Testing
         #expect(reference?.url.absoluteString == "https://github.com/manaflow-ai/cmux/commit/a1b2c3d")
     }
 
-    @Test func fullLengthShaIsAccepted() {
-        let sha = "528c5a870dc1f0e2b3a4c5d6e7f8091a2b3c4d5e"
-        #expect(detector.reference(inToken: sha, repositorySlug: slug)?.kind == .commit(sha: sha))
+    /// `sha1sum` prints exactly 40 hex characters and `md5sum` exactly 32, so
+    /// an unverified run of either length is at least as likely to be checksum
+    /// output as a commit. Cmd-clicking a checksum used to open a commit page
+    /// for a commit that does not exist.
+    @Test func checksumLengthHexRunsAreNotTreatedAsShas() {
+        // `md5sum build.tar`
+        #expect(detector.reference(
+            inToken: "d41d8cd98f00b204e9800998ecf8427e", repositorySlug: slug) == nil)
+        // `sha1sum build.tar`, and the same length as a full commit SHA.
+        #expect(detector.reference(
+            inToken: "528c5a870dc1f0e2b3a4c5d6e7f8091a2b3c4d5e", repositorySlug: slug) == nil)
+        // A dashless UUID out of a service log.
+        #expect(detector.reference(
+            inToken: "9b2c4e6a8d0f1234567890abcdef1234", repositorySlug: slug) == nil)
+    }
+
+    /// Git grows the abbreviation as a repository gets bigger; 12 covers even
+    /// very large ones.
+    @Test func abbreviatedShasAcrossTheAcceptedLengthsResolve() {
+        for sha in ["a1b2c3d", "a1b2c3d4", "a1b2c3d4e5f6"] {
+            #expect(detector.reference(inToken: sha, repositorySlug: slug)?.kind
+                == .commit(sha: sha))
+        }
     }
 
     /// A 7+ char hex run that is all digits or all letters is far more likely to
@@ -73,6 +93,7 @@ import Testing
 
     @Test func shortHexAndNonHexAreNotShas() {
         #expect(detector.reference(inToken: "a1b2c3", repositorySlug: slug) == nil)
+        #expect(detector.reference(inToken: "a1b2c3d4e5f6a", repositorySlug: slug) == nil)
         #expect(detector.reference(inToken: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c", repositorySlug: slug) == nil)
         #expect(detector.reference(inToken: "a1b2c3g", repositorySlug: slug) == nil)
         #expect(detector.reference(inToken: "A1B2C3D", repositorySlug: slug) == nil)
@@ -143,8 +164,16 @@ import Testing
 private extension String {
     /// The zero-based column where `needle` starts, for pointing the detector at
     /// a token the way a click does.
-    func distance(to needle: String) -> Int {
-        guard let range = range(of: needle) else { return -1 }
+    /// The column of `needle` in this line.
+    ///
+    /// Traps rather than returning a sentinel when the needle is absent: a
+    /// sentinel column lands outside the line, which makes every negative
+    /// assertion using it pass for the wrong reason.
+    func distance(to needle: String, sourceLocation: SourceLocation = #_sourceLocation) -> Int {
+        guard let range = range(of: needle) else {
+            Issue.record("fixture does not contain \(needle)", sourceLocation: sourceLocation)
+            return 0
+        }
         return distance(from: startIndex, to: range.lowerBound)
     }
 }
