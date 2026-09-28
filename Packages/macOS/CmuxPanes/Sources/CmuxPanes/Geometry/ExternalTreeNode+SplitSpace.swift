@@ -24,7 +24,9 @@ extension ExternalTreeNode {
     /// gives each of its slots an equal share. The split fits after
     /// equalizing when each slot's share still covers what the slot needs.
     /// A slot that is itself split across the axis needs the most its
-    /// children need; same-axis splits nested behind it need their sum.
+    /// children need. Equalizing leaves same-axis splits nested behind it
+    /// alone, so they keep their divider position and need enough room for
+    /// each side at that proportion.
     ///
     /// Frames of zero extent mean the layout has not been measured yet, so
     /// the split is allowed rather than refused on unknown geometry.
@@ -119,9 +121,9 @@ extension ExternalTreeNode {
                 minimumExtent: minimumExtent,
                 dividerThickness: dividerThickness
             )
-            return splitNode.orientation == orientation
-                ? first + second + dividerThickness
-                : max(first, second)
+            guard splitNode.orientation == orientation else { return max(first, second) }
+            let position = min(max(splitNode.dividerPosition, 0.01), 0.99)
+            return max(first / position, second / (1 - position)) + dividerThickness
         }
     }
 

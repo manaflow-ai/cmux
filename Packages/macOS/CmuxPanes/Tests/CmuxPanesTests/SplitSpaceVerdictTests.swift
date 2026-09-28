@@ -111,6 +111,25 @@ struct SplitSpaceVerdictTests {
         #expect(verdict(crowded, splitting: "d", "horizontal", minimum: 90) == .noSpace)
     }
 
+    @Test func aNestedSplitKeepsItsProportionWhenTheRunEqualizes() {
+        // a | S | d in 1400 pt, where S stacks (b | x at 0.6) over c. Equal
+        // thirds give S about 466 pt, but x keeps 40% of S, so x needs S to
+        // be 400 pt for a 160 pt minimum; a fourth slot (349 pt) would leave
+        // x at 140 pt.
+        let nested = ExternalTreeNode.split(ExternalSplitNode(
+            id: UUID().uuidString,
+            orientation: "horizontal",
+            dividerPosition: 0.6,
+            first: pane("b", x: 700, y: 0, width: 240, height: 430),
+            second: pane("x", x: 940, y: 0, width: 160, height: 430)
+        ))
+        let slot = split("vertical", nested, pane("c", x: 700, y: 430, width: 400, height: 430))
+        let tree = split("horizontal",
+                         pane("a", x: 0, y: 0, width: 700, height: 860),
+                         split("horizontal", slot, pane("d", x: 1100, y: 0, width: 300, height: 860)))
+        #expect(verdict(tree, splitting: "d", "horizontal", minimum: 160) == .noSpace)
+    }
+
     @Test func anUnmeasuredLayoutAllowsTheSplit() {
         let tree = split("vertical", pane("a", y: 0, height: 0), pane("b", y: 0, height: 0))
         #expect(verdict(tree, splitting: "b") == .fits)

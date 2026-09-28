@@ -8945,11 +8945,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault, autoLayout: autoLayout
         ) else { return .failed }
-        finishSplitSpaceBorrow(
-            newPanelId: panel.id,
-            orientation: orientation,
-            explicitDividerPosition: initialDividerPosition
-        )
+        if !autoLayout {
+            finishSplitSpaceBorrow(
+                newPanelId: panel.id,
+                orientation: orientation,
+                explicitDividerPosition: initialDividerPosition
+            )
+        }
         return .created(panel)
     }
 
