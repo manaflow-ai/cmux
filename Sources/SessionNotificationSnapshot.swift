@@ -9,6 +9,8 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     var createdAt: TimeInterval
     var isRead: Bool
     var paneFlash: Bool?
+    /// Optional so snapshots written before the flag existed still decode.
+    var isAgentEvent: Bool?
     var retargetsToLiveSurfaceOwner: Bool?
     var correlationKey: String?
     var scrollPosition: TerminalNotificationScrollPosition?
@@ -56,6 +58,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             body: notification.body,
             createdAt: notification.createdAt.timeIntervalSince1970,
             isRead: notification.isRead,
+            isAgentEvent: notification.isAgentEvent,
             paneFlash: notification.paneFlash,
             retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
             correlationKey: notification.correlationKey,
@@ -81,6 +84,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             body: body,
             createdAt: Date(timeIntervalSince1970: createdAt),
             isRead: isRead,
+            isAgentEvent: isAgentEvent ?? false,
             paneFlash: paneFlash ?? true,
             scrollPosition: restoredScrollPosition,
             clickAction: clickAction,
