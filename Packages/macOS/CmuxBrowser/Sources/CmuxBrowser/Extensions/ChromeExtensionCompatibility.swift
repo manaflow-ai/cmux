@@ -17,7 +17,11 @@ public import Foundation
 /// - Chrome enum constants WebKit leaves out (`chrome.scripting.ExecutionWorld`,
 ///   `chrome.runtime.ContextType`, ...) are defined;
 /// - the patched namespace objects are kept alive, since WebKit may otherwise
-///   collect a wrapper and hand out a fresh one without the constants.
+///   collect a wrapper and hand out a fresh one without the constants;
+/// - Chrome namespaces WebKit lacks (`notifications`, `downloads`, `idle`,
+///   `management`, `privacy`, `storage.managed`, and missing `webRequest` and
+///   `webNavigation` events) exist as inert stand-ins, so a worker that reads
+///   them at startup keeps running.
 ///
 /// It adds no capability: no native bridge, no new API, nothing visible to
 /// websites, and the HTTP user agent is unchanged.
@@ -74,6 +78,117 @@ public enum ChromeExtensionCompatibility {
           define("windows", "WindowType", { NORMAL: "normal", POPUP: "popup", PANEL: "panel", APP: "app", DEVTOOLS: "devtools" });
           define("contextMenus", "ContextType", { ALL: "all", PAGE: "page", FRAME: "frame", SELECTION: "selection", LINK: "link", EDITABLE: "editable", IMAGE: "image", VIDEO: "video", AUDIO: "audio", LAUNCHER: "launcher", BROWSER_ACTION: "browser_action", PAGE_ACTION: "page_action", ACTION: "action" });
           define("offscreen", "Reason", { CLIPBOARD: "CLIPBOARD", DOM_PARSER: "DOM_PARSER", LOCAL_STORAGE: "LOCAL_STORAGE", WORKERS: "WORKERS", BLOBS: "BLOBS" });
+        })();
+        // Chrome namespaces and events WebKit leaves out. Extensions read
+        // them at startup (1Password's worker stops on
+        // chrome.notifications.onClicked), so they exist here: events accept
+        // listeners and never fire, queries answer empty, and actions fail
+        // with "not available in cmux". Nothing here reaches native code.
+        (function () {
+          var api = (typeof chrome !== "undefined" && chrome) || (typeof browser !== "undefined" && browser);
+          if (!api) return;
+          var keep = (globalThis.__cmuxCompatNamespaces = globalThis.__cmuxCompatNamespaces || []);
+          function event() {
+            var listeners = [];
+            return {
+              addListener: function (f) { if (typeof f === "function" && listeners.indexOf(f) < 0) listeners.push(f); },
+              removeListener: function (f) { var i = listeners.indexOf(f); if (i >= 0) listeners.splice(i, 1); },
+              hasListener: function (f) { return listeners.indexOf(f) >= 0; },
+              hasListeners: function () { return listeners.length > 0; }
+            };
+          }
+          function unavailable(what) {
+            return function () {
+              var args = Array.prototype.slice.call(arguments);
+              var callback = args.length && typeof args[args.length - 1] === "function" ? args.pop() : null;
+              var error = new Error(what + " is not available in cmux");
+              if (!callback) return Promise.reject(error);
+              try { Object.defineProperty(api.runtime, "lastError", { value: { message: error.message }, configurable: true }); } catch (e) {}
+              try { callback(); } finally { try { delete api.runtime.lastError; } catch (e) {} }
+            };
+          }
+          function answer(value) {
+            return function () {
+              var args = Array.prototype.slice.call(arguments);
+              var callback = args.length && typeof args[args.length - 1] === "function" ? args.pop() : null;
+              if (callback) { callback(value); return; }
+              return Promise.resolve(value);
+            };
+          }
+          function put(target, name, value) {
+            try { Object.defineProperty(target, name, { value: value, configurable: true, writable: true, enumerable: true }); } catch (e) {}
+          }
+          function define(name, build) {
+            var ns = api[name];
+            if (!ns) { ns = {}; put(api, name, ns); }
+            if (typeof browser !== "undefined" && browser && browser !== api && !browser[name]) put(browser, name, ns);
+            if (keep.indexOf(ns) < 0) keep.push(ns);
+            var parts = build();
+            var proto = Object.getPrototypeOf(ns);
+            Object.keys(parts).forEach(function (key) {
+              if (ns[key] !== undefined) return;
+              if (proto && proto !== Object.prototype) put(proto, key, parts[key]);
+              if (ns[key] === undefined) put(ns, key, parts[key]);
+            });
+          }
+          function events(names) { var o = {}; names.forEach(function (n) { o[n] = event(); }); return o; }
+          function methods(space, names) { var o = {}; names.forEach(function (n) { o[n] = unavailable("chrome." + space + "." + n); }); return o; }
+          function merge() { var o = {}; Array.prototype.forEach.call(arguments, function (p) { Object.keys(p).forEach(function (k) { o[k] = p[k]; }); }); return o; }
+          function setting() {
+            return { get: answer({ value: false, levelOfControl: "not_controllable" }), set: unavailable("Changing this setting"), clear: unavailable("Changing this setting"), onChange: event() };
+          }
+
+          define("notifications", function () { return merge(
+            methods("notifications", ["create", "update"]),
+            { clear: answer(false), getAll: answer({}), getPermissionLevel: answer("denied"),
+              TemplateType: { BASIC: "basic", IMAGE: "image", LIST: "list", PROGRESS: "progress" },
+              PermissionLevel: { GRANTED: "granted", DENIED: "denied" } },
+            events(["onClicked", "onClosed", "onButtonClicked", "onPermissionLevelChanged", "onShowSettings"])); });
+          define("downloads", function () { return merge(
+            methods("downloads", ["download", "pause", "resume", "cancel", "open", "show", "showDefaultFolder", "erase", "removeFile", "getFileIcon", "acceptDanger", "setUiOptions"]),
+            { search: answer([]) },
+            events(["onCreated", "onChanged", "onErased", "onDeterminingFilename"])); });
+          define("idle", function () { return merge(
+            { queryState: answer("active"), setDetectionInterval: function () {}, getAutoLockDelay: answer(0),
+              IdleState: { ACTIVE: "active", IDLE: "idle", LOCKED: "locked" } },
+            events(["onStateChanged"])); });
+          define("management", function () { return merge(
+            methods("management", ["get", "setEnabled", "uninstall", "uninstallSelf", "launchApp", "createAppShortcut", "setLaunchType", "generateAppForLink", "getPermissionWarningsById", "getPermissionWarningsByManifest"]),
+            { getAll: answer([]) },
+            events(["onInstalled", "onUninstalled", "onEnabled", "onDisabled"])); });
+          define("privacy", function () {
+            var group = function (names) { var o = {}; names.forEach(function (n) { o[n] = setting(); }); return o; };
+            return {
+              services: group(["alternateErrorPagesEnabled", "autofillAddressEnabled", "autofillCreditCardEnabled", "autofillEnabled", "passwordSavingEnabled", "safeBrowsingEnabled", "safeBrowsingExtendedReportingEnabled", "searchSuggestEnabled", "spellingServiceEnabled", "translationServiceEnabled"]),
+              network: group(["networkPredictionEnabled", "webRTCIPHandlingPolicy"]),
+              websites: group(["adMeasurementEnabled", "doNotTrackEnabled", "fledgeEnabled", "hyperlinkAuditingEnabled", "protectedContentEnabled", "referrersEnabled", "relatedWebsiteSetsEnabled", "thirdPartyCookiesAllowed", "topicsEnabled"])
+            };
+          });
+          define("webRequest", function () { return merge(
+            { handlerBehaviorChanged: answer(undefined), MAX_HANDLER_BEHAVIOR_CHANGED_CALLS_PER_10_MINUTES: 20 },
+            events(["onBeforeRequest", "onBeforeSendHeaders", "onSendHeaders", "onHeadersReceived", "onAuthRequired", "onResponseStarted", "onBeforeRedirect", "onCompleted", "onErrorOccurred", "onActionIgnored"])); });
+          define("contextMenus", function () {
+            var menus = api.menus;
+            if (menus) return { create: menus.create && menus.create.bind(menus), update: menus.update && menus.update.bind(menus), remove: menus.remove && menus.remove.bind(menus), removeAll: menus.removeAll && menus.removeAll.bind(menus), onClicked: menus.onClicked, ACTION_MENU_TOP_LEVEL_LIMIT: 6 };
+            return merge(methods("contextMenus", ["create", "update", "remove", "removeAll"]), events(["onClicked"]));
+          });
+          define("webNavigation", function () { return merge(
+            { getFrame: answer(null), getAllFrames: answer([]) },
+            events(["onBeforeNavigate", "onCommitted", "onDOMContentLoaded", "onCompleted", "onErrorOccurred", "onCreatedNavigationTarget", "onReferenceFragmentUpdated", "onTabReplaced", "onHistoryStateUpdated"])); });
+          // Enterprise policy storage: cmux sets no policies, so it is empty.
+          var managed = merge(
+            { get: answer({}), getBytesInUse: answer(0), set: unavailable("chrome.storage.managed.set"), remove: unavailable("chrome.storage.managed.remove"), clear: unavailable("chrome.storage.managed.clear") },
+            events(["onChanged"]));
+          [typeof chrome !== "undefined" && chrome, typeof browser !== "undefined" && browser].forEach(function (root) {
+            var storage = root && root.storage;
+            if (!storage || storage.managed) return;
+            if (keep.indexOf(storage) < 0) keep.push(storage);
+            var proto = Object.getPrototypeOf(storage);
+            if (proto && proto !== Object.prototype) put(proto, "managed", managed);
+            if (!storage.managed) put(storage, "managed", managed);
+          });
+          define("offscreen", function () { return merge(
+            methods("offscreen", ["createDocument", "closeDocument"]), { hasDocument: answer(false) }); });
         })();
         """
     }
