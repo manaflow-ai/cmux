@@ -81,6 +81,8 @@ class InstallGitHooksTests(unittest.TestCase):
         ):
             command = self.git("config", "--get", key).stdout.strip()
             words = shlex.split(command)
+            self.assertTrue(Path(words[0]).is_absolute())
+            self.assertFalse(Path(words[0]).resolve().is_relative_to(self.repo.resolve()))
             self.assertEqual(Path(words[1]).resolve(), (installed / name).resolve())
             self.assertEqual(words[2:], ["%O", "%A", "%B", "%P"])
             self.assertNotIn(f"scripts/{name}", command)
@@ -105,6 +107,24 @@ class InstallGitHooksTests(unittest.TestCase):
 
         self.assertEqual(installed_driver.read_bytes(), reviewed)
         self.assertNotEqual(installed_driver.resolve(), (self.repo / "scripts" / "merge-pbxproj.py").resolve())
+
+    def test_repo_relative_python_is_rejected_without_execution(self):
+        tools = self.repo / "tools"
+        tools.mkdir()
+        marker = self.root / "untrusted-python-ran"
+        fake_python = tools / "python3"
+        fake_python.write_text(
+            f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\n",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+        self.env["PATH"] = f"tools:{self.env['PATH']}"
+
+        result = self.install()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("python3 must resolve to an absolute executable", result.stderr)
+        self.assertFalse(marker.exists())
 
     def test_global_hooks_path_warns_and_succeeds(self):
         global_hooks = self.root / "global-hooks"

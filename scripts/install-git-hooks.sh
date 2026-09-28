@@ -76,7 +76,18 @@ install -m 0755 scripts/merge-xcstrings.py "$MERGE_DRIVER_DIR/merge-xcstrings.py
 install -m 0755 scripts/merge-pbxproj.py "$MERGE_DRIVER_DIR/merge-pbxproj.py"
 install -m 0644 scripts/ci/catch_up_pr.py "$MERGE_DRIVER_DIR/ci/catch_up_pr.py"
 install -m 0755 scripts/normalize-pbxproj.py "$MERGE_DRIVER_DIR/normalize-pbxproj.py"
-PYTHON3_BIN="$(command -v python3)"
+PYTHON3_BIN="$(command -v python3 || true)"
+if [[ -z "$PYTHON3_BIN" || "$PYTHON3_BIN" != /* ]]; then
+    echo "error: python3 must resolve to an absolute executable outside the checkout." >&2
+    exit 1
+fi
+PYTHON3_BIN="$(/bin/realpath "$PYTHON3_BIN")"
+case "$PYTHON3_BIN" in
+    "$REPO_ROOT"|"$REPO_ROOT"/*)
+        echo "error: python3 resolves inside the checkout; refusing to install an untrusted merge interpreter." >&2
+        exit 1
+        ;;
+esac
 printf -v XCSTRINGS_DRIVER '%q %q %%O %%A %%B %%P' \
     "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-xcstrings.py"
 printf -v PBXPROJ_DRIVER '%q %q %%O %%A %%B %%P' \
