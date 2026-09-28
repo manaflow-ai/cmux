@@ -67,6 +67,36 @@ final class CmuxEventSequenceStoreTests: XCTestCase {
         XCTAssertEqual(replay.replay.compactMap { CmuxEventBus.int64($0["seq"]) }, [1, 101])
     }
 
+    func testDuplicateReplayPreservesFollowingUniqueSequence() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-sequence-rebase-order-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let records: [[String: Any]] = [
+            ["type": "event", "seq": 1, "name": "first"],
+            ["type": "event", "seq": 1, "name": "duplicate"],
+            ["type": "event", "seq": 2, "name": "unique"]
+        ]
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let lines = try records.map { try XCTUnwrap(CmuxEventBus.encodeLine($0)) }.joined(separator: "\n") + "\n"
+        try lines.write(to: logURL, atomically: true, encoding: .utf8)
+
+        let bus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL)
+        await bus.waitUntilRestored()
+        let replay = bus.subscribe(afterSequence: 0, names: [], categories: [])
+        defer { bus.unsubscribe(replay.subscription) }
+
+        let sequencesByName = Dictionary(uniqueKeysWithValues: replay.replay.compactMap { event in
+            guard let name = event["name"] as? String else { return nil }
+            guard let sequence = CmuxEventBus.int64(event["seq"]) else { return nil }
+            return (name, sequence)
+        })
+        XCTAssertEqual(sequencesByName["first"], Int64(1))
+        XCTAssertEqual(sequencesByName["unique"], Int64(2))
+        XCTAssertEqual(sequencesByName["duplicate"], Int64(3))
+    }
+
     func testSequenceStoresSharingFileLeaseUniqueRanges() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-sequence-shared-\(UUID().uuidString)", isDirectory: true)

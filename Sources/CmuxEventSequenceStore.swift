@@ -51,7 +51,16 @@ final class CmuxEventSequenceStore: @unchecked Sendable {
             return sequence
         }
 
-        return reserveRange(minimum: minimum)
+        guard let range = reserveRange(count: blockSize, minimum: minimum) else { return nil }
+        nextSequence = range.start == Int64.max ? 0 : range.start + 1
+        reservedThrough = range.end
+        return range.start
+    }
+
+    /// Reserves an exact range for recovery rebasing under the sidecar lock.
+    func reserve(count: Int, minimum: Int64 = 0) -> (start: Int64, end: Int64)? {
+        guard count > 0 else { return nil }
+        return reserveRange(count: Int64(count), minimum: minimum)
     }
 
 #if DEBUG
@@ -62,22 +71,20 @@ final class CmuxEventSequenceStore: @unchecked Sendable {
     }
 #endif
 
-    private func reserveRange(minimum: Int64) -> Int64? {
+    private func reserveRange(count: Int64, minimum: Int64) -> (start: Int64, end: Int64)? {
         withFileLock {
             let current = readState()
             let floor = max(current, minimum)
             guard floor < Int64.max else { return nil }
             let start = floor + 1
-            let (end, overflow) = start.addingReportingOverflow(blockSize - 1)
+            let (end, overflow) = start.addingReportingOverflow(count - 1)
             guard start > 0, !overflow, end >= start else { return nil }
             do {
                 try writeState(end)
             } catch {
                 return nil
             }
-            nextSequence = start == Int64.max ? 0 : start + 1
-            reservedThrough = end
-            return start
+            return (start: start, end: end)
         } ?? nil
     }
 

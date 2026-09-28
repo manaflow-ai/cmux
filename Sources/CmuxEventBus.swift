@@ -711,27 +711,49 @@ final class CmuxEventBus: @unchecked Sendable {
         }
 
         var loaded = segments.flatMap { $0 }
-        let persistedHighWater = CmuxEventSequenceStore(eventLogURL: eventLogURL).current()
+        let sequenceStore = CmuxEventSequenceStore(eventLogURL: eventLogURL)
+        let persistedHighWater = sequenceStore.current()
+        var originalSequences = Set<Int64>()
+        var duplicateCount = 0
+        var originalMaximum: Int64 = 0
+        for event in loaded {
+            guard let sequence = int64(event["seq"]) else { continue }
+            if !originalSequences.insert(sequence).inserted {
+                duplicateCount += 1
+            }
+            originalMaximum = max(originalMaximum, sequence)
+        }
+        let rebaseRange = duplicateCount > 0
+            ? sequenceStore.reserve(count: duplicateCount, minimum: max(originalMaximum, persistedHighWater))
+            : nil
+        var normalizedEvents: [[String: Any]] = []
         var seenSequences = Set<Int64>()
         var highestSequence: Int64 = 0
-        var rebaseFloor = persistedHighWater
-        for index in loaded.indices {
-            guard let originalSequence = int64(loaded[index]["seq"]) else { continue }
+        var nextRebaseSequence = rebaseRange?.start
+        for var event in loaded {
+            guard let originalSequence = int64(event["seq"]) else { continue }
             let normalizedSequence: Int64
             if seenSequences.contains(originalSequence) {
-                rebaseFloor = max(rebaseFloor, highestSequence) + 1
-                normalizedSequence = rebaseFloor
+                guard let rebaseSequence = nextRebaseSequence else {
+                    gap = true
+                    needsRewrite = true
+                    continue
+                }
+                normalizedSequence = rebaseSequence
+                nextRebaseSequence = rebaseSequence < Int64.max ? rebaseSequence + 1 : nil
             } else {
                 normalizedSequence = originalSequence
             }
             if normalizedSequence != originalSequence {
-                loaded[index]["legacy_seq"] = NSNumber(value: originalSequence)
-                loaded[index]["seq"] = NSNumber(value: normalizedSequence)
+                event["legacy_seq"] = NSNumber(value: originalSequence)
+                event["seq"] = NSNumber(value: normalizedSequence)
                 needsRewrite = true
             }
+            normalizedEvents.append(event)
             seenSequences.insert(normalizedSequence)
             highestSequence = max(highestSequence, normalizedSequence)
         }
+        loaded = normalizedEvents
 
         loaded.sort { lhs, rhs in
             (int64(lhs["seq"]) ?? 0) < (int64(rhs["seq"]) ?? 0)
