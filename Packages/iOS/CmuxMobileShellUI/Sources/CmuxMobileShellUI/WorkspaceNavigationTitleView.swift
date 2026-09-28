@@ -15,11 +15,11 @@ final class WorkspaceNavigationTitleView: UIView {
     // leading/trailing treatment as the original toolbar. The hosted label
     // remains a centered 36-point content slot inside that chrome.
     private static let capsuleLeadingInset: CGFloat = 0
-    private static let capsuleTrailingInset: CGFloat = 10
+    private static let capsuleTrailingInset: CGFloat = 6
     private static let contentHorizontalInset: CGFloat = 10
     private static let contentHeight: CGFloat = 36
     private static let capsuleHeight: CGFloat = 44
-    private static let preferredContentWidth: CGFloat = 192
+    private static let preferredContentWidth: CGFloat = 200
 
     init() {
         contentView = UIHostingConfiguration { AnyView(EmptyView()) }.margins(.all, 0).minSize(width: 0, height: 0).makeContentView()
