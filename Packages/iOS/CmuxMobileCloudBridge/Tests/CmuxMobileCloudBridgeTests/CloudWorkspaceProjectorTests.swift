@@ -24,6 +24,22 @@ struct CloudAddressTests {
         #expect(!CloudAddress.owns("cmux-cloudy"))
     }
 
+    @Test("Choosing a Cloud machine in the computer picker keeps its rows")
+    func machineFilterMatchesTheMachine() {
+        let hostID = CloudAddress(machineID: "vm-1").identifier
+        let row = MobileWorkspacePreview(
+            id: MobileWorkspacePreview.ID(rawValue: CloudAddress(machineID: "vm-1", component: "ws-1").identifier),
+            macDeviceID: hostID,
+            name: "api",
+            terminals: []
+        )
+
+        // The picker offers the ids this returns, and filters rows by them.
+        #expect(MobileWorkspaceListFilter.machineIDs(in: [row]) == [hostID])
+        #expect(MobileWorkspaceListFilter(machines: [hostID]).matches(row))
+        #expect(!MobileWorkspaceListFilter(machines: [CloudAddress(machineID: "vm-2").identifier]).matches(row))
+    }
+
     @Test("A host address carries no component, and a surface address does")
     func hostRoundTrip() {
         let host = CloudAddress(machineID: "vm-9")
