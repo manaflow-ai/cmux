@@ -210,6 +210,9 @@ jobs:
     outputs:
       build_number: ${{ steps.upload.outputs.final_build_number }}
       notes_artifact_id: ${{ steps.notes_request.outputs.artifact-id }}
+      # The saving attempt's exact artifact name: a notes-job-only rerun has
+      # a different run_attempt, so the download must not re-derive it.
+      notes_artifact_name: testflight-notes-${{ github.run_id }}-${{ github.run_attempt }}
     env:
       ASC_APP_ID: "6783338052"
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
@@ -615,12 +618,11 @@ jobs:
         uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           # This pinned revision has no artifact-ids input; an unmatched name
-          # would silently download every run artifact (IPA, dSYMs) merged
-          # into the path. The pattern stays unique per run and tolerates the
-          # upload attempt differing from this job's run_attempt on re-runs.
-          pattern: testflight-notes-${{ github.run_id }}-*
+          # would silently download every run artifact merged into the path,
+          # and a run-scoped wildcard could merge several attempts' requests.
+          # The upload job exports the exact name its attempt saved.
+          name: ${{ needs.upload.outputs.notes_artifact_name }}
           path: ${{ runner.temp }}/testflight-notes
-          merge-multiple: true
       - name: Apply uploaded build notes
         env:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
