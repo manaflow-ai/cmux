@@ -355,12 +355,12 @@ struct CloudTreeTerminalRowContent: View {
     }
 
     var accessibilityLabel: String {
-        toolTip.isEmpty ? resolvedTitle : toolTip
+        [resolvedTitle, toolTip].filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
     /// Keep secondary information on hover so the narrow row gives its width to the title.
     var toolTip: String {
-        var details = [row.displayTitle, row.directoryHelp, agentLabel].compactMap { $0 }
+        var details = [row.directoryHelp, agentLabel].compactMap { $0 }
         if showsDetachedState {
             details.append(String(localized: "cloudTree.terminal.detached.help", defaultValue: "Still running on the machine, but no tab shows it. Click to open it in a pane; right-click to kill it."))
         } else if let views = Self.multiplierBadge(row.viewBadge) {
