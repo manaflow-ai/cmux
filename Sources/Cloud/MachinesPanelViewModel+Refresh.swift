@@ -55,18 +55,17 @@ extension MachinesPanelViewModel {
         guard refreshTask == nil else {
             refreshRequestedWhileLoading = true
             if !routinePoll {
-                isRecoveringList = true
+                updateListRefreshPresentation(isRecovering: true)
                 refreshRequestedWhileLoadingIsRecovery = true
             }
             return
         }
-        isLoading = true
-        isRecoveringList = !routinePoll
+        updateListRefreshPresentation(isLoading: true, isRecovering: !routinePoll)
         let generation = refreshGeneration
         let scope = machinePinStore?.scopeIdentifier
         refreshTask = Task { [weak self] in
             // Only the last read in flight ends loading; a retired or chained one must not.
-            defer { if self?.refreshTask == nil { self?.isLoading = false } }
+            defer { self?.clearListLoadingIfIdle() }
             let result: Result<VMListPage, Error>
             do { result = .success(try await client.listPage()) }
             catch { result = .failure(error) }
@@ -79,7 +78,7 @@ extension MachinesPanelViewModel {
                 self.refreshRequestedWhileLoadingIsRecovery = false
                 self.refresh(routinePoll: !isRecovery)
             } else {
-                self.isRecoveringList = false
+                self.updateListRefreshPresentation(isRecovering: false)
             }
         }
     }
@@ -109,5 +108,8 @@ extension MachinesPanelViewModel {
         guard pollTask != nil else { return }
         recoverList()
     }
+
+    /// Reuses wake recovery when a visible panel returns to the foreground.
+    func applicationDidBecomeActive() { guard pollTask != nil else { return }; recoverList() }
 
 }

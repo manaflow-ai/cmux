@@ -13,7 +13,7 @@ import SwiftUI
 final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var machines: [MachineSnapshot] = []
     @Published private(set) var plan: MachinePlanSnapshot?
-    @Published fileprivate(set) var isLoading = false
+    @Published private(set) var isLoading = false
     @Published private(set) var hasLoadedOnce = false
     @Published private(set) var lastErrorDescription: String?
     /// Why the machine list could not load, classified so the empty state can
@@ -26,7 +26,7 @@ final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var isNetworkOffline = false
     /// Set by a recovery read (panel shown, back online, Retry) until it settles;
     /// routine polls never set it, so a real outage does not flicker.
-    @Published fileprivate(set) var isRecoveringList = false
+    @Published private(set) var isRecoveringList = false
     /// Per-machine coderouter spend from the last successful usage fetch,
     /// keyed by machine id. Refreshed with every machine-list refresh (the
     /// slow poll and the explicit Refresh verb), never more often. Empty on
@@ -285,12 +285,13 @@ final class MachinesPanelViewModel: ObservableObject {
         if let lifecycleObserver { lifecycleNotificationCenter.removeObserver(lifecycleObserver) }
     }
 
-    /// A visible panel treats app activation as a return from suspension. The
-    /// list request owns the reconnecting state so restored tree rows remain
-    /// visible while the automatic read settles.
-    func applicationDidBecomeActive() {
-        guard pollTask != nil else { return }
-        recoverList()
+    func updateListRefreshPresentation(isLoading loading: Bool? = nil, isRecovering recovering: Bool? = nil) {
+        if let loading { isLoading = loading }
+        if let recovering { isRecoveringList = recovering }
+    }
+
+    func clearListLoadingIfIdle() {
+        if refreshTask == nil { isLoading = false }
     }
     /// Mirrors the coordinator's rows. A completion also re-reads the fleet so
     /// the real machine row replaces the pending one without waiting for the
