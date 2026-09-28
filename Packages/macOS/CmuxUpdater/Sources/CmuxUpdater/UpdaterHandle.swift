@@ -19,6 +19,7 @@ protocol UpdaterHandle: AnyObject {
     func start() throws
     func checkForUpdates()
     func checkForUpdateInformation()
+    func checkForUpdatesInBackground()
 }
 
 extension SPUUpdater: UpdaterHandle {}
