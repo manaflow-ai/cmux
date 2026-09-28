@@ -14,6 +14,12 @@
     "benefitSuperpowers": "Planowanie, TDD, subagenci i przegląd"
   },
   "vmErrors": {
+    "recreateRequired": {
+      "title": "Utwórz tę maszynę Cloud ponownie",
+      "reason": "Ta maszyna została utworzona w starszym formacie maszyn Cloud.",
+      "message": "Ta maszyna Cloud używa starszego formatu i nie można jej już otworzyć. Utwórz nową maszynę, aby kontynuować pracę.",
+      "action": "Usuń tę maszynę, a następnie utwórz nową. Ponowna próba tego nie naprawi. Jeśli możesz, najpierw skopiuj pliki, których nadal potrzebujesz."
+    },
     "guestInstall": {
       "title": "Konfiguracja Cloud VM nie została ukończona",
       "reason": "Konfiguracja gościa Cloud VM nie została ukończona.",

@@ -14,6 +14,12 @@
     "benefitSuperpowers": "Planification, TDD, sous-agents et revue"
   },
   "vmErrors": {
+    "recreateRequired": {
+      "title": "Recréez cette machine Cloud",
+      "reason": "Cette machine a été créée avec un ancien format de machine Cloud.",
+      "message": "Cette machine Cloud utilise un ancien format et ne peut plus être ouverte. Créez une nouvelle machine pour continuer à travailler.",
+      "action": "Supprimez cette machine, puis créez-en une nouvelle. Réessayer ne résoudra pas le problème. Si possible, copiez d’abord les fichiers dont vous avez encore besoin."
+    },
     "guestInstall": {
       "title": "Configuration de la Cloud VM incomplète",
       "reason": "La configuration invitée de la Cloud VM n'est pas terminée.",

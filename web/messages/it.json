@@ -14,6 +14,12 @@
     "benefitSuperpowers": "Pianificazione, TDD, subagenti e revisione"
   },
   "vmErrors": {
+    "recreateRequired": {
+      "title": "Ricrea questa macchina Cloud",
+      "reason": "Questa macchina è stata creata con un formato di macchina Cloud precedente.",
+      "message": "Questa macchina Cloud usa un formato precedente e non può più essere aperta. Crea una nuova macchina per continuare a lavorare.",
+      "action": "Elimina questa macchina, poi creane una nuova. Riprovare non risolverà il problema. Se puoi, copia prima i file che ti servono ancora."
+    },
     "guestInstall": {
       "title": "Configurazione della Cloud VM incompleta",
       "reason": "La configurazione guest della Cloud VM non è stata completata.",

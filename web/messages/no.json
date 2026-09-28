@@ -14,6 +14,12 @@
     "benefitSuperpowers": "Planlegging, TDD, underagenter og gjennomgang"
   },
   "vmErrors": {
+    "recreateRequired": {
+      "title": "Opprett denne Cloud-maskinen på nytt",
+      "reason": "Denne maskinen ble opprettet med et eldre Cloud-maskinformat.",
+      "message": "Denne Cloud-maskinen bruker et eldre format og kan ikke lenger åpnes. Opprett en ny maskin for å fortsette arbeidet.",
+      "action": "Slett denne maskinen, og opprett deretter en ny. Et nytt forsøk løser ikke problemet. Kopier først filer du fortsatt trenger, hvis du kan."
+    },
     "guestInstall": {
       "title": "Oppsettet av Cloud VM ble ikke fullført",
       "reason": "Gjesteoppsettet for Cloud VM ble ikke fullført.",

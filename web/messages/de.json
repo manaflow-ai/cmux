@@ -14,6 +14,12 @@
     "benefitSuperpowers": "Planung, TDD, Subagenten und Review"
   },
   "vmErrors": {
+    "recreateRequired": {
+      "title": "Diese Cloud-Maschine neu erstellen",
+      "reason": "Diese Maschine wurde mit einem älteren Cloud-Maschinenformat erstellt.",
+      "message": "Diese Cloud-Maschine verwendet ein älteres Format und kann nicht mehr geöffnet werden. Erstellen Sie eine neue Maschine, um weiterzuarbeiten.",
+      "action": "Löschen Sie diese Maschine und erstellen Sie dann eine neue. Ein erneuter Versuch behebt das nicht. Kopieren Sie nach Möglichkeit zuerst alle Dateien, die Sie noch brauchen."
+    },
     "guestInstall": {
       "title": "Cloud-VM-Einrichtung nicht abgeschlossen",
       "reason": "Die Gast-Einrichtung der Cloud-VM wurde nicht abgeschlossen.",

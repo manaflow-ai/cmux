@@ -14,6 +14,12 @@
     "benefitSuperpowers": "계획, TDD, 하위 에이전트 및 검토"
   },
   "vmErrors": {
+    "recreateRequired": {
+      "title": "이 Cloud 머신을 다시 만드세요",
+      "reason": "이 머신은 이전 Cloud 머신 형식으로 만들어졌습니다.",
+      "message": "이 Cloud 머신은 이전 형식을 사용하므로 더 이상 열 수 없습니다. 작업을 계속하려면 새 머신을 만드세요.",
+      "action": "이 머신을 삭제한 다음 새 머신을 만드세요. 다시 시도해도 해결되지 않습니다. 가능하면 필요한 파일을 먼저 복사하세요."
+    },
     "guestInstall": {
       "title": "Cloud VM 설정이 완료되지 않았습니다",
       "reason": "Cloud VM 게스트 설정이 완료되지 않았습니다.",

@@ -14,6 +14,12 @@
     "benefitSuperpowers": "Planejamento, TDD, subagentes e revisão"
   },
   "vmErrors": {
+    "recreateRequired": {
+      "title": "Recrie esta máquina Cloud",
+      "reason": "Esta máquina foi criada com um formato de máquina Cloud mais antigo.",
+      "message": "Esta máquina Cloud usa um formato mais antigo e não pode mais ser aberta. Crie uma nova máquina para continuar trabalhando.",
+      "action": "Exclua esta máquina e crie uma nova. Tentar novamente não resolverá. Se puder, copie antes os arquivos de que ainda precisa."
+    },
     "guestInstall": {
       "title": "A configuração da Cloud VM não foi concluída",
       "reason": "A configuração convidada da Cloud VM não foi concluída.",

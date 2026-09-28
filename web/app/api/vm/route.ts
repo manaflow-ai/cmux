@@ -158,6 +158,9 @@ export async function GET(request: Request): Promise<Response> {
         // the WireGuard tunnel); null for machines created before private
         // networking. Clients surface it as "Copy IP Address".
         address: { ipv4: entry.addressIpv4, ipv6: entry.addressIpv6 },
+        // Legacy rows expose a null contract so clients can explain that the
+        // machine must be recreated before attempting attach.
+        cmuxTuiContract: entry.cmuxTuiContract,
         // Server-authoritative expiry of the free access window for this machine
         // (epoch ms); null on paid plans or when the window is disabled. Clients
         // render countdowns from this instead of re-deriving the policy.
