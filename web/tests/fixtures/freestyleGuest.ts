@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +10,7 @@ import { installFreestyleGuestCli } from "../../services/vms/drivers/freestyleGu
 import { rollbackFreestyleCreate } from "../../services/vms/drivers/providerCreateCleanup";
 import { ProviderError, type CreateOptions } from "../../services/vms/drivers/types";
 import type { GuestCliDistribution } from "../../services/vms/guestCliDistribution";
+import { runChild } from "../helpers/run-child";
 
 export type GuestExecRequest = {
   command: string;
@@ -18,7 +18,12 @@ export type GuestExecRequest = {
   linuxUser: string;
 };
 
-const testDistribution = (() => {
+// Built on first use, not with top-level await: several test files import this
+// fixture, and a module that suspends during evaluation leaves its exports in
+// the temporal dead zone for importers Bun evaluates concurrently.
+let testDistribution: Promise<GuestCliDistribution> | undefined;
+/** Builds the synthetic guest CLI archive once; a failed build is retried by the next caller. */
+const syntheticDistribution = () => (testDistribution ??= (async () => {
   const root = mkdtempSync(join(tmpdir(), "cmux-guest-cli-fixture-"));
   const source = join(root, "source");
   mkdirSync(source);
@@ -27,7 +32,7 @@ const testDistribution = (() => {
   writeFileSync(join(source, "cmux-cloud-cli"), facade, { mode: 0o755 });
   writeFileSync(join(source, "coderouter"), core, { mode: 0o755 });
   const archive = join(root, "cli.tar.gz");
-  const tar = spawnSync("tar", ["-czf", archive, "-C", source, "cmux-cloud-cli", "coderouter"], {
+  const tar = await runChild("tar", ["-czf", archive, "-C", source, "cmux-cloud-cli", "coderouter"], {
     env: { ...process.env, COPYFILE_DISABLE: "1" },
   });
   if (tar.status !== 0) throw new Error("could not create the synthetic guest CLI archive");
@@ -37,7 +42,10 @@ const testDistribution = (() => {
     archiveSha256: digest(readFileSync(archive)),
     binaries: { "cmux-cloud-cli": digest(facade), coderouter: digest(core) },
   } satisfies GuestCliDistribution;
-})();
+})().catch((error: unknown) => {
+  testDistribution = undefined;
+  throw error;
+}));
 
 /** Real pinned SDK, synthetic HTTP only. No provider credentials or network. */
 export function freestyleGuestFixture(options: {
@@ -106,12 +114,14 @@ export function freestyleGuestFixture(options: {
    * create path follows snapshot-v2 and intentionally performs no guest setup.
    */
   const createWithGuestInstall = async (createOptions: CreateOptions) => {
+    // Resolve the archive first: a failed build must not leave a live VM behind.
+    const distribution = options.guestCliDistribution ?? await syntheticDistribution();
     const handle = await provider.create(createOptions);
     const install = await Effect.runPromise(Effect.either(installFreestyleGuestCli(
       client,
       handle.providerVmId,
       createOptions.promptIdentity,
-      options.guestCliDistribution ?? testDistribution,
+      distribution,
     )));
     if (install._tag === "Right") {
       return handle;

@@ -57,6 +57,12 @@ struct GhosttyRuntimeActionTests {
         defer {
             sourceView.prepareForDismantle()
             replacementView.prepareForDismantle()
+            // This test detaches the bridges that keep each view alive while
+            // it owns a surface, so it frees both surfaces itself. Otherwise
+            // deinit frees them and forms a weak reference to a view that is
+            // already deallocating.
+            sourceView.disposeSurface()
+            replacementView.disposeSurface()
             window.isHidden = true
         }
 
