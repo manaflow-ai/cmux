@@ -2356,7 +2356,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // on the next foreground / Computers `.task` / pull-to-refresh.
         teardownSecondaryMacSubscriptions()
         let foregroundKey = foregroundMacKey
-        workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey }; pruneStableMacColorSlots(keepingForegroundKey: foregroundKey.pairingID)
+        // External hosts stay: their source republishes or retires them for
+        // the new team itself.
+        workspacesByMac = workspacesByMac.filter {
+            $0.key == foregroundKey || externalHostOwnsHost($0.key.pairingID)
+        }; pruneStableMacColorSlots(keepingForegroundKey: foregroundKey.pairingID)
         retainForegroundNotificationFeedSnapshot()
         // Restore memo: invalidate so the next read re-restores for the new
         // (account, team) scope, and a suspended old-team restore can't resume.
@@ -7635,9 +7639,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// unavailable, not leave them connected/actionable until a stream callback
     /// happens to run.
     func markSecondaryMacUnavailable(_ ownerKey: MacPairingKey) {
-        // The demonstration entry is served locally; no transport or refresh
-        // failure can make it unavailable.
-        guard ownerKey != Self.demonstrationPairingKey else { return }
+        // The demonstration entry is served locally, and an external host
+        // reports its own liveness; no Mac transport or refresh failure can
+        // make either unavailable.
+        guard ownerKey != Self.demonstrationPairingKey,
+              !externalHostOwnsHost(ownerKey.pairingID) else { return }
         guard var state = workspacesByMac[ownerKey] else { return }
         state.status = .unavailable
         state.workspaceGroupsAreAuthoritative = false
@@ -11329,6 +11335,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // served locally and its liveness is unrelated to the torn-down
             // real connection.
             guard key != Self.demonstrationPairingKey else { return false }
+            // An external host is not served by this connection and reports
+            // its own liveness.
+            guard !externalHostOwnsHost(key.pairingID) else { return false }
             return key == offlineForegroundKey || !preservingOtherMacWorkspaceState
         }
         var updatedWorkspacesByMac = workspacesByMac
