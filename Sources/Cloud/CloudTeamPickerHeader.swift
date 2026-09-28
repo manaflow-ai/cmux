@@ -63,13 +63,17 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
             Text(message)
                 .cmuxFont(size: 11)
                 .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("CloudTeamPickerSwitchError")
             Spacer(minLength: 0)
             CloudBannerDismissButton(action: onDismiss)
         }
         .foregroundColor(.orange.opacity(0.9))
         .help(message)
         .cloudErrorCopyMenu(message)
+        // The row's help and copy menu hide the message's own identifier, so
+        // the row is the element VoiceOver and UI tests reach, with the
+        // message and Close inside it.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("CloudTeamPickerSwitchError")
         .padding(.horizontal, 10)
         .padding(.top, 4)
     }
