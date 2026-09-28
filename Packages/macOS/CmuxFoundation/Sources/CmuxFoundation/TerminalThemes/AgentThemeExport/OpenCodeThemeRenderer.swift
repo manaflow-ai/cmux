@@ -90,7 +90,7 @@ public struct OpenCodeThemeRenderer: Sendable {
 
     private static func defName(_ name: String, prefix: String) -> String {
         guard !prefix.isEmpty, let first = name.first else { return name }
-        return prefix + first.uppercased() + name.dropFirst()
+        return prefix + first.uppercased() + String(name.dropFirst())
     }
 
     private static func value(

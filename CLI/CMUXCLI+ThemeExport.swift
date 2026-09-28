@@ -113,7 +113,7 @@ extension CMUXCLI {
         }
         func palette(_ theme: String?) throws -> TerminalPalette {
             let base = try theme.map { try themeFileColors(named: $0) } ?? GhosttyThemeColors()
-            return TerminalPalette(colors: configColors.reduce(base) { $0.overlaid(by: $1) })
+            return TerminalPalette(colors: base.overlaid(by: configColors))
         }
 
         let exportsPair = appearance == nil
