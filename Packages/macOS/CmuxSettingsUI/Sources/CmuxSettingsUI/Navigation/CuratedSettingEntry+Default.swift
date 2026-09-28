@@ -211,6 +211,14 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["agentActions.turnControl"],
                 synonyms: "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click"
             ),
+            .init(
+                section: .terminal,
+                id: "agent-key-hints",
+                title: String(localized: "settings.agentActions.keyHints", defaultValue: "Clickable Agent Key Hints"),
+                detailText: String(localized: "settings.agentActions.keyHints.subtitle", defaultValue: "Click key hints that Claude Code, Codex, or OpenCode prints, like “ctrl+o to expand”, to press those keys. When the agent uses the mouse, Command-click instead."),
+                paths: ["agentActions.keyHints"],
+                synonyms: "agentActions.keyHints agent actions key hints clickable keys shortcuts ctrl+o expand shift+tab cycle esc interrupt click press claude code codex opencode"
+            ),
             .init(section: .terminal, id: "agent-auto-resume", title: String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), synonyms: "Resume Agent Sessions on Reopen terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(
                 section: .terminal,

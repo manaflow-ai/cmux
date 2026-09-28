@@ -12,5 +12,14 @@ public struct AgentActionsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "agentActionsTurnControlEnabled"
     )
 
+    /// Key hints: clickable key hints (`ctrl+o to expand`) that Claude Code,
+    /// Codex, or OpenCode prints in a terminal pane. A click sends those keys
+    /// to the agent. Off by default while the hints are dogfooded.
+    public let keyHints = DefaultsKey<Bool>(
+        id: "agentActions.keyHints",
+        defaultValue: false,
+        userDefaultsKey: "agentActionsKeyHintsEnabled"
+    )
+
     public init() {}
 }

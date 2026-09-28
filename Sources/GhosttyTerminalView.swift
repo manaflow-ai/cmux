@@ -3836,8 +3836,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var commandClickReleaseRuntimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome?
     private var commandClickReleaseCanOpenURL = false
     private var terminalPointerGesture = TerminalPointerGestureState()
-    private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
-    private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
+    lazy var agentKeyHintPointer = TerminalAgentKeyHintPointerState()
+    private(set) var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
+    static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
         case GHOSTTY_MOUSE_SHAPE_DEFAULT:
             return .arrow
@@ -8239,6 +8240,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             permitsLinkActivation: pressFlags.contains(.command) && bounds.contains(eventPoint)
         )
         trackMousePointIfUsable(eventPoint)
+        noteAgentKeyHintPress(at: eventPoint, clickCount: event.clickCount)
         // Only update mouse position on the first click to prevent unwanted cursor
         // movement during double-click selection (issue #1698)
         if event.clickCount == 1 {
@@ -8302,8 +8304,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let releaseFlags = completion.map {
             NSEvent.ModifierFlags(rawValue: $0.modifierFlagsRawValue)
         } ?? []
+        // A click on an agent key hint presses it instead of opening a link.
+        let agentKeyHintPress = agentKeyHintPressForRelease(
+            at: point, clickCount: event.clickCount, pressModifierFlags: completion == nil ? nil : releaseFlags, surface: surface
+        )
         let linkActivationAuthorized = completion?.permitsLinkActivation == true
             && event.modifierFlags.contains(.command) && bounds.contains(point) && desiredFocus
+            && agentKeyHintPress == nil
         _ = dispatchCommandClickRelease(
             surface: surface,
             at: point,
@@ -8311,6 +8318,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             mouseMods: mouseState.mods,
             linkActivationAuthorized: linkActivationAuthorized
         )
+        agentKeyHintPress?()
         _ = finishGhosttyMouseSession(pendingSession)
         return true
     }
@@ -8671,7 +8679,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    private func visibleWordPathSnapshot(at point: NSPoint, panel: TerminalPanel) -> (line: String, column: Int)? {
+    func visibleWordPathSnapshot(at point: NSPoint, panel: TerminalPanel) -> (line: String, column: Int)? {
         guard let surface else { return nil }
         let size = ghostty_surface_size(surface)
         let rows = max(Int(size.rows), 1)
@@ -9440,6 +9448,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
+        updateAgentKeyHintHover(at: eventPoint)
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -9493,6 +9502,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             wordPathHoverActive = false
             NSCursor.pop()
         }
+        clearAgentKeyHintHover()
         guard let surface = surface else { return }
         if !ghosttyMouseSessionLedger.activeButtons.isEmpty {
             return

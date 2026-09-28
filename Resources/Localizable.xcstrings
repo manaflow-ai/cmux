@@ -566627,6 +566627,242 @@
           }
         }
       }
+    },
+    "settings.agentActions.keyHints": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clickable Agent Key Hints"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلميحات مفاتيح الوكيل القابلة للنقر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anklickbare Tastenhinweise von Agenten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indicaciones de teclas del agente clicables"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indications de touches d’agent cliquables"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリックできるエージェントのキーヒント"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클릭 가능한 에이전트 키 힌트"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可点击的代理按键提示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可點擊的代理按鍵提示"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.agent-key-hints": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.keyHints agent actions key hints clickable keys shortcuts ctrl+o expand shift+tab cycle esc interrupt click press claude code codex opencode"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.keyHints agent actions key hints clickable keys shortcuts ctrl+o expand shift+tab cycle esc interrupt click press claude code codex opencode الوكيل مفاتيح تلميحات نقر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.keyHints agent actions key hints clickable keys shortcuts ctrl+o expand shift+tab cycle esc interrupt click press claude code codex opencode agent tasten hinweise klicken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.keyHints agent actions key hints clickable keys shortcuts ctrl+o expand shift+tab cycle esc interrupt click press claude code codex opencode agente teclas indicaciones clic"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.keyHints agent actions key hints clickable keys shortcuts ctrl+o expand shift+tab cycle esc interrupt click press claude code codex opencode agent touches indications clic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.keyHints agent actions key hints clickable keys shortcuts ctrl+o expand shift+tab cycle esc interrupt click press claude code codex opencode エージェント キー ヒント クリック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.keyHints agent actions key hints clickable keys shortcuts ctrl+o expand shift+tab cycle esc interrupt click press claude code codex opencode 에이전트 키 힌트 클릭"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.keyHints agent actions key hints clickable keys shortcuts ctrl+o expand shift+tab cycle esc interrupt click press claude code codex opencode 代理 按键 提示 点击"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.keyHints agent actions key hints clickable keys shortcuts ctrl+o expand shift+tab cycle esc interrupt click press claude code codex opencode 代理 按鍵 提示 點擊"
+          }
+        }
+      }
+    },
+    "terminal.agentKeyHint.clickToPress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click to press %@ (%@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقر للضغط على %@ (%@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klicken, um %@ zu drücken (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haz clic para pulsar %@ (%@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cliquez pour appuyer sur %@ (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリックして %@ を押す（%@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클릭하여 %@ 누르기 (%@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击以按下 %@（%@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點擊以按下 %@（%@）"
+          }
+        }
+      }
+    },
+    "terminal.agentKeyHint.commandClickToPress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘-click to press %@ (%@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقر مع ⌘ للضغط على %@ (%@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘-Klick, um %@ zu drücken (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘-clic para pulsar %@ (%@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘-clic pour appuyer sur %@ (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘-クリックして %@ を押す（%@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘-클릭하여 %@ 누르기 (%@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘-点击以按下 %@（%@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘-點擊以按下 %@（%@）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

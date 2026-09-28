@@ -34,7 +34,7 @@ public enum AgentKeyHintDetector {
         case openCode
     }
 
-    private static let blockedKeys: Set<String> = ["ctrl+c", "ctrl+d", "ctrl+z", "ctrl+\\"]
+    static let blockedKeys: Set<String> = ["ctrl+c", "ctrl+d", "ctrl+z", "ctrl+\\"]
     private static let namedKeys: [String: String] = [
         "esc": "escape", "escape": "escape", "tab": "tab", "enter": "enter", "return": "enter",
         "space": "space", "up": "up", "down": "down", "left": "left", "right": "right",

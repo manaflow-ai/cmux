@@ -256,6 +256,11 @@ enum AgentActionsSettingsFileMapping {
             defaultsKey: agentActions.turnControl.userDefaultsKey,
             invalidPath: agentActions.turnControl.id
         ),
+        .init(
+            jsonKey: "keyHints",
+            defaultsKey: agentActions.keyHints.userDefaultsKey,
+            invalidPath: agentActions.keyHints.id
+        ),
     ]
 }
 
