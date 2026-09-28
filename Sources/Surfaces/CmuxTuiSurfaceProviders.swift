@@ -66,6 +66,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// graph at the same cursor. The first conflict schedules a recovery read;
     /// a second full snapshot conflicting at this cursor is adopted.
     private(set) var equalCursorConflict: CloudVMCursor?
+    /// Set only by the install that armed ``equalCursorConflict``, so a read
+    /// that cannot adopt (stale, or fenced by a pending rename) at an already
+    /// armed cursor does not spend another recovery read.
+    private(set) var equalCursorConflictArmedByLastInstall = false
     private static let stateRecoveryLimit = 5
     private var changeWatcher: Task<Void, Never>?
     /// Identity of the link owned by `changeWatcher`. A provider can replace a
@@ -186,6 +190,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
     func suspendForFeatureFlag() {
         isFeatureSuspended = true
+        // The first read after resuming must arm afresh, never adopt at once.
+        equalCursorConflict = nil
         displayCoordinator.stop()
         guestURLService?.stop()
         guestURLService = nil
@@ -328,8 +334,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             else { throw ProviderError.invalidSnapshot(machineID) }
             let installed = installSnapshotIfNewer(incoming, requestVersion: requestVersion)
             // A first equal-cursor conflict keeps the graph; read again so a
-            // repeated conflict can adopt the daemon's answer.
-            if !installed, let conflict = equalCursorConflict, conflict == incoming.cursor {
+            // repeated conflict can adopt the daemon's answer. When the budget
+            // is spent the conflict stays armed, and the next refresh adopts.
+            if !installed, equalCursorConflictArmedByLastInstall {
                 scheduleStateRecoveryRefresh()
             }
             // Equal cursors are a valid no-op refresh only when the revisioned
@@ -474,6 +481,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         guard equalCursorConflict == cursor else {
             equalCursorConflict = cursor
+            equalCursorConflictArmedByLastInstall = true
             #if DEBUG
             cmuxDebugLog("cloud.state.snapshotIgnored machine=\(machineID) reason=equal-cursor-conflict armed=1")
             #endif
@@ -496,6 +504,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     @discardableResult
     func installSnapshotIfNewer(_ incoming: CloudVMState, requestVersion: UInt64? = nil) -> Bool {
+        equalCursorConflictArmedByLastInstall = false
         guard acceptsIncomingGeneration(incoming.cursor) else {
             #if DEBUG
             cmuxDebugLog("cloud.state.snapshotIgnored machine=\(machineID) reason=old-generation")
@@ -1513,6 +1522,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 retirePendingRemoteRenames(observed: next)
                 eventsFeedWarning = nil
                 clearStateRecovery()
+                // The cursor moved on, so an armed conflict no longer applies.
+                equalCursorConflict = nil
                 await link.setEventsCursor(next.cursor)
                 guard watchedLink === link, canPublishCloudState(next) else { return }
                 info.linkState = .connected

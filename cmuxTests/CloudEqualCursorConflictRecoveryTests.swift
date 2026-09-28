@@ -80,6 +80,41 @@ struct CloudEqualCursorConflictRecoveryTests {
         #expect(name(provider) == "Applied")
     }
 
+    @Test("Only the arming install asks for a recovery read")
+    func onlyArmingSchedulesRecovery() throws {
+        let provider = makeProvider()
+        #expect(provider.installSnapshotIfNewer(try state(provider, "Applied")))
+        let fresh = try state(provider, "Daemon")
+        #expect(!provider.installSnapshotIfNewer(fresh, requestVersion: 1))
+        #expect(provider.equalCursorConflictArmedByLastInstall)
+        // A stale read at the armed cursor cannot adopt, so it must not spend
+        // another recovery read either.
+        #expect(!provider.installSnapshotIfNewer(fresh, requestVersion: 0))
+        #expect(!provider.equalCursorConflictArmedByLastInstall)
+        #expect(provider.equalCursorConflict == fresh.cursor)
+    }
+
+    @Test("A pending rename's predecessor is never adopted, however often it conflicts")
+    func renameFenceHoldsWhileArmed() throws {
+        let provider = makeProvider()
+        #expect(provider.installSnapshotIfNewer(try state(provider, "Applied")))
+        let fresh = try state(provider, "Daemon")
+        provider.recordPendingRemoteRename(tabID: "tab", name: "Renamed", receipt: try #require(fresh.cursor))
+        #expect(!provider.installSnapshotIfNewer(fresh, requestVersion: 1))
+        #expect(!provider.installSnapshotIfNewer(fresh, requestVersion: 1))
+        #expect(name(provider) == "Applied")
+        #expect(provider.equalCursorConflict == nil)
+    }
+
+    @Test("Suspending clears an armed conflict so the first read after resume cannot adopt")
+    func suspendClearsConflict() throws {
+        let provider = makeProvider()
+        #expect(provider.installSnapshotIfNewer(try state(provider, "Applied")))
+        #expect(!provider.installSnapshotIfNewer(try state(provider, "Daemon"), requestVersion: 1))
+        provider.suspendForFeatureFlag()
+        #expect(provider.equalCursorConflict == nil)
+    }
+
     @Test("An install at a newer cursor clears an armed conflict")
     func newerInstallClearsConflict() throws {
         let provider = makeProvider()
