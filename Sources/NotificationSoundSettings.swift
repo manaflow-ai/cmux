@@ -23,7 +23,6 @@ enum NotificationSoundSettings {
     static let customFileValue = NotificationSoundOverride.customFileValue
     static let customFilePathKey = catalog.customSoundFilePath.userDefaultsKey
     static let defaultCustomFilePath = catalog.customSoundFilePath.defaultValue
-    static let soundWhenFocusedKey = catalog.soundWhenFocused.userDefaultsKey
     static let customCommandKey = catalog.command.userDefaultsKey
     static let defaultCustomCommand = catalog.command.defaultValue
 

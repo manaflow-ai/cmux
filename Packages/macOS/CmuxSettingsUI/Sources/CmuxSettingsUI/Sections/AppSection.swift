@@ -789,7 +789,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("notifications.soundWhenFocused"),
                 String(localized: "settings.notifications.soundWhenFocused.title", defaultValue: "Sound for Focused Pane"),
-                subtitle: String(localized: "settings.notifications.soundWhenFocused.subtitle", defaultValue: "Play the notification sound even when the pane that notified is already focused. When off, a focused pane shows only its ring.")
+                subtitle: String(localized: "settings.notifications.soundWhenFocused.subtitle", defaultValue: "Play the notification sound even when the pane that notified is already focused. When off, a focused pane shows its ring without a sound.")
             ) {
                 Toggle("", isOn: Binding(get: { soundWhenFocused.current }, set: { soundWhenFocused.set($0) }))
                     .labelsHidden()
