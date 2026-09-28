@@ -20,7 +20,7 @@ public enum VoiceToolPermission: Sendable, Equatable {
         switch name {
         case "list_workspaces", "read_workspace", "read_agent_messages",
              "read_notifications", "list_computers", "read_workspace_changes",
-             "list_memories":
+             "list_memories", "search_task_directories":
             self = .read
         // type_in_terminal is destructive alongside close_workspace: raw
         // text plus Return into a shell is arbitrary command execution, the

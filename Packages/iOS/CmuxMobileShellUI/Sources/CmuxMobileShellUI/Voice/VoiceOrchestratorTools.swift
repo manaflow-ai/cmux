@@ -247,6 +247,20 @@ public struct VoiceOrchestratorToolExecutor {
                 """#
             ),
             VoiceLiveTool(
+                name: "search_task_directories",
+                description: """
+                Search directories on the connected Mac by name fragment \
+                (e.g. a repo the user mentions). Use to resolve a spoken \
+                project name to a path for create_task's directory instead \
+                of asking the user to spell one.
+                """,
+                parametersJSON: #"""
+                {"type":"object","properties":{"query":{"type":"string",\#
+                "description":"Directory or project name fragment"}},\#
+                "required":["query"]}
+                """#
+            ),
+            VoiceLiveTool(
                 name: "remember",
                 description: """
                 Save a durable note about the user for future sessions. Use \
@@ -383,6 +397,8 @@ public struct VoiceOrchestratorToolExecutor {
                 text: arguments["text"] as? String ?? "",
                 pressReturn: arguments["press_return"] as? Bool ?? true
             )
+        case "search_task_directories":
+            return await searchTaskDirectories(query: arguments["query"] as? String ?? "")
         case "remember":
             return rememberFact(arguments["fact"] as? String ?? "")
         case "list_memories":
@@ -926,6 +942,27 @@ public struct VoiceOrchestratorToolExecutor {
             : "Could not reach the terminal in \(workspace.name)."
     }
 
+    private func searchTaskDirectories(query: String) async -> String {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "No search text was provided." }
+        guard let macDeviceID = store.connectedMacDeviceID else {
+            return "No connected Mac to search directories on."
+        }
+        switch await store.searchTaskDirectories(
+            macDeviceID: macDeviceID,
+            instanceTag: store.connectedMacInstanceTag,
+            query: trimmed
+        ) {
+        case .success(let response):
+            guard !response.directories.isEmpty else {
+                return "No directories match \"\(trimmed)\" on the Mac."
+            }
+            return Self.json(["directories": Array(response.directories.prefix(15))])
+        case .failure:
+            return "Directory search is unavailable on this Mac right now."
+        }
+    }
+
     // MARK: - Memory tools
 
     private func rememberFact(_ fact: String) -> String {
@@ -994,11 +1031,23 @@ public struct VoiceOrchestratorToolExecutor {
     func pinnedApprovalArguments(
         forTool name: String, argumentsJSON: String
     ) -> (argumentsJSON: String, target: String?) {
+        Self.pinnedApprovalArguments(
+            forTool: name, argumentsJSON: argumentsJSON, workspaces: store.workspaces
+        )
+    }
+
+    /// Static core of ``pinnedApprovalArguments(forTool:argumentsJSON:)``,
+    /// parameterized on the workspace list so tests exercise it directly.
+    static func pinnedApprovalArguments(
+        forTool name: String,
+        argumentsJSON: String,
+        workspaces: [MobileWorkspacePreview]
+    ) -> (argumentsJSON: String, target: String?) {
         guard var arguments = (try? JSONSerialization.jsonObject(
             with: Data(argumentsJSON.utf8)
         )) as? [String: Any] else { return (argumentsJSON, nil) }
         let query = arguments["workspace"] as? String ?? ""
-        guard let workspace = Self.resolveWorkspace(query, in: store.workspaces) else {
+        guard let workspace = resolveWorkspace(query, in: workspaces) else {
             // Execution will answer with the unknown-workspace message.
             return (argumentsJSON, query.isEmpty ? nil : query)
         }

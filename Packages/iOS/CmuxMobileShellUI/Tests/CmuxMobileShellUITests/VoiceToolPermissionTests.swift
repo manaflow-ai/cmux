@@ -9,7 +9,7 @@ struct VoiceToolPermissionTests {
         for name in [
             "list_workspaces", "read_workspace", "read_agent_messages",
             "read_notifications", "list_computers", "read_workspace_changes",
-            "list_memories",
+            "list_memories", "search_task_directories",
         ] {
             #expect(VoiceToolPermission(toolNamed: name) == .read)
         }
