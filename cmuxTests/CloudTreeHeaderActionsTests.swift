@@ -171,7 +171,12 @@ struct CloudTreeHeaderActionsTests {
         #expect(plusFrame.maxX == menuFrame.maxX)
         let cloudRow = tree.outline.rect(ofRow: tree.outline.row(forItem: tree.cloudSection))
         let devicesRow = tree.outline.rect(ofRow: tree.outline.row(forItem: tree.devicesSection))
-        #expect(plusFrame.midY - cloudRow.midY == menuFrame.midY - devicesRow.midY)
+        let verticalOffsetDelta = (plusFrame.midY - cloudRow.midY)
+            - (menuFrame.midY - devicesRow.midY)
+        #expect(
+            abs(verticalOffsetDelta) < 0.001,
+            "AppKit frame conversion may differ by floating-point rounding"
+        )
     }
 
     /// The row-level controls used to reserve two lines for "Change these
