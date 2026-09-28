@@ -300,9 +300,15 @@ def test_a_side_carrying_conflict_markers_is_refused():
     ours = project(["Alpha.swift"]).replace(
         "\tarchiveVersion = 1;", "<" * 32 + " HEAD\n\tarchiveVersion = 1;"
     )
-    code, _, stderr = run(base, ours, project(["Alpha.swift", "Theirs.swift"]))
+    theirs = project(["Alpha.swift", "Theirs.swift"])
+    code, merged, stderr = run(base, ours, theirs)
     assert code == 1
     assert "conflict-marker" in stderr, stderr
+    assert merged.startswith("<" * 32 + " ours\n")
+    assert "\n" + "|" * 32 + " base\n" in merged
+    assert "\n" + "=" * 32 + "\n" in merged
+    assert merged.endswith(">" * 32 + " theirs\n")
+    assert base.rstrip() in merged and ours.rstrip() in merged and theirs.rstrip() in merged
 
 
 def test_invalid_utf8_leaves_an_explicit_byte_preserving_conflict():

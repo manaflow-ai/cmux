@@ -263,13 +263,22 @@ def source_entry_union(module, base: str, ours: str, theirs: str) -> str:
 
 def conflict_text(module, base: str, ours: str, theirs: str) -> str:
     """The ordinary diff3 conflict, or an explicit whole-file semantic conflict."""
+    width = module.MARKER_SIZE
+    marker_prefixes = tuple(character * width for character in "<|=>")
+    if any(
+        line.startswith(marker_prefixes)
+        for text in (base, ours, theirs)
+        for line in text.splitlines()
+    ):
+        return explicit_conflict(base, ours, theirs, width)
     try:
         merged = module.merge_file(base, ours, theirs)
+        parts = module.split_conflicts(merged)
     except Exception:
-        merged = ""
-    if "<" * module.MARKER_SIZE in merged:
+        parts = []
+    if any(not isinstance(part, str) for part in parts):
         return merged
-    return explicit_conflict(base, ours, theirs, module.MARKER_SIZE)
+    return explicit_conflict(base, ours, theirs, width)
 
 
 def explicit_conflict(base: str, ours: str, theirs: str, width: int = 32) -> str:
