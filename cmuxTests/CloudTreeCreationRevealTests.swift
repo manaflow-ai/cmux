@@ -95,6 +95,31 @@ struct CloudTreeCreationRevealTests {
         #expect(tree.selection == before)
     }
 
+    @Test("A withdrawn create scrolls the restored row back into view")
+    func withdrawnCreateScrollsTheRestoredRowIntoView() throws {
+        let tree = Tree()
+        defer { tree.close() }
+        let outline = try tree.outline()
+        try tree.click(tree.machineID)
+        outline.collapseItem(try tree.node(tree.groupID))
+        outline.collapseItem(try tree.node(tree.machineID))
+        tree.fixture.window.setContentSize(NSSize(width: 380, height: 80))
+        tree.fixture.container.layoutSubtreeIfNeeded()
+        outline.scrollRowToVisible(0)
+        let token = UUID()
+        tree.render(tree.existing, reveal: .init(token: token))
+        tree.render(tree.pending, reveal: tree.received(token))
+        #expect(tree.selection == tree.createdID)
+        // The user keeps scrolling while the new workspace is shown.
+        outline.scrollRowToVisible(outline.numberOfRows - 1)
+        let machineRow = outline.row(forItem: try tree.node(tree.machineID))
+        try #require(!outline.visibleRect.contains(outline.rect(ofRow: machineRow)))
+
+        tree.render(tree.pending, reveal: tree.received(token, withdrawn: true))
+        #expect(tree.selection == tree.machineID)
+        #expect(outline.visibleRect.contains(outline.rect(ofRow: machineRow)), "The restored row is brought back into view")
+    }
+
     @Test("A user click during an in-flight create wins", arguments: [false, true])
     func userClickDuringCreateWins(afterReveal: Bool) throws {
         let tree = Tree()

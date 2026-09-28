@@ -170,6 +170,47 @@ struct CloudWorkspaceCreationRevealTests {
         }
     }
 
+    /// A create can outlive the window that started it; the reveal must not keep
+    /// that window's manager alive while the daemon works.
+    @Test("Closing the window during ⌘N releases its manager before the create finishes",
+          .exclusiveAppContext, arguments: ["resolved", "current"])
+    func closingTheWindowDuringShortcutReleasesItsManager(entryPoint: String) async throws {
+        let suite = "cloud-workspace-reveal-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let entered = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        let coordinator = CloudWorkspaceCoordinator(
+            machinePinStore: CloudMachinePinStore(defaults: defaults, scopeProvider: { "scope" }),
+            allowsOperation: { true }, loadMachines: { ["a"] },
+            createWorkspace: { _ in
+                entered.continuation.yield(())
+                for await _ in release.stream { break }
+                return UUID()
+            }
+        )
+        let app = AppDelegate()
+        let operations = CloudWorkspaceOperationController(isAvailable: { true })
+        app.cloudWorkspaceCoordinator = coordinator
+        app.cloudWorkspaceOperationController = operations
+        weak var closed: TabManager?
+        do {
+            let manager = TabManager(createInitialWorkspace: false, cloudWorkspaceSelection: coordinator.makeSelectionState())
+            closed = manager
+            let windowID = app.registerMainWindowContextForTesting(tabManager: manager)
+            try #require(entryPoint == "resolved"
+                ? app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: manager)
+                : app.performNewCloudWorkspaceOnCurrentMachineAction(tabManager: manager, vmID: "a"))
+            for await _ in entered.stream { break }
+            #expect(SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: manager) != nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            manager.finalizeAllWorkspacesForWindowClose()
+        }
+        #expect(closed == nil, "A create in flight must not keep a closed window's manager alive")
+        release.continuation.yield(())
+        await operations.waitForPendingOperations()
+    }
+
     @Test("Device ⌘N reveals the workspace it selects, unless the user navigated first",
           arguments: ["stay", "away", "awayAndBack"])
     func deviceShortcutReveals(navigation: String) async throws {
