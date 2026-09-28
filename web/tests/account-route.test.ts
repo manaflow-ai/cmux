@@ -2149,6 +2149,58 @@ describe("account deletion route", () => {
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
+  test("keeps account deletion retryable while a legacy home volume still needs cleanup", async () => {
+    transactionSelectResults = [[{
+      id: "00000000-0000-4000-8000-000000000769",
+      providerVmId: "provider-vm-destroyed",
+      status: "destroyed",
+      providerMetadata: {
+        cmuxObservedDestroyCleanup: { homeVolume: "legacy-home-volume" },
+      },
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 2,
+    });
+    expect(deletedTableCount).toBe(0);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.partial_after_destructive_cleanup",
+      "Error: Personal cloud VM external cleanup is still pending for 1 row",
+    );
+  });
+
+  test("keeps account deletion retryable while destroyed VM credentials still need revocation", async () => {
+    transactionSelectResults = [[{
+      id: "00000000-0000-4000-8000-000000000770",
+      providerVmId: "provider-vm-destroyed",
+      status: "destroyed",
+      providerMetadata: {
+        cmuxObservedDestroyCleanup: { modelPlane: true },
+      },
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 2,
+    });
+    expect(deletedTableCount).toBe(0);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.partial_after_destructive_cleanup",
+      "Error: Personal cloud VM external cleanup is still pending for 1 row",
+    );
+  });
+
   test("deletes failed providerless VM rows without provider teardown", async () => {
     listedPersonalVmIds = [
       { providerVmId: null, provider: "freestyle" },
