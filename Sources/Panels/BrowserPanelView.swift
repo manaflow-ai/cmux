@@ -7480,6 +7480,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         webView: WKWebView
     ) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
+        guard Self.isCurrentPaneOwner(
+            panel: panel,
+            paneId: paneId,
+            paneOwnershipOverride: paneOwnershipOverride
+        ) else { return false }
         host.setWindowPortalHosting(false)
         let slotView = host.ensureLocalInlineSlotView()
         slotView.setDesignComposer(designComposer)

@@ -55,7 +55,15 @@ final class CanvasBrowserRenderingUITests: BrowserFixtureSocketTestCase {
                 params: ["title": "Canvas switch away", "focus": true]
             )
             let otherID = try XCTUnwrap(other["workspace_id"] as? String)
+            XCTAssertTrue(
+                webView.waitForNonExistence(timeout: 8),
+                "Browser should disappear after switching to the focused workspace"
+            )
             try socketResult(method: "workspace.select", params: ["workspace_id": workspaceID])
+            XCTAssertTrue(
+                webView.waitForExistence(timeout: 8),
+                "Browser should reappear after restoring the Canvas workspace"
+            )
             try assertAligned(webView: webView, window: window, name: "restored-\(iteration)")
             try socketResult(method: "workspace.close", params: ["workspace_id": otherID])
             try socketResult(method: "surface.close", params: ["surface_id": browserID])

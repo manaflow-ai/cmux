@@ -159,10 +159,21 @@ struct BrowserInlineHostAttachmentTests {
         oldWindowContent.addSubview(oldHosting)
         oldWindowContent.layoutSubtreeIfNeeded()
         oldHosting.layoutSubtreeIfNeeded()
+        oldHosting.rootView = oldRepresentable
+        oldWindowContent.layoutSubtreeIfNeeded()
+        oldHosting.layoutSubtreeIfNeeded()
+
+        var oldHostCallbackCompleted = false
+        let oldHostCallback = oldHost.onDidMoveToWindow
+        oldHost.onDidMoveToWindow = {
+            oldHostCallback?()
+            oldHostCallbackCompleted = true
+        }
         oldHost.onDidMoveToWindow?()
 
         #expect(waitUntil {
-            oldHost.window === oldWindow &&
+            oldHostCallbackCompleted &&
+                oldHost.window === oldWindow &&
                 panel.webView.isDescendant(of: newHost) &&
                 !panel.webView.isDescendant(of: oldHost)
         })
