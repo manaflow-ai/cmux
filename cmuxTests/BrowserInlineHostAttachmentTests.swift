@@ -61,11 +61,8 @@ struct BrowserInlineHostAttachmentTests {
             visibleWindow.close()
         }
         let visibleContent = try #require(visibleWindow.contentView)
+        visibleWindow.orderFrontRegardless()
         visibleContent.addSubview(hosting)
-        // A real Canvas window is an active AppKit window. Making this test
-        // window key ensures AppKit delivers the same window-arrival/layout
-        // lifecycle when an already-mounted SwiftUI host is reparented.
-        visibleWindow.makeKeyAndOrderFront(nil)
         visibleContent.layoutSubtreeIfNeeded()
         hosting.layoutSubtreeIfNeeded()
 
@@ -78,7 +75,6 @@ struct BrowserInlineHostAttachmentTests {
             abs(panel.webView.frame.width - host.bounds.width) < 1 &&
                 abs(panel.webView.frame.height - host.bounds.height) < 1
         })
-        print("deferred attachment state hostWindow=\(host.window?.windowNumber ?? -1) webSuperview=\(String(describing: panel.webView.superview.map { type(of: $0) })) webWindow=\(panel.webView.window?.windowNumber ?? -1) hostSubviews=\(host.subviews.map { String(describing: type(of: $0)) })")
     }
 
     @Test func deferredOldHostCannotReclaimBrowserAfterPaneOwnershipChanges() throws {
@@ -139,11 +135,11 @@ struct BrowserInlineHostAttachmentTests {
             visibleWindow.close()
         }
         let visibleContent = try #require(visibleWindow.contentView)
+        visibleWindow.orderFrontRegardless()
         let newHosting = NSHostingView(rootView: newRepresentable)
         newHosting.sizingOptions = []
         newHosting.frame = visibleContent.bounds
         visibleContent.addSubview(newHosting)
-        visibleWindow.orderFrontRegardless()
         visibleContent.layoutSubtreeIfNeeded()
         newHosting.layoutSubtreeIfNeeded()
         let newHost = try #require(waitForHost(in: newHosting))
@@ -152,8 +148,8 @@ struct BrowserInlineHostAttachmentTests {
         let oldWindow = makeWindow(size: oldRoot.bounds.size)
         defer { oldWindow.close() }
         let oldWindowContent = try #require(oldWindow.contentView)
-        oldWindowContent.addSubview(oldHosting)
         oldWindow.orderFrontRegardless()
+        oldWindowContent.addSubview(oldHosting)
         oldWindowContent.layoutSubtreeIfNeeded()
         oldHosting.layoutSubtreeIfNeeded()
 
