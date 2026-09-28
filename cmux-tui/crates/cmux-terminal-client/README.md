@@ -93,6 +93,17 @@ operations the `cmux-tui` CLI sends through the sidecar's local socket. They
 return the operation's JSON result. Create uses `workspace.create` with
 `initial_content: terminal`, so one call yields a workspace and a terminal.
 
+`cmux_terminal_client_create_terminal_in_workspace` adds a terminal to a
+workspace that already exists. It sends `tab.create_terminal` with only the
+`workspace` selector, and the daemon puts the new tab in that workspace's
+focused pane (the active pane of its active screen) and selects it there, the
+way opening a tab in the TUI does; a workspace with no screen gets a new screen
+and pane. The session's focused workspace does not move. The result is the same
+`MutationResult` shape as create, so `value.terminal_id` is the id to attach.
+The workspace must be named by its opaque `ws_` id. The library rejects a name
+or `current` before sending anything, because the daemon would otherwise
+resolve it as a selector and could pick a different workspace.
+
 `cmux_terminal_client_session_snapshot` returns `session.snapshot`: every
 workspace, screen, pane, tab, and terminal in one result. `terminal.list` has no
 workspace, so a caller that groups terminals by workspace follows the snapshot's
