@@ -43,11 +43,28 @@ import Testing
         Self.expectOneFencedRename(result.mutations, operation: "tab.rename", key: "tab", id: "tab")
     }
 
-    /// Runs one catalog rename against the daemon fixture. Returns the accepted
-    /// state and every rename request the daemon received.
-    private func renameAfterTerminalOutput(
-        _ rename: (SurfaceCatalog, SurfaceMachineID) async throws -> Void
-    ) async throws -> (state: CloudVMState, mutations: [[String: Any]]) {
+    /// A cloud tree row renames browsers and displays too, not only terminals,
+    /// so the message for a tab the remote workspace no longer holds cannot say
+    /// "terminal". The write must also stop in the app: nothing reaches the
+    /// daemon once the target is gone.
+    @Test("Renaming a tab the remote workspace no longer has says tab, not terminal", .timeLimit(.minutes(1)))
+    func renameMissingTabDoesNotSayTerminal() async throws {
+        try await withDaemonFixture { catalog, provider, root in
+            await #expect(
+                throws: SurfaceCatalogError.unsupported("This tab is not open in a remote workspace.")
+            ) {
+                try await catalog.renameRemoteTab(on: provider.machine, id: "tab-closed", name: "After")
+            }
+            let requests = (try? String(contentsOf: root.appendingPathComponent("requests.jsonl"), encoding: .utf8)) ?? ""
+            #expect(!requests.contains("tab.rename"))
+        }
+    }
+
+    /// Brings up the daemon fixture, hands the body the production catalog,
+    /// provider and fixture directory, and tears both down however it ends.
+    private func withDaemonFixture<T>(
+        _ body: (SurfaceCatalog, CmuxTuiSurfaceProvider, URL) async throws -> T
+    ) async throws -> T {
         let root = URL(fileURLWithPath: "/tmp/cmux-rename-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -91,6 +108,25 @@ import Testing
         provider.publish(initial, ports: [])
 
         do {
+            let value = try await body(catalog, provider, root)
+            catalog.unregister(machine: provider.machine)
+            await provider.stop()
+            await links.disconnect()
+            return value
+        } catch {
+            catalog.unregister(machine: provider.machine)
+            await provider.stop()
+            await links.disconnect()
+            throw error
+        }
+    }
+
+    /// Runs one catalog rename against the daemon fixture. Returns the accepted
+    /// state and every rename request the daemon received.
+    private func renameAfterTerminalOutput(
+        _ rename: (SurfaceCatalog, SurfaceMachineID) async throws -> Void
+    ) async throws -> (state: CloudVMState, mutations: [[String: Any]]) {
+        try await withDaemonFixture { catalog, provider, root in
             // Every rename calls refreshCurrentGraph(force: true) before sending
             // the mutation. The peer changes only stream_revision in that read.
             try await rename(catalog, provider.machine)
@@ -104,15 +140,7 @@ import Testing
             let mutations = requests.compactMap { $0 }.filter {
                 ($0["operation"] as? String)?.hasSuffix(".rename") == true
             }
-            catalog.unregister(machine: provider.machine)
-            await provider.stop()
-            await links.disconnect()
             return (current, mutations)
-        } catch {
-            catalog.unregister(machine: provider.machine)
-            await provider.stop()
-            await links.disconnect()
-            throw error
         }
     }
 
