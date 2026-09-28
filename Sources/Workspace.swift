@@ -3062,7 +3062,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             // an input of that label changed, not on every lease or relay update.
             guard oldValue?.destination != remoteConfiguration?.destination
                 || oldValue?.port != remoteConfiguration?.port
-                || oldValue?.managedCloudVMID != remoteConfiguration?.managedCloudVMID else { return }
+                || oldValue?.managedCloudVMID != remoteConfiguration?.managedCloudVMID
+                || oldValue?.sshOptions != remoteConfiguration?.sshOptions else { return }
             owningTabManager?.workspaceHostLabelDidChange(self)
         }
     }
@@ -3079,7 +3080,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             let previous = cloudBindingState.binding
             cloudBindingState.binding = newValue
             guard previous != newValue else { return }
-            owningTabManager?.workspaceHostLabelDidChange(self)
             (owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id))?
                 .sidebarGitMetadataService
                 .clearWorkspaceGitProbes(workspaceId: id)
@@ -3091,6 +3091,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             remoteDirectoryReportPanelIds.removeAll()
             remoteDirectoryTrustRequiredPanelIds.removeAll()
             notifyPresentedCurrentDirectoryChanged(from: nil, force: true)
+            owningTabManager?.workspaceHostLabelDidChange(self)
         }
     }
     /// The workspace-owned state for the latest failed cloud terminal creation request.

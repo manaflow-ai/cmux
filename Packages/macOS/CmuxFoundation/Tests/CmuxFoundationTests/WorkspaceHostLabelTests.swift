@@ -78,6 +78,8 @@ struct WorkspaceHostLabelTests {
 
         let hostColon = try #require(WorkspaceHostLabel.ssh(destination: "host:2222"))
         #expect(hostColon.label == "host:2222")
+        #expect(hostColon.detail == "host:2222")
+        #expect(hostColon.groupingKey == "ssh:host:2222")
     }
 
     @Test("rejects destinations without a host", arguments: ["", "   ", "leo@", "ssh://", "[::1"])
@@ -115,6 +117,7 @@ struct WorkspaceHostLabelTests {
         #expect(host.windowTitle(appendingTo: "build") == "build · big-red")
         #expect(host.windowTitle(appendingTo: "  ") == "big-red")
         #expect(host.windowTitle(appendingTo: "build @big-red") == "build @big-red")
+        #expect(host.windowTitle(appendingTo: " build @big-red ") == "build @big-red")
         #expect(host.windowTitle(appendingTo: "Big-Red logs") == "Big-Red logs")
         #expect(host.windowTitle(appendingTo: "big-redis") == "big-redis · big-red")
         #expect(host.windowTitle(appendingTo: "not-big-red") == "not-big-red · big-red")

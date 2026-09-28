@@ -3,8 +3,8 @@ import Foundation
 /// Where a workspace runs, derived from its connection rather than from the
 /// title the user typed.
 ///
-/// One value feeds every surface that labels a workspace by host (sidebar,
-/// window title, Task Manager, group-by-host), so they always agree.
+/// Surfaces that label or group workspaces by host (window titles, the Task
+/// Manager) share this one value so they agree.
 ///
 /// - SSH: built from the `cmux ssh` destination. The label is the host part
 ///   with the user and port removed (`leo@big-red:2222` shows as `big-red`).
@@ -56,7 +56,9 @@ public struct WorkspaceHostLabel: Hashable, Sendable {
     public static func ssh(destination: String, port: Int? = nil) -> WorkspaceHostLabel? {
         guard let parsed = SSHDestination(destination) else { return nil }
         let effectivePort = port ?? parsed.port
-        let bracketedHost = parsed.host.contains(":") ? "[\(parsed.host)]" : parsed.host
+        // Only IPv6 literals (two or more colons) need brackets before a port.
+        let isIPv6 = parsed.host.filter { $0 == ":" }.count >= 2
+        let bracketedHost = isIPv6 ? "[\(parsed.host)]" : parsed.host
         var detail = parsed.user.map { "\($0)@\(bracketedHost)" } ?? bracketedHost
         var key = "ssh:" + bracketedHost.lowercased()
         if let effectivePort {
@@ -90,7 +92,7 @@ public struct WorkspaceHostLabel: Hashable, Sendable {
         guard isRemote, !label.isEmpty else { return title }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return label }
-        if Self.title(trimmed, namesHost: label) { return title }
+        if Self.title(trimmed, namesHost: label) { return trimmed }
         return "\(trimmed) · \(label)"
     }
 

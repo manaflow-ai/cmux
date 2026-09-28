@@ -101,9 +101,11 @@ extension TabManager {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         } ?? ""
         let activeDirectory = activeWindowTitleDirectory(for: tab)
+        // `{activeWorkspace}` stays host-free; `{defaultTitle}` carries the host.
+        let workspaceFallback = activeDirectory.isEmpty ? "cmux" : activeDirectory
         let resolvedTitle = template.resolved(context: WindowTitleTemplateContext(
             defaultTitle: defaultTitle,
-            activeWorkspace: workspaceTitle.isEmpty ? defaultTitle : workspaceTitle,
+            activeWorkspace: workspaceTitle.isEmpty ? (tab == nil ? defaultTitle : workspaceFallback) : workspaceTitle,
             activeDirectory: activeDirectory,
             windowId: windowId,
             appName: "cmux"
