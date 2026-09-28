@@ -63,12 +63,9 @@ UNLOADABLE_PRODUCT_EXIT = 4
 # its runner (an app pull request), or straight away (a manual dispatch).
 COMPILE_NEVER, COMPILE_FALLBACK, COMPILE_NOW = "never", "fallback", "now"
 COMPILE_MODES = (COMPILE_NEVER, COMPILE_FALLBACK, COMPILE_NOW)
-# Changes to these build the app; a pull request touching none (a CLI-only
-# one, say) never compiles an app just for its tours.
-APP_PATH_PREFIXES = ("Sources/", "Packages/macOS/", "Packages/Shared/", "TunnelExtension/", "Resources/",
-                     "Assets.xcassets/", "AppIcon.icon/", "vendor/", "ghostty", "cmux.xcodeproj/",
-                     "cmux-Bridging-Header.h", "cmux.entitlements", "cmux-helper.entitlements", "webviews/",
-                     "cmuxUITests/", f"{SCENARIOS_DIR}/")
+# Product inputs no tour shows (the CLI lane, the app-host unit tests): a
+# pull request that only changes these never compiles an app for its tours.
+NON_TOUR_PRODUCT_PREFIXES = ("CLI/", "cmuxCLITests/", "cmuxCLITestSupport/", "cmuxTests/")
 GATE_WAIT_SECONDS = 25 * 60
 # Reads share the repository's token budget with the dispatcher, so waits poll slowly.
 GATE_POLL_SECONDS = 60
@@ -77,6 +74,8 @@ RUN_WAIT_SECONDS = 90 * 60
 ADMISSION_JOB_SUFFIX = "macOS compile admission"
 # test-e2e.yml's step that fails a require_adopted_product run whose reuse missed.
 REFUSE_STEP = "Refuse to compile for a dispatch that requires an adopted product"
+# ... and the one that fails it when reuse errored (no evidence either way).
+REUSE_ERROR_STEP = "Fail a dispatch that requires an adopted product when reuse errored"
 MERGE_REF = re.compile(r"refs/pull/\d+/merge")
 TESTED_LINE = re.compile(r"^Testing \S+ at ([0-9a-f]{40}) \(request ")
 MAX_KEY_SHOTS = 4
@@ -180,6 +179,22 @@ def select_tours(scenarios: dict[str, object], changed: Iterable[str], body: str
     if default in scenarios:
         return [default], "no tour's paths matched, so the default tour"
     return [], "no tour matched and the default tour is missing"
+
+
+def reaches_app(path: str) -> bool:
+    """Whether a changed path can change the app a tour shows: an input of the
+    app-host product (product_input_identity.reaches_product, what CI keys its
+    build on) outside NON_TOUR_PRODUCT_PREFIXES."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("product_input_identity",
+                                                  ROOT / "scripts/ci/product_input_identity.py")
+    assert spec and spec.loader
+    identity = sys.modules.get(spec.name)
+    if identity is None:
+        identity = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = identity
+        spec.loader.exec_module(identity)
+    return identity.reaches_product(path) and not path.startswith(NON_TOUR_PRODUCT_PREFIXES)
 
 
 def head_scenarios(head_sha: str) -> dict[str, object]:
@@ -396,7 +411,7 @@ def plan(repository: str) -> int:
             except json.JSONDecodeError:
                 pass
     tours, reason = select_tours(scenarios, changed, pull.get("body"))
-    app_change = any(path.startswith(APP_PATH_PREFIXES) for path in changed)
+    app_change = any(reaches_app(path) for path in changed)
     force = os.environ.get("FORCE", "").lower() == "true"
     pending = [tour for tour in tours if force or published(repository, pr, head_sha, tour) is None]
     print(f"#{pr} at {head_sha}: tours {tours or 'none'} ({reason}); to run: {pending or 'none'}", flush=True)
@@ -478,19 +493,28 @@ class Dispatch:
 
 def refused_after(dispatch: "Dispatch", repository: str) -> bool:
     """Wait for an adopt-only tour run; whether it stopped because it could
-    not load CI's build. The finished run is kept on `dispatch.completed`."""
+    not load CI's build. The finished run is kept on `dispatch.completed`;
+    a run whose reuse errored is kept with conclusion "reuse_error"."""
     run = dispatch.wait()
-    if run.get("conclusion") == "failure" and refused_to_compile(repository, str(dispatch.run_id)):
+    if run.get("conclusion") != "failure":
+        dispatch.completed = run
+        return False
+    if refused_to_compile(repository, str(dispatch.run_id)):
         return True
-    dispatch.completed = run
+    errored = REUSE_ERROR_STEP in failed_steps(repository, str(dispatch.run_id))
+    dispatch.completed = {**run, "conclusion": "reuse_error"} if errored else run
     return False
+
+
+def failed_steps(repository: str, run_id: str) -> set[str]:
+    jobs = (gh_json([f"repos/{repository}/actions/runs/{run_id}/jobs?per_page=100"]) or {}).get("jobs", [])
+    return {str(step.get("name")) for job in jobs for step in job.get("steps") or []
+            if step.get("conclusion") == "failure"}
 
 
 def refused_to_compile(repository: str, run_id: str) -> bool:
     """Whether the tour run stopped because it could not load CI's build."""
-    jobs = (gh_json([f"repos/{repository}/actions/runs/{run_id}/jobs?per_page=100"]) or {}).get("jobs", [])
-    return any(step.get("name") == REFUSE_STEP and step.get("conclusion") == "failure"
-               for job in jobs for step in job.get("steps") or [])
+    return REFUSE_STEP in failed_steps(repository, run_id)
 
 
 def frames_of(run_id: str, out: Path, repository: str) -> list[dict]:
@@ -674,6 +698,9 @@ def tour(repository: str, name: str, scenario: Path, head_sha: str, out: Path, c
             if conclusion in ("success", "failure"):
                 manifest["result"] = "passed" if conclusion == "success" else "failure"
                 manifest.update(tour_media(dispatch.run_id, name, head_sha, out, repository))
+            elif conclusion == "reuse_error":
+                manifest["note"] = ("skipped: the tour run could not check CI's build (a reuse error); "
+                                    "the next CI attempt tries again")
             else:
                 manifest["note"] = (f"skipped: the tour run ended {conclusion or 'unfinished'}; "
                                     "the next CI attempt tries again")
