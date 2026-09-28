@@ -1285,6 +1285,35 @@ function finishBaseCreate(
         Effect.provideService(VmRepository, repo),
         Effect.provideService(VmProviderGateway, providers),
       ),
+    ).pipe(
+      // Unlike createVm, this runs after the credit is reserved, so the
+      // reservation has to go back. resolveOwnerNetwork resolves a shared
+      // network rather than creating one, so there is nothing to unwind there,
+      // but the base and its generation exist by now and markBaseCreateFailed
+      // is the mark on this path that releases them: the ad-hoc markCreateFailed
+      // does not call restoreBaseAfterCreateFailure.
+      Effect.tapError((err) =>
+        Effect.all([
+          refundCredit(billing, repo, create.vm, creditReservation),
+          recordCreateFailureAfterMark(repo, repo.markBaseCreateFailed({
+            baseId: create.base.id,
+            generation: create.generation.generation,
+            vmId: create.vm.id,
+            userId: input.userId,
+            code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+            message: errorMessage(err),
+          }), {
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+            billingPlanId: input.billingPlanId,
+            vmId: create.vm.id,
+            eventType: "vm.base.create.failed",
+            provider: input.provider,
+            imageId: input.image,
+            metadata: { operation: "resolve_network", message: errorMessage(err) },
+          }),
+        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void)),
+      ),
     );
 
     const materials = yield* measureVmEffect(
@@ -4283,9 +4312,11 @@ function reserveCreateCredit(
     /**
      * Set by the Base flow. createVm and forkVm own a plain row, so failing it
      * is the whole rollback. A Base row is also claimed by a base and a
-     * generation, and only markBaseCreateFailed releases those; marking it with
-     * the ad-hoc path leaves the base "resetting" and its generation
-     * "creating".
+     * generation, and markBaseCreateFailed is the mark on this path that
+     * releases those; marking it with the ad-hoc path leaves the base
+     * "resetting" and its generation "creating". (markCreateAbandoned and
+     * resolveCreateCleanup also call restoreBaseAfterCreateFailure, but neither
+     * is reachable from here once the row carries a failure code.)
      *
      * Reset then 409s forever, because beginBaseReset refuses to start while an
      * operation is in flight. Open does not: it has no such guard and the
