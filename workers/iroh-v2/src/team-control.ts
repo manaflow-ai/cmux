@@ -74,14 +74,25 @@ export class TeamControl extends DurableObject<Environment> {
         observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200 });
         return this.json(result.response);
       }
+      // A socket that cannot be accepted must be refused before broker.open runs.
+      // open() verifies a caller-supplied signature, consumes the device proof,
+      // can record new authority and so bump the team revision, and that revision
+      // is then broadcast to every socket in this object and every dashboard
+      // socket. Checking admission afterwards turns each rejected attempt into
+      // work for all the clients already connected, which is the opposite of
+      // shedding load. Neither check reads anything open() produces.
+      if (incoming.path === "/socket") {
+        stage = "accept";
+        if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new OperationError("invalid_request", 400);
+        if (this.ctx.getWebSockets().length >= this.socketLimit()) throw new OperationError("rate_limited", 429, true, 5000);
+        stage = "open";
+      }
       const result = await broker.open(incoming.setup, incoming.authority, incoming.expiresAt, incoming.issueTicket);
       if (!result.session) throw new OperationError("internal_error", 500);
       this.scheduleChanges(result, incoming.authority.teamId);
       observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200 });
       if (incoming.path === "/session") return this.json(result.response);
       stage = "accept";
-      if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new OperationError("invalid_request", 400);
-      if (this.ctx.getWebSockets().length >= this.socketLimit()) throw new OperationError("rate_limited", 429, true, 5000);
       const session = result.session;
       const deviceKey = await identityKey(incoming.setup.device);
       this.opening.add(session.sessionId);
