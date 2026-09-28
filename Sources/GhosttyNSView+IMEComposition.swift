@@ -80,9 +80,16 @@ extension GhosttyNSView {
         after: (text: String, selection: NSRange),
         accumulatedText: [String]
     ) -> Bool {
-        guard accumulatedText.isEmpty else { return false }
         guard let event, event.isARepeat else { return false }
         guard before.text.isEmpty, after.text.isEmpty else { return false }
+
+        // AppKit may deliver the ordinary printable character through
+        // insertText while handling a repeated keyDown. It is still the
+        // fallback repeat that must be suppressed for the accent menu; other
+        // committed text belongs to an IME and must continue to the terminal.
+        let isOrdinaryKeyRepeatText = accumulatedText.count == 1
+            && event.characters.map { accumulatedText[0] == $0 } == true
+        guard accumulatedText.isEmpty || isOrdinaryKeyRepeatText else { return false }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.isDisjoint(with: [.command, .control, .option]) else { return false }
