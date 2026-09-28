@@ -185,7 +185,7 @@ import Testing
             forChromeBackground: NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
         )
         #expect(abs(separator.alphaComponent - 0.26) < 0.001)
-        #expect(abs(separator.redComponent - 0.70) < 0.001)
+        #expect(abs(separator.redComponent - 0.88) < 0.001)
     }
 
     // MARK: Helpers
