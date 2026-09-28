@@ -798,7 +798,9 @@ extension TerminalController {
         return .success(kind)
     }
 
-    private nonisolated static func socketWorkerVMSummaryPayload(_ vm: VMSummary) -> [String: Any] {
+    /// Internal rather than private so `CloudMachineCreatorTests` can check
+    /// that a relayed client is sent the same machine facts a direct one gets.
+    nonisolated static func socketWorkerVMSummaryPayload(_ vm: VMSummary) -> [String: Any] {
         var payload: [String: Any] = [
             "id": vm.id,
             "provider": vm.provider,
@@ -825,6 +827,15 @@ extension TerminalController {
         }
         if let slug = vm.slug, !slug.isEmpty {
             payload["slug"] = slug
+        }
+        if let createdBy = vm.createdBy {
+            // Shaped like the HTTP response, explicit null and all, so a
+            // relayed client decodes one payload rather than two. No author
+            // means no key, which is what the backend omits.
+            payload["createdBy"] = [
+                "userId": createdBy.userId,
+                "displayName": createdBy.displayName.map { $0 as Any } ?? NSNull(),
+            ]
         }
         if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
             payload["freeAccessExpiresAt"] = freeAccessExpiresAt
