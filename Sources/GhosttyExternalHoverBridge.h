@@ -1,13 +1,14 @@
-// The pinned GhosttyKit header supplies the ExternalHover C declarations.
-// This bridge only keeps the action decoding helpers local: older module
-// caches did not consistently expose the appended action tag/union member,
-// while the action layout itself is stable in the fork.
+// Keep the canonical Ghostty declarations in scope for the local action
+// decoding helpers below. The framework import in the bridging header does
+// not make those C declarations visible while this header is parsed.
 #ifndef CMUX_GHOSTTY_EXTERNAL_HOVER_BRIDGE_H
 #define CMUX_GHOSTTY_EXTERNAL_HOVER_BRIDGE_H
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+
+#include "ghostty/include/ghostty.h"
 
 typedef struct {
     uint64_t token_bits[4];
