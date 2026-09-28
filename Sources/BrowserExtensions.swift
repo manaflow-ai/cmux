@@ -1425,8 +1425,17 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
     }
 
     func takeSnapshot(using configuration: WKSnapshotConfiguration, for context: WKWebExtensionContext) async throws -> NSImage? {
-        guard showsPageAccessible(to: context), let webView = livePanel?.webView else { return nil }
-        return try await webView.takeSnapshot(configuration: configuration)
+        // The capture is asynchronous, so the page can navigate while it runs.
+        // Refuse during a load, and drop the image unless the same document
+        // in the same web view is still showing and still accessible.
+        guard showsPageAccessible(to: context), let webView = livePanel?.webView, !webView.isLoading else { return nil }
+        let item = webView.backForwardList.currentItem
+        let url = webView.url
+        let image = try await webView.takeSnapshot(configuration: configuration)
+        guard livePanel?.webView === webView, !webView.isLoading,
+              webView.backForwardList.currentItem === item, webView.url == url,
+              showsPageAccessible(to: context) else { return nil }
+        return image
     }
 }
 
