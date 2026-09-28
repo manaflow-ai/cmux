@@ -45,8 +45,8 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
                 status()
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
+            .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
         }
         .onDisappear { picker.isPresented = false }
     }
