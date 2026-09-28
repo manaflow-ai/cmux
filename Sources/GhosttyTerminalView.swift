@@ -9274,6 +9274,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result.shouldClaim {
             return true
         }
+
+        // A schemeless local-path callback belongs to the command-click
+        // fallback when it did not exactly match the prepared wrapped
+        // candidate. Claim it here so Ghostty does not consume the gesture
+        // first, then let release-time word resolution route it through the
+        // same cmux/editor policy. Explicit URLs and unrelated callbacks keep
+        // the normal link coordinator path.
+        if !hasScheme,
+           TerminalOpenURLFileRoutingPolicy().isLikelyLocalPathReference(urlString) {
+            if case .prepared(let candidate) = pendingCommandClickContext {
+                pendingCommandClickContext = .overridePending(candidate)
+            } else {
+                pendingCommandClickContext = nil
+            }
+            return true
+        }
+
         let handled = TerminalLinkOpenCoordinator().open(request)
         recordCommandClickReleaseRuntimeOutcome(handled ? .openURL : .unhandled)
         return handled

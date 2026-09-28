@@ -854,7 +854,7 @@ public struct TerminalPathResolver: Sendable {
                 disposition = .explicitTrailingSlashSeamBypass
             } else if let columns,
                       let lastColumn = clickedRow.lastNonWhitespaceColumn,
-                      lastColumn >= columns - 1 {
+                      lastColumn == columns - 1 {
                 disposition = .rowLocalHitAwaitingMirrorSlashSeam
             } else {
                 return nil
@@ -900,7 +900,7 @@ public struct TerminalPathResolver: Sendable {
             if !hasExplicitSlashSeam,
                let columns, columns > 0,
                let lastColumn = clickedRow.lastNonWhitespaceColumn,
-               lastColumn < columns - 1 {
+               lastColumn != columns - 1 {
                 let fullnessMargin = columns - 1 - lastColumn
                 return "rowLocalHitMirrorSeamNotFull gridColumns=\(columns) clickedLastCol=\(lastColumn) fullnessMargin=\(fullnessMargin)"
             }

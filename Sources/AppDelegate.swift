@@ -2945,13 +2945,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         func pointForTokenColumnOffset(_ offset: Int, in terminalPanel: TerminalPanel) -> NSPoint? {
             guard let selectionStart = pointFromPayload("tokenSelectionStartInTerminal", in: terminalPanel),
                   let tokenCellMetrics = tokenPointPayload?["tokenCellMetrics"] as? [String: Any],
-                  let cellWidth = doubleValue(tokenCellMetrics["cellWidth"]) else {
+                  let cellWidth = doubleValue(tokenCellMetrics["cellWidth"]),
+                  let cellHeight = doubleValue(tokenCellMetrics["cellHeight"]),
+                  let columns = (tokenCellMetrics["columns"] as? NSNumber)?.intValue ??
+                    (tokenCellMetrics["columns"] as? Int),
+                  offset >= 0, columns > 0 else {
                 return nil
             }
 
-            let unclampedX = selectionStart.x + (CGFloat(offset) * CGFloat(cellWidth))
-            let clampedX = min(max(unclampedX, 1), max(terminalPanel.hostedView.bounds.width - 1, 1))
-            return NSPoint(x: clampedX, y: selectionStart.y)
+            // The fixture line is allowed to wrap across physical rows. Map
+            // the logical token offset to its physical row and column rather
+            // than clamping an out-of-bounds offset into the final visible
+            // cell, which turns invalid separator offsets into valid clicks.
+            let rowOffset = offset / columns
+            let column = offset % columns
+            let unclampedX = selectionStart.x + (CGFloat(column) * CGFloat(cellWidth))
+            let unclampedY = selectionStart.y - (CGFloat(rowOffset) * CGFloat(cellHeight))
+            guard unclampedX >= 0, unclampedX < terminalPanel.hostedView.bounds.width,
+                  unclampedY >= 0, unclampedY < terminalPanel.hostedView.bounds.height else {
+                return nil
+            }
+            return NSPoint(x: unclampedX, y: unclampedY)
         }
 
         func commandPoint(

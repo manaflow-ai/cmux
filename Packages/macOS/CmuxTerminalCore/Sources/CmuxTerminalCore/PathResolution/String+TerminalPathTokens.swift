@@ -169,10 +169,47 @@ extension String {
             candidates.append(trimmed)
         }
 
+        // Terminal logs commonly prefix a path with a list marker (`- `).
+        // Treat the marker as presentation, while keeping every space in the
+        // filename. This must run before the ordinary whitespace segment so a
+        // real file such as "Standard - Consultant Agreement.docx" wins over
+        // an existing suffix decoy such as "Agreement.docx".
+        append(leadingListLabelPath(containingColumn: column))
         append(rawPathSegment(containingColumn: column))
         append(shellEscapedToken(containingColumn: column))
 
         return candidates
+    }
+
+    private func leadingListLabelPath(containingColumn column: Int) -> String? {
+        let characters = Array(self)
+        guard !characters.isEmpty, column >= 0, column < characters.count else { return nil }
+
+        var marker = 0
+        while marker < characters.count, characters[marker] == " " {
+            marker += 1
+        }
+        guard marker < characters.count, characters[marker] == "-",
+              marker + 1 < characters.count, characters[marker + 1].isWhitespace else {
+            return nil
+        }
+
+        var bodyStart = marker + 1
+        while bodyStart < characters.count, characters[bodyStart].isWhitespace {
+            bodyStart += 1
+        }
+        guard bodyStart < characters.count, column >= bodyStart else { return nil }
+
+        let body = String(characters[bodyStart...])
+        if let labelColon = body.firstIndex(of: ":") {
+            let suffixStart = body.index(after: labelColon)
+            let suffix = body[suffixStart...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !suffix.isEmpty, let suffixOffset = body.distance(from: body.startIndex, to: suffixStart),
+               column >= bodyStart + suffixOffset {
+                return String(suffix)
+            }
+        }
+        return body
     }
 
     private func rawPathSegment(containingColumn column: Int) -> String? {
