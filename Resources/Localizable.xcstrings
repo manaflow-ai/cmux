@@ -565993,6 +565993,256 @@
           }
         }
       }
+    },
+    "devices.link.error.notDiscoverable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac isn’t discoverable. On that Mac, turn on “Make this Mac discoverable” in Settings › Devices."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز Mac هذا غير قابل للاكتشاف. على ذلك الجهاز، فعّل «جعل جهاز Mac هذا قابلاً للاكتشاف» في الإعدادات › الأجهزة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac ist nicht auffindbar. Aktiviere auf diesem Mac unter „Einstellungen › Geräte“ die Option „Diesen Mac auffindbar machen“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no es detectable. En ese Mac, activa «Hacer que este Mac sea detectable» en Ajustes › Dispositivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’est pas détectable. Sur ce Mac, activez « Rendre ce Mac détectable » dans Réglages › Appareils."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacは検出可能になっていません。そのMacの「設定 › デバイス」で「このMacを検出可能にする」をオンにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac을 검색할 수 없습니다. 해당 Mac의 설정 › 기기에서 “이 Mac을 검색할 수 있도록 설정”을 켜세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 无法被发现。请在该 Mac 的“设置 › 设备”中开启“允许发现此 Mac”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這部 Mac 無法被探索。請在該 Mac 的「設定 › 裝置」中開啟「允許探索此 Mac」。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac nije vidljiv. Na tom Macu uključite „Učini ovaj Mac vidljivim” u Postavke › Uređaji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac kan ikke findes. Slå “Gør denne Mac synlig” til på den Mac under Indstillinger › Enheder."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac non è individuabile. Su quel Mac, attiva “Rendi individuabile questo Mac” in Impostazioni › Dispositivi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះមិនអាចរកឃើញបានទេ។ នៅលើ Mac នោះ សូមបើក “ធ្វើឲ្យ Mac នេះអាចរកឃើញ” ក្នុងការកំណត់ › ឧបករណ៍។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen er ikke synlig. Slå på «Gjør denne Macen synlig» på den Macen under Innstillinger › Enheter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac nie jest wykrywalny. Na tym Macu włącz „Uczyń ten Mac wykrywalnym” w Ustawienia › Urządzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac não está detectável. Nesse Mac, ative “Tornar este Mac detectável” em Ajustes › Dispositivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac недоступен для обнаружения. На том Mac включите «Сделать этот Mac доступным для обнаружения» в разделе Настройки › Устройства."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้ไม่สามารถค้นพบได้ บน Mac เครื่องนั้น ให้เปิด “ทำให้ Mac เครื่องนี้ค้นพบได้” ในการตั้งค่า › อุปกรณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac keşfedilebilir değil. O Mac’te Ayarlar › Cihazlar bölümünden “Bu Mac’i keşfedilebilir yap” seçeneğini açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac недоступний для виявлення. На тому Mac увімкніть «Зробити цей Mac доступним для виявлення» у розділі Налаштування › Пристрої."
+          }
+        }
+      }
+    },
+    "socket.terminal.notRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal is not running right now, for example because it is hibernated or still starting. Show it in cmux, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルは現在実行されていません（休止中または起動中など）。cmux で表示してから再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端当前未运行（例如处于休眠状态或仍在启动）。请在 cmux 中显示它，然后重试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal läuft gerade nicht, zum Beispiel weil es im Ruhezustand ist oder noch startet. Zeigen Sie es in cmux an und versuchen Sie es dann erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal ne s’exécute pas pour le moment, par exemple parce qu’il est en veille ou encore en cours de démarrage. Affichez-le dans cmux, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطرفية لا تعمل حالياً، على سبيل المثال لأنها في وضع السبات أو لا تزال قيد التشغيل. اعرضها في cmux ثم أعد المحاولة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La terminal no se está ejecutando ahora mismo, por ejemplo porque está hibernada o todavía se está iniciando. Muéstrela en cmux y vuelva a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機目前未執行（例如處於休眠狀態或仍在啟動中）。請在 cmux 中顯示它，然後重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 현재 실행 중이 아닙니다(예: 최대 절전 상태이거나 아직 시작 중). cmux에서 표시한 후 다시 시도하십시오."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal trenutno ne radi, na primjer zato što je u hibernaciji ili se još pokreće. Prikažite ga u cmuxu, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen kører ikke lige nu, for eksempel fordi den er i dvale eller stadig starter. Vis den i cmux, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale non è in esecuzione in questo momento, ad esempio perché è ibernato o ancora in avvio. Mostralo in cmux, quindi riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់មិនកំពុងដំណើរការឥឡូវនេះទេ ឧទាហរណ៍ ដោយសារវាកំពុងសម្រាក ឬកំពុងចាប់ផ្តើម។ បង្ហាញវានៅក្នុង cmux រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen kjører ikke akkurat nå, for eksempel fordi den er i dvale eller fortsatt starter. Vis den i cmux, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal nie działa w tej chwili, na przykład dlatego, że jest uśpiony lub wciąż się uruchamia. Pokaż go w cmux, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal não está em execução agora, por exemplo porque está hibernado ou ainda iniciando. Mostre-o no cmux e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал сейчас не запущен, например потому что он в спящем режиме или ещё запускается. Откройте его в cmux и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลไม่ได้ทำงานอยู่ในขณะนี้ เช่น เพราะกำลังพักการทำงานหรือยังเริ่มต้นไม่เสร็จ แสดงเทอร์มินัลใน cmux แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal şu anda çalışmıyor; örneğin hazırda bekletiliyor ya da hâlâ başlatılıyor. cmux'ta gösterin, ardından yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал зараз не запущено, наприклад тому що він у режимі сну або ще запускається. Покажіть його в cmux і спробуйте ще раз."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
