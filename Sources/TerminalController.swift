@@ -12924,6 +12924,8 @@ class TerminalController {
                 result = "OK \(panel.id.uuidString)"
             case .routedToRemote:
                 result = "OK routed-to-remote-tmux"
+            case .noSpace:
+                result = "ERROR: No space for new pane"
             case .failed:
                 break
             }

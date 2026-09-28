@@ -1,12 +1,7 @@
 import CmuxCloudTunnelCore
 import Foundation
 import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxCloud
 
 /// The runtime configuration the extension hands the app must carry peers and
 /// counters but never key material.

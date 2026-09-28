@@ -37,7 +37,10 @@ within seconds, before any step of the workflow succeeds. GitHub does not
 retry it, so the pull request would stay red until someone re-ran it. A job
 on the persistent pool that failed within REFUSAL_SECONDS of starting, with
 its runner setup step failed or no workflow step succeeded, counts as refused
-(compile admission's `always()` metrics steps still succeed after a refusal): the watcher lets the rest of the
+(compile admission's `always()` metrics steps still succeed after a refusal).
+A failed job that ran no step at all counts too, whatever its length: GitHub
+fails a job whose runner went away only after 10 minutes ("The self-hosted
+runner lost communication with the server"). The watcher lets the rest of the
 run finish, since GitHub re-runs no job of a run in progress and cancelling
 it would kill every healthy sibling, then confirms the head has not moved and
 re-runs its failed jobs. Only a run still going at the watch's end, or main's
@@ -443,13 +446,19 @@ def job_budget(job: Mapping[str, Any], budget_seconds: int, *, deadline: dt.date
 
 
 def refused(job: Mapping[str, Any]) -> bool:
-    """A job the owned runner refused at job start (see the module docstring)."""
+    """A job the owned runner refused at job start (see the module docstring), or whose runner was lost."""
     if not job_pool(job) or job.get("status") != "completed" or job.get("conclusion") != "failure":
         return False
+    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
+    if not steps:
+        # The runner ran nothing, not even "Set up job": GitHub failed a job whose
+        # runner went away ("The self-hosted runner lost communication with the
+        # server"), which it reports only after 10 minutes, so no length applies
+        # (run 36420353579).
+        return True
     started, completed = parse_time(job.get("started_at")), parse_time(job.get("completed_at"))
     if started is None or completed is None or (completed - started).total_seconds() > REFUSAL_SECONDS:
         return False
-    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
     # The hook runs inside the runner's own setup, so a failed setup step is a
     # refusal even when the job's `always()` steps still ran and succeeded.
     if any(step.get("name") in SETUP_STEPS and step.get("conclusion") == "failure" for step in steps):
