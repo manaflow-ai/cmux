@@ -3,7 +3,7 @@ import XCTest
 /// Behavioral UI tests for the Settings **Sidebar** + **Beta Features**
 /// section, scoped to the controls called out for this section:
 /// the *Sidebar Branch Layout* picker (vertical vs inline), the active-tab
-/// *indicator style*, and the *beta Feed* / *beta Dock* toggles.
+/// *indicator style* and the *beta Feed* toggle.
 ///
 /// What is actually assertable through XCUITest here, and why:
 ///
@@ -36,19 +36,16 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
     //  - sidebarBranchVerticalLayout: SidebarCatalogSection.branchVerticalLayout (default true / "Vertical")
     //  - sidebarActiveTabIndicatorStyle: indicator style key (default "leftRail")
     //  - rightSidebar.beta.feed.enabled: BetaFeaturesCatalogSection.rightSidebarFeed (default false)
-    //  - rightSidebar.beta.dock.enabled: BetaFeaturesCatalogSection.rightSidebarDock (default false)
     private let inScopeDefaultsKeys = [
         "sidebarBranchVerticalLayout",
         "sidebarActiveTabIndicatorStyle",
         "rightSidebar.beta.feed.enabled",
-        "rightSidebar.beta.dock.enabled",
     ]
 
     // Fixed subtitle strings (exact defaultValue copy from SidebarSection
     // and BetaFeaturesSection).
     private let branchLayoutSubtitle = "Choose whether branches share one line or each get their own line."
     private let feedSubtitle = "Adds Feed to the right sidebar for answering agent requests."
-    private let dockSubtitle = "Adds Dock to the right sidebar for custom terminal controls."
 
     override func setUp() {
         super.setUp()
@@ -119,12 +116,20 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
         assertBetaToggleRoundTrips(id: "SettingsBetaFeedToggle", subtitle: feedSubtitle)
     }
 
-    // MARK: - TIER 1: Beta Dock toggle
+    // MARK: - Dock graduation
 
-    /// The **Beta Features > Dock** switch reads its value back from the
-    /// `rightSidebarDockEnabled` binding and keeps its fixed subtitle.
-    func testBetaDockToggleKeepsFixedSubtitle() {
-        assertBetaToggleRoundTrips(id: "SettingsBetaDockToggle", subtitle: dockSubtitle)
+    /// Dock is a standard feature, so Beta Features no longer offers a Dock
+    /// switch. Visibility remains available under Sidebar > Right Sidebar Tabs.
+    func testBetaFeaturesOmitsDockToggle() {
+        let app = makeLaunchedApp()
+        let window = openSettings(app)
+        defer { closeSettings(app, window) }
+
+        navigate(window, to: "Beta Features")
+        XCTAssertFalse(
+            window.switches["SettingsBetaDockToggle"].waitForExistence(timeout: 2),
+            "Dock must not appear as a beta toggle"
+        )
     }
 
     /// Shared driver: the toggle starts off, turns on after one click, turns
@@ -184,13 +189,4 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
     //   This would need a workspace-setup launch seam plus screenshot
     //   sampling (cf. RightSidebarChromeHeightUITests) to verify.
     //
-    // TIER 2 (needs runtime seam): Beta Dock downstream effect — enabling the
-    //   Dock toggle adds the `RightSidebarModeButton.dock` button to the
-    //   right-sidebar mode bar (RightSidebarPanelView `availableModes`). That
-    //   button only exists when the right sidebar is open over a workspace,
-    //   which requires CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR=1 plus the
-    //   bonsplit workspace setup at launch — env the shared harness does not
-    //   set. The reactive binding is covered above; the mode-bar button would
-    //   need the right-sidebar setup launch env (cf.
-    //   RightSidebarChromeHeightUITests) to assert directly.
 }

@@ -2013,26 +2013,6 @@ extension DockShortcutRoutingTests {
             prefix: "cmux-dock-shortcut-routing"
         )
         KeyboardShortcutSettings.resetAll()
-        let standardDefaults = UserDefaults.standard
-        let previousDockEnabledSetting = standardDefaults.object(
-            forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
-        )
-        standardDefaults.set(
-            true,
-            forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
-        )
-        defer {
-            if let previousDockEnabledSetting {
-                standardDefaults.set(
-                    previousDockEnabledSetting,
-                    forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
-                )
-            } else {
-                standardDefaults.removeObject(
-                    forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
-                )
-            }
-        }
 
         let appDelegate = AppDelegate()
         appDelegate.notificationStore = TerminalNotificationStore.shared

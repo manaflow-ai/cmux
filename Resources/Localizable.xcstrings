@@ -206295,55 +206295,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock placement is disabled"
+            "value": "Dock placement is unavailable"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock配置は無効です"
+            "value": "Dock の配置は利用できません"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock 放置已禁用"
+            "value": "Dock 放置不可用"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock-Platzierung ist deaktiviert"
+            "value": "Dock-Platzierung ist nicht verfügbar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le placement du Dock est désactivé"
+            "value": "Le placement du Dock est indisponible"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم تعطيل موضع Dock"
+            "value": "موضع Dock غير متاح"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La ubicación del Dock está deshabilitada"
+            "value": "La ubicación del Dock no está disponible"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock 放置已停用"
+            "value": "Dock 放置無法使用"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock 배치가 비활성화되었습니다"
+            "value": "Dock 배치를 사용할 수 없습니다"
           }
         }
       }
@@ -310149,65 +310149,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "맞춤 사이드바"
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.dock": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dock"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dock"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dock"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dock"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dock"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dock"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dock"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dock"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dock"
           }
         }
       }
@@ -553529,65 +553470,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "~/.config/cmux/sidebars のサイドバーをサイドバーピッカーに追加します。"
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.dock.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Adds Dock to the right sidebar for custom terminal controls."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fügt der rechten Seitenleiste das Dock für benutzerdefinierte Terminal-Steuerelemente hinzu."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajoute le Dock à la barre latérale droite pour les commandes de terminal personnalisées."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يضيف Dock إلى الشريط الجانبي الأيمن لعناصر التحكم المخصصة في الطرفية."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Añade el Dock a la barra lateral derecha para controles de terminal personalizados."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在右側邊欄加入 Dock，用來放置自訂的終端機控制項。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在右侧边栏添加 Dock，用来放置自定义的终端控件。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오른쪽 사이드바에 Dock을 추가해 터미널 컨트롤을 직접 구성할 수 있습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右サイドバーに Dock を追加し、ターミナル用のカスタムコントロールを配置できるようにします。"
           }
         }
       }
