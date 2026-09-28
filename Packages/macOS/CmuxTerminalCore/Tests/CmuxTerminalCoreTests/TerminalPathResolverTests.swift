@@ -349,6 +349,34 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(resolution.path == existingFile)
     }
 
+    @Test func resolvesPathAfterDashListLabelWithoutDroppingSpacedFilename() throws {
+        let fullPath = "/tmp/Standard - Consultant Agreement - Form of Consulting Agreement.docx"
+        let suffixPath = "/tmp/Agreement.docx"
+        let line = "- Standard - Consultant Agreement - Form of Consulting Agreement.docx"
+        let resolver = TerminalPathResolver(fileExists: existsIn([fullPath, suffixPath]))
+
+        let resolution = try #require(
+            resolver.resolveVisibleLinePath(line, column: 12, cwd: "/tmp")
+        )
+
+        #expect(resolution.path == fullPath)
+        #expect(resolution.rawToken == "Standard - Consultant Agreement - Form of Consulting Agreement.docx")
+    }
+
+    @Test func doesNotTreatOverlongRowLocalHitAsPhysicalRightEdge() {
+        let existingFile = "/tmp/row-local-longer-than-grid.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([existingFile]))
+
+        #expect(
+            resolver.wrappedPathSeed(
+                in: existingFile,
+                column: 2,
+                cwd: "/tmp",
+                columns: existingFile.count - 1
+            ) == nil
+        )
+    }
+
     @Test func returnsNilWhenColumnSitsOnHardDelimiter() {
         #expect(
             TerminalPathResolver(fileExists: { _ in true }).resolveVisibleLinePath(
