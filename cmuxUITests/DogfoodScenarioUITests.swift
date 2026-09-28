@@ -245,7 +245,13 @@ final class DogfoodScenarioUITests: XCTestCase {
         for item in path.dropFirst() {
             let menuItem = menuChild(item, of: opened)
             guard menuItem.waitForExistence(timeout: 3) else {
-                app.typeKey(.escape, modifierFlags: [])
+                // One Escape per menu still standing. Escape closes a single
+                // level, so a path that failed inside a submenu used to leave
+                // its parent menu open; a failed step is recorded and the tour
+                // carries on, so every later click landed on the menu overlay
+                // and every later shot, `99-final` included, was taken through
+                // it. One bad title cost the rest of the tour.
+                for _ in reached { app.typeKey(.escape, modifierFlags: []) }
                 // Name the prefix that resolved, not the whole path: a middle
                 // element with no submenu fails here, and blaming the last
                 // element for that points at the wrong step.
