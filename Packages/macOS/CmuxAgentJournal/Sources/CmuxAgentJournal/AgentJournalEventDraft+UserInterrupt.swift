@@ -42,25 +42,45 @@ extension AgentJournalEventDraft {
 }
 
 extension AgentLifecycleReducerState {
+    /// Last accepted lifecycle sequence for every running session that an
+    /// interrupt request is allowed to settle.
+    public func userInterruptSessionBoundary(
+        surfaceId: String,
+        agentKey: String
+    ) -> [String: Int64] {
+        let bySession = sessions[surfaceId]?[agentKey] ?? [:]
+        return bySession.reduce(into: [:]) { boundary, entry in
+            let (sessionKey, session) = entry
+            guard !session.ended, session.phase == .running else { return }
+            boundary[sessionKey] = session.lastSequence
+        }
+    }
+
     /// Interrupt events for every live, running session of `agentKey` on
-    /// `surfaceId`, so an interrupt settles exactly the sessions the journal
-    /// has running there, including ones whose hooks came over a relay.
+    /// `surfaceId` that has not advanced beyond the captured interrupt
+    /// boundary, including sessions whose hooks came over a relay.
     ///
     /// - Parameters:
     ///   - surfaceId: The surface UUID string, as the reducer keys it.
     ///   - workspaceId: The owning workspace UUID string.
     ///   - agentKey: The sidebar lifecycle key (`claude_code`).
     ///   - source: The agent slug whose hooks journal these sessions (`claude`).
+    ///   - sessionBoundary: Session key to last accepted lifecycle sequence
+    ///     captured when the interrupt request reached the journal consumer.
     /// - Returns: One draft per running session; empty when none is running.
     public func userInterruptDrafts(
         surfaceId: String,
         workspaceId: String,
         agentKey: String,
-        source: String
+        source: String,
+        sessionBoundary: [String: Int64]
     ) -> [AgentJournalEventDraft] {
         let bySession = sessions[surfaceId]?[agentKey] ?? [:]
         return bySession.keys.sorted().compactMap { sessionKey in
-            guard let session = bySession[sessionKey], !session.ended, session.phase == .running else {
+            guard let session = bySession[sessionKey],
+                  sessionBoundary[sessionKey] == session.lastSequence,
+                  !session.ended,
+                  session.phase == .running else {
                 return nil
             }
             let sessionId = sessionKey == "@\(source)" ? nil : sessionKey

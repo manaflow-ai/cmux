@@ -23,13 +23,25 @@ final class AgentJournalLifecycleCenter: Sendable {
         case feed(AgentFeedSemanticInput, UUID?)
         case append(AgentJournalEventDraft)
         case requestInterrupt(surfaceId: String, workspaceId: String, agentKey: String, source: String)
-        case settleInterrupt(surfaceId: String, workspaceId: String, agentKey: String, source: String)
+        case settleInterrupt(
+            surfaceId: String,
+            workspaceId: String,
+            agentKey: String,
+            source: String,
+            sessionBoundary: [String: Int64]
+        )
         case recordAliases(workspaces: [String: String], surfaces: [String: String])
         case startupReplay
+#if DEBUG
+        case barrier(UUID)
+#endif
 
         var admissionID: UUID? {
             switch self {
             case .submit(_, let id), .feed(_, let id): id
+#if DEBUG
+            case .barrier(let id): id
+#endif
             default: nil
             }
         }
@@ -166,6 +178,11 @@ final class AgentJournalLifecycleCenter: Sendable {
                         admissions.complete(id, accepted: false)
                     }
                 case .requestInterrupt(let surfaceId, let workspaceId, let agentKey, let source):
+                    let sessionBoundary = state.userInterruptSessionBoundary(
+                        surfaceId: surfaceId,
+                        agentKey: agentKey
+                    )
+                    guard !sessionBoundary.isEmpty else { continue }
                     // The second phase enters at the back of this FIFO so hook
                     // ingress already queued behind the click is reconciled
                     // before the synthetic completion is derived.
@@ -173,16 +190,24 @@ final class AgentJournalLifecycleCenter: Sendable {
                         surfaceId: surfaceId,
                         workspaceId: workspaceId,
                         agentKey: agentKey,
-                        source: source
+                        source: source,
+                        sessionBoundary: sessionBoundary
                     ))
-                case .settleInterrupt(let surfaceId, let workspaceId, let agentKey, let source):
+                case .settleInterrupt(
+                    let surfaceId,
+                    let workspaceId,
+                    let agentKey,
+                    let source,
+                    let sessionBoundary
+                ):
                     // Append and reconcile in this causal operation. Re-enqueueing
                     // either half would let later ingress overtake the completion.
                     for draft in state.userInterruptDrafts(
                         surfaceId: surfaceId,
                         workspaceId: workspaceId,
                         agentKey: agentKey,
-                        source: source
+                        source: source,
+                        sessionBoundary: sessionBoundary
                     ) {
                         do {
                             let outcome = try store.append(draft)
@@ -274,6 +299,10 @@ final class AgentJournalLifecycleCenter: Sendable {
                             }
                         }
                     }
+#if DEBUG
+                case .barrier(let id):
+                    admissions.complete(id, accepted: true)
+#endif
                 }
             }
         }
@@ -364,6 +393,15 @@ final class AgentJournalLifecycleCenter: Sendable {
             source: source
         ))
     }
+
+#if DEBUG
+    /// Waits until operations already admitted, including their one-step
+    /// follow-up operations, have left the consumer FIFO.
+    func waitForPendingOperationsForTesting() async {
+        _ = await admit { .barrier($0) }
+        _ = await admit { .barrier($0) }
+    }
+#endif
 
     /// Records the workspace/panel identity remaps produced by one restored
     /// workspace, so journaled history re-attaches to the restored panels.
