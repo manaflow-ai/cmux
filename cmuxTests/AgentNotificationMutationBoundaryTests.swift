@@ -10,9 +10,7 @@ import Testing
 #endif
 
 extension AgentNotificationRegressionTests {
-    // Generous for loaded CI runners: subprocess spawn, signal propagation,
-    // and marker writes can take multiple seconds there. A long timeout only
-    // slows the failure path.
+    // Allow loaded CI runners time for subprocess spawning and signal delivery.
     func waitForMarker(at url: URL, timeout: Duration = .seconds(15)) async -> Bool {
         let deadline = ContinuousClock.now + timeout
         while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
@@ -21,7 +19,27 @@ extension AgentNotificationRegressionTests {
         return FileManager.default.fileExists(atPath: url.path)
     }
 
-    @Test("PID routing bypasses a stale negative telemetry cache after exec")
+    func waitForScopedProcess(
+        pid: pid_t,
+        surfaceId: UUID,
+        timeout: Duration = .seconds(15)
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if let identity = agentLiveProcessIdentity(pid: pid),
+               case .resolved(let scope) = CmuxTopProcessSnapshot.cmuxScopeProbe(
+                   for: Int(pid),
+                   expectedCacheKey: identity.scopeCacheKey
+               ),
+               scope?.surfaceID == surfaceId {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return false
+    }
+
+    @Test("PID routing reprobes an initially absent scope after exec")
     func pidResolutionBypassesStaleNegativeTelemetryCacheAfterExec() async throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }
@@ -35,13 +53,15 @@ extension AgentNotificationRegressionTests {
         let readyMarker = root.appendingPathComponent("ready")
         let execMarker = root.appendingPathComponent("execed")
         try """
-        touch '\(readyMarker.path)'
         trap 'exec /bin/sh "\(scopedScript.path)"' USR1
+        touch '\(readyMarker.path)'
         while :; do sleep 1; done
         """.write(to: initialScript, atomically: true, encoding: .utf8)
+        // The marker comes from the final image; never exec again after it. macOS 26
+        // hides a platform binary's environment, so that image is Xcode's python, not sh.
         try """
         export CMUX_SURFACE_ID='\(fixture.panelId.uuidString)'
-        exec /bin/sh -c 'touch "\(execMarker.path)"; exec sleep 30'
+        exec "$(xcrun --find python3)" -c 'import pathlib, time; pathlib.Path("\(execMarker.path)").touch(); time.sleep(600)'
         """.write(to: scopedScript, atomically: true, encoding: .utf8)
 
         let process = Process()
@@ -65,14 +85,13 @@ extension AgentNotificationRegressionTests {
         #expect(await waitForMarker(at: readyMarker))
 
         let identity = try #require(agentLiveProcessIdentity(pid: process.processIdentifier))
-        let cachedMiss = CmuxTopProcessSnapshot.cachedCMUXScope(
-            for: Int(process.processIdentifier),
-            cacheKey: identity.scopeCacheKey,
-            nowNanoseconds: DispatchTime.now().uptimeNanoseconds
+        let priorProbe = CmuxTopProcessSnapshot.cmuxScopeProbe(
+            for: Int(process.processIdentifier), expectedCacheKey: identity.scopeCacheKey
         )
-        #expect(cachedMiss == nil)
+        #expect(priorProbe == .resolved(nil))
         #expect(Darwin.kill(process.processIdentifier, SIGUSR1) == 0)
         #expect(await waitForMarker(at: execMarker))
+        #expect(await waitForScopedProcess(pid: process.processIdentifier, surfaceId: fixture.panelId))
 
         #expect(
             fixture.appDelegate.liveAgentDeliveryTarget(forAgentPID: process.processIdentifier)
@@ -81,6 +100,17 @@ extension AgentNotificationRegressionTests {
                     surfaceId: fixture.panelId
                 )
         )
+
+        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
+            "pid": Int(process.processIdentifier),
+        ])
+        guard case .ok(let payload) = result,
+              let target = payload as? [String: Any] else {
+            Issue.record("Expected live PID delivery target, got \(result)")
+            return
+        }
+        #expect(target["source"] as? String == "pid")
+        #expect(target["pid"] as? Int == Int(process.processIdentifier))
     }
 
     @Test("Local PID routing excludes remote TTY device namespaces")

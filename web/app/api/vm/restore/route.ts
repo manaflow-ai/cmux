@@ -1,6 +1,7 @@
 import { unauthorized, verifyRequest, type AuthedUser } from "../../../../services/vms/auth";
+import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, vmCapabilitiesFor } from "../../../../services/vms/drivers";
 import { isVmCreateDisabledError } from "../../../../services/vms/errors";
 import { captureVmProvisionOutcome } from "../../../../services/vms/observability";
 import { vmModelPlaneGatewayFor } from "../../../../services/vms/modelPlaneGateway";
@@ -119,6 +120,7 @@ export async function POST(request: Request): Promise<Response> {
         snapshotId,
         idempotencyKey,
         // The restored machine is a new row: it gets its own token and edge rule.
+        teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
         modelPlane: vmModelPlaneGatewayFor({
           teamId: entitlements.billingTeamId,
           stackUserId: user.id,
@@ -141,6 +143,7 @@ export async function POST(request: Request): Promise<Response> {
         imageVersion: restored.imageVersion,
         status: restored.status,
         createdAt: restored.createdAt,
+        capabilities: vmCapabilitiesFor(restored.provider),
       });
     },
   );

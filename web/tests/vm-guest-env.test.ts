@@ -4,6 +4,7 @@ import {
   VM_PLACEHOLDER_API_KEY,
   renderVmGuestModelPlaneEnvFile,
   vmEdgeAliasDomain,
+  vmReflectionAliasDomain,
   vmGuestModelPlaneEnv,
 } from "../services/coderouter/vmGuestEnv";
 
@@ -19,6 +20,11 @@ describe("static guest model-plane env", () => {
     expect(vmEdgeAliasDomain(undefined)).toBe("coderouter.cmux.internal");
     expect(vmEdgeAliasDomain(" Models.Example.Test ")).toBe("models.example.test");
     expect(() => vmEdgeAliasDomain("https://x.y")).toThrow("bare host name");
+    // The reflection alias follows the same rules; the guest env never names it
+    // (the shim derives the path form from CMUX_CODEROUTER_URL).
+    expect(vmReflectionAliasDomain(undefined)).toBe("reflection.cmux.internal");
+    expect(vmReflectionAliasDomain(" Whoami.Example.Test ")).toBe("whoami.example.test");
+    expect(() => vmReflectionAliasDomain("reflection cmux")).toThrow("bare host name");
   });
 
   test("renders the file agent-config.sh sources, single-quoted, never a token", () => {

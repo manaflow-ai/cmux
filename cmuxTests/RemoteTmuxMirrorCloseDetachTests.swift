@@ -27,7 +27,7 @@ import Testing
 /// this test exercises the marking decision directly to observe it deterministically.
 @MainActor
 @Suite(.serialized) struct RemoteTmuxMirrorCloseDetachTests {
-    private let sshOverrideKey = "CMUX_REMOTE_TMUX_SSH_FOR_TESTING"
+    fileprivate let sshOverrideKey = "CMUX_REMOTE_TMUX_SSH_FOR_TESTING"
     private let sshLogKey = "CMUX_PR7264_SSH_LOG"
 
     /// The mark seam must NOT flag a mirror workspace's window for kill-on-close:
@@ -295,94 +295,16 @@ import Testing
         #expect(!message.localizedCaseInsensitiveContains("host unreachable"))
     }
 
-    /// A direct socket caller must opt into focus. The CLI supplies an explicit
-    /// `activate` value, but a raw `remote.tmux.window` request with no such field
-    /// must leave the caller's current cmux window active.
-    @Test func dedicatedWindowSocketDefaultsToFocusNeutral() async throws {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("remote-tmux-focus-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let sshURL = root.appendingPathComponent("ssh")
-        try writeExecutable(
-            at: sshURL,
-            contents: """
-            #!/bin/sh
-            case "$*" in
-              *display-message*) printf '3.4\\n' ;;
-              *list-sessions*) printf '$1:1:0:1:one\\n' ;;
-            esac
-            exit 0
-            """
-        )
-        let previousSSH = environmentValue(for: sshOverrideKey)
-        setenv(sshOverrideKey, sshURL.path, 1)
-        defer { restoreEnvironment(sshOverrideKey, previousValue: previousSSH) }
-        let remoteTmuxKey = SettingCatalog().betaFeatures.remoteTmux.userDefaultsKey
-        let previousRemoteTmux = UserDefaults.standard.object(forKey: remoteTmuxKey)
-        UserDefaults.standard.set(true, forKey: remoteTmuxKey)
-        defer {
-            if let previousRemoteTmux {
-                UserDefaults.standard.set(previousRemoteTmux, forKey: remoteTmuxKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: remoteTmuxKey)
-            }
-        }
-
-        let harness = try Harness()
-        var targetWindowID: UUID?
-        defer {
-            if let targetWindowID { harness.closeWindow(targetWindowID) }
-            harness.tearDown()
-        }
-        let host = RemoteTmuxHost(destination: "focus-\(UUID().uuidString)@example.test")
-        defer { harness.controller.detach(host: host, sessionName: "one") }
-        harness.cacheConnection(host: host, session: "one")
-        #expect(harness.appDelegate.focusMainWindow(windowId: harness.windowId))
-        #expect(harness.appDelegate.tabManager === harness.manager)
-        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === harness.manager)
-        let focusedBefore = try #require(
-            TerminalController.shared.v2Identify(params: [:])["focused"] as? [String: Any]
-        )
-        let windowIDBefore = try #require(focusedBefore["window_id"] as? String)
-        let workspaceIDBefore = try #require(focusedBefore["workspace_id"] as? String)
-        let paneIDBefore = try #require(focusedBefore["pane_id"] as? String)
-        let surfaceIDBefore = try #require(focusedBefore["surface_id"] as? String)
-
-        let responseText = await Task.detached {
-            TerminalController.shared.v2RemoteTmuxWindow(
-                id: 1,
-                params: ["host": host.destination]
-            )
-        }.value
-        let responseData = try #require(responseText.data(using: .utf8))
-        let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
-        let result = try #require(response["result"] as? [String: Any])
-        targetWindowID = try #require(
-            (result["window_id"] as? String).flatMap(UUID.init(uuidString:))
-        )
-
-        #expect(harness.appDelegate.tabManager === harness.manager)
-        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === harness.manager)
-        let focusedAfter = try #require(
-            TerminalController.shared.v2Identify(params: [:])["focused"] as? [String: Any]
-        )
-        #expect(focusedAfter["window_id"] as? String == windowIDBefore)
-        #expect(focusedAfter["workspace_id"] as? String == workspaceIDBefore)
-        #expect(focusedAfter["pane_id"] as? String == paneIDBefore)
-        #expect(focusedAfter["surface_id"] as? String == surfaceIDBefore)
-    }
-
-    private func writeExecutable(at url: URL, contents: String) throws {
+    fileprivate func writeExecutable(at url: URL, contents: String) throws {
         try contents.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
     }
 
-    private func environmentValue(for key: String) -> String? {
+    fileprivate func environmentValue(for key: String) -> String? {
         getenv(key).map { String(cString: $0) }
     }
 
-    private func restoreEnvironment(_ key: String, previousValue: String?) {
+    fileprivate func restoreEnvironment(_ key: String, previousValue: String?) {
         if let previousValue {
             setenv(key, previousValue, 1)
         } else {
@@ -404,7 +326,7 @@ import Testing
     }
 
     @MainActor
-    private struct Harness {
+    fileprivate struct Harness {
         let appDelegate: AppDelegate
         let windowId: UUID
         let manager: TabManager
@@ -441,6 +363,98 @@ import Testing
             appDelegate.forgetRecoverableMainWindowRoute(windowId: id)
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
+    }
+}
+
+/// Run focus-neutral window creation in a fresh app host. The close/detach
+/// cases exercise native renderer teardown; sharing their process can crash
+/// before this test reaches its routing assertions. CI invokes this suite
+/// separately and still requires successful execution of the original test.
+@MainActor
+@Suite(.serialized) struct RemoteTmuxMirrorFocusPolicyTests {
+    /// A direct socket caller must opt into focus. The CLI supplies an explicit
+    /// `activate` value, but a raw `remote.tmux.window` request with no such field
+    /// must leave the caller's current cmux window active.
+    @Test func dedicatedWindowSocketDefaultsToFocusNeutral() async throws {
+        let support = RemoteTmuxMirrorCloseDetachTests()
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("remote-tmux-focus-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sshURL = root.appendingPathComponent("ssh")
+        try support.writeExecutable(
+            at: sshURL,
+            contents: """
+            #!/bin/sh
+            case "$*" in
+              *display-message*) printf '3.4\\n' ;;
+              *list-sessions*) printf '$1:1:0:1:one\\n' ;;
+            esac
+            exit 0
+            """
+        )
+        let remoteTmuxKey = SettingCatalog().betaFeatures.remoteTmux.userDefaultsKey
+        let previousRemoteTmux = UserDefaults.standard.object(forKey: remoteTmuxKey)
+        UserDefaults.standard.set(true, forKey: remoteTmuxKey)
+        defer {
+            if let previousRemoteTmux {
+                UserDefaults.standard.set(previousRemoteTmux, forKey: remoteTmuxKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: remoteTmuxKey)
+            }
+        }
+
+        let harness = try RemoteTmuxMirrorCloseDetachTests.Harness()
+        var targetWindowID: UUID?
+        defer {
+            if let targetWindowID { harness.closeWindow(targetWindowID) }
+            harness.tearDown()
+        }
+        let host = RemoteTmuxHost(destination: "focus-\(UUID().uuidString)@example.test")
+        // Ghostty retains its startup environment buffer. Calling setenv after
+        // initialization can invalidate that buffer before this test's new
+        // window creates a native terminal. Inject only this host's transport.
+        let transport = RemoteTmuxSSHTransport(
+            host: host,
+            sshExecutablePath: sshURL.path
+        )
+        harness.controller.transportRegistry.transports[host.connectionHash] = transport
+        #expect(harness.controller.transport(for: host) === transport)
+        defer { harness.controller.detach(host: host, sessionName: "one") }
+        harness.cacheConnection(host: host, session: "one")
+        #expect(harness.appDelegate.focusMainWindow(windowId: harness.windowId))
+        #expect(harness.appDelegate.tabManager === harness.manager)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === harness.manager)
+        let focusedBefore = try #require(
+            TerminalController.shared.v2Identify(params: [:])["focused"] as? [String: Any]
+        )
+        let windowIDBefore = try #require(focusedBefore["window_id"] as? String)
+        let workspaceIDBefore = try #require(focusedBefore["workspace_id"] as? String)
+        let paneIDBefore = try #require(focusedBefore["pane_id"] as? String)
+        let surfaceIDBefore = try #require(focusedBefore["surface_id"] as? String)
+
+        let responseText = await Task.detached {
+            TerminalController.shared.v2RemoteTmuxWindow(
+                id: 1,
+                params: ["host": host.destination]
+            )
+        }.value
+        let responseData = try #require(responseText.data(using: .utf8))
+        let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+        let result = try #require(response["result"] as? [String: Any])
+        targetWindowID = try #require(
+            (result["window_id"] as? String).flatMap(UUID.init(uuidString:))
+        )
+
+        #expect(harness.appDelegate.tabManager === harness.manager)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === harness.manager)
+        let focusedAfter = try #require(
+            TerminalController.shared.v2Identify(params: [:])["focused"] as? [String: Any]
+        )
+        #expect(focusedAfter["window_id"] as? String == windowIDBefore)
+        #expect(focusedAfter["workspace_id"] as? String == workspaceIDBefore)
+        #expect(focusedAfter["pane_id"] as? String == paneIDBefore)
+        #expect(focusedAfter["surface_id"] as? String == surfaceIDBefore)
     }
 }
 

@@ -1,3 +1,4 @@
+import CmuxCloud
 import CryptoKit
 import Foundation
 import Testing
@@ -164,7 +165,7 @@ struct VMTunnelManagerTests {
 
         let home = URL(fileURLWithPath: "/tmp/cmux-tunnel-scope-tests", isDirectory: true)
         let manager = VMTunnelManager(home: home, interfaceName: "cmux-staging")
-        #expect(manager.configURL.lastPathComponent == "cmux-staging.conf")
+        #expect(manager.configURL.lastPathComponent == "cmux-staging.browser.conf")
     }
 
     @Test
@@ -226,9 +227,55 @@ struct VMTunnelManagerTests {
         #expect(stable.deviceIDURL.lastPathComponent == "device-id")
         #expect(stable.configURL.lastPathComponent == "cmux.conf")
         #expect(nightly.interfaceName == "cmux-nightly")
-        #expect(nightly.privateKeyURL.lastPathComponent == "cmux-nightly.private.key")
-        #expect(nightly.deviceIDURL.lastPathComponent == "cmux-nightly.device-id")
-        #expect(nightly.configURL.lastPathComponent == "cmux-nightly.conf")
+        #expect(nightly.privateKeyURL.lastPathComponent == "cmux-nightly.browser.private.key")
+        #expect(nightly.deviceIDURL.lastPathComponent == "cmux-nightly.browser.device-id")
+        #expect(nightly.configURL.lastPathComponent == "cmux-nightly.browser.conf")
+    }
+
+    @Test
+    func rcBuildOwnsItsOwnInterfaceAndCredentialPaths() {
+        let home = URL(fileURLWithPath: "/tmp/cmux-tunnel-path-tests", isDirectory: true)
+        let productionURL = URL(string: "https://cmux.com")!
+        let rc = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.rc",
+            apiBaseURL: productionURL
+        )
+
+        let nightlyManager = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: productionURL
+        )
+        // RC is a non-legacy channel like nightly: same credential file shape,
+        // keyed by its own interface name, never the stable `private.key`.
+        func rcName(_ nightlyName: String) -> String {
+            nightlyName.replacingOccurrences(of: "cmux-nightly", with: "cmux-rc")
+        }
+        #expect(rc.interfaceName == "cmux-rc")
+        #expect(rc.privateKeyURL.lastPathComponent == rcName(nightlyManager.privateKeyURL.lastPathComponent))
+        #expect(rc.deviceIDURL.lastPathComponent == rcName(nightlyManager.deviceIDURL.lastPathComponent))
+        #expect(rc.configURL.lastPathComponent == rcName(nightlyManager.configURL.lastPathComponent))
+        #expect(rc.privateKeyURL.lastPathComponent != "private.key")
+
+        let taggedRC = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.rc.candidate1",
+            apiBaseURL: productionURL
+        )
+        let stable = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app",
+            apiBaseURL: productionURL
+        )
+        let nightly = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: productionURL
+        )
+        #expect(taggedRC != rc.interfaceName)
+        #expect(taggedRC.hasPrefix("cmux-r-"))
+        #expect(rc.interfaceName != stable)
+        #expect(rc.interfaceName != nightly)
+        #expect(taggedRC.utf8.count <= 15)
+        #expect(taggedRC.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" })
     }
 
     @Test
@@ -324,8 +371,21 @@ struct VMTunnelManagerTests {
     func terminalAndBrowserRolesUseSeparateKeysAndConfigs() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        let browser = VMTunnelManager(home: home, purpose: .browser)
-        let terminal = VMTunnelManager(home: home, purpose: .terminal)
+        let productionURL = URL(string: "https://cmux.com")!
+        let browser = VMTunnelManager(
+            home: home,
+            purpose: .browser,
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [:],
+            apiBaseURL: productionURL
+        )
+        let terminal = VMTunnelManager(
+            home: home,
+            purpose: .terminal,
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [:],
+            apiBaseURL: productionURL
+        )
 
         #expect(try terminal.deviceFingerprint() != browser.deviceFingerprint())
 

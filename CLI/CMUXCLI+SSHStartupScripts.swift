@@ -9,8 +9,6 @@ extension CMUXCLI {
         isShellSnippet: Bool = false,
         passwordCredential: String? = nil,
         controlPathPreflightShellFunction: String? = nil,
-        retryPTYAttachStatus: Bool = false,
-        retryOnFailure: Bool = true,
         reconnectLimitDefault: Int = 20
     ) throws -> String {
         let script = buildSSHStartupScriptBody(
@@ -21,8 +19,6 @@ extension CMUXCLI {
             passwordCredential: passwordCredential,
             controlPathPreflightShellFunction: controlPathPreflightShellFunction,
             oneTimeCommand: nil,
-            retryPTYAttachStatus: retryPTYAttachStatus,
-            retryOnFailure: retryOnFailure,
             reconnectLimitDefault: reconnectLimitDefault
         )
         return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort)
@@ -36,8 +32,6 @@ extension CMUXCLI {
         passwordCredential: String? = nil,
         controlPathPreflightShellFunction: String? = nil,
         oneTimeCommand: String? = nil,
-        retryPTYAttachStatus: Bool = false,
-        retryOnFailure: Bool = true,
         reconnectLimitDefault: Int = 20
     ) -> String {
         // Reusable commands are persisted in workspace metadata and can be emitted over the socket API.
@@ -50,31 +44,11 @@ extension CMUXCLI {
             passwordCredential: nil,
             controlPathPreflightShellFunction: controlPathPreflightShellFunction,
             oneTimeCommand: oneTimeCommand,
-            retryPTYAttachStatus: retryPTYAttachStatus,
-            retryOnFailure: retryOnFailure,
             reconnectLimitDefault: reconnectLimitDefault
         )
         return reusableShellStartupCommand(
             scriptBody: script,
             tempPrefix: "cmux-ssh-startup"
-        )
-    }
-
-    func buildReusableSSHPTYAttachStartupCommand(
-        remoteShellCommand: String,
-        remoteRelayPort: Int
-    ) -> String {
-        let attachCommand = SSHPTYAttachStartupCommandBuilder.command(
-            remoteCommand: remoteShellCommand,
-            requireExisting: false
-        )
-        return buildReusableSSHStartupCommand(
-            sshCommand: attachCommand,
-            shellFeatures: "",
-            remoteRelayPort: remoteRelayPort,
-            isShellSnippet: false,
-            retryPTYAttachStatus: true,
-            retryOnFailure: false
         )
     }
 
@@ -130,7 +104,13 @@ extension CMUXCLI {
             "      if {[string length $cmux_buffer] > 0} { send_user -- $cmux_buffer }",
             "      cmux_relay_session",
             "    }",
-            "    eof { set status [wait]; exit [lindex $status 3] }",
+            // A session that authenticates and ends inside this window still
+            // owes the user its output: flush what expect buffered before exiting.
+            "    eof {",
+            "      catch { send_user -- $expect_out(buffer) }",
+            "      set status [wait]",
+            "      exit [lindex $status 3]",
+            "    }",
             "  }",
             "}",
             "expect {",
@@ -217,7 +197,13 @@ extension CMUXCLI {
             "      if {[string length $cmux_buffer] > 0} { send_user -- $cmux_buffer }",
             "      cmux_relay_session",
             "    }",
-            "    eof { set status [wait]; exit [lindex $status 3] }",
+            // A session that authenticates and ends inside this window still
+            // owes the user its output: flush what expect buffered before exiting.
+            "    eof {",
+            "      catch { send_user -- $expect_out(buffer) }",
+            "      set status [wait]",
+            "      exit [lindex $status 3]",
+            "    }",
             "  }",
             "}",
             "expect {",
@@ -262,8 +248,6 @@ extension CMUXCLI {
         passwordCredential: String?,
         controlPathPreflightShellFunction: String?,
         oneTimeCommand: String?,
-        retryPTYAttachStatus: Bool,
-        retryOnFailure: Bool,
         reconnectLimitDefault: Int
     ) -> String {
         let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -273,9 +257,6 @@ extension CMUXCLI {
         let lifecycleCleanup = buildSSHSessionEndShellCommand(remoteRelayPort: remoteRelayPort)
         let lifecycleLaunching = remoteRelayPort > 0
             ? buildSSHTerminalSessionLaunchingShellCommand()
-            : ":"
-        let lifecycleRetirement = retryPTYAttachStatus
-            ? buildSSHSessionEndShellCommand(remoteRelayPort: remoteRelayPort, lifecycleOnly: true)
             : ":"
         let trimmedControlPathPreflight = controlPathPreflightShellFunction?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -288,7 +269,7 @@ extension CMUXCLI {
         )
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .startup)
         let terminalModeReset = shellQuote(SSHTerminalModeResetSequence().shellPrintfFormat)
-        let reconnectNote = shellQuote(sshAutoReconnectNoteFormat(discardsInput: retryPTYAttachStatus))
+        let reconnectNote = shellQuote(sshAutoReconnectNoteFormat())
         let terminalExitPrompt = shellQuote(sshTerminalExitPromptFormat())
         let reconnectRecoveredNote = shellQuote(sshAutoReconnectRecoveredNoteFormat())
         let terminalExitPromptCommand = [
@@ -318,13 +299,6 @@ extension CMUXCLI {
         } else {
             scriptLines.append("cmux_ssh_cleanup_password() { :; }")
         }
-        if retryPTYAttachStatus {
-            scriptLines += [
-                "CMUX_SSH_PTY_SESSION_ID=\"ssh-${CMUX_WORKSPACE_ID:-}-${CMUX_SURFACE_ID:-}\"",
-                "CMUX_SSH_PTY_LIFECYCLE_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1",
-                "export CMUX_SSH_PTY_SESSION_ID CMUX_SSH_PTY_LIFECYCLE_ID",
-            ]
-        }
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
             scriptLines.append(trimmedControlPathPreflight)
         }
@@ -332,20 +306,7 @@ extension CMUXCLI {
             scriptLines += ["cmux_ssh_foreground_auth() {", trimmedOneTimeCommand, "}"]
             scriptLines.append(authRetryPolicy.processTreeTerminationShellFunction())
         }
-        let reconnectConfiguration = retryPTYAttachStatus ? [
-            // A missing limit used to mean infinity, which left a corrupt or
-            // permanently unavailable daemon spinning forever in the pane.
-            // Keep the supervisor finite even when an old persisted launcher
-            // omitted CMUX_SSH_RECONNECT_LIMIT.
-            "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
-            "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; *) while [ \"${cmux_ssh_reconnect_limit#0}\" != \"$cmux_ssh_reconnect_limit\" ] && [ \"$cmux_ssh_reconnect_limit\" != 0 ]; do cmux_ssh_reconnect_limit=\"${cmux_ssh_reconnect_limit#0}\"; done; case \"$cmux_ssh_reconnect_limit\" in [1-9]|1[0-9]|20) ;; *) cmux_ssh_reconnect_limit=20 ;; esac ;; esac",
-            "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
-            "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*|0*) cmux_ssh_reconnect_delay=2 ;; esac",
-            "cmux_ssh_reconnect_max_delay=\"${CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS:-30}\"",
-            "case \"$cmux_ssh_reconnect_max_delay\" in ''|*[!0-9]*|0*) cmux_ssh_reconnect_max_delay=30 ;; esac",
-            "if [ \"$cmux_ssh_reconnect_delay\" -gt \"$cmux_ssh_reconnect_max_delay\" ]; then cmux_ssh_reconnect_delay=\"$cmux_ssh_reconnect_max_delay\"; fi",
-            "cmux_ssh_reconnect_initial_delay=\"$cmux_ssh_reconnect_delay\"",
-        ] : [
+        let reconnectConfiguration = [
             "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-\(max(0, reconnectLimitDefault))}\"",
             "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; esac",
             "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
@@ -370,39 +331,13 @@ extension CMUXCLI {
             "cmux_ssh_register_attempt() { \(lifecycleLaunching); }",
             "cmux_ssh_begin_attempt() { CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || return 1; export CMUX_SSH_ATTEMPT_ID; cmux_ssh_attempt_registration_retry=0; while ! cmux_ssh_register_attempt; do cmux_ssh_attempt_registration_retry=$((cmux_ssh_attempt_registration_retry + 1)); if [ \"$cmux_ssh_attempt_registration_retry\" -ge 3 ]; then return 1; fi; /bin/sleep 0.1; done; }",
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; \(lifecycleCleanup); }",
-            "cmux_ssh_retire_for_signal() { cmux_ssh_signal_status=\"$1\"; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; \(lifecycleRetirement); trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
+            "cmux_ssh_retire_for_signal() { cmux_ssh_signal_status=\"$1\"; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
             "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; cmux_ssh_signal_name=\"$2\"; if [ -n \"${CMUX_SSH_AUTH_PID:-}\" ]; then cmux_ssh_terminate_auth_process_tree \"$CMUX_SSH_AUTH_PID\" \"$CMUX_SSH_STARTUP_PID\"; wait \"$CMUX_SSH_AUTH_PID\" 2>/dev/null || true; CMUX_SSH_AUTH_PID=; \(backoffBuilder.signalHandlerBranches) elif [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; CMUX_SSH_PENDING_SIGNAL_NAME=\"$cmux_ssh_signal_name\"; return; fi; cmux_ssh_retire_for_signal \"$cmux_ssh_signal_status\"; }",
             "trap 'cmux_ssh_session_end' EXIT",
             "trap 'cmux_ssh_signal_exit 129 HUP' HUP",
             "trap 'cmux_ssh_signal_exit 130 INT' INT",
             "trap 'cmux_ssh_signal_exit 143 TERM' TERM",
         ]
-
-        if !retryOnFailure {
-            scriptLines += [
-                "if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
-            ]
-            if isShellSnippet {
-                scriptLines += [
-                    "(",
-                    "  \(sshCommand)",
-                    ") <&0 &",
-                ]
-            } else {
-                scriptLines.append("command \(sshCommand) <&0 &")
-            }
-            scriptLines += [
-                "CMUX_SSH_CHILD_PID=$!",
-                "if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
-                "wait \"$CMUX_SSH_CHILD_PID\"",
-                "cmux_ssh_status=$?",
-                "CMUX_SSH_CHILD_PID=",
-                "trap - EXIT HUP INT TERM",
-                "cmux_ssh_session_end",
-                "exit \"$cmux_ssh_status\"",
-            ]
-            return scriptLines.joined(separator: "\n")
-        }
 
         scriptLines += [
             "while :; do",
@@ -415,16 +350,6 @@ extension CMUXCLI {
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty,
            !hasOneTimeCommand {
             scriptLines.append("  cmux_ssh_preflight_control_path")
-        }
-        if retryPTYAttachStatus {
-            // Advertise per attempt whether another 251|254|255 retry is queued so
-            // ssh-pty-attach only suppresses its pty_attach_end cleanup while a
-            // retry is actually pending; see CMUXCLI.sshPTYAttachWrapperRetryPending
-            // and SSHPTYAttachRetryScriptBuilder.
-            scriptLines += [
-                "  if [ \"$cmux_ssh_retry\" -lt \"$cmux_ssh_reconnect_limit\" ]; then CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=1; else CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=0; fi",
-                "  export CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY",
-            ]
         }
         scriptLines += [
             "  cmux_ssh_begin_attempt || exit 1",
@@ -439,7 +364,6 @@ extension CMUXCLI {
         } else {
             scriptLines.append("  command \(sshCommand) <&0 &")
         }
-        let retryableStatusPattern = retryPTYAttachStatus ? "251|254|255" : "255"
         scriptLines += [
             "  CMUX_SSH_CHILD_PID=$!",
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
@@ -448,14 +372,8 @@ extension CMUXCLI {
             "  CMUX_SSH_CHILD_PID=",
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then if [ \"$cmux_ssh_retry\" -gt 0 ]; then cmux_ssh_note \"$(printf \(reconnectRecoveredNote) \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\")\"; fi; break; fi",
             "  cmux_ssh_reset_terminal_modes",
-            "  case \"$cmux_ssh_status\" in \(retryableStatusPattern)) ;; *) break ;; esac",
+            "  case \"$cmux_ssh_status\" in 255) ;; *) break ;; esac",
         ]
-        if retryPTYAttachStatus {
-            let establishedBridgeFailed = hasOneTimeCommand
-                ? "[ \"$cmux_ssh_status\" -eq 254 ] && [ \"$cmux_ssh_reauth_required\" -eq 0 ]"
-                : "[ \"$cmux_ssh_status\" -eq 254 ]"
-            scriptLines.append("  if \(establishedBridgeFailed); then cmux_ssh_reconnect_delay=\"$cmux_ssh_reconnect_initial_delay\"; fi")
-        }
         if hasOneTimeCommand {
             scriptLines += ["  if [ \"$cmux_ssh_status\" -eq 255 ]; then cmux_ssh_reauth_required=1; fi", "  fi"]
         }
@@ -468,9 +386,6 @@ extension CMUXCLI {
             "  cmux_ssh_note \(reconnectNote) \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
         ]
         scriptLines += backoffBuilder.waitLines
-        if retryPTYAttachStatus {
-            scriptLines.append("  if [ \"$cmux_ssh_reconnect_delay\" -lt \"$cmux_ssh_reconnect_max_delay\" ]; then cmux_ssh_reconnect_delay=$((cmux_ssh_reconnect_delay * 2)); if [ \"$cmux_ssh_reconnect_delay\" -gt \"$cmux_ssh_reconnect_max_delay\" ]; then cmux_ssh_reconnect_delay=\"$cmux_ssh_reconnect_max_delay\"; fi; fi")
-        }
         scriptLines += [
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
             "done",
@@ -514,35 +429,34 @@ extension CMUXCLI {
             "cmux_tmp=$(mktemp \"${TMPDIR:-/tmp}/\(tempPrefix).XXXXXX\") || exit 1",
             "cmux_cleanup() { rm -f -- \"$cmux_tmp\" 2>/dev/null || true; }",
             "trap 'cmux_cleanup' EXIT HUP INT TERM",
-            "(printf %s \(encodedLiteral) | base64 -d 2>/dev/null || printf %s \(encodedLiteral) | base64 -D 2>/dev/null) > \"$cmux_tmp\" || exit 1",
+            // Choose the decoder before writing the payload. Repeating the large
+            // bootstrap for a fallback can push the launcher past macOS ARG_MAX.
+            "if base64 -d </dev/null >/dev/null 2>&1; then cmux_decode_flag=-d; else cmux_decode_flag=-D; fi",
+            "(printf %s \(encodedLiteral) | base64 \"$cmux_decode_flag\") > \"$cmux_tmp\" || exit 1",
             "chmod 700 \"$cmux_tmp\" >/dev/null 2>&1 || true",
             "/bin/sh \"$cmux_tmp\"",
             "cmux_status=$?",
             "trap - EXIT HUP INT TERM",
             "cmux_cleanup",
-            "unset cmux_tmp cmux_status",
+            "unset cmux_tmp cmux_decode_flag",
             "unset -f cmux_cleanup 2>/dev/null || true",
             "exit $cmux_status",
         ].joined(separator: "\n")
         return "/bin/sh -c \(shellQuote(wrapper))"
     }
 
-    private func buildSSHSessionEndShellCommand(
-        remoteRelayPort: Int,
-        lifecycleOnly: Bool = false
-    ) -> String {
-        let lifecycleOnlyFlag = lifecycleOnly ? " --lifecycle-only" : ""
-        return [
+    private func buildSSHSessionEndShellCommand(remoteRelayPort: Int) -> String {
+        [
             "if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]",
             "&& [ -x \"${CMUX_BUNDLED_CLI_PATH}\" ]",
             "&& [ -n \"${CMUX_SOCKET_PATH:-}\" ]",
             "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
             "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
-            "\"${CMUX_BUNDLED_CLI_PATH}\" --socket \"${CMUX_SOCKET_PATH}\" ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" --terminal-lifecycle-id \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" --session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\" --lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\"\(lifecycleOnlyFlag) >/dev/null 2>&1 || true;",
+            "\"${CMUX_BUNDLED_CLI_PATH}\" --socket \"${CMUX_SOCKET_PATH}\" ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" --terminal-lifecycle-id \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" --session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\" --lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\" >/dev/null 2>&1 || true;",
             "elif command -v cmux >/dev/null 2>&1",
             "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
             "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
-            "cmux ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" --terminal-lifecycle-id \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" --session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\" --lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\"\(lifecycleOnlyFlag) >/dev/null 2>&1 || true;",
+            "cmux ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" --terminal-lifecycle-id \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" --session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\" --lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\" >/dev/null 2>&1 || true;",
             "fi",
         ].joined(separator: " ")
     }

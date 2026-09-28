@@ -25,29 +25,46 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Cloning Sparkle ${SPARKLE_VERSION}..."
-git clone --depth 1 --branch "$SPARKLE_VERSION" https://github.com/sparkle-project/Sparkle "$work_dir/Sparkle"
+# Sparkle publishes these exact tools, universal and linked only against the
+# system Swift runtime, with each release. Building them from source cost ~40s
+# in every nightly variant job. SPARKLE_TOOLS_DIR points at an existing tools
+# directory (tests); other versions still build from source.
+SPARKLE_281_TARBALL_SHA256="5cddb7695674ef7704268f38eccaee80e3accbf19e61c1689efff5b6116d85be"
+if [[ -n "${SPARKLE_TOOLS_DIR:-}" ]]; then
+  tools_dir="$SPARKLE_TOOLS_DIR"
+elif [[ "$SPARKLE_VERSION" == "2.8.1" ]]; then
+  echo "Downloading Sparkle ${SPARKLE_VERSION} tools..."
+  tarball="$work_dir/Sparkle-${SPARKLE_VERSION}.tar.xz"
+  curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
+    --connect-timeout 15 --max-time 300 -o "$tarball" \
+    "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
+  actual_sha="$(shasum -a 256 "$tarball" | awk '{print $1}')"
+  if [[ "$actual_sha" != "$SPARKLE_281_TARBALL_SHA256" ]]; then
+    echo "Sparkle ${SPARKLE_VERSION} tarball checksum mismatch: $actual_sha" >&2
+    exit 1
+  fi
+  mkdir -p "$work_dir/Sparkle"
+  tar -xf "$tarball" -C "$work_dir/Sparkle" ./bin
+  tools_dir="$work_dir/Sparkle/bin"
+else
+  echo "Cloning Sparkle ${SPARKLE_VERSION}..."
+  git clone --depth 1 --branch "$SPARKLE_VERSION" https://github.com/sparkle-project/Sparkle "$work_dir/Sparkle"
+  for scheme in generate_appcast sign_update BinaryDelta; do
+    echo "Building Sparkle $scheme tool..."
+    xcodebuild \
+      -project "$work_dir/Sparkle/Sparkle.xcodeproj" \
+      -scheme "$scheme" \
+      -configuration Release \
+      -derivedDataPath "$work_dir/build" \
+      CODE_SIGNING_ALLOWED=NO \
+      build >/dev/null
+  done
+  tools_dir="$work_dir/build/Build/Products/Release"
+fi
 
-echo "Building Sparkle generate_appcast tool..."
-xcodebuild \
-  -project "$work_dir/Sparkle/Sparkle.xcodeproj" \
-  -scheme generate_appcast \
-  -configuration Release \
-  -derivedDataPath "$work_dir/build" \
-  CODE_SIGNING_ALLOWED=NO \
-  build >/dev/null
-
-echo "Building Sparkle sign_update tool..."
-xcodebuild \
-  -project "$work_dir/Sparkle/Sparkle.xcodeproj" \
-  -scheme sign_update \
-  -configuration Release \
-  -derivedDataPath "$work_dir/build" \
-  CODE_SIGNING_ALLOWED=NO \
-  build >/dev/null
-
-generate_appcast="$work_dir/build/Build/Products/Release/generate_appcast"
-sign_update="$work_dir/build/Build/Products/Release/sign_update"
+generate_appcast="$tools_dir/generate_appcast"
+sign_update="$tools_dir/sign_update"
+binary_delta="$tools_dir/BinaryDelta"
 
 if [[ ! -x "$generate_appcast" ]]; then
   echo "generate_appcast binary not found at $generate_appcast" >&2
@@ -76,6 +93,10 @@ if [[ -n "${SPARKLE_PREVIOUS_ARCHIVES_DIR:-}" ]]; then
   echo "Previous archives available for deltas: $previous_count"
   if [[ "$previous_count" -gt 0 ]]; then
     delta_args=(--maximum-deltas "${SPARKLE_MAXIMUM_DELTAS:-2}")
+    # generate_appcast builds deltas one after another and reuses delta files
+    # that already exist, so build them concurrently first.
+    "$(dirname "$0")/prebuild_sparkle_deltas.sh" \
+      "$binary_delta" "$archives_dir" "$archives_dir/$(basename "$DMG_PATH")" "${SPARKLE_MAXIMUM_DELTAS:-2}"
   fi
 fi
 
@@ -89,11 +110,17 @@ printf "%s" "$padded_key" > "$key_file"
 
 generated_appcast_path="$archives_dir/$(basename "$OUT_PATH")"
 
+# ${arr[@]+"${arr[@]}"} expands to nothing when the array is empty. A bare
+# "${delta_args[@]}" is an "unbound variable" error under `set -u` in bash 3.2
+# (macOS /bin/bash), and with the EXIT trap above bash 3.2 then exits 0, so the
+# stable release lane (no previous archives) silently produced no appcast
+# (release dry run 34227505375, 2026-09-08). Nightly never hit it because it
+# always has previous archives.
 "$generate_appcast" \
   --ed-key-file "$key_file" \
   --download-url-prefix "$DOWNLOAD_URL_PREFIX" \
   --full-release-notes-url "$RELEASE_NOTES_URL" \
-  "${delta_args[@]}" \
+  ${delta_args[@]+"${delta_args[@]}"} \
   "$archives_dir"
 
 if [[ ! -f "$generated_appcast_path" ]]; then
@@ -144,6 +171,18 @@ print("  Injected edSignature into the full-archive enclosure")
 EOF
   rm -f "$archives_dir"/*.delta
 fi
+
+# A prebuilt delta generate_appcast chose not to use (for example an old build
+# it skipped) must not reach the release.
+for delta in "$archives_dir"/*.delta; do
+  [[ -f "$delta" ]] || continue
+  name="$(basename "$delta")"
+  encoded="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$name")"
+  if ! grep -Fq -- "$encoded" "$generated_appcast_path" && ! grep -Fq -- "$name" "$generated_appcast_path"; then
+    echo "Dropping unused delta $name"
+    rm -f "$delta"
+  fi
+done
 
 # generate_appcast names deltas after the app ("cmux NIGHTLY<new>-<old>.delta"),
 # which collides across per-architecture tracks and gets mangled by GitHub

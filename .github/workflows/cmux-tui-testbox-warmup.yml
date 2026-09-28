@@ -25,6 +25,9 @@ concurrency:
 jobs:
   cmux-tui-rust:
     name: cmux-tui Rust setup
+    # A Blacksmith Testbox exists only in the manaflow-ai organization. Skip
+    # elsewhere rather than queue forever for a runner a fork cannot have.
+    if: github.repository_owner == 'manaflow-ai'
     runs-on: blacksmith-32vcpu-ubuntu-2404
     environment:
       # Configure this environment with required reviewers, no secrets, and a

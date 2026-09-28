@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import Bonsplit
 import Foundation
@@ -44,18 +45,21 @@ struct PaneDragTransfer: Equatable {
     let tabId: UUID
     let sourcePaneId: UUID
     let sourceProcessId: Int32
+    let rightSidebarToolMode: RightSidebarMode?
 
     var isFromCurrentProcess: Bool {
         sourceProcessId == Int32(ProcessInfo.processInfo.processIdentifier)
     }
 
     init(tabDragTransfer: TabDragTransfer) {
+        rightSidebarToolMode = RightSidebarToolDragPayload(transfer: tabDragTransfer)?.mode
         tabId = tabDragTransfer.tab.id.uuid
         sourcePaneId = tabDragTransfer.sourcePaneId.id
         sourceProcessId = Int32(ProcessInfo.processInfo.processIdentifier)
     }
 
     init(tabId: UUID, sourcePaneId: UUID, sourceProcessId: Int32) {
+        rightSidebarToolMode = nil
         self.tabId = tabId
         self.sourcePaneId = sourcePaneId
         self.sourceProcessId = sourceProcessId
@@ -230,8 +234,9 @@ final class PaneDropZoneOverlayAnimator {
 
     static func applyStyle(to view: NSView) {
         view.wantsLayer = true
-        view.layer?.backgroundColor = cmuxAccentNSColor().withAlphaComponent(0.25).cgColor
-        view.layer?.borderColor = cmuxAccentNSColor().cgColor
+        let accent = (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).themeNSColor
+        view.layer?.backgroundColor = accent.withAlphaComponent(0.25).cgColor
+        view.layer?.borderColor = accent.cgColor
         view.layer?.borderWidth = 2
         view.layer?.cornerRadius = 8
         view.isHidden = true
@@ -304,16 +309,14 @@ final class PaneDropZoneOverlayAnimator {
             return
         }
 
+        // Retargeting snaps to the new zone; sliding the frame lags the pointer.
+        applyFrame(targetFrame)
         bringToFront()
+        guard overlayView.alphaValue < 1 else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.18
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            if needsFrameUpdate {
-                overlayView.animator().frame = targetFrame
-            }
-            if overlayView.alphaValue < 1 {
-                overlayView.animator().alphaValue = 1
-            }
+            overlayView.animator().alphaValue = 1
         }
     }
 

@@ -1,3 +1,5 @@
+import CmuxBrowser
+import CmuxFoundation
 import CmuxSettings
 import Foundation
 
@@ -60,6 +62,7 @@ extension CmuxSettingsFileStore {
                 "app": [
                     "language": AppCatalogSection().language.defaultValue.rawValue,
                     "appearance": AppearanceSettings.defaultMode.rawValue,
+                    "accentColor": AppCatalogSection().accentColor.defaultValue.rawValue,
                     "appIcon": AppIconSettings.defaultMode.rawValue,
                     "windowTitleTemplate": WindowTitleTemplate.defaultRawValue,
                     "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
@@ -69,8 +72,11 @@ extension CmuxSettingsFileStore {
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface.defaultValue,
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
+                    "paneResizeStepPixels": SettingCatalog().app.paneResizeStepPixels.defaultValue,
                     "focusHistoryIncludesPanesAndTabs": SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue,
+                    "equalizeSplitsOnCreate": SettingCatalog().app.equalizeSplitsOnCreate.defaultValue,
                     "preferredEditor": "",
+                    "defaultWorkspacePath": AppCatalogSection().defaultWorkspacePath.defaultValue,
                     "openSupportedFilesInCmux": AppCatalogSection().openSupportedFilesInCmux.defaultValue,
                     "openMarkdownInCmuxViewer": AppCatalogSection().openMarkdownInCmuxViewer.defaultValue,
                     "reorderOnNotification": SettingCatalog().app.reorderOnNotification.defaultValue,
@@ -79,6 +85,8 @@ extension CmuxSettingsFileStore {
                     "confirmQuit": AppCatalogSection().confirmQuitMode.defaultValue.rawValue,
                     "warnBeforeClosingTab": AppCatalogSection().warnBeforeClosingTab.defaultValue,
                     "warnBeforeClosingTabXButton": AppCatalogSection().warnBeforeClosingTabXButton.defaultValue,
+                    "warnBeforeClosingWorkspace": AppCatalogSection().warnBeforeClosingWorkspace.defaultValue,
+                    "warnBeforeClosingWindow": AppCatalogSection().warnBeforeClosingWindow.defaultValue,
                     "hideTabCloseButton": AppCatalogSection().hideTabCloseButton.defaultValue,
                     "renameSelectsExistingName": AppCatalogSection().renameSelectsExistingName.defaultValue,
                     "commandPaletteSearchesAllSurfaces": AppCatalogSection().commandPaletteSearchesAllSurfaces.defaultValue,
@@ -136,6 +144,7 @@ extension CmuxSettingsFileStore {
                     "hideAllDetails": SettingCatalog().sidebar.hideAllDetails.defaultValue,
                     "wrapWorkspaceTitles": SidebarWorkspaceTitleWrapSettings.defaultWrap,
                     "showWorkspaceDescription": SettingCatalog().sidebar.showWorkspaceDescription.defaultValue,
+                    "workspaceDescriptionColor": NSNull(),
                     "beta": [
                         "workspaceTodos": [
                             "controls": [
@@ -167,6 +176,7 @@ extension CmuxSettingsFileStore {
                 "workspaceColors": [
                     "indicatorStyle": SettingCatalog().workspaceColors.indicatorStyle.defaultValue.rawValue,
                     "selectionColor": NSNull(),
+                    "subtleSelection": SettingCatalog().workspaceColors.subtleSelection.defaultValue,
                     "notificationBadgeColor": NSNull(),
                     "colors": Dictionary(
                         uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
@@ -187,7 +197,9 @@ extension CmuxSettingsFileStore {
                     "socketControlMode": SocketControlSettings.defaultMode.rawValue,
                     "socketPassword": "",
                     "claudeCodeIntegration": IntegrationsCatalogSection().claudeCodeHooksEnabled.defaultValue,
+                    "piIntegration": IntegrationsCatalogSection().piHooksEnabled.defaultValue,
                     "claudeBinaryPath": "",
+                    "codexIntegration": IntegrationsCatalogSection().codexHooksEnabled.defaultValue,
                     "ripgrepBinaryPath": "",
                     "suppressSubagentNotifications": IntegrationsCatalogSection().suppressSubagentNotifications.defaultValue,
                     "ampIntegration": IntegrationsCatalogSection().ampHooksEnabled.defaultValue,

@@ -101,6 +101,8 @@ impl Mux {
                 tabs.insert(
                     final_index,
                     RegistryTab {
+                        name_source: Default::default(),
+                        name_revision: 0,
                         public_id: tab_id.clone(),
                         pane_id: pane_id.clone(),
                         position: final_index,
@@ -116,7 +118,7 @@ impl Mux {
                 if focused {
                     destination_pane.active_tab = Some(tab_id.clone());
                 }
-                let value = public_tab_value(&projected_tab, focused);
+                let value = projected_tab.public_value(focused);
                 let result = json!({
                     "tab":tab_id,
                     "terminal":terminal_id,
@@ -871,6 +873,10 @@ impl Mux {
                             }
                         };
                         let tab = RegistryTab {
+                            name_source: before_tab.map(|tab| tab.name_source).unwrap_or_default(),
+                            name_revision: before_tab
+                                .map(|tab| tab.name_revision)
+                                .unwrap_or_default(),
                             public_id: identity.tab_id.clone(),
                             pane_id: pane.public_id.clone(),
                             position,
@@ -882,22 +888,10 @@ impl Mux {
                             terminal_id,
                         };
                         changes.push(ResourceChange::UpsertTab(tab.clone()));
-                        let content_kind = match &tab.content_id {
-                            ContentPublicId::Terminal(_) => "terminal",
-                            ContentPublicId::Browser(_) => "browser",
-                        };
                         public.push((
                             "tab",
                             tab.public_id.to_string(),
-                            json!({
-                                "id":tab.public_id,
-                                "pane_id":tab.pane_id,
-                                "index":tab.position,
-                                "name":tab.name,
-                                "focused":pane.active_tab == position,
-                                "content_kind":content_kind,
-                                "content_id":tab.content_id.as_str(),
-                            }),
+                            tab.public_value(pane.active_tab == position),
                         ));
                         match &tab.content_id {
                             ContentPublicId::Terminal(id) if first_terminal_placement => {
@@ -1408,7 +1402,7 @@ fn push_pane_delta(changes: &mut Vec<Value>, pane: &RegistryPane, focused: bool)
 
 fn push_tab_delta(changes: &mut Vec<Value>, tab: &RegistryTab, focused: bool) {
     let sequence = changes.len();
-    let value = public_tab_value(tab, focused);
+    let value = tab.public_value(focused);
     changes.push(json!({
         "kind": "upsert",
         "sequence": sequence,
@@ -1416,20 +1410,4 @@ fn push_tab_delta(changes: &mut Vec<Value>, tab: &RegistryTab, focused: bool) {
         "id": tab.public_id,
         "value": value,
     }));
-}
-
-fn public_tab_value(tab: &RegistryTab, focused: bool) -> Value {
-    let content_kind = match &tab.content_id {
-        ContentPublicId::Terminal(_) => "terminal",
-        ContentPublicId::Browser(_) => "browser",
-    };
-    json!({
-        "id": tab.public_id,
-        "pane_id": tab.pane_id,
-        "index": tab.position,
-        "name": tab.name,
-        "focused": focused,
-        "content_kind": content_kind,
-        "content_id": tab.content_id.as_str(),
-    })
 }

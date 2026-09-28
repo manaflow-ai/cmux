@@ -23,13 +23,18 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let socketPath = root.appendingPathComponent("cmux.sock").path
+        // WHY /tmp: a Unix socket path must fit sun_path (104 bytes). Under a
+        // runner's `/private/var/folders/.../T/` the temporary directory plus
+        // this UUID-named root overflows it and the harness `listen` fails.
+        let socketPath = "/tmp/cmux-oc-\(UUID().uuidString.prefix(8)).sock"
+        defer { unlink(socketPath) }
         let harnessURL = root.appendingPathComponent("harness.js")
         try Self.openCodeFeedEventHarness.write(to: harnessURL, atomically: true, encoding: .utf8)
+        let bunURL = try Self.bunExecutableURL()
 
         let result = runProcess(
-            executablePath: "/usr/bin/env",
-            arguments: ["node", harnessURL.path, pluginURL.path, socketPath],
+            executablePath: bunURL.path,
+            arguments: [harnessURL.path, pluginURL.path, socketPath],
             environment: ProcessInfo.processInfo.environment,
             timeout: 5
         )
@@ -77,7 +82,8 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let pluginURL = configDir.appendingPathComponent("plugins", isDirectory: true).appendingPathComponent("cmux-session.js", isDirectory: false)
         let pluginSource = try String(contentsOf: pluginURL, encoding: .utf8)
         XCTAssertTrue(pluginSource.contains("cmux-opencode-session-plugin-marker"))
-        XCTAssertTrue(pluginSource.contains("\"hooks\", \"opencode\""))
+        XCTAssertTrue(pluginSource.contains("\"hooks\", \"enqueue\", \"opencode\""))
+        XCTAssertTrue(pluginSource.contains("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: \"1\""))
 
         let secondResult = runProcess(executablePath: cliPath, arguments: ["setup-hooks", "--agent", "opencode"], environment: environment, timeout: 5)
         XCTAssertFalse(secondResult.timedOut, secondResult.stderr)
@@ -88,6 +94,41 @@ final class OpenCodeHookRegressionTests: XCTestCase {
 
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: try Data(contentsOf: configURL), options: []) as? [String: Any])
         XCTAssertEqual(try XCTUnwrap(json["plugin"] as? [String]), ["other-plugin", "./plugins/cmux-session.js"])
+    }
+
+    // Regression for https://github.com/manaflow-ai/cmux/issues/7140: opencode resolves
+    // `{file:...}` templates on the raw config text before JSON parsing, so a `\/` written by
+    // slash-escaping serialization turns `{file:./AGENTS.md}` into a bad file reference.
+    func testOpenCodeInstallPreservesFileReferencesWithoutSlashEscaping() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-slash-\(UUID().uuidString)", isDirectory: true)
+        let configDir = root.appendingPathComponent("opencode", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
+        try #"{"$schema":"https://opencode.ai/config.json","agent":{"myagent":{"mode":"primary","prompt":"{file:./AGENTS.md}"}},"instructions":["./AGENTS.md"]}"#
+            .write(to: configURL, atomically: true, encoding: .utf8)
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["OPENCODE_CONFIG_DIR"] = configDir.path
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(executablePath: cliPath, arguments: ["hooks", "opencode", "install", "--yes"], environment: environment, timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        // Check the raw bytes: a JSON parser would decode `\/` back to `/` and hide the bug.
+        let rawConfig = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertFalse(rawConfig.contains("\\/"), rawConfig)
+        XCTAssertTrue(rawConfig.contains("{file:./AGENTS.md}"), rawConfig)
+        XCTAssertTrue(rawConfig.contains("https://opencode.ai/config.json"), rawConfig)
+        XCTAssertTrue(rawConfig.contains("./plugins/cmux-session.js"), rawConfig)
     }
 
     func testLegacyHookAliasesAreHiddenFromHelp() throws {
@@ -109,6 +150,23 @@ final class OpenCodeHookRegressionTests: XCTestCase {
 
     private func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: Self.self)
+    }
+
+    private static func bunExecutableURL() throws -> URL {
+        let fileManager = FileManager.default
+        var candidates: [String] = []
+        if let install = ProcessInfo.processInfo.environment["BUN_INSTALL"], !install.isEmpty {
+            candidates.append(URL(fileURLWithPath: install).appendingPathComponent("bin/bun").path)
+        }
+        candidates += [
+            fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".bun/bin/bun").path,
+            "/opt/homebrew/bin/bun",
+            "/usr/local/bin/bun",
+        ]
+        if let path = candidates.first(where: { fileManager.isExecutableFile(atPath: $0) }) {
+            return URL(fileURLWithPath: path)
+        }
+        throw XCTSkip("Bun runtime is required for the OpenCode plugin harness")
     }
 
     private static let openCodeFeedEventHarness = #"""
@@ -140,12 +198,23 @@ const fs = require("node:fs");
       }
     });
   });
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(socketPath, () => { server.off("error", reject); resolve(); });
-  });
+  let activeSocketPath = socketPath;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await new Promise((resolve, reject) => {
+        const onError = (error) => { server.off("error", onError); reject(error); };
+        server.once("error", onError);
+        server.listen(activeSocketPath, () => { server.off("error", onError); resolve(); });
+      });
+      break;
+    } catch (error) {
+      if (error?.code !== "EADDRINUSE" || attempt === 2) throw error;
+      activeSocketPath = `${socketPath}.${process.pid}.${attempt + 1}`;
+      try { fs.unlinkSync(activeSocketPath); } catch (_) {}
+    }
+  }
 
-  process.env.CMUX_SOCKET_PATH = socketPath;
+  process.env.CMUX_SOCKET_PATH = activeSocketPath;
   const source = fs.readFileSync(pluginPath, "utf8")
     .replace("export const CMUXFeed = async", "globalThis.CMUXFeed = async");
   eval(source);
@@ -169,7 +238,7 @@ const fs = require("node:fs");
   await framesReady;
   for (const socket of sockets) socket.destroy();
   await new Promise((resolve) => server.close(resolve));
-  try { fs.unlinkSync(socketPath); } catch (_) {}
+  try { fs.unlinkSync(activeSocketPath); } catch (_) {}
   console.log(JSON.stringify(frames));
 })().catch((error) => {
   console.error(error && error.stack ? error.stack : String(error));
@@ -197,15 +266,10 @@ const fs = require("node:fs");
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
         return ProcessRunResult(
             status: process.terminationStatus,

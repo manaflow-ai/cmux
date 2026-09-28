@@ -255,9 +255,12 @@ struct MobileIrohReleaseGateRunnerTests {
         let pendingSettings = AsyncStream<CmxIrohSettingsSnapshot>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
+        // The deadline fires only because the path never arrives, but it must
+        // not fire before readiness and the probe finish, or there are no
+        // proofs to preserve. 20 ms lost that race under the full suite.
         let report = try await runLatePathFailure(
             settingsUpdates: pendingSettings.stream,
-            timeout: .milliseconds(20)
+            timeout: .seconds(3)
         )
         pendingSettings.continuation.finish()
 
@@ -330,6 +333,16 @@ struct MobileIrohReleaseGateRunnerTests {
             ],
             cachesDirectory: cache
         ) == nil)
+
+        let rolloverSoak = try #require(MobileIrohReleaseGateRunner.Configuration(
+            environment: [
+                "CMUX_IROH_RELEASE_GATE_MODE": "relayOnly",
+                "CMUX_IROH_RELEASE_GATE_SCENARIO": "relay_rollover",
+                "CMUX_IROH_SOAK_PROFILE": "stress",
+            ],
+            cachesDirectory: cache
+        ))
+        #expect(rolloverSoak.soakProfile == .stress)
     }
 
     @Test(arguments: [

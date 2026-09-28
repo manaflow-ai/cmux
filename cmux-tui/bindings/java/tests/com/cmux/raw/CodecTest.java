@@ -22,6 +22,11 @@ public final class CodecTest {
         );
         check(parsed.get("id").equals(new BigInteger(maximum)), "uint64 JSON precision");
         check(parsed.get("fraction").equals(new BigDecimal("1.2500")), "decimal JSON precision");
+        check(
+            com.cmux.internal.Wire.json(Map.of("fraction", new BigDecimal("1.2500")))
+                .equals("{\"fraction\":1.2500}"),
+            "decimal JSON encode"
+        );
         UInt64 unsigned = Wire.uint64(parsed.get("id"), "id");
         check(unsigned.equals(UInt64.MAX_VALUE), "uint64 maximum decode");
         check(Json.stringify(Map.of("id", unsigned)).equals("{\"id\":" + maximum + "}"), "uint64 encode");

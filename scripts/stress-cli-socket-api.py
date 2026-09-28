@@ -44,6 +44,7 @@ MIN_SPINDUMP_FREE_BYTES = 2 * 1024 * 1024 * 1024
 
 
 TOP_LEVEL_COMMANDS = {
+    "agent",
     "welcome",
     "docs",
     "settings",
@@ -120,6 +121,7 @@ TOP_LEVEL_COMMANDS = {
     "read-screen",
     "send",
     "send-key",
+    "paste",
     "send-panel",
     "send-key-panel",
     "notify",
@@ -209,6 +211,8 @@ SKIPPED_SOCKET_METHODS = {
     "feed.exit_plan.reply": "mutates feed state",
     "events.stream": "streaming protocol, covered by cmux events --limit",
     "session.restore_previous": "mutates app session state",
+    "session.import": "opens windows from another install's saved session",
+    "session.export": "writes a session snapshot file",
     "workspace.remote.configure": "requires remote workspace credentials",
     "workspace.remote.foreground_auth_ready": "requires remote workspace state",
     "workspace.remote.reconnect": "requires remote workspace state",
@@ -870,6 +874,7 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("help-flag", argv("--help"), no_socket=True, covered_command="help"),
         CliCase("help-command", argv("help"), no_socket=True, covered_command="help"),
         CliCase("welcome", argv("welcome"), no_socket=True, covered_command="welcome"),
+        CliCase("agent-help", argv("agent", "--help"), no_socket=True, covered_command="agent"),
         CliCase("docs", argv("docs"), no_socket=True, covered_command="docs"),
         CliCase("docs-settings", argv("docs", "settings"), no_socket=True, covered_command="docs"),
         CliCase("settings-path", argv("settings", "path"), no_socket=True, covered_command="settings"),
@@ -947,6 +952,7 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("read-screen", ctx_argv(lambda c: ["read-screen", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "--lines", "5"]), expect_codes=any_code, covered_command="read-screen"),
         CliCase("send", ctx_argv(lambda c: ["send", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "printf stress-cli\\n"]), expect_codes=any_code, covered_command="send"),
         CliCase("send-key", ctx_argv(lambda c: ["send-key", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "enter"]), expect_codes=any_code, covered_command="send-key"),
+        CliCase("paste", ctx_argv(lambda c: ["paste", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "--", "stress-cli paste"]), expect_codes=any_code, covered_command="paste"),
         CliCase("send-panel", ctx_argv(lambda c: ["send-panel", "--workspace", require(c.workspace_id, "workspace"), "--panel", require(c.surface_id, "surface"), "printf stress-panel\\n"]), expect_codes=any_code, covered_command="send-panel"),
         CliCase("send-key-panel", ctx_argv(lambda c: ["send-key-panel", "--workspace", require(c.workspace_id, "workspace"), "--panel", require(c.surface_id, "surface"), "enter"]), expect_codes=any_code, covered_command="send-key-panel"),
         CliCase("notify", ctx_argv(lambda c: ["notify", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "--title", "stress", "--body", "cli"]), covered_command="notify"),

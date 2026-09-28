@@ -321,6 +321,7 @@ describe("claude upstream routes", () => {
     ok: true as const,
     value: {
       user: { id: "user_1" },
+      access: { kind: "user" as const, userId: "user_1" },
       team: { teamId: "team_1", teamName: "Team", use: true, manageAccounts: true },
     },
   };

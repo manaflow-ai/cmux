@@ -1,3 +1,5 @@
+import { vmCapabilitiesFor } from "../../../../../services/vms/drivers";
+import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../../services/vms/teamDirectory";
 import { unauthorized, verifyRequest, type AuthedUser } from "../../../../../services/vms/auth";
 import {
   jsonResponse,
@@ -10,6 +12,7 @@ import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { captureVmProvisionOutcome } from "../../../../../services/vms/observability";
 import { forkVm } from "../../../../../services/vms/workflows";
+import { vmModelPlaneGatewayFor } from "../../../../../services/vms/modelPlaneGateway";
 import { VmTimingRecorder } from "../../../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../../../services/vms/authErrors";
 import {
@@ -77,6 +80,11 @@ export async function POST(
         providerVmId: id,
         name,
         idempotencyKey,
+        teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
+        modelPlane: vmModelPlaneGatewayFor({
+          teamId: entitlements.billingTeamId,
+          stackUserId: user.id,
+        }),
         timing,
       }), {
         request,
@@ -96,6 +104,7 @@ export async function POST(
         imageVersion: result.fork.imageVersion,
         status: result.fork.status,
         createdAt: result.fork.createdAt,
+        capabilities: vmCapabilitiesFor(result.fork.provider),
       });
     },
   );

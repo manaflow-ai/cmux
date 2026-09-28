@@ -88,136 +88,6 @@ function parseJSONOutput(result: CommandResult): Record<string, unknown> | null 
   }
 }
 
-function resumeBindingMatches(payload: Record<string, unknown> | null, sessionId: string): boolean {
-  const binding = payload?.resume_binding;
-  if (!binding || typeof binding !== "object") return false;
-  const typed = binding as Record<string, unknown>;
-  return firstString(typed.kind) === "pi" &&
-    firstString(typed.checkpoint_id, typed.checkpointId) === sessionId;
-}
-
-const piOptionsWithValue = new Set([
-  "--model",
-  "-m",
-  "--thinking",
-  "--provider",
-  "--extension",
-  "-e",
-  "--skill",
-  "--mcp-config",
-  "--permission-mode",
-  "--session-dir",
-  "--config",
-  "--profile",
-  "--system-prompt",
-  "--append-system-prompt",
-  "--cwd",
-  "--dir",
-  "--trust",
-  "--sandbox",
-]);
-
-const piOptionsWithoutValue = new Set([
-  "--no-color",
-  "--dangerously-skip-permissions",
-  "--yolo",
-]);
-
-const piSelectorsToDrop = new Set([
-  "--session",
-  "-s",
-  "--resume",
-  "--fork",
-  "--api-key",
-  "--prompt",
-  "--print",
-]);
-
-function sanitizedResumeArgv(sessionId: string): string[] {
-  const raw = normalizedLaunchArgv();
-  const executable = raw[0] || resolveExecutable("pi");
-  const out = [executable, "--session", sessionId];
-  for (let index = 1; index < raw.length; index += 1) {
-    const arg = raw[index];
-    if (!arg) continue;
-    if (piSelectorsToDrop.has(arg)) {
-      if (index + 1 < raw.length && !raw[index + 1].startsWith("-")) index += 1;
-      continue;
-    }
-    if (
-      arg.startsWith("--session=") ||
-      arg.startsWith("--resume=") ||
-      arg.startsWith("--fork=") ||
-      arg.startsWith("--api-key=") ||
-      arg.startsWith("--prompt=")
-    ) {
-      continue;
-    }
-    if (piOptionsWithValue.has(arg)) {
-      out.push(arg);
-      if (index + 1 < raw.length) {
-        out.push(raw[index + 1]);
-        index += 1;
-      }
-      continue;
-    }
-    if ([...piOptionsWithValue].some((option) => arg.startsWith(`${option}=`)) || piOptionsWithoutValue.has(arg)) {
-      out.push(arg);
-    }
-  }
-  return out;
-}
-
-async function ensureResumeBinding(
-  dispatcher: PiCmuxCommandDispatcher,
-  context: PiExtensionContextSnapshot,
-  sessionId: string,
-): Promise<void> {
-  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
-  const target = surfaceTargetArgs(dispatcher, sessionId);
-  if (!target) return;
-
-  const cwd = context.cwd;
-  const resumeArgv = sanitizedResumeArgv(sessionId);
-  const set = await dispatcher.run([
-    "--json",
-    "surface",
-    "resume",
-    "set",
-    ...target,
-    "--name",
-    "Pi",
-    "--kind",
-    "pi",
-    "--checkpoint-id",
-    sessionId,
-    "--source",
-    "agent-hook",
-    "--cwd",
-    cwd,
-    "--",
-    ...resumeArgv,
-  ], cwd, undefined, context);
-  if (!set.ok && !set.surfaceUnavailable) return;
-  if (set.surfaceUnavailable) return;
-
-  const verification = await dispatcher.run(
-    ["--json", "surface", "resume", "get", ...target],
-    cwd,
-    undefined,
-    context,
-  );
-  if (verification.surfaceUnavailable) return;
-  const verified = parseJSONOutput(verification);
-  if (!resumeBindingMatches(verified, sessionId)) {
-    await warn(context, "Pi resume binding did not verify after write", {
-      session_id: sessionId,
-      hook_name: "surface-resume-get",
-      reason: "verification-failure",
-    });
-  }
-}
-
 async function clearResumeBinding(
   dispatcher: PiCmuxCommandDispatcher,
   context: PiExtensionContextSnapshot,
@@ -429,6 +299,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   const dispatcher = new PiCmuxCommandDispatcher();
   const sessionStates = new Map<string, SessionState>();
   const lifecycleTasks = createPiLifecycleQueue();
+  let restorePiUIDialogHooks: (() => void) | undefined;
 
   const enqueueLifecycleTask = (
     sessionId: string,
@@ -444,11 +315,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       state.pendingCompletion = undefined;
       state.feedDeliveryFailed = false;
       state.stopped = false;
+      state.toolCommands.clear();
     }
+    restorePiUIDialogHooks?.();
+    restorePiUIDialogHooks = installPiUIDialogHooks(
+      dispatcher,
+      sessionStates,
+      ctx,
+      enqueueLifecycleTask,
+    );
     if (!sessionId) return;
     enqueueLifecycleTask(sessionId, context, async () => {
-      const ok = await sendHook(dispatcher, "session-start", context);
-      if (ok) await ensureResumeBinding(dispatcher, context, sessionId);
+      await sendHook(dispatcher, "session-start", context);
+      await publishPiWorkspaceMetadata(dispatcher, context, sessionId);
     });
   });
 
@@ -459,6 +338,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     const turnId = beginTurn(sessionStates, sessionId, event);
     enqueueLifecycleTask(sessionId, context, () => (
       sendHook(dispatcher, "prompt-submit", context, { prompt: event.prompt, turn_id: turnId })
+    ));
+  });
+
+  pi.on("agent_start", (event, ctx) => {
+    const context = snapshotContext(ctx);
+    const sessionId = context.sessionId;
+    if (!sessionId) return;
+    // Idle sendMessage({ triggerTurn: true }) skips before_agent_start.
+    // Normal prompts, retries, and queued continuations already own a turn;
+    // keep that ID and its pending completion until agent_settled claims it.
+    if (stateFor(sessionStates, sessionId).activeTurnId) return;
+    const turnId = beginTurn(sessionStates, sessionId, event);
+    enqueueLifecycleTask(sessionId, context, () => (
+      sendHook(dispatcher, "prompt-submit", context, { turn_id: turnId })
     ));
   });
 
@@ -479,11 +372,32 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   };
 
   pi.on("tool_execution_start", (event, ctx) => {
+    const context = snapshotContext(ctx);
+    const sessionId = context.sessionId;
+    const toolCallId = firstString(objectValue(event, ["toolCallId", "tool_call_id", "id"]));
+    const command = piToolCommand(event);
+    if (sessionId && toolCallId && command) {
+      stateFor(sessionStates, sessionId).toolCommands.set(toolCallId, command);
+    }
     enqueueFeed(isSubagentTool(event) ? "SubagentStart" : "PreToolUse", event, ctx);
   });
 
   pi.on("tool_execution_end", (event, ctx) => {
     enqueueFeed(isSubagentTool(event) ? "SubagentStop" : "PostToolUse", event, ctx);
+    const context = snapshotContext(ctx);
+    const sessionId = context.sessionId;
+    const toolCallId = firstString(objectValue(event, ["toolCallId", "tool_call_id", "id"]));
+    const state = sessionId ? stateFor(sessionStates, sessionId) : undefined;
+    const command = piToolCommand(event)
+      || (toolCallId ? state?.toolCommands.get(toolCallId) : undefined);
+    if (toolCallId) state?.toolCommands.delete(toolCallId);
+    if (sessionId && command && piGitMetadataCommand(command)) {
+      const action = piPullRequestAction(command);
+      enqueueLifecycleTask(sessionId, context, async () => {
+        await publishPiWorkspaceMetadata(dispatcher, context, sessionId);
+        if (action) await publishPiPullRequestHint(dispatcher, context, sessionId, action);
+      });
+    }
   });
 
   pi.on("session_before_compact", (event, ctx) => {
@@ -503,7 +417,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     // Preserve the latest low-level result until Pi confirms no automatic work remains.
     state.pendingCompletion = {
       lastAssistantMessage: assistantCompletion.lastAssistantMessage || state.pendingCompletion?.lastAssistantMessage,
-      notificationType: firstString(objectValue(event, ["stopReason", "reason", "terminationReason"])) || "completed",
+      notificationType: piQuestionLike(assistantCompletion.lastAssistantMessage) ? "question" : (firstString(objectValue(event, ["stopReason", "reason", "terminationReason"])) || "completed"),
       turnId: currentTurnId(sessionStates, sessionId, event),
       suppressNotification: assistantCompletion.suppressNotification,
     };
@@ -535,7 +449,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   pi.on("session_shutdown", async (event, ctx) => {
     const context = snapshotContext(ctx);
     const sessionId = context.sessionId;
-    if (!sessionId) return;
+    if (!sessionId) {
+      restorePiUIDialogHooks?.();
+      restorePiUIDialogHooks = undefined;
+      return;
+    }
     const state = stateFor(sessionStates, sessionId);
     let stopPayload: HookExtra | undefined;
     if (!state.stopped) {
@@ -557,6 +475,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         releaseSessionRuntime(dispatcher, sessionStates, sessionId);
       }
     });
+    restorePiUIDialogHooks?.();
+    restorePiUIDialogHooks = undefined;
   });
 }
 """#

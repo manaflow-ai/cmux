@@ -1,5 +1,8 @@
+import CmuxFoundation
+import CMUXAgentLaunch
 import Darwin
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -10,6 +13,11 @@ import Testing
 
 /// Regression coverage for #11043: restore admission follows the Vault session
 /// identity even when the surviving process escaped its original terminal scope.
+///
+/// Also covers #12158: admission must stay decidable while other agents keep
+/// rewriting the shared hook-store directory, must not be blocked by an
+/// unreadable store of an unrelated agent kind, and must admit the same Amp
+/// thread across chained quit/restore cycles with one thread positional.
 @MainActor
 @Suite("Agent restore live-owner admission", .serialized)
 struct AgentRestoreLiveOwnerAdmissionTests {
@@ -20,34 +28,217 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         case staleGeneration
     }
 
-    @Test("A live unscoped owner suppresses autoresume and leaves a takeover notice")
-    func liveUnscopedOwnerSuppressesAutoresumeWithNotice() throws {
-        let fixture = try makeFixture(ownerState: .live)
+    @Test(
+        "A live owner preserves the restore selector for execution admission without typing a notice",
+        arguments: [RestorableAgentKind.grok, RestorableAgentKind.amp]
+    )
+    func liveUnscopedOwnerKeepsExecutionAdmission(kind: RestorableAgentKind) throws {
+        // Amp's argv never names its thread; the hook record that recorded the
+        // PID generation is the identity (#12158: a resumed Amp that outlives
+        // the previous cmux must be reported, not silently skipped).
+        let fixture = try makeFixture(kind: kind, ownerState: .live)
         defer { fixture.cleanup() }
 
         let input = try restoredStartupInput(fixture)
 
-        #expect(!input.contains(" restore grok \(fixture.sessionID)"), Comment(rawValue: input))
-        #expect(input.contains("already running in process \(fixture.processID)"), Comment(rawValue: input))
-        #expect(input.contains("stop process \(fixture.processID)"), Comment(rawValue: input))
-        #expect(input.contains("cmux restore --surface"), Comment(rawValue: input))
+        #expect(input.contains(" restore \(kind.rawValue) \(fixture.sessionID)"), Comment(rawValue: input))
+        #expect(!input.contains("/usr/bin/printf"), Comment(rawValue: input))
+        #expect(!input.contains("stop process"), Comment(rawValue: input))
     }
 
     @Test(
         "No current owner admits autoresume",
-        arguments: [OwnerState.absent, OwnerState.dead, OwnerState.staleGeneration]
+        arguments: [
+            (RestorableAgentKind.grok, OwnerState.absent),
+            (RestorableAgentKind.grok, OwnerState.dead),
+            (RestorableAgentKind.grok, OwnerState.staleGeneration),
+            (RestorableAgentKind.amp, OwnerState.absent),
+            (RestorableAgentKind.amp, OwnerState.dead),
+            (RestorableAgentKind.amp, OwnerState.staleGeneration),
+        ]
     )
-    func missingDeadOrStaleOwnerAdmitsAutoresume(ownerState: OwnerState) throws {
-        let fixture = try makeFixture(ownerState: ownerState)
+    func missingDeadOrStaleOwnerAdmitsAutoresume(
+        kind: RestorableAgentKind,
+        ownerState: OwnerState
+    ) throws {
+        let fixture = try makeFixture(kind: kind, ownerState: ownerState)
         defer { fixture.cleanup() }
 
         let input = try restoredStartupInput(fixture)
 
         #expect(
-            input.contains(" restore grok \(fixture.sessionID)"),
+            input.contains(" restore \(kind.rawValue) \(fixture.sessionID)"),
             "An absent or stale PID generation must not block restore: \(input)"
         )
         #expect(!input.contains("already running in process"), Comment(rawValue: input))
+    }
+
+    @Test("Admission stays decidable while other agents rewrite the hook-store directory during every scan")
+    func ampAdmissionSurvivesHookStoreChurn() async throws {
+        let fixture = try makeFixture(kind: .amp, ownerState: .dead)
+        defer { fixture.cleanup() }
+        let scanCount = OSAllocatedUnfairLock(initialState: 0)
+        let hookStateDirectory = fixture.hookStateDirectory
+        let loadIndex = fixture.loadIndex
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let pass = scanCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                // Another agent kind rewriting its own store lands in the
+                // same watched directory as an atomic create-and-rename. A
+                // real scan runs long enough for that event to be observed
+                // before the scan reports, so give the watcher the same
+                // window here.
+                let churn = hookStateDirectory.appendingPathComponent("churn-\(pass).json")
+                try? Data("{}".utf8).write(to: churn, options: .atomic)
+                let index = loadIndex()
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: index.liveAgentProcessFingerprint()
+                        .union(index.liveSessionOwnerFingerprint),
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            hookStoreDirectoryProvider: { hookStateDirectory.path }
+        )
+
+        let refreshed = await sharedIndex.indexRefreshingNow()
+
+        let index = try #require(
+            refreshed,
+            "A scan that started after the request is fresh evidence; hook-store churn from other agents must not fail admission closed (#12158)"
+        )
+        #expect(scanCount.withLock { $0 } >= 1)
+        #expect(index.isComplete(
+            forWorkspaceId: fixture.ownerWorkspaceID,
+            panelId: fixture.ownerSurfaceID,
+            kind: "amp"
+        ))
+        #expect(index.liveSessionOwner(
+            kind: "amp",
+            sessionID: fixture.sessionID,
+            revalidateProcessEvidence: true,
+            processArgumentsProvider: { _ in nil },
+            processPresenceProvider: { _ in .absent }
+        ) == nil)
+    }
+
+    @Test("An unreadable store for another agent kind does not block Amp admission")
+    func corruptStoreForAnotherKindDoesNotBlockAmpAdmission() throws {
+        // Pi is registry-owned: its store loads as `.custom("pi")` while the
+        // kind string parses to the native case. Both must name the same
+        // (corrupt) store.
+        let fixture = try makeFixture(
+            kind: .amp,
+            ownerState: .dead,
+            corruptStoreKinds: [.claude, .custom("pi")]
+        )
+        defer { fixture.cleanup() }
+        let index = fixture.index
+
+        #expect(!index.isComplete)
+        #expect(!index.isComplete(
+            forWorkspaceId: fixture.ownerWorkspaceID,
+            panelId: fixture.ownerSurfaceID,
+            kind: "pi"
+        ))
+        #expect(!index.isComplete(forPanelId: fixture.ownerSurfaceID, kind: "pi"))
+        #expect(
+            index.isComplete(
+                forWorkspaceId: fixture.ownerWorkspaceID,
+                panelId: fixture.ownerSurfaceID,
+                kind: "amp"
+            ),
+            "Only the claude store is unreadable; amp owners are recorded in the amp store"
+        )
+        #expect(index.isComplete(forPanelId: fixture.ownerSurfaceID, kind: "amp"))
+        #expect(!index.isComplete(
+            forWorkspaceId: fixture.ownerWorkspaceID,
+            panelId: fixture.ownerSurfaceID,
+            kind: "claude"
+        ))
+        #expect(!index.isComplete(
+            forWorkspaceId: fixture.ownerWorkspaceID,
+            panelId: fixture.ownerSurfaceID,
+            kind: nil
+        ))
+
+        let input = try restoredStartupInput(fixture)
+
+        #expect(input.contains(" restore amp \(fixture.sessionID)"), Comment(rawValue: input))
+    }
+
+    @Test("Chained quit/restore cycles admit the same Amp thread with one thread positional")
+    func chainedAmpRestoresAdmitAndKeepArgvSane() throws {
+        var fixture = try makeFixture(
+            kind: .amp,
+            ownerState: .dead,
+            launchOptions: ["--mode", "smart"]
+        )
+        defer { fixture.cleanup() }
+        var capturedArguments = [fixture.executable, "--mode", "smart"]
+
+        for cycle in 1...3 {
+            // The previous instance leaves a hook record whose PID generation
+            // is gone, carrying the argv its launch was captured with.
+            try fixture.writeOwnerRecord(
+                processID: fixture.processID - cycle,
+                launchArguments: capturedArguments
+            )
+            fixture.reloadIndex()
+            #expect(
+                fixture.index.liveSessionOwner(
+                    kind: "amp",
+                    sessionID: fixture.sessionID,
+                    revalidateProcessEvidence: true,
+                    processArgumentsProvider: { _ in nil },
+                    processPresenceProvider: { _ in .absent }
+                ) == nil,
+                "cycle \(cycle): a stale process record is not a live owner"
+            )
+
+            let input = try restoredStartupInput(fixture)
+            #expect(input.contains(" restore amp \(fixture.sessionID)"), "cycle \(cycle): \(input)")
+
+            let claim = try #require(
+                AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
+                    kind: "amp",
+                    sessionId: fixture.sessionID
+                ),
+                "cycle \(cycle): the pre-exec claim must be free once the previous launch exited"
+            )
+            let reloadedArguments = try #require(
+                fixture.index.snapshot(
+                    workspaceId: fixture.ownerWorkspaceID,
+                    panelId: fixture.ownerSurfaceID
+                )?.launchCommand?.arguments
+            )
+            let argv = try #require(AgentResumeArgv().builtInKind(
+                kind: "amp",
+                sessionId: fixture.sessionID,
+                executablePath: fixture.executable,
+                arguments: reloadedArguments
+            ))
+            #expect(
+                argv == ["amp", "threads", "continue", "--mode", "smart", fixture.sessionID],
+                "cycle \(cycle)"
+            )
+            #expect(
+                argv.filter { $0.hasPrefix("T-") } == [fixture.sessionID],
+                "cycle \(cycle): amp threads continue foregrounds the first positional thread, so the restored thread must be the only one"
+            )
+            // The wrapper execs the real binary with the same tail, and the
+            // plugin captures that argv for the next restore.
+            capturedArguments = [fixture.executable] + argv.dropFirst()
+            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                kind: "amp",
+                sessionId: fixture.sessionID,
+                claim: claim
+            )
+        }
     }
 
     @Test("A non-ASCII localized notice remains one shell argument")
@@ -270,216 +461,4 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         ) == nil)
     }
 
-    private struct Fixture {
-        let root: URL
-        let defaults: UserDefaults
-        let defaultsName: String
-        let sessionID: String
-        let processID: Int
-        let ownerProcess: Process?
-        let agent: SessionRestorableAgentSnapshot
-        let index: RestorableAgentSessionIndex
-
-        @MainActor
-        func cleanup() {
-            if let ownerProcess, ownerProcess.isRunning {
-                ownerProcess.terminate()
-                ownerProcess.waitUntilExit()
-            }
-            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
-                kind: agent.kind.rawValue,
-                sessionId: sessionID
-            )
-            defaults.removePersistentDomain(forName: defaultsName)
-            try? FileManager.default.removeItem(at: root)
-        }
-    }
-
-    private func makeFixture(ownerState: OwnerState) throws -> Fixture {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-issue-11043-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let defaultsName = "cmux-issue-11043-\(UUID().uuidString)"
-        let defaults: UserDefaults
-        do {
-            defaults = try #require(UserDefaults(suiteName: defaultsName))
-        } catch {
-            try? FileManager.default.removeItem(at: root)
-            throw error
-        }
-        var fixtureCreated = false
-        var ownerProcessForCleanup: Process?
-        defer {
-            if !fixtureCreated {
-                if let ownerProcessForCleanup, ownerProcessForCleanup.isRunning {
-                    ownerProcessForCleanup.terminate()
-                    ownerProcessForCleanup.waitUntilExit()
-                }
-                defaults.removePersistentDomain(forName: defaultsName)
-                try? FileManager.default.removeItem(at: root)
-            }
-        }
-        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
-
-        let sessionID = UUID().uuidString.lowercased()
-        let ownerProcess: Process?
-        let processID: Int
-        if ownerState == .live || ownerState == .staleGeneration {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/sleep")
-            process.arguments = ["60"]
-            try process.run()
-            ownerProcess = process
-            ownerProcessForCleanup = process
-            processID = Int(process.processIdentifier)
-        } else {
-            ownerProcess = nil
-            processID = Int(Int32.max) - 11_043
-        }
-        let workingDirectory = root.appendingPathComponent("project", isDirectory: true)
-        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-        let agent = SessionRestorableAgentSnapshot(
-            kind: .grok,
-            sessionId: sessionID,
-            workingDirectory: workingDirectory.path,
-            launchCommand: AgentLaunchCommandSnapshot(
-                launcher: "grok",
-                executablePath: "/usr/local/bin/grok",
-                arguments: ["/usr/local/bin/grok", "--session-id", sessionID],
-                workingDirectory: workingDirectory.path,
-                capturedAt: 1_800_110_043,
-                source: "test"
-            )
-        )
-        let index = try liveOwnerIndex(
-            root: root,
-            agent: agent,
-            processID: processID,
-            ownerState: ownerState
-        )
-        fixtureCreated = true
-        return Fixture(
-            root: root,
-            defaults: defaults,
-            defaultsName: defaultsName,
-            sessionID: sessionID,
-            processID: processID,
-            ownerProcess: ownerProcess,
-            agent: agent,
-            index: index
-        )
-    }
-
-    private func liveOwnerIndex(
-        root: URL,
-        agent: SessionRestorableAgentSnapshot,
-        processID: Int,
-        ownerState: OwnerState
-    ) throws -> RestorableAgentSessionIndex {
-        guard ownerState != .absent else { return .empty }
-
-        let ownerWorkspaceID = UUID()
-        let ownerSurfaceID = UUID()
-        let stateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
-        let environment = ["CMUX_AGENT_HOOK_STATE_DIR": stateDirectory.path]
-        let storeURL = RestorableAgentKind.grok.hookStoreFileURL(
-            homeDirectory: root.path,
-            environment: environment
-        )
-        try FileManager.default.createDirectory(
-            at: storeURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let recordedIdentity: AgentPIDProcessIdentity
-        if ownerState == .dead {
-            recordedIdentity = AgentPIDProcessIdentity(
-                pid: pid_t(processID),
-                startSeconds: 110,
-                startMicroseconds: 43
-            )
-        } else {
-            recordedIdentity = try #require(AgentPIDProcessIdentity(pid: pid_t(processID)))
-        }
-        let store: [String: Any] = [
-            "version": 1,
-            "sessions": [
-                agent.sessionId: [
-                    "sessionId": agent.sessionId,
-                    "workspaceId": ownerWorkspaceID.uuidString,
-                    "surfaceId": ownerSurfaceID.uuidString,
-                    "pid": processID,
-                    "pidStartSeconds": recordedIdentity.startSeconds,
-                    "pidStartMicroseconds": recordedIdentity.startMicroseconds,
-                    "cwd": agent.workingDirectory ?? root.path,
-                    "isRestorable": true,
-                    "updatedAt": 1_800_110_043,
-                    "launchCommand": [
-                        "launcher": "grok",
-                        "executablePath": "/usr/local/bin/grok",
-                        "arguments": ["/usr/local/bin/grok", "--session-id", agent.sessionId],
-                        "workingDirectory": agent.workingDirectory ?? root.path,
-                        "capturedAt": 1_800_110_043,
-                        "source": "test",
-                    ],
-                ],
-            ],
-        ]
-        try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
-            .write(to: storeURL, options: .atomic)
-
-        let currentIdentity: AgentPIDProcessIdentity? = switch ownerState {
-        case .live:
-            recordedIdentity
-        case .staleGeneration:
-            AgentPIDProcessIdentity(
-                pid: pid_t(processID),
-                startSeconds: recordedIdentity.startSeconds + 1,
-                startMicroseconds: recordedIdentity.startMicroseconds
-            )
-        case .absent, .dead:
-            nil
-        }
-        return RestorableAgentSessionIndex.load(
-            homeDirectory: root.path,
-            fileManager: .default,
-            registry: CmuxVaultAgentRegistry(registrations: [.builtInGrok]),
-            detectedSnapshots: [:],
-            environment: environment,
-            processArgumentsProvider: { candidatePID in
-                guard candidatePID == processID else { return nil }
-                // Deliberately no CMUX_WORKSPACE_ID / CMUX_SURFACE_ID: this is
-                // the nohup/setsid/daemonized shape from #11043.
-                return CmuxTopProcessArguments(
-                    arguments: ["/usr/local/bin/grok", "--session-id", agent.sessionId],
-                    environment: [:]
-                )
-            },
-            processPresenceProvider: { candidatePID in
-                candidatePID == processID && ownerState != .dead ? .present : .absent
-            },
-            processIdentityProvider: { candidatePID in
-                candidatePID == processID ? currentIdentity : nil
-            }
-        )
-    }
-
-    private func restoredStartupInput(_ fixture: Fixture) throws -> String {
-        let source = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
-        defer { source.teardownAllPanels() }
-        let sourcePanelID = try #require(source.focusedPanelId)
-        var snapshot = source.sessionSnapshot(includeScrollback: false)
-        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelID })
-        snapshot.panels[panelIndex].terminal?.agent = fixture.agent
-        snapshot.panels[panelIndex].terminal?.wasAgentRunning = true
-
-        let restored = Workspace(
-            agentSessionAutoResumeDefaults: fixture.defaults,
-            restorableAgentIndexProvider: { fixture.index }
-        )
-        defer { restored.teardownAllPanels() }
-        let restoredIDs = restored.restoreSessionSnapshot(snapshot)
-        let restoredPanelID = try #require(restoredIDs[sourcePanelID])
-        let terminal = try #require(restored.terminalPanel(for: restoredPanelID))
-        return try #require(terminal.surface.debugInitialInputForTesting())
-    }
 }

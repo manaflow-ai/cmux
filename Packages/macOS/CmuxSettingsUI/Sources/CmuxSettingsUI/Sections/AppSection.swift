@@ -24,6 +24,7 @@ public struct AppSection: View {
     // actually drives invalidation.
     @State private var language: DefaultsValueModel<AppLanguage>
     @State private var appearance: DefaultsValueModel<AppearanceMode>
+    @State private var accentColor: DefaultsValueModel<CmuxAccentColorMode>
     @State private var appIcon: DefaultsValueModel<AppIconMode>
     @State private var placement: DefaultsValueModel<WorkspacePlacement>
     @State private var inheritDir: DefaultsValueModel<Bool>
@@ -31,6 +32,7 @@ public struct AppSection: View {
     @State private var keepWorkspaceOpen: DefaultsValueModel<Bool>
     @State private var firstClick: DefaultsValueModel<Bool>
     @State private var focusHistoryIncludesPanesAndTabs: DefaultsValueModel<Bool>
+    @State private var equalizeSplitsOnCreate: DefaultsValueModel<Bool>
     @State private var fileDrop: DefaultsValueModel<FileDropDefaultBehavior>
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
@@ -63,11 +65,13 @@ public struct AppSection: View {
     @State private var customSoundFile: DefaultsValueModel<String>
     @State private var soundOverrides: DefaultsValueModel<String>
     @State private var soundOverridesModel: NotificationSoundOverridesModel
-    @State private var soundAgents: [NotificationSoundAgentOption] = []
+    private let soundAgentCache: NotificationSoundAgentCache
     @State private var telemetry: DefaultsValueModel<Bool>
     @State private var confirmQuit: DefaultsValueModel<ConfirmQuitMode>
     @State private var warnCloseTab: DefaultsValueModel<Bool>
     @State private var warnCloseX: DefaultsValueModel<Bool>
+    @State private var warnCloseWorkspace: DefaultsValueModel<Bool>
+    @State private var warnCloseWindow: DefaultsValueModel<Bool>
     @State private var hideCloseButton: DefaultsValueModel<Bool>
     @State private var renameSelects: DefaultsValueModel<Bool>
     @State private var paletteAllSurfaces: DefaultsValueModel<Bool>
@@ -76,16 +80,22 @@ public struct AppSection: View {
     // Sticky: a picker change can rewrite the OS AppleLanguages override even when the selection returns to its starting value (clearing a preserved foreign override via an explicit pick, then System), so the restart hint must not rely on the value comparison alone.
     @State private var languageOverrideTouched = false
     @State private var telemetryAtAppear: Bool?
+    /// `DisableTelemetry` (MDM): the opt-in is moot while a profile forces
+    /// telemetry off, so the row says so and locks; re-read on change signals.
+    @State private var telemetryManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableTelemetry)
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
-        hostActions: SettingsHostActions
+        hostActions: SettingsHostActions,
+        soundAgentCache: NotificationSoundAgentCache = NotificationSoundAgentCache()
     ) {
         self.catalog = catalog
         self.hostActions = hostActions
+        self.soundAgentCache = soundAgentCache
         _language = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.language))
         _appearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance))
+        _accentColor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.accentColor))
         _appIcon = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon))
         _placement = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.newWorkspacePlacement))
         _inheritDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.workspaceInheritWorkingDirectory))
@@ -93,6 +103,7 @@ public struct AppSection: View {
         _keepWorkspaceOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.keepWorkspaceOpenWhenClosingLastSurface))
         _firstClick = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusPaneOnFirstClick))
         _focusHistoryIncludesPanesAndTabs = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusHistoryIncludesPanesAndTabs))
+        _equalizeSplitsOnCreate = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.equalizeSplitsOnCreate))
         _fileDrop = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.fileDropDefaultBehavior))
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
@@ -131,6 +142,8 @@ public struct AppSection: View {
         _confirmQuit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.confirmQuitMode))
         _warnCloseTab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTab))
         _warnCloseX = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTabXButton))
+        _warnCloseWorkspace = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingWorkspace))
+        _warnCloseWindow = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingWindow))
         _hideCloseButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.hideTabCloseButton))
         _renameSelects = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.renameSelectsExistingName))
         _paletteAllSurfaces = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.commandPaletteSearchesAllSurfaces))
@@ -153,13 +166,17 @@ public struct AppSection: View {
             SettingsSectionHeader(String(localized: "settings.section.app", defaultValue: "App"), section: .app)
                 .accessibilityIdentifier("SettingsAppSection")
             mainCard
+            AppChannelSwitchCard(hostActions: hostActions)
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
-            if soundAgents.isEmpty {
-                soundAgents = await hostActions.notificationSoundAgentOptions()
-            }
+            startSettingsObservation([language, appearance, accentColor, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
+            await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
+        }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                telemetryManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableTelemetry)
+            }
         }
         .onChange(of: soundOverrides.current) { _, newValue in
             soundOverridesModel.accept(newValue)
@@ -167,15 +184,9 @@ public struct AppSection: View {
     }
 
     private var globalFontMagnificationSubtitle: String {
-        if globalFontMagnification.current != GlobalFontMagnification.defaultPercent {
-            return String(
-                localized: "settings.app.globalFontMagnification.subtitleOn",
-                defaultValue: "Terminals, tabs, and chrome all render at this magnification. Per-pane zoom (Cmd= / Cmd-) still overrides for the focused pane."
-            )
-        }
-        return String(
-            localized: "settings.app.globalFontMagnification.subtitleOff",
-            defaultValue: "Scale every font in cmux by the same percentage. 100% = design size."
+        String(
+            localized: "settings.app.globalFontMagnification.subtitle",
+            defaultValue: "Scales all text in cmux. Command-Plus and Command-Minus still zoom the focused pane."
         )
     }
 
@@ -212,6 +223,23 @@ public struct AppSection: View {
             .settingsSearchAnchors(["setting:app:appearance"])
             SettingsCardDivider()
 
+            // Accent Color
+            SettingsCardRow(
+                configurationReview: .json("app.accentColor"),
+                String(localized: "settings.app.accentColor", defaultValue: "Accent Color"),
+                subtitle: String(localized: "settings.app.accentColor.subtitle", defaultValue: "Color of the selected workspace, attention ring, agent status, and other cmux highlights. System follows the macOS accent color."),
+                controlWidth: Self.columnWidth
+            ) {
+                Picker("", selection: Binding(get: { accentColor.current }, set: { accentColor.set($0) })) {
+                    Text(String(localized: "settings.app.accentColor.cmux", defaultValue: "cmux Blue")).tag(CmuxAccentColorMode.cmux)
+                    Text(String(localized: "settings.app.accentColor.system", defaultValue: "System")).tag(CmuxAccentColorMode.system)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("SettingsAccentColorPicker")
+            }
+            SettingsCardDivider()
+
             // App Icon — three-up visual picker mirroring legacy
             AppIconPickerRow(
                 selectedMode: appIcon.current,
@@ -224,7 +252,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.newWorkspacePlacement"),
                 String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"),
-                subtitle: workspacePlacementSubtitle(placement.current),
+                subtitle: String(localized: "settings.app.newWorkspacePlacement.subtitle", defaultValue: "Choose where new workspaces appear in the sidebar."),
                 controlWidth: Self.columnWidth
             ) {
                 // Order matches legacy NewWorkspacePlacement.allCases:
@@ -259,9 +287,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.workspaceInheritWorkingDirectory"),
                 String(localized: "settings.app.workspaceInheritWorkingDirectory", defaultValue: "Inherit Workspace Working Directory"),
-                subtitle: inheritDir.current
-                    ? String(localized: "settings.app.workspaceInheritWorkingDirectory.subtitleOn", defaultValue: "New workspaces start in the focused workspace's working directory.")
-                    : String(localized: "settings.app.workspaceInheritWorkingDirectory.subtitleOff", defaultValue: "New workspaces use Ghostty's working-directory setting instead.")
+                subtitle: String(localized: "settings.app.workspaceInheritWorkingDirectory.subtitle", defaultValue: "Starts new workspaces in the working directory of the current workspace.")
             ) {
                 Toggle("", isOn: Binding(get: { inheritDir.current }, set: { inheritDir.set($0) }))
                     .labelsHidden()
@@ -274,9 +300,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.minimalMode"),
                 String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"),
-                subtitle: minimalMode.current == .minimal
-                    ? String(localized: "settings.app.minimalMode.subtitleOn", defaultValue: "Hide the workspace title bar and move workspace controls into the sidebar.")
-                    : String(localized: "settings.app.minimalMode.subtitleOff", defaultValue: "Use the standard workspace title bar and controls.")
+                subtitle: String(localized: "settings.app.minimalMode.subtitle", defaultValue: "Hides the workspace title bar and shows its controls in the sidebar.")
             ) {
                 Toggle("", isOn: Binding(
                     get: { minimalMode.current == .minimal },
@@ -294,9 +318,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.keepWorkspaceOpenWhenClosingLastSurface"),
                 String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Keep Workspace Open When Closing Last Surface"),
-                subtitle: !keepWorkspaceOpen.current
-                    ? String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOn", defaultValue: "When the focused surface is the last one in its workspace, closing it with the close-surface shortcut, tab close button, or middle-click closes only the surface and keeps the workspace open. Use the close-workspace shortcut to close the workspace explicitly.")
-                    : String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOff", defaultValue: "When the focused surface is the last one in its workspace, closing it with the close-surface shortcut, tab close button, or middle-click also closes the workspace.")
+                subtitle: String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitle", defaultValue: "Closing the last surface in a workspace keeps the workspace open.")
             ) {
                 Toggle("", isOn: Binding(get: { !keepWorkspaceOpen.current }, set: { keepWorkspaceOpen.set(!$0) }))
                     .labelsHidden()
@@ -308,9 +330,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.focusPaneOnFirstClick"),
                 String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click"),
-                subtitle: firstClick.current
-                    ? String(localized: "settings.app.paneFirstClickFocus.subtitleOn", defaultValue: "When cmux is inactive, clicking a pane activates the window and focuses that pane in one click.")
-                    : String(localized: "settings.app.paneFirstClickFocus.subtitleOff", defaultValue: "When cmux is inactive, the first click only activates the window. Click again to focus the pane.")
+                subtitle: String(localized: "settings.app.paneFirstClickFocus.subtitle", defaultValue: "Clicking a pane while cmux is in the background focuses that pane right away.")
             ) {
                 Toggle("", isOn: Binding(get: { firstClick.current }, set: { firstClick.set($0) }))
                     .labelsHidden()
@@ -322,9 +342,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.focusHistoryIncludesPanesAndTabs"),
                 String(localized: "settings.app.focusHistoryIncludesPanesAndTabs", defaultValue: "Include Panes and Tabs in Focus History"),
-                subtitle: focusHistoryIncludesPanesAndTabs.current
-                    ? String(localized: "settings.app.focusHistoryIncludesPanesAndTabs.subtitleOn", defaultValue: "Back and forward navigate focus changes between panes, tabs, and workspaces.")
-                    : String(localized: "settings.app.focusHistoryIncludesPanesAndTabs.subtitleOff", defaultValue: "Back and forward navigate between workspaces only.")
+                subtitle: String(localized: "settings.app.focusHistoryIncludesPanesAndTabs.subtitle", defaultValue: "Using Back and Forward also returns to previous panes and tabs.")
             ) {
                 Toggle("", isOn: Binding(
                     get: { focusHistoryIncludesPanesAndTabs.current },
@@ -336,12 +354,28 @@ public struct AppSection: View {
             }
             SettingsCardDivider()
 
+            // Equalize Splits on Create
+            SettingsCardRow(
+                configurationReview: .json("app.equalizeSplitsOnCreate"),
+                String(localized: "settings.app.equalizeSplitsOnCreate", defaultValue: "Equalize Splits on Create"),
+                subtitle: String(localized: "settings.app.equalizeSplitsOnCreate.subtitle", defaultValue: "Splitting a pane makes the panes in that direction equal in size.")
+            ) {
+                Toggle("", isOn: Binding(
+                    get: { equalizeSplitsOnCreate.current },
+                    set: { equalizeSplitsOnCreate.set($0) }
+                ))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsEqualizeSplitsOnCreateToggle")
+            }
+            SettingsCardDivider()
+
             // File Drops
             SettingsCardRow(
                 configurationReview: .settingsOnly,
                 searchAnchorID: "setting:app:file-drops",
                 String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"),
-                subtitle: fileDropSubtitle(fileDrop.current),
+                subtitle: String(localized: "settings.app.fileDrop.defaultBehavior.subtitle", defaultValue: "Choose what dropping files on a terminal or editor does. Holding Shift while dragging does the other."),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { fileDrop.current }, set: { fileDrop.set($0) })) {
@@ -779,7 +813,7 @@ public struct AppSection: View {
                         soundOverrides.set(encoded)
                     },
                     hostActions: hostActions,
-                    agents: soundAgents
+                    agents: soundAgentCache.agents ?? []
                 )
                 .frame(minWidth: 510, maxWidth: .infinity, alignment: .leading)
             }
@@ -804,13 +838,16 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.sendAnonymousTelemetry"),
                 String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"),
-                subtitle: (telemetryAtAppear != nil && telemetry.current != telemetryAtAppear)
-                    ? String(localized: "settings.app.telemetry.subtitleChanged", defaultValue: "Change takes effect on next launch.")
-                    : String(localized: "settings.app.telemetry.subtitle", defaultValue: "Share anonymized crash and usage data to help improve cmux.")
+                subtitle: telemetryManagedByPolicy
+                    ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
+                    : (telemetryAtAppear != nil && telemetry.current != telemetryAtAppear)
+                        ? String(localized: "settings.app.telemetry.subtitleChanged", defaultValue: "Change takes effect on next launch.")
+                        : String(localized: "settings.app.telemetry.subtitle", defaultValue: "Share anonymized crash and usage data to help improve cmux.")
             ) {
-                Toggle("", isOn: Binding(get: { telemetry.current }, set: { telemetry.set($0) }))
+                Toggle("", isOn: Binding(get: { telemetry.current && !telemetryManagedByPolicy }, set: { telemetry.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+                    .disabled(telemetryManagedByPolicy)
             }
             SettingsCardDivider()
 
@@ -818,7 +855,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.confirmQuit", "app.warnBeforeQuit"),
                 String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"),
-                subtitle: confirmQuitSubtitle(confirmQuit.current),
+                subtitle: String(localized: "settings.app.warnBeforeQuit.subtitle", defaultValue: "Choose when quitting with Command-Q asks for confirmation. Dirty Only asks only when a workspace would ask before closing."),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { confirmQuit.current }, set: { confirmQuit.set($0) })) {
@@ -835,11 +872,9 @@ public struct AppSection: View {
 
             // Warn Before Closing Tab
             SettingsCardRow(
-                configurationReview: .json("app.warnBeforeClosingTab"),
-                String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab"),
-                subtitle: warnCloseTab.current
-                    ? String(localized: "settings.app.warnBeforeClosingTab.subtitleOn", defaultValue: "Show a confirmation before closing a tab.")
-                    : String(localized: "settings.app.warnBeforeClosingTab.subtitleOff", defaultValue: "Tabs close immediately without confirmation.")
+                configurationReview: .json(catalog.app.warnBeforeClosingTab.id),
+                catalog.app.warnBeforeClosingTab.userFacing!.title,
+                subtitle: String(localized: "settings.app.warnBeforeClosingTab.subtitle", defaultValue: "Closing a tab asks for confirmation first.")
             ) {
                 Toggle("", isOn: Binding(get: { warnCloseTab.current }, set: { warnCloseTab.set($0) }))
                     .labelsHidden()
@@ -851,7 +886,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.warnBeforeClosingTabXButton"),
                 String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before Tab Close Button"),
-                subtitle: warnCloseXSubtitle(hideCloseButton: hideCloseButton.current, warnEnabled: warnCloseX.current)
+                subtitle: warnCloseXSubtitle(hideCloseButton: hideCloseButton.current)
             ) {
                 Toggle("", isOn: Binding(get: { warnCloseX.current }, set: { warnCloseX.set($0) }))
                     .labelsHidden()
@@ -860,13 +895,39 @@ public struct AppSection: View {
             }
             SettingsCardDivider()
 
+            // Warn Before Closing Workspace
+            SettingsCardRow(
+                configurationReview: .json(catalog.app.warnBeforeClosingWorkspace.id),
+                catalog.app.warnBeforeClosingWorkspace.userFacing!.title,
+                subtitle: warnCloseWorkspace.current
+                    ? String(localized: "settings.app.warnBeforeClosingWorkspace.subtitleOn", defaultValue: "Show a confirmation before closing a workspace with a running process, or several workspaces at once.")
+                    : String(localized: "settings.app.warnBeforeClosingWorkspace.subtitleOff", defaultValue: "Workspaces close immediately without confirmation. Pinned workspaces still ask.")
+            ) {
+                Toggle("", isOn: Binding(get: { warnCloseWorkspace.current }, set: { warnCloseWorkspace.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Warn Before Closing Window
+            SettingsCardRow(
+                configurationReview: .json(catalog.app.warnBeforeClosingWindow.id),
+                catalog.app.warnBeforeClosingWindow.userFacing!.title,
+                subtitle: warnCloseWindow.current
+                    ? String(localized: "settings.app.warnBeforeClosingWindow.subtitleOn", defaultValue: "Show a confirmation before closing a window with a running process, or all of a window's workspaces at once.")
+                    : String(localized: "settings.app.warnBeforeClosingWindow.subtitleOff", defaultValue: "Windows close immediately without confirmation.")
+            ) {
+                Toggle("", isOn: Binding(get: { warnCloseWindow.current }, set: { warnCloseWindow.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
             // Hide Tab Close Button
             SettingsCardRow(
-                configurationReview: .json("app.hideTabCloseButton"),
-                String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button"),
-                subtitle: hideCloseButton.current
-                    ? String(localized: "settings.app.hideTabCloseButton.subtitleOn", defaultValue: "Tab close buttons are hidden.")
-                    : String(localized: "settings.app.hideTabCloseButton.subtitleOff", defaultValue: "Tab close buttons appear on hover and on the active tab.")
+                configurationReview: .json(catalog.app.hideTabCloseButton.id),
+                catalog.app.hideTabCloseButton.userFacing!.title,
+                subtitle: String(localized: "settings.app.hideTabCloseButton.subtitle", defaultValue: "Removes the close button from tabs.")
             ) {
                 Toggle("", isOn: Binding(get: { hideCloseButton.current }, set: { hideCloseButton.set($0) }))
                     .labelsHidden()
@@ -876,11 +937,9 @@ public struct AppSection: View {
 
             // Rename Selects Existing Name
             SettingsCardRow(
-                configurationReview: .json("app.renameSelectsExistingName"),
-                String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"),
-                subtitle: renameSelects.current
-                    ? String(localized: "settings.app.renameSelectsName.subtitleOn", defaultValue: "Command Palette rename starts with all text selected.")
-                    : String(localized: "settings.app.renameSelectsName.subtitleOff", defaultValue: "Command Palette rename keeps the caret at the end.")
+                configurationReview: .json(catalog.app.renameSelectsExistingName.id),
+                catalog.app.renameSelectsExistingName.userFacing!.title,
+                subtitle: String(localized: "settings.app.renameSelectsName.subtitle", defaultValue: "Renaming from the command palette selects the current name.")
             ) {
                 Toggle("", isOn: Binding(get: { renameSelects.current }, set: { renameSelects.set($0) }))
                     .labelsHidden()
@@ -892,9 +951,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.commandPaletteSearchesAllSurfaces"),
                 String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"),
-                subtitle: paletteAllSurfaces.current
-                    ? String(localized: "settings.app.commandPaletteSearchAllSurfaces.subtitleOn", defaultValue: "Cmd+P also matches panel surfaces across workspaces.")
-                    : String(localized: "settings.app.commandPaletteSearchAllSurfaces.subtitleOff", defaultValue: "Cmd+P matches workspace rows only.")
+                subtitle: String(localized: "settings.app.commandPaletteSearchAllSurfaces.subtitle", defaultValue: "Includes terminal, browser, and Markdown surfaces from every workspace in command palette results.")
             ) {
                 Toggle("", isOn: Binding(get: { paletteAllSurfaces.current }, set: { paletteAllSurfaces.set($0) }))
                     .labelsHidden()

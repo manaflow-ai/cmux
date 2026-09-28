@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -12,7 +13,7 @@ import Testing
 /// must round-trip through session snapshots (with legacy snapshots that
 /// predate provenance decoding as user-owned).
 @MainActor
-@Suite struct WorkspaceTitleProvenanceTests {
+@Suite(.serialized) struct WorkspaceTitleProvenanceTests {
 
     // MARK: - Workspace titles
 
@@ -133,7 +134,7 @@ import Testing
         #expect(workspace.panelCustomTitles[panelId] == "Carried Tab")
     }
 
-    @Test func cloudTerminalClearWithoutLocalOverrideIsAcceptedForWriteThrough() throws {
+    @Test func cloudTerminalClearWithoutLocalOverrideIsAcceptedForWriteThrough() async throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let pane = try #require(workspace.bonsplitController.allPaneIds.first)
@@ -161,6 +162,8 @@ import Testing
             url: nil
         )
         let catalog = SurfaceCatalog.shared
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
         catalog.upsert(remote)
         catalog.record(SurfaceProjection(
             resource: remote.id,
@@ -170,12 +173,15 @@ import Testing
             remoteTabID: "tab_cloud"
         ))
         defer {
-            catalog.endProjections(panelID: panelId)
-            catalog.remove(remote.id)
+            catalog.endProjections(panelID: panelId, reason: .replaced)
+            catalog.unregister(machine: machine)
         }
 
         #expect(workspace.panelCustomTitles[panelId] == nil)
         #expect(workspace.setPanelCustomTitle(panelId: panelId, title: nil))
+        try await catalog.cloudRenameCoordinator.waitForPendingRenames(on: machine)
+        #expect(provider.renamedTabs.map { $0.id } == ["tab_cloud"])
+        #expect(provider.renamedTabs.map { $0.name } == [""])
         #expect(workspace.panelCustomTitles[panelId] == nil)
     }
 

@@ -26,6 +26,7 @@ import {
 } from "../account/metadataMutation";
 import {
   FOUNDERS_PLAN_ID,
+  MAX_PLAN_ID,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
   hasActiveTeamSubscriptionForTeam,
@@ -39,7 +40,7 @@ import {
   type StripeBillingStatus,
 } from "../billing/pro";
 
-export const ADMIN_GRANTABLE_PLAN_IDS = [PRO_PLAN_ID, FOUNDERS_PLAN_ID] as const;
+export const ADMIN_GRANTABLE_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID, FOUNDERS_PLAN_ID] as const;
 export type AdminGrantablePlanId = (typeof ADMIN_GRANTABLE_PLAN_IDS)[number];
 
 export const ADMIN_USER_SEARCH_LIMIT = 25;

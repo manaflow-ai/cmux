@@ -15,7 +15,7 @@ on:
   workflow_call:
     inputs:
       ref:
-        description: Branch or SHA to capture from
+        description: Branch, tag, full SHA, or short SHA to capture from
         required: false
         type: string
         default: ""
@@ -37,7 +37,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch or SHA to capture from
+        description: Branch, tag, full SHA, or short SHA to capture from
         required: false
         default: ""
       request_id:
@@ -53,20 +53,137 @@ on:
         required: false
         default: false
         type: boolean
+      runner:
+        description: "macOS runner (auto follows MACOS_RUNNER_IOS; owned takes an owned Mac with an iOS simulator runtime, capture-only)"
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - blacksmith-6vcpu-macos-26
+          - owned
+# Capture-only needs nothing beyond reading the repository: checkout runs with
+# persist-credentials disabled, and artifact uploads use the runner's artifact
+# token rather than GITHUB_TOKEN. Nothing here dispatches, cancels or deletes
+# runs, so `actions: write` was never exercised, and declaring it broke every
+# caller that grants less: GitHub validates a reusable workflow's permissions
+# against the calling job at parse time, and release.yml failed at startup
+# with "is requesting 'actions: write', but is only allowed 'actions: none'"
+# (https://github.com/manaflow-ai/cmux/issues/12149). Keep this block at the
+# minimum the steps use; tests/test_ci_reusable_workflow_permissions.py checks
+# every local caller against it.
 permissions:
   contents: read
-  actions: write
 
 jobs:
+  resolve-ref:
+    uses: ./.github/workflows/resolve-dispatch-ref.yml
+    with:
+      ref: ${{ inputs.ref }}
+
+  runner:
+    # The macOS pool the capture runs on: MACOS_RUNNER_IOS, or on a direct
+    # capture-only dispatch with `runner: owned`, an owned Mac with an iOS
+    # 26.x simulator runtime (scripts/ci/ios_runner_pool.py). `auto` never
+    # reads the queue here: release.yml calls this workflow with only
+    # `contents: read`, and a job asking for `actions: read` would fail the
+    # release at parse time (#12149). A release call and an App Store upload
+    # always keep MACOS_RUNNER_IOS. A capture an owned Mac leaves queued or
+    # refuses is re-run by ci-owned-pool-rescue.yml on retry_runs_on.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      label: ${{ steps.pool.outputs.label }}
+      runs_on: ${{ steps.pool.outputs.runs_on }}
+      retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
+    steps:
+      - name: Checkout pool helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/ios_runner_pool.py
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Pick the macOS pool
+        id: pool
+        env:
+          REQUESTED_RUNNER: ${{ inputs.runner }}
+          RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_IOS }}
+          IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          UPLOAD: ${{ inputs.upload }}
+          # A called workflow reports its caller's workflow_ref.
+          CALLED: ${{ !contains(github.workflow_ref, '/.github/workflows/ios-screenshots.yml@') }}
+        run: |
+          set -euo pipefail
+          route="$(python3 scripts/ci/ios_runner_pool.py \
+            --lane screenshots \
+            --requested "$REQUESTED_RUNNER" \
+            --variable "$RUNNER_VARIABLE" \
+            --ios-owned "$IOS_OWNED" \
+            --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" \
+            --pr-xcode-app "$PR_XCODE_APP" \
+            --upload "$UPLOAD" \
+            --called "$CALLED")"
+          echo "$route" >> "$GITHUB_OUTPUT"
+          echo "$route"
+
+      # ci-owned-pool-rescue.yml watches a run with this marker and re-runs a
+      # job an owned Mac leaves queued or refuses. Fail-safe: without it the
+      # run is only not watched.
+      - name: Mark a run on a persistent macOS pool
+        id: marker
+        if: ${{ steps.pool.outputs.persistent == 'true' && github.run_attempt == 1 }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/macos-pool-persistent.json"
+          echo '{}' > "$marker"
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the persistent pool marker
+        if: ${{ steps.marker.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.pool.outputs.jobs }}-${{ steps.pool.outputs.label }}
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
+      # The simulator jobs the run will hold, for the janitor's glaeda-ios-sim
+      # count (queue_janitor.capability_marker), before those jobs exist.
+      - name: Upload the simulator capacity marker
+        if: ${{ steps.marker.outputs.path != '' && steps.pool.outputs.sim_jobs != '0' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.pool.outputs.sim_jobs }}-glaeda-ios-sim
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
   screenshots:
+    needs: [resolve-ref, runner]
     # Same lane as the iOS simulator tests: screenshots run inside the Simulator,
     # not as a foregrounded Mac app, so the Blacksmith foreground limitation does
     # not apply.
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     # Nine localized languages are captured serially on each required device
     # class. Keep enough budget for cold Xcode builds plus the frame lane on
     # shared macOS runners, where simulator resets can be slow.
     timeout-minutes: 300
+    env:
+      # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
+      # pull-request lane's Xcode pin, so take that Xcode there, as
+      # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
+      # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
+      # keeps its pool default.
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
       - name: Guard trusted upload ref
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload && (inputs.ref != '' || github.ref != 'refs/heads/main') }}
@@ -77,23 +194,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.resolve-ref.outputs.sha }}
           persist-credentials: false
           submodules: recursive
 
       - name: Select Xcode
-        run: |
-          set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
-            [ -n "$XCODE_APP" ] || { echo "No Xcode.app found" >&2; exit 1; }
-            XCODE_DIR="$XCODE_APP/Contents/Developer"
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -107,6 +213,10 @@ jobs:
           xcrun simctl list runtimes available | grep -Eq '\biOS\b'
 
       - name: Provision GhosttyKit
+        env:
+          # Unpacked in the job's temp directory, so a reused runner keeps
+          # nothing in ~/.cache (as test-ios.yml does).
+          CMUX_GHOSTTYKIT_CACHE_DIR: ${{ runner.temp }}/cmux-ghosttykit-cache
         run: ./scripts/ensure-ghosttykit.sh
 
       - name: Resolve screenshot devices (6.9" iPhone + 13" iPad)
@@ -184,6 +294,9 @@ jobs:
           SNAPSHOT_LANGUAGES: ${{ inputs.languages || 'en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja' }}
           FASTLANE_SKIP_UPDATE_CHECK: "1"
           FASTLANE_HIDE_CHANGELOG: "1"
+          # snapshot's derived_data_path: under the job's temp directory, not
+          # the runner user's ~/Library, which a reused runner keeps.
+          SNAPSHOT_DERIVED_DATA_PATH: ${{ runner.temp }}/cmux-ios-snapshot-derived-data
         run: |
           set -euo pipefail
           echo "Devices: $SNAPSHOT_DEVICES"
@@ -252,3 +365,13 @@ jobs:
           FASTLANE_SKIP_UPDATE_CHECK: "1"
           FASTLANE_HIDE_CHANGELOG: "1"
         run: fastlane upload_screenshots
+
+      - name: Remove App Store Connect API key
+        # The key sits in the runner user's home; a reused runner would keep it.
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.upload }}
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+        run: |
+          if [ -n "${ASC_API_KEY_ID:-}" ]; then
+            rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_API_KEY_ID}.p8"
+          fi

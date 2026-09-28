@@ -26,6 +26,11 @@ export const PRIORITY_PATH_PREFIXES = [
   "/v1",
   "/api/coderouter",
   "/api/admin",
+  // Operational routes are low volume and every failure needs a full trace:
+  // scheduled crons, the retention drain, and Stripe webhook processing.
+  "/api/cron",
+  "/api/internal",
+  "/api/stripe/webhook",
 ] as const;
 const PRIORITY_SUBSYSTEMS: ReadonlySet<string> = new Set(["vm-cloud", "coderouter"]);
 

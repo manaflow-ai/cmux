@@ -14,6 +14,8 @@ type CodeRouterFailure =
   | "rds"
   | "analytics_delivery"
   | "analytics_query"
+  | "api_key_usage"
+  | "route_token_usage"
   | "usage_ledger"
   | "upstream_transport"
   | "route_crash"
@@ -34,6 +36,8 @@ const OPERATOR_FAULT_FAILURES: ReadonlySet<CodeRouterFailure> = new Set([
   "rds",
   "analytics_delivery",
   "analytics_query",
+  "api_key_usage",
+  "route_token_usage",
   "usage_ledger",
   "route_crash",
   "health_check",

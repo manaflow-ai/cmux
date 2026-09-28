@@ -200,6 +200,62 @@ describe("coderouter analytics", () => {
     expect(captured.bodies).toHaveLength(0);
   });
 
+  test("captures API-key lifecycle properties without forwarding raw input", async () => {
+    const cases = [
+      {
+        event: "coderouter_api_key_created" as const,
+        properties: { label: "private label" },
+        expected: {},
+      },
+      {
+        event: "coderouter_api_key_revoked" as const,
+        properties: { self: true },
+        expected: { self: true },
+      },
+      {
+        event: "coderouter_api_key_listed" as const,
+        properties: { key_count: 4 },
+        expected: { key_count_bucket: "4-10" },
+      },
+      {
+        event: "coderouter_api_key_revoked" as const,
+        properties: { self: "invalid" },
+        expected: { self: false },
+      },
+      {
+        event: "coderouter_api_key_listed" as const,
+        properties: { key_count: -1 },
+        expected: { key_count_bucket: "0" },
+      },
+    ];
+
+    for (const input of cases) {
+      const { expected, ...captureInput } = input;
+      const captured = collector();
+      captureCoderouterEvent(
+        { ...captureInput, userId: "stack-user-id", teamId: "team-id" },
+        captured.dependencies,
+      );
+      await Promise.all(captured.deferred);
+      const event = JSON.parse(captured.bodies[0]!).batch[0];
+      expect(event.properties).toMatchObject({
+        ...input.expected,
+        user_id: "stack-user-id",
+        team_id: "team-id",
+      });
+      expect(event.properties).not.toHaveProperty("label");
+    }
+  });
+
+  test("drops API-key lifecycle events without a user identity", () => {
+    const captured = collector();
+    captureCoderouterEvent(
+      { event: "coderouter_api_key_created", properties: {} },
+      captured.dependencies,
+    );
+    expect(captured.deferred).toHaveLength(0);
+  });
+
   test("rejects invalid enum values and bounds numeric dimensions", () => {
     expect(
       analyticsTest.eventProperties("coderouter_auth_rejected", {

@@ -141,7 +141,8 @@ extension Workspace {
     /// though their mirror-owned surface IDs are not stored in the ordinary
     /// remote-terminal set.
     func canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: UUID) -> Bool {
-        guard !isRemoteTerminalSurface(surfaceID) else { return false }
+        guard !isRemoteTerminalSurface(surfaceID),
+              machineOwningSurface(surfaceID)?.isSSH != true else { return false }
         switch remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
         case .notRemote:
             return true
@@ -155,7 +156,7 @@ extension Workspace {
     func isRemoteTerminalContext(_ surfaceOrPanelID: UUID) -> Bool {
         let surfaceID = surfaceOwnershipTarget(for: surfaceOrPanelID)?.surfaceID
             ?? surfaceOrPanelID
-        if isRemoteTerminalSurface(surfaceID) {
+        if isRemoteTerminalSurface(surfaceID) || machineOwningSurface(surfaceID)?.isSSH == true {
             return true
         }
         if case .pane = remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
@@ -349,7 +350,16 @@ extension Workspace {
 
     /// Whether `surfaceID` is the workspace's canonical keyboard-input target.
     func isFocusedTerminalInputSurface(_ surfaceID: UUID) -> Bool {
-        focusedTerminalInputTarget()?.surfaceID == surfaceID
+        // A Cloud manual-mirror panel owns its own native input surface. It is
+        // represented by a TerminalPanel, but it is not a remote-tmux container
+        // and therefore has no nested control projection to resolve.
+        if focusedPanelId == surfaceID,
+           let panel = panels[surfaceID] as? TerminalPanel,
+           panel.cloudAttachment != nil,
+           !isRemoteTmuxControlContainer(surfaceID) {
+            return true
+        }
+        return focusedTerminalInputTarget()?.surfaceID == surfaceID
     }
 
     /// Resolves the selected terminal target. A mirror container projects its
