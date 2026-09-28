@@ -9,9 +9,10 @@ import OSLog
 
 nonisolated private let deviceDirectoryLog = Logger(subsystem: "dev.cmux", category: "device-directory")
 
-/// The account's other Macs, merged from the pairing store (local-first), the
-/// durable device registry, and the live presence stream, excluding this exact
-/// app instance. Bound to one account generation and team scope: the registry
+/// The account's discoverable Macs, authorized by the Mac directory and enriched
+/// with saved pairings, registry metadata, and live presence. An unavailable
+/// discovery client never makes those secondary sources authoritative.
+/// Bound to one account generation and team scope: the registry
 /// rebuilds it when either changes, and every token it uses fails closed after.
 ///
 /// Liveness is push: one presence WebSocket subscription (snapshot first, then
@@ -329,7 +330,7 @@ final class DeviceDirectory {
         let merged = DeviceDirectoryMerge.merge(DeviceDirectoryMerge.Input(
             registry: registryDevices,
             authenticatedMacs: authenticatedMacs,
-            requiresAuthenticatedDiscovery: automaticClient != nil,
+            requiresAuthenticatedDiscovery: true,
             presence: presenceInstances,
             presenceLive: presenceState == .live,
             owners: owners,
