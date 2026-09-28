@@ -1878,6 +1878,31 @@ final class cmuxUITests: XCTestCase {
         assertPairingError(contains: "Enter a port from 1 to 65535", in: invalidPortApp)
     }
 
+    /// The error row sits below the pinned Pair button. A failed attempt must
+    /// bring it into view on its own, or tapping Pair looks like it did nothing.
+    @MainActor
+    func testAddDevicePairingErrorIsVisibleWithoutScrolling() throws {
+        let app = launchAddDeviceApp(environment: [
+            "CMUX_UITEST_ADD_DEVICE_HOST": "dev/path.local"
+        ])
+        defer { app.terminate() }
+
+        let pairButton = app.buttons["MobilePairButton"]
+        XCTAssertTrue(pairButton.waitForExistence(timeout: 8))
+        tap(pairButton, in: app)
+
+        let error = app.staticTexts["MobilePairingError"]
+        XCTAssertTrue(error.waitForExistence(timeout: 4))
+        let visible = expectation(
+            for: NSPredicate { _, _ in
+                error.exists && error.frame.maxY <= pairButton.frame.minY
+            },
+            evaluatedWith: nil
+        )
+        wait(for: [visible], timeout: 4)
+        XCTAssertLessThanOrEqual(error.frame.maxY, pairButton.frame.minY)
+    }
+
     @MainActor
     func testManualHostConnectsAndNavigatesToWorkspace() async throws {
         let server = try MobileSyncMockHostServer()
