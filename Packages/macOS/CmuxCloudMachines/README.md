@@ -99,7 +99,8 @@ forgets every entry without rollback. The app adapter owns the CLI, alerts, and
 closing workspaces. Before closing the machine's workspaces it calls the create
 owner's `retireCreates(producing:presentedIn:)` with their IDs, so a create for the
 same machine stops without a second destroy request, even one whose receipt has
-not named the machine yet. After a failure it calls `machineDeletionFailed(_:)`, so
+not named the machine yet. It closes no presentation in those workspaces, since
+the adapter closes them whole, panes the person added included. After a failure it calls `machineDeletionFailed(_:)`, so
 a create whose receipt first names the restored machine keeps it. The creates the
 delete stopped stay stopped, and receipts seen while it ran request nothing, so no
 create retries the destroy on its own. When the account ends, the create owner's
@@ -110,7 +111,7 @@ as cleaned up, so a departed create never destroys one of them:
 let deletions = CloudMachineDeletionCoordinator()
 guard deletions.begin("m1") else { return }       // hidden before any request
 _ = creates.retireCreates(producing: "m1", presentedIn: m1WorkspaceIDs)
-// Now close m1's workspaces; none has a create left to cancel.
+// Now close m1's workspaces whole; none has a create left to cancel.
 switch deletions.finish("m1", result: .deleted) {
 case .retired: break                              // close local registrations; m1 stays hidden
 case .restored:                                   // row is listed again; alert

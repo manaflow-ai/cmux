@@ -179,7 +179,8 @@ final class MachineCreateCoordinator {
     /// - Parameters:
     ///   - machineID: The machine being deleted.
     ///   - workspaceIDs: Its local workspaces, whose creates may not have named it yet.
-    func machineDeletionBegan(_ machineID: String, presentedIn workspaceIDs: Set<UUID> = []) {
+    ///     The caller closes them whole, so their create presentations stay open.
+    func machineDeletionBegan(_ machineID: String, presentedIn workspaceIDs: Set<UUID>) {
         apply(lifecycle.retireCreates(producing: machineID, presentedIn: workspaceIDs))
     }
 

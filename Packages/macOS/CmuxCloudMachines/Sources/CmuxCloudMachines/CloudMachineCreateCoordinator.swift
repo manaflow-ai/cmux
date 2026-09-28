@@ -216,26 +216,30 @@ public final class CloudMachineCreateCoordinator {
     /// produced it, and those presenting in one of its workspaces, whose receipt
     /// may not have named it yet.
     ///
-    /// Running creates stop, and their presentations close. Deletion owns the
-    /// machine's destroy request, so no receipt from these creates, including one
-    /// after a failed deletion, requests another. A receipt naming a different
-    /// machine still cleans that one up, as closing its workspace always has.
-    /// Call this before closing the machine's workspaces, so the close finds no
-    /// create left to cancel.
+    /// Running creates stop. Presentations elsewhere close, but none in
+    /// `workspaceIDs`: the caller closes those workspaces whole, and closing a
+    /// presentation first would keep a pane the person added and unbind the
+    /// workspace, hiding it from that close. Deletion owns the machine's destroy
+    /// request, so no receipt from these creates, including one after a failed
+    /// deletion, requests another. A receipt naming a different machine still
+    /// cleans that one up, as closing its workspace always has. Call this before
+    /// closing the machine's workspaces, so the close finds no create left to cancel.
     /// - Parameters:
     ///   - machineID: The provider machine being deleted.
-    ///   - workspaceIDs: Local workspaces bound to the machine.
+    ///   - workspaceIDs: Local workspaces bound to the machine, which the caller closes.
     /// - Returns: Process and presentation effects, with cleanup only for another machine.
     public func retireCreates(producing machineID: String, presentedIn workspaceIDs: Set<UUID> = []) -> CloudMachineCreateTransition {
         deletedMachineIDs.insert(machineID)
-        return remove(
-            where: { operation in
-                operation.createdMachineID == machineID
-                    || operation.request.presentationWorkspaceID.map(workspaceIDs.contains) ?? false
-            },
+        let isPresentedInMachine = { (operation: CloudMachineCreateOperation) in
+            operation.request.presentationWorkspaceID.map(workspaceIDs.contains) ?? false
+        }
+        var transition = remove(
+            where: { $0.createdMachineID == machineID || isPresentedInMachine($0) },
             closePresentations: true,
             sparing: machineID
         )
+        transition.closedOperations.removeAll(where: isPresentedInMachine)
+        return transition
     }
 
     /// Lets creates keep a machine whose deletion failed and that is listed again.
