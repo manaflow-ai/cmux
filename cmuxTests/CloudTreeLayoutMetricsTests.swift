@@ -53,9 +53,9 @@ struct CloudTreeLayoutMetricsTests {
     /// thing stopping the copy from drifting from the original.
     @Test("the Cloud package's copy of the sidebar chrome matches the original")
     func cloudChromeMatchesSidebarChrome() {
-        #expect(CloudSidebarChromeMetrics.barHorizontalPadding == RightSidebarChromeMetrics.barHorizontalPadding)
-        #expect(CloudSidebarChromeMetrics.barVerticalPadding == RightSidebarChromeMetrics.barVerticalPadding)
-        #expect(CloudSidebarChromeMetrics.headerTrailingPadding == RightSidebarChromeMetrics.headerTrailingPadding)
+        #expect(CloudSidebarChromeMetrics.sidebar.barHorizontalPadding == RightSidebarChromeMetrics.barHorizontalPadding)
+        #expect(CloudSidebarChromeMetrics.sidebar.barVerticalPadding == RightSidebarChromeMetrics.barVerticalPadding)
+        #expect(CloudSidebarChromeMetrics.sidebar.headerTrailingPadding == RightSidebarChromeMetrics.headerTrailingPadding)
     }
 
     @Test("the tree's trailing column is the sidebar's trailing column")
