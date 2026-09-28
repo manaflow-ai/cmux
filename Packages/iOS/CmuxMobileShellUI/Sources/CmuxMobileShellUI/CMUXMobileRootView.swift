@@ -56,6 +56,9 @@ struct CMUXMobileRootView: View {
     @State private var onboardingMacDiscoveryKeepAlive = OnboardingMacDiscoveryKeepAlive()
     /// The shared iOS modal slot for root sheets and shell-owned child sheets.
     @State private var rootPresentation: MobileRootPresentationState
+    /// The workspace list's computer filter, shared through `UserDefaults`,
+    /// so a saved SSH computer can be selected from outside the list.
+    @AppStorage(WorkspaceMacSelection.storageKey) private var workspaceMacSelection: WorkspaceMacSelection = .all
     #if DEBUG
     /// One-shot latch for the UI-test auto-open-first-workspace hook.
     @State private var didAutoOpenFirstWorkspaceForUITest = false
@@ -286,6 +289,9 @@ struct CMUXMobileRootView: View {
             rootPresentationContent
                 .interactiveDismissDisabled(shouldHoldRootSettingsForMigration)
         }
+        // SSH trust / identity-changed / persistence questions float above
+        // every screen, including open sheets and the terminal.
+        .sshPromptPresenter(store.sshComputers)
         // Outside the root sheet so its Settings page gets the action too;
         // a sheet reads the environment where `.sheet` is applied.
         .environment(
@@ -593,7 +599,8 @@ struct CMUXMobileRootView: View {
                 showDisconnectedNoPairedMacShell: MobileAuthenticatedShellPresentation.resolve(
                     connectionState: store.connectionState,
                     hasKnownPairedMac: store.hasKnownPairedMac,
-                    hasHiddenComputers: store.hasHiddenComputers
+                    hasHiddenComputers: store.hasHiddenComputers,
+                    hasSSHComputers: !store.sshComputers.hosts.isEmpty
                 ) == .disconnected
             ) {
             case .disconnectedNoKnownPairedMac:
@@ -631,6 +638,7 @@ struct CMUXMobileRootView: View {
                     tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
                     showComputers: showComputers,
+                    showAddSSHComputer: showAddSSHComputer,
                     taskComposerPresentation: childSheetPresentation(
                         for: .workspaceTaskComposer
                     ),
@@ -690,7 +698,8 @@ struct CMUXMobileRootView: View {
                 if result == .connected {
                     dismissAddDeviceSheet()
                 }
-            }
+            },
+            connectWithSSH: connectWithSSHAction
         )
         #if os(iOS)
         .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
@@ -732,11 +741,26 @@ struct CMUXMobileRootView: View {
             DeviceTreeView(
                 store: store,
                 selectWorkspace: selectWorkspaceFromComputers,
-                showAddDevice: addComputerAction,
-                dismissAction: dismissComputers
+                showAddDevice: isAuthenticated ? addComputerAction : nil,
+                dismissAction: dismissComputers,
+                macPairingAvailable: isAuthenticated
             )
         case let .pairing(pairingPresentation):
             pairingSheet(initialPresentation: pairingPresentation)
+        case let .sshComputerEditor(target):
+            NavigationStack {
+                SSHComputerEditorView(
+                    computers: store.sshComputers,
+                    existing: target.hostID.flatMap { store.sshComputers.host(id: $0) },
+                    showsCancel: true,
+                    onFinish: { savedID in
+                        handleRootPresentation(.dismissSSHComputerEditor)
+                        if target == .new, let savedID {
+                            selectSSHComputerInWorkspaceList(savedID)
+                        }
+                    }
+                )
+            }
         case .child, .dismissingChild, nil:
             EmptyView()
         }
@@ -794,6 +818,23 @@ struct CMUXMobileRootView: View {
 
     private func dismissComputers() {
         handleRootPresentation(.dismissComputers)
+    }
+
+    /// Presents the SSH computer form from the root sheet host.
+    private func showAddSSHComputer() {
+        handleRootPresentation(.presentSSHComputerEditor(.new))
+    }
+
+    /// "Connect with SSH Instead" in the pairing sheet swaps to the SSH form.
+    private var connectWithSSHAction: (() -> Void)? {
+        showAddSSHComputer
+    }
+
+    /// PRD D22: scope the workspace list to an SSH computer and connect it.
+    private func selectSSHComputerInWorkspaceList(_ hostID: UUID) {
+        let deviceID = store.sshComputerDeviceID(hostID: hostID)
+        workspaceMacSelection = .machine(deviceID)
+        Task { _ = await store.switchToMac(macDeviceID: deviceID) }
     }
 
     private func selectWorkspaceFromComputers(_ id: MobileWorkspacePreview.ID) {

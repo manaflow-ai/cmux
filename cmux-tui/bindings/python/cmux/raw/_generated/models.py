@@ -1027,6 +1027,13 @@ class SetCellPixelsResult:
 
 
 @dataclass(frozen=True)
+class SetTerminalIdlePolicyResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetTerminalIdlePolicyResult'
+    terminal_id: str
+    idle_close_seconds: Union[int, None]
+
+
+@dataclass(frozen=True)
 class ShutdownDaemonResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ShutdownDaemonResult'
     accepted: Literal[True]
@@ -2088,6 +2095,14 @@ class SetSplitRatioRequest:
 
 
 @dataclass(frozen=True)
+class SetTerminalIdlePolicyRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-terminal-idle-policy/request'
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    idle_close_seconds: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetViewportPaneWidthRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-viewport-pane-width/request'
     pane: Id
@@ -2873,6 +2888,7 @@ __all__ = [
     'ServerStatsRegistryLock',
     'ServerStatsResult',
     'SetCellPixelsResult',
+    'SetTerminalIdlePolicyResult',
     'ShutdownDaemonResult',
     'SidebarPluginResult',
     'Size',
@@ -2997,6 +3013,7 @@ __all__ = [
     'SetDefaultColorsRequest',
     'SetRatioRequest',
     'SetSplitRatioRequest',
+    'SetTerminalIdlePolicyRequest',
     'SetViewportPaneWidthRequest',
     'SetWindowTitleRequest',
     'ShutdownDaemonRequest',

@@ -206,6 +206,7 @@
       "set-default-colors",
       "set-ratio",
       "set-split-ratio",
+      "set-terminal-idle-policy",
       "set-viewport-pane-width",
       "set-window-title",
       "split",
@@ -247,12 +248,12 @@
     "local-admin": [
       "cloud-bootstrap",
       "cloud-first-workspace",
-      "server-stats",
-      "register-browser-provider",
       "get-browser-provider",
-      "unregister-browser-provider",
-      "shutdown-daemon",
       "pairing-response",
+      "register-browser-provider",
+      "server-stats",
+      "shutdown-daemon",
+      "unregister-browser-provider",
       "url-open"
     ],
     "provider-authority": [

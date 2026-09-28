@@ -332,8 +332,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "7ce7c078750e8c3cb160a666bbbf9d3810696e352dbac6bec17283a3813245a3",
-      "size": 27654
+      "sha256": "299d54f664db4aaff747efbbdc1ed04c7c306d51e7724d08a2f50bc6ad6b5e33",
+      "size": 27930
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -522,8 +522,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "4a8fb4a7e288896196188866d82c9d734290618eec6a4260f24a4f8b1e653a68",
-      "size": 26688
+      "sha256": "d26f5ec4e3f5133d464ca25a75d6bf9338ff3924251de19b876378c3ee5fece2",
+      "size": 26970
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -922,7 +922,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "ee89dbf912e758faec7577bf2d106e75aefcbe2225ce5baa0caefe328729769d",
+      "sha256": "59ddd0a5153f3df1c9017e73e40ef9128948a1f5683bc9354437234a3f4fdbb5",
       "size": 4260
     },
     {
@@ -1274,6 +1274,16 @@
       "path": "SetSplitRatioRequest.java",
       "sha256": "cf8889ee1d32de4657cf5268e3f478438b31ee6e5bda26e74b9fef70bd52f0ce",
       "size": 3374
+    },
+    {
+      "path": "SetTerminalIdlePolicyRequest.java",
+      "sha256": "5977352f56fe7c38c034ce48da1dc9913278b6cf5402501682908a581921d1ce",
+      "size": 3661
+    },
+    {
+      "path": "SetTerminalIdlePolicyResult.java",
+      "sha256": "4dc04fc232d87593faf81060692025a8a12aed987a9e902c6bf64bbf43c43280",
+      "size": 3043
     },
     {
       "path": "SetViewportPaneWidthRequest.java",
@@ -1637,7 +1647,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "e4214cea07149cce4831ca096777afd737f9db0fb56c1605ecc5373b6e221a9a",
+  "ir_sha256": "19e5dd742735eee4f1ccfac6cc6aabe2594f39cc4c13dab306739bad93705cbf",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

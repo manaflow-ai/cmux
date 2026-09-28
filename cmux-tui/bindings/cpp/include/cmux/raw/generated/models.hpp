@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e4214cea07149cce4831ca096777afd737f9db0fb56c1605ecc5373b6e221a9a";
+inline constexpr std::string_view kProtocolIrSha256 = "19e5dd742735eee4f1ccfac6cc6aabe2594f39cc4c13dab306739bad93705cbf";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -110,6 +110,7 @@ struct ServerStatsRegistryLock;
 struct ServerStatsResult;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
+struct SetTerminalIdlePolicyResult;
 struct ShutdownDaemonResult;
 struct SidebarPluginResult;
 struct Size;
@@ -238,6 +239,7 @@ struct SetClientSizingRequest;
 struct SetDefaultColorsRequest;
 struct SetRatioRequest;
 struct SetSplitRatioRequest;
+struct SetTerminalIdlePolicyRequest;
 struct SetViewportPaneWidthRequest;
 struct SetWindowTitleRequest;
 struct ShutdownDaemonRequest;
@@ -2434,6 +2436,19 @@ struct SetSplitRatioRequest {
     friend bool operator==(const SetSplitRatioRequest&, const SetSplitRatioRequest&) = default;
 };
 
+struct SetTerminalIdlePolicyRequest {
+    Field<std::uint64_t> idle_close_seconds{};
+    Field<Id> surface{};
+    Field<std::string> terminal_id{};
+    friend bool operator==(const SetTerminalIdlePolicyRequest&, const SetTerminalIdlePolicyRequest&) = default;
+};
+
+struct SetTerminalIdlePolicyResult {
+    std::optional<std::uint64_t> idle_close_seconds{};
+    std::string terminal_id{};
+    friend bool operator==(const SetTerminalIdlePolicyResult&, const SetTerminalIdlePolicyResult&) = default;
+};
+
 struct SetViewportPaneWidthRequest {
     Id pane{};
     Field<std::uint64_t> transaction{};
@@ -3373,6 +3388,12 @@ struct Codec<SetCellPixelsResult> {
 };
 
 template <>
+struct Codec<SetTerminalIdlePolicyResult> {
+    static Result<Json> encode(const SetTerminalIdlePolicyResult& value);
+    static Result<SetTerminalIdlePolicyResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ShutdownDaemonResult> {
     static Result<Json> encode(const ShutdownDaemonResult& value);
     static Result<ShutdownDaemonResult> decode(const Json& value);
@@ -4138,6 +4159,12 @@ template <>
 struct Codec<SetSplitRatioRequest> {
     static Result<Json> encode(const SetSplitRatioRequest& value);
     static Result<SetSplitRatioRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetTerminalIdlePolicyRequest> {
+    static Result<Json> encode(const SetTerminalIdlePolicyRequest& value);
+    static Result<SetTerminalIdlePolicyRequest> decode(const Json& value);
 };
 
 template <>

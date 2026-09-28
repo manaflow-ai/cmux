@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e4214cea07149cce4831ca096777afd737f9db0fb56c1605ecc5373b6e221a9a";
+pub const ir_sha256 = "19e5dd742735eee4f1ccfac6cc6aabe2594f39cc4c13dab306739bad93705cbf";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1132,6 +1132,11 @@ pub const ServerStatsWriterPhase = enum {
 pub const SetCellPixelsResult = struct {
     failures: []const CellPixelFailure,
     resizes: []const CellPixelResize,
+};
+
+pub const SetTerminalIdlePolicyResult = struct {
+    idle_close_seconds: wire.Nullable(u64),
+    terminal_id: []const u8,
 };
 
 pub const ShutdownDaemonResult = struct {
@@ -4090,6 +4095,25 @@ pub fn setSplitRatio(client: anytype, request: SetSplitRatioRequest) !wire.Decod
     );
 }
 
+pub const SetTerminalIdlePolicyRequest = struct {
+    idle_close_seconds: wire.Field(u64) = .absent,
+    surface: wire.Field(Id) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+};
+
+pub fn setTerminalIdlePolicy(client: anytype, request: SetTerminalIdlePolicyRequest) !wire.Decoded(SetTerminalIdlePolicyResult) {
+    return client.callTyped(
+        SetTerminalIdlePolicyResult,
+        .{
+            .name = "set-terminal-idle-policy",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-idle-close-v1",
+        },
+        request,
+    );
+}
+
 pub const SetViewportPaneWidthRequest = struct {
     pane: Id,
     transaction: wire.Field(u64) = .absent,
@@ -5368,7 +5392,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 114;
+pub const command_count: usize = 115;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -5467,6 +5491,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "set-ratio", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "set-split-ratio", .authority = "control", .since = 8, .capability = null, .stream = null },
+    .{ .name = "set-terminal-idle-policy", .authority = "control", .since = 12, .capability = "terminal-idle-close-v1", .stream = null },
     .{ .name = "set-viewport-pane-width", .authority = "control", .since = 9, .capability = "viewport-column-resize-v1", .stream = null },
     .{ .name = "set-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "shutdown-daemon", .authority = "local-admin", .since = 9, .capability = null, .stream = null },

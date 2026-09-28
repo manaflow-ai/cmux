@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e4214cea07149cce4831ca096777afd737f9db0fb56c1605ecc5373b6e221a9a. */
+/* cmux-tui mux protocol 12, IR 19e5dd742735eee4f1ccfac6cc6aabe2594f39cc4c13dab306739bad93705cbf. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -651,6 +651,11 @@ export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";
 export type SetCellPixelsResult = {
   "failures": Array<CellPixelFailure>;
   "resizes": Array<CellPixelResize>;
+};
+
+export type SetTerminalIdlePolicyResult = {
+  "idle_close_seconds": (bigint) | null;
+  "terminal_id": string;
 };
 
 export type ShutdownDaemonResult = {
