@@ -247,7 +247,7 @@ class RegressionsCommandTest(unittest.TestCase):
         self.assertEqual(self.run_regressions(["ok", "skip", "ok"]), (0, "ok a.json\n"))
 
     def test_a_step_the_app_refused_fails_instead_of_passing_silently(self) -> None:
-        for outcome in ("error", "timeout", "io-error", "internal-error"):
+        for outcome in ("error", "timeout", "pointer-error", "io-error", "internal-error"):
             with self.subTest(outcome=outcome):
                 status, output = self.run_regressions(["ok", outcome])
                 self.assertEqual(status, 1)

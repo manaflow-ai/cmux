@@ -81,7 +81,7 @@ def cmd_replay(args: argparse.Namespace) -> int:
     return 0
 
 
-BROKEN_STEP_OUTCOMES = frozenset({"error", "timeout", "io-error", "internal-error"})
+BROKEN_STEP_OUTCOMES = frozenset({"error", "timeout", "pointer-error", "io-error", "internal-error"})
 
 
 def cmd_regressions(args: argparse.Namespace) -> int:
