@@ -1349,7 +1349,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
     // Internal so the workspace-list recovery owner can cancel the same
     // coalesced task that backs pull-to-refresh and the empty-state Retry.
-    var pullToRefreshTask: Task<Void, Never>?
+    var pullToRefreshTask: Task<Bool, Never>?
     /// Stable Mac identity for the task occupying ``pullToRefreshTask``.
     /// Empty-state rows use this to cancel a departing Mac's recovery without
     /// touching a newer retry started for the newly selected Mac.
@@ -16090,10 +16090,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Refresh the foreground Mac workspace list and re-aggregate secondary Macs.
     public func refreshWorkspaces() async {
-        guard connectionState == .connected, remoteClient != nil else { return }
+        _ = await runForegroundWorkspacePullToRefresh()
+    }
+
+    /// Runs the foreground list round-trip through the same admission slot as
+    /// pull-to-refresh. State-sync fallback uses this seam too: a legacy
+    /// recovery request arriving while the user is pulling must join that
+    /// request instead of issuing a second cross-channel list RPC.
+    @discardableResult
+    func runForegroundWorkspacePullToRefresh() async -> Bool {
+        guard connectionState == .connected, remoteClient != nil else { return false }
         if let inFlight = pullToRefreshTask {
-            await inFlight.value
-            return
+            return await inFlight.value
         }
         let generation = UUID()
         let ownerID = connectedMacDeviceID
@@ -16102,7 +16110,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ? workspaceListRecoveryGeneration
             : nil
         pullToRefreshGeneration = generation
-        let task = Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] () -> Bool in
+            var refreshed = false
             defer {
                 if let self, self.pullToRefreshGeneration == generation {
                     self.pullToRefreshTask = nil
@@ -16111,8 +16120,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.pullToRefreshRecoveryGeneration = nil
                 }
             }
-            guard !Task.isCancelled else { return }
-            await self?.reloadWorkspaceListFromMac()
+            guard !Task.isCancelled else { return false }
+            refreshed = await self?.reloadWorkspaceListFromMac() ?? false
             // Re-aggregate the other Macs too, so pull-to-refresh surfaces
             // workspaces created on a secondary Mac since the last fetch (the
             // read-only secondary list is a snapshot, not a live subscription).
@@ -16125,12 +16134,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // refresh spinner (or terminal navigation) until a dial timeout.
                 self?.scheduleSecondaryAggregation(discoverLivePeers: true)
             }
+            return refreshed
         }
         pullToRefreshTask = task
         pullToRefreshOwnerID = ownerID
         pullToRefreshOwnerInstanceTag = ownerInstanceTag
         pullToRefreshRecoveryGeneration = recoveryGeneration
-        await task.value
+        return await task.value
     }
 
     func stopTerminalRefreshPolling() {
