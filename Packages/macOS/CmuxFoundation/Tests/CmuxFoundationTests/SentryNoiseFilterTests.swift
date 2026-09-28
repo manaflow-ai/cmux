@@ -76,6 +76,19 @@ import Testing
         ))
     }
 
+    /// Admission backpressure (Sentry CMUXTERM-MACOS-3JFC) and unauthenticated
+    /// password-mode callers (CMUXTERM-MACOS-3JNR) are routine caller state.
+    @Test(arguments: ["rate_limited", " RATE_LIMITED ", "auth_required", "auth_failed"])
+    func dropsCallerStateProtocolOutcomes(code: String) {
+        #expect(filter.isExpectedCLIProtocolOutcomeCode(code))
+    }
+
+    /// A missing socket password in Settings can be a keychain regression, so
+    /// it stays reportable alongside the other password-mode outcomes.
+    @Test func keepsUnconfiguredSocketPasswordReportable() {
+        #expect(!filter.isExpectedCLIProtocolOutcomeCode("auth_unconfigured"))
+    }
+
     @Test(arguments: ["tab_manager_unavailable", " TAB_MANAGER_UNAVAILABLE "])
     func dropsMissingTabManagerProtocolOutcome(code: String) {
         #expect(filter.isExpectedCLIProtocolOutcomeCode(code))
