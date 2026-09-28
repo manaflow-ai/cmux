@@ -630,7 +630,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stderr.contains("cmux vm workspace open brave-otter ws_7"), result.stderr)
     }
 
-    func testVMLayoutApplyOpenRejectsInfiniteRetryDelayOverride() throws {
+    func testVMLayoutApplyOpenRejectsOversizedRetryDelayOverride() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-layout-open-infinite-delay")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -674,7 +674,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
 
         var environment = vmLayoutEnvEnvironment(socketPath: socketPath)
-        environment["CMUX_VM_LAYOUT_OPEN_RETRY_DELAY_SECONDS"] = "inf"
+        environment["CMUX_VM_LAYOUT_OPEN_RETRY_DELAY_SECONDS"] = "3600"
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["vm", "layout", "apply", "brave-otter", layoutFile.path, "--open"],
@@ -683,7 +683,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         wait(for: [serverHandled], timeout: 10)
-        XCTAssertFalse(result.timedOut, "a non-finite injected delay must fall back instead of sleeping forever")
+        XCTAssertFalse(result.timedOut, "an oversized injected delay must fall back instead of sleeping forever")
         XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
         XCTAssertEqual(
             log.methods.filter { $0 == "vm.workspace_open" }.count,

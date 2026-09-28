@@ -208,7 +208,10 @@ extension CMUXCLI {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> TimeInterval {
         guard let raw = environment["CMUX_VM_LAYOUT_OPEN_RETRY_DELAY_SECONDS"],
-              let parsed = TimeInterval(raw), parsed.isFinite, parsed >= 0 else {
+              let parsed = TimeInterval(raw),
+              parsed.isFinite,
+              parsed > 0,
+              parsed <= 1 else {
             return 1
         }
         return parsed

@@ -593,7 +593,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testVMWaitRejectsOverflowingPollIntervalOverride() throws {
+    func testVMWaitBoundsOversizedPollIntervalToCommandDeadline() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-wait-infinite-delay")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -626,7 +626,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_VM_WAIT_POLL_SECONDS"] = "1e309"
+        environment["CMUX_VM_WAIT_POLL_SECONDS"] = "3600"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -636,7 +636,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         wait(for: [serverHandled], timeout: 8)
-        XCTAssertFalse(result.timedOut, "an overflowing injected delay must fall back instead of sleeping forever")
+        XCTAssertFalse(result.timedOut, "an oversized injected delay must not outlive the command deadline")
         XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
         XCTAssertEqual(
             state.snapshot().filter { $0.contains(#""method":"vm.status""#) }.count,

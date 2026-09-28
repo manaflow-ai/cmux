@@ -832,7 +832,10 @@ extension CMUXCLI {
             guard Date() < deadline else {
                 throw CLIError(message: "Timed out after \(timeoutSeconds)s waiting for \(vmID) (last status: \(status)). Re-run with --timeout <seconds> to wait longer.")
             }
-            Thread.sleep(forTimeInterval: Self.vmReadyPollInterval())
+            let remainingSeconds = deadline.timeIntervalSinceNow
+            if remainingSeconds > 0 {
+                Thread.sleep(forTimeInterval: min(Self.vmReadyPollInterval(), remainingSeconds))
+            }
         }
     }
 
@@ -842,7 +845,10 @@ extension CMUXCLI {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> TimeInterval {
         guard let raw = environment["CMUX_VM_WAIT_POLL_SECONDS"],
-              let parsed = TimeInterval(raw), parsed.isFinite, parsed >= 0 else {
+              let parsed = TimeInterval(raw),
+              parsed.isFinite,
+              parsed > 0,
+              parsed <= 3 else {
             return 3
         }
         return parsed
