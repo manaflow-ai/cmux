@@ -352,16 +352,17 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
 
     // MARK: - Font card
 
-    /// The Terminal section opens with the Font card: a font preview above
-    /// the font button, which opens a searchable font list. Read-only: it
-    /// doesn't pick a font, so the runner's Ghostty config is left alone.
+    /// The Terminal section opens with the Font card. Walks the card the way a
+    /// person would, capturing a frame at each step for the PR: hover fonts in
+    /// the gallery (the preview follows), pick Menlo, raise the line height,
+    /// then put both back so the runner's Ghostty config ends at the defaults.
     func testFontCardShowsPreviewAndFontGallery() {
         let app = makeLaunchedApp()
         let window = openTerminalSettings(app)
 
         let preview = window.descendants(matching: .any)["SettingsTerminalFontPreview"]
         XCTAssertTrue(poll(timeout: 6.0) { preview.exists }, "The Font card should show the font preview")
-        attachScreenshot(of: window, name: "Settings Terminal Font card")
+        attachScreenshot(name: "01 Font card")
 
         let fontButton = window.buttons["SettingsTerminalGhosttyFontFamilyPicker"]
         XCTAssertTrue(poll(timeout: 6.0) { fontButton.exists && fontButton.isEnabled }, "The font button should be enabled once options load")
@@ -369,15 +370,45 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
 
         let search = app.textFields["SettingsTerminalFontSearchField"]
         XCTAssertTrue(poll(timeout: 4.0) { search.exists }, "The font button should open the searchable font list")
-        attachScreenshot(of: window, name: "Settings Terminal font gallery")
+        attachScreenshot(name: "02 Font gallery")
 
-        app.typeKey(.escape, modifierFlags: [])
-        XCTAssertTrue(poll(timeout: 4.0) { !search.exists }, "Escape should close the font list")
+        for family in ["Courier New", "Menlo"] {
+            let row = app.buttons[family]
+            guard poll(timeout: 2.0, { row.exists }) else { continue }
+            row.hover()
+            attachScreenshot(name: "03 Hover \(family)")
+        }
+
+        search.click()
+        search.typeText("men")
+        attachScreenshot(name: "04 Search men")
+
+        let menlo = app.buttons["Menlo"]
+        XCTAssertTrue(poll(timeout: 4.0) { menlo.exists }, "Searching should find Menlo")
+        menlo.click()
+        XCTAssertTrue(poll(timeout: 4.0) { !search.exists }, "Picking a font should close the list")
+        XCTAssertTrue(poll(timeout: 4.0) { fontButton.label.contains("Menlo") }, "The font button should name the picked font")
+
+        let lineHeight = window.steppers["SettingsTerminalGhosttyLineHeightStepper"]
+        XCTAssertTrue(poll(timeout: 4.0) { lineHeight.exists }, "The Line Height stepper should exist")
+        for _ in 0..<5 { lineHeight.incrementArrows.firstMatch.click() }
+        XCTAssertTrue(waitForStaticText(window, "+10%"), "Five steps should read +10%")
+        attachScreenshot(name: "05 Menlo with +10% line height")
+
+        for _ in 0..<5 { lineHeight.decrementArrows.firstMatch.click() }
+        XCTAssertTrue(waitForStaticText(window, "0%"), "Stepping back should read 0%")
+        fontButton.click()
+        let defaultRow = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Default (")).firstMatch
+        XCTAssertTrue(poll(timeout: 4.0) { defaultRow.exists }, "The font list should offer the built-in font")
+        defaultRow.click()
+        XCTAssertTrue(poll(timeout: 4.0) { fontButton.label.hasPrefix("Default") }, "Picking Default should restore the built-in font")
+        attachScreenshot(name: "06 Back to defaults")
         closeSettings(app, window)
     }
 
-    private func attachScreenshot(of window: XCUIElement, name: String) {
-        let screenshot = XCTAttachment(screenshot: window.screenshot())
+    /// The whole screen, so the font list popover (its own window) is in frame.
+    private func attachScreenshot(name: String) {
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         screenshot.name = name
         screenshot.lifetime = .keepAlways
         add(screenshot)
