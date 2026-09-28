@@ -2,19 +2,27 @@ import Foundation
 import Testing
 @testable import CmuxTerminalPrediction
 
+/// An inbox that already accepts `surfaces`.
+private func inbox(accepting surfaces: UUID...) -> PredictionOutputInbox {
+    let inbox = PredictionOutputInbox()
+    for surface in surfaces { inbox.accept(surfaceID: surface) }
+    return inbox
+}
+
 struct PredictionOutputInboxTests {
     @Test func theFirstDepositOwnsSchedulingAndLaterOnesDoNot() {
-        let inbox = PredictionOutputInbox()
         let surface = UUID()
+        let other = UUID()
+        let inbox = inbox(accepting: surface, other)
 
         #expect(inbox.deposit(surfaceID: surface, bytes: [0x61], at: .zero))
         #expect(!inbox.deposit(surfaceID: surface, bytes: [0x62], at: .milliseconds(1)))
-        #expect(!inbox.deposit(surfaceID: UUID(), bytes: [0x63], at: .milliseconds(2)))
+        #expect(!inbox.deposit(surfaceID: other, bytes: [0x63], at: .milliseconds(2)))
     }
 
     @Test func drainingReArmsScheduling() {
-        let inbox = PredictionOutputInbox()
         let surface = UUID()
+        let inbox = inbox(accepting: surface)
 
         #expect(inbox.deposit(surfaceID: surface, bytes: [0x61], at: .zero))
         _ = inbox.drain()
@@ -22,8 +30,8 @@ struct PredictionOutputInboxTests {
     }
 
     @Test func chunksKeepTheirArrivalOrderAndInstants() {
-        let inbox = PredictionOutputInbox()
         let surface = UUID()
+        let inbox = inbox(accepting: surface)
 
         _ = inbox.deposit(surfaceID: surface, bytes: [0x61], at: .milliseconds(1))
         _ = inbox.deposit(surfaceID: surface, bytes: [0x62, 0x63], at: .milliseconds(9))
@@ -36,9 +44,9 @@ struct PredictionOutputInboxTests {
     }
 
     @Test func surfacesDoNotMix() {
-        let inbox = PredictionOutputInbox()
         let first = UUID()
         let second = UUID()
+        let inbox = inbox(accepting: first, second)
 
         _ = inbox.deposit(surfaceID: first, bytes: [0x61], at: .zero)
         _ = inbox.deposit(surfaceID: second, bytes: [0x62], at: .zero)
@@ -49,17 +57,18 @@ struct PredictionOutputInboxTests {
     }
 
     @Test func drainingLeavesNothingBehind() {
-        let inbox = PredictionOutputInbox()
-        _ = inbox.deposit(surfaceID: UUID(), bytes: [0x61], at: .zero)
+        let surface = UUID()
+        let inbox = inbox(accepting: surface)
+        _ = inbox.deposit(surfaceID: surface, bytes: [0x61], at: .zero)
 
         _ = inbox.drain()
         #expect(inbox.drain().isEmpty)
     }
 
     @Test func forgettingASurfaceKeepsTheOthers() {
-        let inbox = PredictionOutputInbox()
         let gone = UUID()
         let kept = UUID()
+        let inbox = inbox(accepting: gone, kept)
         _ = inbox.deposit(surfaceID: gone, bytes: [0x61], at: .zero)
         _ = inbox.deposit(surfaceID: kept, bytes: [0x62], at: .zero)
 
@@ -79,9 +88,33 @@ struct PredictionOutputInboxTests {
         #expect(inbox.drain().isEmpty)
     }
 
-    @Test func concurrentDepositsScheduleExactlyOneDrain() {
-        let inbox = PredictionOutputInbox()
+    @Test func aForgottenSurfaceStopsDepositingUntilAcceptedAgain() {
         let surface = UUID()
+        let inbox = inbox(accepting: surface)
+
+        inbox.forget(surfaceID: surface)
+        #expect(!inbox.deposit(surfaceID: surface, bytes: [0x61], at: .zero))
+
+        inbox.accept(surfaceID: surface)
+        #expect(inbox.deposit(surfaceID: surface, bytes: [0x62], at: .zero))
+        #expect(inbox.drain()[surface]?.flatMap(\.bytes) == [0x62])
+    }
+
+    @Test func forgettingEverySurfaceDropsBufferedOutput() {
+        let first = UUID()
+        let second = UUID()
+        let inbox = inbox(accepting: first, second)
+        _ = inbox.deposit(surfaceID: first, bytes: [0x61], at: .zero)
+
+        inbox.forgetAll()
+
+        #expect(inbox.drain().isEmpty)
+        #expect(!inbox.deposit(surfaceID: second, bytes: [0x62], at: .zero))
+    }
+
+    @Test func concurrentDepositsScheduleExactlyOneDrain() {
+        let surface = UUID()
+        let inbox = inbox(accepting: surface)
         let scheduled = NSLock()
         nonisolated(unsafe) var scheduleCount = 0
 

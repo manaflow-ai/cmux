@@ -198,7 +198,7 @@ struct PredictionSimulation {
     }
 
     let simulationCase: SimulationCase
-    private var engine = TerminalPredictionEngine(isEnabled: true)
+    private var engine = TerminalPredictionEngine(isEnabled: true, isRemoteSurface: true)
     private var queue: [Scheduled] = []
     private var order = 0
     private var screen = SimulatedScreen()

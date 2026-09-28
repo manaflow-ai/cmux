@@ -4272,8 +4272,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         isPlainBackspace: Bool,
         isBound: Bool
     ) {
-        guard TerminalPredictionCenter.shared.isPredictionEnabled,
-              let surfaceID = terminalSurface?.id else { return }
+        guard let surfaceID = terminalSurface?.id,
+              TerminalPredictionCenter.shared.predictsInput(surfaceID: surfaceID) else { return }
         if isPlainBackspace {
             TerminalPredictionCenter.shared.typedBackspace(surfaceID: surfaceID)
             return
@@ -5689,6 +5689,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let surfaceID = terminalSurface?.id {
             TerminalPredictionCenter.shared.register(
                 surfaceID: surfaceID,
+                isRemote: { [weak self] in
+                    guard let terminalSurface = self?.terminalSurface,
+                          let workspace = terminalSurface.owningWorkspace() else { return false }
+                    return workspace.terminalRunsOnAnotherMachine(terminalSurface.id)
+                },
                 isAlternateScreen: { [weak self] in
                     self?.terminalSurface?.isAlternateScreenActive() ?? false
                 },
@@ -7506,7 +7511,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // sequence or one-shot key table: afterwards a key that binding
         // consumed (the `c` of `ctrl+a>c`, say) no longer reports as bound.
         let predictsInput = keyEvent.action != GHOSTTY_ACTION_RELEASE
-            && TerminalPredictionCenter.shared.isPredictionEnabled
+            && terminalSurface.map {
+                TerminalPredictionCenter.shared.predictsInput(surfaceID: $0.id)
+            } == true
         var predictionBindingFlags = ghostty_binding_flags_e(0)
         let isBoundForPrediction = predictsInput
             && ghostty_surface_key_is_binding(surface, keyEvent, &predictionBindingFlags)

@@ -5,7 +5,11 @@
 /// undoing a screen mutation, and the authoritative screen stays whatever the
 /// remote said it was.
 ///
-/// Prediction runs only inside a confirmed echo run: the engine will not draw a
+/// Prediction runs only for a surface the host has classified as remote, whose
+/// shell runs on another machine. A local shell never sees a predicted glyph,
+/// however slowly it echoes, and its keystrokes and output are ignored.
+///
+/// Within a remote surface, prediction runs only inside a confirmed echo run: the engine will not draw a
 /// character until it has seen the remote echo a character it tracked, and any
 /// output it did not predict ends the run. A password prompt therefore never
 /// displays a speculative glyph, because nothing there is ever echoed.
@@ -19,6 +23,9 @@ public struct TerminalPredictionEngine: Sendable {
     public enum Status: Sendable, Equatable {
         /// The setting is off.
         case disabled
+        /// The surface's shell runs on this Mac, or the host has not said
+        /// otherwise. Nothing is tracked or drawn.
+        case localSurface
         /// No confirmed echo yet, or the last remote output ended the run.
         /// Keystrokes are tracked so an echo can re-arm, but nothing is drawn.
         case listening
@@ -99,6 +106,13 @@ public struct TerminalPredictionEngine: Sendable {
 
     public var configuration: PredictionConfiguration
     public var isEnabled: Bool
+    /// Whether the host established that this surface's shell runs on another
+    /// machine. Defaults to `false`, so a host that never classifies the
+    /// surface gets the local behavior.
+    public var isRemoteSurface: Bool
+
+    /// Whether keystrokes and output are tracked at all.
+    private var isActive: Bool { isEnabled && isRemoteSurface }
 
     private var scanner = TerminalOutputScanner()
     private var entries: [Entry] = []
@@ -121,10 +135,12 @@ public struct TerminalPredictionEngine: Sendable {
 
     public init(
         configuration: PredictionConfiguration = .default,
-        isEnabled: Bool = false
+        isEnabled: Bool = false,
+        isRemoteSurface: Bool = false
     ) {
         self.configuration = configuration
         self.isEnabled = isEnabled
+        self.isRemoteSurface = isRemoteSurface
     }
 
     // MARK: Readable state
@@ -188,6 +204,7 @@ public struct TerminalPredictionEngine: Sendable {
 
     public func status(at now: PredictionInstant) -> Status {
         guard isEnabled else { return .disabled }
+        guard isRemoteSurface else { return .localSurface }
         if isAlternateScreen { return .alternateScreen }
         if let until = suspendedUntil, now < until { return .suspended }
         guard isEchoRunActive else { return .listening }
@@ -234,7 +251,7 @@ public struct TerminalPredictionEngine: Sendable {
     ///   or combining, so its cell count is not one.
     @discardableResult
     public mutating func typed(printableASCII byte: UInt8?, at now: PredictionInstant) -> Bool {
-        guard isEnabled else { return false }
+        guard isActive else { return false }
         let expired = expire(at: now)
 
         guard let byte, (0x20...0x7E).contains(byte) else {
@@ -272,7 +289,7 @@ public struct TerminalPredictionEngine: Sendable {
     /// editing key. Returns whether the drawn overlay changed.
     @discardableResult
     public mutating func typedBackspace(at now: PredictionInstant) -> Bool {
-        guard isEnabled else { return false }
+        guard isActive else { return false }
         let expired = expire(at: now)
 
         // Everything after the newest unretracted glyph is retracted glyphs
@@ -311,8 +328,8 @@ public struct TerminalPredictionEngine: Sendable {
     /// from the new cursor; only a redraw now puts them back.
     @discardableResult
     public mutating func observedOutput(_ bytes: some Sequence<UInt8>, at now: PredictionInstant) -> Bool {
+        guard isActive else { return false }
         let signals = scanner.scan(bytes)
-        guard isEnabled else { return false }
         var changed = expire(at: now)
         var movedCursor = false
         for signal in signals {
@@ -354,6 +371,17 @@ public struct TerminalPredictionEngine: Sendable {
             }
         }
         return changed || (movedCursor && entries.contains { $0.isDrawn })
+    }
+
+    /// Record input that reached the remote without passing through
+    /// `typed(_:at:)`: a paste, dropped text, or text and keys sent by
+    /// automation or a paired device. Its echo moves the cursor by an amount
+    /// this cannot know, so everything drawn is withdrawn and later keystrokes
+    /// stay undrawn until a fresh echo re-arms the run. Returns whether the
+    /// drawn overlay changed.
+    @discardableResult
+    public mutating func sentUntrackedInput(at now: PredictionInstant) -> Bool {
+        typed(printableASCII: nil, at: now)
     }
 
     /// Report that a rendered frame reached the screen. Confirmed glyphs retire

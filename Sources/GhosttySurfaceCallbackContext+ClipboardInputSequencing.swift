@@ -141,6 +141,10 @@ extension GhosttySurfaceCallbackContext {
             ) ?? false
         )
         let completionText = handledByMirror ? "" : text
+        if !text.isEmpty {
+            // Pasted text echoes ahead of the next keystroke's echo.
+            TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: surfaceId)
+        }
         completionText.withCString { pointer in
             ghostty_surface_complete_clipboard_request(
                 surface,
@@ -223,6 +227,10 @@ extension GhosttySurfaceCallbackContext {
         surface: ghostty_surface_t
     ) {
         let stateAddress = UInt(bitPattern: state)
+        if !text.isEmpty {
+            // Pasted text echoes ahead of the next keystroke's echo.
+            TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: surfaceId)
+        }
         text.withCString { pointer in
             ghostty_surface_complete_clipboard_request(
                 surface,

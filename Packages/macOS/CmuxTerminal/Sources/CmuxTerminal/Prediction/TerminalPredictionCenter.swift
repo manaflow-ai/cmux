@@ -9,8 +9,11 @@ public import Foundation
 /// keystroke on the main thread, PTY output on the IO read thread, and a
 /// presented frame from the renderer callback.
 ///
-/// While the feature is off -- which is the default -- the only cost on the PTY
-/// read path is one relaxed atomic load.
+/// Only surfaces whose shell runs on another machine predict. A surface is
+/// classified at its first keystroke after prediction starts for it, and a
+/// local one costs one relaxed atomic load plus one set lookup per PTY read,
+/// and a set lookup per keystroke. While the feature is off the PTY read path
+/// costs only the atomic load.
 @MainActor
 public final class TerminalPredictionCenter {
     nonisolated public static let shared = TerminalPredictionCenter()
@@ -21,7 +24,7 @@ public final class TerminalPredictionCenter {
     nonisolated private let origin = ContinuousClock.now
     /// Output batches between the IO thread and the main actor. An agent
     /// flooding the terminal must collapse into one hop per main-actor turn,
-    /// not one hop per read.
+    /// not one hop per read. Accepts only surfaces classified remote.
     nonisolated private let inbox = PredictionOutputInbox()
 
     private var engines: [UUID: TerminalPredictionEngine] = [:]
@@ -30,10 +33,12 @@ public final class TerminalPredictionCenter {
     /// Consulted only when prediction starts for a surface, because the
     /// engine otherwise learns the mode from switches in output it sees.
     private var alternateScreenReaders: [UUID: @MainActor () -> Bool] = [:]
-    /// Surfaces whose alternate-screen mode has not been read since
-    /// prediction started for them. The read serializes the viewport, so it
-    /// waits for the surface's first keystroke instead of running for every
-    /// surface at once when the setting is turned on.
+    /// Reads whether each surface's shell runs on another machine.
+    private var remoteReaders: [UUID: @MainActor () -> Bool] = [:]
+    /// Surfaces not classified, and whose alternate-screen mode has not been
+    /// read, since prediction started for them. Both reads wait for the
+    /// surface's first keystroke instead of running for every surface at once
+    /// when the setting is turned on; the mode read serializes the viewport.
     private var surfacesAwaitingSeed: Set<UUID> = []
     private var isEnabled = false
 
@@ -89,6 +94,9 @@ public final class TerminalPredictionCenter {
     /// Starts predicting for a surface.
     ///
     /// - Parameters:
+    ///   - isRemote: Reads whether the surface's shell runs on another
+    ///     machine. Called with the alternate-screen read, once per
+    ///     registration or enable; a runtime surface does not change machines.
     ///   - isAlternateScreen: Reads whether the terminal is in the alternate
     ///     screen right now. Called at the first keystroke after prediction
     ///     starts for this surface (registered while the setting is on, or
@@ -97,26 +105,34 @@ public final class TerminalPredictionCenter {
     ///   - redraw: Called on the main actor whenever the drawn set changed.
     public func register(
         surfaceID: UUID,
+        isRemote: @escaping @MainActor () -> Bool,
         isAlternateScreen: @escaping @MainActor () -> Bool,
         redraw: @escaping @MainActor () -> Void
     ) {
+        // A re-registration starts from scratch, including classification.
+        inbox.forget(surfaceID: surfaceID)
         engines[surfaceID] = TerminalPredictionEngine(isEnabled: isEnabled)
         redrawHandlers[surfaceID] = redraw
+        remoteReaders[surfaceID] = isRemote
         alternateScreenReaders[surfaceID] = isAlternateScreen
         if isEnabled { surfacesAwaitingSeed.insert(surfaceID) }
     }
 
-    /// Output from before prediction started was never scanned, so the mode
-    /// comes from the terminal. Output teed and not yet drained applies on
-    /// top of it.
+    /// Classifies the surface, and for a remote one starts scanning its
+    /// output and seeds the alternate screen. Output from before this was
+    /// never scanned, so the mode comes from the terminal; output teed after
+    /// the inbox accepts the surface applies on top of it.
     ///
-    /// The read can find a stale surface and tear it down, which unregisters
-    /// it synchronously, so it runs before any access to `engines` and
-    /// callers recheck the engine afterwards.
-    private func seedAlternateScreenIfNeeded(surfaceID: UUID) {
+    /// The mode read can find a stale surface and tear it down, which
+    /// unregisters it synchronously, so callers recheck the engine afterwards.
+    private func seedIfNeeded(surfaceID: UUID) {
         guard surfacesAwaitingSeed.remove(surfaceID) != nil,
-              let read = alternateScreenReaders[surfaceID] else { return }
-        let isActive = read()
+              let readRemote = remoteReaders[surfaceID],
+              readRemote() else { return }
+        engines[surfaceID]?.isRemoteSurface = true
+        inbox.accept(surfaceID: surfaceID)
+        guard let readAlternateScreen = alternateScreenReaders[surfaceID] else { return }
+        let isActive = readAlternateScreen()
         engines[surfaceID]?.seedAlternateScreen(isActive)
     }
 
@@ -134,6 +150,7 @@ public final class TerminalPredictionCenter {
         // With the engine gone `expiring` returns nothing, so this redraw
         // hides any glyph still drawn over a view that outlives its runtime.
         alternateScreenReaders.removeValue(forKey: surfaceID)
+        remoteReaders.removeValue(forKey: surfaceID)
         surfacesAwaitingSeed.remove(surfaceID)
         redrawHandlers.removeValue(forKey: surfaceID)?()
     }
@@ -169,7 +186,10 @@ public final class TerminalPredictionCenter {
         guard enabled != isEnabled else { return }
         isEnabled = enabled
         enabledGate.storeRelease(enabled)
-        if !enabled { surfacesAwaitingSeed.removeAll() }
+        if !enabled {
+            surfacesAwaitingSeed.removeAll()
+            inbox.forgetAll()
+        }
         for surfaceID in engines.keys {
             engines[surfaceID]?.isEnabled = enabled
             if enabled {
@@ -184,16 +204,21 @@ public final class TerminalPredictionCenter {
 
     // MARK: Events
 
-    /// Whether any surface is predicting. Read on the typing path before any
-    /// work happens, so the default-off case costs one bool.
-    public var isPredictionEnabled: Bool { isEnabled }
+    /// Whether keystrokes into this surface can be predicted: the feature is
+    /// on and the surface is remote, or not classified yet. Read on the typing
+    /// path before any work happens, so a local surface costs a lookup.
+    public func predictsInput(surfaceID: UUID) -> Bool {
+        guard isEnabled else { return false }
+        return surfacesAwaitingSeed.contains(surfaceID)
+            || engines[surfaceID]?.isRemoteSurface == true
+    }
 
     /// The byte a keystroke is about to put on the PTY, or `nil` for every key
     /// whose effect on the screen is not knowable.
     public func typed(printableASCII byte: UInt8?, surfaceID: UUID) {
         guard isEnabled, engines[surfaceID] != nil else { return }
-        seedAlternateScreenIfNeeded(surfaceID: surfaceID)
-        guard engines[surfaceID] != nil else { return }
+        seedIfNeeded(surfaceID: surfaceID)
+        guard engines[surfaceID]?.isRemoteSurface == true else { return }
         if engines[surfaceID]?.typed(printableASCII: byte, at: now) == true {
             redrawHandlers[surfaceID]?()
         }
@@ -204,9 +229,21 @@ public final class TerminalPredictionCenter {
     /// the remote has not echoed, or withdraws when there is none.
     public func typedBackspace(surfaceID: UUID) {
         guard isEnabled, engines[surfaceID] != nil else { return }
-        seedAlternateScreenIfNeeded(surfaceID: surfaceID)
-        guard engines[surfaceID] != nil else { return }
+        seedIfNeeded(surfaceID: surfaceID)
+        guard engines[surfaceID]?.isRemoteSurface == true else { return }
         if engines[surfaceID]?.typedBackspace(at: now) == true {
+            redrawHandlers[surfaceID]?()
+        }
+        scheduleExpiry(surfaceID: surfaceID)
+    }
+
+    /// Input that reached the surface without passing through the keystroke
+    /// path: a paste, dropped text, or text and keys sent over the socket or
+    /// from a paired device. Withdraws what is drawn, because its echo moves
+    /// the cursor by an amount the engine cannot know.
+    public func sentUntrackedInput(surfaceID: UUID) {
+        guard isEnabled, engines[surfaceID]?.isRemoteSurface == true else { return }
+        if engines[surfaceID]?.sentUntrackedInput(at: now) == true {
             redrawHandlers[surfaceID]?()
         }
         scheduleExpiry(surfaceID: surfaceID)
@@ -215,13 +252,14 @@ public final class TerminalPredictionCenter {
     /// Raw PTY output, from libghostty's tee on the IO read thread.
     ///
     /// nonisolated because the tee cannot hop: it runs ahead of the VT parser
-    /// and must not block it. The bytes are copied here because the buffer is
-    /// only valid for the duration of the callback.
+    /// and must not block it. The inbox copies the bytes, and only for a
+    /// remote surface, because the buffer is only valid for the duration of
+    /// the callback.
     nonisolated public func consumeOutput(surfaceID: UUID, bytes: UnsafeBufferPointer<UInt8>) {
         guard enabledGate.loadRelaxed(), !bytes.isEmpty else { return }
         let needsDrain = inbox.deposit(
             surfaceID: surfaceID,
-            bytes: Array(bytes),
+            bytes: bytes,
             at: now
         )
         guard needsDrain else { return }

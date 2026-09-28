@@ -3,7 +3,7 @@ import Testing
 
 /// Drives the engine the way the host does: keystrokes in, PTY bytes back.
 private struct Session {
-    var engine = TerminalPredictionEngine(isEnabled: true)
+    var engine = TerminalPredictionEngine(isEnabled: true, isRemoteSurface: true)
     var clock: Duration = .zero
 
     mutating func advance(_ step: Duration) { clock += step }
@@ -364,7 +364,40 @@ struct TerminalPredictionEngineTests {
         engine.typed("s", at: .milliseconds(90))
 
         #expect(engine.glyphs.isEmpty)
-        #expect(engine.status(at: .milliseconds(90)) != .predicting)
+        #expect(engine.status(at: .milliseconds(90)) == .localSurface)
+    }
+
+    @Test func classifyingTheSurfaceRemoteLetsTheNextEchoArm() {
+        var engine = TerminalPredictionEngine(isEnabled: true)
+        engine.typed("l", at: .milliseconds(10))
+        engine.isRemoteSurface = true
+        engine.typed("s", at: .milliseconds(20))
+        engine.observedOutput(Array("s".utf8), at: .milliseconds(90))
+        engine.typed("x", at: .milliseconds(100))
+
+        #expect(engine.status(at: .milliseconds(100)) == .predicting)
+        #expect(engine.glyphs.map(\.character).last == "x")
+    }
+
+    @Test func untrackedInputWithdrawsAndKeepsLaterKeystrokesUndrawn() {
+        // A paste lands between keystrokes. Its echo comes back ahead of the
+        // next key's, so drawing that key at the cursor would put it where the
+        // pasted text is about to go.
+        var session = armedSession()
+        session.type("s")
+        #expect(session.drawn == "s")
+
+        session.advance(.milliseconds(5))
+        let withdrew = session.engine.sentUntrackedInput(at: session.clock)
+        #expect(withdrew)
+        #expect(session.drawn == "")
+
+        session.type("x")
+        #expect(session.drawn == "")
+        session.remote("s")
+        session.remote("foo")
+        session.remote("x")
+        #expect(session.drawn == "")
     }
 
     @Test func theSettingGatesEverything() {
