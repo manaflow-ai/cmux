@@ -38,13 +38,17 @@ its verdict:
    `sidebar-and-chrome-tour` when none match. A line in the PR description
    overrides the pick on the next push: `Dogfood-tours: browser-notifications-tour, right-sidebar-and-menus-tour`,
    or `Dogfood-tours: none` to turn it off.
-2. Each tour runs on the app and UI test bundle the PR's own CI compiled
-   (`run-e2e.sh --adopt-only`); the tour run fails rather than compiling the
-   app a second time. When CI left no product a UI run can load (a CLI-only
-   push, say), no tour runs and the comment gets no media; a tour run that
-   could not load it is listed as not run, and the next CI attempt of that
-   head tries again; `gh workflow run pr-media.yml --repo manaflow-ai/cmux -f pr=<n> -f allow_compile=true`
-   runs it now with a full build.
+2. Each tour first runs on the app and UI test bundle the PR's own CI
+   compiled (`run-e2e.sh --adopt-only`). When CI's build exists but the
+   tour's runner cannot load it (CI compiled on another runner pool), or CI
+   reused main's build, a PR that changes app code compiles its head once,
+   for its top tour, after CI's own compile and outside its verdict; the
+   section says so, and CI re-runs of that head do not compile again. A PR
+   that changes no app code (CLI only, say) does not compile, nor does one
+   whose CI build failed or has not finished. Every picked tour gets a line
+   in the section: its media, or `skipped:` and why.
+   `gh workflow run pr-media.yml --repo manaflow-ai/cmux -f pr=<n> -f allow_compile=true`
+   compiles straight away.
 3. The frames become a few key PNGs and a captioned GIF, uploaded to the
    `pr-media` branch at `<pr>/<sha8>/<tour>/` and shown in a media section of
    the PR's sticky dogfood comment, each labelled with its tour and SHA. A new
@@ -61,9 +65,7 @@ reaches the change, add or extend one (with `paths` for the files it covers)
 in the same PR, and the next push shows it. A push that changes no app
 input (only a tour, docs or tests) runs the tours on the app CI already built
 for the same inputs earlier in the PR, and the section says which build. A PR
-that never changed app code has no such build; there
-`gh workflow run pr-media.yml --repo manaflow-ai/cmux -f pr=<n> -f allow_compile=true`
-compiles one for the tour. For evidence no tour can produce
+whose CI reused main's build compiles its head for the tour. For evidence no tour can produce
 (a drag, a recording from a fleet dogfood), upload it with `scripts/pr-media.py`;
 the workflow uploads through the same tool.
 
