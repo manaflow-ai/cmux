@@ -129,12 +129,12 @@ struct CloudImagePasteRoutingTests {
         let panel = try #require(workspace.terminalPanel(for: panelID))
         workspace.surfaceTTYNames[panelID] = "/dev/ttys15073"
         let url = URL(fileURLWithPath: "/tmp/cmux-image-15073.png")
-        let startedAt = Date()
+        let releaseDetector = DispatchSemaphore(value: 0)
 
         let target = await panel.surface.resolvedImageTransferTargetAsync(
             in: workspace,
             detector: { _ in
-                Thread.sleep(forTimeInterval: 1)
+                releaseDetector.wait()
                 return DetectedSSHSession(
                     destination: "slow-host", port: nil, identityFile: nil,
                     configFile: nil, jumpHost: nil, controlPath: nil,
@@ -142,10 +142,11 @@ struct CloudImagePasteRoutingTests {
                     forwardAgent: false, compressionEnabled: false,
                     sshOptions: []
                 )
-            }
+            },
+            timeoutSleep: { _ in }
         )
+        releaseDetector.signal()
 
-        #expect(Date().timeIntervalSince(startedAt) < 0.75)
         #expect(target == .local)
         #expect(
             TerminalImageTransferPlanner.plan(

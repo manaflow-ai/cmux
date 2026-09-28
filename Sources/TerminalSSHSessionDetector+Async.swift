@@ -3,6 +3,11 @@ import Foundation
 extension TerminalSSHSessionDetector {
     static let defaultDetectionTimeout: TimeInterval = 0.25
 
+    static func defaultDetectionTimeoutSleep(_ timeout: TimeInterval) async {
+        let nanoseconds = UInt64(max(0, timeout) * 1_000_000_000)
+        try? await Task.sleep(nanoseconds: nanoseconds)
+    }
+
     /// Resolves an ad-hoc SSH session without making the caller wait for a
     /// process that may be stuck reading another process's memory.
     ///
@@ -15,6 +20,10 @@ extension TerminalSSHSessionDetector {
         timeout: TimeInterval = defaultDetectionTimeout,
         detector: @escaping @Sendable (String) -> DetectedSSHSession? = { tty in
             detect(forTTY: tty)
+        },
+        timeoutSleep: @escaping @Sendable (TimeInterval) async -> Void = {
+            timeout in
+            await defaultDetectionTimeoutSleep(timeout)
         }
     ) async -> DetectedSSHSession? {
         let gate = TerminalSSHSessionDetectionTimeoutGate()
@@ -24,12 +33,7 @@ extension TerminalSSHSessionDetector {
                     await gate.finish(detector(ttyName))
                 }
                 let timeoutTask = Task.detached(priority: .utility) {
-                    let nanoseconds = UInt64(max(0, timeout) * 1_000_000_000)
-                    do {
-                        try await Task.sleep(nanoseconds: nanoseconds)
-                    } catch {
-                        return
-                    }
+                    await timeoutSleep(timeout)
                     await gate.finish(nil)
                 }
                 Task {

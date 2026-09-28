@@ -34,6 +34,11 @@ extension TerminalSurface {
         in workspace: Workspace? = nil,
         detector: @escaping @Sendable (String) -> DetectedSSHSession? = { tty in
             TerminalSSHSessionDetector.detect(forTTY: tty)
+        },
+        timeoutSleep: @escaping @Sendable (TimeInterval) async -> Void = {
+            timeout in
+            await TerminalSSHSessionDetector
+                .defaultDetectionTimeoutSleep(timeout)
         }
     ) async -> TerminalImageTransferTarget {
         let workspace = workspace ?? owningWorkspace()
@@ -41,7 +46,8 @@ extension TerminalSurface {
         guard let ttyName = imageTransferDetectionTTY(mode: mode, in: workspace),
               let session = await TerminalSSHSessionDetector.detectAsync(
                   forTTY: ttyName,
-                  detector: detector
+                  detector: detector,
+                  timeoutSleep: timeoutSleep
               ) else {
             return knownTarget
         }
