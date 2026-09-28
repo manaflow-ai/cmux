@@ -194,6 +194,37 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(payload["already_member"] == .bool(false))
     }
 
+    @Test func workspaceGroupJoinReportsAnExistingMembership() throws {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        context.joinWorkspaceGroupResolution = .joined(
+            ControlWorkspaceGroupSnapshot(
+                id: UUID(),
+                name: "Release",
+                isCollapsed: false,
+                isPinned: false,
+                anchorWorkspaceID: UUID(),
+                customColor: nil,
+                iconSymbol: nil,
+                memberWorkspaceIDs: [workspaceID]
+            ),
+            created: false,
+            alreadyMember: true
+        )
+
+        guard case .ok(.object(let payload)) = coordinator.handle(request("workspace.group.join", [
+            "name": .string("release"),
+            "workspace_id": .string(workspaceID.uuidString),
+        ])) else {
+            Issue.record("unexpected workspace.group.join result")
+            return
+        }
+
+        #expect(payload["created"] == .bool(false))
+        #expect(payload["already_member"] == .bool(true))
+        #expect(payload["workspace_ref"] != nil)
+    }
+
     @Test func workspaceGroupJoinRejectsBlankName() throws {
         let (coordinator, context) = coordinator()
 

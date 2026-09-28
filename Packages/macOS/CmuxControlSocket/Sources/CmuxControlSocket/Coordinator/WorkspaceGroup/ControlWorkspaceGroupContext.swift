@@ -147,7 +147,8 @@ public protocol ControlWorkspaceGroupContext: AnyObject {
     /// `workspace.group.join`.
     ///
     /// Names match after trimming, case-insensitively. When several groups
-    /// share the name, the first in sidebar order wins.
+    /// share the name, the first in the window's group order wins. A
+    /// workspace in another group moves to this one.
     ///
     /// - Parameters:
     ///   - routing: The routing selectors used for TabManager resolution.

@@ -1272,6 +1272,32 @@ func TestCLIWorkspaceGroupAddRequiresGroupAndWorkspace(t *testing.T) {
 	}
 }
 
+func TestCLIWorkspaceGroupJoinDefaultsToCallerWorkspace(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_WORKSPACE_ID", "")
+	if code := runCLI([]string{"--socket", sockPath, "workspace", "group", "join", "Release"}); code != 2 {
+		t.Fatalf("join outside a cmux terminal without --workspace should return 2, got %d", code)
+	}
+	if code := runCLI([]string{"--socket", sockPath, "workspace", "group", "join", "  "}); code != 2 {
+		t.Fatalf("join with a blank name should return 2, got %d", code)
+	}
+	t.Setenv("CMUX_WORKSPACE_ID", "ws-env")
+	if code := runCLI([]string{"--socket", sockPath, "--json", "workspace", "group", "join", " Release "}); code != 0 {
+		t.Fatalf("workspace group join should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.join")
+	if params["name"] != "Release" || params["workspace_id"] != "ws-env" {
+		t.Fatalf("expected trimmed name and caller workspace, got %v", params)
+	}
+	if code := runCLI([]string{"--socket", sockPath, "--json", "workspace", "group", "join", "--name", "Ops", "--workspace", "ws1"}); code != 0 {
+		t.Fatalf("workspace group join --workspace should return 0, got %d", code)
+	}
+	params = expectGroupRequest(t, requests, "workspace.group.join")
+	if params["name"] != "Ops" || params["workspace_id"] != "ws1" {
+		t.Fatalf("expected explicit workspace, got %v", params)
+	}
+}
+
 func TestCLIWorkspaceGroupRenamePositionalName(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{"--socket", sockPath, "--json", "workspace", "group", "rename", "workspace_group:2", "New Name"})

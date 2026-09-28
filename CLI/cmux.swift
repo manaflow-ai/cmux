@@ -11454,12 +11454,19 @@ struct CMUXCLI {
             }
             params["name"] = groupName
             // Without --workspace, the caller context above already set the
-            // calling terminal's workspace.
+            // calling terminal's workspace. With --window it did not, and the
+            // workspace names its own window anyway.
             if let wsOpt {
-                params["workspace_id"] = try normalizeWorkspaceHandle(wsOpt, client: client) ?? wsOpt
+                params["workspace_id"] = try normalizeWorkspaceHandle(
+                    wsOpt,
+                    client: client,
+                    windowHandle: params["window_id"] as? String
+                ) ?? wsOpt
             }
             guard params["workspace_id"] != nil else {
-                throw CLIError(message: "join requires --workspace <id> when run outside a cmux terminal")
+                throw CLIError(message: params["window_id"] == nil
+                    ? "join requires --workspace <id> when run outside a cmux terminal"
+                    : "join --window requires --workspace <id>")
             }
             let response = try client.sendV2(method: "workspace.group.join", params: params)
             if jsonOutput {
@@ -11467,9 +11474,9 @@ struct CMUXCLI {
             } else if let group = response["group"] as? [String: Any] {
                 let note: String
                 if (response["created"] as? Bool) == true {
-                    note = " (created)"
+                    note = " " + String(localized: "cli.workspaceGroup.join.created", defaultValue: "(created)")
                 } else if (response["already_member"] as? Bool) == true {
-                    note = " (already a member)"
+                    note = " " + String(localized: "cli.workspaceGroup.join.alreadyMember", defaultValue: "(already a member)")
                 } else {
                     note = ""
                 }
@@ -19489,6 +19496,10 @@ struct CMUXCLI {
                 localized: "cli.workspaceGroup.help.destructiveDelete",
                 defaultValue: "Delete the group AND close every member workspace. Explicitly destructive."
             )
+            let joinHelp = String(
+                localized: "cli.workspaceGroup.help.join",
+                defaultValue: "Move a workspace (default: this terminal's) into the group with this name, creating the group if none exists. Names match ignoring case. Safe to repeat."
+            )
             let overview = String(
                 localized: "cli.workspaceGroup.help.overview",
                 defaultValue: "Manage collapsible workspace groups in the sidebar. Each group is owned by an \"anchor\" workspace; the group header IS the anchor's sidebar representation. Closing the anchor closes only that workspace and promotes the group's next member to be the new anchor, so the group and its other members stay intact. When the anchor is the group's only workspace, the group is removed."
@@ -19517,10 +19528,7 @@ struct CMUXCLI {
               unpin <group>
               add --group <group> --workspace <ws>
               join <name> [--workspace <ws>]
-                                        Add a workspace (default: this terminal's)
-                                        to the group with this name, creating it
-                                        if none exists. Names match ignoring case.
-                                        Safe to repeat.
+                                        \(joinHelp)
               remove --workspace <ws>
               set-anchor --group <group> --workspace <ws>
               new-workspace <group> [--placement afterCurrent|top|end]
