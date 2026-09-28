@@ -556175,55 +556175,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows a lock badge in the terminal corner while a program such as sudo or ssh reads a password with echo off."
+            "value": "Shows a lock badge in the terminal corner while a program such as sudo or ssh reads a password with echo off. Only local prompts are detected: ssh's own password prompt counts, but sudo inside an ssh session does not."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt in der Terminalecke ein Schloss-Symbol an, während ein Programm wie sudo oder ssh ein Passwort ohne Echo einliest."
+            "value": "Zeigt in der Terminalecke ein Schloss-Symbol an, während ein Programm wie sudo oder ssh ein Passwort ohne Echo einliest. Nur lokale Abfragen werden erkannt: Die Passwortabfrage von ssh selbst zählt, sudo innerhalb einer ssh-Sitzung nicht."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche un badge de cadenas dans le coin du terminal pendant qu'un programme comme sudo ou ssh lit un mot de passe sans écho."
+            "value": "Affiche un badge de cadenas dans le coin du terminal pendant qu'un programme comme sudo ou ssh lit un mot de passe sans écho. Seules les invites locales sont détectées : l'invite de mot de passe de ssh compte, mais pas sudo dans une session ssh."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض شارة قفل في زاوية الطرفية أثناء قراءة برنامج مثل sudo أو ssh لكلمة مرور مع إيقاف الصدى."
+            "value": "يعرض شارة قفل في زاوية الطرفية أثناء قراءة برنامج مثل sudo أو ssh لكلمة مرور مع إيقاف الصدى. تُكتشف المطالبات المحلية فقط: تُحتسب مطالبة كلمة مرور ssh نفسها، أما sudo داخل جلسة ssh فلا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra una insignia de candado en la esquina del terminal mientras un programa como sudo o ssh lee una contraseña sin eco."
+            "value": "Muestra una insignia de candado en la esquina del terminal mientras un programa como sudo o ssh lee una contraseña sin eco. Solo se detectan las solicitudes locales: la solicitud de contraseña de ssh cuenta, pero sudo dentro de una sesión ssh no."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "當 sudo 或 ssh 等程式在關閉回顯的情況下讀取密碼時，在終端機角落顯示鎖頭標記。"
+            "value": "當 sudo 或 ssh 等程式在關閉回顯的情況下讀取密碼時，在終端機角落顯示鎖頭標記。僅偵測本機提示：ssh 本身的密碼提示會被偵測，但 ssh 工作階段中的 sudo 不會。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当 sudo 或 ssh 等程序在关闭回显的情况下读取密码时，在终端角落显示锁形标记。"
+            "value": "当 sudo 或 ssh 等程序在关闭回显的情况下读取密码时，在终端角落显示锁形标记。仅检测本地提示：ssh 自身的密码提示会被检测，但 ssh 会话中的 sudo 不会。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "sudo나 ssh 같은 프로그램이 에코를 끈 상태로 비밀번호를 읽는 동안 터미널 모서리에 자물쇠 배지를 표시합니다."
+            "value": "sudo나 ssh 같은 프로그램이 에코를 끈 상태로 비밀번호를 읽는 동안 터미널 모서리에 자물쇠 배지를 표시합니다. 로컬 프롬프트만 감지됩니다. ssh 자체의 비밀번호 프롬프트는 포함되지만 ssh 세션 안의 sudo는 포함되지 않습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "sudo や ssh などのプログラムがエコーをオフにしてパスワードを読み取っている間、ターミナルの隅に鍵のバッジを表示します。"
+            "value": "sudo や ssh などのプログラムがエコーをオフにしてパスワードを読み取っている間、ターミナルの隅に鍵のバッジを表示します。検出されるのはローカルのプロンプトだけです。ssh 自体のパスワード入力は対象ですが、ssh セッション内の sudo は対象外です。"
           }
         }
       }
@@ -556234,55 +556234,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows one dot in the badge per typed character. cmux keeps only a count, never the characters."
+            "value": "Shows one dot in the badge per typed character. cmux keeps only a count, never the characters. Pasted text is not counted."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt im Symbol einen Punkt pro eingegebenem Zeichen. cmux speichert nur die Anzahl, niemals die Zeichen."
+            "value": "Zeigt im Symbol einen Punkt pro eingegebenem Zeichen. cmux speichert nur die Anzahl, niemals die Zeichen. Eingefügter Text wird nicht gezählt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche dans le badge un point par caractère saisi. cmux ne conserve qu'un compteur, jamais les caractères."
+            "value": "Affiche dans le badge un point par caractère saisi. cmux ne conserve qu'un compteur, jamais les caractères. Le texte collé n'est pas compté."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض في الشارة نقطة واحدة لكل حرف مكتوب. يحتفظ cmux بالعدد فقط، ولا يحتفظ بالأحرف أبدًا."
+            "value": "يعرض في الشارة نقطة واحدة لكل حرف مكتوب. يحتفظ cmux بالعدد فقط، ولا يحتفظ بالأحرف أبدًا. لا يُحتسب النص الملصق."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra en la insignia un punto por cada carácter escrito. cmux solo guarda un recuento, nunca los caracteres."
+            "value": "Muestra en la insignia un punto por cada carácter escrito. cmux solo guarda un recuento, nunca los caracteres. El texto pegado no se cuenta."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在標記中為每個已輸入的字元顯示一個圓點。cmux 只保留數量，絕不保留字元本身。"
+            "value": "在標記中為每個已輸入的字元顯示一個圓點。cmux 只保留數量，絕不保留字元本身。貼上的文字不計入。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在标记中为每个已输入的字符显示一个圆点。cmux 只保留数量，绝不保留字符本身。"
+            "value": "在标记中为每个已输入的字符显示一个圆点。cmux 只保留数量，绝不保留字符本身。粘贴的文本不计入。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "배지에 입력한 문자마다 점을 하나씩 표시합니다. cmux는 개수만 유지하며 문자는 절대 보관하지 않습니다."
+            "value": "배지에 입력한 문자마다 점을 하나씩 표시합니다. cmux는 개수만 유지하며 문자는 절대 보관하지 않습니다. 붙여넣은 텍스트는 세지 않습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "入力した文字ごとにバッジにドットを 1 つ表示します。cmux が保持するのは数だけで、文字そのものは保持しません。"
+            "value": "入力した文字ごとにバッジにドットを 1 つ表示します。cmux が保持するのは数だけで、文字そのものは保持しません。貼り付けたテキストは数えません。"
           }
         }
       }
