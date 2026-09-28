@@ -2744,7 +2744,7 @@ struct TerminalStreamTests {
         routes: [route],
         expiresAt: Date().addingTimeInterval(60)
     )
-    let router = PullToRefreshWorkspaceListRouter(refreshResponseDelayNanoseconds: 50_000_000)
+    let router = PullToRefreshWorkspaceListRouter(refreshResponseDelayNanoseconds: 2_000_000_000)
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: RequestAwareTransportFactory(router: router),
