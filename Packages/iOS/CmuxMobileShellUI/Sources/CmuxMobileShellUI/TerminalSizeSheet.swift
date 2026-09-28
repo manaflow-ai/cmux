@@ -4,8 +4,8 @@ import CmuxMobileShellModel
 import CmuxTerminalSizing
 import SwiftUI
 
-/// The size panel for one shared terminal: current size and reason, the
-/// sizing mode, every participant, and "Disconnect Other Clients".
+/// The size panel for one shared terminal: the grid and its owner, the size
+/// mode, the connected participants, and "Disconnect Others".
 struct TerminalSizeSheet: View {
     let store: CMUXMobileShellStore
     let surfaceID: String
@@ -15,17 +15,21 @@ struct TerminalSizeSheet: View {
     @State private var actionFailed = false
     @State private var fixedColumns = 80
     @State private var fixedRows = 24
+    @FocusState private var fixedFieldFocused: Bool
+
+    private static let columnRange = 20...300
+    private static let rowRange = 5...120
 
     var body: some View {
         NavigationStack {
             Group {
                 if let presentation = store.terminalSizingPresentation(for: surfaceID) {
-                    form(presentation)
+                    list(presentation)
+                        .toolbar { toolbar(presentation) }
                 } else {
                     ProgressView()
                 }
             }
-            .navigationTitle(TerminalSizingText.sheetTitle())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -35,99 +39,122 @@ struct TerminalSizeSheet: View {
         }
     }
 
-    private func form(_ presentation: MobileTerminalSizingPresentation) -> some View {
-        Form {
-            Section {
-                LabeledContent(TerminalSizingText.currentSize()) {
-                    Text(TerminalSizingText.gridSize(presentation.grid))
-                        .monospacedDigit()
-                }
-                Text(TerminalSizingText.reason(presentation.reason))
-                    .font(.footnote)
+    @ToolbarContentBuilder
+    private func toolbar(_ presentation: MobileTerminalSizingPresentation) -> some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            VStack(spacing: 0) {
+                Text(TerminalSizingText.gridSize(presentation.grid))
+                    .font(.headline)
+                    .monospacedDigit()
+                Text(TerminalSizingText.owner(presentation.ownerLabel))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-                if actionFailed {
-                    Text(TerminalSizingText.changeFailed())
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
+                    .lineLimit(1)
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+        }
+        if presentation.policy.mode == .priority {
+            ToolbarItem(placement: .topBarLeading) {
+                EditButton()
+            }
+        }
+        ToolbarItemGroup(placement: .keyboard) {
+            Spacer()
+            Button(TerminalSizingText.done()) { fixedFieldFocused = false }
+        }
+    }
 
+    private func list(_ presentation: MobileTerminalSizingPresentation) -> some View {
+        List {
             Section {
-                Picker(TerminalSizingText.modePicker(), selection: modeBinding(presentation)) {
+                Picker(TerminalSizingText.sizePicker(), selection: modeBinding(presentation)) {
                     ForEach(TerminalSizingMode.allCases, id: \.self) { mode in
                         Text(TerminalSizingText.modeName(mode)).tag(mode)
                     }
                 }
                 .pickerStyle(.menu)
                 if presentation.policy.mode == .fixed {
-                    Stepper(
-                        TerminalSizingText.fixedColumns(fixedColumns),
-                        value: $fixedColumns,
-                        in: 20...300,
-                        onEditingChanged: { editing in
-                            if !editing { applyFixed(presentation) }
-                        }
-                    )
-                    Stepper(
-                        TerminalSizingText.fixedRows(fixedRows),
-                        value: $fixedRows,
-                        in: 5...120,
-                        onEditingChanged: { editing in
-                            if !editing { applyFixed(presentation) }
-                        }
-                    )
+                    fixedSizeRow(presentation)
+                }
+            } footer: {
+                if actionFailed {
+                    Text(TerminalSizingText.changeFailed())
+                        .foregroundStyle(.red)
                 }
             }
 
-            Section {
-                if presentation.policy.mode == .priority {
-                    ForEach(priorityOrderedRows(presentation), id: \.id) { row in
-                        participantRow(row, presentation: presentation)
-                    }
-                    .onMove { source, destination in
-                        movePriority(presentation, from: source, to: destination)
-                    }
-                } else {
-                    ForEach(allRows(presentation), id: \.id) { row in
-                        participantRow(row, presentation: presentation)
-                    }
+            Section(TerminalSizingText.participants()) {
+                ForEach(orderedRows(presentation), id: \.id) { row in
+                    participantRow(row, presentation: presentation)
                 }
-            } header: {
-                Text(TerminalSizingText.participants())
-            } footer: {
-                if presentation.policy.mode == .priority {
-                    Text(TerminalSizingText.priorityHint())
-                }
+                .onMove(perform: presentation.policy.mode == .priority
+                    ? { source, destination in movePriority(presentation, from: source, to: destination) }
+                    : nil)
             }
-            .environment(\.editMode, .constant(presentation.policy.mode == .priority ? .active : .inactive))
 
             if !presentation.otherParticipants.isEmpty {
                 Section {
-                    if isConfirmingDisconnectOthers {
-                        Text(TerminalSizingText.disconnectOthersConfirm())
-                            .font(.footnote)
-                        Button(TerminalSizingText.disconnect(), role: .destructive) {
-                            isConfirmingDisconnectOthers = false
+                    Button(TerminalSizingText.disconnectOthers(), role: .destructive) {
+                        isConfirmingDisconnectOthers = true
+                    }
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("MobileTerminalSizingDisconnectOthers")
+                    .confirmationDialog(
+                        TerminalSizingText.disconnectOthersConfirm(),
+                        isPresented: $isConfirmingDisconnectOthers,
+                        titleVisibility: .visible
+                    ) {
+                        Button(TerminalSizingText.disconnectOthers(), role: .destructive) {
                             run { await store.disconnectOtherTerminalParticipants(surfaceID: surfaceID) }
                         }
                         .accessibilityIdentifier("MobileTerminalSizingDisconnectOthersConfirm")
-                        Button(TerminalSizingText.cancel(), role: .cancel) {
-                            isConfirmingDisconnectOthers = false
-                        }
-                    } else {
-                        Button(TerminalSizingText.disconnectOthers(), role: .destructive) {
-                            isConfirmingDisconnectOthers = true
-                        }
-                        .accessibilityIdentifier("MobileTerminalSizingDisconnectOthers")
                     }
                 }
             }
         }
+        .listStyle(.insetGrouped)
+        .scrollDismissesKeyboard(.interactively)
         .onAppear {
             let fixed = presentation.policy.fixed ?? presentation.grid
             fixedColumns = fixed.cols
             fixedRows = fixed.rows
         }
+        .onChange(of: fixedFieldFocused) { _, focused in
+            if !focused { applyFixed(presentation) }
+        }
+    }
+
+    // MARK: Fixed size
+
+    private func fixedSizeRow(_ presentation: MobileTerminalSizingPresentation) -> some View {
+        LabeledContent(TerminalSizingText.fixedSize()) {
+            HStack(spacing: 6) {
+                TextField(TerminalSizingText.columns(), value: $fixedColumns, format: .number)
+                    .accessibilityLabel(TerminalSizingText.columns())
+                    .frame(width: 52)
+                Text(verbatim: "×")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                TextField(TerminalSizingText.rows(), value: $fixedRows, format: .number)
+                    .accessibilityLabel(TerminalSizingText.rows())
+                    .frame(width: 44)
+            }
+            .keyboardType(.numberPad)
+            .multilineTextAlignment(.trailing)
+            .monospacedDigit()
+            .focused($fixedFieldFocused)
+        }
+    }
+
+    private func applyFixed(_ presentation: MobileTerminalSizingPresentation) {
+        fixedColumns = min(max(fixedColumns, Self.columnRange.lowerBound), Self.columnRange.upperBound)
+        fixedRows = min(max(fixedRows, Self.rowRange.lowerBound), Self.rowRange.upperBound)
+        guard presentation.policy.mode == .fixed else { return }
+        var policy = presentation.policy
+        policy.fixed = TerminalGridSize(cols: fixedColumns, rows: fixedRows)
+        guard policy != presentation.policy else { return }
+        run { await store.setTerminalSizePolicy(policy, surfaceID: surfaceID) }
     }
 
     // MARK: Participant rows
@@ -136,11 +163,13 @@ struct TerminalSizeSheet: View {
         (presentation.selfParticipant.map { [$0] } ?? []) + presentation.otherParticipants
     }
 
-    /// Rows ordered by the policy's priority keys; unranked rows follow in host order.
-    private func priorityOrderedRows(
+    /// In priority mode, rows follow the policy's priority keys (unranked rows
+    /// after, in host order). Otherwise this phone first, then host order.
+    private func orderedRows(
         _ presentation: MobileTerminalSizingPresentation
     ) -> [TerminalSizingParticipantState] {
         let rows = allRows(presentation)
+        guard presentation.policy.mode == .priority else { return rows }
         let rank = Dictionary(
             presentation.policy.priority.enumerated().map { ($1, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -152,81 +181,46 @@ struct TerminalSizeSheet: View {
         }.map(\.element)
     }
 
-    @ViewBuilder
     private func participantRow(
         _ row: TerminalSizingParticipantState,
         presentation: MobileTerminalSizingPresentation
     ) -> some View {
         let isSelf = row.id == presentation.selfParticipant?.id
         let participant = row.participant
-        let name = isSelf
-            ? TerminalSizingText.thisDevice(participant.deviceKind)
-            : (participant.displayName ?? TerminalSizingText.someone())
-        let isOwner = presentation.ownerIDs.contains(row.id)
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(Color(MobileTerminalSizingParticipantColor(participant: participant)))
-                    .frame(width: 10, height: 10)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(name)
-                        .font(.body)
-                    Text(detailLine(participant))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                Spacer(minLength: 8)
-                badges(row: row, isSelf: isSelf, isOwner: isOwner)
-                if !isSelf {
-                    Button(role: .destructive) {
-                        run { await store.disconnectTerminalParticipant(row.id, surfaceID: surfaceID) }
-                    } label: {
-                        Image(systemName: "xmark.circle")
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel(TerminalSizingText.disconnectAccessibilityLabel(name))
-                }
-            }
-            if isSelf {
-                Toggle(TerminalSizingText.countsToggle(), isOn: countsBinding(row))
-                    .font(.subheadline)
-            }
-        }
-        .accessibilityElement(children: .contain)
-    }
-
-    private func detailLine(_ participant: TerminalSizingParticipant) -> String {
-        let device = TerminalSizingText.deviceName(participant)
-        guard let viewport = participant.viewport else { return device }
-        return TerminalSizingText.joined(device, TerminalSizingText.gridSize(viewport))
-    }
-
-    @ViewBuilder
-    private func badges(row: TerminalSizingParticipantState, isSelf: Bool, isOwner: Bool) -> some View {
-        HStack(spacing: 4) {
-            if isSelf {
-                badge(TerminalSizingText.badgeYou(), tint: .secondary)
-            }
+        let title = TerminalSizingText.participantTitle(participant, isSelf: isSelf)
+        let isOwner = presentation.isOwner(row.id)
+        return HStack(spacing: 12) {
+            TerminalSizingAvatar(participant: participant)
+            Text(title)
+                .lineLimit(1)
+            Spacer(minLength: 8)
             if isOwner {
-                badge(TerminalSizingText.badgeSetsSize(), tint: .accentColor)
-            } else if !row.counts {
-                badge(TerminalSizingText.badgeViewer(), tint: .secondary)
-            }
-            if isSelf, store.terminalAllowsTraffic(surfaceID: surfaceID) == false {
-                badge(TerminalSizingText.badgeDetached(), tint: .orange)
+                Text(TerminalSizingText.setsSize())
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
         }
-    }
-
-    private func badge(_ text: String, tint: Color) -> some View {
-        Text(text)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .foregroundStyle(tint)
-            .background(tint.opacity(0.15), in: Capsule())
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(isSelf ? "MobileTerminalSizingSelfRow" : "MobileTerminalSizingParticipantRow")
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if !isSelf {
+                Button(TerminalSizingText.disconnect(), role: .destructive) {
+                    run { await store.disconnectTerminalParticipant(row.id, surfaceID: surfaceID) }
+                }
+            }
+        }
+        .contextMenu {
+            if isSelf {
+                // The Mac RPC sets the counts override for this phone only.
+                Toggle(TerminalSizingText.countsToggle(), isOn: countsBinding(row))
+            } else {
+                Button(role: .destructive) {
+                    run { await store.disconnectTerminalParticipant(row.id, surfaceID: surfaceID) }
+                } label: {
+                    Label(TerminalSizingText.disconnect(), systemImage: "xmark.circle")
+                }
+            }
+        }
     }
 
     // MARK: Actions
@@ -239,6 +233,8 @@ struct TerminalSizeSheet: View {
                 policy.mode = mode
                 if mode == .fixed, policy.fixed == nil {
                     policy.fixed = presentation.grid
+                    fixedColumns = presentation.grid.cols
+                    fixedRows = presentation.grid.rows
                 }
                 if mode == .priority, policy.priority.isEmpty {
                     policy.priority = allRows(presentation).map(\.priorityKey)
@@ -257,19 +253,12 @@ struct TerminalSizeSheet: View {
         )
     }
 
-    private func applyFixed(_ presentation: MobileTerminalSizingPresentation) {
-        var policy = presentation.policy
-        policy.fixed = TerminalGridSize(cols: fixedColumns, rows: fixedRows)
-        guard policy != presentation.policy else { return }
-        run { await store.setTerminalSizePolicy(policy, surfaceID: surfaceID) }
-    }
-
     private func movePriority(
         _ presentation: MobileTerminalSizingPresentation,
         from source: IndexSet,
         to destination: Int
     ) {
-        var keys = priorityOrderedRows(presentation).map(\.priorityKey)
+        var keys = orderedRows(presentation).map(\.priorityKey)
         keys.move(fromOffsets: source, toOffset: destination)
         var seen = Set<String>()
         let ranked = keys.filter { seen.insert($0).inserted }
@@ -286,6 +275,40 @@ struct TerminalSizeSheet: View {
         Task { @MainActor in
             let succeeded = await action()
             actionFailed = !succeeded
+        }
+    }
+}
+
+/// A participant's avatar: the initial of their name, or their device glyph,
+/// on their participant color.
+private struct TerminalSizingAvatar: View {
+    let participant: TerminalSizingParticipant
+
+    var body: some View {
+        Circle()
+            .fill(Color(MobileTerminalSizingParticipantColor(participant: participant)))
+            .frame(width: 28, height: 28)
+            .overlay {
+                if let initial = MobileTerminalSizingPresentation.givenName(participant.displayName)?.first {
+                    Text(String(initial).uppercased())
+                        .font(.footnote.weight(.semibold))
+                } else {
+                    Image(systemName: symbol)
+                        .font(.caption.weight(.semibold))
+                }
+            }
+            .foregroundStyle(.white)
+            .accessibilityHidden(true)
+    }
+
+    private var symbol: String {
+        switch participant.deviceKind {
+        case .mac: "laptopcomputer"
+        case .iphone: "iphone"
+        case .ipad: "ipad"
+        case .tui: "terminal"
+        case .browser: "globe"
+        case .unknown: "person.fill"
         }
     }
 }

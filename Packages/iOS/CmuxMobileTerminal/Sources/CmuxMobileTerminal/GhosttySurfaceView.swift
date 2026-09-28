@@ -736,6 +736,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             refreshSharedSizingLayers()
         }
     }
+    /// The size chip drawn at the grid's bottom-trailing corner while the
+    /// decoration shows. `nil` hides it.
+    public var sharedSizingChip: TerminalSizingChipContent? {
+        didSet {
+            guard sharedSizingChip != oldValue else { return }
+            refreshSharedSizingLayers()
+        }
+    }
+    /// Called when the size chip is tapped.
+    public var onSharedSizingChipTap: (@MainActor () -> Void)?
     /// Layers owned by the shared-sizing decoration, created lazily.
     var sharedSizingLayers: GhosttySurfaceSharedSizingLayers?
     /// The last letterbox inputs, kept so a decoration change can redraw

@@ -134,6 +134,7 @@ struct WorkspaceDetailView: View {
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Local presenter identity remains separate from the artifact popover payload.
     @State var isTerminalArtifactFilesPresented = false
+    @State var isTerminalSizeSheetPresented = false
     @State var terminalArtifactFilesContext: TerminalArtifactContext?
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
@@ -661,15 +662,16 @@ struct WorkspaceDetailView: View {
         // throughout.
         #if os(iOS)
         .overlay {
-            // Shared sizing chrome (chip, cut pill, detached card). Attached
-            // after `allowsHitTesting` so the detached card's Reattach
-            // buttons stay tappable while terminal input is blocked.
+            // Shared sizing chrome (reconnecting capsule, detached card, size
+            // sheet). Attached after `allowsHitTesting` so the detached
+            // card's Reattach buttons stay tappable while terminal input is
+            // blocked.
             if let terminal = selectedTerminal {
                 TerminalSharedSizingOverlay(
                     store: store,
                     surfaceID: terminal.id.rawValue,
-                    tabTitle: terminal.name,
-                    topInset: terminalSurfaceTopContentInset
+                    topInset: terminalSurfaceTopContentInset,
+                    isSizeSheetPresented: $isTerminalSizeSheetPresented
                 )
             }
         }

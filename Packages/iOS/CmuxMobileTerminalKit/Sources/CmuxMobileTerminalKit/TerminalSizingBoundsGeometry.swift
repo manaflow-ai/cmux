@@ -21,9 +21,9 @@ public struct TerminalSizingBoundsGeometry: Equatable, Sendable {
     }
 
     /// The width of the owner-color border, in points.
-    public static let borderWidth: CGFloat = 1.5
+    public static let borderWidth: CGFloat = 1
     /// The depth of the amber fade on a cut edge, in points.
-    public static let cutFadeDepth: CGFloat = 28
+    public static let cutFadeDepth: CGFloat = 16
 
     /// The rect the border strokes, or `nil` when the viewport matches.
     public let borderRect: CGRect?
