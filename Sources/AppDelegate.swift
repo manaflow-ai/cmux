@@ -18369,6 +18369,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 for: notification,
                 keepsSoundQuiet: keepsSoundQuiet
             )
+#if DEBUG
+            cmuxDebugLog(
+                "notification.present id=\(notification.request.identifier.prefix(8)) hasSound=\(notification.request.content.sound != nil ? 1 : 0) keepsSoundQuiet=\(keepsSoundQuiet ? 1 : 0) sound=\(options.contains(.sound) ? 1 : 0)"
+            )
+#endif
             completionHandler(options)
         }
     }
