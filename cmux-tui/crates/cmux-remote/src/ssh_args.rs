@@ -177,4 +177,53 @@ mod tests {
             assert_eq!(arguments(extra), expected(AGENT_AND_X11_OFF, extra), "{extra:?}");
         }
     }
+
+    #[test]
+    fn hardened_ssh_argv_forwarding_off_drops_forwarding_flags() {
+        // `-A`, `-X` and `-Y` turn forwarding on whatever an earlier `-o`
+        // said, so a run with forwarding off drops them, including from a
+        // group of flags.
+        let cases: &[(&[&str], &[&str])] = &[
+            (&["-o", "ControlMaster=no", "-A"], &["-o", "ControlMaster=no"]),
+            (&["-o", "ControlMaster=no", "-X", "-Y"], &["-o", "ControlMaster=no"]),
+            (&["-qAY", "-o", "ControlMaster=no"], &["-q", "-o", "ControlMaster=no"]),
+            (&["-Ao", "ControlMaster=no"], &["-o", "ControlMaster=no"]),
+            (&["-o", "ControlMaster=no", "-Ai", "key"], &["-o", "ControlMaster=no", "-i", "key"]),
+        ];
+        for (extra, kept) in cases {
+            assert_eq!(arguments(extra), expected(ALL_OFF, kept), "{extra:?}");
+        }
+        // A flag's value stays: `-A` after `-l` is a login name and `A`
+        // after `-i` is a file.
+        let extra = ["-l", "-A", "-iA", "-o", "ControlMaster=no"];
+        assert_eq!(arguments(&extra), expected(ALL_OFF, &extra));
+        let extra = ["-o", "ControlMaster=no", "-L", "8080:localhost:80", "-XA"];
+        assert_eq!(arguments(&extra), expected(AGENT_AND_X11_OFF, &extra[..4]));
+        // A run that can become the shared master keeps them.
+        for extra in [&["-A", "-X"][..], &["-o", "ControlMaster=no", "-MY"]] {
+            assert_eq!(arguments(extra), expected(&[], extra), "{extra:?}");
+        }
+    }
+
+    #[test]
+    fn hardened_ssh_argv_keeps_one_option_separator() {
+        // A caller whose options already end with `--` gets no second one,
+        // which OpenSSH would read as the destination.
+        let cases: &[(&[&str], &[&str])] = &[
+            (&[], &["-o", "ControlMaster=auto", "--"]),
+            (ALL_OFF, &["-o", "ControlMaster=no", "--"]),
+        ];
+        for (overrides, extra) in cases {
+            let one_separator = ["-T", "-p", "2222"]
+                .iter()
+                .chain(*overrides)
+                .chain(*extra)
+                .chain(&["alice@example.com"])
+                .map(|argument| (*argument).to_owned())
+                .collect::<Vec<_>>();
+            assert_eq!(arguments(extra), one_separator, "{extra:?}");
+        }
+        // `-l` reads that `--` as a login name, so options still need ending.
+        assert_eq!(arguments(&["-l", "--"]), expected(&[], &["-l", "--"]));
+    }
 }
