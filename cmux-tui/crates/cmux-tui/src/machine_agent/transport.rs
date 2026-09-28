@@ -320,6 +320,31 @@ mod tests {
         );
     }
 
+    /// The registration link never becomes a ControlMaster, so turning its
+    /// forwarding off cannot reach an interactive session.
+    #[test]
+    fn machine_agent_uses_hardened_ssh_argv() {
+        let connector = SshCloudConnector::new(SshOptions {
+            host: "cmux.cloud".into(),
+            user: None,
+            port: None,
+            identity_file: None,
+        })
+        .unwrap();
+        let args = connector.command_args();
+        for option in
+            ["ControlMaster=no", "ForwardAgent=no", "ForwardX11=no", "ClearAllForwardings=yes"]
+        {
+            let index = args
+                .iter()
+                .position(|argument| argument == option)
+                .unwrap_or_else(|| panic!("missing -o {option}"));
+            assert_eq!(args[index - 1], "-o");
+        }
+        let separator = args.iter().position(|argument| argument == "--").unwrap();
+        assert_eq!(args[separator + 1], "cmux.cloud");
+    }
+
     #[test]
     fn local_connector_accepts_only_the_current_cmux_protocol() {
         fn verify(version: u32) -> anyhow::Result<()> {

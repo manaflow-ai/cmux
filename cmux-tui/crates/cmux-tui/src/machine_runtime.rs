@@ -1087,4 +1087,15 @@ mod tests {
             managed_ssh_options("mini.local", None, None, None, "agents", "/opt/cmux tui").is_err()
         );
     }
+
+    /// These runs turn forwarding off, so they must never become the shared
+    /// ControlMaster that an interactive session to the same host reuses.
+    #[cfg(unix)]
+    #[test]
+    fn managed_machine_connection_uses_hardened_ssh_argv() {
+        let options =
+            managed_ssh_options("mini.local", None, None, None, "agents", "/opt/cmux-tui").unwrap();
+
+        assert!(options.ssh_args.windows(2).any(|pair| pair == ["-o", "ControlMaster=no"]));
+    }
 }
