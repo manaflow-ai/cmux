@@ -105,6 +105,78 @@ struct MobileIrohSoakRunnerTests {
         #expect(runner.evidence.operationCounts.isEmpty)
     }
 
+    @Test func workspaceTerminalFailureRetriesTheUsageStep() async throws {
+        let runner = MobileIrohSoakRunner(profile: .stress, durationSeconds: 0, minimumCycles: 1)
+        var connectionID: UInt64 = 1
+        var usageMarkers: [String] = []
+        var recoveryAttempts = 0
+        _ = try await runner.run(marker: "test", connection: {
+            .init(continuityID: connectionID, pathKind: .relay)
+        }, probe: { _ in probe }, stress: { _, marker in
+            usageMarkers.append(marker)
+            if usageMarkers.count == 1 {
+                throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
+            }
+            return ["workspace_create": 0.1]
+        }, recovery: {
+            recoveryAttempts += 1
+            connectionID = 2
+            return true
+        })
+        #expect(usageMarkers == ["test_0", "test_0_RETRY"])
+        #expect(recoveryAttempts == 1)
+        #expect(runner.evidence.completedCycles == 1)
+        #expect(runner.evidence.operationCounts["workspace_create"] == 1)
+        #expect(runner.evidence.recoverableFailures == ["terminalRoundTripFailed": 1])
+        #expect(runner.evidence.currentOperation == "complete")
+    }
+
+    @Test func anExtraRedialDuringRetryCannotHideBehindRecovery() async {
+        let runner = MobileIrohSoakRunner(profile: .stress, durationSeconds: 0, minimumCycles: 1)
+        var connectionID: UInt64 = 1
+        await #expect(throws: MobileIrohSoakRunner.Failure.connectionChanged) {
+            try await runner.run(marker: "test", connection: {
+                .init(continuityID: connectionID, pathKind: .relay)
+            }, probe: { marker in
+                if marker == "test_0" {
+                    throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
+                }
+                connectionID = 3
+                return probe
+            }, stress: { _, _ in [:] }, recovery: {
+                connectionID = 2
+                return true
+            })
+        }
+        #expect(runner.evidence.completedCycles == 0)
+    }
+
+    @Test func basicTerminalFailureDoesNotRetry() async {
+        let runner = MobileIrohSoakRunner(profile: .basic, durationSeconds: 0, minimumCycles: 1)
+        await #expect(throws: MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed) {
+            try await runner.run(marker: "test", connection: { relay }, probe: { _ in
+                throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
+            }, stress: { _, _ in [:] }, recovery: {
+                Issue.record("Basic must not recover a failed terminal")
+                return true
+            })
+        }
+        #expect(runner.evidence.completedCycles == 0)
+    }
+
+    @Test func failedReconnectDoesNotRunTheRetry() async {
+        let runner = MobileIrohSoakRunner(profile: .stress, durationSeconds: 0, minimumCycles: 1)
+        var probeAttempts = 0
+        await #expect(throws: MobileIrohReleaseGateProbeFailure.soakReconnectFailed) {
+            try await runner.run(marker: "test", connection: { relay }, probe: { _ in
+                probeAttempts += 1
+                throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
+            }, stress: { _, _ in [:] }, recovery: { false })
+        }
+        #expect(probeAttempts == 1)
+        #expect(runner.evidence.recoverableFailures == ["terminalRoundTripFailed": 1])
+    }
+
     @Test func stalledOperationReportsWithoutWaitingForCooperation() async throws {
         let runner = MobileIrohSoakRunner(
             profile: .stress, durationSeconds: 0, minimumCycles: 1,
