@@ -52,12 +52,12 @@ final class FinderFileDropRegressionTests: XCTestCase {
             ),
             "Internal file-preview drags still need the shared pane drop destination so they can split or insert like Finder files"
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
                 pasteboardTypes: [.fileURL, DragOverlayRoutingPolicy.bonsplitTabTransferType],
                 hasLocalDraggingSource: true
             ),
-            "Tab transfers that are not file previews are pane moves, not file drops, so the file overlay leaves them to the pane drop target"
+            "Bonsplit tab drags use the same pane drop destination while tab-bar hit testing still defers to Bonsplit"
         )
         XCTAssertTrue(
             DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
@@ -120,7 +120,14 @@ final class FinderFileDropRegressionTests: XCTestCase {
             PasteboardFileURLReader.promisedFileURLPasteboardType,
             DragOverlayRoutingPolicy.bonsplitTabTransferType,
         ]
-        XCTAssertFalse(DragOverlayRoutingPolicy.hasFileDropPayload(types))
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
+                pasteboardTypes: types,
+                hasLocalDraggingSource: true
+            ),
+            "The file overlay is the registered target for these types, so it must still forward them to the pane"
+        )
+        XCTAssertFalse(DragOverlayRoutingPolicy.hasFileDropBehaviorPayload(types))
         XCTAssertFalse(
             DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
                 pasteboardTypes: types,
@@ -128,7 +135,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
                 defaultBehavior: .text
             )
         )
-        XCTAssertTrue(DragOverlayRoutingPolicy.hasFileDropPayload([
+        XCTAssertTrue(DragOverlayRoutingPolicy.hasFileDropBehaviorPayload([
             PasteboardFileURLReader.promisedFileURLPasteboardType,
         ]))
     }

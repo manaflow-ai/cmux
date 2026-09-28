@@ -236,17 +236,23 @@ enum DragOverlayRoutingPolicy {
         PasteboardFileURLReader.hasFileURLType(pasteboardTypes ?? [])
     }
 
-    /// A file drop is a Finder-style file URL or an internal file-preview drag.
-    /// Other internal tab transfers are never file drops: SwiftUI item-provider
-    /// drags, such as a right-sidebar tool, also publish file-promise types, and
-    /// treating those as files would insert text instead of splitting the pane.
     static func hasFileDropPayload(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
         // Cloud rows move workspace/surface identities. An incidental URL
         // representation must not turn them into Finder-style file drags.
         guard pasteboardTypes?.contains(.cloudSidebarRow) != true,
               !hasSurfaceResourceTransfer(pasteboardTypes) else { return false }
-        if hasFilePreviewTransfer(pasteboardTypes) { return true }
-        return hasFileURL(pasteboardTypes) && !hasBonsplitTabTransfer(pasteboardTypes)
+        return hasFileURL(pasteboardTypes) || hasFilePreviewTransfer(pasteboardTypes)
+    }
+
+    /// Whether a drop should get file behavior (insert path text or open a
+    /// preview) rather than move a tab. Internal tab transfers other than file
+    /// previews are tab moves: SwiftUI item-provider drags, such as a
+    /// right-sidebar tool, also publish file-promise types, and giving those
+    /// file behavior would insert text instead of splitting the pane. The file
+    /// overlay still forwards them, since those types register it as a target.
+    static func hasFileDropBehaviorPayload(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        guard hasFileDropPayload(pasteboardTypes) else { return false }
+        return hasFilePreviewTransfer(pasteboardTypes) || !hasBonsplitTabTransfer(pasteboardTypes)
     }
 
     /// Returns whether a file drop payload is live rather than residual.
@@ -342,7 +348,7 @@ enum DragOverlayRoutingPolicy {
         canDropAsText: Bool = true,
         defaultBehavior: FileDropDefaultBehavior = FileDropBehaviorSettings.behavior()
     ) -> FileDropResolvedBehavior? {
-        guard hasFileDropPayload(pasteboardTypes) else { return nil }
+        guard hasFileDropBehaviorPayload(pasteboardTypes) else { return nil }
         guard canDropAsText else { return .preview }
         let behavior = defaultBehavior.resolvedBehavior
         return modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift)
@@ -370,7 +376,7 @@ enum DragOverlayRoutingPolicy {
         canDropAsText: Bool = true,
         defaultBehavior: FileDropDefaultBehavior = FileDropBehaviorSettings.behavior()
     ) -> FileDropResolvedBehavior? {
-        guard hasFileDropPayload(pasteboardTypes) else { return nil }
+        guard hasFileDropBehaviorPayload(pasteboardTypes) else { return nil }
         guard canDropAsText else { return nil }
         guard !modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift) else { return nil }
         return defaultBehavior.resolvedBehavior.inverted
