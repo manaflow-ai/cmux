@@ -12,7 +12,9 @@ public struct EmptyPaneCatalogSection: SettingCatalogSection {
     public let artFile = DefaultsKey<String>(
         id: "emptyPane.artFile",
         defaultValue: "",
-        userDefaultsKey: "emptyPane.artFile"
+        // Undotted: a dotted @AppStorage key re-evaluates its view on every
+        // unrelated defaults write.
+        userDefaultsKey: "emptyPaneArtFile"
     )
 
     public init() {}

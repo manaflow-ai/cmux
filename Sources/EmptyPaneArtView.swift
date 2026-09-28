@@ -47,18 +47,33 @@ struct EmptyPaneArtView: View {
             var column = 0
             for run in line.runs {
                 let colors = palette.resolvedColors(for: run.style)
-                let foreground = Self.color(colors.foreground, opacity: run.style.isDim ? 0.5 : 1)
+                let dimming = run.style.isDim ? 0.5 : 1
+                let foreground = Self.color(colors.foreground, opacity: dimming)
                 let cells = Array(run.text.unicodeScalars)
                 if let background = colors.background {
                     context.fill(
-                        Path(cellRect(column: column, row: row, width: cells.count, layout: layout)),
+                        Path(cellRect(
+                            column: column,
+                            row: row,
+                            width: cells.reduce(0) { $0 + ANSIArt.cellWidth(of: $1) },
+                            layout: layout
+                        )),
                         with: .color(Self.color(background, opacity: 1))
                     )
                 }
+                // Text is drawn in segments that start on their cell.
+                // Characters the terminal font covers at one cell share a
+                // segment; a wide character or one drawn from a fallback font
+                // gets its own, so the rest of the line stays on the grid.
+                // Combining marks stay with the character before them.
                 var textStart = column
                 var text = String.UnicodeScalarView()
+                var segmentIsIsolated = false
                 func flushText() {
-                    defer { text = String.UnicodeScalarView() }
+                    defer {
+                        text = String.UnicodeScalarView()
+                        segmentIsIsolated = false
+                    }
                     guard !String(text).allSatisfy(\.isWhitespace) else { return }
                     let font = run.style.isBold ? layout.boldFont : layout.font
                     context.draw(
@@ -68,6 +83,7 @@ struct EmptyPaneArtView: View {
                     )
                 }
                 for scalar in cells {
+                    let width = ANSIArt.cellWidth(of: scalar)
                     if let block = ANSIArtBlockElement(scalar) {
                         flushText()
                         let cell = cellRect(column: column, row: row, width: 1, layout: layout)
@@ -78,15 +94,23 @@ struct EmptyPaneArtView: View {
                                 width: unit.width * cell.width,
                                 height: unit.height * cell.height
                             ))
-                            context.fill(Path(rect), with: .color(Self.color(colors.foreground, opacity: block.opacity)))
+                            context.fill(Path(rect), with: .color(Self.color(colors.foreground, opacity: block.opacity * dimming)))
                         }
                         column += 1
-                        textStart = column
-                    } else {
-                        if text.isEmpty { textStart = column }
-                        text.append(scalar)
-                        column += ANSIArt.cellWidth(of: scalar)
+                        continue
                     }
+                    let needsOwnSegment = width > 1 || (width == 1 && !layout.coveredCharacters.contains(scalar))
+                    if width > 0, segmentIsIsolated || needsOwnSegment {
+                        flushText()
+                    }
+                    if text.isEmpty {
+                        textStart = column
+                    }
+                    if needsOwnSegment {
+                        segmentIsIsolated = true
+                    }
+                    text.append(scalar)
+                    column += width
                 }
                 flushText()
             }

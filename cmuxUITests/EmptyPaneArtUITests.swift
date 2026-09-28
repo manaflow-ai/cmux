@@ -1,11 +1,14 @@
 import XCTest
 
-/// With `emptyPane.artFile` set, a pane left empty by its last terminal
-/// exiting shows the user's art above the Terminal and Browser buttons.
+/// With `emptyPane.artFile` set, a pane left empty by closing its last tab
+/// shows the user's art above the Terminal and Browser buttons.
 ///
-/// The setting comes in through the launch-argument defaults domain, the same
-/// defaults key cmux.json writes. The art mixes a lolcat-style truecolor line,
-/// 16-color text and chafa-style half blocks so the screenshot shows each.
+/// The settings come in through the launch-argument defaults domain, the same
+/// defaults keys cmux.json writes: the art file, and keeping the workspace open
+/// when the tab-strip close button closes its last tab (otherwise the window
+/// closes instead of leaving an empty pane). The art mixes a lolcat-style
+/// truecolor banner, 16-color text and chafa-style half blocks so the
+/// screenshot shows each.
 final class EmptyPaneArtUITests: SettingsUITestCase {
     func testEmptyPaneShowsConfiguredArt() throws {
         let artURL = FileManager.default.temporaryDirectory
@@ -14,7 +17,11 @@ final class EmptyPaneArtUITests: SettingsUITestCase {
         defer { try? FileManager.default.removeItem(at: artURL) }
 
         let app = XCUIApplication.cmuxTestApplication()
-        app.launchArguments += settingsLaunchArguments + ["-emptyPane.artFile", artURL.path]
+        app.launchArguments += settingsLaunchArguments + [
+            "-emptyPaneArtFile", artURL.path,
+            "-closeWorkspaceOnLastSurfaceShortcut", "NO",
+            "-warnBeforeClosingTabXButton", "NO",
+        ]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = "ui-empty-pane-art-\(UUID().uuidString.prefix(8))"
         launchAndActivate(app)
@@ -24,24 +31,38 @@ final class EmptyPaneArtUITests: SettingsUITestCase {
         XCTAssertTrue(window.waitForExistence(timeout: 10), "Expected the main window")
         let terminal = app.textViews.firstMatch
         XCTAssertTrue(terminal.waitForExistence(timeout: 15), "Expected the launch terminal")
-        terminal.click()
-        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        XCTAssertTrue(poll(timeout: 10) { terminal.frame.height > 100 }, "Expected a laid-out terminal")
+        RunLoop.current.run(until: Date().addingTimeInterval(1.0))
 
-        // The shell exiting closes the only surface without closing the
-        // workspace, which leaves the empty pane.
-        app.typeText("exit\n")
+        // The selected tab sits in the pane's tab strip right above the
+        // terminal; its close button is the trailing 16 pt accessory inside
+        // 6 pt of padding (Bonsplit TabBarMetrics).
+        let terminalFrame = terminal.frame
+        let tab = try XCTUnwrap(
+            app.buttons.allElementsBoundByIndex.first { element in
+                let frame = element.frame
+                return frame.height >= 20 && frame.height <= 40
+                    && abs(frame.maxY - terminalFrame.minY) <= 20
+                    && frame.minX >= terminalFrame.minX - 4
+                    && frame.minX < terminalFrame.midX
+            },
+            "Expected the terminal's tab above \(terminalFrame)"
+        )
+        tab.hover()
+        tab.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+            .withOffset(CGVector(dx: tab.frame.width - 14, dy: 0))
+            .click()
 
         let art = app.descendants(matching: .any)["EmptyPanelArt"]
-        XCTAssertTrue(art.waitForExistence(timeout: 15), "Expected the configured art in the empty pane")
+        let appeared = art.waitForExistence(timeout: 15)
+        let screenshot = XCTAttachment(screenshot: window.screenshot())
+        screenshot.name = appeared ? "empty pane with art" : "after closing the last tab"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        XCTAssertTrue(appeared, "Expected the configured art in the empty pane")
         XCTAssertTrue(app.buttons["Terminal"].exists || app.buttons.matching(
             NSPredicate(format: "label BEGINSWITH %@", "Terminal")
         ).firstMatch.exists, "Expected the Terminal button to stay")
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
-
-        let attachment = XCTAttachment(screenshot: window.screenshot())
-        attachment.name = "empty pane with art"
-        attachment.lifetime = .keepAlways
-        add(attachment)
     }
 
     private static var sampleArt: String {

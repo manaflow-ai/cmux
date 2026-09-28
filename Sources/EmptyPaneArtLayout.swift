@@ -16,6 +16,8 @@ struct EmptyPaneArtLayout {
 
     let font: NSFont
     let boldFont: NSFont
+    /// Characters `font` draws itself, at one cell each.
+    let coveredCharacters: CharacterSet
     /// One character cell at `font`.
     let cellSize: CGSize
     /// The whole art: columns x lines of cells.
@@ -34,6 +36,7 @@ struct EmptyPaneArtLayout {
         let fontSize = max(Self.minimumFontSize, min(preferredFontSize, fitting))
         font = Self.font(family: fontFamily, size: fontSize)
         boldFont = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+        coveredCharacters = font.coveredCharacterSet
         cellSize = CGSize(width: cellWidth * fontSize, height: lineHeight * fontSize)
         size = CGSize(width: ceil(columns * cellSize.width), height: ceil(lines * cellSize.height))
     }

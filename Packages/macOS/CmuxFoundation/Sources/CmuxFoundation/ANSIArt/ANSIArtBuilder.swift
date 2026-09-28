@@ -126,8 +126,9 @@ struct ANSIArtBuilder {
         case 5:
             color = parts[2].flatMap(Self.paletteIndex)
         case 2 where parts.count >= 5:
-            let channels = parts.suffix(3)
-            color = Self.rgb(channels[channels.startIndex], channels[channels.startIndex + 1], channels[channels.startIndex + 2])
+            // `38:2:r:g:b`, or `38:2:colorspace:r:g:b` (plus ignored extras).
+            let first = parts.count == 5 ? 2 : 3
+            color = Self.rgb(parts[first], parts[first + 1], parts[first + 2])
         default:
             color = nil
         }

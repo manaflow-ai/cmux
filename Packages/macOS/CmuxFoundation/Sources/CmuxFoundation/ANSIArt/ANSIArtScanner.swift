@@ -19,6 +19,9 @@ struct ANSIArtScanner {
                 consumeEscape()
             case 0x9B:
                 consumeControlSequence()
+            case 0x90, 0x98, 0x9D, 0x9E, 0x9F:
+                // C1 DCS, SOS, OSC, PM and APC carry a string payload.
+                consumeControlString()
             case 0x0A:
                 builder.newLine()
             case 0x09:
@@ -65,18 +68,21 @@ struct ANSIArtScanner {
     private mutating func consumeControlSequence() {
         var parameters = String.UnicodeScalarView()
         var hasIntermediate = false
+        var isMalformed = false
         while index < scalars.count {
             let scalar = scalars[index]
             switch scalar.value {
-            case 0x30...0x3F where !hasIntermediate:
-                parameters.append(scalar)
+            case 0x30...0x3F:
+                // A parameter after an intermediate makes the sequence
+                // malformed; keep consuming it so its bytes never print.
+                if hasIntermediate { isMalformed = true } else { parameters.append(scalar) }
                 index += 1
             case 0x20...0x2F:
                 hasIntermediate = true
                 index += 1
             case 0x40...0x7E:
                 index += 1
-                if scalar == "m", !hasIntermediate {
+                if scalar == "m", !hasIntermediate, !isMalformed {
                     builder.applySGR(String(parameters))
                 }
                 return
