@@ -1396,7 +1396,8 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maksymalna liczba wierszy wyświetlanych dla najnowszego powiadomienia pod tytułem każdego obszaru roboczego.",
-          "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
+          "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny.",
+          "showAgentUsage": "Dodaje zużycie agenta kodu do wpisu stanu Claude Code lub Codex: model i wykorzystane okno kontekstu, a w Claude Code także szacowany koszt API (wątek główny i podagenci) według opublikowanych cen katalogowych Anthropic. Koszt jest szacunkiem, a nie rachunkiem za subskrypcję; poziomy batch i priority, ceny partnerskie, tryb szybki oraz opłaty za narzędzia serwerowe nie są uwzględniane."
         },
         "fileExplorer": {
           "description": "Ustawienia eksploratora plików (drzewa plików) w prawym pasku bocznym.",

@@ -1395,7 +1395,8 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Número máximo de líneas que se muestran para la notificación más reciente debajo del título de cada espacio de trabajo.",
-          "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
+          "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado.",
+          "showAgentUsage": "Añade el uso del agente de código a la entrada de estado de Claude Code o Codex: el modelo y la ventana de contexto consumida y, en Claude Code, un coste de API estimado (hilo principal y subagentes) según los precios de lista publicados por Anthropic. El coste es una estimación, no tu factura de suscripción; los niveles batch y priority, los precios para socios, el modo rápido y las tarifas de herramientas de servidor no se tienen en cuenta."
         },
         "fileExplorer": {
           "description": "Ajustes del explorador de archivos (árbol de archivos) de la barra lateral derecha.",

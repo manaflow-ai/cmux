@@ -1395,7 +1395,8 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
-          "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
+          "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。",
+          "showAgentUsage": "在 Claude Code 或 Codex 的状态条目后附加编码代理的用量：所用模型和已占用的上下文窗口，并在 Claude Code 上按 Anthropic 公布的标价给出 API 费用估算（主线程与子代理）。该费用仅为估算，并非你的订阅账单；批处理／优先级档位、合作伙伴定价、快速模式以及服务器工具费用均未计入。"
         },
         "fileExplorer": {
           "description": "右侧边栏文件浏览器（文件树）设置。",

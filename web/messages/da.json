@@ -1395,7 +1395,8 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
-          "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
+          "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse.",
+          "showAgentUsage": "Føjer kodeagentens forbrug til statusposten for Claude Code eller Codex: model og brugt kontekstvindue, og for Claude Code et anslået API-forbrug (hovedtråd og underagenter) til Anthropics offentliggjorte listepriser. Beløbet er et skøn og ikke din abonnementsregning; batch- og prioritetsniveauer, partnerpriser, hurtig tilstand og gebyrer for serverværktøjer er ikke medregnet."
         },
         "fileExplorer": {
           "description": "Indstillinger for filoversigten (filtræet) i højre sidepanel.",

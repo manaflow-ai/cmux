@@ -1395,7 +1395,8 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maximale Anzahl der Zeilen, die für die neueste Benachrichtigung unter jedem Workspace-Titel angezeigt werden.",
-          "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
+          "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze.",
+          "showAgentUsage": "Ergänzt den Statuseintrag von Claude Code oder Codex um die Nutzung des Coding-Agenten: Modell und verbrauchtes Kontextfenster sowie bei Claude Code die geschätzten API-Kosten (Hauptthread und Subagenten) zu den veröffentlichten Anthropic-Listenpreisen. Die Kosten sind eine Schätzung und nicht Ihre Abonnementrechnung; Batch- und Priority-Stufen, Partnerpreise, Fast Mode und Gebühren für Server-Tools sind nicht berücksichtigt."
         },
         "fileExplorer": {
           "description": "Einstellungen für den Datei-Explorer (Dateibaum) in der rechten Seitenleiste.",
