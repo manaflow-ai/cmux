@@ -994,7 +994,10 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 
     private func makeTrackedManager() -> TabManager {
-        let manager = TabManager()
+        track(TabManager())
+    }
+
+    private func track<Manager: TabManager>(_ manager: Manager) -> Manager {
         trackedManagers.append(manager)
         return manager
     }
@@ -1744,7 +1747,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 #if DEBUG
     func testMobileWorkspaceCreateSkipsHiddenMacSideWorkAndReturnsCreatedScopeOnly() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = RecordingMobileTabManager()
+        let manager = track(RecordingMobileTabManager())
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
@@ -1783,7 +1786,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
     func testMobileTerminalCreateSkipsHiddenMacSideWorkAndKeepsMacSelection() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = RecordingMobileTabManager()
+        let manager = track(RecordingMobileTabManager())
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
@@ -1828,7 +1831,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
     func testMobileBrowserCreateReturnsStreamableDescriptorAndKeepsMacSelection() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = RecordingMobileTabManager()
+        let manager = track(RecordingMobileTabManager())
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
