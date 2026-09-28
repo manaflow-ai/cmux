@@ -641,6 +641,43 @@ jobs:
           python3 scripts/ci/owned_build_state.py prefer "$OWNED_START" "$PWD" \
             "$SEED_PREFIX" "$MERGED_ONTO" "$MAX_DISTANCE"
 
+      # The key names only the Xcode version and the canonical paths, so it is
+      # known before the source tree is copied there.
+      - name: Compute test compilation cache key
+        if: steps.reuse-products.outputs.hit != 'true'
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
+
+      # The seed download (~40 s) needs only that key, so it starts before the
+      # GhosttyKit, Swift package and manifest cache restores and runs while
+      # they and the resolve do, instead of after them. "Adopt the nightly
+      # DerivedData seed" below reuses the seed this step picked and waits for
+      # it; if this step fails, adopt picks and downloads itself.
+      - name: Start the DerivedData seed download
+        if: steps.reuse-products.outputs.hit != 'true' && (steps.owned-state.outputs.warm != 'true' || steps.prefer-seed.outputs.prefer == 'true') && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        continue-on-error: true
+        # Picking the seed probes the bucket before the download detaches; a
+        # hung CDN must not hold up the resolve. adopt then picks for itself.
+        timeout-minutes: 3
+        env:
+          SEED_PREFIX: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+          # A pull request builds on the merge commit's first parent, which
+          # ci.yml reads off the checkout and verifies is GITHUB_SHA's; base.sha
+          # is only the fallback. Main's full-suite dispatch builds GITHUB_SHA
+          # itself, whose own seed may already exist, else its parent's.
+          MERGED_ONTO: ${{ github.event_name == 'pull_request' && (inputs.source_parent1 || github.event.pull_request.base.sha) || github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          # A seed an owned Mac keeps is cloned, not downloaded (prefer-seed
+          # above), and it is the one prefer-seed compared.
+          CMUX_SEED_LOCAL_CACHE: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && vars.CI_OWNED_PREFER_SEED != '' && format('{0}/seeds', env.CMUX_OWNED_STATE_ROOT) || '' }}
+          CMUX_SEED_EXACT: ${{ steps.prefer-seed.outputs.local == 'true' && steps.prefer-seed.outputs.seed_key || '' }}
+          CMUX_SEED_DISTANCE: ${{ steps.prefer-seed.outputs.seed_distance }}
+        run: |
+          python3 scripts/ci/seed_derived_data.py start \
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_PREFIX" "$MERGED_ONTO"
+
       - name: Cache GhosttyKit.xcframework
         if: steps.reuse-products.outputs.hit != 'true'
         id: cache-ghosttykit-admission
@@ -696,42 +733,6 @@ jobs:
         if: steps.reuse-products.outputs.hit != 'true'
         continue-on-error: true
         run: scripts/ci/swiftpm-manifest-cache.sh install "$RUNNER_TEMP/swiftpm-manifests"
-
-      # The key names only the Xcode version and the canonical paths, so it is
-      # known before the source tree is copied there.
-      - name: Compute test compilation cache key
-        if: steps.reuse-products.outputs.hit != 'true'
-        id: compilation-cache-key
-        run: |
-          set -euo pipefail
-          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
-
-      # The seed download (~40 s) needs only that key, so it runs while
-      # packages resolve instead of after them. "Adopt the nightly DerivedData
-      # seed" below reuses the seed this step picked and waits for it; if this
-      # step fails, adopt picks and downloads itself.
-      - name: Start the DerivedData seed download
-        if: steps.reuse-products.outputs.hit != 'true' && (steps.owned-state.outputs.warm != 'true' || steps.prefer-seed.outputs.prefer == 'true') && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
-        continue-on-error: true
-        # Picking the seed probes the bucket before the download detaches; a
-        # hung CDN must not hold up the resolve. adopt then picks for itself.
-        timeout-minutes: 3
-        env:
-          SEED_PREFIX: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
-          # A pull request builds on the merge commit's first parent, which
-          # ci.yml reads off the checkout and verifies is GITHUB_SHA's; base.sha
-          # is only the fallback. Main's full-suite dispatch builds GITHUB_SHA
-          # itself, whose own seed may already exist, else its parent's.
-          MERGED_ONTO: ${{ github.event_name == 'pull_request' && (inputs.source_parent1 || github.event.pull_request.base.sha) || github.sha }}
-          GH_TOKEN: ${{ github.token }}
-          # A seed an owned Mac keeps is cloned, not downloaded (prefer-seed
-          # above), and it is the one prefer-seed compared.
-          CMUX_SEED_LOCAL_CACHE: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && vars.CI_OWNED_PREFER_SEED != '' && format('{0}/seeds', env.CMUX_OWNED_STATE_ROOT) || '' }}
-          CMUX_SEED_EXACT: ${{ steps.prefer-seed.outputs.local == 'true' && steps.prefer-seed.outputs.seed_key || '' }}
-          CMUX_SEED_DISTANCE: ${{ steps.prefer-seed.outputs.seed_distance }}
-        run: |
-          python3 scripts/ci/seed_derived_data.py start \
-            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_PREFIX" "$MERGED_ONTO"
 
       # Nothing here reads the workspace package cache after resolve, so it
       # moves into the canonical root instead of a second copy, and an exact

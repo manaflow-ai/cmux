@@ -316,6 +316,17 @@ struct AgentNotificationReconcilerTests {
     }
 
     @Test(arguments: ["claude", "codex"])
+    func runningToolResultDoesNotReopenSettledTurn(source: String) {
+        // Feed declares every tool result `.running`; only an idle declaration settles.
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnCompleted, source: source))
+        let result = event(2, .attentionResolved, source: source, request: "ordinary-tool",
+                           notify: false, declaredPhase: .running)
+        #expect(reconciler.apply(result).invalidatedCorrelationKeys.isEmpty)
+        #expect(reconciler.lifecycleEvent(result).draft.declaredPhase == .idle)
+    }
+
+    @Test(arguments: ["claude", "codex"])
     func ambiguousOrOlderIdentitylessResponsePreservesAttention(source: String) {
         for responseTurn in [nil, "previous", "turn-1"] as [String?] {
             var reconciler = AgentNotificationReconciler()
