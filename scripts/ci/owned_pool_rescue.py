@@ -405,7 +405,11 @@ def in_setup(job: Mapping[str, Any]) -> bool:
 
 
 def setup_seconds(job: Mapping[str, Any], now: dt.datetime) -> float:
-    started = parse_time(job.get("started_at"))
+    """How long the job has been in its current setup step (glaeda's hook runs in "Set up runner")."""
+    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
+    step = next((step for step in steps if step.get("name") in SETUP_STEPS and step.get("status") == "in_progress"),
+                None)
+    started = parse_time((step or {}).get("started_at")) or parse_time(job.get("started_at"))
     return 0.0 if started is None else max(0.0, (now - started).total_seconds())
 
 
@@ -480,6 +484,16 @@ class Look:
     waiting: bool = False  # a persistent-pool job has no runner yet
 
 
+def setup_budget(job: Mapping[str, Any], now: dt.datetime, budget_seconds: int,
+                 deadline: dt.datetime | None) -> float:
+    """SETUP_WAIT_SECONDS, cut so a job that entered setup late is still judged before the watch ends (as
+    job_budget() cuts a queued job's), and never below the queued budget."""
+    if deadline is None:
+        return SETUP_WAIT_SECONDS
+    left = setup_seconds(job, now) + (deadline - now).total_seconds() - END_MARGIN_SECONDS
+    return min(SETUP_WAIT_SECONDS, max(budget_seconds, left))
+
+
 def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_seconds: int,
            first_seen: Mapping[Any, dt.datetime] | None = None, deadline: dt.datetime | None = None,
            floor_seconds: int | None = None) -> Look:
@@ -494,7 +508,7 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
         return Look("rescue", f"{names} queued on {job_pool(stuck[0])} for at least "
                               f"{min(budgets[id(job)] for job in stuck)}s with no runner")
     settling = [job for job in jobs if job_pool(job) and in_setup(job)]
-    held = [job for job in settling if setup_seconds(job, now) >= SETUP_WAIT_SECONDS]
+    held = [job for job in settling if setup_seconds(job, now) >= setup_budget(job, now, budget_seconds, deadline)]
     # Cancelling the run would kill siblings still running (run 36198335113 lost five
     # shards that way to a refusal), so a job held in setup waits for them, as a
     # refusal does, until the watch is about to end.
