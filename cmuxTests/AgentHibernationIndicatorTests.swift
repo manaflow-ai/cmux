@@ -86,6 +86,42 @@ struct AgentHibernationIndicatorTests {
     }
 
     @Test
+    func aPaneStillTerminatingIsNotCountedAsHibernated() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+
+        panel.agentHibernationPhase = .terminationFailed(hibernatedState())
+        #expect(workspace.statusEntries[statusKey] == nil)
+        panel.agentHibernationPhase = .hibernated(hibernatedState())
+        #expect(workspace.statusEntries[statusKey] != nil)
+    }
+
+    @Test
+    func restoringASessionWithAHibernatedAgentShowsTheRow() throws {
+        let source = Workspace()
+        let panel = try #require(source.focusedTerminalPanel)
+        let state = hibernatedState()
+        source.restoredAgentLifecycle.setSnapshot(state.agent, panelId: panel.id)
+        panel.agentHibernationPhase = .hibernated(state)
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        try #require(snapshot.panels.contains { $0.terminal?.hibernation != nil })
+
+        let restored = Workspace()
+        _ = restored.restoreSessionSnapshot(snapshot)
+        #expect(restored.statusEntries[statusKey] != nil)
+    }
+
+    @Test
+    func resettingTheSidebarKeepsTheRow() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        panel.agentHibernationPhase = .hibernated(hibernatedState())
+
+        workspace.resetSidebarContext()
+        #expect(workspace.statusEntries[statusKey] != nil)
+    }
+
+    @Test
     func taskManagerDimsAndLabelsAHibernatedSurface() throws {
         let snapshot = CmuxTaskManagerSnapshot(payload: topPayload(surfaces: [
             surface(id: "38457A72-7D87-40FC-8ED5-899B59572FD0", index: 1, hibernated: true),

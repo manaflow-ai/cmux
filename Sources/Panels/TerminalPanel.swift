@@ -97,7 +97,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live {
         didSet {
-            guard oldValue.isCommitted != agentHibernationPhase.isCommitted else { return }
+            guard oldValue.isSettledHibernation != agentHibernationPhase.isSettledHibernation else { return }
             NotificationCenter.default.post(name: .terminalPanelAgentHibernationDidChange, object: self)
         }
     }

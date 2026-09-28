@@ -357,6 +357,8 @@ extension Workspace {
         // processes (e.g. claude_code "Running"). Don't restore them across app
         // restarts because the processes that set them are gone.
         statusEntries.removeAll()
+        // The hibernated-agents row is derived from panes, not reported state.
+        refreshAgentHibernationStatusEntry()
         clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
@@ -6473,6 +6475,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func resetSidebarContext(reason: String = "unspecified") {
         statusEntries.removeAll()
+        // The hibernated-agents row is derived from panes, not reported state.
+        refreshAgentHibernationStatusEntry()
         clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
@@ -11267,7 +11271,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
-            if terminalPanel.isAgentHibernated {
+            if terminalPanel.agentHibernationPhase.isSettledHibernation {
                 refreshAgentHibernationStatusEntry()
             }
             configureTerminalPanel(terminalPanel)

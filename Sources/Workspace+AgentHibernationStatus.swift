@@ -14,7 +14,7 @@ extension Workspace {
     /// Terminal panels in this workspace whose agent is hibernated.
     var hibernatedAgentPanelCount: Int {
         panels.values.reduce(0) { count, panel in
-            count + (((panel as? TerminalPanel)?.isAgentHibernated == true) ? 1 : 0)
+            count + (((panel as? TerminalPanel)?.agentHibernationPhase.isSettledHibernation == true) ? 1 : 0)
         }
     }
 
