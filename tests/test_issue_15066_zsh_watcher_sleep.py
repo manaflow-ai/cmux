@@ -82,7 +82,7 @@ def test_syntax_and_zselect_sleep(tmp: Path, env: dict[str, str], log: Path) -> 
     started = time.monotonic()
     result = run_zsh(
         "source \"$1\"; (( _CMUX_HAS_ZSELECT )) || { print -r -- SKIP; exit 0; }; "
-        "_cmux_sleep_cs 20; print -r -- ZSELECT_OK",
+        "setopt ERR_RETURN ERR_EXIT; _cmux_sleep_cs 20; print -r -- ZSELECT_OK",
         env=env,
     )
     elapsed = time.monotonic() - started

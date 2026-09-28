@@ -27,7 +27,9 @@ fi
 # falling through to the /bin/sleep fallback (which would double the wait).
 _cmux_sleep_cs() {
     if (( _CMUX_HAS_ZSELECT )); then
-        zselect -t "$1"
+        # Timeout is zselect's normal status 1. Consume it before returning so
+        # callers with ERR_RETURN/ERR_EXIT enabled do not abort the watcher.
+        zselect -t "$1" || :
         return 0
     fi
     sleep "$(( $1 / 100.0 ))"
