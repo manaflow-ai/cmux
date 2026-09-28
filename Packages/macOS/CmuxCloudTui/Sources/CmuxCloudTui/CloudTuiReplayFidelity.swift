@@ -28,6 +28,7 @@ public struct CloudTuiReplayFidelity: Equatable, Sendable {
     private var localGridEpoch: UInt64 = 0
     private var queuedGrid: CloudTuiManualIOGrid?
     private var queuedLocalGridEpoch: UInt64?
+    private var replayParsePending = false
 
     public init(repairLimit: Int = 2) {
         self.repairLimit = repairLimit
@@ -45,6 +46,7 @@ public struct CloudTuiReplayFidelity: Equatable, Sendable {
         faithfulGrid = nil
         queuedGrid = remote != nil && local == remote ? local : nil
         queuedLocalGridEpoch = localGridEpoch
+        replayParsePending = true
         return generation
     }
 
@@ -56,7 +58,11 @@ public struct CloudTuiReplayFidelity: Equatable, Sendable {
               let queuedGrid,
               local == queuedGrid,
               queuedLocalGridEpoch == localGridEpoch
-        else { return }
+        else {
+            if token == generation { replayParsePending = false }
+            return
+        }
+        replayParsePending = false
         faithfulGrid = queuedGrid
         repairs = 0
     }
@@ -69,7 +75,7 @@ public struct CloudTuiReplayFidelity: Equatable, Sendable {
 
     /// Whether a check could still decide to refetch.
     public var mayNeedRepair: Bool {
-        remoteGrid != nil && faithfulGrid == nil && repairs < repairLimit
+        remoteGrid != nil && faithfulGrid == nil && repairs < repairLimit && !replayParsePending
     }
 
     /// Whether refetching now would replace an unfaithful replay with a

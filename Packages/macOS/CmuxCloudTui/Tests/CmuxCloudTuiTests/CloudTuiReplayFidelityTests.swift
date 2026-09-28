@@ -13,6 +13,12 @@ import CmuxCloudTui
         #expect(fidelity.needsRepair(local: remote))
     }
 
+    @Test func replayIsNotRepairedBeforeParserCompletion() {
+        var fidelity = CloudTuiReplayFidelity()
+        _ = fidelity.replayQueued(remote: remote, local: hidden)
+        #expect(!fidelity.needsRepair(local: remote))
+    }
+
     @Test func replayParsedAtTheDaemonGridNeedsNoRepair() {
         var fidelity = CloudTuiReplayFidelity()
         let token = fidelity.replayQueued(remote: remote, local: remote)
@@ -34,8 +40,10 @@ import CmuxCloudTui
     @Test func completionOfASupersededReplayIsIgnored() {
         var fidelity = CloudTuiReplayFidelity()
         let stale = fidelity.replayQueued(remote: remote, local: remote)
-        _ = fidelity.replayQueued(remote: remote, local: hidden)
+        let current = fidelity.replayQueued(remote: remote, local: hidden)
         fidelity.replayApplied(token: stale, local: remote)
+        #expect(!fidelity.needsRepair(local: remote))
+        fidelity.replayApplied(token: current, local: hidden)
         #expect(fidelity.faithfulGrid == nil)
         #expect(fidelity.needsRepair(local: remote))
     }

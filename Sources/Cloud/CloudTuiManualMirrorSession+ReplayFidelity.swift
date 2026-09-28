@@ -9,8 +9,8 @@ private let replayFidelityLogger = Logger(subsystem: "com.cmuxterm.app", categor
 /// grid. See ``CloudTuiReplayFidelity`` for why growing the pane cannot repair
 /// one: the daemon only replays when the remote PTY size changes.
 extension CloudTuiManualMirrorSession {
-    /// The grid Ghostty's terminal holds right now, or nil while a resize is
-    /// still queued on its IO thread.
+    /// The grid Ghostty's terminal holds right now, or nil while its runtime
+    /// surface is unavailable.
     func settledGrid() -> CloudTuiManualIOGrid? {
         surface?.settledGridCells().flatMap { CloudTuiManualIOGrid(columns: $0.columns, rows: $0.rows) }
     }
@@ -25,8 +25,9 @@ extension CloudTuiManualMirrorSession {
         scheduleFidelityCheck()
     }
 
-    /// Checks once Ghostty has applied any queued resize, so the decision
-    /// reads the grid the next replay would be parsed into.
+    /// Defers one main-actor turn so a sizing callback and its response can
+    /// settle before deciding whether to refetch. Manual-I/O resize delivery
+    /// is synchronous; this is a reentrancy boundary, not a timed poll.
     func scheduleFidelityCheck() {
         fidelityCheckTask?.cancel()
         guard replayFidelity.mayNeedRepair else {
@@ -34,15 +35,10 @@ extension CloudTuiManualMirrorSession {
             return
         }
         fidelityCheckTask = Task { @MainActor [weak self] in
-            for attempt in 0...10 {
-                if attempt > 0 { try? await Task.sleep(for: .milliseconds(30)) }
-                guard !Task.isCancelled, let self else { return }
-                if self.settledGrid() != nil || attempt == 10 {
-                    self.fidelityCheckTask = nil
-                    self.repairUnfaithfulReplayIfNeeded()
-                    return
-                }
-            }
+            await Task.yield()
+            guard !Task.isCancelled, let self else { return }
+            self.fidelityCheckTask = nil
+            self.repairUnfaithfulReplayIfNeeded()
         }
     }
 
