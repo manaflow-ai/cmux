@@ -48,14 +48,14 @@ extension AgentNotificationRegressionTests {
 
         let legacy = TerminalNotificationDeliveryDecision.resolve(
             isAppFocused: true, isActiveTab: false, isFocusedSurface: false,
-            isMuted: false, effects: effects
+            isMuted: false, soundWhenFocused: false, effects: effects
         )
         #expect(legacy.disposition == .externalDelivery)
         #expect(legacy.effects.desktop)
 
         let suppressed = TerminalNotificationDeliveryDecision.resolve(
             isAppFocused: true, isActiveTab: false, isFocusedSurface: false,
-            isMuted: false, effects: effects, suppressWhenAppFocused: true
+            isMuted: false, soundWhenFocused: false, effects: effects, suppressWhenAppFocused: true
         )
         #expect(suppressed.disposition == .focusedInline)
         #expect(!suppressed.effects.desktop)
@@ -63,7 +63,7 @@ extension AgentNotificationRegressionTests {
 
         let appInBackground = TerminalNotificationDeliveryDecision.resolve(
             isAppFocused: false, isActiveTab: false, isFocusedSurface: false,
-            isMuted: false, effects: effects, suppressWhenAppFocused: true
+            isMuted: false, soundWhenFocused: false, effects: effects, suppressWhenAppFocused: true
         )
         #expect(appInBackground.disposition == .externalDelivery)
         #expect(appInBackground.effects.desktop)
