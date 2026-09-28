@@ -4554,6 +4554,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
+        keepsPageActiveWhileHidden = snapshot.keepsPageActive ?? false
         // Diff viewer surfaces navigate via the app-owned custom scheme, so they
         // restore even though the original local HTTP server is gone. Manifest
         // preparation is detached from the main actor; the scheme request also

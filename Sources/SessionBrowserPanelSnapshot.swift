@@ -27,6 +27,9 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     /// first load after relaunch restores the page instead of reloading it.
     /// Omitted for private profiles, form submissions and oversized state.
     var interactionState: Data? = nil
+    /// Whether the user pinned the page to stay active while hidden. Omitted
+    /// when not pinned.
+    var keepsPageActive: Bool? = nil
 
     init(
         urlString: String?,
@@ -43,7 +46,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         diffViewerToken: String? = nil,
         diffViewerRequestPath: String? = nil,
         cloudResource: SurfaceResourceID? = nil,
-        interactionState: Data? = nil
+        interactionState: Data? = nil,
+        keepsPageActive: Bool? = nil
     ) {
         self.urlString = urlString
         self.profileID = profileID
@@ -60,6 +64,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         self.diffViewerRequestPath = diffViewerRequestPath
         self.cloudResource = cloudResource
         self.interactionState = interactionState
+        self.keepsPageActive = keepsPageActive
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -78,6 +83,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         case diffViewerRequestPath
         case cloudResource
         case interactionState
+        case keepsPageActive
     }
 
     init(from decoder: Decoder) throws {
@@ -97,5 +103,6 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         diffViewerRequestPath = try container.decodeIfPresent(String.self, forKey: .diffViewerRequestPath)
         cloudResource = try container.decodeIfPresent(SurfaceResourceID.self, forKey: .cloudResource)
         interactionState = try container.decodeIfPresent(Data.self, forKey: .interactionState)
+        keepsPageActive = try container.decodeIfPresent(Bool.self, forKey: .keepsPageActive)
     }
 }

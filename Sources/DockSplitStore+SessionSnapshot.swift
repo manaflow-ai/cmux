@@ -382,7 +382,7 @@ extension DockSplitStore {
                     forwardHistoryURLStrings: history.forwardHistoryURLStrings,
                     transparentBackground: browser.sessionSnapshotTransparentBackground,
                     diffViewerToken: diffViewer?.token,
-                    diffViewerRequestPath: diffViewer?.requestPath, cloudResource: browser.cloudResourceForSession, interactionState: browser.persistableInteractionStateForSessionSnapshot()
+                    diffViewerRequestPath: diffViewer?.requestPath, cloudResource: browser.cloudResourceForSession, interactionState: browser.persistableInteractionStateForSessionSnapshot(), keepsPageActive: browser.keepsPageActiveForSessionSnapshot
                 )
             } else if let deferred = panel as? DeferredBrowserPanel {
                 browserSnapshot = deferred.sessionPanelSnapshot.browser

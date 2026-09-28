@@ -52,6 +52,15 @@ public final class BrowserHiddenWebViewDiscardManager {
     public private(set) var restoredSessionShouldRenderWebView: Bool?
     public private(set) var isRestoreNavigationPending: Bool = false
 
+    /// A per-pane pin that keeps the page live while hidden, even under
+    /// system memory pressure.
+    public var keepsPageActive = false {
+        didSet {
+            guard keepsPageActive != oldValue else { return }
+            delegate?.hiddenWebViewDiscardManagerPolicyDidChange(self, reason: "keep_active_changed")
+        }
+    }
+
     public var hasScheduledDiscard: Bool {
         discardTimer != nil
     }
@@ -71,6 +80,7 @@ public final class BrowserHiddenWebViewDiscardManager {
         if !BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: policyDefaults) {
             blockers.append("policy_disabled")
         }
+        if keepsPageActive { blockers.append("keep_active") }
         if isSystemSleeping { blockers.append("system_sleeping") }
         let isUnderPressure = urgency == .systemMemoryPressure
         if snapshot.hasRecoverableWebContentTermination && !isUnderPressure {

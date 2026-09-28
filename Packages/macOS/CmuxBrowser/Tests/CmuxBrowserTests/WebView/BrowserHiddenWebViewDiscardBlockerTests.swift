@@ -3,9 +3,9 @@ import Testing
 @testable import CmuxBrowser
 
 /// Coverage for https://github.com/manaflow-ai/cmux/issues/15069: typed input
-/// a restore cannot replay and Picture in Picture each keep a hidden pane's
-/// page. System memory pressure overrides only the typed input, which a
-/// restore loses but which is not live activity.
+/// a restore cannot replay, Picture in Picture and the per-pane keep-active pin
+/// each keep a hidden pane's page. System memory pressure overrides only the
+/// typed input, which a restore loses but which is not live activity.
 @MainActor
 struct BrowserHiddenWebViewDiscardBlockerTests {
     @Test("Unrestorable typed input blocks a budget discard but not a pressure discard")
@@ -35,6 +35,35 @@ struct BrowserHiddenWebViewDiscardBlockerTests {
         let pressureReason = BrowserHiddenWebViewDiscardManager.systemMemoryPressureReason
         #expect(!manager.requestImmediateDiscardIfSafe(reason: pressureReason, now: now))
         #expect(delegate.discardRequests.isEmpty)
+    }
+
+    @Test("A keep-active pin blocks both budget and pressure discards")
+    func keepActivePinBlocksEveryDiscard() {
+        let now = Date()
+        let (manager, delegate) = makeManager(hiddenAt: now.addingTimeInterval(-3600))
+        manager.keepsPageActive = true
+
+        #expect(manager.blockers(for: delegate.snapshot, now: now) == ["keep_active"])
+        #expect(!manager.isEligibleForMemoryBudgetDiscard(now: now))
+        #expect(!manager.requestMemoryBudgetDiscard(now: now))
+        let pressureReason = BrowserHiddenWebViewDiscardManager.systemMemoryPressureReason
+        #expect(!manager.requestImmediateDiscardIfSafe(reason: pressureReason, now: now))
+        #expect(delegate.discardRequests.isEmpty)
+
+        manager.keepsPageActive = false
+        #expect(manager.requestMemoryBudgetDiscard(now: now))
+        #expect(delegate.discardRequests == [BrowserHiddenWebViewDiscardManager.memoryBudgetReason])
+    }
+
+    @Test("Toggling the keep-active pin re-evaluates the pane's discard policy once per change")
+    func keepActivePinNotifiesPolicyChange() {
+        let (manager, delegate) = makeManager(hiddenAt: Date())
+
+        manager.keepsPageActive = true
+        manager.keepsPageActive = true
+        manager.keepsPageActive = false
+
+        #expect(delegate.policyChanges == ["keep_active_changed", "keep_active_changed"])
     }
 
     @Test("Pressure still keeps a pane that is playing media or capturing it")

@@ -13,7 +13,8 @@ import XCTest
 /// the hidden memory budget must not discard a pane whose state a restore
 /// cannot bring back. Typed input the restore never replays (a password, a
 /// rich-text editor) keeps the pane until the system is under memory
-/// pressure, and Picture in Picture keeps it alive like playing media.
+/// pressure, and Picture in Picture and the keep-active pin keep it alive
+/// like playing media.
 @MainActor
 final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
     private static let policyKeys = [
@@ -132,6 +133,40 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
         XCTAssertFalse(panel.discardHiddenWebViewForMemoryBudget(now: Date().addingTimeInterval(3600)))
         XCTAssertFalse(panel.discardHiddenWebViewForSystemMemoryPressure())
         XCTAssertNotEqual(panel.webViewLifecycleState, .discarded)
+    }
+
+    func testKeepActivePinBlocksDiscardAndSurvivesSessionRestore() throws {
+        let panel = try loadPage(body: "<p>pinned</p>")
+        defer { panel.close() }
+        panel.keepsPageActiveWhileHidden = true
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden")
+
+        XCTAssertFalse(panel.discardHiddenWebViewForMemoryBudget(now: Date().addingTimeInterval(3600)))
+        XCTAssertFalse(panel.discardHiddenWebViewForSystemMemoryPressure())
+        XCTAssertNotEqual(panel.webViewLifecycleState, .discarded)
+
+        let snapshot = SessionBrowserPanelSnapshot(
+            urlString: panel.webView.url?.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1,
+            developerToolsVisible: false,
+            backHistoryURLStrings: nil,
+            forwardHistoryURLStrings: nil,
+            keepsPageActive: panel.keepsPageActiveForSessionSnapshot
+        )
+        let decoded = try JSONDecoder().decode(
+            SessionBrowserPanelSnapshot.self,
+            from: JSONEncoder().encode(snapshot)
+        )
+        let restored = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
+        defer { restored.close() }
+        restored.restoreSessionSnapshot(decoded)
+        XCTAssertTrue(restored.keepsPageActiveWhileHidden)
+
+        restored.keepsPageActiveWhileHidden = false
+        XCTAssertNil(restored.keepsPageActiveForSessionSnapshot)
     }
 
     private func loadPage(body: String) throws -> BrowserPanel {

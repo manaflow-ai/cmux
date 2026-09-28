@@ -769,7 +769,7 @@ extension Workspace {
                     forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings,
                     transparentBackground: browserPanel.sessionSnapshotTransparentBackground,
                     diffViewerToken: diffViewerComponents?.token,
-                    diffViewerRequestPath: diffViewerComponents?.requestPath, cloudResource: browserPanel.cloudResourceForSession, interactionState: browserPanel.persistableInteractionStateForSessionSnapshot()
+                    diffViewerRequestPath: diffViewerComponents?.requestPath, cloudResource: browserPanel.cloudResourceForSession, interactionState: browserPanel.persistableInteractionStateForSessionSnapshot(), keepsPageActive: browserPanel.keepsPageActiveForSessionSnapshot
                 )
             } else if let deferredPanel = panel as? DeferredBrowserPanel {
                 // A deferred panel already owns the exact persisted browser DTO;
