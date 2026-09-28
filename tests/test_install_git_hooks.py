@@ -8,6 +8,7 @@ hooks in .git/hooks) are left alone with a warning; real errors still fail.
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -39,7 +40,14 @@ class InstallGitHooksTests(unittest.TestCase):
         self.copy_installer(self.repo)
 
     def copy_installer(self, root):
-        for relative in ("scripts/git-hooks", INSTALLER):
+        for relative in (
+            "scripts/git-hooks",
+            INSTALLER,
+            "scripts/merge-xcstrings.py",
+            "scripts/merge-pbxproj.py",
+            "scripts/ci/catch_up_pr.py",
+            "scripts/normalize-pbxproj.py",
+        ):
             source, target = SOURCE / relative, root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             if source.is_dir():
@@ -59,16 +67,44 @@ class InstallGitHooksTests(unittest.TestCase):
         return self.git("config", "--local", "--get", "core.hooksPath", check=False).stdout.strip()
 
     def assert_merge_driver_installed(self):
-        self.assertEqual(
-            self.git("config", "--get", "merge.xcstrings.driver").stdout.strip(),
-            "python3 scripts/merge-xcstrings.py %O %A %B %P",
-        )
+        common = Path(self.git("rev-parse", "--git-common-dir").stdout.strip())
+        if not common.is_absolute():
+            common = self.repo / common
+        installed = common / "cmux-merge-drivers"
+        for name in ("merge-xcstrings.py", "merge-pbxproj.py", "normalize-pbxproj.py"):
+            self.assertTrue((installed / name).is_file(), name)
+        self.assertTrue((installed / "ci" / "catch_up_pr.py").is_file())
+
+        for key, name in (
+            ("merge.xcstrings.driver", "merge-xcstrings.py"),
+            ("merge.pbxproj.driver", "merge-pbxproj.py"),
+        ):
+            command = self.git("config", "--get", key).stdout.strip()
+            words = shlex.split(command)
+            self.assertEqual(Path(words[1]).resolve(), (installed / name).resolve())
+            self.assertEqual(words[2:], ["%O", "%A", "%B", "%P"])
+            self.assertNotIn(f"scripts/{name}", command)
 
     def test_clean_clone_uses_tracked_hooks(self):
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.local_hooks_path(), "scripts/git-hooks")
         self.assert_merge_driver_installed()
+
+    def test_merge_driver_does_not_follow_checked_out_script_changes(self):
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        command = self.git("config", "--get", "merge.pbxproj.driver").stdout.strip()
+        installed_driver = Path(shlex.split(command)[1])
+        reviewed = installed_driver.read_bytes()
+
+        (self.repo / "scripts" / "merge-pbxproj.py").write_text(
+            "raise SystemExit('untrusted checkout executed')\n",
+            encoding="utf-8",
+        )
+
+        self.assertEqual(installed_driver.read_bytes(), reviewed)
+        self.assertNotEqual(installed_driver.resolve(), (self.repo / "scripts" / "merge-pbxproj.py").resolve())
 
     def test_global_hooks_path_warns_and_succeeds(self):
         global_hooks = self.root / "global-hooks"

@@ -32,9 +32,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-CATCH_UP = ROOT / "scripts" / "ci" / "catch_up_pr.py"
-NORMALIZER = ROOT / "scripts" / "normalize-pbxproj.py"
+SCRIPT_DIR = Path(__file__).resolve().parent
+CATCH_UP = SCRIPT_DIR / "ci" / "catch_up_pr.py"
+NORMALIZER = SCRIPT_DIR / "normalize-pbxproj.py"
 SECTION_BEGIN_RE = re.compile(r"/\* Begin ([A-Za-z0-9]+) section \*/")
 SECTION_END_RE = re.compile(r"/\* End ([A-Za-z0-9]+) section \*/")
 BUILD_FILE_RE = re.compile(r"^\s*[0-9A-Za-z]+ /\* .* \*/ = \{isa = PBXBuildFile;.*\};\s*$")
@@ -183,6 +183,15 @@ def explicit_conflict_bytes(base: bytes, ours: bytes, theirs: bytes, width: int 
     )
 
 
+def read_merge_input(path: Path, label: str) -> tuple[bytes, OSError | None]:
+    """Read one driver input, preserving a visible placeholder on failure."""
+    try:
+        return path.read_bytes(), None
+    except OSError as error:
+        detail = f"[merge-pbxproj could not read {label}: {error}]\n"
+        return detail.encode("utf-8", errors="replace"), error
+
+
 def normalized(text: str, name: str) -> str | None:
     """The merged text after scripts/normalize-pbxproj.py, or None if it rejects it.
 
@@ -217,15 +226,22 @@ def main(argv: list[str]) -> int:
         return 2
     base_path, ours_path, theirs_path = (Path(p) for p in argv[1:4])
     name = argv[4] if len(argv) > 4 else str(ours_path)
-    base_bytes = ours_bytes = theirs_bytes = b""
-    try:
-        base_bytes = base_path.read_bytes()
-        ours_bytes = ours_path.read_bytes()
-        theirs_bytes = theirs_path.read_bytes()
-    except OSError as error:
-        if base_bytes and ours_bytes and theirs_bytes:
+    base_bytes, base_error = read_merge_input(base_path, "base")
+    ours_bytes, ours_error = read_merge_input(ours_path, "ours")
+    theirs_bytes, theirs_error = read_merge_input(theirs_path, "theirs")
+    read_errors = [error for error in (base_error, ours_error, theirs_error) if error is not None]
+    if read_errors:
+        try:
             ours_path.write_bytes(explicit_conflict_bytes(base_bytes, ours_bytes, theirs_bytes))
-        print(f"merge-pbxproj: {name}: cannot read merge inputs ({error}); falling back", file=sys.stderr)
+        except OSError as write_error:
+            print(
+                f"merge-pbxproj: {name}: cannot materialize input failure ({write_error})",
+                file=sys.stderr,
+            )
+        print(
+            f"merge-pbxproj: {name}: cannot read merge inputs ({read_errors[0]}); falling back",
+            file=sys.stderr,
+        )
         return 1
     try:
         base = base_bytes.decode("utf-8")

@@ -63,9 +63,27 @@ fi
 
 # Merge drivers named by .gitattributes have to be defined per clone; git will
 # not run a driver it cannot resolve, it just falls back to the default one.
+# Install reviewed copies outside the checked-out tree. A merge can run after
+# checking out a fork branch, so resolving a driver or helper from that branch
+# would execute untrusted code with the contributor's credentials.
+GIT_COMMON_DIR="$(git rev-parse --git-common-dir)"
+if [[ "$GIT_COMMON_DIR" != /* ]]; then
+    GIT_COMMON_DIR="$REPO_ROOT/$GIT_COMMON_DIR"
+fi
+MERGE_DRIVER_DIR="$GIT_COMMON_DIR/cmux-merge-drivers"
+mkdir -p "$MERGE_DRIVER_DIR/ci"
+install -m 0755 scripts/merge-xcstrings.py "$MERGE_DRIVER_DIR/merge-xcstrings.py"
+install -m 0755 scripts/merge-pbxproj.py "$MERGE_DRIVER_DIR/merge-pbxproj.py"
+install -m 0644 scripts/ci/catch_up_pr.py "$MERGE_DRIVER_DIR/ci/catch_up_pr.py"
+install -m 0755 scripts/normalize-pbxproj.py "$MERGE_DRIVER_DIR/normalize-pbxproj.py"
+PYTHON3_BIN="$(command -v python3)"
+printf -v XCSTRINGS_DRIVER '%q %q %%O %%A %%B %%P' \
+    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-xcstrings.py"
+printf -v PBXPROJ_DRIVER '%q %q %%O %%A %%B %%P' \
+    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-pbxproj.py"
 git config merge.xcstrings.name "Xcode string catalog (key-wise three-way merge)"
-git config merge.xcstrings.driver "python3 scripts/merge-xcstrings.py %O %A %B %P"
+git config merge.xcstrings.driver "$XCSTRINGS_DRIVER"
 echo "==> .xcstrings merge driver installed (merge.xcstrings.driver)."
 git config merge.pbxproj.name "Xcode project file (three-way union of added entries)"
-git config merge.pbxproj.driver "python3 scripts/merge-pbxproj.py %O %A %B %P"
+git config merge.pbxproj.driver "$PBXPROJ_DRIVER"
 echo "==> project.pbxproj merge driver installed (merge.pbxproj.driver)."

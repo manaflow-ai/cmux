@@ -218,6 +218,32 @@ def test_invalid_utf8_leaves_an_explicit_byte_preserving_conflict():
         assert b"Traceback" not in result.stderr
 
 
+def test_missing_input_leaves_an_explicit_conflict_in_ours():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        base = root / "missing-base"
+        ours = root / "ours"
+        theirs = root / "theirs"
+        ours_text = project(["Ours.swift"])
+        theirs_text = project(["Theirs.swift"])
+        ours.write_text(ours_text, encoding="utf-8")
+        theirs.write_text(theirs_text, encoding="utf-8")
+
+        result = subprocess.run(
+            [sys.executable, str(DRIVER), str(base), str(ours), str(theirs),
+             "cmux.xcodeproj/project.pbxproj"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 1
+        conflicted = ours.read_text(encoding="utf-8")
+        assert "<" * 32 in conflicted
+        assert "could not read base" in conflicted
+        assert ours_text.rstrip() in conflicted and theirs_text.rstrip() in conflicted
+        assert "cannot read merge inputs" in result.stderr
+
+
 def test_helper_load_failure_still_materializes_a_conflict():
     module = load_driver("merge_pbxproj_failure_test")
     module.load_mergers = lambda: (_ for _ in ()).throw(SyntaxError("broken helper"))
