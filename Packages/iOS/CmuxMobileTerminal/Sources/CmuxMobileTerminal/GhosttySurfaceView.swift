@@ -2542,26 +2542,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         bottomDockHostView ?? self
     }
 
-    /// Whether the Files chip waits for a scroll (a Mac's on-screen files)
-    /// or shows whenever mounted (an SSH computer's file browser).
-    public var artifactChipReveal: TerminalFilesChipReveal = .onScroll {
-        didSet {
-            guard artifactChipReveal != oldValue else { return }
-            updateArtifactChipVisibility(animated: false)
-        }
-    }
-
     private var artifactChipShouldBeVisible: Bool {
         artifactChipHost.isRequestedVisible
             // Assistive technologies cannot reasonably perform a scroll to
             // reveal the only Files control, and the host hides its
             // accessibility descendants while invisible — so the transient
             // reveal is bypassed whenever VoiceOver or Switch Control runs.
-            && artifactChipReveal.isVisible(
-                scrollRevealed: artifactChipScrollRevealed,
-                assistiveTechnologyRunning: UIAccessibility.isVoiceOverRunning
-                    || UIAccessibility.isSwitchControlRunning
-            )
+            && (artifactChipScrollRevealed
+                || UIAccessibility.isVoiceOverRunning
+                || UIAccessibility.isSwitchControlRunning)
             && dockedToolbarShouldBeVisible
             && dockedToolbar?.isHidden == false
             && !zoomOverlayShown
