@@ -586165,7 +586165,184 @@
           }
         }
       }
+    },
+    "cloudVM.error.recreateRequired.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete this machine, then create a new one. Retrying will not fix it. Copy any files you still need first if you can."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "احذف هذا الجهاز، ثم أنشئ جهازًا جديدًا. إعادة المحاولة لن تحل المشكلة. انسخ أولًا أي ملفات ما زلت تحتاجها إن أمكن."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Löschen Sie diese Maschine und erstellen Sie dann eine neue. Ein erneuter Versuch behebt das nicht. Kopieren Sie nach Möglichkeit zuerst alle Dateien, die Sie noch brauchen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina esta máquina y luego crea una nueva. Reintentar no lo solucionará. Si puedes, copia primero los archivos que aún necesites."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimez cette machine, puis créez-en une nouvelle. Réessayer ne résoudra pas le problème. Si possible, copiez d’abord les fichiers dont vous avez encore besoin."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンを削除してから、新しいマシンを作成してください。再試行しても解決しません。必要なファイルがあれば、可能なら先にコピーしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신을 삭제한 다음 새 머신을 만드세요. 다시 시도해도 해결되지 않습니다. 가능하면 필요한 파일을 먼저 복사하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请删除此机器，然后创建新机器。重试无法解决此问题。如果可以，请先复制仍需要的文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請刪除此機器，然後建立新機器。重試無法解決此問題。如果可以，請先複製仍需要的檔案。"
+          }
+        }
+      }
+    },
+    "cloudVM.error.recreateRequired.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Cloud machine uses an older format and can no longer be opened. Create a new machine to keep working."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم جهاز Cloud هذا تنسيقًا أقدم ولم يعد من الممكن فتحه. أنشئ جهازًا جديدًا لمتابعة العمل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Cloud-Maschine verwendet ein älteres Format und kann nicht mehr geöffnet werden. Erstellen Sie eine neue Maschine, um weiterzuarbeiten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina en la nube usa un formato anterior y ya no se puede abrir. Crea una máquina nueva para seguir trabajando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette machine Cloud utilise un ancien format et ne peut plus être ouverte. Créez une nouvelle machine pour continuer à travailler."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンは古い形式のため、開けなくなりました。作業を続けるには新しいマシンを作成してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 머신은 이전 형식을 사용하므로 더 이상 열 수 없습니다. 작업을 계속하려면 새 머신을 만드세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Cloud 机器使用旧格式，已无法打开。请创建新机器以继续工作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Cloud 機器使用舊格式，已無法開啟。請建立新機器以繼續工作。"
+          }
+        }
+      }
+    },
+    "cloudVM.error.recreateRequired.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recreate this Cloud machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعد إنشاء جهاز Cloud هذا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Cloud-Maschine neu erstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vuelve a crear esta máquina en la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recréez cette machine Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンを作り直してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 머신을 다시 만드세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请重新创建此 Cloud 机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請重新建立此 Cloud 機器"
+          }
+        }
+      }
     }
   },
- "version": "1.0"
+  "version": "1.0"
 }

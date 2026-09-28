@@ -1,5 +1,6 @@
 import CMUXDebugLog
 import CmuxAuthRuntime
+import CmuxCloudMachines
 import CMUXMobileCore
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -53,13 +54,20 @@ public func formattedCloudVMHTTPError(status: Int, body: String) -> String {
 
     let errorCode = cloudVMString(object["error"]) ?? "http_\(status)"
     let ui = object["ui"] as? [String: Any]
-    let displayTitle = cloudVMString(ui?["title"])
+    var displayTitle = cloudVMString(ui?["title"])
     let message = cloudVMString(object["message"])
         ?? cloudVMString(object["reason"])
         ?? defaultCloudVMMessage(status: status)
-    let displayMessage = cloudVMString(ui?["message"]) ?? message
-    let action = cloudVMString(object["action"])
+    var displayMessage = cloudVMString(ui?["message"]) ?? message
+    var action = cloudVMString(object["action"])
         ?? defaultCloudVMAction(status: status, errorCode: errorCode, response: object)
+    if errorCode == CloudAttachRetryGate.recreateRequiredErrorCode {
+        // Permanent machine state: the app's own copy, in the app's language,
+        // so the sidebar and CLI name the one fix instead of a retry.
+        displayTitle = cloudVMRecreateRequiredTitle()
+        displayMessage = cloudVMRecreateRequiredMessage()
+        action = cloudVMRecreateRequiredAction()
+    }
     let retryAfterSeconds = cloudVMInt(object["retryAfterSeconds"])
         ?? cloudVMInt(ui?["retryAfterSeconds"])
     let details = cloudVMDetails(from: object)
@@ -88,6 +96,27 @@ public func formattedCloudVMHTTPError(status: Int, body: String) -> String {
         lines.append(cloudVMReferenceLine(traceId: traceId))
     }
     return lines.joined(separator: "\n")
+}
+
+/// Title for a machine that must be deleted and created again (`vm_recreate_required`).
+public func cloudVMRecreateRequiredTitle() -> String {
+    String(localized: "cloudVM.error.recreateRequired.title", defaultValue: "Recreate this Cloud machine")
+}
+
+/// One-line state shown for a machine that can never be opened again.
+public func cloudVMRecreateRequiredMessage() -> String {
+    String(
+        localized: "cloudVM.error.recreateRequired.message",
+        defaultValue: "This Cloud machine uses an older format and can no longer be opened. Create a new machine to keep working."
+    )
+}
+
+/// The one fix for `vm_recreate_required`; retrying never helps.
+public func cloudVMRecreateRequiredAction() -> String {
+    String(
+        localized: "cloudVM.error.recreateRequired.action",
+        defaultValue: "Delete this machine, then create a new one. Retrying will not fix it. Copy any files you still need first if you can."
+    )
 }
 
 public func cloudVMReferenceLine(traceId: String) -> String {
@@ -1070,6 +1099,12 @@ public actor VMClient {
     private let readRequests: CloudReadRequestCoordinator
     private let isCloudEnabled: @Sendable () -> Bool
     private let isDisabledByManagedPolicy: (@Sendable () -> Bool)?
+    /// Per-machine attach refusal windows, keyed by account, session generation and machine.
+    private var attachRetryGate = CloudAttachRetryGate()
+    /// The refusal a gated attach answers with, so every caller shows the server's reason.
+    private var attachLastFailure: [String: VMClientError] = [:]
+    /// One attach request per machine, device fingerprint and capability set at a time.
+    private var cmuxRemoteInFlight: [String: Task<VMCmuxRemoteEndpoint, Error>] = [:]
 
     public init(
         session: URLSession = .shared,
@@ -2004,12 +2039,88 @@ public actor VMClient {
         return tokens
     }
 
+    /// Open (or reuse) the cmux-tui remote endpoint for one machine.
+    ///
+    /// This is the single choke point for every in-app attach caller, so it
+    /// owns the retry policy: concurrent callers for the same machine share one
+    /// request, and after a refusal the machine's ``CloudAttachRetryGate``
+    /// answers the stored error without a request until its window passes.
+    /// `vm_recreate_required` holds for half an hour; every other refusal
+    /// backs off exponentially. Pollers therefore cannot turn a permanent
+    /// machine state into a request loop.
     public func openCmuxRemote(
         id: String,
         deviceFingerprint: String? = nil,
         clientCapabilities: [String] = []
     ) async throws -> VMCmuxRemoteEndpoint {
         return try await withOperation(.open, foreground: true) {
+            try await self.openCmuxRemoteGated(
+                id: id,
+                deviceFingerprint: deviceFingerprint,
+                clientCapabilities: clientCapabilities
+            )
+        }
+    }
+
+    private func openCmuxRemoteGated(
+        id: String,
+        deviceFingerprint: String?,
+        clientCapabilities: [String]
+    ) async throws -> VMCmuxRemoteEndpoint {
+        let identity = await auth.authenticatedSessionIdentity
+        let gateKey = [identity?.accountID ?? "-", identity.map { String($0.generation) } ?? "-", id].joined(separator: "|")
+        if attachRetryGate.blockedUntil(gateKey, now: Date()) != nil, let stored = attachLastFailure[gateKey] {
+            throw stored
+        }
+        let flightKey = [gateKey, deviceFingerprint ?? "", Self.sanitizedClientCapabilities(clientCapabilities).joined(separator: ",")]
+            .joined(separator: "|")
+        if let inFlight = cmuxRemoteInFlight[flightKey] {
+            return try await inFlight.value
+        }
+        let task = Task<VMCmuxRemoteEndpoint, Error> {
+            do {
+                let endpoint = try await self.requestCmuxRemoteEndpoint(
+                    id: id,
+                    deviceFingerprint: deviceFingerprint,
+                    clientCapabilities: clientCapabilities
+                )
+                self.attachRetryGate.recordSuccess(gateKey)
+                self.attachLastFailure[gateKey] = nil
+                return endpoint
+            } catch let error as VMClientError {
+                self.recordAttachFailure(error, gateKey: gateKey)
+                throw error
+            }
+        }
+        cmuxRemoteInFlight[flightKey] = task
+        defer { if cmuxRemoteInFlight[flightKey] == task { cmuxRemoteInFlight[flightKey] = nil } }
+        let endpoint = try await task.value
+        try Task.checkCancellation()
+        return endpoint
+    }
+
+    /// Only answers the control plane (or its absence) produced gate the
+    /// machine; local refusals (signed out, Cloud disabled) never send a request.
+    private func recordAttachFailure(_ error: VMClientError, gateKey: String) {
+        let failure: CloudAttachRetryGate.Failure
+        switch error {
+        case .httpStatus(let status, let body):
+            failure = CloudAttachRetryGate.classify(status: status, body: Data(body.utf8))
+        case .backendUnreachable, .malformedResponse:
+            failure = .init(kind: .retryable)
+        case .notSignedIn, .sessionRefreshFailed, .disabledByManagedPolicy, .cloudMachinesDisabled, .lifecycleUnsupported:
+            return
+        }
+        attachRetryGate.recordFailure(gateKey, failure, now: Date())
+        attachLastFailure[gateKey] = error
+    }
+
+    private func requestCmuxRemoteEndpoint(
+        id: String,
+        deviceFingerprint: String?,
+        clientCapabilities: [String]
+    ) async throws -> VMCmuxRemoteEndpoint {
+        do {
             let encodedID = try pathSegment(id, fieldName: "vm id")
             var body: [String: Any] = ["transport": "cmux-remote"]
             if let deviceFingerprint, !deviceFingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
