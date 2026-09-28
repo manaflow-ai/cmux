@@ -42,6 +42,9 @@ final class AgentAutoResumeCoordinator {
             return
         case .cancel(let surface):
             timers.removeValue(forKey: surface)?.cancel()
+#if DEBUG
+            cmuxDebugLog("agentAutoResume.cancel surface=\(surface.prefix(8)) kind=\(draft.kind.rawValue)")
+#endif
         case let .schedule(surface, attempt, delay, token):
             guard isEnabled else {
                 tracker.abandon(surfaceId: surface, token: token)

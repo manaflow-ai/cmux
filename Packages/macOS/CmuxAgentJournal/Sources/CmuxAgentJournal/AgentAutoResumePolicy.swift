@@ -66,6 +66,10 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
         guard !isSubagent else { return .none }
         switch kind {
         case .errorReported:
+            // The same failure can arrive twice: once with its detail and
+            // once through the error notification without one. An event with
+            // no detail says nothing new, so it neither schedules nor cancels.
+            guard let detail, !detail.isEmpty else { return .none }
             var state = surfaces[surfaceId] ?? SurfaceState()
             guard AgentRetryableFailure.isRetryable(detail: detail), state.streak < delays.count else {
                 let hadPending = state.pendingToken != nil
