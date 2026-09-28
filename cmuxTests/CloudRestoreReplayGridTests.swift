@@ -142,4 +142,36 @@ struct CloudRestoreReplayGridTests {
             #expect(input.noReply)
         }
     }
+
+    @Test
+    func typingIntoAPaneAnotherClientSizesReclaimsTheGridFirst() async throws {
+        let fixture = try CloudRestoreReplayFixture(initiallyClaimsGeometry: false)
+        defer { fixture.close() }
+        try await fixture.setGrid(columns: 99, rows: 35)
+        fixture.setVisible(true)
+        fixture.setVisible(false)
+        try await fixture.attach(replay: Data("STATUS_READY".utf8))
+        fixture.setVisible(true)
+
+        let report = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(report.cmd == "resize-surface")
+        fixture.socket.send(["id": report.id, "ok": true, "data": ["outcome": "passive", "accepted": false]])
+        try await fixture.expectInputAfterPendingResponses(marker: "PEER_OWNS_GRID")
+
+        // Another client sizes the terminal. The pane the user types into
+        // takes the grid back before its first key goes out.
+        fixture.type("l")
+        let claim = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(claim.cmd == "set-client-sizing", "A key went out before the pane reclaimed the grid")
+        #expect(claim.surface == 17)
+        fixture.socket.send([
+            "event": "resized", "surface": 17, "cols": 99, "rows": 35,
+            "replay": Data("RECLAIMED_GRID".utf8).base64EncodedString()
+        ])
+        fixture.socket.send(["id": claim.id, "ok": true, "data": [:]])
+        let input = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(input.cmd == "send")
+        #expect(input.inputBytes == Data("l".utf8))
+        #expect(input.noReply)
+    }
 }
