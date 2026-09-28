@@ -1,44 +1,184 @@
 {
+  "paths": [
+    "Sources/TerminalLinkOpenCoordinator.swift",
+    "Sources/Ghostty*",
+    "Sources/*Terminal*Link*",
+    "Packages/macOS/CmuxTerminalCore/*",
+    "Packages/macOS/CmuxGit/*"
+  ],
   "steps": [
-    {"socket": "workspace.create", "params": {"title": "Bare ref", "initial_input": "clear; for i in 1 2 3 4 5 6; do echo '#847 #847 #847 #847 #847'; done\n", "focus": true}, "save": "bare"},
-    {"wait": 2.5},
-    {"key": "b", "modifiers": ["command"]},
-    {"wait": 1},
-    {"shot": "01-bare-ref-terminal"},
-    {"tree": "01-bare-ref-terminal"},
-    {"hoverAt": {"x": 0.05, "y": 0.14}, "modifiers": ["command"]},
-    {"wait": 0.6},
-    {"shot": "02-bare-ref-cmd-hover"},
-    {"clickAt": {"x": 0.05, "y": 0.14}, "modifiers": ["command"]},
-    {"wait": 4},
-    {"shot": "03-bare-ref-after-cmd-click"},
-    {"tree": "03-bare-ref-after-cmd-click"},
-
-    {"socket": "workspace.create", "params": {"title": "Slug ref", "initial_input": "clear; for i in 1 2 3 4 5 6; do echo 'manaflow-ai/cmux#847 manaflow-ai/cmux#847'; done\n", "focus": true}, "save": "slug"},
-    {"wait": 2.5},
-    {"shot": "04-slug-ref-terminal"},
-    {"tree": "04-slug-ref-terminal"},
-    {"clickAt": {"x": 0.05, "y": 0.14}, "modifiers": ["command"]},
-    {"wait": 4},
-    {"shot": "05-slug-ref-after-cmd-click"},
-    {"tree": "05-slug-ref-after-cmd-click"},
-
-    {"socket": "workspace.create", "params": {"title": "Commit ref", "initial_input": "clear; for i in 1 2 3 4 5 6; do echo '73396e6 73396e6 73396e6 73396e6'; done\n", "focus": true}, "save": "commit"},
-    {"wait": 2.5},
-    {"shot": "06-commit-ref-terminal"},
-    {"clickAt": {"x": 0.05, "y": 0.14}, "modifiers": ["command"]},
-    {"wait": 4},
-    {"shot": "07-commit-ref-after-cmd-click"},
-    {"tree": "07-commit-ref-after-cmd-click"},
-
-    {"socket": "workspace.create", "params": {"title": "No ref", "initial_input": "clear; for i in 1 2 3 4 5 6; do echo 'ordinary words that name nothing at all'; done\n", "focus": true}, "save": "none"},
-    {"wait": 2.5},
-    {"shot": "08-no-ref-terminal"},
-    {"clickAt": {"x": 0.05, "y": 0.14}, "modifiers": ["command"]},
-    {"wait": 3},
-    {"shot": "09-no-ref-after-cmd-click"},
-    {"tree": "09-no-ref-after-cmd-click"},
-
-    {"shot": "99-end", "screen": true}
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Bare ref",
+        "initial_input": "mkdir -p /tmp/cmux-ref-tour/.git/objects /tmp/cmux-ref-tour/.git/refs/heads && cd /tmp/cmux-ref-tour && printf '[core]\\n\\trepositoryformatversion = 0\\n\\tbare = false\\n[remote \"origin\"]\\n\\turl = https://github.com/manaflow-ai/cmux.git\\n\\tfetch = +refs/heads/*:refs/remotes/origin/*\\n' > .git/config && printf 'ref: refs/heads/main\\n' > .git/HEAD && clear; for i in $(seq 40); do echo '#847 #847 #847 #847 #847 #847 #847 #847'; done\n",
+        "focus": true
+      },
+      "save": "bare"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "key": "b",
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 1.0
+    },
+    {
+      "shot": "01-bare-ref-terminal"
+    },
+    {
+      "tree": "01-bare-ref-terminal"
+    },
+    {
+      "hoverAt": {
+        "x": 0.05,
+        "y": 0.14
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 0.6
+    },
+    {
+      "shot": "02-bare-ref-cmd-hover"
+    },
+    {
+      "clickAt": {
+        "x": 0.05,
+        "y": 0.14
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 5.0
+    },
+    {
+      "shot": "03-bare-ref-after-cmd-click",
+      "screen": true
+    },
+    {
+      "tree": "03-bare-ref-after-cmd-click"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Slug ref",
+        "initial_input": "mkdir -p /tmp/cmux-ref-tour/.git/objects /tmp/cmux-ref-tour/.git/refs/heads && cd /tmp/cmux-ref-tour && printf '[core]\\n\\trepositoryformatversion = 0\\n\\tbare = false\\n[remote \"origin\"]\\n\\turl = https://github.com/manaflow-ai/cmux.git\\n\\tfetch = +refs/heads/*:refs/remotes/origin/*\\n' > .git/config && printf 'ref: refs/heads/main\\n' > .git/HEAD && clear; for i in $(seq 40); do echo 'manaflow-ai/cmux#847 manaflow-ai/cmux#847 manaflow-ai/cmux#847 manaflow-ai/cmux#847 manaflow-ai/cmux#847'; done\n",
+        "focus": true
+      },
+      "save": "slug"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "shot": "04-slug-ref-terminal"
+    },
+    {
+      "tree": "04-slug-ref-terminal"
+    },
+    {
+      "clickAt": {
+        "x": 0.05,
+        "y": 0.14
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 5.0
+    },
+    {
+      "shot": "05-slug-ref-after-cmd-click",
+      "screen": true
+    },
+    {
+      "tree": "05-slug-ref-after-cmd-click"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Commit ref",
+        "initial_input": "mkdir -p /tmp/cmux-ref-tour/.git/objects /tmp/cmux-ref-tour/.git/refs/heads && cd /tmp/cmux-ref-tour && printf '[core]\\n\\trepositoryformatversion = 0\\n\\tbare = false\\n[remote \"origin\"]\\n\\turl = https://github.com/manaflow-ai/cmux.git\\n\\tfetch = +refs/heads/*:refs/remotes/origin/*\\n' > .git/config && printf 'ref: refs/heads/main\\n' > .git/HEAD && clear; for i in $(seq 40); do echo '73396e6 73396e6 73396e6 73396e6 73396e6 73396e6 73396e6 73396e6'; done\n",
+        "focus": true
+      },
+      "save": "commit"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "shot": "06-commit-ref-terminal"
+    },
+    {
+      "tree": "06-commit-ref-terminal"
+    },
+    {
+      "clickAt": {
+        "x": 0.05,
+        "y": 0.14
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 5.0
+    },
+    {
+      "shot": "07-commit-ref-after-cmd-click",
+      "screen": true
+    },
+    {
+      "tree": "07-commit-ref-after-cmd-click"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "No ref",
+        "initial_input": "mkdir -p /tmp/cmux-ref-tour/.git/objects /tmp/cmux-ref-tour/.git/refs/heads && cd /tmp/cmux-ref-tour && printf '[core]\\n\\trepositoryformatversion = 0\\n\\tbare = false\\n[remote \"origin\"]\\n\\turl = https://github.com/manaflow-ai/cmux.git\\n\\tfetch = +refs/heads/*:refs/remotes/origin/*\\n' > .git/config && printf 'ref: refs/heads/main\\n' > .git/HEAD && clear; for i in $(seq 40); do echo 'nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all'; done\n",
+        "focus": true
+      },
+      "save": "none"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "shot": "08-no-ref-terminal"
+    },
+    {
+      "clickAt": {
+        "x": 0.05,
+        "y": 0.14
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "shot": "09-no-ref-after-cmd-click",
+      "screen": true
+    },
+    {
+      "tree": "09-no-ref-after-cmd-click"
+    },
+    {
+      "shot": "99-end",
+      "screen": true
+    }
   ]
 }
