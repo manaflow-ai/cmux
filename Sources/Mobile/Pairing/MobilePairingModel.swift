@@ -114,11 +114,11 @@ final class MobilePairingModel {
     private let iosAppTargetStore: MobileIOSPairingTargetStore
     /// Observes host status while a code is shown and tracks new connections.
     /// Cancelled on each refresh.
-    private var connectionObservationTask: Task<Void, Never>?
+    @ObservationIgnored private var connectionObservationTask: Task<Void, Never>?
     /// Observes the coordinator's team-scope stream while the sheet is open.
     /// Kept separate from host status observation so the recovery refresh stays
     /// owned and cancellable for the entire sheet lifetime.
-    private var teamScopeRecoveryTask: Task<Void, Never>?
+    @ObservationIgnored private var teamScopeRecoveryTask: Task<Void, Never>?
     /// Bumped on each ``refresh()`` so a slower in-flight run (the UI fires
     /// refresh from several places) can't overwrite a newer result with a stale
     /// ticket. Each run captures its value and bails after an `await` if superseded.
