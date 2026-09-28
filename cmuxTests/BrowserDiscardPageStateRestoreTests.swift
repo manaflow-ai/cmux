@@ -284,8 +284,10 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         waitUntil("page scrolled before hide") {
             (self.evaluate("window.scrollY", in: panel.webView) as? Double) == 1500
         }
-        // Let passive page-state observers deliver their script messages.
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        waitUntil("typed input reported") {
+            let values = Set(panel.pageRestoration.liveFormState?.fields.compactMap(\.value) ?? [])
+            return values.isSuperset(of: ["typed name", "typed notes"])
+        }
         return (panel, pageA, pageB)
     }
 

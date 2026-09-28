@@ -91,7 +91,7 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
             in: panel.webView
         )
         XCTAssertEqual(evaluate("document.getElementById('editor').textContent", in: panel.webView) as? String, "draft reply")
-        waitForFormStateObserver()
+        waitUntil("rich-text edit reported") { panel.pageRestoration.hasUnrestorableLiveInput }
 
         panel.noteWebViewVisibility(false, reason: "test.hidden")
 
@@ -143,9 +143,6 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
         let panel = try loadPage(body: #"<form><input id="name" type="text"></form>"#)
         defer { panel.close() }
         typeValue("opener draft", intoFieldWithID: "name", in: panel)
-        waitUntil("opener input reported") {
-            panel.pageRestoration.liveFormState?.fields.contains { $0.value == "opener draft" } == true
-        }
 
         let popupPage = fixtureDirectory.appendingPathComponent("popup.html")
         try "<html><head><title>Popup</title></head><body>popup</body></html>"
@@ -256,12 +253,11 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
             """,
             in: panel.webView
         )
-        waitForFormStateObserver()
-    }
-
-    /// The form-state observer reports input after a 250 ms debounce.
-    private func waitForFormStateObserver() {
-        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        // The observer reports the value, or flags a field it never replays.
+        waitUntil("input into #\(id) reported") {
+            panel.pageRestoration.liveFormState?.fields.contains { $0.value == value } == true
+                || panel.pageRestoration.hasUnrestorableLiveInput
+        }
     }
 
     private func evaluate(

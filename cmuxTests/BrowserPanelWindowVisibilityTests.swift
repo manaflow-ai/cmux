@@ -44,8 +44,11 @@ import Testing
         detachedRoot.addSubview(hostingView)
         defer { hostingView.removeFromSuperview() }
 
+        #expect(
+            await settle(hostingView, until: { findHostContainerView(in: hostingView) != nil }),
+            "Expected the representable to build its host."
+        )
         await settle(hostingView)
-        #expect(findHostContainerView(in: hostingView) != nil, "Expected the representable to build its host")
         #expect(
             !panel.isWebViewVisibleInUI,
             "A portal host that is not in a window must not mark the panel visible."
@@ -73,6 +76,10 @@ import Testing
         detachedRoot.addSubview(hostingView)
         defer { hostingView.removeFromSuperview() }
 
+        #expect(
+            await settle(hostingView, until: { findWindowPresenceView(in: hostingView) != nil }),
+            "Expected the browser panel to build its window-presence probe."
+        )
         await settle(hostingView)
         #expect(
             !panel.isWebViewVisibleInUI,
@@ -103,6 +110,8 @@ import Testing
     /// Lays the hosting view out and lets the work that layout scheduled run
     /// before the caller asserts: SwiftUI appearance callbacks on the run loop,
     /// and main-actor tasks such as portal lifecycle and window-entry reports.
+    /// Use it once the views exist and before asserting that a report did not
+    /// happen, which has no completion to wait on.
     private func settle(_ hostingView: NSView) async {
         for _ in 0..<5 {
             await settlePass(hostingView)
@@ -132,6 +141,18 @@ import Testing
         hostingView.superview?.layoutSubtreeIfNeeded()
         hostingView.layoutSubtreeIfNeeded()
         _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+    }
+
+    private func findWindowPresenceView(in root: NSView) -> BrowserPanelWindowPresenceView? {
+        if let probe = root as? BrowserPanelWindowPresenceView {
+            return probe
+        }
+        for subview in root.subviews {
+            if let probe = findWindowPresenceView(in: subview) {
+                return probe
+            }
+        }
+        return nil
     }
 
     private func findHostContainerView(in root: NSView) -> WebViewRepresentable.HostContainerView? {
