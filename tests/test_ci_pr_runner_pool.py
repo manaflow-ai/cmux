@@ -2340,6 +2340,25 @@ class LiveCapacity(unittest.TestCase):
         _, capacity = pool.live_pools(snap, {MINI: 3, ROOT_MINI: 1}, slot_counts, {})
         self.assertEqual(capacity, {MINI: 40, ROOT_MINI: 18})
 
+    def test_the_snapshot_queue_drains_by_what_the_machines_finished_since(self):
+        snap = fleet(busy=0)
+        snap["pools"][ROOT_MINI] = dict(snap["pools"].get(ROOT_MINI) or {}, queued=26)
+        slot_counts = {MINI: 40, ROOT_MINI: 19}
+        online = {MINI: 40, ROOT_MINI: 19}
+
+        def queued(age, older=0):
+            live, _ = pool.live_pools(snap, {MINI: 3, ROOT_MINI: 0}, slot_counts, {MINI: older},
+                                      online=online, age_minutes=age)
+            return live["pools"][ROOT_MINI]["queued"]
+        # Fresh: all 26. Five minutes on 19 runners at ten minutes a job: 9.5 done, 17 left (rounded up).
+        self.assertEqual(queued(None), 26)
+        self.assertEqual(queued(0), 26)
+        self.assertEqual(queued(5), 17)
+        # Twelve minutes: 22.8 done, 4 left; past the whole queue, none, but newer runs' admissions still count.
+        self.assertEqual(queued(12), 4)
+        self.assertEqual(queued(30), 0)
+        self.assertEqual(queued(30, older=3), 3)
+
     def test_an_offline_fleet_is_no_queue_to_join(self):
         busy = fleet(busy=0, small=21, large=6, old=4)
         # Every runner busy and 11 online: the queue is worth joining (test_live_busy_fleet_queues...).
