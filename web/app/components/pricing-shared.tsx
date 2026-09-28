@@ -197,6 +197,7 @@ export function DisabledButton({
 }) {
   return (
     <button
+      type="button"
       className={pricingActionClassName("disabled", size)}
       disabled
     >

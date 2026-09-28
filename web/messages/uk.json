@@ -2345,6 +2345,7 @@
   "legal": {
     "privacyPolicy": "Політика конфіденційності",
     "termsOfService": "Умови надання послуг",
+    "termsCopyright": "Авторські права © {year} Manaflow. Усі права захищено.",
     "eula": "Ліцензійна угода"
   },
   "wallOfLove": {

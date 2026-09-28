@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import { legalMetadata } from "../legal-metadata";
-import { getCurrentYear } from "@/app/lib/current-year";
+
+const TERMS_COPYRIGHT_YEAR = 2026;
 
 export const metadata: Metadata = legalMetadata(
   "/terms-of-service",
@@ -9,7 +11,7 @@ export const metadata: Metadata = legalMetadata(
 );
 
 export default async function TermsOfServicePage() {
-  const currentYear = await getCurrentYear();
+  const t = await getTranslations("legal");
 
   return (
     <>
@@ -185,7 +187,7 @@ export default async function TermsOfServicePage() {
       </p>
 
       <p>
-        Copyright &copy; {currentYear} Manaflow. All rights reserved.
+        {t("termsCopyright", { year: TERMS_COPYRIGHT_YEAR })}
       </p>
     </>
   );

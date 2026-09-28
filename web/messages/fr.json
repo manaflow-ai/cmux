@@ -2275,6 +2275,7 @@
   "legal": {
     "privacyPolicy": "Politique de confidentialité",
     "termsOfService": "Conditions d'utilisation",
+    "termsCopyright": "Copyright © {year} Manaflow. Tous droits réservés.",
     "eula": "EULA"
   },
   "wallOfLove": {

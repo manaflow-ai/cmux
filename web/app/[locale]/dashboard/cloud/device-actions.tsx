@@ -58,10 +58,10 @@ export function CloudDeviceActions({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <button className="border border-border px-2 py-1 hover:bg-code-bg" onClick={() => setRenameOpen(true)}>
+      <button type="button" className="border border-border px-2 py-1 hover:bg-code-bg" onClick={() => setRenameOpen(true)}>
         {t("rename")}
       </button>
-      <button className="border border-border px-2 py-1 hover:bg-code-bg" onClick={() => setRevokeOpen(true)}>
+      <button type="button" className="border border-border px-2 py-1 hover:bg-code-bg" onClick={() => setRevokeOpen(true)}>
         {t("revoke")}
       </button>
       {error ? <p className="w-full text-xs text-foreground">{error}</p> : null}
@@ -79,7 +79,7 @@ export function CloudDeviceActions({
           />
           <div className="flex justify-end gap-2">
             <Dialog.Close className="border border-border px-3 py-1.5">{t("cancel")}</Dialog.Close>
-            <button disabled={busy} className="border border-foreground bg-foreground px-3 py-1.5 text-background">
+            <button type="submit" disabled={busy} className="border border-foreground bg-foreground px-3 py-1.5 text-background">
               {t("save")}
             </button>
           </div>
@@ -91,7 +91,7 @@ export function CloudDeviceActions({
         <Dialog.Description className="mt-2 text-xs text-muted">{t("revokeBody")}</Dialog.Description>
         <div className="mt-5 flex justify-end gap-2">
           <Dialog.Close className="border border-border px-3 py-1.5">{t("cancel")}</Dialog.Close>
-          <button onClick={revoke} disabled={busy} className="border border-foreground bg-foreground px-3 py-1.5 text-background">
+          <button type="button" onClick={revoke} disabled={busy} className="border border-foreground bg-foreground px-3 py-1.5 text-background">
             {t("revoke")}
           </button>
         </div>

@@ -3890,6 +3890,7 @@
   "legal": {
     "privacyPolicy": "Privacy Policy",
     "termsOfService": "Terms of Service",
+    "termsCopyright": "Copyright © {year} Manaflow. All rights reserved.",
     "eula": "EULA"
   },
   "wallOfLove": {

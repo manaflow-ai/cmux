@@ -91,6 +91,7 @@ export function MobileDrawerToggle({
 }) {
   return (
     <button
+      type="button"
       ref={buttonRef}
       onClick={onClick}
       aria-expanded={open}

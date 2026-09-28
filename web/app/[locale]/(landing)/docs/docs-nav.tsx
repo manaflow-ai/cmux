@@ -22,6 +22,7 @@ export function DocsNav({
     <div className="max-w-6xl mx-auto flex px-0 md:px-4">
       {/* Mobile menu button */}
       <button
+        type="button"
         ref={buttonRef}
         onClick={toggle}
         aria-expanded={open}

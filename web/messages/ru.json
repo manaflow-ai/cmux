@@ -2273,6 +2273,7 @@
   "legal": {
     "privacyPolicy": "Политика конфиденциальности",
     "termsOfService": "Условия использования",
+    "termsCopyright": "Авторские права © {year} Manaflow. Все права защищены.",
     "eula": "EULA"
   },
   "wallOfLove": {

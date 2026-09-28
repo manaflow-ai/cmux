@@ -196,6 +196,7 @@ export function DevPanel() {
       </Section>
 
       <button
+        type="button"
         onClick={() => {
           const text = [
             `header-tx: ${vals.headerTx}px`,

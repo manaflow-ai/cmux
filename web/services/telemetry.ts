@@ -281,13 +281,13 @@ export function summarizeErrorCauses(err: unknown): ErrorCauseSummary | undefine
     ).slice(0, 80);
     const message = typeof record.message === "string" ? record.message : String(current);
     parts.push(`${name}: ${scrubText(message).slice(0, ERROR_CAUSE_MESSAGE_MAX)}`);
-    const status = [record.status, record.statusCode, record.response?.status].find(
-      (value) => typeof value === "number" && Number.isFinite(value),
-    );
+    const status = firstFiniteNumber([
+      record.status,
+      record.statusCode,
+      record.response?.status,
+    ]);
     if (httpStatus === undefined && typeof status === "number") httpStatus = status;
-    const causeCode = [record.body?.code, record.code].find(
-      (value) => typeof value === "string" && value.length > 0,
-    );
+    const causeCode = firstNonEmptyString([record.body?.code, record.code]);
     if (code === undefined && typeof causeCode === "string") {
       code = scrubText(causeCode).slice(0, 80);
     }
@@ -295,6 +295,20 @@ export function summarizeErrorCauses(err: unknown): ErrorCauseSummary | undefine
   }
   if (depth === 0) return undefined;
   return { chain: parts.join(" <- "), depth, httpStatus, code };
+}
+
+function firstFiniteNumber(values: readonly unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return undefined;
+}
+
+function firstNonEmptyString(values: readonly unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return undefined;
 }
 
 function scrubText(text: string): string {

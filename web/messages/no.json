@@ -2270,6 +2270,7 @@
   "legal": {
     "privacyPolicy": "Personvernerklæring",
     "termsOfService": "Vilkår for bruk",
+    "termsCopyright": "Copyright © {year} Manaflow. Alle rettigheter forbeholdes.",
     "eula": "EULA"
   },
   "wallOfLove": {

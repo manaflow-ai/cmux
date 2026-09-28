@@ -245,15 +245,19 @@ function preferredLocale(headersList: Headers): Locale {
     .split(",")
     .map((part) => part.split(";")[0]?.trim())
     .filter(Boolean);
+  const localeByTag = new Map(
+    locales.map((locale) => [locale.toLowerCase(), locale] as const),
+  );
+  const localeByBase = new Map<string, Locale>();
+  for (const locale of locales) {
+    const base = locale.toLowerCase().split("-")[0];
+    if (!localeByBase.has(base)) localeByBase.set(base, locale);
+  }
   for (const language of requested) {
-    const exact = locales.find(
-      (locale) => locale.toLowerCase() === language.toLowerCase(),
-    );
+    const exact = localeByTag.get(language.toLowerCase());
     if (exact) return exact;
     const base = language.split("-")[0]?.toLowerCase();
-    const baseMatch = locales.find(
-      (locale) => locale.toLowerCase().split("-")[0] === base,
-    );
+    const baseMatch = base ? localeByBase.get(base) : undefined;
     if (baseMatch) return baseMatch;
   }
   return routing.defaultLocale;

@@ -118,13 +118,20 @@ export function requestEmailVerificationRecovery(
             const channels = await withLookupDeadline(() =>
               user.listContactChannels(),
             );
-            const channel = channels.find(
-              (candidate) =>
+            let channel:
+              | (typeof channels)[number]
+              | undefined;
+            for (const candidate of channels) {
+              if (
                 canonicalizeEmailForMatching(candidate.value) ===
                   normalizedEmail &&
                 candidate.usedForAuth &&
-                !candidate.isVerified,
-            );
+                !candidate.isVerified
+              ) {
+                channel = candidate;
+                break;
+              }
+            }
             if (!channel) continue;
             await withLookupDeadline(() =>
               channel.sendVerificationEmail({ callbackUrl: input.callbackURL }),
