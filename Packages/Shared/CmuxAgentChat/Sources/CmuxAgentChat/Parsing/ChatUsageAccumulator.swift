@@ -37,8 +37,11 @@ import Foundation
 /// total, beside `last_token_usage`, which is the most recent call.
 /// Summing every cumulative report grows quadratically and sails past the
 /// context window. So the accumulator uses per-response records once they
-/// appear and cumulative events as the fallback before that. A cumulative-
-/// only prefix remains as an unattributed baseline when records begin.
+/// appear and cumulative events as the fallback before that. A cumulative
+/// prefix before the first record is dropped rather than kept as a baseline,
+/// because `total_token_usage` outlives a fork or a compaction: a delegated
+/// transcript opens with its parent's lifetime spend, and adding that would
+/// count the parent again in every child.
 ///
 /// The cumulative fallback is not simply the largest value reported.
 /// `total_token_usage` counts from the start of a *thread*, and a rollout
@@ -106,12 +109,10 @@ public struct ChatUsageAccumulator: Sendable {
     private var codexRecordUsageByModel: [String: ChatTokenUsage] = [:]
 
     // `banked` holds finished monotone cumulative runs and `current` the run
-    // still climbing. They continue updating in record mode so resets remain
-    // part of the provisional pre-record baseline.
+    // still climbing. Both stop updating once records take over, because the
+    // cumulative stream is a thread figure rather than a transcript one.
     private var codexCumulativeBanked = ChatTokenUsage()
     private var codexCumulativeCurrent: ChatTokenUsage?
-    private var codexCumulativeBaseline = ChatTokenUsage()
-    private var codexRecordUsageSinceTransition = ChatTokenUsage()
 
     private var duplicateReports = 0
     private var unidentifiedReports = 0
@@ -140,7 +141,6 @@ public struct ChatUsageAccumulator: Sendable {
         case .none:
             break
         case .usageRecords:
-            usage += codexCumulativeBaseline
             usage += codexRecordUsage
             responses = ChatTokenUsage.saturatedSum(responses, codexResponseCount)
             for (model, modelUsage) in codexRecordUsageByModel {
@@ -325,17 +325,18 @@ public struct ChatUsageAccumulator: Sendable {
             Self.incrementSaturating(&duplicateReports)
             return
         }
-        if codexSource != .usageRecords {
-            codexCumulativeBaseline = codexCumulativeTotal
-            codexRecordUsageSinceTransition = ChatTokenUsage()
-        }
-        // Records are precise from this point forward. Any cumulative prefix
-        // remains as an unattributed baseline and later events reconcile it.
+        // Records are precise, so they replace the cumulative reading rather
+        // than adding to it. A cumulative prefix is dropped on purpose: a
+        // `total_token_usage` figure is a thread total that survives forking
+        // and compaction, so a delegated transcript opens with its parent's
+        // lifetime spend. Adding that prefix would count the parent again in
+        // every child, which overstates by orders of magnitude; losing the
+        // handful of tokens a records-era transcript spent before its first
+        // record understates by a little. Understating is the safe direction.
         codexSource = .usageRecords
         Self.incrementSaturating(&codexResponseCount)
         let usage = codexUsage(from: usageValue)
         codexRecordUsage += usage
-        codexRecordUsageSinceTransition += usage
         // No model yet means no `turn_context` has been seen, so there is
         // nothing to attribute this to. The tokens still count in the
         // total; only the split loses them.
@@ -379,10 +380,12 @@ public struct ChatUsageAccumulator: Sendable {
 
     /// Folds one cumulative report into the monotone-run total.
     ///
-    /// In record mode the same stream recomputes the provisional baseline by
-    /// removing records counted since the source transition. Continuing to
-    /// bank drops is what preserves thread resets after records begin.
+    /// Ignored entirely once records have taken over. Reading it there would
+    /// let a thread-lifetime figure back into a per-transcript total, and it
+    /// would also make repeated reads of the same file disagree with each
+    /// other, since a re-fed monotone run banks a second time.
     private mutating func readCodexCumulative(_ info: TranscriptJSONValue) {
+        guard codexSource != .usageRecords else { return }
         guard let cumulative = info["total_token_usage"],
               cumulative.object != nil
         else { return }
@@ -396,17 +399,7 @@ public struct ChatUsageAccumulator: Sendable {
         // transcript is accounted for when nothing has been read.
         guard !usage.isEmpty else { return }
 
-        let usingRecords = codexSource == .usageRecords
-        defer {
-            if usingRecords {
-                codexCumulativeBaseline = Self.clampedDifference(
-                    codexCumulativeTotal,
-                    codexRecordUsageSinceTransition
-                )
-            } else {
-                codexSource = .cumulativeEvents
-            }
-        }
+        codexSource = .cumulativeEvents
         guard let current = codexCumulativeCurrent else {
             codexCumulativeCurrent = usage
             return
@@ -524,27 +517,6 @@ public struct ChatUsageAccumulator: Sendable {
         ]
         return comparisons.allSatisfy { $0.0 >= $0.1 }
             && comparisons.contains { $0.0 > $0.1 }
-    }
-
-    /// Field-wise subtraction clamped at zero for cumulative reconciliation.
-    private static func clampedDifference(
-        _ lhs: ChatTokenUsage,
-        _ rhs: ChatTokenUsage
-    ) -> ChatTokenUsage {
-        ChatTokenUsage(
-            freshInputTokens: clampedDifference(lhs.freshInputTokens, rhs.freshInputTokens),
-            cacheReadTokens: clampedDifference(lhs.cacheReadTokens, rhs.cacheReadTokens),
-            cacheWriteTokens: clampedDifference(lhs.cacheWriteTokens, rhs.cacheWriteTokens),
-            outputTokens: clampedDifference(lhs.outputTokens, rhs.outputTokens),
-            reasoningOutputTokens: clampedDifference(
-                lhs.reasoningOutputTokens,
-                rhs.reasoningOutputTokens
-            )
-        )
-    }
-
-    private static func clampedDifference(_ lhs: Int, _ rhs: Int) -> Int {
-        lhs > rhs ? lhs - rhs : 0
     }
 
     private static func incrementSaturating(_ value: inout Int) {

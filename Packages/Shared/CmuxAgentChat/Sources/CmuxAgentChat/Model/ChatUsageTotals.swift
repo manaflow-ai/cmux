@@ -14,9 +14,9 @@ public struct ChatUsageTotals: Sendable, Equatable {
     /// Usage split by the model that produced it.
     ///
     /// Keyed by the provider's own model identifier. A session that switched
-    /// models mid-run has an entry per model. A cumulative Codex fallback or
-    /// pre-record baseline has no response-level model identity, so the split
-    /// can sum to less than ``usage``.
+    /// models mid-run has an entry per model. A cumulative Codex fallback has
+    /// no response-level model identity, so the split can sum to less than
+    /// ``usage``.
     public var usageByModel: [String: ChatTokenUsage]
 
     /// Distinct API responses counted.
@@ -26,7 +26,11 @@ public struct ChatUsageTotals: Sendable, Equatable {
     ///
     /// Non-zero is normal, not a warning: both providers repeat usage by
     /// design. A caller that wants to prove deduplication is working can
-    /// watch this climb. A repeat is usually dropped, but a Claude repeat
+    /// watch this climb, within one limit: identities are remembered in a
+    /// bounded recent window, so a transcript with more distinct responses
+    /// than the window holds can count a very old identity a second time
+    /// without recording it here. The window is far larger than the widest
+    /// repeat distance either provider produces. A repeat is usually dropped, but a Claude repeat
     /// carrying larger counts than the copy already counted replaces it,
     /// because a streaming response's early lines carry placeholder
     /// output counts. Either way it counts here.
