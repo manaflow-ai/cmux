@@ -139,7 +139,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
     private let fileManager = FileManager.default
     let root: URL
     private let metadataURL: URL
-    private var controllers: [String: Controller] = [:]
+    private var controllers: [String: BrowserExtensionController] = [:]
     /// Where a popup hangs: a pinned button, else the extensions button.
     struct AnchorKey: Hashable {
         let panelID: UUID
@@ -618,14 +618,14 @@ final class BrowserExtensions: NSObject, ObservableObject {
         objectWillChange.send()
     }
 
-    private func loadInstalled(in controller: Controller) {
+    private func loadInstalled(in controller: BrowserExtensionController) {
         guard !Self.isBlockedByURLAllowlist else { return }
         for item in installations(inProfile: controller.profileKey) where item.enabled {
             load(id: item.extensionID, in: controller)
         }
     }
 
-    private func load(id: String, in controller: Controller) {
+    private func load(id: String, in controller: BrowserExtensionController) {
         let profile = controller.profileKey
         guard !Self.isBlockedByURLAllowlist,
               controller.contexts[id] == nil, !controller.loading.contains(id),
@@ -681,7 +681,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
     /// restarts an extension whose background worker failed to start. WebKit
     /// records that failure and never retries, so without this the extension
     /// stays dead until relaunch. Restarts are limited to one a minute.
-    private func observeErrors(of context: WKWebExtensionContext, in controller: Controller) {
+    private func observeErrors(of context: WKWebExtensionContext, in controller: BrowserExtensionController) {
         let key = ObjectIdentifier(context)
         if let existing = errorObservers[key] { NotificationCenter.default.removeObserver(existing) }
         errorObservers[key] = NotificationCenter.default.addObserver(
@@ -1020,7 +1020,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
         root.appendingPathComponent(".staging-\(id)-\(UUID().uuidString.prefix(8))", isDirectory: true)
     }
 
-    private func controller(for store: WKWebsiteDataStore) -> Controller {
+    private func controller(for store: WKWebsiteDataStore) -> BrowserExtensionController {
         let key = Self.profileKey(for: store)
         if let existing = controllers[key] { return existing }
         let configuration = store.identifier.map { WKWebExtensionController.Configuration(identifier: $0) } ?? .default()
@@ -1033,7 +1033,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
         // them again, which leaves popups such as Bitwarden's waiting forever.
         webViewConfiguration.applicationNameForUserAgent = BrowserUserAgentPolicy.system.safariApplicationName
         configuration.webViewConfiguration = webViewConfiguration
-        let controller = Controller(owner: self, profileKey: key, configuration: configuration)
+        let controller = BrowserExtensionController(owner: self, profileKey: key, configuration: configuration)
         controllers[key] = controller
         if controllers.count == 1 {
             checkForUpdatesIfDue()
@@ -1050,7 +1050,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
 
 @available(macOS 15.4, *)
 @MainActor
-private final class Controller: NSObject, WKWebExtensionControllerDelegate {
+final class BrowserExtensionController: NSObject, WKWebExtensionControllerDelegate {
     unowned let owner: BrowserExtensions
     let profileKey: String
     let controller: WKWebExtensionController
@@ -1268,8 +1268,8 @@ private final class Controller: NSObject, WKWebExtensionControllerDelegate {
 
 @available(macOS 15.4, *)
 @MainActor
-private final class BrowserExtensionWindow: NSObject, WKWebExtensionWindow {
-    weak var owner: Controller?
+final class BrowserExtensionWindow: NSObject, WKWebExtensionWindow {
+    weak var owner: BrowserExtensionController?
 
     private var nsWindow: NSWindow? {
         owner?.activeTab?.panel?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
@@ -1297,11 +1297,11 @@ private final class BrowserExtensionWindow: NSObject, WKWebExtensionWindow {
 
 @available(macOS 15.4, *)
 @MainActor
-private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
+final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
     weak var panel: BrowserPanel?
-    unowned let owner: Controller
+    unowned let owner: BrowserExtensionController
 
-    init(panel: BrowserPanel, owner: Controller) {
+    init(panel: BrowserPanel, owner: BrowserExtensionController) {
         self.panel = panel
         self.owner = owner
     }
