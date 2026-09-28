@@ -452,6 +452,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
             command.replacingOccurrences(of: "'work'", with: "'wo\u{0007}rk'"),
             command.replacingOccurrences(of: "'work'", with: "'$(touch /tmp/pwn)'"),
             command.replacingOccurrences(of: "'work'", with: "work"),
+            command.replacingOccurrences(of: "'work'", with: "'-work'"),
             command.replacingOccurrences(of: "/local-zellij/sock'", with: "/local-zellij/other'"),
             command.replacingOccurrences(of: "'/Users/me/.cmux/local-zellij/sock'", with: "'relative/sock'"),
             command.replacingOccurrences(of: "'/Users/me/.cmux/local-zellij/sock'", with: "/Users/$(id -u)/sock"),

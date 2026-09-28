@@ -61,7 +61,7 @@ struct CLILocalZellijLifecycleTests {
     @Test func headlessAttachUsesPrivateSocketAndDetachesOnForceClose() throws {
         let fixture = try makeFixture("attach")
         defer { try? FileManager.default.removeItem(at: fixture.base) }
-        let zellijName = try startSession("work", fixture)
+        let zellijName = try startSession("work", fixture).zellijName
 
         let attach = try runCLI(["local-zellij", "attach", "work", "--headless"], fixture)
 
@@ -72,7 +72,7 @@ struct CLILocalZellijLifecycleTests {
     @Test func closeDeletesSessionAndResurrectionEntry() throws {
         let fixture = try makeFixture("close")
         defer { try? FileManager.default.removeItem(at: fixture.base) }
-        let zellijName = try startSession("work", fixture)
+        let zellijName = try startSession("work", fixture).zellijName
 
         let close = try runCLI(["local-zellij", "close", "work"], fixture)
 
@@ -106,31 +106,94 @@ struct CLILocalZellijLifecycleTests {
     }
 
     @Test func startDuringCloseKeepsTheNewSessionRegistered() throws {
-        let fixture = try makeFixture("race", deleteDelay: 2)
+        let fixture = try makeFixture("race", holdDelete: true)
         defer { try? FileManager.default.removeItem(at: fixture.base) }
-        _ = try runCLI(["local-zellij", "start", "work", "--detached", "--cwd", fixture.base.path], fixture)
+        let original = try startSession("work", fixture)
 
-        let close = Process()
-        close.executableURL = URL(fileURLWithPath: try BundledCLITestSupport.bundledCLIPath())
-        close.arguments = ["local-zellij", "close", "work"]
-        close.environment = fixture.environment
-        close.standardOutput = FileHandle.nullDevice
-        close.standardError = FileHandle.nullDevice
-        try close.run()
-        // Start once close has deleted the zellij session but not its record.
-        let deadline = Date().addingTimeInterval(10)
-        while !fixture.invocations().contains(where: { $0.contains("|delete-session ") }), Date() < deadline {
-            usleep(20_000)
-        }
-        let start = try runCLI(["local-zellij", "start", "work", "--detached", "--cwd", fixture.base.path], fixture)
-        close.waitUntilExit()
+        let close = try launchCLI(["local-zellij", "close", "work"], fixture)
+        // Handshake: close has deleted the zellij session and is held there,
+        // before it removes the record.
+        #expect(waitFor { FileManager.default.fileExists(atPath: fixture.sessionsURL.path + ".deleted") })
+        let start = try launchCLI(["local-zellij", "start", "work", "--detached", "--cwd", fixture.base.path, "--json"], fixture)
+        // Without serialization start finishes inside this window and reuses
+        // the record close is about to remove; with it, start waits for close.
+        _ = waitFor(seconds: 2) { !start.process.isRunning }
+        FileManager.default.createFile(atPath: fixture.sessionsURL.path + ".release", contents: nil)
+        close.process.waitUntilExit()
+        start.process.waitUntilExit()
 
-        #expect(start.status == 0, Comment(rawValue: start.stderr))
+        #expect(close.process.terminationStatus == 0, Comment(rawValue: close.stderr()))
+        #expect(start.process.terminationStatus == 0, Comment(rawValue: start.stderr()))
         let list = try runCLI(["local-zellij", "list", "--json"], fixture)
         let sessions = try #require(try jsonObject(list.stdout)["sessions"] as? [[String: Any]])
         #expect(sessions.count == 1, Comment(rawValue: list.stdout))
         #expect(sessions.first?["managed"] as? Bool == true, Comment(rawValue: list.stdout))
         #expect(sessions.first?["state"] as? String == "live", Comment(rawValue: list.stdout))
+        #expect(sessions.first?["id"] as? String != original.id, "start after close creates a new identity")
+    }
+
+    @Test func retryAfterAnUncertainStartReusesTheSameSession() throws {
+        let fixture = try makeFixture("uncertain", failListAfterFirstCreate: true)
+        defer { try? FileManager.default.removeItem(at: fixture.base) }
+        let arguments = ["local-zellij", "start", "work", "--detached", "--cwd", fixture.base.path, "--command", "make deploy"]
+
+        let first = try runCLI(arguments, fixture)
+        let retry = try runCLI(arguments, fixture)
+        let plain = try runCLI(["local-zellij", "start", "work", "--detached", "--json"], fixture)
+
+        #expect(first.status != 0, "the listing after creation failed")
+        #expect(retry.status != 0, "the command must not run a second time")
+        #expect(plain.status == 0, Comment(rawValue: plain.stderr))
+        #expect(fixture.invocations().filter { $0.contains("--create-background") }.count == 1)
+        let list = try runCLI(["local-zellij", "list", "--json"], fixture)
+        let sessions = try #require(try jsonObject(list.stdout)["sessions"] as? [[String: Any]])
+        #expect(sessions.count == 1, Comment(rawValue: list.stdout))
+        #expect(sessions.first?["managed"] as? Bool == true, Comment(rawValue: list.stdout))
+        #expect(sessions.first?["id"] as? String == (try jsonObject(plain.stdout)["id"] as? String))
+    }
+
+    @Test func attachFinishingAfterTheRecordChangedKeepsTheRegistryValid() throws {
+        let fixture = try makeFixture("attach-renamed")
+        defer { try? FileManager.default.removeItem(at: fixture.base) }
+        let original = try startSession("work", fixture)
+        let app = try AttachHoldingCmuxSocket()
+        defer { app.stop() }
+        let attach = try launchGUIAttach("work", fixture, app)
+        #expect(app.respawnArrived.wait(timeout: .now() + 20) == .success, "attach reached surface.respawn")
+
+        // While attach waits on the app, its record is renamed and a new
+        // record takes the name it read.
+        let registryURL = fixture.root.appendingPathComponent("sessions.json")
+        var registry = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: registryURL)) as? [String: Any])
+        var records = try #require(registry["sessions"] as? [[String: Any]])
+        records[0]["name"] = "renamed"
+        var newcomer = records[0]
+        newcomer["id"] = UUID().uuidString
+        newcomer["name"] = "work"
+        records.append(newcomer)
+        registry["sessions"] = records
+        try JSONSerialization.data(withJSONObject: registry, options: [.sortedKeys]).write(to: registryURL)
+        #expect(chmod(registryURL.path, 0o600) == 0)
+        app.releaseRespawn.signal()
+        attach.waitUntilExit()
+
+        let list = try runCLI(["local-zellij", "list", "--json"], fixture)
+        #expect(list.status == 0, Comment(rawValue: list.stderr))
+        let sessions = try #require(try jsonObject(list.stdout)["sessions"] as? [[String: Any]])
+        let attached = try #require(sessions.first { $0["id"] as? String == original.id })
+        #expect(attached["session_name"] as? String == "renamed", "attach must not restore the name it read")
+        #expect(attached["workspace_id"] as? String == AttachHoldingCmuxSocket.workspaceID, "attach still records where it attached")
+    }
+
+    @Test func sessionNamesStartingWithADashAreRejectedBeforeZellijRuns() throws {
+        let fixture = try makeFixture("dash")
+        defer { try? FileManager.default.removeItem(at: fixture.base) }
+
+        let start = try runCLI(["local-zellij", "start", "--name=-work", "--detached"], fixture)
+
+        #expect(start.status != 0)
+        #expect(start.stderr.contains("must start with a letter, number, or underscore"), Comment(rawValue: start.stderr))
+        #expect(fixture.invocations().isEmpty, "zellij would parse the name as an option")
     }
 
     @Test func closeDuringGUIAttachIsNotUndoneWhenTheAttachFinishes() throws {
@@ -141,20 +204,7 @@ struct CLILocalZellijLifecycleTests {
         defer { app.stop() }
 
         // GUI attach reads the record, then blocks in surface.respawn.
-        let attach = Process()
-        attach.executableURL = URL(fileURLWithPath: try BundledCLITestSupport.bundledCLIPath())
-        attach.arguments = [
-            "local-zellij", "attach", "work",
-            "--workspace", AttachHoldingCmuxSocket.workspaceID,
-            "--surface", AttachHoldingCmuxSocket.surfaceID,
-        ]
-        var environment = fixture.environment
-        environment["CMUX_SOCKET_PATH"] = app.socketPath
-        environment["CMUX_SOCKET_PASSWORD"] = ""
-        attach.environment = environment
-        attach.standardOutput = FileHandle.nullDevice
-        attach.standardError = FileHandle.nullDevice
-        try attach.run()
+        let attach = try launchGUIAttach("work", fixture, app)
         #expect(app.respawnArrived.wait(timeout: .now() + 20) == .success, "attach reached surface.respawn")
 
         let close = try runCLI(["local-zellij", "close", "work"], fixture)
@@ -178,7 +228,11 @@ struct CLILocalZellijLifecycleTests {
         #expect(fixture.invocations().isEmpty)
     }
 
-    private func makeFixture(_ label: String, deleteDelay: Int = 0) throws -> Fixture {
+    private func makeFixture(
+        _ label: String,
+        holdDelete: Bool = false,
+        failListAfterFirstCreate: Bool = false
+    ) throws -> Fixture {
         // Keep the root short: zellij sockets live below it.
         let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-lz-\(label)-\(UUID().uuidString.prefix(8))", isDirectory: true)
@@ -190,12 +244,20 @@ struct CLILocalZellijLifecycleTests {
         printf '%s|%s\\n' "$ZELLIJ_SOCKET_DIR" "$*" >> "$FAKE_ZELLIJ_LOG"
         case "$1" in
           list-sessions)
+            if [ -e "$FAKE_ZELLIJ_SESSIONS.fail-next-list" ]; then
+              rm "$FAKE_ZELLIJ_SESSIONS.fail-next-list"
+              echo "listing failed" >&2
+              exit 1
+            fi
             if [ -s "$FAKE_ZELLIJ_SESSIONS" ]; then cat "$FAKE_ZELLIJ_SESSIONS"; exit 0; fi
             echo "No active zellij sessions found." >&2
             exit 1 ;;
           attach)
             if [ "$2" = "--create-background" ]; then
               printf '%s [Created 0s ago] \\n' "$3" >> "$FAKE_ZELLIJ_SESSIONS"
+              if [ -n "$FAKE_ZELLIJ_FAIL_LIST_AFTER_FIRST_CREATE" ] && [ ! -e "$FAKE_ZELLIJ_SESSIONS.created-once" ]; then
+                touch "$FAKE_ZELLIJ_SESSIONS.created-once" "$FAKE_ZELLIJ_SESSIONS.fail-next-list"
+              fi
               previous=
               for argument in "$@"; do
                 if [ "$previous" = "--default-layout" ]; then cp "$argument" "$FAKE_ZELLIJ_LAYOUT_COPY"; fi
@@ -206,7 +268,11 @@ struct CLILocalZellijLifecycleTests {
           delete-session)
             grep -v "^$3 " "$FAKE_ZELLIJ_SESSIONS" > "$FAKE_ZELLIJ_SESSIONS.next"
             mv "$FAKE_ZELLIJ_SESSIONS.next" "$FAKE_ZELLIJ_SESSIONS"
-            sleep "${FAKE_ZELLIJ_DELETE_DELAY:-0}"
+            if [ -n "$FAKE_ZELLIJ_HOLD_DELETE" ]; then
+              touch "$FAKE_ZELLIJ_SESSIONS.deleted"
+              waited=0
+              while [ ! -e "$FAKE_ZELLIJ_SESSIONS.release" ] && [ $waited -lt 600 ]; do sleep 0.05; waited=$((waited + 1)); done
+            fi
             exit 0 ;;
         esac
         exit 0
@@ -224,7 +290,8 @@ struct CLILocalZellijLifecycleTests {
         environment["FAKE_ZELLIJ_LOG"] = logURL.path
         environment["FAKE_ZELLIJ_SESSIONS"] = sessionsURL.path
         environment["FAKE_ZELLIJ_LAYOUT_COPY"] = layoutCopyURL.path
-        environment["FAKE_ZELLIJ_DELETE_DELAY"] = String(deleteDelay)
+        if holdDelete { environment["FAKE_ZELLIJ_HOLD_DELETE"] = "1" }
+        if failListAfterFirstCreate { environment["FAKE_ZELLIJ_FAIL_LIST_AFTER_FIRST_CREATE"] = "1" }
         for key in ["CMUX_SOCKET", "CMUX_SOCKET_PATH", "CMUX_WORKSPACE_ID", "ZELLIJ", "ZELLIJ_SESSION_NAME"] {
             environment.removeValue(forKey: key)
         }
@@ -238,11 +305,64 @@ struct CLILocalZellijLifecycleTests {
         )
     }
 
-    /// Starts a detached session and returns its zellij session name.
-    private func startSession(_ name: String, _ fixture: Fixture) throws -> String {
+    /// Starts a detached session and returns its registry ID and zellij name.
+    private func startSession(_ name: String, _ fixture: Fixture) throws -> (id: String, zellijName: String) {
         let start = try runCLI(["local-zellij", "start", name, "--detached", "--cwd", fixture.base.path, "--json"], fixture)
-        #expect(start.status == 0, Comment(rawValue: start.stderr))
-        return try #require(try jsonObject(start.stdout)["zellij_session_name"] as? String)
+        try #require(start.status == 0, Comment(rawValue: start.stderr))
+        let payload = try jsonObject(start.stdout)
+        return (
+            try #require(payload["id"] as? String),
+            try #require(payload["zellij_session_name"] as? String)
+        )
+    }
+
+    private struct Launched {
+        let process: Process
+        let stderrURL: URL
+        func stderr() -> String { (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? "" }
+    }
+
+    /// Runs the CLI in the background, keeping stderr for assertions.
+    private func launchCLI(_ arguments: [String], _ fixture: Fixture) throws -> Launched {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try BundledCLITestSupport.bundledCLIPath())
+        process.arguments = arguments
+        process.environment = fixture.environment
+        let stderrURL = fixture.base.appendingPathComponent("stderr-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = try FileHandle(forWritingTo: stderrURL)
+        try process.run()
+        return Launched(process: process, stderrURL: stderrURL)
+    }
+
+    private func launchGUIAttach(_ name: String, _ fixture: Fixture, _ app: AttachHoldingCmuxSocket) throws -> Process {
+        let attach = Process()
+        attach.executableURL = URL(fileURLWithPath: try BundledCLITestSupport.bundledCLIPath())
+        attach.arguments = [
+            "local-zellij", "attach", name,
+            "--workspace", AttachHoldingCmuxSocket.workspaceID,
+            "--surface", AttachHoldingCmuxSocket.surfaceID,
+        ]
+        var environment = fixture.environment
+        environment["CMUX_SOCKET_PATH"] = app.socketPath
+        environment["CMUX_SOCKET_PASSWORD"] = ""
+        attach.environment = environment
+        attach.standardOutput = FileHandle.nullDevice
+        attach.standardError = FileHandle.nullDevice
+        try attach.run()
+        return attach
+    }
+
+    /// Polls `condition` until it holds or `seconds` pass.
+    @discardableResult
+    private func waitFor(seconds: TimeInterval = 20, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition() {
+            guard Date() < deadline else { return false }
+            usleep(20_000)
+        }
+        return true
     }
 
     private func runCLI(_ arguments: [String], _ fixture: Fixture) throws -> CLIHookProcessRunner.Result {
