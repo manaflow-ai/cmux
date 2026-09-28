@@ -132,6 +132,15 @@ import Testing
         #expect(failure?.message == "region width and height must each be at least 8 points")
     }
 
+    @Test func hugeFiniteRegionsAreRejectedRatherThanReachingIntegerConversion() {
+        #expect(throws: WindowScreenshotRequest.Failure.regionTooLarge) {
+            try WindowScreenshotRequest.make(params: ["region": [0, 0, 1e300, 1e300]])
+        }
+        #expect(throws: WindowScreenshotRequest.Failure.regionTooLarge) {
+            try WindowScreenshotRequest.make(params: ["region": [1e300, 0, 100, 100]])
+        }
+    }
+
     @Test func aMalformedRegionQuotesWhatWasGiven() throws {
         let failure = #expect(throws: WindowScreenshotRequest.Failure.self) {
             try WindowScreenshotRequest.make(params: ["region": "10,20,300"])

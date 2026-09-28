@@ -29,12 +29,29 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
         }
     }
 
-    public var cropsNothing: Bool {
-        cropX == 0 && cropY == 0
+    /// Whether the crop keeps every pixel of a source of this size.
+    public func cropsNothing(ofWidth sourceWidth: Int, height sourceHeight: Int) -> Bool {
+        cropX == 0 && cropY == 0 && cropWidth == sourceWidth && cropHeight == sourceHeight
     }
 
     public var scalesNothing: Bool {
         outputWidth == cropWidth && outputHeight == cropHeight
+    }
+
+    /// Converts a pixel edge without relying on trapping `Int(Double)`.
+    /// Infinite results arise legitimately when two finite region values or a
+    /// finite coordinate and scale overflow; their clipped edge is still
+    /// unambiguous. NaN has no such ordering and is rejected.
+    private static func pixelIndex(
+        _ value: Double,
+        rounding rule: FloatingPointRoundingRule
+    ) -> Int? {
+        guard !value.isNaN else { return nil }
+        let rounded = value.rounded(rule)
+        if let exact = Int(exactly: rounded) {
+            return exact
+        }
+        return rounded.sign == .minus ? Int.min : Int.max
     }
 
     /// Plans the geometry from the first captured frame.
@@ -101,10 +118,21 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
         var cropHeight = windowPixelHeight
 
         if let region {
-            let left = Int((region.x * pixelScale).rounded(.down))
-            let top = Int((region.y * pixelScale).rounded(.down))
-            let right = Int(((region.x + region.width) * pixelScale).rounded(.up))
-            let bottom = Int(((region.y + region.height) * pixelScale).rounded(.up))
+            guard region.isFinite,
+                  region.width > 0,
+                  region.height > 0,
+                  let left = Self.pixelIndex(region.x * pixelScale, rounding: .down),
+                  let top = Self.pixelIndex(region.y * pixelScale, rounding: .down),
+                  let right = Self.pixelIndex(
+                      (region.x + region.width) * pixelScale,
+                      rounding: .up
+                  ),
+                  let bottom = Self.pixelIndex(
+                      (region.y + region.height) * pixelScale,
+                      rounding: .up
+                  ) else {
+                throw Failure.regionOutsideWindow
+            }
             cropX = max(0, min(left, windowPixelWidth))
             cropY = max(0, min(top, windowPixelHeight))
             cropWidth = min(right, windowPixelWidth) - cropX

@@ -175,6 +175,31 @@ import Testing
         #expect(CGImageSourceGetType(source) as String? == "public.png")
     }
 
+    @Test func anAbandonedPreparedScreenshotCannotOverwriteTheRequestedPath() throws {
+        let directory = try Self.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let output = directory.appendingPathComponent("shot.png")
+        let original = Data("written after the caller timed out".utf8)
+
+        let prepared = try WindowStillImageWriter.prepare(
+            Self.image(width: 48, height: 24),
+            to: output,
+            format: .png,
+            quality: 0.8
+        )
+        try original.write(to: output)
+
+        // This is the timeout path: the socket worker never receives a result
+        // to commit, so retiring the late result can only remove its partial.
+        prepared.discard()
+
+        #expect(try Data(contentsOf: output) == original)
+        #expect(Self.contents(of: directory) == ["shot.png"])
+        #expect(throws: WindowStillImageWriter.Failure.self) {
+            try prepared.commit()
+        }
+    }
+
     /// `--out ~/Pictures` is a typo, not an instruction to delete a directory.
     @Test func aDirectoryIsNotSomethingAScreenshotMayReplace() throws {
         let directory = try Self.temporaryDirectory()

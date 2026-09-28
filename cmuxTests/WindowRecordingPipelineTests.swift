@@ -302,6 +302,30 @@ import Testing
         #expect(Self.gifDelay(source, at: 2) == 0.25)
     }
 
+    @Test func aGIFIsCreatedWithItsFinalFrameCountAndRemovesItsStagingFiles() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-gif-count-test-\(UUID().uuidString)"
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("clip.gif")
+        let writer = try WindowRecordingGIFWriter(url: url, framesPerSecond: 8)
+
+        for step in 0..<4 {
+            try await writer.append(
+                Self.image(width: 24, height: 24, gray: Double(step) / 4),
+                atOffsetSeconds: Double(step) * 0.125
+            )
+        }
+        try await writer.finish()
+
+        let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
+        #expect(CGImageSourceGetCount(source) == 4)
+        #expect(
+            try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["clip.gif"]
+        )
+    }
+
     @Test func aGIFDelayStaysInThePlayableRange() async throws {
         let url = Self.temporaryURL(extension: "gif")
         defer { try? FileManager.default.removeItem(at: url) }

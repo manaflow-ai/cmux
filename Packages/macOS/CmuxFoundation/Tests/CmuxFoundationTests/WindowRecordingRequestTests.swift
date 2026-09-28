@@ -94,6 +94,15 @@ import Testing
         }
     }
 
+    @Test func hugeFiniteRegionsAreRejectedRatherThanReachingIntegerConversion() {
+        #expect(throws: WindowRecordingRequest.Failure.regionTooLarge) {
+            try WindowRecordingRequest.make(params: ["region": [0, 0, 1e300, 1e300]])
+        }
+        #expect(throws: WindowRecordingRequest.Failure.regionTooLarge) {
+            try WindowRecordingRequest.make(params: ["region": [1e300, 0, 100, 100]])
+        }
+    }
+
     @Test func unknownFormatsNameTheKnownOnes() throws {
         let failure = WindowRecordingRequest.Failure.unknownFormat("webm")
 

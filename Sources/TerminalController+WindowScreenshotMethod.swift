@@ -32,10 +32,11 @@ extension TerminalController {
             )
         }
 
-        let outcome: Result<WindowStillImageWriter.Written, Error>? = socketAwaitCallback(
+        var capture: Task<Void, Never>?
+        let outcome: Result<WindowStillImageWriter.Prepared, Error>? = socketAwaitCallback(
             timeout: 20
         ) { completion in
-            Task {
+            capture = Task {
                 do {
                     completion(.success(try await Self.captureStill(
                         request: request,
@@ -47,6 +48,7 @@ extension TerminalController {
             }
         }
         guard let outcome else {
+            capture?.cancel()
             return .err(
                 code: "timeout",
                 message: "window.screenshot timed out after 20 seconds",
@@ -54,21 +56,30 @@ extension TerminalController {
             )
         }
         switch outcome {
-        case let .success(written):
-            var payload: [String: Any] = [
-                "path": written.url.path,
-                "width": written.width,
-                "height": written.height,
-                "bytes": written.byteCount,
-                "format": request.format.rawValue,
-            ]
-            if !request.label.isEmpty {
-                payload["label"] = request.label
+        case let .success(prepared):
+            do {
+                let written = try prepared.commit()
+                var payload: [String: Any] = [
+                    "path": written.url.path,
+                    "width": written.width,
+                    "height": written.height,
+                    "bytes": written.byteCount,
+                    "format": request.format.rawValue,
+                ]
+                if !request.label.isEmpty {
+                    payload["label"] = request.label
+                }
+                if let handle = request.windowHandle {
+                    payload["window"] = handle
+                }
+                return .ok(payload)
+            } catch {
+                return .err(
+                    code: Self.screenshotErrorCode(for: error),
+                    message: error.localizedDescription,
+                    data: nil
+                )
             }
-            if let handle = request.windowHandle {
-                payload["window"] = handle
-            }
-            return .ok(payload)
         case let .failure(error):
             return .err(
                 code: Self.screenshotErrorCode(for: error),
@@ -78,11 +89,12 @@ extension TerminalController {
         }
     }
 
-    /// Captures one frame, crops and scales it, and writes the file.
+    /// Captures one frame, crops and scales it, and prepares the file. The
+    /// socket worker promotes it only if the request is still waiting.
     private nonisolated static func captureStill(
         request: WindowScreenshotRequest,
         windowID: CGWindowID
-    ) async throws -> WindowStillImageWriter.Written {
+    ) async throws -> WindowStillImageWriter.Prepared {
         let frame = try await OwnWindowFrameCapture(windowID: windowID).captureOnce()
         let geometry = try WindowRecordingFrameGeometry.plan(
             windowPixelWidth: frame.image.width,
@@ -99,7 +111,9 @@ extension TerminalController {
             widthQuantum: 1
         )
         let image: CGImage
-        if geometry.cropsNothing, geometry.scalesNothing, request.caption == nil {
+        if geometry.cropsNothing(ofWidth: frame.image.width, height: frame.image.height),
+           geometry.scalesNothing,
+           request.caption == nil {
             // Nothing to crop, scale or draw: re-rendering would only cost a
             // copy and the window's color space.
             image = frame.image
@@ -113,12 +127,15 @@ extension TerminalController {
             }
             image = composed
         }
-        return try WindowStillImageWriter.write(
+        try Task.checkCancellation()
+        let prepared = try WindowStillImageWriter.prepare(
             image,
             to: Self.screenshotOutputURL(request: request),
             format: request.format,
             quality: request.quality
         )
+        try Task.checkCancellation()
+        return prepared
     }
 
     private nonisolated static func screenshotOutputURL(
@@ -154,6 +171,8 @@ extension TerminalController {
                 // screenshot may replace, so this is their parameter.
                 return "invalid_params"
             case .encodeFailed:
+                return "internal_error"
+            case .noLongerPending:
                 return "internal_error"
             }
         }

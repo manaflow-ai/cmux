@@ -51,9 +51,7 @@ enum WindowRecordingFrameComposer {
         _ source: CGImage,
         to geometry: WindowRecordingFrameGeometry
     ) -> CGImage? {
-        guard !geometry.cropsNothing
-            || geometry.cropWidth != source.width
-            || geometry.cropHeight != source.height else {
+        guard !geometry.cropsNothing(ofWidth: source.width, height: source.height) else {
             return source
         }
         let rect = CGRect(

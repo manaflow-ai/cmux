@@ -24,9 +24,10 @@ enum WindowRecordingWriterError: Error, Equatable, LocalizedError {
 
 /// Writes one recording's frames to disk as they are captured.
 ///
-/// Frames are written straight through rather than collected: a 30 second clip
-/// of a Retina window is a couple of gigabytes of uncompressed frames, which is
-/// not something the app may hold in memory for an agent.
+/// Frames are never collected as bitmaps: a 30 second clip of a Retina window
+/// is a couple of gigabytes of uncompressed frames, which is not something the
+/// app may hold in memory for an agent. MP4 frames stream into AVFoundation;
+/// GIF frames are staged as compressed images until their exact count is known.
 ///
 /// Frames are timed by the moment they were captured rather than by their
 /// index, so a clip plays back at the speed the window was really moving at
@@ -218,32 +219,88 @@ final class WindowRecordingMP4Writer: WindowRecordingFrameWriter {
 /// A gif carries a delay per frame rather than a frame rate, and a frame's delay
 /// is only known once the next frame has been captured, so one frame is always
 /// held back.
+///
+/// ImageIO requires the destination's declared image count to equal the number
+/// appended. A recording does not know that count until it stops, so frames are
+/// staged on disk as PNGs and the destination is created in `finish`.
 final class WindowRecordingGIFWriter: WindowRecordingFrameWriter {
-    private let destination: CGImageDestination
+    private let url: URL
+    private let frameDirectory: URL
     private let nominalDelaySeconds: Double
     private var pending: (image: CGImage, offsetSeconds: Double)?
-    private var frameCount = 0
+    private var frames: [(url: URL, delaySeconds: Double)] = []
 
     /// Browsers clamp very short gif delays to a tenth of a second; staying at
     /// or above two hundredths keeps playback predictable.
     private static let delayRange = 0.02...10.0
 
     init(url: URL, framesPerSecond: Int) throws {
-        // The declared image count is the number `CGImageDestinationFinalize`
-        // insists on having received, not a cap on what may be added, and how
-        // many frames a recording ends up with is only known when it stops.
-        // Declaring the frame budget here would fail every clip an agent stops
-        // early, which is every clip an agent stops.
+        self.url = url
+        frameDirectory = url.deletingLastPathComponent().appendingPathComponent(
+            ".\(url.lastPathComponent).frames-\(UUID().uuidString.lowercased())"
+        )
+        do {
+            try FileManager.default.createDirectory(
+                at: frameDirectory,
+                withIntermediateDirectories: false
+            )
+        } catch {
+            throw WindowRecordingWriterError.setup(
+                "could not stage gif frames at \(frameDirectory.path): \(error.localizedDescription)"
+            )
+        }
+        nominalDelaySeconds = 1 / Double(max(1, framesPerSecond))
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: frameDirectory)
+    }
+
+    func append(_ image: CGImage, atOffsetSeconds offsetSeconds: Double) async throws {
+        if let pending {
+            try add(pending.image, delaySeconds: offsetSeconds - pending.offsetSeconds)
+        }
+        pending = (image, offsetSeconds)
+    }
+
+    private func add(_ image: CGImage, delaySeconds: Double) throws {
+        let delay = min(
+            max(delaySeconds.isFinite ? delaySeconds : nominalDelaySeconds, Self.delayRange.lowerBound),
+            Self.delayRange.upperBound
+        )
+        let frameURL = frameDirectory.appendingPathComponent("\(frames.count).png")
+        guard let destination = CGImageDestinationCreateWithURL(
+            frameURL as CFURL,
+            UTType.png.identifier as CFString,
+            1,
+            nil
+        ) else {
+            throw WindowRecordingWriterError.frame("could not stage a gif frame")
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            try? FileManager.default.removeItem(at: frameURL)
+            throw WindowRecordingWriterError.frame("could not stage a gif frame")
+        }
+        frames.append((frameURL, delay))
+    }
+
+    func finish() async throws {
+        if let pending {
+            try add(pending.image, delaySeconds: nominalDelaySeconds)
+            self.pending = nil
+        }
+        guard !frames.isEmpty else {
+            throw WindowRecordingWriterError.noFrames
+        }
         guard let destination = CGImageDestinationCreateWithURL(
             url as CFURL,
             UTType.gif.identifier as CFString,
-            1,
+            frames.count,
             nil
         ) else {
             throw WindowRecordingWriterError.setup("could not create the gif at \(url.path)")
         }
-        self.destination = destination
-        nominalDelaySeconds = 1 / Double(max(1, framesPerSecond))
         CGImageDestinationSetProperties(
             destination,
             [
@@ -252,43 +309,26 @@ final class WindowRecordingGIFWriter: WindowRecordingFrameWriter {
                 ],
             ] as CFDictionary
         )
-    }
-
-    func append(_ image: CGImage, atOffsetSeconds offsetSeconds: Double) async throws {
-        if let pending {
-            add(pending.image, delaySeconds: offsetSeconds - pending.offsetSeconds)
-        }
-        pending = (image, offsetSeconds)
-    }
-
-    private func add(_ image: CGImage, delaySeconds: Double) {
-        let delay = min(
-            max(delaySeconds.isFinite ? delaySeconds : nominalDelaySeconds, Self.delayRange.lowerBound),
-            Self.delayRange.upperBound
-        )
-        CGImageDestinationAddImage(
-            destination,
-            image,
-            [
-                kCGImagePropertyGIFDictionary: [
-                    kCGImagePropertyGIFDelayTime: delay,
-                    kCGImagePropertyGIFUnclampedDelayTime: delay,
-                ],
-            ] as CFDictionary
-        )
-        frameCount += 1
-    }
-
-    func finish() async throws {
-        if let pending {
-            add(pending.image, delaySeconds: nominalDelaySeconds)
-            self.pending = nil
-        }
-        guard frameCount > 0 else {
-            throw WindowRecordingWriterError.noFrames
+        for frame in frames {
+            guard let source = CGImageSourceCreateWithURL(frame.url as CFURL, nil),
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                throw WindowRecordingWriterError.finish("a staged gif frame could not be decoded")
+            }
+            CGImageDestinationAddImage(
+                destination,
+                image,
+                [
+                    kCGImagePropertyGIFDictionary: [
+                        kCGImagePropertyGIFDelayTime: frame.delaySeconds,
+                        kCGImagePropertyGIFUnclampedDelayTime: frame.delaySeconds,
+                    ],
+                ] as CFDictionary
+            )
         }
         guard CGImageDestinationFinalize(destination) else {
             throw WindowRecordingWriterError.finish("the gif could not be finalized")
         }
+        frames = []
+        try? FileManager.default.removeItem(at: frameDirectory)
     }
 }

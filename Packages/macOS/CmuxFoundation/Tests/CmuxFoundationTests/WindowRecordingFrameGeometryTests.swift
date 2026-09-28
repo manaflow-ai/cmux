@@ -69,7 +69,18 @@ import Testing
         #expect(geometry.cropHeight == 600)
         #expect(geometry.outputWidth == 800)
         #expect(geometry.outputHeight == 600)
-        #expect(!geometry.cropsNothing)
+        #expect(!geometry.cropsNothing(ofWidth: 1600, height: 1000))
+    }
+
+    @Test func aRegionAtTheWindowOriginStillCrops() throws {
+        let geometry = try plan(params: ["region": "0,0,420,900"])
+
+        #expect(geometry.cropX == 0)
+        #expect(geometry.cropY == 0)
+        #expect(geometry.cropWidth == 840)
+        #expect(geometry.cropHeight == 1000)
+        #expect(!geometry.cropsNothing(ofWidth: 1600, height: 1000))
+        #expect(try plan().cropsNothing(ofWidth: 1600, height: 1000))
     }
 
     @Test func regionOnAOnePointPerPixelWindowIsNotScaled() throws {
@@ -97,6 +108,49 @@ import Testing
                 windowPixelHeight: 1000,
                 pointPixelScale: 1,
                 request: request
+            )
+        }
+    }
+
+    @Test func finiteValuesThatOverflowPixelArithmeticDoNotTrap() throws {
+        let oversized = WindowRecordingRequest(
+            target: .region(WindowRecordingRegion(x: 0, y: 0, width: 1e300, height: 1e300))
+        )
+        let geometry = try WindowRecordingFrameGeometry.plan(
+            windowPixelWidth: 1600,
+            windowPixelHeight: 1000,
+            pointPixelScale: 2,
+            request: oversized
+        )
+        #expect(geometry.cropWidth == 1600)
+        #expect(geometry.cropHeight == 1000)
+
+        let overflowingEdge = WindowRecordingRequest(
+            target: .region(WindowRecordingRegion(x: 1e300, y: 0, width: 1e300, height: 100))
+        )
+        #expect(throws: WindowRecordingFrameGeometry.Failure.regionOutsideWindow) {
+            try WindowRecordingFrameGeometry.plan(
+                windowPixelWidth: 1600,
+                windowPixelHeight: 1000,
+                pointPixelScale: 2,
+                request: overflowingEdge
+            )
+        }
+
+        let overflowingSum = WindowRecordingRequest(
+            target: .region(WindowRecordingRegion(
+                x: Double.greatestFiniteMagnitude,
+                y: 0,
+                width: Double.greatestFiniteMagnitude,
+                height: 100
+            ))
+        )
+        #expect(throws: WindowRecordingFrameGeometry.Failure.regionOutsideWindow) {
+            try WindowRecordingFrameGeometry.plan(
+                windowPixelWidth: 1600,
+                windowPixelHeight: 1000,
+                pointPixelScale: 2,
+                request: overflowingSum
             )
         }
     }
