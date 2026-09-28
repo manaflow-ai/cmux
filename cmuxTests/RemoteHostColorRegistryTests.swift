@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 import Testing
 
@@ -133,7 +134,7 @@ import Testing
             #expect(distance >= 15, "\(hex) differs from the grey sidebar by \(distance)")
         }
         for scheme in [ColorScheme.light, .dark] {
-            let selection = Self.srgb(cmuxAccentNSColor(for: scheme))
+            let selection = Self.srgb(CmuxAccentColor(mode: .cmux).nsColor(isDark: scheme == .dark))
             for (hex, rgb) in rails {
                 let distance = Self.deltaE(rgb, selection)
                 #expect(distance >= 12, "\(hex) differs from the \(scheme) selection by \(distance)")
