@@ -95,10 +95,8 @@ extension CMUXCLI {
             guard !normalized.isEmpty else {
                 throw CLIError(message: String(localized: "cli.sessions.error.agentRequiresValue", defaultValue: "sessions list: --agent requires a value"))
             }
-            if normalized == "claude" || normalized == "claude-code" || normalized == "claude_code" {
-                selectedSpecs = agentSpecs.filter { $0.name == "claude" }
-            } else if let def = Self.agentDef(named: normalized) {
-                selectedSpecs = agentSpecs.filter { $0.name == def.name }
+            if let canonical = Self.sessionsCanonicalAgentName(normalized) {
+                selectedSpecs = agentSpecs.filter { $0.name == canonical }
             } else {
                 throw CLIError(message: String(
                     format: String(localized: "cli.sessions.error.unknownAgent", defaultValue: "sessions list: unknown agent '%@'"),
@@ -299,6 +297,22 @@ extension CMUXCLI {
         }
     }
 
+    /// Canonical agent name for an `--agent` value, or nil when the value names
+    /// no agent this build knows.
+    ///
+    /// Shared by `sessions list` and `sessions live` so the two subcommands
+    /// accept exactly the same spellings. `claude-code` is accepted because the
+    /// hook catalog calls the agent `claude` while its own docs and binary say
+    /// `claude-code`.
+    static func sessionsCanonicalAgentName(_ raw: String) -> String? {
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+        if normalized == "claude" || normalized == "claude-code" || normalized == "claude_code" {
+            return "claude"
+        }
+        return agentDef(named: normalized)?.name
+    }
+
     func sessionsUsage() -> String {
         String(localized: "cli.sessions.usage", defaultValue: """
         Usage: cmux sessions list [options]
@@ -342,9 +356,10 @@ extension CMUXCLI {
           --needs-me            Only sessions waiting on a human
           --state <name>        Only needs-input, working, idle or ended
           --agent <name>        Only one agent, for example codex or claude
-          --limit <n>           Limit text output (default: 100)
+          --limit <n>           Limit rows shown (default: 100)
           --all                 Print all matches
-          --json                Print structured JSON
+          --json                Print structured JSON, with total_matches and limit
+                                alongside the rows
         """)
     }
 

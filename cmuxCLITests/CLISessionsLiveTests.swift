@@ -120,7 +120,7 @@ final class CLISessionsLiveTests {
         #expect(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String } == ["agent.sessions.list"])
 
         let lines = result.stdout.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        #expect(lines.first == "3 live agent sessions (1 needs input, 1 working)")
+        #expect(lines.first == "sessions=3  needs_input=1  working=1")
 
         // Order is the app's, not re-derived here: the CLI must not reshuffle it.
         let needsIndex = try #require(lines.firstIndex { $0.contains("sess-needs") })
@@ -172,13 +172,15 @@ final class CLISessionsLiveTests {
         #expect(sessions.count == 1)
         #expect(sessions.first?["session_id"] as? String == "sess-needs")
         #expect(json["count"] as? Int == 1)
-        // Counts describe what was printed, not the unfiltered reply, and the
-        // original total stays visible so the filter is not silently lossy.
+        // Counts describe the matched set, not the unfiltered reply, and both
+        // sizes stay visible so the filter is not silently lossy.
         let counts = try #require(json["state_counts"] as? [String: Int])
         #expect(counts["needs_input"] == 1)
         #expect(counts["working"] == 0)
         #expect(counts["total"] == 1)
-        #expect(json["matched_of_total"] as? Int == 3)
+        #expect(json["total_matches"] as? Int == 1)
+        #expect(json["total_live"] as? Int == 3)
+        #expect(json["limit"] as? Int == 100)
     }
 
     @Test func unknownStateIsRejectedWithoutContactingTheSocket() throws {
@@ -211,9 +213,184 @@ final class CLISessionsLiveTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status != 0)
         #expect(result.stderr.contains("unknown state"))
-        // Argument validation happens before the socket is used, so a typo
-        // never reaches the app.
+        // Nothing was sent, so a typo never reaches the app. With the socket
+        // path forced through the environment, this also means argument
+        // validation runs before the connection; on the default path the CLI
+        // reports "not running" first, which is its own correct answer.
         #expect(state.commands.isEmpty)
+    }
+
+    @Test func flagShapedFilterValueIsRejectedInsteadOfFilteringOnIt() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sessions-flagvalue")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        _ = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let id = Self.v2Payload(from: line)?["id"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(id: id, ok: true, result: Self.stubReply())
+        }
+
+        // Taking the next token blindly would read "--needs-me" as the agent
+        // name: the filter matches nothing, and the caller who asked what is
+        // waiting on them is told nothing is.
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["sessions", "live", "--agent", "--needs-me"]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status != 0)
+        #expect(result.stderr.contains("another flag"))
+        #expect(!result.stdout.contains("No live agent sessions matched."))
+        #expect(state.commands.isEmpty)
+    }
+
+    @Test func valueTakingFlagAtTheEndOfArgvSaysItNeedsAValue() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sessions-novalue")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        _ = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let id = Self.v2Payload(from: line)?["id"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(id: id, ok: true, result: Self.stubReply())
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["sessions", "live", "--limit"]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status != 0)
+        #expect(result.stderr.contains("requires a value"))
+        // Not "unknown flag '--limit'", which is what a trailing-flag bug looks
+        // like from the outside.
+        #expect(!result.stderr.contains("unknown flag"))
+        #expect(state.commands.isEmpty)
+    }
+
+    @Test func unknownAgentIsRejectedRatherThanMatchingNothing() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sessions-badagent")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        _ = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let id = Self.v2Payload(from: line)?["id"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(id: id, ok: true, result: Self.stubReply())
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["sessions", "live", "--agent", "clyde"]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status != 0)
+        #expect(result.stderr.contains("unknown agent"))
+        #expect(state.commands.isEmpty)
+    }
+
+    @Test func agentAliasResolvesToTheWireAgentName() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sessions-alias")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  payload["method"] as? String == "agent.sessions.list" else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(id: id, ok: true, result: Self.stubReply())
+        }
+
+        // `sessions list` has always taken this spelling. The wire name is
+        // "claude", so accepting only that would make the two subcommands
+        // disagree about the same flag.
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["sessions", "live", "--agent", "claude-code", "--json"]
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+
+        let json = try #require(Self.v2Payload(from: result.stdout))
+        let sessions = try #require(json["sessions"] as? [[String: Any]])
+        #expect(sessions.count == 2)
+        #expect(sessions.allSatisfy { ($0["agent"] as? String) == "claude" })
+        #expect(json["total_matches"] as? Int == 2)
+        #expect(json["total_live"] as? Int == 3)
+    }
+
+    @Test func limitTruncatesRowsAndSaysHowManyAreHidden() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sessions-limit")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  payload["method"] as? String == "agent.sessions.list" else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(id: id, ok: true, result: Self.stubReply())
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["sessions", "live", "--limit", "1"]
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+
+        // The summary counts every match, so a truncated list never reads as
+        // the whole world, and the footer says exactly what was withheld.
+        let lines = result.stdout.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        #expect(lines.first == "sessions=3  needs_input=1  working=1")
+        #expect(result.stdout.contains("sess-needs"))
+        #expect(!result.stdout.contains("sess-work"))
+        #expect(!result.stdout.contains("sess-idle"))
+        #expect(result.stdout.contains("... 2 more."))
     }
 
     // MARK: - Harness

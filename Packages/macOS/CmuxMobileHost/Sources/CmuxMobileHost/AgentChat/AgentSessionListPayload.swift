@@ -26,7 +26,7 @@ public struct AgentSessionListPayload {
     ///   - now: Clock reading used for `state_age_seconds`, injected so a reply
     ///     stamps every session from one instant and tests are deterministic.
     public func json(_ record: AgentChatSessionRecord, now: Date) -> [String: Any] {
-        let rank = AgentSessionAttention.rank(record.state)
+        let rank = record.state.attentionRank
         var json: [String: Any] = [
             "session_id": record.sessionID,
             "agent": record.agentKind.sourceName,
@@ -45,9 +45,9 @@ public struct AgentSessionListPayload {
             },
             "version": record.version,
         ]
-        if let since = AgentSessionAttention.stateSince(record.state) {
+        if let since = record.state.attentionStateSince {
             json["state_since"] = formatter.string(from: since)
-            json["state_age_seconds"] = AgentSessionAttention.stateAgeSeconds(record.state, now: now)
+            json["state_age_seconds"] = record.state.attentionStateAgeSeconds(now: now)
         }
         if let title = record.title, !title.isEmpty { json["title"] = title }
         if let cwd = record.workingDirectory, !cwd.isEmpty { json["cwd"] = cwd }
@@ -67,14 +67,14 @@ public struct AgentSessionListPayload {
 
     /// Builds the `agent.sessions.list` reply.
     ///
-    /// Records are ordered by ``AgentSessionAttention/ordered(_:)`` here rather
-    /// than by the caller, so every client of this verb gets triage order
+    /// Records are ordered by ``Swift/Collection/orderedByAttention()`` here
+    /// rather than by the caller, so every client of this verb gets triage order
     /// without re-implementing it. `state_counts` covers the records in this
     /// reply, so a caller that scoped the request to one workspace gets that
     /// workspace's totals.
     public func list(records: [AgentChatSessionRecord], now: Date) -> [String: Any] {
-        let ordered = AgentSessionAttention.ordered(records)
-        let counts = AgentSessionAttention.counts(ordered)
+        let ordered = records.orderedByAttention()
+        let counts = ordered.attentionCounts()
         return [
             "sessions": ordered.map { json($0, now: now) },
             "count": ordered.count,

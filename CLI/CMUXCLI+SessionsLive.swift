@@ -14,6 +14,130 @@ extension CMUXCLI {
             .lowercased() == "live"
     }
 
+    /// Everything `cmux sessions live` accepts on the command line.
+    struct SessionsLiveArguments: Equatable {
+        var state: String?
+        var agent: String?
+        var limitRaw: String?
+        var needsMe = false
+        var includeAll = false
+        var json = false
+    }
+
+    /// Parses `sessions live` flags in a single pass.
+    ///
+    /// The shared `parseOption` takes whatever token follows a flag, so
+    /// `--agent --needs-me` reads `--needs-me` as the agent name: the filter
+    /// then matches nothing and the command answers "nothing is waiting on
+    /// you" to a caller who asked exactly the opposite question. A flag-shaped
+    /// value is rejected here instead, and a value-taking flag at the end of
+    /// argv says it needs a value rather than reporting itself as unknown.
+    ///
+    /// A value starting with a single dash still goes through, so
+    /// `--limit -5` gets the limit's own "must be a positive integer" rather
+    /// than a misleading complaint about a missing value.
+    static func parseSessionsLiveArguments(_ args: [String]) throws -> SessionsLiveArguments {
+        var parsed = SessionsLiveArguments()
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            index += 1
+            switch arg {
+            case "--needs-me":
+                parsed.needsMe = true
+            case "--all":
+                parsed.includeAll = true
+            case "--json":
+                parsed.json = true
+            case "--state", "--agent", "--limit":
+                let value = try sessionsLiveTakeValue(flag: arg, args: args, index: &index)
+                sessionsLiveAssign(flag: arg, value: value, into: &parsed)
+            default:
+                if let (flag, value) = Self.sessionsLiveInlineValue(arg) {
+                    guard !value.isEmpty else {
+                        throw CLIError(message: String(
+                            format: String(
+                                localized: "cli.sessions.live.error.missingValue",
+                                defaultValue: "sessions live: %@ requires a value"
+                            ),
+                            flag
+                        ))
+                    }
+                    sessionsLiveAssign(flag: flag, value: value, into: &parsed)
+                    continue
+                }
+                // Fail closed: a typo like `--need-me` must not read as a
+                // broader request than the caller typed.
+                if arg.hasPrefix("-") {
+                    throw CLIError(message: String(
+                        format: String(
+                            localized: "cli.sessions.live.error.unknownFlag",
+                            defaultValue: "sessions live: unknown flag '%@'"
+                        ),
+                        arg
+                    ))
+                }
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.sessions.live.error.unexpectedArgument",
+                        defaultValue: "sessions live: unexpected argument '%@'"
+                    ),
+                    arg
+                ))
+            }
+        }
+        return parsed
+    }
+
+    private static func sessionsLiveTakeValue(
+        flag: String,
+        args: [String],
+        index: inout Int
+    ) throws -> String {
+        guard index < args.count else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.sessions.live.error.missingValue",
+                    defaultValue: "sessions live: %@ requires a value"
+                ),
+                flag
+            ))
+        }
+        let value = args[index]
+        guard !value.hasPrefix("--") else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.sessions.live.error.flagAsValue",
+                    defaultValue: "sessions live: %1$@ requires a value, but '%2$@' is another flag"
+                ),
+                flag,
+                value
+            ))
+        }
+        index += 1
+        return value
+    }
+
+    private static func sessionsLiveInlineValue(_ arg: String) -> (flag: String, value: String)? {
+        for flag in ["--state", "--agent", "--limit"] where arg.hasPrefix("\(flag)=") {
+            return (flag, String(arg.dropFirst(flag.count + 1)))
+        }
+        return nil
+    }
+
+    private static func sessionsLiveAssign(
+        flag: String,
+        value: String,
+        into parsed: inout SessionsLiveArguments
+    ) {
+        switch flag {
+        case "--state": parsed.state = value
+        case "--agent": parsed.agent = value
+        case "--limit": parsed.limitRaw = value
+        default: break
+        }
+    }
+
     /// `cmux sessions live` — the running app's view of every agent session, in
     /// attention order.
     ///
@@ -28,43 +152,11 @@ extension CMUXCLI {
         explicitPassword: String?,
         jsonOutput: Bool
     ) throws {
-        let (stateRaw, rem0) = parseOption(commandArgs, name: "--state")
-        let (limitRaw, rem1) = parseOption(rem0, name: "--limit")
-        let (agentRaw, rem2) = parseOption(rem1, name: "--agent")
+        let parsed = try Self.parseSessionsLiveArguments(commandArgs)
+        let localJSONOutput = jsonOutput || parsed.json
 
-        var needsMe = false
-        var includeAll = false
-        var localJSONOutput = jsonOutput
-        var remaining: [String] = []
-        for arg in rem2 {
-            switch arg {
-            case "--needs-me":
-                needsMe = true
-            case "--all":
-                includeAll = true
-            case "--json":
-                localJSONOutput = true
-            default:
-                remaining.append(arg)
-            }
-        }
-        // Fail closed: a typo like `--need-me` must not read as a broader
-        // request than the caller typed.
-        if let unknown = remaining.first(where: { $0.hasPrefix("-") }) {
-            throw CLIError(message: String(
-                format: String(localized: "cli.sessions.live.error.unknownFlag", defaultValue: "sessions live: unknown flag '%@'"),
-                unknown
-            ))
-        }
-        if let extra = remaining.first {
-            throw CLIError(message: String(
-                format: String(localized: "cli.sessions.live.error.unexpectedArgument", defaultValue: "sessions live: unexpected argument '%@'"),
-                extra
-            ))
-        }
-
-        let stateFilter = try stateRaw.map { try Self.sessionsLiveNormalizedState($0) }
-        if needsMe, let stateFilter, stateFilter != "needs_input" {
+        let stateFilter = try parsed.state.map { try Self.sessionsLiveNormalizedState($0) }
+        if parsed.needsMe, let stateFilter, stateFilter != "needs_input" {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.sessions.live.error.conflictingState",
@@ -75,20 +167,31 @@ extension CMUXCLI {
         }
 
         let limit: Int
-        if includeAll {
+        if parsed.includeAll {
             limit = Int.max
-        } else if let limitRaw {
-            guard let parsed = Int(limitRaw), parsed > 0 else {
+        } else if let limitRaw = parsed.limitRaw {
+            guard let value = Int(limitRaw), value > 0 else {
                 throw CLIError(message: String(localized: "cli.sessions.live.error.invalidLimit", defaultValue: "sessions live: --limit must be a positive integer"))
             }
-            limit = parsed
+            limit = value
         } else {
             limit = 100
         }
 
-        let agentFilter = sessionsListNormalized(agentRaw)?.lowercased()
-        if agentRaw != nil, agentFilter == nil {
-            throw CLIError(message: String(localized: "cli.sessions.live.error.agentRequiresValue", defaultValue: "sessions live: --agent requires a value"))
+        // Same spellings as `sessions list`, from the same resolver: the two
+        // subcommands take the same `--agent` values or neither can be trusted.
+        var agentFilter: String?
+        if let agentRaw = parsed.agent {
+            guard let canonical = Self.sessionsCanonicalAgentName(agentRaw) else {
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.sessions.live.error.unknownAgent",
+                        defaultValue: "sessions live: unknown agent '%@'"
+                    ),
+                    agentRaw
+                ))
+            }
+            agentFilter = canonical
         }
 
         // `launchIfNeeded: false` on purpose. This is a read of what is
@@ -103,8 +206,8 @@ extension CMUXCLI {
 
         let payload = try client.sendV2(method: "agent.sessions.list")
         let all = payload["sessions"] as? [[String: Any]] ?? []
-        let effectiveStateFilter = needsMe ? "needs_input" : stateFilter
-        var selected = all.filter { session in
+        let effectiveStateFilter = parsed.needsMe ? "needs_input" : stateFilter
+        let matched = all.filter { session in
             if let effectiveStateFilter, (session["state"] as? String) != effectiveStateFilter {
                 return false
             }
@@ -113,36 +216,33 @@ extension CMUXCLI {
             }
             return true
         }
-        if selected.count > limit {
-            selected = Array(selected.prefix(limit))
-        }
+        let shown = limit == Int.max ? matched : Array(matched.prefix(limit))
+        // Counted over every match, not over the rows that fit: both outputs
+        // report how much is going on, and a display limit does not change
+        // that.
+        let counts = Self.sessionsLiveStateCounts(matched)
 
         if localJSONOutput {
-            // Re-derive the counts from what is actually being printed, so a
-            // filtered reply never reports the unfiltered totals.
-            var counts: [String: Int] = ["needs_input": 0, "working": 0, "idle": 0, "ended": 0]
-            for session in selected {
-                if let state = session["state"] as? String, counts[state] != nil {
-                    counts[state, default: 0] += 1
-                }
-            }
-            counts["total"] = selected.count
+            // `sessions` holds at most `limit` of the matched set. Truncating
+            // without saying so would let a script lose sessions silently, so
+            // the reply always carries both sizes and the limit that produced
+            // them, the same way `sessions list --json` does.
             var out: [String: Any] = [
-                "sessions": selected,
-                "count": selected.count,
+                "sessions": shown,
+                "count": shown.count,
+                "total_matches": matched.count,
+                "total_live": all.count,
+                "limit": limit == Int.max ? NSNull() : limit,
                 "state_counts": counts,
             ]
             if let generatedAt = payload["generated_at"] {
                 out["generated_at"] = generatedAt
             }
-            if selected.count != all.count {
-                out["matched_of_total"] = all.count
-            }
             print(jsonString(out))
             return
         }
 
-        printSessionsLivePayload(selected, totalCount: all.count)
+        printSessionsLivePayload(shown, counts: counts, totalCount: all.count)
     }
 
     /// Accepts both the wire spelling and the hyphenated one a human will type.
@@ -168,15 +268,42 @@ extension CMUXCLI {
     }
 
     /// Compact age: the caller is scanning a column, so one unit is enough.
+    ///
+    /// Clamped because the number arrives over a socket. A nonsense
+    /// `state_age_seconds` should print a nonsense age, not trap on an `Int`
+    /// conversion that cannot represent it.
     static func sessionsLiveAgeText(_ seconds: Double) -> String {
-        let total = Int(seconds.rounded())
+        guard seconds.isFinite else { return "-" }
+        let total = Int(seconds.rounded().clamped(to: 0...9_999_999_999))
         if total < 60 { return "\(total)s" }
         if total < 3_600 { return "\(total / 60)m" }
         if total < 86_400 { return "\(total / 3_600)h" }
         return "\(total / 86_400)d"
     }
 
-    private func printSessionsLivePayload(_ sessions: [[String: Any]], totalCount: Int) {
+    /// State tally for a set of live sessions, keyed by wire state name plus
+    /// `total`.
+    ///
+    /// One tally feeds both the text header and the JSON reply, so the two can
+    /// never disagree about what was counted.
+    static func sessionsLiveStateCounts(_ sessions: [[String: Any]]) -> [String: Int] {
+        var counts: [String: Int] = ["needs_input": 0, "working": 0, "idle": 0, "ended": 0]
+        for session in sessions {
+            if let state = session["state"] as? String, counts[state] != nil {
+                counts[state, default: 0] += 1
+            }
+        }
+        // `total` covers every match, including any state name this CLI does
+        // not know, so the buckets can sum to less than it.
+        counts["total"] = sessions.count
+        return counts
+    }
+
+    private func printSessionsLivePayload(
+        _ sessions: [[String: Any]],
+        counts: [String: Int],
+        totalCount: Int
+    ) {
         guard !sessions.isEmpty else {
             print(totalCount == 0
                 ? String(localized: "cli.sessions.live.empty", defaultValue: "No live agent sessions.")
@@ -184,7 +311,7 @@ extension CMUXCLI {
             return
         }
 
-        print(sessionsLiveHeaderText(sessions))
+        print(sessionsLiveHeaderText(counts))
         // The state column is padded to the widest value present rather than to
         // a constant, so a list with no needs-input rows is not indented by a
         // word that never appears in it.
@@ -224,36 +351,33 @@ extension CMUXCLI {
                 print("    " + details.joined(separator: "  "))
             }
         }
+        // Same footer and same wording as `sessions list`: a truncated list
+        // must never look like the whole list.
+        let matchedCount = counts["total"] ?? sessions.count
+        if matchedCount > sessions.count {
+            print(String(
+                format: String(localized: "cli.sessions.output.more", defaultValue: "... %lld more. Pass --all or --limit <n>."),
+                matchedCount - sessions.count
+            ))
+        }
     }
 
-    /// Builds the summary line.
+    /// Builds the summary line from the matched tally.
     ///
-    /// Count selection stays in Swift rather than in catalog plural variations
-    /// because the count is resolved before the string is.
-    private func sessionsLiveHeaderText(_ sessions: [[String: Any]]) -> String {
-        var needsInput = 0
-        var working = 0
-        for session in sessions {
-            switch session["state"] as? String {
-            case "needs_input": needsInput += 1
-            case "working": working += 1
-            default: break
-            }
-        }
-        let head = sessions.count == 1
-            ? String(localized: "cli.sessions.live.header.one", defaultValue: "1 live agent session")
-            : String(
-                format: String(localized: "cli.sessions.live.header.other", defaultValue: "%lld live agent sessions"),
-                Int64(sessions.count)
-            )
-        return String(
-            format: String(
-                localized: "cli.sessions.live.header.breakdown",
-                defaultValue: "%1$@ (%2$lld needs input, %3$lld working)"
-            ),
-            head,
-            Int64(needsInput),
-            Int64(working)
-        )
+    /// Emitted as `key=value` tokens rather than a sentence, on purpose: every
+    /// other token in this output is already an invariant wire value (the state
+    /// names in the first column, `cwd=`, `surface=`, `subagents=`,
+    /// `state=unconfirmed`, and the sibling's `state_dir=`), so a translated
+    /// sentence would be the one piece of prose sitting on top of untranslated
+    /// data. The state names here are the same ones the rows below print and the
+    /// same ones `--state` accepts, which also makes the line greppable.
+    private func sessionsLiveHeaderText(_ counts: [String: Int]) -> String {
+        "sessions=\(counts["total"] ?? 0)  needs_input=\(counts["needs_input"] ?? 0)  working=\(counts["working"] ?? 0)"
+    }
+}
+
+private extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        min(max(self, range.lowerBound), range.upperBound)
     }
 }

@@ -45,7 +45,7 @@ struct AgentSessionAttentionTests {
             record("working", state: .working(since: at(200)), lastActivity: 200),
             record("needs", state: .needsInput(since: at(100)), lastActivity: 100),
         ]
-        #expect(ids(AgentSessionAttention.ordered(records)) == ["needs", "working", "idle", "ended"])
+        #expect(ids(records.orderedByAttention()) == ["needs", "working", "idle", "ended"])
     }
 
     @Test("Bucket wins over recency")
@@ -56,15 +56,15 @@ struct AgentSessionAttentionTests {
             record("fresh-idle", state: .idle, lastActivity: 9_000),
             record("stale-needs", state: .needsInput(since: at(1)), lastActivity: 1),
         ]
-        #expect(ids(AgentSessionAttention.ordered(records)) == ["stale-needs", "fresh-idle"])
+        #expect(ids(records.orderedByAttention()) == ["stale-needs", "fresh-idle"])
     }
 
     @Test("Rank wire names match the agent state vocabulary")
     func rankWireNames() {
-        #expect(AgentSessionAttention.rank(.needsInput(since: at(0))).wireName == "needs_input")
-        #expect(AgentSessionAttention.rank(.working(since: at(0))).wireName == "working")
-        #expect(AgentSessionAttention.rank(.idle).wireName == "idle")
-        #expect(AgentSessionAttention.rank(.ended).wireName == "ended")
+        #expect(ChatAgentState.needsInput(since: at(0)).attentionRank.wireName == "needs_input")
+        #expect(ChatAgentState.working(since: at(0)).attentionRank.wireName == "working")
+        #expect(ChatAgentState.idle.attentionRank.wireName == "idle")
+        #expect(ChatAgentState.ended.attentionRank.wireName == "ended")
     }
 
     // MARK: - Within-bucket tie-breaks
@@ -78,7 +78,7 @@ struct AgentSessionAttentionTests {
         ]
         // Note `oldest` also has the newest lastActivityAt: within this bucket
         // the question's age decides, not activity.
-        #expect(ids(AgentSessionAttention.ordered(records)) == ["oldest", "middle", "recent"])
+        #expect(ids(records.orderedByAttention()) == ["oldest", "middle", "recent"])
     }
 
     @Test("Working sorts longest-running first")
@@ -87,7 +87,7 @@ struct AgentSessionAttentionTests {
             record("just-started", state: .working(since: at(800)), lastActivity: 800),
             record("grinding", state: .working(since: at(20)), lastActivity: 850),
         ]
-        #expect(ids(AgentSessionAttention.ordered(records)) == ["grinding", "just-started"])
+        #expect(ids(records.orderedByAttention()) == ["grinding", "just-started"])
     }
 
     @Test("Idle sorts most-recently-active first")
@@ -97,7 +97,7 @@ struct AgentSessionAttentionTests {
             record("warm", state: .idle, lastActivity: 700),
             record("lukewarm", state: .idle, lastActivity: 400),
         ]
-        #expect(ids(AgentSessionAttention.ordered(records)) == ["warm", "lukewarm", "cold"])
+        #expect(ids(records.orderedByAttention()) == ["warm", "lukewarm", "cold"])
     }
 
     @Test("Ended sorts most-recently-active first")
@@ -106,7 +106,7 @@ struct AgentSessionAttentionTests {
             record("old-finish", state: .ended, lastActivity: 100),
             record("new-finish", state: .ended, lastActivity: 600),
         ]
-        #expect(ids(AgentSessionAttention.ordered(records)) == ["new-finish", "old-finish"])
+        #expect(ids(records.orderedByAttention()) == ["new-finish", "old-finish"])
     }
 
     // MARK: - Totality and stability
@@ -118,7 +118,7 @@ struct AgentSessionAttentionTests {
             record("a", state: .needsInput(since: at(50)), lastActivity: 50),
             record("b", state: .needsInput(since: at(50)), lastActivity: 50),
         ]
-        #expect(ids(AgentSessionAttention.ordered(records)) == ["a", "b", "c"])
+        #expect(ids(records.orderedByAttention()) == ["a", "b", "c"])
     }
 
     @Test("Order does not depend on input order")
@@ -133,25 +133,26 @@ struct AgentSessionAttentionTests {
             record("idle-b", state: .idle, lastActivity: 60),
             record("ended", state: .ended, lastActivity: 70),
         ]
-        let expected = ids(AgentSessionAttention.ordered(records))
+        let expected = ids(records.orderedByAttention())
         #expect(expected == ["needs-old", "needs-new", "working", "idle-a", "idle-b", "ended"])
         for _ in 0..<32 {
-            #expect(ids(AgentSessionAttention.ordered(records.shuffled())) == expected)
+            #expect(ids(records.shuffled().orderedByAttention()) == expected)
         }
     }
 
     @Test("Empty input is empty output")
     func emptyInput() {
-        #expect(AgentSessionAttention.ordered([]).isEmpty)
-        #expect(AgentSessionAttention.counts([]) == AgentSessionAttention.Counts())
-        #expect(AgentSessionAttention.counts([]).total == 0)
+        let empty: [AgentChatSessionRecord] = []
+        #expect(empty.orderedByAttention().isEmpty)
+        #expect(empty.attentionCounts() == AgentSessionAttentionCounts())
+        #expect(empty.attentionCounts().total == 0)
     }
 
     // MARK: - State age
 
     @Test("State age is measured from the state's start")
     func stateAge() {
-        let age = AgentSessionAttention.stateAgeSeconds(.working(since: at(100)), now: at(175))
+        let age = ChatAgentState.working(since: at(100)).attentionStateAgeSeconds(now: at(175))
         #expect(age == 75)
     }
 
@@ -159,16 +160,16 @@ struct AgentSessionAttentionTests {
     func stateAgeClampsToZero() {
         // Hook timestamps come from the agent process, whose clock can read
         // slightly ahead of ours.
-        let age = AgentSessionAttention.stateAgeSeconds(.needsInput(since: at(200)), now: at(190))
+        let age = ChatAgentState.needsInput(since: at(200)).attentionStateAgeSeconds(now: at(190))
         #expect(age == 0)
     }
 
     @Test("Idle and ended have no state age")
     func settledStatesHaveNoAge() {
-        #expect(AgentSessionAttention.stateAgeSeconds(.idle, now: at(0)) == nil)
-        #expect(AgentSessionAttention.stateAgeSeconds(.ended, now: at(0)) == nil)
-        #expect(AgentSessionAttention.stateSince(.idle) == nil)
-        #expect(AgentSessionAttention.stateSince(.ended) == nil)
+        #expect(ChatAgentState.idle.attentionStateAgeSeconds(now: at(0)) == nil)
+        #expect(ChatAgentState.ended.attentionStateAgeSeconds(now: at(0)) == nil)
+        #expect(ChatAgentState.idle.attentionStateSince == nil)
+        #expect(ChatAgentState.ended.attentionStateSince == nil)
     }
 
     // MARK: - Counts and the needs-me filter
@@ -184,7 +185,7 @@ struct AgentSessionAttentionTests {
             record("i3", state: .idle, lastActivity: 6),
             record("e1", state: .ended, lastActivity: 7),
         ]
-        let counts = AgentSessionAttention.counts(records)
+        let counts = records.attentionCounts()
         #expect(counts.needsInput == 2)
         #expect(counts.working == 1)
         #expect(counts.idle == 3)
@@ -193,17 +194,6 @@ struct AgentSessionAttentionTests {
         #expect(counts.total == records.count)
     }
 
-    @Test("Needing attention excludes a long-running working session")
-    func needingAttentionIsNeedsInputOnly() {
-        // A session that has been working for hours sorts near the top but is
-        // not waiting on a human, so a "needs me" filter must not claim it.
-        let records = [
-            record("grinding", state: .working(since: at(0)), lastActivity: 9_000),
-            record("blocked", state: .needsInput(since: at(8_000)), lastActivity: 8_000),
-            record("idle", state: .idle, lastActivity: 9_500),
-        ]
-        #expect(ids(AgentSessionAttention.needingAttention(records)) == ["blocked"])
-    }
 
     // MARK: - Wire payload
 
@@ -249,6 +239,21 @@ struct AgentSessionAttentionTests {
         #expect(json["state_since"] == nil)
         #expect(json["state_age_seconds"] == nil)
         #expect(json["needs_attention"] as? Bool == false)
+    }
+
+    @Test("A long-running working session sorts high but does not need a human")
+    func payloadLongWorkingSessionIsNotWaiting() {
+        // It has been running for hours and sits in the second bucket, above
+        // everything idle. That must not make a "needs me" filter claim it: the
+        // agent is busy, not blocked.
+        let json = AgentSessionListPayload().json(
+            record("grinding", state: .working(since: at(0)), lastActivity: 9_000),
+            now: at(9_600)
+        )
+        #expect(json["state"] as? String == "working")
+        #expect(json["attention_rank"] as? Int == 1)
+        #expect(json["needs_attention"] as? Bool == false)
+        #expect(json["state_age_seconds"] as? Double == 9_600)
     }
 
     @Test("Payload omits absent optional fields rather than emitting null")
