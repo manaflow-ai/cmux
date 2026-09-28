@@ -2332,7 +2332,7 @@ struct SidebarGroupHeaderSelectionEdgeTests {
             colorSchemeIsDark: true,
             notificationBadgeColorHex: nil
         ))
-        return cell.selectionEdgeWidthForTesting
+        return cell.backgroundView.layer?.borderWidth ?? 0
     }
 
     @Test

@@ -12,7 +12,8 @@ import SwiftUI
 final class SidebarGroupHeaderTableCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SidebarGroupHeaderTableCellView")
 
-    private let backgroundView = NSView()
+    /// Selection fill and edge layer. Internal so tests read its paint directly.
+    let backgroundView = NSView()
     private let pinImageView = NSImageView()
     private let chevronButton = SidebarHeaderGlyphButton()
     private let iconImageView = NSImageView()
@@ -261,10 +262,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     }
 
 #if DEBUG
-    var selectionEdgeWidthForTesting: CGFloat {
-        backgroundView.layer?.borderWidth ?? 0
-    }
-
     var dropIndicatorPaintForTesting: (top: Bool, bottom: Bool) {
         (!topDropIndicator.isHidden, !bottomDropIndicator.isHidden)
     }
