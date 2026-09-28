@@ -82,9 +82,11 @@ struct CloudMachinesHeaderCountTests {
             cloudMachinesUsage: CloudMachinesUsage(activeCount: 1, maxActiveVms: 50, isPaidPlan: false)
         )
         fixture.coordinator.update(inputs: inputs)
+        fixture.container.layoutSubtreeIfNeeded()
         let outline = try #require(fixture.coordinator.outlineView)
         let header = try #require(outline.item(atRow: 0) as? CloudTreeNode)
         #expect(header.structureTag == "cloudMachinesSection")
+        #expect(onScreenHeaderLabel(outline) == "Cloud Machines, 1 of 50 machines")
 
         inputs.cloudMachinesUsage = CloudMachinesUsage(activeCount: 2, maxActiveVms: 50, isPaidPlan: false)
         fixture.coordinator.update(inputs: inputs)
@@ -92,8 +94,8 @@ struct CloudMachinesHeaderCountTests {
 
         #expect(outline.item(atRow: 0) as? CloudTreeNode === header, "The header keeps its identity")
         #expect(CloudTreeRowContentView.groupCount(for: header.kind)?.text == "2/50")
-        let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: true) as? CloudTreeCellView)
-        #expect(cell.accessibilityLabel() == "Cloud Machines, 2 of 50 machines")
+        #expect(onScreenHeaderLabel(outline) == "Cloud Machines, 2 of 50 machines",
+                "The row already on screen reloads with the new count")
     }
 
     @Test("The hover + never overlaps the header count")
@@ -155,6 +157,11 @@ struct CloudMachinesHeaderCountTests {
             isRefreshing: false, onRefresh: {}, onNewMachine: {},
             agentMenu: { EmptyView() }, status: status
         )).fittingSize.height
+    }
+
+    /// The mounted header cell only; never makes a fresh one that would read current state.
+    private func onScreenHeaderLabel(_ outline: NSOutlineView) -> String? {
+        (outline.view(atColumn: 0, row: 0, makeIfNecessary: false) as? CloudTreeCellView)?.accessibilityLabel()
     }
 
     private func headerCount(_ usage: CloudMachinesUsage) -> CloudTreeGroupCount? {
