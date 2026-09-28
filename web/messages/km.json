@@ -1805,7 +1805,6 @@
       "browserAutomation": "ស្វ័យប្រវត្តិកម្មកម្មវិធីរុករក",
       "skills": "ជំនាញ",
       "notifications": "ជូនដំណឹង",
-      "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
       "changelog": "កំណត់ត្រាផ្លាស់ប្ដូរ",
@@ -1820,7 +1819,13 @@
       "cloudWorkspaces": "Workspace និងភ្នាក់ងារ",
       "cloudNetworking": "ឯកសារ និងបណ្ដាញ",
       "cloudCli": "ឯកសារយោង CLI របស់ Cloud",
-      "cloudTroubleshooting": "សុវត្ថិភាព និងការដោះស្រាយបញ្ហា"
+      "cloudTroubleshooting": "សុវត្ថិភាព និងការដោះស្រាយបញ្ហា",
+      "workspacesSection": "កន្លែងធ្វើការ",
+      "agentsSection": "ភ្នាក់ងារ",
+      "automationSection": "ស្វ័យប្រវត្តិកម្ម",
+      "remoteSection": "ការចូលប្រើពីចម្ងាយ",
+      "customizeSection": "ការប្ដូរតាមបំណង និងការគ្រប់គ្រង",
+      "basicsSection": "មូលដ្ឋាន"
     },
     "dock": {
       "metaTitle": "Dock",
