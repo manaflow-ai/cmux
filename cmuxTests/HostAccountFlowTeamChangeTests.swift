@@ -89,6 +89,27 @@ struct HostAccountFlowTeamChangeTests {
         #expect(await client.selectCount == 2)
     }
 
+    /// A superseded switch can still be in flight after the switch that
+    /// replaced it finishes, and a create must wait for it too.
+    @Test func createWaitsForASupersededSwitchStillInFlight() async throws {
+        let client = TeamChangeAuthClient()
+        let flow = try await makeFlow(client: client)
+        await client.holdNextSelect()
+        let first = Task { try await flow.selectTeam(id: "team-b") }
+        try await waitUntil { await client.isHoldingSelect }
+        try await flow.selectTeam(id: "team-a")
+
+        #expect(flow.isSelectingTeam)
+        await #expect(throws: TeamChangeInProgressError()) {
+            _ = try await flow.createTeam(displayName: "New Team")
+        }
+        #expect(await client.createCount == 0)
+
+        await client.releaseSelect()
+        await #expect(throws: AuthError.unauthorized) { try await first.value }
+        #expect(!flow.isSelectingTeam)
+    }
+
     private func makeFlow(client: TeamChangeAuthClient) async throws -> HostAccountFlow {
         let defaults = try #require(UserDefaults(suiteName: "HostAccountFlowTeamChangeTests.\(UUID())"))
         let anchor = AuthPresentationContextProvider()
