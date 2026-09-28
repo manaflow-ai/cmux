@@ -7563,17 +7563,18 @@ final class cmuxUITests: XCTestCase {
             // Capture before assertions so a visual regression still leaves usable evidence.
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-portrait")
             let navigationBar = app.navigationBars["MobileWorkspaceNavigationBar"]
-            XCTAssertTrue(navigationBar.waitForExistence(timeout: 4),
-                          "Every presentation scenario must render the native workspace navigation bar.")
-            if navigationBar.exists {
-                assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
-                                                 includesAlternateScreen: scenario == "alternate-screen")
-                assertWorkspaceToolbarTitlePresentation(in: app)
-                if scenario == "large-unread" {
-                    let backButton = app.buttons["MobileWorkspaceBackButton"]
-                    XCTAssertTrue(backButton.label.contains("123 unread workspaces"),
-                                  "VoiceOver must retain the full unread count")
-                }
+            guard navigationBar.waitForExistence(timeout: 4) else {
+                XCTFail("Every presentation scenario must render the native workspace navigation bar.")
+                app.terminate()
+                continue
+            }
+            assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
+                                             includesAlternateScreen: scenario == "alternate-screen")
+            assertWorkspaceToolbarTitlePresentation(in: app)
+            if scenario == "large-unread" {
+                let backButton = app.buttons["MobileWorkspaceBackButton"]
+                XCTAssertTrue(backButton.label.contains("123 unread workspaces"),
+                              "VoiceOver must retain the full unread count")
             }
             tap(surface, in: app)
             XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))
@@ -7587,18 +7588,22 @@ final class cmuxUITests: XCTestCase {
             XCUIDevice.shared.orientation = .landscapeLeft
             RunLoop.current.run(until: Date().addingTimeInterval(1))
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-landscape")
-            if app.navigationBars["MobileWorkspaceNavigationBar"].exists {
-                assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
-                                                 includesAlternateScreen: scenario == "alternate-screen")
-                assertWorkspaceToolbarTitlePresentation(in: app)
+            guard navigationBar.waitForExistence(timeout: 4) else {
+                XCTFail("The native workspace navigation bar must survive rotation.")
+                app.terminate()
+                continue
             }
+            assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
+                                             includesAlternateScreen: scenario == "alternate-screen")
+            assertWorkspaceToolbarTitlePresentation(in: app)
             XCUIDevice.shared.orientation = .portrait
             RunLoop.current.run(until: Date().addingTimeInterval(1))
             let picker = app.buttons["MobileTerminalDropdown"]
-            XCTAssertTrue(picker.waitForExistence(timeout: 4),
-                          "Every presentation scenario must keep the terminal picker visible.")
-            XCTAssertTrue(waitForHittable(picker, timeout: 4),
-                          "Every presentation scenario must keep the terminal picker hittable.")
+            guard picker.waitForExistence(timeout: 4), waitForHittable(picker, timeout: 4) else {
+                XCTFail("Every presentation scenario must keep the terminal picker visible and hittable.")
+                app.terminate()
+                continue
+            }
             tap(picker, in: app)
             assertTerminalMenuItemExists("terminal-delayed", in: app)
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-terminal-menu")
