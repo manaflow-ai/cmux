@@ -3019,6 +3019,9 @@ final class SocketClient {
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private var authenticationPassword: String?
+    /// Whether ``configureAuthentication(password:)`` ran, so a resolved
+    /// "no password" is distinguishable from one never resolved.
+    private(set) var hasConfiguredAuthentication = false
     private var authenticationInProgress = false
     private var socketAuthenticated = false
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
@@ -3197,7 +3200,14 @@ final class SocketClient {
 
     func configureAuthentication(password: String?) {
         authenticationPassword = password
+        hasConfiguredAuthentication = true
         socketAuthenticated = password == nil
+    }
+
+    /// The password ``configureAuthentication(password:)`` installed, for a
+    /// second connection to the same socket that must not resolve it again.
+    var configuredAuthenticationPassword: String? {
+        authenticationPassword
     }
 
     func authenticateIfNeeded(
@@ -4937,6 +4947,11 @@ struct CMUXCLI {
         if try runGuideCommand(command: command, commandArgs: commandArgs, jsonOutput: jsonOutput) {
             return
         }
+        if command == "hooks", commandArgs.first?.lowercased() == "enqueue" {
+            AgentHookEnqueueWallClock.shared.arm(
+                budgetSeconds: AgentHookEnqueueWallClock.budgetSeconds(environment: processEnv)
+            )
+        }
         let isCursorShellHookCommand = command == "hooks"
             && commandArgs.first?.lowercased() == "cursor"
             && ["shell-exec", "shell-done", "shell-failed"].contains(
@@ -5274,7 +5289,7 @@ struct CMUXCLI {
                processEnv["CMUX_SURFACE_ID"]?.isEmpty != false,
                processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
                !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) {
-                print("{}")
+                AgentHookEnqueueWallClock.shared.respond { print("{}") }
                 return
             }
             if commandArgs.first?.lowercased() == "feed" {
