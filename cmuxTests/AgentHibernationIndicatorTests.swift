@@ -98,16 +98,27 @@ struct AgentHibernationIndicatorTests {
 
     @Test
     func restoringASessionWithAHibernatedAgentShowsTheRow() throws {
+        // Restore focuses the saved focused pane and selects each pane's saved
+        // tab, and focusing a hibernated pane wakes its agent. Keep the
+        // hibernated agent in a background tab so the restore leaves it asleep.
         let source = Workspace()
-        let panel = try #require(source.focusedTerminalPanel)
+        let live = try #require(source.focusedTerminalPanel)
+        let paneId = try #require(source.paneId(forPanelId: live.id))
+        let background = try #require(source.newTerminalSurface(
+            inPane: paneId,
+            focus: false,
+            preserveBonsplitSelectionWhenUnfocused: true
+        ))
         let state = hibernatedState()
-        source.restoredAgentLifecycle.setSnapshot(state.agent, panelId: panel.id)
-        panel.agentHibernationPhase = .hibernated(state)
+        source.restoredAgentLifecycle.setSnapshot(state.agent, panelId: background.id)
+        background.agentHibernationPhase = .hibernated(state)
         let snapshot = source.sessionSnapshot(includeScrollback: false)
         try #require(snapshot.panels.contains { $0.terminal?.hibernation != nil })
 
         let restored = Workspace()
         _ = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanels = restored.panels.values.compactMap { $0 as? TerminalPanel }
+        try #require(restoredPanels.contains { $0.agentHibernationPhase.isSettledHibernation })
         #expect(restored.statusEntries[statusKey] != nil)
     }
 
