@@ -166,38 +166,6 @@ final class CloudTreeCellView: NSTableCellView {
             buttonsHost?.isHidden = true
             buttonsLeadingConstraint?.isActive = false
         }
-        if case .machine(let machine, _) = node.kind {
-            toolTip = CloudTreeMachineRowContent(machine: machine, style: style, resources: node.resourceSection).toolTip
-        } else if case .pendingMachine(let operation) = node.kind {
-            // The failure's first line rides along so a red row explains itself on hover.
-            toolTip = operation.summaryLine
-        } else if case .localMachine(let row) = node.kind {
-            toolTip = row.name
-        } else if case .device(let row) = node.kind {
-            // Full status and counts: the row itself carries only a dim fact.
-            toolTip = CloudTreeDeviceRowContent(row: row, style: style).toolTip
-        } else if let help = CloudTreeRowContentView.groupCount(for: node.kind)?.help {
-            // The count's display host never hit-tests, so its help rides on the row.
-            toolTip = help
-        } else {
-            toolTip = nil
-        }
-        if case .machine(let machine, _) = node.kind {
-            setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine, style: style, resources: node.resourceSection).accessibilityLabel)
-        } else if case .device(let row) = node.kind {
-            setAccessibilityLabel(CloudTreeDeviceRowContent(row: row, style: style).accessibilityLabel)
-        } else if case .resource(_, let row) = node.kind {
-            setAccessibilityLabel(row.accessibilityLabel)
-        } else if case .terminal(let row) = node.kind {
-            setAccessibilityLabel(CloudTreeTerminalRowContent(row: row, style: style).toolTip)
-        } else if case .display(let resource, _, _) = node.kind {
-            setAccessibilityLabel([node.searchableTitle, CloudTreeRowContentView.text(for: resource)].joined(separator: ", "))
-        } else if case .cloudMachinesSection(_, let usage?) = node.kind {
-            // The row's own label, so VoiceOver never reads the visible "1/50" as "1 slash 50".
-            setAccessibilityLabel([node.searchableTitle, usage.countLabel].joined(separator: ", "))
-        } else {
-            setAccessibilityLabel(node.searchableTitle)
-        }
         updatePresenceSubscription()
     }
 
@@ -206,11 +174,12 @@ final class CloudTreeCellView: NSTableCellView {
             guard case .workspace(let machine, let workspace, _, _, _) = node.kind else { return [] }
             return collaborators(machine, workspace.id)
         }()
-        if case .workspace = node.kind {
-            let names = WorkspacePresencePolicy.accessibilityLabel(presenceHeads)
-            toolTip = presenceHeads.isEmpty ? nil : names
-            setAccessibilityLabel(presenceHeads.isEmpty ? node.searchableTitle : "\(node.searchableTitle), \(names)")
-        }
+        // The one place that assigns hover text and the accessibility label.
+        // Both used to be written twice, here and again in `configure`, and the
+        // second pass reset a workspace row's presence tooltip to nil.
+        let description = CloudTreeRowToolTip.describe(node: node, style: style, presenceHeads: presenceHeads)
+        toolTip = description.toolTip
+        setAccessibilityLabel(description.accessibilityLabel)
         displayHost.rootView = AnyView(
             CloudTreeRowContentView(kind: node.kind, presenceHeads: presenceHeads, style: style, resources: node.resourceSection)
                 .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention, attentionSlot: style.rowGrid.attentionSlot))
