@@ -41,7 +41,7 @@ struct CloudMachineDeletionCoordinatorTests {
     }
 
     @Test(arguments: [CloudMachineDeletionResult.deleted, .notFound])
-    func confirmedDeletionRetiresWithoutFlicker(result: CloudMachineDeletionResult) {
+    func confirmedDeletionStaysHiddenUntilTheAccountEnds(result: CloudMachineDeletionResult) {
         let owner = CloudMachineDeletionCoordinator()
         owner.begin("gone")
         let startedBeforeConfirmation = owner.beginListing()
@@ -49,13 +49,14 @@ struct CloudMachineDeletionCoordinatorTests {
         #expect(!owner.isPending("gone"))
         #expect(owner.projection.hiddenMachineIDs == ["gone"])
 
-        // A stale read and a lagging backend both still list the machine.
-        #expect(!owner.reconcile(startedBeforeConfirmation, machineIDs: ["gone"]))
-        #expect(!owner.reconcile(startedBeforeConfirmation, machineIDs: []))
-        #expect(!owner.reconcile(owner.beginListing(), machineIDs: ["gone"]))
+        // One list's fresh read omits the machine while another list still shows an
+        // older read. Provider IDs are never reused, so no read may end the hiding.
+        _ = owner.reconcile(startedBeforeConfirmation, machineIDs: ["gone"])
+        _ = owner.reconcile(owner.beginListing(), machineIDs: [])
         #expect(owner.projection.hiddenMachineIDs == ["gone"])
+        #expect(!owner.begin("gone"))
 
-        #expect(owner.reconcile(owner.beginListing(), machineIDs: []))
+        #expect(owner.endAccount())
         #expect(owner.projection.hiddenMachineIDs.isEmpty)
     }
 
