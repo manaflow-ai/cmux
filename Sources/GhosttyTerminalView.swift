@@ -4040,8 +4040,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// for. Pointer motion inside one cell cannot change the answer, and the
     /// line read behind it is far too expensive to repeat on every event.
     ///
-    /// Content scrolling under a stationary pointer does go stale; the next
-    /// pointer move corrects it, which is the same tolerance the path hover has.
+    /// Content scrolling under a stationary pointer does go stale. Landing on
+    /// another cell recomputes it and every event with cmd up clears it, so the
+    /// window is one continuous cmd-hold. Motion inside a single cell does not
+    /// correct it, which is where this is more tolerant than the path hover:
+    /// that one re-resolves on every event.
     private var gitHubHoverCell: (row: Int, column: Int)?
     /// The memoized answer for ``gitHubHoverCell``.
     private var gitHubHoverActive = false
@@ -8548,6 +8551,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // A path wins when there is one, so a file named `#1` still opens as a
         // file. Only text that resolves to nothing on disk is offered to
         // GitHub, which is the same order cmd-click itself uses.
+        //
+        // `||` short circuits, so a cell that resolves to a path never reaches
+        // the GitHub memo below. That memo is a single slot keyed by cell and
+        // is only invalidated by being overwritten, so crossing a path-bearing
+        // cell would leave an earlier cell's answer in it: come back to that
+        // cell after the line scrolled and the cursor uses the stale answer.
+        // Clearing it here keeps the saving the short circuit exists for.
+        if resolution != nil {
+            gitHubHoverCell = nil
+            gitHubHoverActive = false
+        }
         let hasTarget = resolution != nil || gitHubReferenceIsUnderPointer(at: point)
         if hasTarget {
             if !wordPathHoverActive {
@@ -8921,17 +8935,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return resolution
     }
 
-    /// Opens the GitHub issue, pull request, or commit named under the pointer
-    /// when no local path resolved there.
-    ///
-    /// Only a release the terminal runtime left alone is ours to interpret, so a
-    /// click ghostty already handled never reaches GitHub.
-    ///
-    /// Resolving the pane's repository reads git, so this reports nothing back
-    /// to the release router: the release is over well before a slug is known.
-    /// The click is still the user's, so opening a moment later is what they
-    /// asked for. `owner/repo#123` names its own repository and skips the lookup
-    /// entirely.
     /// Whether the pointer is over a GitHub reference that a cmd-click would
     /// open, so the pane can offer the same affordance it offers for paths.
     ///
@@ -9009,11 +9012,38 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             guard let self else { return }
             self.gitHubHoverWarmupDirectory = nil
             self.gitHubHoverCell = nil
-            guard NSEvent.modifierFlags.contains(.command) else { return }
-            self.updateWordPathHover(cmdHeld: true)
+            // The only asynchronous way back into the hover, so it has to
+            // re-establish by hand everything a pointer event would have
+            // carried. Modifier state alone is not enough: the pointer may
+            // have left the view or the pane may have been closed while git
+            // ran, and `updateWordPathHover` falls back to the last in-bounds
+            // point it saw, so it would happily push a pointing hand that
+            // nothing is left to pop. The selection check is the one every
+            // synchronous caller makes, so a lookup landing mid cmd-drag does
+            // not light the affordance over a selection either.
+            let flags = NSEvent.modifierFlags
+            guard flags.contains(.command),
+                  let point = self.currentMousePointInView(),
+                  self.pointIsUsableForWordResolution(point) else { return }
+            self.updateWordPathHover(
+                at: point,
+                cmdHeld: true,
+                suppressPathHover: self.shouldSuppressCommandPathHover(for: flags)
+            )
         }
     }
 
+    /// Opens the GitHub issue, pull request, or commit named under the pointer
+    /// when no local path resolved there.
+    ///
+    /// Only a release the terminal runtime left alone is ours to interpret, so a
+    /// click ghostty already handled never reaches GitHub.
+    ///
+    /// Resolving the pane's repository reads git, so this reports nothing back
+    /// to the release router: the release is over well before a slug is known.
+    /// The click is still the user's, so opening a moment later is what they
+    /// asked for. `owner/repo#123` names its own repository and skips the lookup
+    /// entirely.
     private func attemptGitHubReferenceOpen(
         at point: NSPoint?,
         runtimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome
@@ -9188,6 +9218,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             "hoverActive": wordPathHoverActive ? "1" : "0",
             "suppressed": suppressCommandPathHover ? "1" : "0"
         ]
+        // The GitHub half of the answer, and the cell it was computed for, so a
+        // tour can walk path cell -> reference cell -> path cell and see the
+        // memo follow the pointer instead of trailing a cell behind it.
+        payload["gitHubHoverActive"] = gitHubHoverActive ? "1" : "0"
+        if let hoverCell = gitHubHoverCell {
+            payload["gitHubHoverCell"] = "\(hoverCell.row),\(hoverCell.column)"
+        }
         if let resolution {
             payload["resolvedPath"] = resolution.path
             payload["resolutionSource"] = resolution.source.rawValue
