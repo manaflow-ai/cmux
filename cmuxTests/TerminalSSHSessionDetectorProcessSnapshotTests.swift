@@ -21,7 +21,8 @@ struct TerminalSSHSessionDetectorProcessSnapshotTests {
         #expect(leader.tpgid == leader.pid)
         // A TTY that does not exist matches no member of the group.
         #expect(TerminalSSHSessionDetector.processSnapshots(inProcessGroup: leader.pid, ttyName: "ttys-cmux-missing").isEmpty)
-        #expect(!TerminalSSHSessionDetector.foregroundJobHasRemoteShell(processGroupID: leader.pid, ttyName: job.ttyName))
+        // A readable group with no ssh member is a confident "no", not an unknown.
+        #expect(TerminalSSHSessionDetector.foregroundJobHasRemoteShell(processGroupID: leader.pid, ttyName: job.ttyName) == false)
     }
 
     @Test("A foreground ssh job is still sent to SSH detection")
@@ -35,12 +36,27 @@ struct TerminalSSHSessionDetectorProcessSnapshotTests {
         defer { job.stop() }
 
         let leader = try #require(job.leader)
-        #expect(TerminalSSHSessionDetector.foregroundJobHasRemoteShell(processGroupID: leader.pid, ttyName: job.ttyName))
+        #expect(TerminalSSHSessionDetector.foregroundJobHasRemoteShell(processGroupID: leader.pid, ttyName: job.ttyName) == true)
     }
 
     @Test("An empty process group has no processes")
     func processSnapshotsForMissingProcessGroupAreEmpty() {
         #expect(TerminalSSHSessionDetector.processSnapshots(inProcessGroup: 0, ttyName: "ttys000").isEmpty)
+    }
+
+    @Test("A group that cannot be read is unknown rather than local")
+    func unreadableForegroundGroupIsUnknown() {
+        // Nothing is learned about the job here, so the answer has to be nil.
+        // A false would send the dropped path into a possibly remote shell as
+        // a local path, which is the failure this distinction exists to stop.
+        #expect(TerminalSSHSessionDetector.foregroundJobHasRemoteShell(processGroupID: 0, ttyName: "ttys000") == nil)
+        #expect(TerminalSSHSessionDetector.foregroundJobHasRemoteShell(processGroupID: 1, ttyName: "") == nil)
+        #expect(
+            TerminalSSHSessionDetector.foregroundJobHasRemoteShell(
+                processGroupID: 1,
+                ttyName: "ttys-cmux-missing"
+            ) == nil
+        )
     }
 
     /// Runs a command as the foreground job of a new PTY through script(1),

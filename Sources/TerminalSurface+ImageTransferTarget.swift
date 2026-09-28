@@ -79,15 +79,16 @@ extension TerminalSurface {
         // The fast check reads this surface's own PTY. It applies only when the
         // reported TTY is that PTY: inside tmux the report can name a tmux
         // pane's TTY, whose foreground job the cmux PTY cannot see. Without a
-        // live PTY, or on a mismatch, keep the async lookup so an unknown job
+        // live PTY, on a mismatch, or when the group cannot be read at all
+        // (`nil` rather than `false`), keep the async lookup so an unknown job
         // is never assumed local.
         if let surfaceDevice = controllingTTYDeviceIdentifier,
            surfaceDevice == CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName),
            let processGroupID = foregroundProcessID(),
-           !TerminalSSHSessionDetector.foregroundJobHasRemoteShell(
+           TerminalSSHSessionDetector.foregroundJobHasRemoteShell(
                processGroupID: Int32(processGroupID),
                ttyName: ttyName
-           ) {
+           ) == false {
             return nil
         }
         return ttyName
