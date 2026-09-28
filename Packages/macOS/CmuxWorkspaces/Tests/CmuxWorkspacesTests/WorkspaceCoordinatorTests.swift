@@ -142,6 +142,23 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func isAtTopOfUnpinnedTierMatchesTheNotificationBumpBoundary() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let pinned = CoordinatorStubTab(isPinned: true)
+        let plain1 = CoordinatorStubTab()
+        let plain2 = CoordinatorStubTab()
+        model.tabs = [pinned, plain1, plain2]
+
+        #expect(!reorder.isAtTopOfUnpinnedTier(pinned.id))
+        #expect(reorder.isAtTopOfUnpinnedTier(plain1.id))
+        #expect(!reorder.isAtTopOfUnpinnedTier(plain2.id))
+        reorder.moveTabToTopForNotification(plain2.id)
+        #expect(reorder.isAtTopOfUnpinnedTier(plain2.id))
+        #expect(!reorder.isAtTopOfUnpinnedTier(UUID()))
+    }
+
+    @Test
     func reorderWorkspaceClampsUnpinnedAbovePinnedBoundary() {
         let (model, host, _, reorder) = makeWorld()
         _ = host

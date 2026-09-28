@@ -145,9 +145,11 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "app.iMessageMode"
     )
 
-    public let reorderOnNotification = DefaultsKey<Bool>(
+    /// Automatic workspace reordering. Legacy Bool values decode as
+    /// ``WorkspaceAutoReorderMode/off`` and ``WorkspaceAutoReorderMode/notifications``.
+    public let reorderOnNotification = DefaultsKey<WorkspaceAutoReorderMode>(
         id: "app.reorderOnNotification",
-        defaultValue: true,
+        defaultValue: .notifications,
         userDefaultsKey: "workspaceAutoReorderOnNotification"
     )
 
