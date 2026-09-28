@@ -157,14 +157,14 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         XCTAssertTrue(switching.waitForNonExistence(timeout: 5))
         XCTAssertTrue(FileManager.default.createFile(atPath: switchGate.path, contents: Data()))
 
-        let errorRow = app.descendants(matching: .any)
-            .matching(identifier: "CloudTeamPickerSwitchError").firstMatch
-        XCTAssertTrue(errorRow.waitForExistence(timeout: 10), "A rejected switch reports its failure.")
+        // The right sidebar's own identifier can replace the ones inside it,
+        // so this checks that the message keeps its identifier and its text.
+        let errorText = app.staticTexts["CloudTeamPickerSwitchError"]
+        XCTAssertTrue(errorText.waitForExistence(timeout: 10), "A rejected switch reports its failure.")
         let message = "Could not switch teams. Try again."
         XCTAssertTrue(
-            errorRow.staticTexts.matching(NSPredicate(format: "label == %@ OR value == %@", message, message))
-                .firstMatch.exists,
-            "VoiceOver reads the failure as text inside the error row."
+            errorText.label == message || errorText.value as? String == message,
+            "VoiceOver reads the failure message, not \(errorText.label) / \(String(describing: errorText.value))."
         )
         waitForLabel(of: trigger, containing: Self.longTeamName)
         capture("team-dropdown-switch-failed")
