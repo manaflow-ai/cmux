@@ -77,4 +77,143 @@ struct SplitSpaceTests {
         }
         #expect(workspace.newTerminalSplitOutcome(from: source, orientation: .vertical).panel != nil)
     }
+
+    @Test func programmaticAndMovingTabHelpersUseTheCentralAdmissionGate() throws {
+        let fileDropWorkspace = Workspace()
+        defer { fileDropWorkspace.teardownAllPanels() }
+        fileDropWorkspace.bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: 1200, height: 100)
+        )
+        let fileDropPane = try #require(fileDropWorkspace.bonsplitController.focusedPaneId)
+        let fileDropPanelCount = fileDropWorkspace.panels.count
+#if DEBUG
+        var terminalConstructionRequests: [(command: String?, input: String?)] = []
+        fileDropWorkspace.debugTerminalSplitPanelConstructionProbe = { command, input in
+            terminalConstructionRequests.append((command, input))
+        }
+#endif
+        #expect(fileDropWorkspace.splitPaneWithNewTerminal(
+            targetPane: fileDropPane,
+            orientation: .vertical,
+            insertFirst: false,
+            workingDirectory: nil,
+            initialInput: "must-not-run\n",
+            remoteStartupCommand: "must-not-start"
+        ) == nil)
+        #expect(fileDropWorkspace.panels.count == fileDropPanelCount)
+#if DEBUG
+        #expect(terminalConstructionRequests.isEmpty, "rejected split must not construct or start a terminal")
+#endif
+
+        let browserWorkspace = Workspace()
+        defer { browserWorkspace.teardownAllPanels() }
+        browserWorkspace.bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: 300, height: 860)
+        )
+        let browserSource = try #require(browserWorkspace.focusedPanelId)
+        let browserPanelCount = browserWorkspace.panels.count
+#if DEBUG
+        var browserNavigationRequests: [URL?] = []
+        browserWorkspace.debugBrowserSplitPanelConstructionProbe = { url in
+            browserNavigationRequests.append(url)
+        }
+#endif
+        #expect(browserWorkspace.newBrowserSplit(
+            from: browserSource,
+            orientation: .horizontal,
+            url: URL(string: "https://must-not-navigate.invalid/"),
+            allowsExternalBrowserFallback: false
+        ) == nil)
+        #expect(browserWorkspace.panels.count == browserPanelCount)
+#if DEBUG
+        #expect(browserNavigationRequests.isEmpty, "rejected split must not construct or navigate a browser")
+#endif
+
+        let movingWorkspace = Workspace()
+        defer { movingWorkspace.teardownAllPanels() }
+        movingWorkspace.bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: 1200, height: 100)
+        )
+        let movingPane = try #require(movingWorkspace.bonsplitController.focusedPaneId)
+        let movedPanel = try #require(movingWorkspace.newTerminalSurface(inPane: movingPane, focus: false))
+        let movedTab = try #require(movingWorkspace.surfaceIdFromPanelId(movedPanel.id))
+        #expect(movingWorkspace.splitPaneMovingTab(
+            movingPane,
+            orientation: .vertical,
+            movingTab: movedTab,
+            insertFirst: false,
+            focusIntent: .preserveCurrent
+        ) == nil)
+        #expect(movingWorkspace.bonsplitController.allPaneIds.count == 1)
+        #expect(movingWorkspace.bonsplitController.tabs(inPane: movingPane).contains { $0.id == movedTab })
+    }
+
+    @Test func explicitDividerRatioCannotCreateAnUndersizedChild() throws {
+        let terminalWorkspace = Workspace()
+        defer { terminalWorkspace.teardownAllPanels() }
+        terminalWorkspace.bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: 1000, height: 860)
+        )
+        let terminalSource = try #require(terminalWorkspace.focusedPanelId)
+        let terminalOutcome = terminalWorkspace.newTerminalSplitOutcome(
+            from: terminalSource,
+            orientation: .horizontal,
+            initialDividerPosition: 0.9
+        )
+        guard case .noSpace = terminalOutcome else {
+            Issue.record("expected the terminal ratio to be refused, got \(terminalOutcome)")
+            return
+        }
+
+        let borrowingWorkspace = Workspace()
+        defer { borrowingWorkspace.teardownAllPanels() }
+        borrowingWorkspace.bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: 600, height: 860)
+        )
+        let firstBorrowingSource = try #require(borrowingWorkspace.focusedPanelId)
+        _ = try #require(borrowingWorkspace.newTerminalSplit(
+            from: firstBorrowingSource,
+            orientation: .horizontal
+        ))
+        let skewedSource = try #require(borrowingWorkspace.focusedPanelId)
+        _ = try #require(borrowingWorkspace.newTerminalSplit(
+            from: skewedSource,
+            orientation: .horizontal,
+            initialDividerPosition: 0.1
+        ))
+        let minimumWidth = Double(borrowingWorkspace.splitMinimumPaneSize.width)
+        #expect(borrowingWorkspace.bonsplitController.layoutSnapshot().panes.allSatisfy {
+            $0.frame.width >= minimumWidth
+        })
+
+        let browserWorkspace = Workspace()
+        defer { browserWorkspace.teardownAllPanels() }
+        browserWorkspace.bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: 1000, height: 860)
+        )
+        let browserSource = try #require(browserWorkspace.focusedPanelId)
+        #expect(browserWorkspace.newBrowserSplit(
+            from: browserSource,
+            orientation: .horizontal,
+            allowsExternalBrowserFallback: false,
+            initialDividerPosition: 0.9
+        ) == nil)
+
+        let flags = CmuxFeatureFlags.shared
+        let simulatorFlag = CmuxFeatureFlags.simulatorFlag
+        let previousSimulatorOverride = flags.overrideValue(for: simulatorFlag)
+        flags.setOverride(true, for: simulatorFlag)
+        defer { flags.setOverride(previousSimulatorOverride, for: simulatorFlag) }
+        let simulatorWorkspace = Workspace()
+        defer { simulatorWorkspace.teardownAllPanels() }
+        simulatorWorkspace.bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: 1000, height: 860)
+        )
+        let simulatorSource = try #require(simulatorWorkspace.focusedPanelId)
+        #expect(simulatorWorkspace.newSimulatorSplit(
+            from: simulatorSource,
+            orientation: .horizontal,
+            initialDividerPosition: 0.9
+        ) == nil)
+    }
 }
