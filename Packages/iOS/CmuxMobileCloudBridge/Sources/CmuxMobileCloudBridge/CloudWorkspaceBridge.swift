@@ -49,6 +49,14 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     private var pendingInputBySurfaceID: [String: Data] = [:]
     /// Consecutive failed catalog reads per machine, which pace the retry.
     private var catalogFailureCounts: [String: Int] = [:]
+    /// Each machine's last catalog read, republished with a degraded status
+    /// when the link drops or a read fails. Emptying the rows instead would
+    /// strand an open terminal: its view resolves its surface through them
+    /// before it restarts output.
+    private var lastCatalogs: [String: (workspaces: [CloudWorkspaceSummary], terminals: [CloudTerminalSummary])] = [:]
+    /// The terminal each machine should be showing, kept through a lost link
+    /// so the open terminal re-attaches by itself once the link returns.
+    private var wantedSurfaceIDsByMachine: [String: String] = [:]
     private let retryClock: any Clock<Duration>
 
     /// Creates a bridge over a source of machine links.
@@ -153,6 +161,9 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     /// The published rows stay, so the workspace list does not empty out while
     /// the tunnel is down; their liveness is what changes.
     public func linksDidBecomeUnavailable() {
+        for (machineID, surfaceID) in attachedSurfaceIDsByMachine {
+            wantedSurfaceIDsByMachine[machineID] = surfaceID
+        }
         for machineID in Set(attachTasks.keys)
             .union(attachments.keys)
             .union(outputStreams.keys)
@@ -167,13 +178,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         catalogTasks = [:]
         catalogFailureCounts = [:]
         for machine in admittedMachines {
-            publish(
-                machine: machine,
-                workspaces: [],
-                terminals: [],
-                status: .reconnecting,
-                isAuthoritative: false
-            )
+            publishLastCatalog(machine: machine, status: .reconnecting)
         }
     }
 
@@ -194,7 +199,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
                 // No tunnel yet. The rows stay published as reconnecting, and
                 // the next call (a tunnel-ready change, or a pull to refresh)
                 // fills them in.
-                publish(machine: machine, workspaces: [], terminals: [], status: .reconnecting, isAuthoritative: false)
+                publishLastCatalog(machine: machine, status: .reconnecting)
                 return
             }
             do {
@@ -202,6 +207,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
                 guard !Task.isCancelled else { return }
                 catalogFailureCounts.removeValue(forKey: machine.id)
                 bridgeLog.notice("catalog ok machine=\(machine.id, privacy: .public) workspaces=\(workspaces.count, privacy: .public) terminals=\(terminals.count, privacy: .public)")
+                lastCatalogs[machine.id] = (workspaces, terminals)
                 publish(
                     machine: machine,
                     workspaces: workspaces,
@@ -209,19 +215,14 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
                     status: .connected,
                     isAuthoritative: true
                 )
+                reattachWantedSurface(of: machine, terminals: terminals)
             } catch {
                 guard !Task.isCancelled else { return }
                 bridgeLog.error("catalog failed machine=\(machine.id, privacy: .public) error=\(String(describing: error), privacy: .public)")
-                // The catalog read failed: keep the machine visible as
-                // unreachable rather than dropping its row, so the user can
-                // see it and retry instead of watching it vanish.
-                publish(
-                    machine: machine,
-                    workspaces: [],
-                    terminals: [],
-                    status: .unavailable,
-                    isAuthoritative: false
-                )
+                // The catalog read failed: keep the machine and its last rows
+                // visible as unreachable, so the user can see it and retry
+                // instead of watching it vanish.
+                publishLastCatalog(machine: machine, status: .unavailable)
                 let failures = (catalogFailureCounts[machine.id] ?? 0) + 1
                 catalogFailureCounts[machine.id] = failures
                 do {
@@ -341,6 +342,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         // link down and ask for the same screen again, which a view reset or
         // a resync sweep can trigger repeatedly.
         if attachingSurfaceIDsByMachine[machine.id] == surfaceID { return }
+        wantedSurfaceIDsByMachine[machine.id] = surfaceID
         guard let connection = links.link(for: machine) else {
             bridgeLog.notice("attach skipped: no link machine=\(machine.id, privacy: .public)")
             return
@@ -442,6 +444,10 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
 
     private func publishPlaceholderIfNeeded(_ machine: CloudMachine) {
         guard let store, catalogTasks[machine.id] == nil else { return }
+        if lastCatalogs[machine.id] != nil {
+            publishLastCatalog(machine: machine, status: .reconnecting)
+            return
+        }
         store.applyExternalHostWorkspaceState(
             CloudWorkspaceProjector(
                 machineID: machine.id,
@@ -476,9 +482,40 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         )
     }
 
+    /// Republishes a machine's last catalog under a degraded status, or an
+    /// empty one before its first read.
+    private func publishLastCatalog(machine: CloudMachine, status: MobileMacConnectionStatus) {
+        let last = lastCatalogs[machine.id]
+        publish(
+            machine: machine,
+            workspaces: last?.workspaces ?? [],
+            terminals: last?.terminals ?? [],
+            status: status,
+            isAuthoritative: false
+        )
+    }
+
+    /// Re-attaches the terminal a machine was showing when its link dropped,
+    /// or that asked to be repainted while it was down, now that a catalog
+    /// read proves the link is back. A terminal that no longer exists is
+    /// forgotten.
+    private func reattachWantedSurface(of machine: CloudMachine, terminals: [CloudTerminalSummary]) {
+        guard let surfaceID = wantedSurfaceIDsByMachine[machine.id],
+              attachments[machine.id] == nil,
+              attachingSurfaceIDsByMachine[machine.id] == nil,
+              let terminalID = CloudAddress(parsing: surfaceID)?.component else { return }
+        guard terminals.contains(where: { $0.id == terminalID }) else {
+            wantedSurfaceIDsByMachine.removeValue(forKey: machine.id)
+            return
+        }
+        ensureAttached(surfaceID: surfaceID, machine: machine, terminalID: terminalID, forceReattach: true)
+    }
+
     private func retire(machineID: String) {
         catalogTasks.removeValue(forKey: machineID)?.cancel()
         catalogFailureCounts.removeValue(forKey: machineID)
+        lastCatalogs.removeValue(forKey: machineID)
+        wantedSurfaceIDsByMachine.removeValue(forKey: machineID)
         teardownAttachment(machineID: machineID)
         if let surfaceID = attachedSurfaceIDsByMachine.removeValue(forKey: machineID) {
             lastReportedGridBySurfaceID.removeValue(forKey: surfaceID)
@@ -499,6 +536,8 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         }
         catalogTasks = [:]
         catalogFailureCounts = [:]
+        lastCatalogs = [:]
+        wantedSurfaceIDsByMachine = [:]
         attachedSurfaceIDsByMachine = [:]
         lastReportedGridBySurfaceID = [:]
         pendingInputBySurfaceID = [:]
