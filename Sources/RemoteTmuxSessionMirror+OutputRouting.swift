@@ -265,7 +265,7 @@ extension RemoteTmuxSessionMirror {
             stateSeq: 0,
             scrollbackLines: 0,
             includeTheme: false
-        )?.frame else { return false }
+        ) else { return false }
         return frame.columns >= target.columns && frame.rows >= target.rows
     }
 

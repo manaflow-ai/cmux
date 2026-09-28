@@ -120,7 +120,7 @@ extension TerminalSurface {
         scrollbackLines: Int = 0,
         includeTheme: Bool = true,
         anchor: MobileTerminalRenderGridFrame.Anchor = .viewport
-    ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
+    ) -> MobileTerminalRenderGridFrame? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
         let surfaceID = id.uuidString
         let exported = surfaceID.withCString { ptr in
@@ -150,16 +150,10 @@ extension TerminalSurface {
             fullFrame.terminalForeground = fullFrame.terminalBackground
             fullFrame.terminalBackground = foreground
         }
-        let frame: MobileTerminalRenderGridFrame
         if full, changedRows == nil {
-            frame = fullFrame
-        } else {
-            let includedRows = changedRows ?? Set(0..<fullFrame.rows)
-            guard let filtered = try? fullFrame.filteredRows(includedRows, full: full) else {
-                return nil
-            }
-            frame = filtered
+            return fullFrame
         }
-        return (frame, frame.plainRows())
+        let includedRows = changedRows ?? Set(0..<fullFrame.rows)
+        return try? fullFrame.filteredRows(includedRows, full: full)
     }
 }

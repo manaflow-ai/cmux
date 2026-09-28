@@ -25,14 +25,14 @@ struct CloudRestoreReplayGridTests {
         try await fixture.expectInputAfterPendingResponses(marker: "COLOR_APPLIED")
         let before = try #require(fixture.surface.mobileRenderGridFrame(
             stateSeq: 0, scrollbackLines: 0, includeTheme: true
-        )?.frame)
+        ))
         #expect(before.terminalForeground == "#123456")
         #expect(before.terminalBackground == "#654321")
         try await fixture.deliver(Data("REPLACEMENT".utf8), event: event, marker: "REPLACEMENT")
         try await fixture.expectInputAfterPendingResponses(marker: "REPLAY_APPLIED")
         let after = try #require(fixture.surface.mobileRenderGridFrame(
             stateSeq: 0, scrollbackLines: 0, includeTheme: true
-        )?.frame)
+        ))
         #expect(after.terminalForeground == before.terminalForeground)
         #expect(after.terminalBackground == before.terminalBackground)
     }

@@ -276,6 +276,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// stable RPC workspace identity.
     public private(set) var terminalCreationErrorWorkspaceID: MobileWorkspacePreview.ID?
     @ObservationIgnored private var terminalCreationErrorTerminalID: MobileTerminalPreview.ID?
+    /// What the Mac last acknowledged through `mobile.terminal.view_set`.
+    @ObservationIgnored var terminalViewSetSync = MobileTerminalViewSetSync()
     /// Actionable next-step line shown beneath ``connectionError`` (for example
     /// "Check that both devices are on the same Tailscale"). Set and cleared
     /// together with the error by the pairing-failure classifier sink.
@@ -13730,6 +13732,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             reason == "start" ? .terminalStreamSubscribed : .terminalStreamResubscribed,
             count: topics.count
         )
+        if remoteClient === client, topics.contains("terminal.render_grid") {
+            // A new connection starts with no declaration on the Mac, and a
+            // re-subscribe is the recovery point after a failed declaration.
+            syncTerminalViewSet(force: true)
+        }
         return .subscribed(alreadySubscribed: response?.alreadySubscribed)
     }
 
@@ -14917,6 +14924,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let registrationToken = UUID()
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
+        syncTerminalViewSet()
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         terminalOutputRegistrationTokensBySurfaceID[surfaceID] = registrationToken
         terminalOutputConsumerOwnerIDsBySurfaceID[surfaceID] = ownerID
@@ -14988,6 +14996,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+        syncTerminalViewSet()
         terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputRegistrationTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
@@ -15826,10 +15835,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #if DEBUG
         let latencyReceiveTime = MobileLatencyTrace.captureTime()
         #endif
-        // The frame may arrive nested under `render_grid` or as the bare payload;
-        // try the wrapper first, then fall back to decoding the whole payload.
-        let renderGridDTO = try? MobileTerminalRenderGridEvent.decode(json)
-        guard let renderGrid = renderGridDTO?.frame ?? (try? MobileTerminalRenderGridFrame.decode(json)),
+        // Macs send the bare frame; the wrapped `render_grid` form is a
+        // fallback only, so the common case costs exactly one decode.
+        guard let renderGrid = (try? MobileTerminalRenderGridFrame.decode(json))
+                ?? (try? MobileTerminalRenderGridEvent.decode(json))?.frame,
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }

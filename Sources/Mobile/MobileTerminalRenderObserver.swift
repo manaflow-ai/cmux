@@ -136,7 +136,8 @@ final class MobileTerminalRenderObserver {
     }
 
     func noteTerminalBytes(surfaceID: UUID) {
-        guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
+        guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid"),
+              MobileTerminalRenderInterestRegistry.shared.scope.contains(surfaceID) else { return }
         pendingSurfaceIDs.insert(surfaceID)
         // The byte tee runs before Ghostty's VT parser consumes the bytes, and
         // the hop back to the main actor can land after the current tick/frame
@@ -270,11 +271,19 @@ final class MobileTerminalRenderObserver {
             return
         }
         reconcileRenderGridCachesIfSurfaceTopologyChanged()
+        // Only surfaces some phone renders are captured; see
+        // MobileTerminalRenderInterestRegistry.
+        let scope = MobileTerminalRenderInterestRegistry.shared.scope
         let renderSurfaceIDs: Set<UUID>
         if shouldEmitAllThemes || (surfaceIDs.isEmpty && shouldEmitGlobal) {
-            renderSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
+            switch scope {
+            case .all:
+                renderSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
+            case .surfaces(let interested):
+                renderSurfaceIDs = interested
+            }
         } else {
-            renderSurfaceIDs = surfaceIDs.union(themeSurfaceIDs)
+            renderSurfaceIDs = surfaceIDs.union(themeSurfaceIDs).filter(scope.contains)
         }
         // One registry scan per flush, not per surface: every surface in this
         // flush sees the same subscriber set. Viewport (v1) mirrors the Mac's
@@ -406,6 +415,9 @@ final class MobileTerminalRenderObserver {
         anchors: [MobileTerminalRenderGridFrame.Anchor],
         forceIncludeTheme: Bool
     ) {
+        // Pacer flushes arrive after a delay; the surface may have left every
+        // phone's view set since.
+        guard MobileTerminalRenderInterestRegistry.shared.scope.contains(surfaceID) else { return }
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
         let renderCapture = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(surfaceID: surfaceID)
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
@@ -521,7 +533,7 @@ final class MobileTerminalRenderObserver {
                 clearRenderGridCache(surfaceID: surfaceID)
                 return nil
             }
-            var themedFrame = snapshot.frame
+            var themedFrame = snapshot
             let resolvedTheme: (config: TerminalTheme?, theme: TerminalTheme, revision: UInt64)
             if let sharedTheme {
                 resolvedTheme = sharedTheme
@@ -531,12 +543,12 @@ final class MobileTerminalRenderObserver {
                     cached: terminalConfigThemesBySurfaceID[surfaceID],
                     fallbackBoldColor: cachedTerminalTheme.boldColor
                 )
-                if snapshot.frame.terminalConfigTheme != nil, let configTheme {
+                if snapshot.terminalConfigTheme != nil, let configTheme {
                     terminalConfigThemesBySurfaceID[surfaceID] = configTheme
                 }
                 let candidateTheme = (themedFrame.terminalTheme
                     ?? terminalThemesBySurfaceID[surfaceID]
-                    ?? cachedTerminalTheme).applyingSurfaceColors(from: snapshot.frame)
+                    ?? cachedTerminalTheme).applyingSurfaceColors(from: snapshot)
                 let themeDecision = MobileTerminalThemeEmissionDecision.resolve(
                     candidate: candidateTheme,
                     cached: terminalThemesBySurfaceID[surfaceID],
@@ -678,6 +690,40 @@ final class MobileTerminalRenderObserver {
             }
             shared.performRenderGridFullResync(surfaceIDStrings: drainedSurfaceIDStrings)
         }
+    }
+
+    /// Applies a view-set change. Surfaces that left every view set lose
+    /// their emission baseline, so re-entry starts from a full frame instead
+    /// of a delta against a state the phone never saw; surfaces that entered
+    /// are captured on the next flush. Callable from any thread.
+    nonisolated static func renderInterestDidChange(_ change: MobileTerminalRenderInterestRegistry.Change) {
+        guard change.previous != change.current else { return }
+        Task { @MainActor in
+            shared.applyRenderInterestChange(change)
+        }
+    }
+
+    private func applyRenderInterestChange(_ change: MobileTerminalRenderInterestRegistry.Change) {
+        let liveSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
+        func covered(_ scope: MobileTerminalRenderInterestRegistry.Scope) -> Set<UUID> {
+            switch scope {
+            case .all: liveSurfaceIDs
+            case .surfaces(let surfaceIDs): surfaceIDs
+            }
+        }
+        let previous = covered(change.previous)
+        let current = covered(change.current)
+        for surfaceID in previous.subtracting(current) {
+            clearRenderGridCache(surfaceID: surfaceID)
+            pacerFlushTasksBySurfaceID.removeValue(forKey: surfaceID)?.cancel()
+            framePacersBySurfaceID.removeValue(forKey: surfaceID)
+            pendingSurfaceIDs.remove(surfaceID)
+        }
+        let added = current.subtracting(previous)
+        guard !added.isEmpty,
+              MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
+        pendingSurfaceIDs.formUnion(added)
+        scheduleTerminalUpdateFlush()
     }
 
     nonisolated private static let pendingRenderGridResyncSurfaceIDs =

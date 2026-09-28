@@ -553,9 +553,7 @@ final class MobileHostService {
         }
         var encodedByAnchor: [MobileTerminalRenderGridFrame.Anchor: (frame: Data, isFullRenderGridFrame: Bool)] = [:]
         for (anchor, item) in framesByAnchor {
-            var envelope = Data(#"{"kind":"event","topic":"terminal.render_grid","payload":"#.utf8)
-            envelope.append(item.payloadJSON)
-            envelope.append(UInt8(ascii: "}"))
+            let envelope = MobileRenderGridEventSplice.envelope(payloadJSON: item.payloadJSON)
             guard let frame = try? MobileSyncFrameCodec.encodeFrame(envelope) else {
                 mobileHostLog.error("mobile host dropped oversized render-grid event")
                 continue
@@ -563,8 +561,16 @@ final class MobileHostService {
             encodedByAnchor[anchor] = (frame, item.isFullFrame)
         }
         guard !encodedByAnchor.isEmpty else { return }
+        let surfaceUUID = UUID(uuidString: surfaceID)
         deliverEventFrames(topic: topic, coalesceKey: surfaceID, stateSeq: stateSeq) { connection in
-            encodedByAnchor[
+            if let surfaceUUID,
+               !MobileTerminalRenderInterestRegistry.shared.wants(
+                   connectionID: connection.connectionID,
+                   surfaceID: surfaceUUID
+               ) {
+                return nil
+            }
+            return encodedByAnchor[
                 MobileTerminalRenderGridAnchorRegistry.shared.anchor(connectionID: connection.connectionID)
             ]
         }
@@ -1634,6 +1640,9 @@ actor MobileHostConnection {
             )
         }
         MobileTerminalRenderGridAnchorRegistry.shared.remove(connectionID: id)
+        MobileTerminalRenderObserver.renderInterestDidChange(
+            MobileTerminalRenderInterestRegistry.shared.remove(connectionID: id)
+        )
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         await independentEventWriter?.close()
         await transport.close()
@@ -2035,9 +2044,33 @@ actor MobileHostConnection {
                 "stream_id": streamID,
                 "removed": removed,
             ])
+        case MobileTerminalViewSetRPC.method:
+            guard let surfaceIDs = MobileTerminalViewSetRPC.surfaceIDs(from: request.params) else {
+                return .failure(
+                    MobileHostRPCError(code: "invalid_params", message: "surface_ids must list terminal ids")
+                )
+            }
+            // A declaration without a render-grid subscription still binds:
+            // the phone may declare before its subscribe lands.
+            let change = MobileTerminalRenderInterestRegistry.shared.setViewSet(surfaceIDs, connectionID: id)
+            MobileTerminalRenderObserver.renderInterestDidChange(change)
+            return .ok(["count": surfaceIDs.count])
         default:
             return nil
         }
+    }
+
+    /// Mirrors whether this connection consumes render grids into the
+    /// interest registry, so an undeclared consumer keeps full coverage and a
+    /// connection that stopped consuming stops widening the producer's scope.
+    private func syncRenderInterestRegistration() {
+        let change: MobileTerminalRenderInterestRegistry.Change
+        if isSubscribed(to: MobileHostEventTopicPolicy.renderGridTopic) {
+            change = MobileTerminalRenderInterestRegistry.shared.registerSubscriber(connectionID: id)
+        } else {
+            change = MobileTerminalRenderInterestRegistry.shared.remove(connectionID: id)
+        }
+        MobileTerminalRenderObserver.renderInterestDidChange(change)
     }
 
     private static func readinessContribution(
@@ -2132,7 +2165,7 @@ actor MobileHostConnection {
              // counting that as interactive activity starves host work gated
              // on mobile quiet (e.g. TabManager background git/PR refresh).
              "mobile.events.subscribe", "mobile.events.unsubscribe",
-             "mobile.events.probe":
+             "mobile.events.probe", MobileTerminalViewSetRPC.method:
             return false
         default:
             return true
@@ -2164,6 +2197,7 @@ actor MobileHostConnection {
             previousTopics: previousTopics,
             nextTopics: topics
         )
+        syncRenderInterestRegistration()
         await syncSurfaceEventLanes()
         if currentSubscribedTopics().contains(MobileHostEventTopicPolicy.simulatorFrameTopic) {
             await dispatchPendingSimulatorFrameReplay()
@@ -2185,6 +2219,7 @@ actor MobileHostConnection {
                 nextTopics: nil
             )
         }
+        syncRenderInterestRegistration()
         await syncSurfaceEventLanes()
         if !subscriptions.values.contains(where: {
             $0.transport == .irohServerEvents

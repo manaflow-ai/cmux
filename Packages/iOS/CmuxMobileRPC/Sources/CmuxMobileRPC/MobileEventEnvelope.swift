@@ -1,4 +1,5 @@
 public import Foundation
+internal import CMUXMobileCore
 
 /// One server-pushed event delivered over the persistent transport.
 public struct MobileEventEnvelope: Sendable {
@@ -18,5 +19,18 @@ public struct MobileEventEnvelope: Sendable {
         self.topic = topic
         self.payloadJSON = payloadJSON
         self.streamID = streamID
+    }
+}
+
+extension MobileEventEnvelope {
+    /// A render-grid event recognized by its fixed envelope bytes, with the
+    /// frame sliced out unparsed; nil for every other event.
+    static func splicedRenderGridEvent(_ frame: Data) -> MobileEventEnvelope? {
+        guard let payload = MobileRenderGridEventSplice.payloadJSON(of: frame) else { return nil }
+        return MobileEventEnvelope(
+            topic: MobileRenderGridEventSplice.topic,
+            payloadJSON: payload,
+            streamID: nil
+        )
     }
 }

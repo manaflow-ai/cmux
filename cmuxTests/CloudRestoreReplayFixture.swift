@@ -56,7 +56,7 @@ final class CloudRestoreReplayFixture {
         try await waitUntil {
             let frame = self.surface.mobileRenderGridFrame(
                 stateSeq: 0, scrollbackLines: 0, includeTheme: false
-            )?.frame
+            )
             return frame?.columns == columns && frame?.rows == rows
         }
     }

@@ -137,6 +137,10 @@ extension MobileHostService {
             return nil
         case "mobile.events.unsubscribe", "mobile.events.probe":
             return nil
+        case MobileTerminalViewSetRPC.method:
+            // Narrows which render grids this connection receives; it can
+            // never widen access beyond the subscription it filters.
+            return nil
         case "mobile.host.status", "phone_push.status.get", "phone_push.keys.exchange",
              "caffeine.status", "caffeine.set":
             // Caffeine is Mac-scoped, and the same-account data-plane gate is

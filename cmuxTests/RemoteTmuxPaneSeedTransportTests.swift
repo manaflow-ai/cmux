@@ -1747,7 +1747,7 @@ import Testing
                 stateSeq: 0,
                 scrollbackLines: 0,
                 includeTheme: false
-            )?.frame else { return false }
+            ) else { return false }
             return frame.columns == columns && frame.rows == rows
         }
     }
@@ -1762,7 +1762,7 @@ import Testing
                 stateSeq: 0,
                 scrollbackLines: 0,
                 includeTheme: false
-            )?.frame
+            )
         }
         if let frame = gridIsApplied(), frame.columns == columns, frame.rows == rows {
             return

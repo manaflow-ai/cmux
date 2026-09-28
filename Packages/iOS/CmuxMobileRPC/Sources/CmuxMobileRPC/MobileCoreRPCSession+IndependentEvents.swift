@@ -111,6 +111,12 @@ extension MobileCoreRPCSession {
     }
 
     func dispatch(frame: Data) {
+        if let event = MobileEventEnvelope.splicedRenderGridEvent(frame) {
+            for (_, listener) in listeners where listener.topics.contains(event.topic) {
+                listener.continuation.yield(event)
+            }
+            return
+        }
         let parsed = try? JSONSerialization.jsonObject(with: frame) as? [String: Any]
         guard let envelope = parsed else { return }
         if (envelope["kind"] as? String) == "event" {
