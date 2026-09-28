@@ -134,6 +134,9 @@ class SettingsUITestCase: XCTestCase {
 
     /// Reads a toggle's on state from its accessibility value.
     func isOn(_ control: XCUIElement) -> Bool {
+        if control.isSelected {
+            return true
+        }
         let value = String(describing: control.value ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()

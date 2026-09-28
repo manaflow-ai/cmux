@@ -254,7 +254,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             window,
             id: "SettingsMobilePhonePushForwardingToggle"
         )
-        XCTAssertEqual(forwarding.value as? String, "1")
+        XCTAssertTrue(isOn(forwarding), "Forward Notifications to Phone should start on")
 
         let mode = requireElement(
             candidates: [
