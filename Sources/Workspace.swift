@@ -355,6 +355,7 @@ extension Workspace {
         // processes (e.g. claude_code "Running"). Don't restore them across app
         // restarts because the processes that set them are gone.
         statusEntries.removeAll()
+        agentStatusEntriesByPanelId.removeAll()
         clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
@@ -3023,6 +3024,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { sidebarMetadata.statusEntries }
         set { sidebarMetadata.statusEntries = newValue }
     }
+    /// Each pane's own copy of the agent status it last reported, keyed by
+    /// panel then status key. `statusEntries` keeps one entry per key (last
+    /// writer wins), so two panes running the same agent would otherwise hide
+    /// each other; the row resolves the most urgent pane from these instead.
+    var agentStatusEntriesByPanelId: [UUID: [String: SidebarStatusEntry]] = [:]
     var metadataBlocks: [String: SidebarMetadataBlock] {
         get { sidebarMetadata.metadataBlocks }
         set { sidebarMetadata.metadataBlocks = newValue }
@@ -6454,6 +6460,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func resetSidebarContext(reason: String = "unspecified") {
         statusEntries.removeAll()
+        agentStatusEntriesByPanelId.removeAll()
         clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
@@ -6668,8 +6675,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
-        sidebarStatusEntriesVisibleForDisplay().sorted { lhs, rhs in
+        let keysNeedingInput = sidebarStatusKeysNeedingInput()
+        return sidebarStatusEntriesVisibleForDisplay().sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
+            let lhsNeedsInput = keysNeedingInput.contains(lhs.key)
+            if lhsNeedsInput != keysNeedingInput.contains(rhs.key) { return lhsNeedsInput }
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
             return lhs.key < rhs.key
         }

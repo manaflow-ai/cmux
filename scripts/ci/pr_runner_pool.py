@@ -274,9 +274,13 @@ tests-build-and-lag, cli-product-tests). That is main's own code, so it may
 take an owned pool like a same-repository pull request, and ci-macos.yml
 already routes a `workflow_dispatch` on `refs/heads/main` through the same
 inputs. It is placed like a pull request, split and queue rounds
-(CI_PR_POOL_QUEUE_ROUNDS) included, on the owned pools only; what does not
-fit keeps its own route (MACOS_RUNNER_PR), since only an owned pool is a
-candidate for it. With no Blacksmith pool to compare against, its jobs may
+(CI_PR_POOL_QUEUE_ROUNDS) included, on the owned pools only. With the
+split and queue rounds, an owned pool with machines and root runners for
+its whole run holds all of it (queued there), not just the jobs that fit:
+the rest would take retry_runner and wait behind every overflowed pull
+request. A smaller pool (light) still splits, since the excess would wait
+past the owned-pool rescue's budget. With no owned pool it keeps its own route
+(MACOS_RUNNER_PR), since only an owned pool is a candidate for it. With no Blacksmith pool to compare against, its jobs may
 wait up to the queue rounds and the bound (owned_room()). CI_OWNED_MAIN_RESERVE (0 when unset) holds that many
 machines and root runners back for pull requests; with a reserve it takes
 an owned pool only whole, and only while its peak is free now (no queue
@@ -1876,6 +1880,25 @@ def choose(
                     # Main only ever takes an owned pool; the replay still
                     # spreads newer runs over the whole order.
                     choose_from=tuple(label for label in limits.order if persistent(label)) if main else None)
+    if (main and limits.queue_rounds and persistent(choice.runner)
+            and (choice.owned_budget < jobs or choice.root_runner and choice.root_budget < jobs)
+            # Only a pool that holds the whole run at once: on a small one the
+            # excess would wait rounds past the rescue's budget.
+            and owned_capacity.get(choice.runner, 0) >= jobs
+            and (not choice.root_runner or owned_capacity.get(choice.root_runner, 0) >= jobs)):
+        # Main queues its whole run on the owned pool instead of splitting:
+        # the jobs that did not fit took the retry runner and waited behind
+        # every overflowed pull request there (run 36402943637, 2026-09-28:
+        # five jobs queued over an hour behind 76 others on 3 running
+        # machines), so main gave no verdict. The owned queue drains in
+        # rounds, and the rescue still bounds the wait. With the rounds at 0
+        # (no queueing) it splits as before.
+        choice = dataclasses.replace(
+            # A root budget of `jobs` holds every job whether or not the pool
+            # has gui runners (root_held() never exceeds the machines held).
+            choice, owned_budget=jobs, root_budget=max(choice.root_budget, jobs),
+            reason=choice.reason.replace("the jobs that fit run there, the rest on the retry runner",
+                                         "the whole run queues there"))
     if main and not persistent(choice.runner):
         # A Blacksmith pick would move main off MACOS_RUNNER_PR; keep its route.
         choice = Choice("", "", f"main's full-suite dispatch: no owned pool fits its whole run with "

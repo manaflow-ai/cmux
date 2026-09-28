@@ -1,10 +1,17 @@
 {
+  "paths": [
+    "Sources/TaskManager*",
+    "Sources/*TaskManager*",
+    "Sources/CmuxTop*",
+    "Sources/TerminalController*ProcessDiagnostics*",
+    "Sources/TerminalControllerTopSupport*"
+  ],
   "steps": [
     {
       "socket": "workspace.create",
       "params": {
         "title": "Review docs",
-        "initial_input": "printf 'int main(void){sleep(900);return 0;}' > /tmp/fake-codex.c; cc -include unistd.h -o /tmp/codex /tmp/fake-codex.c; /tmp/codex 900 & P=$!; sleep 1; printf 'set_agent_pid codex %s --tab=%s --panel=%s\\nset_status codex Running --tab=%s --panel=%s\\nset_agent_lifecycle codex running --tab=%s --panel=%s\\n' $P $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID | nc -U -w 2 $CMUX_SOCKET_PATH\n",
+        "initial_input": "printf 'int main(void){sleep(900);return 0;}' > /tmp/fake-codex.c && cc -include unistd.h -o /tmp/codex /tmp/fake-codex.c && /tmp/codex 900\n",
         "focus": false
       },
       "save": "docs"
@@ -13,10 +20,19 @@
       "socket": "workspace.create",
       "params": {
         "title": "Fix the login flow",
-        "initial_input": "printf 'int main(void){sleep(900);return 0;}' > /tmp/fake-claude.c; cc -include unistd.h -o /tmp/claude /tmp/fake-claude.c; /tmp/claude 900 & P=$!; sleep 1; printf 'set_agent_pid claude_code %s --tab=%s --panel=%s\\nset_status claude_code Idle --tab=%s --panel=%s\\nset_agent_lifecycle claude_code idle --tab=%s --panel=%s\\n' $P $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID | nc -U -w 2 $CMUX_SOCKET_PATH\n",
+        "initial_input": "printf 'int main(void){sleep(900);return 0;}' > /tmp/fake-claude.c && cc -include unistd.h -o /tmp/claude /tmp/fake-claude.c && /tmp/claude 900\n",
         "focus": true
       },
       "save": "login"
+    },
+    {
+      "wait": 1
+    },
+    {
+      "socketLine": "set_agent_lifecycle codex running --tab=${docs.workspace_id} --panel=${docs.surface_id}"
+    },
+    {
+      "socketLine": "set_agent_lifecycle claude_code idle --tab=${login.workspace_id} --panel=${login.surface_id}"
     },
     {
       "socket": "workspace.create",

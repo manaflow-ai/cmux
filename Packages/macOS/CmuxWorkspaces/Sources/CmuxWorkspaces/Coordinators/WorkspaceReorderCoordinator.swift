@@ -63,6 +63,23 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         }
     }
 
+    /// Whether ``moveTabToTopForNotification(_:)`` would leave the order
+    /// unchanged because the workspace (or, when grouped, its top-level row)
+    /// already sits first in the unpinned tier. Pinned and unknown rows
+    /// return `false`; callers check pinning separately.
+    public func isAtTopOfUnpinnedTier(_ tabId: UUID) -> Bool {
+        guard let tab = model.tabs.first(where: { $0.id == tabId }), !tab.isPinned else { return false }
+        if !model.workspaceGroups.isEmpty {
+            guard let topLevelId = model.topLevelWorkspaceIds(for: [tab]).first else { return false }
+            let pinnedTopLevelIds = model.sidebarTopLevelPinnedWorkspaceIdsIncludingEmptyGroups()
+            guard !pinnedTopLevelIds.contains(topLevelId) else { return false }
+            let topLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
+            let pinnedCount = topLevelIds.filter { pinnedTopLevelIds.contains($0) }.count
+            return topLevelIds.firstIndex(of: topLevelId) == pinnedCount
+        }
+        return model.tabs.first(where: { !$0.isPinned })?.id == tabId
+    }
+
     /// Moves a workspace to the top of the unpinned tier for a notification
     /// bump; no-ops for pinned rows or rows already at the boundary.
     public func moveTabToTopForNotification(_ tabId: UUID) {
