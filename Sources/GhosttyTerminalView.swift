@@ -4349,6 +4349,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             hidePredictionOverlay()
             return
         }
+        // Output removed blanks that the frame on screen still needs: keep
+        // the overlay where it was until the next presented frame.
+        if TerminalPredictionCenter.shared.holdsLayoutUntilFrame(surfaceID: surfaceID),
+           predictionOverlayView.isShowingGlyphs {
+            return
+        }
         let glyphs = TerminalPredictionCenter.shared.expiring(surfaceID: surfaceID)
         guard !glyphs.isEmpty, let surface else {
             hidePredictionOverlay()

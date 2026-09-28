@@ -129,4 +129,18 @@ struct PredictionOutputInboxTests {
         #expect(scheduleCount == 1)
         #expect(inbox.drain()[surface]?.count == 500)
     }
+
+    @Test func aSurfaceThatOutrunsTheDrainKeepsOnlyItsNewestOutput() {
+        let surface = UUID()
+        let inbox = PredictionOutputInbox(maximumBufferedBytes: 8)
+        inbox.accept(surfaceID: surface)
+        _ = inbox.deposit(surfaceID: surface, bytes: Array("abcdef".utf8), at: .milliseconds(1))
+        _ = inbox.deposit(surfaceID: surface, bytes: Array("ghijk".utf8), at: .milliseconds(2))
+        let drained = inbox.drain()[surface] ?? []
+        #expect(drained.map(\.bytes) == [Array("ghijk".utf8)])
+        #expect(drained.map(\.followsDroppedOutput) == [true])
+
+        _ = inbox.deposit(surfaceID: surface, bytes: Array("xy".utf8), at: .milliseconds(3))
+        #expect(inbox.drain()[surface]?.map(\.followsDroppedOutput) == [false])
+    }
 }

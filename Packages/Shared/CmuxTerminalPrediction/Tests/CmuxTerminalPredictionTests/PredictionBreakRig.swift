@@ -274,7 +274,7 @@ struct PredictionBreakRig {
                 screen.apply(bytes)
                 trace.append("\(time / 1000)ms parse \(bytes.count)B cursor \(screen.cursor)")
             case .output(let bytes):
-                if engine.observedOutput(bytes, at: now) { sync() }
+                if engine.observedOutput(bytes, at: now), !engine.holdsLayoutUntilFrame { sync() }
                 trace.append("\(time / 1000)ms echo \(bytes.count)B -> overlay \(engine.glyphs.map { "\($0.character)@\($0.offset)" })")
             case .frame:
                 presentedRow = screen.row
@@ -324,9 +324,13 @@ struct RigScript {
         }
     }
 
-    /// One echoed keystroke so the run is armed, then a pause.
+    /// Two echoed keystrokes so the run is armed, then a pause. (One is not
+    /// enough: a tty in cooked mode echoes the first key typed ahead of a
+    /// password prompt.)
     mutating func arm() {
         type("l", gapMilliseconds: 10)
+        wait(1_000)
+        type("s", gapMilliseconds: 10)
         wait(1_000)
     }
 }

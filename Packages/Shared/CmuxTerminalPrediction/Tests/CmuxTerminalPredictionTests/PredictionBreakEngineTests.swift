@@ -108,8 +108,10 @@ struct PredictionBreakEngineTests {
     /// host draws them wherever the image left it.
     @Test func anImageThatMovesTheCursorWithdrawsPredictions() {
         var session = Session()
-        session.type(UInt8(ascii: "l"), at: 0)
-        session.remote("l", at: 150)
+        session.type(UInt8(ascii: "k"), at: 0)
+        session.remote("k", at: 150)
+        session.type(UInt8(ascii: "l"), at: 200)
+        session.remote("l", at: 350)
         session.type(UInt8(ascii: "s"), at: 400)
         #expect(session.drawn == "s")
         // An async job (a prompt segment, `kitten icat` in the background)
@@ -118,8 +120,10 @@ struct PredictionBreakEngineTests {
         #expect(session.drawn == "", "'s' is still drawn after an image moved the cursor 4 cells")
         // Sixel: the cursor ends up below the image.
         var sixel = Session()
-        sixel.type(UInt8(ascii: "l"), at: 0)
-        sixel.remote("l", at: 150)
+        sixel.type(UInt8(ascii: "k"), at: 0)
+        sixel.remote("k", at: 150)
+        sixel.type(UInt8(ascii: "l"), at: 200)
+        sixel.remote("l", at: 350)
         sixel.type(UInt8(ascii: "s"), at: 400)
         sixel.remote("\u{1B}Pq#0;2;0;0;0#0~~~~-~~~~\u{1B}\\", at: 450)
         #expect(sixel.drawn == "", "'s' is still drawn after a sixel image moved the cursor")
@@ -131,9 +135,12 @@ struct PredictionBreakLatencyTests {
     /// drawn when typed and whether prediction suspended itself.
     private func steadyTyping(roundTrip: Int, keys: Int = 60, gap: Int = 120) -> (drawn: Int, suspended: Bool) {
         var engine = TerminalPredictionEngine(isEnabled: true, isRemoteSurface: true)
-        engine.typed(printableASCII: UInt8(ascii: "x"), at: .milliseconds(-10_000))
-        engine.observedOutput([UInt8(ascii: "x")], at: .milliseconds(-10_000 + roundTrip))
-        engine.presentedFrame(at: .milliseconds(-10_000 + roundTrip + 8))
+        for (index, byte) in "xy".utf8.enumerated() {
+            let typedAt = -10_000 + index * 3_000
+            engine.typed(printableASCII: byte, at: .milliseconds(typedAt))
+            engine.observedOutput([byte], at: .milliseconds(typedAt + roundTrip))
+            engine.presentedFrame(at: .milliseconds(typedAt + roundTrip + 8))
+        }
         var events: [(Int, Int, UInt8)] = []  // time, 0 = echo first, byte
         for index in 0..<keys {
             let byte = UInt8(ascii: "a") + UInt8(index % 26)

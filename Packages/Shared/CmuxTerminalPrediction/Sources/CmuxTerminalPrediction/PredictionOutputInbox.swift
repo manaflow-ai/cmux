@@ -8,10 +8,14 @@ public import Foundation
 public struct PredictionOutputBatch: Sendable, Equatable {
     public let instant: PredictionInstant
     public let bytes: [UInt8]
+    /// Output was dropped before this point because the surface outran the
+    /// drain; whatever the engine was tracking is unknowable now.
+    public let followsDroppedOutput: Bool
 
-    public init(instant: PredictionInstant, bytes: [UInt8]) {
+    public init(instant: PredictionInstant, bytes: [UInt8], followsDroppedOutput: Bool = false) {
         self.instant = instant
         self.bytes = bytes
+        self.followsDroppedOutput = followsDroppedOutput
     }
 }
 
@@ -29,9 +33,16 @@ public final class PredictionOutputInbox: @unchecked Sendable {
     private let lock = NSLock()
     private var acceptedSurfaces: Set<UUID> = []
     private var batches: [UUID: [PredictionOutputBatch]] = [:]
+    private var bufferedBytes: [UUID: Int] = [:]
     private var isDrainScheduled = false
+    /// Buffered bytes per surface before older output is dropped. A remote
+    /// `cat` or a build log can outrun the main actor; prediction only needs
+    /// the newest output, and a drop is reported so the engine resets.
+    private let maximumBufferedBytes: Int
 
-    public init() {}
+    public init(maximumBufferedBytes: Int = 1 << 20) {
+        self.maximumBufferedBytes = maximumBufferedBytes
+    }
 
     /// Starts buffering a surface's output.
     public func accept(surfaceID: UUID) {
@@ -53,9 +64,20 @@ public final class PredictionOutputInbox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard acceptedSurfaces.contains(surfaceID) else { return false }
-        batches[surfaceID, default: []].append(
-            PredictionOutputBatch(instant: instant, bytes: Array(bytes))
-        )
+        let buffered = bufferedBytes[surfaceID, default: 0] + bytes.count
+        if buffered > maximumBufferedBytes {
+            batches[surfaceID] = [PredictionOutputBatch(
+                instant: instant,
+                bytes: Array(bytes.suffix(maximumBufferedBytes)),
+                followsDroppedOutput: true
+            )]
+            bufferedBytes[surfaceID] = min(bytes.count, maximumBufferedBytes)
+        } else {
+            batches[surfaceID, default: []].append(
+                PredictionOutputBatch(instant: instant, bytes: Array(bytes))
+            )
+            bufferedBytes[surfaceID] = buffered
+        }
         guard !isDrainScheduled else { return false }
         isDrainScheduled = true
         return true
@@ -67,8 +89,18 @@ public final class PredictionOutputInbox: @unchecked Sendable {
         defer { lock.unlock() }
         let taken = batches
         batches.removeAll(keepingCapacity: true)
+        bufferedBytes.removeAll(keepingCapacity: true)
         isDrainScheduled = false
         return taken
+    }
+
+    /// Takes one surface's buffered output, leaving the rest and the
+    /// scheduled drain alone.
+    public func drain(surfaceID: UUID) -> [PredictionOutputBatch] {
+        lock.lock()
+        defer { lock.unlock() }
+        bufferedBytes.removeValue(forKey: surfaceID)
+        return batches.removeValue(forKey: surfaceID) ?? []
     }
 
     /// Stops buffering a surface and drops what it has buffered, without
@@ -78,6 +110,7 @@ public final class PredictionOutputInbox: @unchecked Sendable {
         defer { lock.unlock() }
         acceptedSurfaces.remove(surfaceID)
         batches.removeValue(forKey: surfaceID)
+        bufferedBytes.removeValue(forKey: surfaceID)
     }
 
     /// Stops buffering every surface and drops everything buffered.
@@ -86,5 +119,6 @@ public final class PredictionOutputInbox: @unchecked Sendable {
         defer { lock.unlock() }
         acceptedSurfaces.removeAll()
         batches.removeAll()
+        bufferedBytes.removeAll()
     }
 }

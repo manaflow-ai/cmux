@@ -12,21 +12,39 @@ import Testing
 /// build streaming over a LAN link, outruns the main actor several times
 /// over, and the inbox has no bound while it catches up.
 struct PredictionBreakPerfTests {
+    /// Output with nothing in flight must not be classified byte by byte.
+    /// Measured against touching every byte once in the same build, so the
+    /// bound holds on a loaded machine and in a debug build alike.
     @Test func scanningARemoteBuildLogOnTheMainActor() {
         let line = Array("\u{1B}[32mCompiling\u{1B}[0m cmux-terminal-prediction v0.1.0 (/src/Packages/Shared/CmuxTerminalPrediction) target=arm64\r\n".utf8)
         var chunk: [UInt8] = []
         while chunk.count < 65_536 { chunk += line }
         let chunks = 16  // 1 MiB
-        var engine = TerminalPredictionEngine(isEnabled: true, isRemoteSurface: true)
-        let start = ContinuousClock.now
-        for index in 0..<chunks {
-            engine.observedOutput(chunk, at: .milliseconds(index))
+        func seconds(_ body: () -> Void) -> Double {
+            let start = ContinuousClock.now
+            body()
+            let elapsed = ContinuousClock.now - start
+            return Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
         }
-        let elapsed = ContinuousClock.now - start
-        let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
-        let megabytes = Double(chunk.count * chunks) / 1_048_576
-        print("PERF observedOutput: \(String(format: "%.1f", megabytes / seconds)) MiB/s, \(String(format: "%.2f", seconds * 1000 / megabytes)) ms of main-actor time per MiB")
-        #expect(megabytes / seconds > 200, "\(megabytes / seconds) MiB/s")
+        var total = 0
+        let touchEveryByte = seconds {
+            for _ in 0..<chunks { for byte in chunk { total &+= Int(byte) } }
+        }
+        precondition(total != 1)
+        var idle = TerminalPredictionEngine(isEnabled: true, isRemoteSurface: true)
+        let idleSeconds = seconds {
+            for index in 0..<chunks { idle.observedOutput(chunk, at: .milliseconds(index)) }
+        }
+        // One key typed first: its echo never comes, the first chunk
+        // withdraws it, and the rest is idle output again.
+        var typed = TerminalPredictionEngine(isEnabled: true, isRemoteSurface: true)
+        typed.typed(printableASCII: 0x61, at: .zero)
+        let typedSeconds = seconds {
+            for index in 0..<chunks { typed.observedOutput(chunk, at: .milliseconds(index + 1)) }
+        }
+        print("PERF 1 MiB: touch every byte \(touchEveryByte) s, idle surface \(idleSeconds) s, after a key \(typedSeconds) s")
+        #expect(idleSeconds < touchEveryByte, "idle output took \(idleSeconds) s against \(touchEveryByte) s to touch every byte")
+        #expect(typedSeconds < touchEveryByte, "output after a key took \(typedSeconds) s against \(touchEveryByte) s to touch every byte")
     }
 }
 
