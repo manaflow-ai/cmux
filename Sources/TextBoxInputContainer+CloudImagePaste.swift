@@ -23,7 +23,7 @@ extension TextBoxInputContainer {
             let target = await self.surface.resolvedImageTransferTargetAsync()
             guard self.surface.runtimeSurfaceGeneration == runtimeGeneration,
                   self.ownsTextView(textView) else { return }
-            self.attachFileURLs(
+            _ = self.attachFileURLs(
                 standardizedURLs,
                 into: textView,
                 target: target

@@ -13,7 +13,7 @@ extension GhosttyNSView {
             return false
         case .insertText(let text):
             return terminalSurface?.sendText(text) ?? false
-        case .fileURLs(let fileURLs):
+        case .fileURLs:
             guard let terminalSurface else {
                 preparedContent.cleanupTransferredTemporaryFiles(
                     using: GhosttyApp.terminalPasteboard
