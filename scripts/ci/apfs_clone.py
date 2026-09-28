@@ -9,9 +9,11 @@ across as with `cp -c`; every directory gets the current time, as `cp -R`
 gives it. Apple discourages directory clonefile for very large trees because
 the call is atomic; these are the trees CI already cloned whole.
 
-`clone_directory` returns False, leaving DESTINATION absent, on any failure
-(another volume, no clone support, not macOS, no space), so callers fall back
-to the copy they made before.
+`clone_directory` returns False, leaving DESTINATION absent, on a failure a
+copy can still get past (another volume, no clone support, not macOS), so
+callers fall back to the copy they made before. A full volume raises
+OSError(ENOSPC) instead: a 12 to 40 GB fallback copy cannot fit either, and
+owned_build_state.py `keep` frees space for its retry only on that error.
 
 Usage: apfs_clone.py SOURCE DESTINATION (exit 1 when not cloned).
 """
@@ -19,6 +21,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import errno
 import os
 import sys
 from pathlib import Path
@@ -37,14 +40,23 @@ def clone_directory(source: Path, destination: Path) -> bool:
         return False
     clonefile.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint32)
     clonefile.restype = ctypes.c_int
-    return clonefile(os.fsencode(source), os.fsencode(destination), CLONE_NOFOLLOW) == 0
+    if clonefile(os.fsencode(source), os.fsencode(destination), CLONE_NOFOLLOW) == 0:
+        return True
+    code = ctypes.get_errno()
+    if code == errno.ENOSPC:
+        raise OSError(code, os.strerror(code), str(destination))
+    return False
 
 
 def main(argv: list[str]) -> int:
     if len(argv) != 3:
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
         return 2
-    return 0 if clone_directory(Path(argv[1]), Path(argv[2])) else 1
+    try:
+        return 0 if clone_directory(Path(argv[1]), Path(argv[2])) else 1
+    except OSError as error:
+        print(f"apfs_clone: {error}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

@@ -15,8 +15,9 @@ access to other local macOS users and is unsafe on a shared Mac.
 
 ## Ghostty config live reload
 
-cmux reads terminal settings from the Ghostty config: `~/.config/ghostty/config`,
-`~/.config/ghostty/config.ghostty`, `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty`
+cmux reads terminal settings from the Ghostty config: `~/.config/ghostty/config` and
+`~/.config/ghostty/config.ghostty` (under `$XDG_CONFIG_HOME/ghostty/` when that is set),
+`~/Library/Application Support/com.mitchellh.ghostty/config.ghostty`
 (or its legacy `config`), and the cmux config under
 `~/Library/Application Support/com.cmuxterm.app/`. cmux watches these files, every file
 pulled in with `config-file`, and user theme files named by `theme` (an absolute path, or
@@ -26,7 +27,8 @@ configuration the same way as Reload Configuration (Cmd+Shift+,), about 300 ms a
 the last write. Atomic saves, Vim-style saves that move the old file aside, files
 created after launch, and newly added includes are all picked up. A save that leaves
 the contents unchanged, or a file cmux already reloaded itself (for example after
-`cmux themes set`), does not trigger another reload. Themes bundled with cmux or Ghostty.app
+`cmux themes set` or a `cmux themes` preview), does not trigger another reload. A save
+made while a reload is still applying reloads once more after it. Themes bundled with cmux or Ghostty.app
 are not watched.
 
 When Ghostty reports errors for the config (an unknown key, an invalid value, a missing
