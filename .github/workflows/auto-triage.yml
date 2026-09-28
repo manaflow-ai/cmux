@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       backfill_limit:
-        description: "Label at most this many untriaged open issues (0 = none)"
+        description: "Label at most this many untriaged open issues (0 = do nothing)"
         required: false
         default: "0"
       dry_run:
@@ -19,10 +19,12 @@ permissions:
   contents: read
   issues: write
 
-# One issue at a time, so a reopen while the open run is still going cannot
-# double-label or double-comment.
+# One run per issue, and one backfill at a time. Queueing rather than
+# cancelling: a cancelled run can leave labels applied with no receipt line.
+# What actually stops a reopened issue being labelled twice is the check for an
+# existing triage label, not this group.
 concurrency:
-  group: auto-triage-${{ github.event.issue.number || github.run_id }}
+  group: auto-triage-${{ github.event.issue.number || 'backfill' }}
   cancel-in-progress: false
 
 jobs:
@@ -43,7 +45,7 @@ jobs:
         run: python3 scripts/ci/auto_triage.py --issue "$ISSUE_NUMBER"
 
   backfill:
-    if: github.event_name == 'workflow_dispatch' && inputs.backfill_limit != '0'
+    if: github.event_name == 'workflow_dispatch' && fromJSON(inputs.backfill_limit || '0') > 0
     runs-on: ubuntu-24.04 # github-hosted-required: trusted issue-write token
     timeout-minutes: 30
     steps:
@@ -68,6 +70,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: auto-triage-receipt
+          name: auto-triage-receipt-${{ github.run_id }}
           path: receipt.jsonl
           if-no-files-found: ignore

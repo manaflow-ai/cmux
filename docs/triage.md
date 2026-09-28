@@ -26,16 +26,23 @@ Two rules about severity that keep arguments short:
 
 - **Feature requests have no severity.** An unbuilt feature is not broken.
   Calling it `S3` turns the label into a priority claim, which a keyword rule
-  has no business making. Feature requests get an area and nothing else.
+  has no business making. Feature requests get an area and nothing else. A
+  title that starts `RFC:`, `feat:`, `Feature request:` or `Support for` is read
+  as a request, and so is `Add ...`/`Allow ...` when the only thing the rules
+  matched was cosmetic wording. The exception is a security title: `[RFC]
+  arbitrary code execution in the ACP transport` still gets `S1`, because
+  missing one of those costs more than a relabel.
 - **The worst true statement wins.** A report that mentions both a crash and a
-  typo is `S2`, not `S4`.
+  typo is `S2`, not `S4`. With one limit: the title is read before the body, so
+  a cosmetic *title* settles it even when the body mentions something worse.
 
 ## Areas
 
 One `area:` label says which part of cmux owns the issue. Two are allowed when
-a report sits exactly on a seam (a command palette bug that is really about
-IME input gets both). More than two means nobody can act on it, so the rules
-leave those alone and mark `needs-triage` instead.
+a report sits exactly on a seam and both areas are named in the title
+(`Command palette text input does not allow IME switching` gets
+`area: command-palette` and `area: input`). More than two means nobody can act
+on it, so the rules leave those alone and mark `needs-triage` instead.
 
 `area: terminal`, `area: input`, `area: layout`, `area: sidebar`,
 `area: workspaces`, `area: agents`, `area: cloud`, `area: remote`, `area: ios`,
@@ -59,11 +66,14 @@ runs [`scripts/ci/auto_triage.py`](../scripts/ci/auto_triage.py) when an issue
 is opened or reopened. It applies the labels the rules propose and leaves one
 comment naming the rule that fired.
 
-It runs **once per issue** and only when the issue has no severity, `area:` or
-`needs-triage` label yet. So:
+It labels an issue only when that issue has no severity, `area:` or
+`needs-triage` label yet, so in practice it gets one turn per issue. So:
 
 - **To overrule it, change the labels.** They stay changed. The bot does not
-  run on `edited` or `labeled`, so it cannot argue back.
+  run on `edited` or `labeled`, so it cannot argue back. One gap worth knowing:
+  it also fires on `reopened`, so if you overrule it by *removing* its label
+  and adding nothing, a later reopen labels the issue again. Replace the label
+  rather than clearing it.
 - **To stop it before it starts,** label the issue while you file it. Anything
   in the triage vocabulary makes auto-triage skip the issue entirely.
 
@@ -77,6 +87,14 @@ and titles are read before bodies. Cosmetic is title-only, because a body that
 says "padding" in a reproduction step does not make a dropped-paste bug
 cosmetic. The security pattern is also title-only, because a design discussion
 that weighs "arbitrary code execution" is not a vulnerability report.
+
+When no pattern matches at all, the rules still have to decide whether the
+report is about something broken, and that decision is a word list too
+(`BUG_WORDS`: "wrong", "slow", "does not update", and so on). A bug written
+entirely around words that are not in it gets no severity, which looks like the
+rules calling it a feature request. That is the most common way for the output
+to be wrong, and the fix is to add the severity by hand and, if the wording is
+common, add the word to the list.
 
 Areas are scored: a title match is worth 3, a body match 1. The top area wins
 if it is ahead of the runner-up, ties of two are both applied, and a body
@@ -127,7 +145,19 @@ GH_TOKEN=... python3 scripts/ci/auto_triage.py --revert receipt.jsonl
 ```
 
 The backfill does not comment: a pass over the backlog that comments is a
-thousand notifications. Every bulk pass writes a receipt, and the receipt is
-what makes it reversible. Keep it.
+thousand notifications. Every pass writes its receipt line by line as it goes,
+so a pass that dies to a rate limit or a timeout still records what it changed.
+Keep the file: it is the only thing that makes the pass reversible.
+
+`--dry-run` writes a receipt too, marked `"dry_run": true` on every row, and
+`--revert` refuses a file with any such row. A preview records what the rules
+*would* do, and some of those labels may since have been applied by a person;
+reverting a preview would strip their work. Receipt rows also carry the repo,
+and `--revert` refuses a receipt from a different one, because issue numbers do
+not mean the same thing in two repositories.
+
+`--limit` must be 1 or more. Omit it to walk every open issue. That is
+deliberate: the old spelling made `--limit 0` mean "no limit", which is one
+typo away from an unbounded pass over the whole backlog.
 
 Tests for all of this: `tests/test_triage_rules.py`.

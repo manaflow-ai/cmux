@@ -48,6 +48,40 @@ COMMENT_MARKER = "<!-- auto-triage:v1 -->"
 DOCS = "https://github.com/manaflow-ai/cmux/blob/main/docs/triage.md"
 
 
+MAX_SLEEP = 900
+
+
+class ApiError(RuntimeError):
+    """A GitHub response the caller may want to inspect rather than die on."""
+
+    def __init__(self, method: str, url: str, code: int, body: str) -> None:
+        super().__init__(f"{method} {url} failed: {code} {body}")
+        self.code = code
+        self.body = body
+
+
+def rate_limit_delay(headers: Any, attempt: int) -> int | None:
+    """How long to wait, or None when this is not a rate limit.
+
+    403 covers both "you are going too fast" and "you may not do this at all".
+    Retrying a permission failure four times wastes the job's whole timeout, so
+    a delay is only returned when the response actually says rate limit.
+    """
+    get = headers.get if headers else (lambda _name: None)
+    retry_after = get("Retry-After")
+    if retry_after and str(retry_after).strip().isdigit():
+        # Secondary limits send this, and it is the number to trust.
+        return min(int(str(retry_after).strip()), MAX_SLEEP)
+    if str(get("X-RateLimit-Remaining") or "").strip() == "0":
+        # A primary limit sends no Retry-After, only the reset timestamp.
+        reset = str(get("X-RateLimit-Reset") or "").strip()
+        if reset.isdigit():
+            wait = int(reset) - int(time.time()) + 1
+            return min(max(wait, 1), MAX_SLEEP)
+        return min(30 * (attempt + 1), MAX_SLEEP)
+    return None
+
+
 def request(method: str, url: str, token: str, payload: dict[str, Any] | None = None) -> Any:
     body = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(url, data=body, method=method)
@@ -62,16 +96,13 @@ def request(method: str, url: str, token: str, payload: dict[str, Any] | None = 
                 text = response.read().decode()
                 return json.loads(text) if text else None
         except urllib.error.HTTPError as error:
-            # Secondary rate limits answer 403 with a Retry-After. Everything
-            # else is a real failure and should stop the pass, not retry into it.
-            retry_after = error.headers.get("Retry-After") if error.headers else None
-            if error.code in (403, 429) and attempt < 3:
-                delay = int(retry_after) if retry_after and retry_after.isdigit() else 30 * (attempt + 1)
+            detail = error.read().decode(errors="replace")
+            delay = rate_limit_delay(error.headers, attempt) if error.code in (403, 429) else None
+            if delay is not None and attempt < 3:
                 print(f"  rate limited, sleeping {delay}s", flush=True)
                 time.sleep(delay)
                 continue
-            detail = error.read().decode(errors="replace")
-            raise SystemExit(f"{method} {url} failed: {error.code} {detail}") from error
+            raise ApiError(method, url, error.code, detail) from error
         except urllib.error.URLError as error:
             if attempt < 3:
                 time.sleep(5 * (attempt + 1))
@@ -112,7 +143,10 @@ def render_comment(result: Classification) -> str:
     if result.severity:
         lines.append(f"- **{result.severity}** — {result.severity_reason}.")
     else:
-        lines.append("- **No severity** — this reads as a feature request or RFC, not something broken.")
+        lines.append(
+            "- **No severity** — this reads as a request or a design discussion rather than "
+            "a report of something broken. If it is a bug, add the severity that fits."
+        )
     if result.areas:
         pretty = ", ".join(f"`{area}`" for area in result.areas)
         lines.append(f"- **Area:** {pretty}, from words in the title.")
@@ -122,8 +156,8 @@ def render_comment(result: Classification) -> str:
         )
     lines.append("")
     lines.append(
-        f"Wrong? Change the labels and they will stay changed; this runs once per issue. "
-        f"The rules are in [docs/triage.md]({DOCS})."
+        f"Wrong? Change the labels and they will stay changed: this only labels an issue that "
+        f"has no triage label yet. The rules are in [docs/triage.md]({DOCS})."
     )
     return "\n".join(lines)
 
@@ -143,10 +177,8 @@ def apply_to_issue(
         return None
 
     result = classify(item.get("title") or "", item.get("body") or "", item.get("labels") or [])
+    # Always at least one label: with no area, `needs-triage` is the answer.
     additions = result.labels_to_add()
-    if not additions:
-        return None
-
     summary = ",".join(additions)
     print(f"#{number} {summary}  {str(item.get('title') or '')[:70]}", flush=True)
     if dry_run:
@@ -168,39 +200,127 @@ def apply_to_issue(
     return additions
 
 
-def write_receipt(path: Path, rows: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row, sort_keys=True) + "\n")
+class Receipt:
+    """Append-only JSONL record of labels added, one line per issue.
+
+    Written as the pass goes, not at the end. A pass over the whole backlog can
+    stop on a 5xx, a rate limit or the job timeout, and a label with no receipt
+    line is a label nothing can undo.
+
+    A dry run writes rows too, because seeing them is the point, but every row
+    carries `dry_run` and `--revert` refuses a file containing one. Otherwise
+    the artifact from a preview pass reads as a record of labels that were
+    never applied, and reverting it would strip labels a human put there.
+    """
+
+    def __init__(self, path: Path, repo: str, *, dry_run: bool) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.repo = repo
+        self.dry_run = dry_run
+        self.handle = path.open("a", encoding="utf-8")
+
+    def add(self, number: int, added: list[str]) -> None:
+        row: dict[str, Any] = {
+            "repo": self.repo,
+            "number": number,
+            "added": added,
+            "at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        }
+        if self.dry_run:
+            row["dry_run"] = True
+        self.handle.write(json.dumps(row, sort_keys=True) + "\n")
+        self.handle.flush()
+
+    def close(self) -> None:
+        self.handle.close()
+
+    def __enter__(self) -> "Receipt":
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+
+def load_receipt(receipt: Path, repo: str) -> list[dict[str, Any]]:
+    """Rows to revert, refusing anything that does not describe this repo."""
+    if not receipt.exists():
+        raise SystemExit(f"{receipt}: no such receipt")
+    rows: list[dict[str, Any]] = []
+    for number, line in enumerate(receipt.read_text().splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise SystemExit(f"{receipt}:{number}: not JSON: {error}") from error
+        if row.get("dry_run"):
+            raise SystemExit(
+                f"{receipt}:{number} came from a dry run, so it records labels that were "
+                f"never applied. Reverting it would remove labels this tool did not add."
+            )
+        row_repo = row.get("repo")
+        if row_repo and row_repo != repo:
+            raise SystemExit(
+                f"{receipt}:{number} is for {row_repo}, not {repo}. Issue numbers do not "
+                f"mean the same thing in two repositories; pass --repo {row_repo}."
+            )
+        if not row_repo:
+            raise SystemExit(
+                f"{receipt}:{number} has no repo field, so it predates this check and "
+                f"cannot be verified. Remove the labels by hand."
+            )
+        rows.append(row)
+    return rows
 
 
 def revert(repo: str, token: str, receipt: Path, *, dry_run: bool) -> int:
     """Remove exactly the labels a recorded pass added, and nothing else."""
-    if not receipt.exists():
-        raise SystemExit(f"{receipt}: no such receipt")
+    rows = load_receipt(receipt, repo)
+    if not dry_run:
+        # Fail loudly on a repo this token cannot see. GitHub answers 404 for
+        # that, which the loop below would otherwise read as "already removed"
+        # and report as a clean run that did nothing.
+        request("GET", f"{API}/repos/{repo}", token)
     removed = 0
-    for line in receipt.read_text().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        row = json.loads(line)
+    missing = 0
+    for row in rows:
         number = int(row["number"])
         for label in row.get("added") or []:
-            print(f"#{number} remove {label}", flush=True)
-            removed += 1
             if dry_run:
+                print(f"#{number} would remove {label}", flush=True)
+                removed += 1
                 continue
             quoted = urllib.parse.quote(label)
             try:
                 request("DELETE", f"{API}/repos/{repo}/issues/{number}/labels/{quoted}", token)
-            except SystemExit as error:
-                # A label a human already removed answers 404. That is the
-                # outcome we wanted anyway.
-                if "failed: 404" not in str(error):
-                    raise
-    print(f"{removed} label removals {'planned' if dry_run else 'applied'}")
+            except ApiError as error:
+                # "Label does not exist" means a human removed it already, and
+                # that is the outcome we wanted. Any other 404 is a wrong
+                # target: a deleted, transferred or nonexistent issue.
+                if error.code == 404 and "label does not exist" in error.body.lower():
+                    missing += 1
+                    continue
+                raise
+            print(f"#{number} removed {label}", flush=True)
+            removed += 1
+    verb = "planned" if dry_run else "applied"
+    extra = f", {missing} already gone" if missing else ""
+    print(f"{removed} label removals {verb}{extra}")
     return 0
+
+
+def positive(value: str) -> int:
+    """A limit of 0 used to mean "no limit", which is a bad thing to typo."""
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a number") from None
+    if number < 1:
+        raise argparse.ArgumentTypeError(
+            f"--limit must be 1 or more (got {value!r}); omit it to walk every open issue"
+        )
+    return number
 
 
 def main(argv: list[str]) -> int:
@@ -209,7 +329,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--issue", type=int, help="triage one issue and comment on it")
     parser.add_argument("--backfill", action="store_true", help="walk open issues, no comments")
     parser.add_argument("--revert", type=Path, help="undo the labels recorded in a receipt")
-    parser.add_argument("--limit", type=int, default=0, help="stop after this many issues changed")
+    parser.add_argument("--limit", type=positive, help="stop after this many issues changed")
     parser.add_argument("--receipt", type=Path, help="append a JSONL record of every label added")
     parser.add_argument("--no-comment", action="store_true", help="with --issue, skip the comment")
     parser.add_argument("--dry-run", action="store_true")
@@ -219,7 +339,6 @@ def main(argv: list[str]) -> int:
         parser.error("pick exactly one of --issue, --backfill, --revert")
 
     token = token_from_env()
-    now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
     if args.revert:
         return revert(args.repo, token, args.revert, dry_run=args.dry_run)
@@ -242,29 +361,33 @@ def main(argv: list[str]) -> int:
         if added is None:
             print(f"#{args.issue} already has triage labels; leaving it alone")
         elif args.receipt:
-            write_receipt(args.receipt, [{"number": args.issue, "added": added, "at": now}])
+            with Receipt(args.receipt, args.repo, dry_run=args.dry_run) as receipt:
+                receipt.add(args.issue, added)
         return 0
 
-    changed: list[dict[str, Any]] = []
+    receipt = Receipt(args.receipt, args.repo, dry_run=args.dry_run) if args.receipt else None
+    changed = 0
     scanned = 0
-    for item in iter_open_issues(args.repo, token):
-        scanned += 1
-        added = apply_to_issue(args.repo, token, item, comment=False, dry_run=args.dry_run)
-        if added:
-            changed.append({"number": int(item["number"]), "added": added, "at": now})
-            if args.receipt and not args.dry_run and len(changed) % 25 == 0:
-                write_receipt(args.receipt, changed[-25:])
-            if args.limit and len(changed) >= args.limit:
+    try:
+        for item in iter_open_issues(args.repo, token):
+            scanned += 1
+            added = apply_to_issue(args.repo, token, item, comment=False, dry_run=args.dry_run)
+            if not added:
+                continue
+            changed += 1
+            if receipt:
+                receipt.add(int(item["number"]), added)
+            if args.limit and changed >= args.limit:
                 break
-    if args.receipt and not args.dry_run:
-        tail = len(changed) % 25
-        if tail:
-            write_receipt(args.receipt, changed[-tail:])
-    elif args.receipt and args.dry_run:
-        write_receipt(args.receipt, changed)
-    print(f"scanned {scanned} open issues, labeled {len(changed)}")
+    finally:
+        if receipt:
+            receipt.close()
+        print(f"scanned {scanned} open issues, labeled {changed}")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except ApiError as error:
+        raise SystemExit(str(error)) from error

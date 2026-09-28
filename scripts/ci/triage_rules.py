@@ -52,6 +52,10 @@ class SeverityRule:
     # execution" in a paragraph weighing two designs is not a vulnerability
     # report, so the security rule only reads titles.
     title_only: bool = False
+    # Severity normally stays off anything framed as an RFC or a request. A
+    # security exposure named in a title is the exception: labelling an RFC
+    # `S1` by mistake costs a relabel, and missing a real one costs more.
+    beats_request_framing: bool = False
 
 
 # Read in order: the first rule that matches sets severity. S1 and S2 describe
@@ -67,11 +71,17 @@ SEVERITY_RULES: list[SeverityRule] = [
         ),
         "a security exposure",
         title_only=True,
+        beats_request_framing=True,
     ),
     SeverityRule(
         "S1: critical",
         re.compile(
             r"\b(data loss|lose[sd]? (?:all |my )?(?:work|data)"
+            # Losing the windows you had open is losing work, whether or not
+            # the report uses the words "data loss".
+            r"|destroy(?:s|ed|ing)? (?:the |all |my )?(?:current )?(?:windows?|tabs?|panes?|splits?|session|workspace)"
+            r"|lose[sd]? (?:all |my )?(?:open |current )?(?:windows?|tabs?|panes?|splits?)"
+            r"|wipe[sd]? (?:the |all |my )?(?:windows?|tabs?|panes?|session|workspace)"
             r"|(?:data|file|files|state|database|config|repo(?:sitory)?|index|settings) (?:is |are |get(?:s)? |was |were )?corrupt(?:s|ed|ion)?"
             r"|corrupt(?:s|ed|ing)? (?:the )?(?:data|file|files|state|database|config|repo(?:sitory)?|index|settings)"
             r"|crash(?:es|ed|ing)? on (?:launch|startup|open)|won'?t (?:launch|start)\b"
@@ -91,7 +101,7 @@ SEVERITY_RULES: list[SeverityRule] = [
             r"|cannot connect|can'?t connect|could not connect|connection fail(?:s|ed|ure)?"
             r"|connection refused|refuse[sd]? connection"
             r"|auth(?:entication)? fail(?:s|ed|ure)?|fails? to (?:connect|authenticate|sign in)"
-            r"|wrong (?:terminal|pane|workspace|target)|route[sd]? to (?:the )?wrong"
+            r"|wrong (?:terminal|pane|workspace|window|target)|route[sd]? to (?:the )?wrong"
             r"|regression|regressed|previously worked|used to work|no longer works)\b",
             re.I,
         ),
@@ -105,7 +115,7 @@ SEVERITY_RULES: list[SeverityRule] = [
             r"|mis-?align(?:ed|ment)|alignment|letter ?spacing|line ?spacing"
             r"|padding|margin|off-?by-?one pixel|pixel-?perfect"
             r"|truncat\w* (?:labels?|titles?|text|strings?|headers?)"
-            r"|(?:labels?|titles?|text|headers?) (?:is |are |gets? |get )?truncat"
+            r"|(?:labels?|titles?|text|headers?|names?) (?:is |are |gets? |get )?truncat\w*"
             r"|ellipsis|tooltip text|placeholder text"
             r"|icon (?:is )?(?:wrong|missing|blurry)|wrong (?:color|colour)"
             r"|cosmetic|visual (?:nit|polish)|nitpick)\b",
@@ -154,7 +164,19 @@ BUG_WORDS = re.compile(
     r"|hang(?:s|ing)?|freeze[sd]?|frozen|wrong|incorrect|does ?n'?t work|not working"
     r"|no longer|regress(?:es|ed|ion)?|stuck|unable to|cannot|can'?t|never (?:fires|arrives|shows|appears)"
     r"|typo|misspell(?:ed|ing)?|ignored|silently|leaks?|misses|missing|off-?by-?one"
-    r"|drops?|dropped|garbled|mojibake|duplicate(?:s|d)?|data loss)\b",
+    r"|drops?|dropped|garbled|mojibake|corrupt(?:s|ed|ion)?|duplicate(?:s|d)?|data loss"
+    # Slowness and visual breakage are defects too, and they are reported in
+    # their own vocabulary rather than in the language of failure.
+    r"|slow(?:ly|ness)?|sluggish|lag(?:s|gy|ging)?|latency|stutter(?:s|ing)?|jank(?:y)?"
+    r"|flicker(?:s|ing)?|blurry|overlap(?:s|ping)?|clipped|cut off|off-?screen"
+    r"|high cpu|cpu (?:usage|spike)|memory (?:usage|growth)|spins?|beachball"
+    r"|shows? the old|out of date|stale"
+    # "Does not allow" and "has no effect" are how most reports say "broken"
+    # without using the word.
+    r"|does ?n'?t (?:work|allow|open|apply|fire|respond|update|appear|show|save|persist)"
+    r"|does not (?:work|allow|open|apply|fire|respond|update|appear|show|save|persist)"
+    r"|is not (?:applied|respected|saved|persisted|honored|honoured)"
+    r"|has no effect|never updates|ignores)\b",
     re.I,
 )
 
@@ -163,6 +185,41 @@ ENHANCEMENT_WORDS = re.compile(
     r"^\s*(feat(?:ure)?(?:\([^)]*\))?:|feature request:?|\[feature\]|support for|add support|please add)",
     re.I,
 )
+# How a title reads when it asks for work rather than reporting damage. Only
+# consulted when the evidence is weak: either the single matching rule was the
+# cosmetic one, or nothing matched and the decision fell to `BUG_WORDS`. A
+# damage rule outranks this, so a title can start with "Allow" and still
+# report a crash.
+REQUEST_TITLE = re.compile(
+    r"^\s*(?:"
+    r"(?:perf|chore|task|epic|spike|proposal|idea):"
+    r"|(?:"
+    r"add|allow|support|enable|expose|introduce|provide|option to|it would be"
+    r"|make|use|switch to|prefer|adopt|move to|migrate"
+    r"|remove|drop|deprecate|delete"
+    r"|refactor|clean ?up|simplify|unify|consolidate|rename"
+    r"|investigate|consider|revisit|audit|track|document|polish|explore"
+    r"|do ?n'?t|do not|stop|avoid"
+    r")\b"
+    r")",
+    re.I,
+)
+# cmux titles often lead with a scope, as in "iOS: decompose the surface view"
+# or "perf: defer the probe". The words that matter come after it.
+SCOPE_PREFIX = re.compile(r"^\s*[a-z0-9][a-z0-9 ._+/-]{0,24}:\s*", re.I)
+
+
+FIX_PREFIX = re.compile(r"^\s*(fix|bug|bugfix|hotfix|regression|broken)\s*:", re.I)
+
+
+def reads_as_a_request(title: str) -> bool:
+    """Whether the title asks for work rather than reporting damage."""
+    if FIX_PREFIX.search(title):
+        # "fix: prefer the inherited working directory" says which side it is on.
+        return False
+    if REQUEST_TITLE.search(title):
+        return True
+    return bool(REQUEST_TITLE.search(SCOPE_PREFIX.sub("", title, count=1)))
 
 
 @dataclass
@@ -172,7 +229,6 @@ class Classification:
     severity: str | None = None
     severity_reason: str = ""
     areas: list[str] = field(default_factory=list)
-    area_scores: dict[str, int] = field(default_factory=dict)
     needs_triage: bool = False
     notes: list[str] = field(default_factory=list)
 
@@ -196,6 +252,27 @@ def label_names(labels: Iterable[object]) -> set[str]:
     return names
 
 
+def matched_rule(title: str, body: str) -> SeverityRule | None:
+    """The first severity rule that matches, reading the title first.
+
+    Two passes on purpose. "Cosmetic" is a claim about the whole report, so it
+    needs title evidence; a body that happens to say "padding" in a
+    reproduction step does not make a dropped-paste bug cosmetic. Severe
+    signals count wherever they appear, because plenty of reports put the crash
+    in the log paste rather than the title.
+    """
+    for rule in SEVERITY_RULES:
+        if rule.pattern.search(title):
+            return rule
+    head = body[:BODY_WEIGHT_CHARS]
+    for rule in SEVERITY_RULES:
+        if rule.title_only or rule.severity == "S4: cosmetic":
+            continue
+        if rule.pattern.search(head):
+            return rule
+    return None
+
+
 def is_bug(title: str, body: str, labels: Iterable[object] = ()) -> bool:
     """Whether severity applies: severity describes something broken.
 
@@ -207,34 +284,31 @@ def is_bug(title: str, body: str, labels: Iterable[object] = ()) -> bool:
         return True
     if "enhancement" in names or "documentation" in names:
         return False
+    rule = matched_rule(title, body)
+    if rule is not None and rule.beats_request_framing:
+        return True
     if RFC_TITLE.search(title) or ENHANCEMENT_WORDS.search(title):
+        # A design document that discusses crashes is not a crash report.
         return False
-    text = f"{title}\n{body[:BODY_WEIGHT_CHARS]}"
-    # If the severity rules can already see damage, the report is about damage.
-    for rule in SEVERITY_RULES:
-        if rule.severity != "S4: cosmetic" and rule.pattern.search(text):
-            return True
-    return bool(BUG_WORDS.search(text))
+    # A rule that names damage settles it, whatever else the title says.
+    if rule is not None and rule.severity != "S4: cosmetic":
+        return True
+    if rule is not None:
+        # Cosmetic wording, so this is a defect unless it asks for something new.
+        return not reads_as_a_request(title)
+    if reads_as_a_request(title):
+        # No rule matched, so the only evidence left is a word somewhere in the
+        # prose. "Refactor the sidebar store" says "wrong" in its third
+        # paragraph and is still not a bug report.
+        return False
+    return bool(BUG_WORDS.search(f"{title}\n{body[:BODY_WEIGHT_CHARS]}"))
 
 
 def severity_for(title: str, body: str) -> tuple[str, str]:
-    """First matching rule wins, and the title gets read first.
-
-    Two passes on purpose. "Cosmetic" is a claim about the whole report, so it
-    needs title evidence; a body that happens to say "padding" in a
-    reproduction step does not make a dropped-paste bug cosmetic. Severe
-    signals count wherever they appear, because plenty of reports put the crash
-    in the log paste rather than the title.
-    """
-    for rule in SEVERITY_RULES:
-        if rule.pattern.search(title):
-            return rule.severity, rule.reason
-    head = body[:BODY_WEIGHT_CHARS]
-    for rule in SEVERITY_RULES:
-        if rule.title_only or rule.severity == "S4: cosmetic":
-            continue
-        if rule.pattern.search(head):
-            return rule.severity, rule.reason
+    """The severity for a report already known to describe something broken."""
+    rule = matched_rule(title, body)
+    if rule is not None:
+        return rule.severity, rule.reason
     return SEVERITY_DEFAULT
 
 
@@ -278,7 +352,6 @@ def classify(title: str, body: str, labels: Iterable[object] = ()) -> Classifica
     result = Classification()
 
     result.areas = pick_areas(score_areas(title, body))
-    result.area_scores = score_areas(title, body)
 
     if is_bug(title, body, labels):
         severity, reason = severity_for(title, body)
@@ -291,19 +364,21 @@ def classify(title: str, body: str, labels: Iterable[object] = ()) -> Classifica
         result.needs_triage = True
         result.notes.append("no area: the title did not match one area more than the others")
 
-    if NIGHTLY_NO.search(body):
-        result.notes.append("reporter says it does not reproduce on NIGHTLY")
-    elif NIGHTLY_YES.search(body):
-        result.notes.append("reporter says it still reproduces on NIGHTLY")
-
     return result
 
 
 def existing_triage_labels(labels: Iterable[object]) -> set[str]:
-    """Triage labels already on an issue, whoever put them there."""
-    names = label_names(labels)
+    """Triage labels already on an issue, whoever put them there.
+
+    Matched case-insensitively: GitHub label names are case-insensitively
+    unique, so `S2: Major` typed by hand is the same label as `S2: major` and
+    means the same thing, that a human got here first.
+    """
+    severities = {name.lower() for name in SEVERITY_ORDER}
     return {
         name
-        for name in names
-        if name in SEVERITY_ORDER or name.startswith(AREA_PREFIX) or name == NEEDS_TRIAGE
+        for name in label_names(labels)
+        if name.lower() in severities
+        or name.lower().startswith(AREA_PREFIX)
+        or name.lower() == NEEDS_TRIAGE
     }
