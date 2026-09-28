@@ -215,6 +215,61 @@ struct PiFeedDockOwnershipTests {
     }
 
     @MainActor
+    @Test("Blocking Feed attention follows a panel moved to a new workspace")
+    func blockingFeedAttentionFollowsPanelMovedToNewWorkspace() async throws {
+        try await withAppContext { appDelegate, manager, workspace, _ in
+            let panel = try workspace.seedPiFeedPanel()
+            let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+            _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false))
+            let event = WorkstreamEvent(
+                sessionId: "pi-new-workspace-blocking-feed",
+                hookEventName: .permissionRequest,
+                source: "pi",
+                workspaceId: workspace.id.uuidString,
+                surfaceId: panel.id.uuidString,
+                toolName: "Bash",
+                requestId: "pi-new-workspace-blocking-request"
+            )
+
+            let move = try #require(
+                appDelegate.moveSurfaceToNewWorkspace(
+                    panelId: panel.id,
+                    focus: false,
+                    focusWindow: false
+                )
+            )
+            let destination = try #require(
+                manager.tabs.first(where: { $0.id == move.destinationWorkspaceId })
+            )
+            let target = try #require(
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: event,
+                    resolved: (workspace.id, panel.id),
+                    tabManager: manager
+                )
+            )
+
+            #expect(target.panelId == panel.id)
+            #expect(
+                destination.agentLifecycleStatesByPanelId[panel.id]?[Self.attentionStatusKey]
+                    == .needsInput
+            )
+            #expect(
+                destination.statusEntries[Self.attentionStatusKey]?.value
+                    == FeedCoordinator.needsInputStatusValue
+            )
+            #expect(workspace.statusEntries[Self.attentionStatusKey] == nil)
+
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+
+            #expect(
+                destination.agentLifecycleStatesByPanelId[panel.id]?[Self.attentionStatusKey] == nil
+            )
+            #expect(destination.statusEntries[Self.attentionStatusKey] == nil)
+        }
+    }
+
+    @MainActor
     @Test("Blocking Feed leaves the agent lifecycle state untouched")
     func blockingFeedLeavesAgentLifecycleStateUntouched() async throws {
         try await withAppContext { _, manager, workspace, _ in

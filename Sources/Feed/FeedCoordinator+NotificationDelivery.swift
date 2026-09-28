@@ -42,8 +42,8 @@ extension FeedCoordinator {
                 effects: effects
             )
         }
-        let ownerID = target.ownerID
-        let surfaceID = target.surfaceID
+        let ownerID = target.ownerId
+        let surfaceID = target.surfaceId
 
         if let dock = appDelegate.existingWindowDock(forWindowId: ownerID) {
             let context = appDelegate.mainWindowContexts.values.first {
@@ -83,10 +83,10 @@ extension FeedCoordinator {
     /// claim is only a validated hint: the current surface registry wins after
     /// a pane move, while workspace-only events may use the hook-session match.
     @MainActor
-    private func liveNotificationTarget(
+    func liveNotificationTarget(
         for event: WorkstreamEvent,
         resolved: (ownerId: UUID, surfaceId: UUID?)?
-    ) -> (ownerID: UUID, surfaceID: UUID?)? {
+    ) -> (ownerId: UUID, surfaceId: UUID?)? {
         let claimedWorkspaceID: UUID?
         if let rawWorkspaceID = event.workspaceId {
             let normalizedWorkspaceID = rawWorkspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -120,7 +120,7 @@ extension FeedCoordinator {
             ) else {
                 return nil
             }
-            return (ownerID: live.tabID, surfaceID: live.surfaceID)
+            return (ownerId: live.tabID, surfaceId: live.surfaceID)
         }
 
         return targetForWorkspaceOnlyEvent(
@@ -133,7 +133,7 @@ extension FeedCoordinator {
     private func targetForWorkspaceOnlyEvent(
         claimedWorkspaceID: UUID?,
         resolved: (ownerId: UUID, surfaceId: UUID?)?
-    ) -> (ownerID: UUID, surfaceID: UUID?)? {
+    ) -> (ownerId: UUID, surfaceId: UUID?)? {
         if let resolved,
            let resolvedSurfaceID = resolved.surfaceId {
             guard let live = AppDelegate.shared?.liveSurfaceOwner(
@@ -142,7 +142,7 @@ extension FeedCoordinator {
             ) else {
                 return nil
             }
-            return (ownerID: live.tabID, surfaceID: live.surfaceID)
+            return (ownerId: live.tabID, surfaceId: live.surfaceID)
         }
         if let claimedWorkspaceID {
             guard AppDelegate.shared?.agentNotificationDeliveryTarget(
@@ -151,9 +151,9 @@ extension FeedCoordinator {
             ) != nil else {
                 return nil
             }
-            return (ownerID: claimedWorkspaceID, surfaceID: resolved?.surfaceId)
+            return (ownerId: claimedWorkspaceID, surfaceId: resolved?.surfaceId)
         }
         guard let resolved else { return nil }
-        return (ownerID: resolved.ownerId, surfaceID: resolved.surfaceId)
+        return (ownerId: resolved.ownerId, surfaceId: resolved.surfaceId)
     }
 }
