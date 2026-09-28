@@ -358,6 +358,96 @@ struct AgentSessionRecoveryAppTests {
         #expect(hasEnded())
     }
 
+    /// A Dock keeps its agent-hook binding aside while process detection makes
+    /// a tmux binding effective. Closing a stale pane for that same session
+    /// must not end the session still carried by the other pane.
+    @MainActor
+    @Test
+    func closingStaleDockPanePreservesManagedSessionCarriedElsewhere() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-recovery-dock-carried-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let carriedSessionID = "5d1c7a52-0d0e-4b1f-9a4e-2f0f7a9c1e05"
+        let barrierSessionID = "5d1c7a52-0d0e-4b1f-9a4e-2f0f7a9c1e06"
+        let journalURL = root.appendingPathComponent("journal.sqlite3")
+        let store = try AgentJournalStore(databaseURL: journalURL)
+        for id in [carriedSessionID, barrierSessionID] {
+            _ = try store.append(AgentJournalEventDraft(
+                kind: .sessionStarted,
+                occurredAtMs: Int64(Date().addingTimeInterval(-60).timeIntervalSince1970 * 1_000),
+                source: "claude",
+                agentKey: "claude_code",
+                sessionId: id,
+                workspaceId: UUID().uuidString,
+                surfaceId: UUID().uuidString
+            ))
+        }
+        store.close()
+
+        let previousApp = AppDelegate.shared
+        let app = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.tabManager = manager
+        defer {
+            app.tabManager = nil
+            manager.finalizeAllWorkspacesForWindowClose()
+            AppDelegate.shared = previousApp
+        }
+        let workspace = try #require(manager.selectedWorkspace)
+        let dock = try #require(workspace.dockSplit)
+        dock.agentSessionCloseJournal = AgentSessionCloseJournal(
+            center: AgentJournalLifecycleCenter(databaseURL: journalURL)
+        )
+        let pane = try #require(dock.bonsplitController.allPaneIds.first)
+
+        let stalePanelID = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: false))
+        let staleTabID = try #require(dock.surfaceId(forPanelId: stalePanelID))
+        dock.managedAgentResumeBindingsByPanelId[stalePanelID] = SurfaceResumeBindingSnapshot(
+            name: "Claude Code", kind: "claude", command: "claude --resume \(carriedSessionID)",
+            checkpointId: carriedSessionID, source: "agent-hook", updatedAt: Date().timeIntervalSince1970
+        )
+
+        let carrierPanelID = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: false))
+        dock.surfaceResumeBindingsByPanelId[carrierPanelID] = SurfaceResumeBindingSnapshot(
+            name: "tmux", kind: "tmux", command: "tmux attach -t agent",
+            checkpointId: nil, source: "process-detected", updatedAt: Date().timeIntervalSince1970
+        )
+        dock.managedAgentResumeBindingsByPanelId[carrierPanelID] = SurfaceResumeBindingSnapshot(
+            name: "Claude Code", kind: "claude", command: "claude --resume \(carriedSessionID)",
+            checkpointId: carriedSessionID, source: "agent-hook", updatedAt: Date().timeIntervalSince1970
+        )
+
+        let barrierPanelID = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: false))
+        let barrierTabID = try #require(dock.surfaceId(forPanelId: barrierPanelID))
+        dock.surfaceResumeBindingsByPanelId[barrierPanelID] = SurfaceResumeBindingSnapshot(
+            name: "Claude Code", kind: "claude", command: "claude --resume \(barrierSessionID)",
+            checkpointId: barrierSessionID, source: "agent-hook", updatedAt: Date().timeIntervalSince1970
+        )
+
+        // Close the stale pane first. The barrier closes second, so observing
+        // its end proves the journal consumer already handled any stale end.
+        dock.forceCloseDockTabIds.formUnion([staleTabID, barrierTabID])
+        defer { dock.forceCloseDockTabIds.subtract([staleTabID, barrierTabID]) }
+        #expect(dock.bonsplitController.closeTab(staleTabID))
+        dock.reconcilePanels()
+        #expect(dock.bonsplitController.closeTab(barrierTabID))
+        dock.reconcilePanels()
+
+        let reader = AgentJournalSessionTailReader(databaseURL: journalURL)
+        func barrierHasEnded() -> Bool {
+            let tails = (try? reader.sessionTails(occurredAtOrAfterMs: 0)) ?? []
+            return tails.first { $0.sessionId == barrierSessionID }?.hasEnded == true
+        }
+        for _ in 0..<100 where !barrierHasEnded() {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let tails = try reader.sessionTails(occurredAtOrAfterMs: 0)
+        #expect(tails.first { $0.sessionId == barrierSessionID }?.hasEnded == true)
+        #expect(tails.first { $0.sessionId == carriedSessionID }?.hasEnded != true)
+    }
+
     @Test
     func restoreRejectsMalformedSessionIDsBeforeReadingAppState() {
         let invalidValues: [Any] = [
