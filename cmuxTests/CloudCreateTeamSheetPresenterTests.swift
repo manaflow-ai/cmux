@@ -18,28 +18,60 @@ struct CloudCreateTeamSheetPresenterTests {
         let flow = try await HostAccountFlow.makeForTeamChangeTests(client: TeamChangeAuthClient())
         let existingWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
         var presenter: CloudCreateTeamSheetPresenter? = CloudCreateTeamSheetPresenter()
-        presenter?.present(accountFlow: flow)
+        presenter?.present(accountFlow: flow) { _ in }
         presenter = nil
 
-        let window = try #require(NSApp.windows.first {
-            !existingWindows.contains(ObjectIdentifier($0))
-                && $0.contentViewController is NSHostingController<CloudCreateTeamSheet>
-        })
-        defer {
-            window.sheetParent?.endSheet(window)
-            window.orderOut(nil)
-        }
+        let window = try sheetWindow(excluding: existingWindows)
+        defer { close(window) }
         let sheet = try #require(window.contentViewController as? NSHostingController<CloudCreateTeamSheet>)
         #expect(window.isVisible || window.sheetParent != nil)
 
         // Cancel's action.
-        sheet.rootView.onFinish()
+        sheet.rootView.onCancel()
+        try await waitUntilClosed(window)
+
+        #expect(window.sheetParent == nil, "The sheet stayed attached after Cancel.")
+        #expect(!window.isVisible, "The sheet stayed on screen after Cancel.")
+    }
+
+    /// Create closes the sheet without waiting on the server. Return reaches
+    /// both the field's submit and the default button, and only one team is
+    /// created.
+    @Test func createClosesTheSheetAndForwardsTheNameOnce() async throws {
+        let flow = try await HostAccountFlow.makeForTeamChangeTests(client: TeamChangeAuthClient())
+        let existingWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
+        let presenter = CloudCreateTeamSheetPresenter()
+        var created: [String] = []
+        presenter.present(accountFlow: flow) { created.append($0) }
+
+        let window = try sheetWindow(excluding: existingWindows)
+        defer { close(window) }
+        let sheet = try #require(window.contentViewController as? NSHostingController<CloudCreateTeamSheet>)
+        sheet.rootView.onCreate("Launch Crew")
+        sheet.rootView.onCreate("Launch Crew")
+        try await waitUntilClosed(window)
+
+        #expect(created == ["Launch Crew"])
+        #expect(window.sheetParent == nil, "The sheet stayed attached after Create.")
+        #expect(!window.isVisible, "The sheet stayed on screen after Create.")
+    }
+
+    private func sheetWindow(excluding existingWindows: Set<ObjectIdentifier>) throws -> NSWindow {
+        try #require(NSApp.windows.first {
+            !existingWindows.contains(ObjectIdentifier($0))
+                && $0.contentViewController is NSHostingController<CloudCreateTeamSheet>
+        })
+    }
+
+    private func waitUntilClosed(_ window: NSWindow) async throws {
         let deadline = ContinuousClock.now + .seconds(2)
         while window.isVisible || window.sheetParent != nil, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
+    }
 
-        #expect(window.sheetParent == nil, "The sheet stayed attached after Cancel.")
-        #expect(!window.isVisible, "The sheet stayed on screen after Cancel.")
+    private func close(_ window: NSWindow) {
+        window.sheetParent?.endSheet(window)
+        window.orderOut(nil)
     }
 }

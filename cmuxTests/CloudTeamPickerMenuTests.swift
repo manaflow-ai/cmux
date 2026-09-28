@@ -42,7 +42,7 @@ struct CloudTeamPickerMenuTests {
 
     @Test func checksTheActiveTeamAndKeepsFullNames() throws {
         let menu = CloudTeamPickerMenu.make(
-            teams: teams, selectedTeamID: "team-long", isSwitching: false, isCreatingTeam: false,
+            teams: teams, selectedTeamID: "team-long", isSwitching: false, pendingCreate: nil,
             onSelect: { _ in }, onCreate: {}
         )
         let long = try #require(item(menu, CloudTeamPickerMenu.teamIdentifier("team-long")))
@@ -58,7 +58,7 @@ struct CloudTeamPickerMenuTests {
 
     @Test func pendingSwitchShowsStatusAndDisablesEveryAction() throws {
         let menu = CloudTeamPickerMenu.make(
-            teams: teams, selectedTeamID: "team-alpha", isSwitching: true, isCreatingTeam: false,
+            teams: teams, selectedTeamID: "team-alpha", isSwitching: true, pendingCreate: nil,
             onSelect: { _ in }, onCreate: {}
         )
         let status = try #require(menu.items.first)
@@ -68,22 +68,41 @@ struct CloudTeamPickerMenuTests {
         #expect(menu.items.filter(\.isEnabled).isEmpty)
     }
 
-    @Test func pendingCreateShowsStatusAndDisablesEveryAction() throws {
+    /// The coordinator lists the new team before it selects it, and the
+    /// pending row stands for that team until the create returns.
+    @Test func pendingCreateChecksTheNewTeamOnceAndDisablesEveryAction() throws {
+        let pending = PendingTeamCreate(displayName: "Launch Crew", existingTeamIDs: ["team-long", "team-alpha"])
         let menu = CloudTeamPickerMenu.make(
-            teams: teams, selectedTeamID: "team-long", isSwitching: false, isCreatingTeam: true,
+            teams: teams + [AccountTeamSummary(id: "team-new", displayName: "Launch Crew")],
+            selectedTeamID: "team-long", isSwitching: false, pendingCreate: pending,
             onSelect: { _ in }, onCreate: {}
         )
         let status = try #require(menu.items.first)
         #expect(status.identifier?.rawValue == CloudTeamPickerMenu.creatingStatusIdentifier)
         #expect(!status.isEnabled)
         #expect(item(menu, CloudTeamPickerMenu.switchingStatusIdentifier) == nil)
-        #expect(item(menu, CloudTeamPickerMenu.teamIdentifier("team-long"))?.state == .on)
+        #expect(item(menu, CloudTeamPickerMenu.teamIdentifier("team-long"))?.state == .off)
+        #expect(item(menu, CloudTeamPickerMenu.teamIdentifier("team-new")) == nil)
+        let pendingItem = try #require(item(menu, CloudTeamPickerMenu.pendingTeamIdentifier))
+        #expect(pendingItem.title == "Launch Crew")
+        #expect(pendingItem.state == .on)
+        #expect(menu.items.filter { $0.title == "Launch Crew" }.count == 1)
         #expect(menu.items.filter(\.isEnabled).isEmpty)
+    }
+
+    @Test func pendingCreateWithNoTeamsListedSkipsLoading() {
+        let menu = CloudTeamPickerMenu.make(
+            teams: [], selectedTeamID: nil, isSwitching: false,
+            pendingCreate: PendingTeamCreate(displayName: "Launch Crew", existingTeamIDs: []),
+            onSelect: { _ in }, onCreate: {}
+        )
+        #expect(item(menu, CloudTeamPickerMenu.loadingTeamsIdentifier) == nil)
+        #expect(item(menu, CloudTeamPickerMenu.pendingTeamIdentifier)?.state == .on)
     }
 
     @Test func noMembershipShowsLoadingAndStillOffersCreate() {
         let menu = CloudTeamPickerMenu.make(
-            teams: [], selectedTeamID: nil, isSwitching: false, isCreatingTeam: false,
+            teams: [], selectedTeamID: nil, isSwitching: false, pendingCreate: nil,
             onSelect: { _ in }, onCreate: {}
         )
         #expect(item(menu, CloudTeamPickerMenu.loadingTeamsIdentifier)?.isEnabled == false)
@@ -94,7 +113,7 @@ struct CloudTeamPickerMenuTests {
         var selected: [String] = []
         var createCount = 0
         let menu = CloudTeamPickerMenu.make(
-            teams: teams, selectedTeamID: "team-long", isSwitching: false, isCreatingTeam: false,
+            teams: teams, selectedTeamID: "team-long", isSwitching: false, pendingCreate: nil,
             onSelect: { selected.append($0.id) }, onCreate: { createCount += 1 }
         )
         let alpha = try #require(item(menu, CloudTeamPickerMenu.teamIdentifier("team-alpha")))

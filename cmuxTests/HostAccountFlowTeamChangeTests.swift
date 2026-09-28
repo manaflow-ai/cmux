@@ -71,6 +71,42 @@ struct HostAccountFlowTeamChangeTests {
         #expect(flow.confirmedTeamID == "team-new-1")
     }
 
+    /// The Cloud header shows a pending create as the active team, standing in
+    /// for teams the coordinator lists mid-create, while the confirmed scope
+    /// stays on the previous team until the server answers.
+    @Test func pendingCreateIsProjectedUntilTheServerAnswers() async throws {
+        let client = TeamChangeAuthClient()
+        let flow = try await makeFlow(client: client)
+        await client.holdNextCreate()
+        let create = Task { try await flow.createTeam(displayName: "  Launch Crew ") }
+        try await waitUntil { await client.isHoldingCreate }
+
+        #expect(flow.pendingTeamCreate == PendingTeamCreate(
+            displayName: "Launch Crew",
+            existingTeamIDs: ["team-a", "team-b"]
+        ))
+        #expect(flow.isCreatingTeam)
+        #expect(flow.confirmedTeamID == "team-a")
+
+        await client.releaseCreate()
+        _ = try await create.value
+        #expect(flow.pendingTeamCreate == nil)
+        #expect(flow.confirmedTeamID == "team-new-1")
+    }
+
+    @Test func rejectedCreateClearsTheProjectionAndKeepsTheTeam() async throws {
+        let client = TeamChangeAuthClient()
+        let flow = try await makeFlow(client: client)
+        await client.failNextCreate()
+
+        await #expect(throws: TeamChangeRejectedError.self) {
+            _ = try await flow.createTeam(displayName: "Taken Team")
+        }
+        #expect(flow.pendingTeamCreate == nil)
+        #expect(flow.confirmedTeamID == "team-a")
+        #expect(flow.availableTeams.map(\.id) == ["team-a", "team-b"])
+    }
+
     /// Only a create holds other changes; a later switch still replaces a
     /// pending one, and the superseded switch fails.
     @Test func switchDuringPendingSwitchReplacesIt() async throws {

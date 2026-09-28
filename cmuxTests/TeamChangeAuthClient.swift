@@ -9,8 +9,12 @@ import Testing
 @testable import cmux
 #endif
 
+/// A team create or switch the fake server refused.
+struct TeamChangeRejectedError: Error {}
+
 /// Serves two teams and can hold the next team create or team switch open
 /// until the test releases it, so a test can start a second change mid-flight.
+/// It can also refuse the next create or switch.
 actor TeamChangeAuthClient: AuthClient {
     private var teams = [
         CMUXAuthTeam(id: "team-a", displayName: "Team A"),
@@ -22,9 +26,13 @@ actor TeamChangeAuthClient: AuthClient {
     private var holdsNextSelect = false
     private var heldCreate: CheckedContinuation<Void, Never>?
     private var heldSelect: CheckedContinuation<Void, Never>?
+    private var failsNextCreate = false
+    private var failsNextSelect = false
 
     func holdNextCreate() { holdsNextCreate = true }
     func holdNextSelect() { holdsNextSelect = true }
+    func failNextCreate() { failsNextCreate = true }
+    func failNextSelect() { failsNextSelect = true }
     var isHoldingCreate: Bool { heldCreate != nil }
     var isHoldingSelect: Bool { heldSelect != nil }
 
@@ -45,6 +53,10 @@ actor TeamChangeAuthClient: AuthClient {
             holdsNextCreate = false
             await withCheckedContinuation { heldCreate = $0 }
         }
+        if failsNextCreate {
+            failsNextCreate = false
+            throw TeamChangeRejectedError()
+        }
         teams.append(team)
         return team
     }
@@ -54,6 +66,10 @@ actor TeamChangeAuthClient: AuthClient {
         if holdsNextSelect {
             holdsNextSelect = false
             await withCheckedContinuation { heldSelect = $0 }
+        }
+        if failsNextSelect {
+            failsNextSelect = false
+            throw TeamChangeRejectedError()
         }
     }
 

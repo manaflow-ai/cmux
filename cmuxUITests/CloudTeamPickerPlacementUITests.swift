@@ -136,14 +136,8 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
 
         trigger.click()
         teamItem(app, id: "team-alpha", title: "Alpha Squad").click()
-        let pendingValue = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "value == %@", "Switching teams…"),
-            object: trigger
-        )
-        XCTAssertEqual(
-            XCTWaiter().wait(for: [pendingValue], timeout: 5), .completed,
-            "The trigger stays one button and tells VoiceOver a switch is pending."
-        )
+        // The trigger stays one button and tells VoiceOver a switch is pending.
+        waitForValue(of: trigger, "Switching teams…")
         trigger.click()
         let switching = app.menuItems.matching(NSPredicate(
             format: "identifier == %@ OR title == %@", "CloudTeamPickerSwitchingStatus", "Switching teams…"
@@ -157,15 +151,7 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         XCTAssertTrue(switching.waitForNonExistence(timeout: 5))
         XCTAssertTrue(FileManager.default.createFile(atPath: switchGate.path, contents: Data()))
 
-        // The right sidebar's own identifier can replace the ones inside it,
-        // so this checks that the message keeps its identifier and its text.
-        let errorText = app.staticTexts["CloudTeamPickerSwitchError"]
-        XCTAssertTrue(errorText.waitForExistence(timeout: 10), "A rejected switch reports its failure.")
-        let message = "Could not switch teams. Try again."
-        XCTAssertTrue(
-            errorText.label == message || errorText.value as? String == message,
-            "VoiceOver reads the failure message, not \(errorText.label) / \(String(describing: errorText.value))."
-        )
+        assertTeamChangeError(app, "Could not switch teams. Try again.")
         waitForLabel(of: trigger, containing: Self.longTeamName)
         capture("team-dropdown-switch-failed")
     }

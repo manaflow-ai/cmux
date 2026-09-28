@@ -54,10 +54,15 @@ extension HostAccountFlow {
     /// Creates a team through Stack Auth and makes it the active team. Refused
     /// while a switch or another create is in flight, before it reaches the
     /// server, so neither change fails the other after the server acted.
+    /// ``pendingTeamCreate`` stands for the team until the server answers; by
+    /// then the coordinator has selected the new team, or kept the previous one.
     func createTeam(displayName: String) async throws -> AccountTeamSummary {
         guard !isSelectingTeam, !isCreatingTeam else { throw TeamChangeInProgressError() }
-        isCreatingTeam = true
-        defer { isCreatingTeam = false }
+        pendingTeamCreate = PendingTeamCreate(
+            displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines),
+            existingTeamIDs: Set(availableTeams.map(\.id))
+        )
+        defer { pendingTeamCreate = nil }
         let team = try await coordinator.createTeam(displayName: displayName)
         return AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
     }

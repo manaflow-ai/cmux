@@ -13,7 +13,13 @@ final class CloudCreateTeamSheetPresenter {
     private var sessionID: UUID?
 
     /// A second request while the sheet is up re-raises it instead of stacking.
-    func present(accountFlow: HostAccountFlow, preferredWindow: NSWindow? = nil) {
+    /// `onCreate` gets the entered name after the sheet closes, once per sheet.
+    func present(
+        accountFlow: HostAccountFlow,
+        initialName: String = "",
+        preferredWindow: NSWindow? = nil,
+        onCreate: @escaping (String) -> Void
+    ) {
         if let sheetWindow {
             if sheetWindow.isVisible || hostWindow?.attachedSheet === sheetWindow {
                 (hostWindow ?? sheetWindow).makeKeyAndOrderFront(nil)
@@ -30,9 +36,16 @@ final class CloudCreateTeamSheetPresenter {
         // The open sheet holds its presenter, so Cancel still closes it after
         // the Cloud surface that opened it is gone. `reset()` releases the
         // window when the sheet ends, which breaks the cycle.
+        // Return can reach both the field and the default button, so only
+        // the call that closes the sheet creates a team.
         let controller = NSHostingController(rootView: CloudCreateTeamSheet(
             accountFlow: accountFlow,
-            onFinish: { [self] in dismiss(sessionID) }
+            initialName: initialName,
+            onCreate: { [self] name in
+                guard dismiss(sessionID) else { return }
+                onCreate(name)
+            },
+            onCancel: { [self] in dismiss(sessionID) }
         ))
         controller.sizingOptions = [.preferredContentSize]
         let window = NSWindow(contentViewController: controller)
@@ -57,14 +70,17 @@ final class CloudCreateTeamSheetPresenter {
         }
     }
 
-    private func dismiss(_ sessionID: UUID) {
-        guard sessionID == self.sessionID, let window = sheetWindow else { return }
+    /// Returns whether this call closed the sheet.
+    @discardableResult
+    private func dismiss(_ sessionID: UUID) -> Bool {
+        guard sessionID == self.sessionID, let window = sheetWindow else { return false }
         let host = hostWindow
         reset()
         if let host, host.attachedSheet === window {
             host.endSheet(window)
         }
         window.orderOut(nil)
+        return true
     }
 
     private func reset() {

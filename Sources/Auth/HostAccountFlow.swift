@@ -33,9 +33,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// here until it returns, so a create waits for it as well.
     var inFlightTeamSwitches: Set<UUID> = []
     var isSelectingTeam: Bool { !inFlightTeamSwitches.isEmpty }
-    /// A team create is in flight. Switches and creates from every surface
-    /// are refused until it finishes, since a later change would fail it.
-    var isCreatingTeam = false
+    /// A team create still waiting on the server, shown as the active team
+    /// until the server answers. Switches and creates from every surface are
+    /// refused until it finishes, since a later change would fail it.
+    var pendingTeamCreate: PendingTeamCreate?
+    var isCreatingTeam: Bool { pendingTeamCreate != nil }
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator

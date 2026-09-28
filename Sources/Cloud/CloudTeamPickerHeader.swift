@@ -43,8 +43,8 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
             .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("CloudMachinesSectionHeader")
-            if let switchError = picker.switchError {
-                switchErrorRow(switchError) { picker.switchError = nil }
+            if let teamChangeError = picker.teamChangeError {
+                teamChangeErrorRow(teamChangeError) { picker.teamChangeError = nil }
             }
             HStack(spacing: 6) {
                 status()
@@ -56,14 +56,14 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
         .onDisappear { picker.isPresented = false }
     }
 
-    private func switchErrorRow(_ message: String, onDismiss: @escaping () -> Void) -> some View {
+    private func teamChangeErrorRow(_ message: String, onDismiss: @escaping () -> Void) -> some View {
         HStack(spacing: 5) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 10, weight: .semibold))
             Text(message)
                 .cmuxFont(size: 11)
                 .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("CloudTeamPickerSwitchError")
+                .accessibilityIdentifier("CloudTeamPickerError")
             Spacer(minLength: 0)
             CloudBannerDismissButton(action: onDismiss)
         }

@@ -6,9 +6,12 @@ import Observation
 @Observable
 final class CloudTeamPickerPresentation {
     var isPresented = false
-    /// The last failed switch, shown under the header until dismissed or the
-    /// menu opens again.
-    var switchError: String?
+    /// The last failed switch or create, shown under the header until
+    /// dismissed or the menu opens again.
+    var teamChangeError: String?
+    /// The name of the last rejected create, which the next Create Team sheet
+    /// starts with so a retry does not mean typing it again.
+    private(set) var rejectedTeamName: String?
     /// The Create Team sheet opened from this surface's menu.
     let createTeamSheet = CloudCreateTeamSheetPresenter()
 
@@ -18,27 +21,70 @@ final class CloudTeamPickerPresentation {
     func selectTeam(_ teamID: String, accountFlow: HostAccountFlow) {
         guard teamID != accountFlow.selectedTeamID,
               !accountFlow.isSelectingTeam else { return }
-        switchError = nil
+        teamChangeError = nil
         Task { @MainActor in
             do {
                 try await accountFlow.selectTeam(id: teamID)
             } catch {
-                let message = String(
-                    localized: "sidebar.account.switchTeamFailed",
-                    defaultValue: "Could not switch teams. Try again."
-                )
-                switchError = message
-                if let application = NSApp {
-                    NSAccessibility.post(
-                        element: application,
-                        notification: .announcementRequested,
-                        userInfo: [
-                            .announcement: message,
-                            .priority: NSAccessibilityPriorityLevel.high.rawValue,
-                        ]
-                    )
+                report(Self.switchFailedMessage)
+            }
+        }
+    }
+
+    func presentCreateTeamSheet(accountFlow: HostAccountFlow, preferredWindow: NSWindow?) {
+        createTeamSheet.present(
+            accountFlow: accountFlow,
+            initialName: rejectedTeamName ?? "",
+            preferredWindow: preferredWindow
+        ) { [self] name in
+            createTeam(named: name, accountFlow: accountFlow)
+        }
+    }
+
+    /// Creates a team without waiting on the sheet: the sheet has closed, and
+    /// the header shows the new team as active until the server answers. A
+    /// rejected create returns the header to the previous team and reports it.
+    func createTeam(named displayName: String, accountFlow: HostAccountFlow) {
+        teamChangeError = nil
+        rejectedTeamName = nil
+        let existingTeamIDs = Set(accountFlow.availableTeams.map(\.id))
+        Task { @MainActor in
+            do {
+                _ = try await accountFlow.createTeam(displayName: displayName)
+            } catch {
+                // The server can create the team and then fail to select it.
+                // Retrying the name would make a second team, so that is a
+                // failed switch to a team the menu now lists.
+                let wasCreated = accountFlow.availableTeams.contains { team in
+                    !existingTeamIDs.contains(team.id) && team.displayName == displayName
+                }
+                if wasCreated {
+                    report(Self.switchFailedMessage)
+                } else {
+                    rejectedTeamName = displayName
+                    report(String(
+                        localized: "sidebar.account.createTeamFailed",
+                        defaultValue: "Could not create that team. Try again."
+                    ))
                 }
             }
         }
+    }
+
+    private static var switchFailedMessage: String {
+        String(localized: "sidebar.account.switchTeamFailed", defaultValue: "Could not switch teams. Try again.")
+    }
+
+    private func report(_ message: String) {
+        teamChangeError = message
+        guard let application = NSApp else { return }
+        NSAccessibility.post(
+            element: application,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ]
+        )
     }
 }

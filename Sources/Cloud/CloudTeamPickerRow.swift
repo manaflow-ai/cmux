@@ -12,8 +12,21 @@ struct CloudTeamPickerRow: View {
         accountFlow.availableTeams.first { $0.id == accountFlow.selectedTeamID }
     }
 
+    /// A pending create shows its team as active until the server answers.
     private var currentTeamName: String {
-        currentTeam?.displayName ?? String(localized: "sidebar.account.noTeam", defaultValue: "No team")
+        accountFlow.pendingTeamCreate?.displayName
+            ?? currentTeam?.displayName
+            ?? String(localized: "sidebar.account.noTeam", defaultValue: "No team")
+    }
+
+    private var pendingStatus: String? {
+        if accountFlow.isCreatingTeam {
+            return String(localized: "cloud.teamPicker.creating", defaultValue: "Creating team…")
+        }
+        if accountFlow.isSelectingTeam {
+            return String(localized: "cloud.teamPicker.switching", defaultValue: "Switching teams…")
+        }
+        return nil
     }
 
     private var helpText: String {
@@ -33,8 +46,8 @@ struct CloudTeamPickerRow: View {
                     .layoutPriority(1)
                 // A symbol, not ProgressView: a hosted progress indicator
                 // splits the button's accessibility element, so VoiceOver and
-                // UI tests lose the trigger while a switch is pending.
-                if accountFlow.isSelectingTeam {
+                // UI tests lose the trigger while a change is pending.
+                if pendingStatus != nil {
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.secondary)
@@ -55,22 +68,17 @@ struct CloudTeamPickerRow: View {
                 isPresented: $presentation.isPresented,
                 helpText: helpText,
                 makeMenu: makeMenu,
-                onWillPresent: { presentation.switchError = nil }
+                onWillPresent: { presentation.teamChangeError = nil }
             )
         }
         .layoutPriority(1)
         .safeHelp(helpText)
         .accessibilityLabel(teamPickerAccessibilityLabel)
-        .accessibilityValue(switchingValue)
+        .accessibilityValue(pendingStatus ?? "")
         .accessibilityIdentifier("CloudTeamPickerButton")
     }
 
-    private var switchingValue: String {
-        guard accountFlow.isSelectingTeam else { return "" }
-        return String(localized: "cloud.teamPicker.switching", defaultValue: "Switching teams…")
-    }
-
-    /// Built from the state at open time. A switch finishing while the menu is
+    /// Built from the state at open time. A change finishing while the menu is
     /// open shows on the trigger; the next open reflects it.
     private func makeMenu(from anchor: CloudTeamPickerMenuAnchorView) -> NSMenu {
         let window = anchor.window
@@ -78,17 +86,14 @@ struct CloudTeamPickerRow: View {
             teams: accountFlow.availableTeams,
             selectedTeamID: accountFlow.selectedTeamID,
             isSwitching: accountFlow.isSelectingTeam,
-            isCreatingTeam: accountFlow.isCreatingTeam,
+            pendingCreate: accountFlow.pendingTeamCreate,
             onSelect: { [presentation, accountFlow] team in
                 presentation.selectTeam(team.id, accountFlow: accountFlow)
             },
             onCreate: { [weak anchor, presentation, accountFlow] in
                 // The sheet waits for the menu's tracking loop to return.
                 let present: @MainActor () -> Void = {
-                    presentation.createTeamSheet.present(
-                        accountFlow: accountFlow,
-                        preferredWindow: window
-                    )
+                    presentation.presentCreateTeamSheet(accountFlow: accountFlow, preferredWindow: window)
                 }
                 if let anchor {
                     anchor.afterDismiss(present)
