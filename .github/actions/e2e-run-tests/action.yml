@@ -691,7 +691,9 @@ runs:
     # scripts/fuzz is the tested revision's.
     - name: Replay the UI fuzzer regressions
       id: fuzz
-      if: ${{ !cancelled() && inputs.fuzz-regressions == 'true' && steps.restore.outcome == 'success' }}
+      # After the XCUITests even when they failed, but not on a runner whose
+      # own setup (display, activation, restore) already failed.
+      if: ${{ !cancelled() && inputs.fuzz-regressions == 'true' && steps.restore.outcome == 'success' && (success() || steps.tests.outcome == 'failure') }}
       shell: bash
       run: |
         set -euo pipefail
@@ -707,6 +709,8 @@ runs:
         out="$RUNNER_TEMP/fuzz-regressions"
         rm -rf -- "$out"
         mkdir -p "$out"
+        # The fuzzer writes here as the console user, who may not be this one.
+        chmod 0777 "$out"
         status=0
         bash scripts/ci/run-and-capture.sh "$out/replay.log" \
           scripts/ci/run-in-console-session.sh \
@@ -836,7 +840,7 @@ runs:
     - name: Publish test summary
       if: always()
       env:
-        TEST_RESULT: ${{ steps.tests.outputs.test_result || (inputs.count == '0' && 'skipped') || 'failed' }}
+        TEST_RESULT: ${{ steps.tests.outputs.test_result || (inputs.count == '0' && steps.fuzz.outcome == 'success' && 'skipped') || 'failed' }}
         FUZZ_RESULT: ${{ steps.fuzz.outcome }}
         TEST_SUMMARY: ${{ steps.tests.outputs.test_summary }}
         TEST_OUTPUT: ${{ steps.tests.outputs.test_output }}
@@ -850,7 +854,9 @@ runs:
       run: |
         set -euo pipefail
 
-        if [ "$TEST_RESULT" = "passed" ]; then
+        if [ "$FUZZ_RESULT" = "failure" ]; then
+          STATUS_EMOJI="FAILED"
+        elif [ "$TEST_RESULT" = "passed" ]; then
           STATUS_EMOJI="PASSED"
         elif [ "$TEST_RESULT" = "skipped" ]; then
           STATUS_EMOJI="NO TESTS SELECTED"
