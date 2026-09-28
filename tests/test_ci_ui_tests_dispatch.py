@@ -2,8 +2,10 @@
 """The UI test request and dispatch split across PR CI and a default-branch workflow."""
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -211,6 +213,97 @@ class AwaitVerdictTests(unittest.TestCase):
             f"repos/{REPO}/actions/runs/900/jobs": [jobs("skipped")],
             f"repos/{REPO}/actions/runs/900": [dispatch_run()],
         }), 1)
+
+    ADMISSION_JOBS = f"repos/{REPO}/actions/runs/100/attempts/1/jobs"
+
+    @staticmethod
+    def bounded_sleep(limit=50):
+        calls = iter(range(limit))
+        return lambda _: next(calls, None) is not None or (_ for _ in ()).throw(AssertionError("still waiting"))
+
+    def admission(self, conclusion, status="completed"):
+        return {"jobs": [{"name": "macos / macOS compile admission", "status": status, "conclusion": conclusion,
+                          "run_attempt": 1, "html_url": "https://x/job/7"}]}
+
+    def test_stops_once_compile_admission_ended_without_a_product(self) -> None:
+        # Run 36435812903: the fleet refused compile admission at 14:30, and this
+        # wait held the run open past 15:27, so the owned-pool rescue could not
+        # re-run the refusal. The dispatch run never finishes here.
+        for conclusion in ("failure", "cancelled", "timed_out"):
+            with self.subTest(conclusion):
+                gh = FakeGitHub({
+                    self.ADMISSION_JOBS: [self.admission(None, "in_progress"), self.admission(conclusion)],
+                    RUN: [ci_run()],
+                    ARTIFACTS: [NO_ARTIFACT],
+                    LIST: [{"workflow_runs": [dispatch_run(status="in_progress")]}],
+                    f"repos/{REPO}/actions/runs/900": [dispatch_run(status="in_progress")],
+                })
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    self.assertEqual(ui.await_verdict(gh, "100", "1", sleep=self.bounded_sleep()), 1)
+                self.assertIn(f"compile admission ended {conclusion}", output.getvalue())
+
+    def test_an_admission_carried_from_an_earlier_attempt_still_waits(self) -> None:
+        # Only ui-tests was re-run: attempt 2 lists attempt 1's refused admission.
+        carried = {"jobs": [{**self.admission("failure")["jobs"][0], "run_attempt": 1}]}
+        run = f"repos/{REPO}/actions/runs/100/attempts/2"
+        gh = FakeGitHub({
+            f"{run}/jobs": [carried],
+            run: [ci_run(run_attempt=2)],
+            ARTIFACTS: [NO_ARTIFACT],
+            LIST: [{"workflow_runs": [dispatch_run(title=ui.dispatch_title("100", "2"))]}],
+            f"repos/{REPO}/actions/runs/900/jobs": [jobs("success")],
+            f"repos/{REPO}/actions/runs/900": [dispatch_run(status="in_progress"),
+                                               dispatch_run(title=ui.dispatch_title("100", "2"))],
+        })
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(ui.await_verdict(gh, "100", "2", sleep=self.bounded_sleep()), 0)
+
+    def test_a_truncated_artifact_listing_still_waits(self) -> None:
+        gh = FakeGitHub({
+            self.ADMISSION_JOBS: [self.admission("failure")],
+            RUN: [ci_run()],
+            ARTIFACTS: [{"total_count": 150, "artifacts": [{"name": "other", "expired": False}]}],
+            LIST: [{"workflow_runs": [dispatch_run()]}],
+            f"repos/{REPO}/actions/runs/900/jobs": [jobs("success")],
+            f"repos/{REPO}/actions/runs/900": [dispatch_run(status="in_progress"), dispatch_run()],
+        })
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(ui.await_verdict(gh, "100", "1", sleep=self.bounded_sleep()), 0)
+
+    def test_stops_before_any_dispatch_run_appears(self) -> None:
+        clock = iter(range(0, 10**6, 1))
+        gh = FakeGitHub({self.ADMISSION_JOBS: [self.admission("failure")], RUN: [ci_run()],
+                         ARTIFACTS: [NO_ARTIFACT], LIST: [{"workflow_runs": []}]})
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(ui.await_verdict(gh, "100", "1", sleep=self.bounded_sleep(), now=lambda: next(clock)), 1)
+        self.assertLess(sum(call.startswith(LIST) for call in gh.calls), 3)
+
+    def test_a_failed_admission_that_left_its_product_still_waits_for_the_verdict(self) -> None:
+        # Admission uploads the product, then may fail its changed suites: the UI tests still run.
+        products = {"artifacts": [{"name": "app-host-products-v1-abc", "expired": False}]}
+        gh = FakeGitHub({
+            self.ADMISSION_JOBS: [self.admission("failure")],
+            RUN: [ci_run()],
+            ARTIFACTS: [products],
+            LIST: [{"workflow_runs": [dispatch_run()]}],
+            f"repos/{REPO}/actions/runs/900/jobs": [jobs("success")],
+            f"repos/{REPO}/actions/runs/900": [dispatch_run(status="in_progress"), dispatch_run()],
+        })
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(ui.await_verdict(gh, "100", "1", sleep=lambda _: None), 0)
+
+    def test_a_skipped_admission_still_waits_for_the_verdict(self) -> None:
+        gh = FakeGitHub({
+            self.ADMISSION_JOBS: [self.admission("skipped")],
+            RUN: [ci_run()],
+            ARTIFACTS: [NO_ARTIFACT],
+            LIST: [{"workflow_runs": [dispatch_run()]}],
+            f"repos/{REPO}/actions/runs/900/jobs": [jobs("success")],
+            f"repos/{REPO}/actions/runs/900": [dispatch_run(status="in_progress"), dispatch_run()],
+        })
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(ui.await_verdict(gh, "100", "1", sleep=lambda _: None), 0)
 
     def test_gives_up_when_no_dispatch_run_appears(self) -> None:
         clock = iter(range(0, 10**6, 600))

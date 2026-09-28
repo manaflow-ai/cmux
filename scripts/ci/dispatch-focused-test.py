@@ -650,11 +650,26 @@ def skips_macos(run_id: int) -> bool:
     )
 
 
+def admission_ended(run_id: int) -> bool:
+    """Whether a CI run's latest attempt has compile admission jobs and all have completed.
+
+    Admission uploads the products before it completes, so a finished
+    admission without them has none to give. The run itself may stay in
+    progress for long after: its ui-tests job waits for the UI dispatch that
+    waits here, so run 36435812903's refused admission held that dispatch for
+    the whole PRODUCTS_WAIT_SECONDS before it compiled for itself, and kept
+    the run open so the owned-pool rescue could not re-run the refusal.
+    """
+    listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
+    admissions = [job for job in listing.get("jobs", []) if job.get("name", "").endswith(rerun.ADMISSION_JOB)]
+    return bool(admissions) and all(job.get("status") == "completed" for job in admissions)
+
+
 def wait_for_products(producer: dict, still_wanted: Callable[[], bool] = lambda: True) -> bool:
     """Wait for a building CI run to upload its app-host products.
 
     True once they exist; False when the run ends without them, skips its
-    macOS compile, has not produced them within PRODUCTS_WAIT_SECONDS, or
+    macOS compile, finishes compile admission without them, has not produced them within PRODUCTS_WAIT_SECONDS, or
     `still_wanted` says the products it will make cannot be used.
     """
     print(
@@ -673,6 +688,11 @@ def wait_for_products(producer: dict, still_wanted: Callable[[], bool] = lambda:
                 return False
             if skips_macos(producer["id"]):
                 print(f"note: {producer['url']} skipped its macOS compile", file=sys.stderr, flush=True)
+                return False
+            if admission_ended(producer["id"]) and not rerun.products_artifact(REPO, str(producer["id"]),
+                                                                               rerun.gh_api):
+                print(f"note: {producer['url']} finished compile admission without app-host products",
+                      file=sys.stderr, flush=True)
                 return False
             if not still_wanted():
                 print(f"note: {producer['url']} compiles products this run cannot use", file=sys.stderr, flush=True)

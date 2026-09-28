@@ -591,6 +591,50 @@ class Progress:
                 f"{_duration(_seconds(live.get('started_at'), now))}, {doing}{product}.")
 
 
+# app_host_test_rerun.PRODUCTS_PREFIX; ci.yml's sparse checkout holds only this file.
+PRODUCTS_PREFIX = "app-host-products-v1-"
+ADMISSION_FAILURES = frozenset({"failure", "cancelled", "timed_out"})
+
+
+def admission_ended_without_product(gh: GitHub, run_id: str, attempt: str) -> dict | None:
+    """This attempt's compile admission job, once it failed and left no app-host product.
+
+    The UI tests run on that product, so none can run: the fleet refused the
+    job, lost its runner, or the code failed to compile. Waiting on held the
+    run open (run 36435812903, 14:30 to past 15:27), and the owned-pool rescue
+    re-runs a refused job only once its run has finished. A skipped admission
+    (an earlier run's product reused) or one that uploaded its product and
+    then failed its changed suites still waits for the verdict.
+    """
+    jobs = gh.get(f"repos/{{repo}}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100").get("jobs", [])
+    job = next((job for job in jobs if str(job.get("name", "")).endswith(ADMISSION_JOB)), None)
+    if job is None or job.get("status") != "completed" or job.get("conclusion") not in ADMISSION_FAILURES:
+        return None
+    if str(job.get("run_attempt")) != str(attempt):
+        # Carried over from an earlier attempt (only ui-tests was re-run), or of
+        # unknown attempt: the dispatcher compiles for itself, so the UI tests
+        # still run.
+        return None
+    listing = gh.get(f"repos/{{repo}}/actions/runs/{run_id}/artifacts?per_page=100")
+    artifacts = listing.get("artifacts", [])
+    if int(listing.get("total_count") or 0) > len(artifacts):
+        return None  # A truncated listing cannot rule the product out.
+    if any(str(artifact.get("name", "")).startswith(PRODUCTS_PREFIX) and not artifact.get("expired")
+           for artifact in artifacts):
+        return None
+    return job
+
+
+def admission_failure(job: dict) -> int:
+    print(
+        f"::error::This run's compile admission ended {job.get('conclusion')} without an app-host product "
+        f"({job.get('html_url') or ADMISSION_JOB}), so no UI test run can use it and this job does not wait for one. "
+        "Fix or re-run compile admission: re-running this run's failed jobs requests the UI tests again.",
+        flush=True,
+    )
+    return 1
+
+
 def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[float], None] = time.sleep,
                   now: Callable[[], float] = time.monotonic, default_branch: str = "main",
                   selectors: list[str] | None = None, revisions: list[str] | None = None) -> int:
@@ -606,9 +650,14 @@ def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
         match = find_dispatch_run(gh, run_id, attempt, since, default_branch)
         if match is not None:
             return match
+        ended = admission_ended_without_product(gh, run_id, attempt)
+        if ended is not None:
+            return {"admission": ended}
         return False if now() >= deadline else None
 
     found = poll(find, sleep=sleep)
+    if isinstance(found, dict) and "admission" in found:
+        return admission_failure(found["admission"])
     if found is False:
         print(
             f"::error::No {DISPATCH_WORKFLOW_FILE} run titled {dispatch_title(run_id, attempt)!r} appeared, "
@@ -623,11 +672,17 @@ def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
         run = gh.get(f"repos/{{repo}}/actions/runs/{found['id']}")
         if run.get("status") == "completed":
             return run
+        ended = admission_ended_without_product(gh, run_id, attempt)
+        if ended is not None:
+            return {"admission": ended}
         if progress is not None:
             progress.report()
         return None
 
     finished = poll(check, sleep=sleep)
+    if "admission" in finished:
+        # ci-ui-tests.yml cancels the run it dispatched once this CI attempt completes.
+        return admission_failure(finished["admission"])
     step = retrying(lambda: dispatch_step_conclusion(gh, found["id"]), sleep=sleep)
     if finished.get("conclusion") == "success" and step == "success":
         print(f"UI tests passed: {found.get('html_url')}", flush=True)
