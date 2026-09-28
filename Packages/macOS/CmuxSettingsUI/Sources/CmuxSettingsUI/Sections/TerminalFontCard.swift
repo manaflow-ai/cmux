@@ -117,6 +117,7 @@ struct TerminalFontCard: View {
             } onDecrement: {
                 model.apply(.cellHeight(model.options.cellHeight.stepped(by: -1)))
             }
+            .accessibilityValue(lineHeightLabel)
             .accessibilityIdentifier("SettingsTerminalGhosttyLineHeightStepper")
         }
     }
