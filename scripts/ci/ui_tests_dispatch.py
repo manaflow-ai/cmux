@@ -52,6 +52,26 @@ SHA = re.compile(r"[0-9a-f]{40}")
 MAX_SELECTORS = 8
 MAX_REQUEST_BYTES = 16_384
 UI_TEST_PREFIX = "cmuxUITests/"
+# Not a test class: test-e2e.yml reads this entry as "replay the UI fuzzer's
+# checked-in repros (dogfood/fuzz/regressions) against the app", after the
+# selected classes or alone.
+FUZZ_REGRESSIONS_SELECTOR = "cmuxUITests/FuzzRegressions"
+# What those repros exercise: the sidebar, splits and panes, and the main
+# window's size, plus the fuzzer and its repros. choose_ci_suite.py adds the
+# selector for a diff that touches one; a path ending in "/" is a directory.
+FUZZ_REGRESSION_PATHS = (
+    "dogfood/fuzz/",
+    "scripts/fuzz",
+    "vendor/bonsplit",
+    "Packages/macOS/CmuxPanes/",
+    "Packages/macOS/CmuxSidebar/",
+    "Sources/Sidebar/",
+    "Sources/App/CmuxMainWindow.swift",
+    "Sources/App/MainWindowFrameReconciler.swift",
+    "Sources/AppDelegate+WindowFramePolicy.swift",
+)
+# Workspace's split code: Workspace+EqualizeSplitsSupport.swift and the like.
+FUZZ_REGRESSION_PATTERN = re.compile(r"Sources/Workspace\+[^/]*Split[^/]*\.swift")
 # The files API lists at most 3000 files of a pull request.
 MAX_FILE_PAGES = 30
 POLL_SECONDS = 60
@@ -184,11 +204,19 @@ def serves(run: dict, repository: str) -> str | None:
     return None
 
 
-def touches_ui_tests(gh: GitHub, pull_numbers: list[int]) -> bool | None:
-    """Whether any of these pull requests changes cmuxUITests/; None when unknown.
+def fuzz_regression_path(path: str) -> bool:
+    """Whether a change to `path` asks for the UI fuzzer's regression replays."""
+    return FUZZ_REGRESSION_PATTERN.fullmatch(path) is not None or any(
+        path.startswith(entry) if entry.endswith("/") else path == entry or path.startswith(entry + "/")
+        for entry in FUZZ_REGRESSION_PATHS)
 
-    Only a cmuxUITests/ change yields selectors (choose_ci_suite.changed_ui_selectors),
-    so this spares every other pull request the wait for a request.
+
+def touches_ui_tests(gh: GitHub, pull_numbers: list[int]) -> bool | None:
+    """Whether any of these pull requests changes cmuxUITests/ or a fuzz regression path; None when unknown.
+
+    Only those changes yield selectors (choose_ci_suite.changed_ui_selectors and
+    FUZZ_REGRESSIONS_SELECTOR), so this spares every other pull request the wait
+    for a request.
     """
     if not pull_numbers:
         return None
@@ -197,7 +225,7 @@ def touches_ui_tests(gh: GitHub, pull_numbers: list[int]) -> bool | None:
             files = gh.get(f"repos/{{repo}}/pulls/{number}/files?per_page=100&page={page}")
             for entry in files:
                 for name in (entry.get("filename"), entry.get("previous_filename")):
-                    if isinstance(name, str) and name.startswith(UI_TEST_PREFIX):
+                    if isinstance(name, str) and (name.startswith(UI_TEST_PREFIX) or fuzz_regression_path(name)):
                         return True
             if len(files) < 100:
                 break
@@ -251,7 +279,8 @@ def await_request(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
     numbers = [int(pr["number"]) for pr in run.get("pull_requests") or [] if isinstance(pr.get("number"), int)]
     touched = retrying(lambda: touches_ui_tests(gh, numbers), sleep=sleep)
     if touched is False:
-        print(f"Nothing to run: pull request {numbers} changes nothing under {UI_TEST_PREFIX}.", flush=True)
+        print(f"Nothing to run: pull request {numbers} changes nothing under {UI_TEST_PREFIX} "
+              "and no path the fuzz regressions cover.", flush=True)
         return None
     name = request_artifact(attempt)
     print(f"Waiting for {name} from {run.get('html_url', run_id)} (head {head_sha}).", flush=True)
@@ -562,6 +591,50 @@ class Progress:
                 f"{_duration(_seconds(live.get('started_at'), now))}, {doing}{product}.")
 
 
+# app_host_test_rerun.PRODUCTS_PREFIX; ci.yml's sparse checkout holds only this file.
+PRODUCTS_PREFIX = "app-host-products-v1-"
+ADMISSION_FAILURES = frozenset({"failure", "cancelled", "timed_out"})
+
+
+def admission_ended_without_product(gh: GitHub, run_id: str, attempt: str) -> dict | None:
+    """This attempt's compile admission job, once it failed and left no app-host product.
+
+    The UI tests run on that product, so none can run: the fleet refused the
+    job, lost its runner, or the code failed to compile. Waiting on held the
+    run open (run 36435812903, 14:30 to past 15:27), and the owned-pool rescue
+    re-runs a refused job only once its run has finished. A skipped admission
+    (an earlier run's product reused) or one that uploaded its product and
+    then failed its changed suites still waits for the verdict.
+    """
+    jobs = gh.get(f"repos/{{repo}}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100").get("jobs", [])
+    job = next((job for job in jobs if str(job.get("name", "")).endswith(ADMISSION_JOB)), None)
+    if job is None or job.get("status") != "completed" or job.get("conclusion") not in ADMISSION_FAILURES:
+        return None
+    if str(job.get("run_attempt")) != str(attempt):
+        # Carried over from an earlier attempt (only ui-tests was re-run), or of
+        # unknown attempt: the dispatcher compiles for itself, so the UI tests
+        # still run.
+        return None
+    listing = gh.get(f"repos/{{repo}}/actions/runs/{run_id}/artifacts?per_page=100")
+    artifacts = listing.get("artifacts", [])
+    if int(listing.get("total_count") or 0) > len(artifacts):
+        return None  # A truncated listing cannot rule the product out.
+    if any(str(artifact.get("name", "")).startswith(PRODUCTS_PREFIX) and not artifact.get("expired")
+           for artifact in artifacts):
+        return None
+    return job
+
+
+def admission_failure(job: dict) -> int:
+    print(
+        f"::error::This run's compile admission ended {job.get('conclusion')} without an app-host product "
+        f"({job.get('html_url') or ADMISSION_JOB}), so no UI test run can use it and this job does not wait for one. "
+        "Fix or re-run compile admission: re-running this run's failed jobs requests the UI tests again.",
+        flush=True,
+    )
+    return 1
+
+
 def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[float], None] = time.sleep,
                   now: Callable[[], float] = time.monotonic, default_branch: str = "main",
                   selectors: list[str] | None = None, revisions: list[str] | None = None) -> int:
@@ -577,9 +650,14 @@ def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
         match = find_dispatch_run(gh, run_id, attempt, since, default_branch)
         if match is not None:
             return match
+        ended = admission_ended_without_product(gh, run_id, attempt)
+        if ended is not None:
+            return {"admission": ended}
         return False if now() >= deadline else None
 
     found = poll(find, sleep=sleep)
+    if isinstance(found, dict) and "admission" in found:
+        return admission_failure(found["admission"])
     if found is False:
         print(
             f"::error::No {DISPATCH_WORKFLOW_FILE} run titled {dispatch_title(run_id, attempt)!r} appeared, "
@@ -594,11 +672,17 @@ def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
         run = gh.get(f"repos/{{repo}}/actions/runs/{found['id']}")
         if run.get("status") == "completed":
             return run
+        ended = admission_ended_without_product(gh, run_id, attempt)
+        if ended is not None:
+            return {"admission": ended}
         if progress is not None:
             progress.report()
         return None
 
     finished = poll(check, sleep=sleep)
+    if "admission" in finished:
+        # ci-ui-tests.yml cancels the run it dispatched once this CI attempt completes.
+        return admission_failure(finished["admission"])
     step = retrying(lambda: dispatch_step_conclusion(gh, found["id"]), sleep=sleep)
     if finished.get("conclusion") == "success" and step == "success":
         print(f"UI tests passed: {found.get('html_url')}", flush=True)

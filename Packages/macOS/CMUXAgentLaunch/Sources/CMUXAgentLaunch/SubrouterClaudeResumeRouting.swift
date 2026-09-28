@@ -31,6 +31,21 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
     /// Wrapper-attested copy of the marker bound to the current Claude argv.
     public static let launchBoundEnvironmentKey = "CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND"
 
+    /// The account a routed launch was pinned to, exported by
+    /// `cmux-claude-wrapper` from the routing headers in the launcher's
+    /// private `--settings` file. It is the launcher's resolved choice, so it
+    /// survives however the launcher was invoked or what it appended to the
+    /// arguments it forwarded.
+    public static let accountEnvironmentKey = "CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT"
+
+    /// Launch metadata the wrapper exports for a routed launch, which the
+    /// queued Claude hooks must carry to the session-start capture.
+    public static let hookCapturedEnvironmentKeys = [
+        environmentKey,
+        launchBoundEnvironmentKey,
+        accountEnvironmentKey,
+    ]
+
     /// Directory-name prefix of the private settings directory `sr claude proxy` creates.
     public static let privateSettingsDirectoryPrefix = "subrouter-claude-settings-"
 
@@ -50,6 +65,7 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
     public static let restoreOwnedEnvironmentKeys: Set<String> = [
         environmentKey,
         launchBoundEnvironmentKey,
+        accountEnvironmentKey,
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
         "ANTHROPIC_BASE_URL",
@@ -136,6 +152,29 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
         ]
     }
 
+    /// The pinned account the wrapper recorded for this launch, or `nil` when
+    /// the launch was pooled or the value is not a plain account id. The value
+    /// becomes an argument to the launcher, so anything that could read as an
+    /// option or carry shell or control characters is refused.
+    public func capturedAccount(in environment: [String: String]?) -> String? {
+        guard let value = environment?[Self.accountEnvironmentKey],
+              (1...256).contains(value.count),
+              !value.hasPrefix("-"),
+              value.unicodeScalars.allSatisfy(Self.accountScalars.contains) else {
+            return nil
+        }
+        return value
+    }
+
+    private static let accountScalars = CharacterSet(
+        charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._@+:=-"
+    )
+
+    /// The pinned account as durable launch metadata, or an empty environment.
+    public func capturedAccountEnvironment(in environment: [String: String]?) -> [String: String] {
+        capturedAccount(in: environment).map { [Self.accountEnvironmentKey: $0] } ?? [:]
+    }
+
     /// Whether the captured launch proves a Subrouter-routed plain `claude` launch.
     ///
     /// cmux launchers (`claudeTeams` and friends) own their own resume shape and
@@ -161,9 +200,10 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
     /// to replay follow the session id; Subrouter's private `--settings` file is
     /// dropped because the launcher issues a fresh one.
     ///
-    /// When the record also carries the launcher argv that started Claude
-    /// (`sr claude proxy --account x`), its account pin is kept; otherwise the
-    /// pool picks the account.
+    /// A pinned launch keeps its account: the pin the wrapper recorded
+    /// (``accountEnvironmentKey``) when present, else one read from a captured
+    /// launcher argv (`sr claude proxy --account x`) on records that predate
+    /// it. Otherwise the pool picks the account.
     public func resumeArguments(
         launcher: String?,
         sessionID: String,
@@ -180,7 +220,9 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
             return nil
         }
         let markerTokens = marker.split(separator: " ").map(String.init)
-        let head = pinnedLauncherArguments(launcherPrefix, markerTokens: markerTokens) ?? markerTokens
+        let head = capturedAccount(in: environment).map { Array(markerTokens[0..<3]) + ["--account", $0, "--resume"] }
+            ?? pinnedLauncherArguments(launcherPrefix, markerTokens: markerTokens)
+            ?? markerTokens
         return head
             + [sessionID]
             + removingPrivateSettingsArguments(from: preserved)

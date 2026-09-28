@@ -650,11 +650,26 @@ def skips_macos(run_id: int) -> bool:
     )
 
 
+def admission_ended(run_id: int) -> bool:
+    """Whether a CI run's latest attempt has compile admission jobs and all have completed.
+
+    Admission uploads the products before it completes, so a finished
+    admission without them has none to give. The run itself may stay in
+    progress for long after: its ui-tests job waits for the UI dispatch that
+    waits here, so run 36435812903's refused admission held that dispatch for
+    the whole PRODUCTS_WAIT_SECONDS before it compiled for itself, and kept
+    the run open so the owned-pool rescue could not re-run the refusal.
+    """
+    listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
+    admissions = [job for job in listing.get("jobs", []) if job.get("name", "").endswith(rerun.ADMISSION_JOB)]
+    return bool(admissions) and all(job.get("status") == "completed" for job in admissions)
+
+
 def wait_for_products(producer: dict, still_wanted: Callable[[], bool] = lambda: True) -> bool:
     """Wait for a building CI run to upload its app-host products.
 
     True once they exist; False when the run ends without them, skips its
-    macOS compile, has not produced them within PRODUCTS_WAIT_SECONDS, or
+    macOS compile, finishes compile admission without them, has not produced them within PRODUCTS_WAIT_SECONDS, or
     `still_wanted` says the products it will make cannot be used.
     """
     print(
@@ -673,6 +688,11 @@ def wait_for_products(producer: dict, still_wanted: Callable[[], bool] = lambda:
                 return False
             if skips_macos(producer["id"]):
                 print(f"note: {producer['url']} skipped its macOS compile", file=sys.stderr, flush=True)
+                return False
+            if admission_ended(producer["id"]) and not rerun.products_artifact(REPO, str(producer["id"]),
+                                                                               rerun.gh_api):
+                print(f"note: {producer['url']} finished compile admission without app-host products",
+                      file=sys.stderr, flush=True)
                 return False
             if not still_wanted():
                 print(f"note: {producer['url']} compiles products this run cannot use", file=sys.stderr, flush=True)
@@ -950,7 +970,9 @@ def main() -> int:
         help="cmuxTests/Suite[/method] or cmuxUITests/Class[/method]; bare names target UI tests. "
         "A Swift Testing method takes its call suffix, Suite/method() or Suite/method(label:); "
         "one this checkout declares gets it added. "
-        "Pass several to run them against one compile; they must share a target.",
+        "Pass several to run them against one compile; they must share a target. "
+        "cmuxUITests/FuzzRegressions replays the UI fuzzer's checked-in repros (dogfood/fuzz/regressions) "
+        "against the app, after any UI classes named with it.",
     )
     parser.add_argument("--ref", help="remote branch, tag, or SHA; default: clean local HEAD, already pushed")
     parser.add_argument("--wait", action="store_true", help="wait and return a nonzero status if the run fails")
@@ -985,6 +1007,13 @@ def main() -> int:
         f"run of this commit compiled, and otherwise exit {NO_PRODUCT_EXIT} "
         f"({UNLOADABLE_PRODUCT_EXIT} when CI's product is on a pool the UI runner cannot load); the dispatched run "
         "fails rather than compiles if its reuse still misses (PR media tours use this)",
+    )
+    parser.add_argument(
+        "--adopt-main",
+        action="store_true",
+        help="with --adopt-only, for a pull request whose CI reused main's build: dispatch the head "
+        "without a CI run's product, and let test-e2e.yml adopt main's product of the same inputs "
+        "(it fails rather than compiles when that misses)",
     )
     parser.add_argument(
         "--force",
@@ -1036,6 +1065,8 @@ def main() -> int:
     test_filter = ",".join(args.test_filter)
     if args.adopt_only and (test_target != "cmuxUITests" or args.runner not in (None, "auto") or args.full_build):
         parser.error("--adopt-only takes UI selectors on the default runner, without --full-build")
+    if args.adopt_main and not args.adopt_only:
+        parser.error("--adopt-main goes with --adopt-only")
     if args.ref is not None and not args.ref.strip():
         parser.error("--ref must not be empty")
     if args.workflow_ref is not None and not args.workflow_ref.strip():
@@ -1078,7 +1109,7 @@ def main() -> int:
                     flush=True,
                 )
 
-    if args.adopt_only and ui_source is None:
+    if args.adopt_only and ui_source is None and not args.adopt_main:
         if UNLOADABLE_SOURCES:
             print(f"{UNLOADABLE_SOURCES[0]} compiled {head}'s app-host products where no UI run can "
                   "load them; not compiling (--adopt-only).", flush=True)
@@ -1257,7 +1288,7 @@ def main() -> int:
             pr_xcode_app=repository_variable(pool.PR_XCODE_VARIABLE, PR_XCODE_ENV),
             log=lambda message: print(f"Runner pool: {message}", file=sys.stderr, flush=True),
         )
-    if args.adopt_only and not adopts_on(runner, ui_source.get("family")):
+    if args.adopt_only and ui_source is not None and not adopts_on(runner, ui_source.get("family")):
         print(f"UI runs go to {runner}, which cannot load the products {ui_source['url']} "
               f"compiled on {ui_source.get('family') or 'an unknown pool'}; not compiling (--adopt-only).",
               flush=True)
