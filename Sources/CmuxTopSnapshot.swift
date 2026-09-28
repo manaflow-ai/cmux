@@ -157,7 +157,8 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "resource_details": includesResources,
             "cmux_scope": includesCMUXScope,
             "enumeration_complete": enumerationIsComplete,
-            "enumeration_missing_process_count": enumerationMissingProcessCount
+            "enumeration_missing_process_count": enumerationMissingProcessCount,
+            "pid_list_complete": pidListIsComplete
         ]
     }
 

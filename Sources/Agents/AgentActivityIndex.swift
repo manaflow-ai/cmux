@@ -201,9 +201,10 @@ struct AgentActivityIndex {
             let arguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process)?.arguments ?? []
             commands[probe.index] = AgentProcessTree.describe(arguments: arguments) ?? process.name
         }
-        // A listed process that exited before it was read no longer runs, so
-        // only a truncated PID list leaves a command unaccounted for. Build
-        // hosts churn through short-lived processes on every sample.
+        // A listed process that could not be read exited or was still being
+        // created (like a fork just after the list), so only a truncated PID
+        // list leaves a command unaccounted for. Build hosts churn through
+        // short-lived processes on every sample.
         return (commands, snapshot.pidListIsComplete)
     }
 }

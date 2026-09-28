@@ -14,7 +14,8 @@ public struct DarwinProcessListing: Sendable {
     /// Listed PIDs whose topology could not be read; excludes unknown truncated rows.
     public let missingProcessCount: Int
     /// Whether the PID list itself was whole. Unlike ``isComplete`` it ignores
-    /// listed PIDs that exited before their record was read: those no longer run.
+    /// listed PIDs whose record could not be read: they exited or were still being
+    /// created, the same as a process forked just after the list was taken.
     public let pidListIsComplete: Bool
 
     public init(processes: [proc_bsdinfo], isComplete: Bool, missingProcessCount: Int, pidListIsComplete: Bool? = nil) {

@@ -27,6 +27,16 @@ struct DarwinResourceSamplingTests {
         #expect(listing.pidListIsComplete)
     }
 
+    @Test("An empty PID list is never a whole one")
+    func emptyListing() {
+        let listing = DarwinProcessEnumerator(
+            listPIDs: { _, _ in 0 },
+            readProcess: { _ in nil }
+        ).capture()
+        #expect(!listing.isComplete)
+        #expect(!listing.pidListIsComplete)
+    }
+
     @Test("Truncated PID buffers remain incomplete after bounded retries")
     func growingProcessTableFailsClosed() {
         var readCount = 0

@@ -90,8 +90,24 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
             try sampler.enrich(sampler.capture(), fields: [.details, .scope, .resources])
         }.value
         #expect(!value.snapshot.enumerationIsComplete)
+        #expect(!value.snapshot.pidListIsComplete)
         #expect(value.snapshot.enumerationMissingProcessCount == 1)
         #expect(value.snapshot.process(pid: 123) == nil)
+    }
+
+    @Test func aProcessThatExitsMidCensusLeavesThePIDListWhole() async throws {
+        let reader = SyntheticProcessSnapshotReader(count: 1000)
+        reader.state.withLock { $0.missingPID = 123 }
+        let sampler = CmuxTopProcessSampler(reader: reader)
+        let value = try await Task.detached {
+            try sampler.enrich(sampler.capture(), fields: [.details, .scope, .resources])
+        }.value
+        #expect(!value.snapshot.enumerationIsComplete)
+        #expect(value.snapshot.pidListIsComplete)
+        let unavailable = CmuxTopProcessSnapshot(
+            processes: [], sampledAt: Date(), includesProcessDetails: false, captureIsAvailable: false
+        )
+        #expect(!unavailable.pidListIsComplete)
     }
 
     @Test func enrichmentRejectsReusedPIDAndNeverRecensuses() async throws {
@@ -102,6 +118,7 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
         let rich = try await Task.detached { try sampler.enrich(base, fields: [.details, .scope, .resources]) }.value
         #expect(rich.snapshot.process(pid: 123) == nil)
         #expect(!rich.snapshot.enumerationIsComplete)
+        #expect(rich.snapshot.pidListIsComplete)
         #expect(rich.snapshot.enumerationMissingProcessCount == 1)
         #expect(reader.state.withLock { $0.counts.enumerations } == 1)
         #expect(reader.state.withLock { $0.counts.paths } == 999)
