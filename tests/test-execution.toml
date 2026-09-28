@@ -241,6 +241,10 @@ path = "tests/test_issue_10926_watcher_pid_reuse_guard.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_issue_15067_bash_watcher_churn.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_issue_13343_claude_integration_toggle.py"
 lane = "macos-cli-no-socket"
 
@@ -1022,7 +1026,7 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_issue_1138_sidebar_pr_polling.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_issue_734_shell_integration_none_respected.py"
