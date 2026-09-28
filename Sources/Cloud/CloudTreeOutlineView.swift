@@ -33,6 +33,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var devicesSection: CloudTreeDevicesSection = .init()
     /// Shows the Cloud Machines header's New Machine "+".
     var canCreateCloudMachine: Bool = false
+    /// The Cloud Machines header's inline count; nil until the plan loads.
+    var cloudMachinesUsage: CloudMachinesUsage? = nil
     var reveal: CloudTreeRevealRequest? = nil
     var nodeBuilder: ((CloudTreeBuildInputs) -> [CloudTreeNode])? = nil
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
@@ -68,7 +70,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             unreadTerminalIDs: unreadTerminalIDs,
             source: source,
             devicesSection: devicesSection,
-            canCreateCloudMachine: canCreateCloudMachine
+            canCreateCloudMachine: canCreateCloudMachine,
+            cloudMachinesUsage: cloudMachinesUsage
         ))
         context.coordinator.reveal(reveal)
     }

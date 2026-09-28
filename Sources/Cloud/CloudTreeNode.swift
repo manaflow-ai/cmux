@@ -69,7 +69,8 @@ final class CloudTreeNode: NSObject {
         /// The collapsible Cloud Machines section header. `canCreateMachine`
         /// shows its hover "+", which runs the New Machine action (Cmd-Y); it
         /// is false while Cloud Machines is off and the header stands alone.
-        case cloudMachinesSection(canCreateMachine: Bool)
+        /// `usage` is the plan's machine count; nil until the plan loads.
+        case cloudMachinesSection(canCreateMachine: Bool, usage: CloudMachinesUsage? = nil)
         /// My Devices guidance and independent discovery actions, also shown with peers.
         case devicesEmpty(CloudTreeDevicesSection)
         /// Port discovery is demand-driven when the user opens the Ports group.

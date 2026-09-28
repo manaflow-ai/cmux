@@ -5,7 +5,7 @@ import SwiftUI
 public struct CloudTreeGroupRowContent: View {
     public init(
         title: String,
-        count: Int? = nil,
+        count: CloudTreeGroupCount? = nil,
         style: CloudTreeStyle
     ) {
         self.title = title
@@ -14,7 +14,7 @@ public struct CloudTreeGroupRowContent: View {
     }
 
     public let title: String
-    public let count: Int?
+    public let count: CloudTreeGroupCount?
     public let style: CloudTreeStyle
 
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
@@ -28,13 +28,25 @@ public struct CloudTreeGroupRowContent: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 if style.showsGroupCounts, let count {
-                    Text(String(count))
-                        .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
-                        .foregroundStyle(.tertiary)
+                    if let help = count.help {
+                        countText(count).help(help)
+                    } else {
+                        countText(count)
+                    }
                 }
             }
             Spacer(minLength: 0)
         }
         .padding(.trailing, style.rowGrid.trailingPadding)
+    }
+
+    private func countText(_ count: CloudTreeGroupCount) -> some View {
+        Text(count.text)
+            .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
+            .foregroundStyle(count.isWarning ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.tertiary))
+            .lineLimit(1)
+            // The title truncates first; a clipped "1/5…" would misstate usage.
+            .fixedSize()
+            .accessibilityLabel(count.accessibilityLabel ?? count.text)
     }
 }

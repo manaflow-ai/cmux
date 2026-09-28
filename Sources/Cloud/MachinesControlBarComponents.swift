@@ -9,7 +9,7 @@ struct MachinePlanMeter: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Text(meterText)
+            Text(plan.usage.countLabel)
                 .cmuxFont(size: 11, monospacedDigit: true)
                 .foregroundColor(plan.isAtLimit ? Color.orange : .secondary)
             if plan.isAtLimit && !plan.isPaidPlan {
@@ -18,29 +18,8 @@ struct MachinePlanMeter: View {
                     .foregroundColor(.orange)
             }
         }
-        .help(meterHelp)
+        .help(plan.usage.help)
         .accessibilityElement(children: .combine)
-    }
-
-    private var meterText: String { plan.countLabel }
-
-    private var meterHelp: String {
-        if plan.isAtLimit && !plan.isPaidPlan, let maxActiveVms = plan.maxActiveVms {
-            if plan.isSingleMachinePlan {
-                return String(
-                    localized: "machines.meter.help.atLimit.single",
-                    defaultValue: "Your plan includes 1 machine. Upgrade to create more."
-                )
-            }
-            return String(
-                localized: "machines.meter.help.atLimit",
-                defaultValue: "Your plan includes %d machines. Upgrade to create more."
-            ).replacingOccurrences(of: "%d", with: String(maxActiveVms))
-        }
-        return String(
-            localized: "machines.meter.help",
-            defaultValue: "Machines on your plan. Sleeping machines cost nothing."
-        )
     }
 }
 
