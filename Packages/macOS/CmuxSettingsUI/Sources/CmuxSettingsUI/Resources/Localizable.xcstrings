@@ -7101,6 +7101,124 @@
           }
         }
       }
+    },
+    "settings.agentActions.turnControl": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Stop Button"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زر إيقاف الوكيل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopp-Taste für Agenten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Botón Detener del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bouton Arrêter pour les agents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント停止ボタン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 중지 버튼"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理停止按钮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理停止按鈕"
+          }
+        }
+      }
+    },
+    "settings.agentActions.turnControl.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows a Stop button over a terminal while Claude Code or Codex is working. Clicking it interrupts the turn, like pressing Esc."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض زر إيقاف فوق الطرفية أثناء عمل Claude Code أو Codex. النقر عليه يقاطع الدورة مثل الضغط على Esc."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt eine Stopp-Taste über dem Terminal, während Claude Code oder Codex arbeitet. Ein Klick unterbricht den Durchgang wie die Esc-Taste."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra un botón Detener sobre el terminal mientras Claude Code o Codex trabaja. Al hacer clic se interrumpe el turno, como al pulsar Esc."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche un bouton Arrêter sur le terminal pendant que Claude Code ou Codex travaille. Un clic interrompt le tour, comme la touche Échap."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code または Codex が作業している間、ターミナル上に停止ボタンを表示します。クリックすると Esc キーと同じようにターンを中断します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code나 Codex가 작업하는 동안 터미널 위에 중지 버튼을 표시합니다. 클릭하면 Esc를 누른 것처럼 현재 턴을 중단합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 或 Codex 工作时，在终端上显示停止按钮。点击即可中断本轮，效果等同于按下 Esc。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 或 Codex 工作時，在終端機上顯示停止按鈕。按一下即可中斷本輪，效果如同按下 Esc。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

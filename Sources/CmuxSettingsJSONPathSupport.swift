@@ -257,6 +257,18 @@ enum NotificationSettingsFileMapping {
     ]
 }
 
+enum AgentActionsSettingsFileMapping {
+    private static let agentActions = AgentActionsCatalogSection()
+
+    static let booleanSettings: [SettingsFileBooleanMapping] = [
+        .init(
+            jsonKey: "turnControl",
+            defaultsKey: agentActions.turnControl.userDefaultsKey,
+            invalidPath: agentActions.turnControl.id
+        ),
+    ]
+}
+
 enum TerminalSettingsFileMapping {
     private static let terminal = TerminalCatalogSection()
 

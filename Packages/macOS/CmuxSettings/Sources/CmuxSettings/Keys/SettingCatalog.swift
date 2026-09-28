@@ -33,6 +33,8 @@ public struct SettingCatalog: SettingCatalogSection {
     /// Settings for sidebar workspace groups (the `workspaceGroups.*` keys).
     public let workspaceGroups = WorkspaceGroupsCatalogSection()
     public let automation = AutomationCatalogSection()
+    /// Clickable agent actions, one toggle per category (the `agentActions.*` keys).
+    public let agentActions = AgentActionsCatalogSection()
     /// Settings for the local computer-use MCP integration and its menu-bar UI.
     public let computerUse = ComputerUseCatalogSection()
     public let browser = BrowserCatalogSection()
