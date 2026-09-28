@@ -80,18 +80,55 @@ struct CLILocalZellijLifecycleTests {
         #expect(try jsonObject(list.stdout)["count"] as? Int == 0, Comment(rawValue: list.stdout))
     }
 
-    @Test func startRefusesAnExitedSessionCmuxDidNotCreate() throws {
-        let fixture = try makeFixture("exited")
+    @Test func staleRecordNeverTouchesAnUnrelatedExitedSessionWithTheSameName() throws {
+        let fixture = try makeFixture("stale")
         defer { try? FileManager.default.removeItem(at: fixture.base) }
-        try Data("personal [Created 2days ago] (EXITED - attach to resurrect)\n".utf8).write(to: fixture.sessionsURL)
+        let start = try runCLI(["local-zellij", "start", "work", "--detached", "--cwd", fixture.base.path], fixture)
+        #expect(start.status == 0, Comment(rawValue: start.stderr))
+        // cmux's session ends, then another zellij session named `work`
+        // exits and lands in zellij's global resurrection cache.
+        try Data("work [Created 1m ago] (EXITED - attach to resurrect)\n".utf8).write(to: fixture.sessionsURL)
+        let before = fixture.invocations().count
 
-        let start = try runCLI(["local-zellij", "start", "personal", "--detached"], fixture)
+        let status = try runCLI(["local-zellij", "status", "work", "--json"], fixture)
+        let attach = try runCLI(["local-zellij", "attach", "work", "--headless"], fixture)
+        let close = try runCLI(["local-zellij", "close", "work"], fixture)
+
+        #expect(try jsonObject(status.stdout)["state"] as? String == "stale", Comment(rawValue: status.stdout + status.stderr))
+        #expect(attach.status != 0, "attach must not resurrect a session cmux did not create")
+        #expect(close.status == 0, Comment(rawValue: close.stderr))
+        let touched = fixture.invocations().dropFirst(before).filter {
+            $0.hasSuffix("|attach work options --on-force-close detach") || $0.hasSuffix("|delete-session --force work")
+        }
+        #expect(touched.isEmpty, Comment(rawValue: touched.joined(separator: "\n")))
+    }
+
+    @Test func startDuringCloseKeepsTheNewSessionRegistered() throws {
+        let fixture = try makeFixture("race", deleteDelay: 2)
+        defer { try? FileManager.default.removeItem(at: fixture.base) }
+        _ = try runCLI(["local-zellij", "start", "work", "--detached", "--cwd", fixture.base.path], fixture)
+
+        let close = Process()
+        close.executableURL = URL(fileURLWithPath: try BundledCLITestSupport.bundledCLIPath())
+        close.arguments = ["local-zellij", "close", "work"]
+        close.environment = fixture.environment
+        close.standardOutput = FileHandle.nullDevice
+        close.standardError = FileHandle.nullDevice
+        try close.run()
+        // Start once close has deleted the zellij session but not its record.
+        let deadline = Date().addingTimeInterval(10)
+        while !fixture.invocations().contains(where: { $0.contains("|delete-session ") }), Date() < deadline {
+            usleep(20_000)
+        }
+        let start = try runCLI(["local-zellij", "start", "work", "--detached", "--cwd", fixture.base.path], fixture)
+        close.waitUntilExit()
+
+        #expect(start.status == 0, Comment(rawValue: start.stderr))
         let list = try runCLI(["local-zellij", "list", "--json"], fixture)
-
-        #expect(start.status != 0)
-        #expect(start.stderr.contains("zellij delete-session personal"), Comment(rawValue: start.stderr))
-        #expect(!fixture.invocations().contains { $0.contains("--create-background") })
-        #expect(try jsonObject(list.stdout)["count"] as? Int == 0, "another zellij's exited session is not listed")
+        let sessions = try #require(try jsonObject(list.stdout)["sessions"] as? [[String: Any]])
+        #expect(sessions.count == 1, Comment(rawValue: list.stdout))
+        #expect(sessions.first?["managed"] as? Bool == true, Comment(rawValue: list.stdout))
+        #expect(sessions.first?["state"] as? String == "live", Comment(rawValue: list.stdout))
     }
 
     @Test func nameTooLongForTheSocketPathIsRejectedBeforeZellijRuns() throws {
@@ -106,7 +143,7 @@ struct CLILocalZellijLifecycleTests {
         #expect(fixture.invocations().isEmpty)
     }
 
-    private func makeFixture(_ label: String) throws -> Fixture {
+    private func makeFixture(_ label: String, deleteDelay: Int = 0) throws -> Fixture {
         // Keep the root short: zellij sockets live below it.
         let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-lz-\(label)-\(UUID().uuidString.prefix(8))", isDirectory: true)
@@ -134,6 +171,7 @@ struct CLILocalZellijLifecycleTests {
           delete-session)
             grep -v "^$3 " "$FAKE_ZELLIJ_SESSIONS" > "$FAKE_ZELLIJ_SESSIONS.next"
             mv "$FAKE_ZELLIJ_SESSIONS.next" "$FAKE_ZELLIJ_SESSIONS"
+            sleep "${FAKE_ZELLIJ_DELETE_DELAY:-0}"
             exit 0 ;;
         esac
         exit 0
@@ -151,6 +189,7 @@ struct CLILocalZellijLifecycleTests {
         environment["FAKE_ZELLIJ_LOG"] = logURL.path
         environment["FAKE_ZELLIJ_SESSIONS"] = sessionsURL.path
         environment["FAKE_ZELLIJ_LAYOUT_COPY"] = layoutCopyURL.path
+        environment["FAKE_ZELLIJ_DELETE_DELAY"] = String(deleteDelay)
         for key in ["CMUX_SOCKET", "CMUX_SOCKET_PATH", "CMUX_WORKSPACE_ID", "ZELLIJ", "ZELLIJ_SESSION_NAME"] {
             environment.removeValue(forKey: key)
         }
