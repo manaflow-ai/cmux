@@ -63,16 +63,19 @@ def exercise(cli: Path, reports_owner: bool, owner_cli: Path, launching: bool = 
                     method = request["method"]
                     requests.append(method)
                     if method == "surface.resume.get":
-                        if retargeting.is_set():
+                        if retargeting.is_set() and presentation == "slow-retarget":
                             finished.wait(timeout=10)
                             return
-                        result = {"workspace_id": workspace, "surface_id": surface,
+                        current_workspace = str(uuid.uuid4()) if retargeting.is_set() else workspace
+                        result = {"workspace_id": current_workspace, "surface_id": surface,
                                   "restore_record": record, "agent_restore_admission_supported": True}
                     elif method == "agent.restore.admit":
                         if owner_pid is None:
                             result = {"admitted": True, "claim_id": str(uuid.uuid4())}
-                        elif presentation == "slow-retarget":
+                        elif presentation in ("slow-retarget", "moving"):
                             retargeting.set()
+                            if presentation == "moving":
+                                finished.wait(timeout=0.01)
                             self.wfile.write((json.dumps({"id": request.get("id"), "ok": False,
                                 "error": {"code": "conflict", "message": "fixture surface moved"}}) + "\n").encode())
                             continue
@@ -182,7 +185,7 @@ def main() -> None:
     for reports_owner in (True, False):
         exercise(arguments.cli.resolve(), reports_owner, (arguments.owner_cli or arguments.cli).resolve())
     exercise(arguments.cli.resolve(), False, arguments.cli.resolve(), launching=True)
-    for presentation in ("slow-retarget", "slow-release"):
+    for presentation in ("slow-retarget", "slow-release", "moving"):
         exercise(arguments.cli.resolve(), False, arguments.cli.resolve(), presentation=presentation)
 
 
