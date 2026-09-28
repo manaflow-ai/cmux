@@ -213,7 +213,7 @@ describe("devbox image template", () => {
     }
     // Same sections as `cmux welcome`: shortcuts and the links.
     expect(motd).toContain("Shortcuts");
-    for (const line of ["New workspace", "Command palette", "Jump to latest unread", "https://cmux.com/docs", "https://discord.gg/xsgFEVrWCZ", "founders@manaflow.com"]) {
+    for (const line of ["New workspace", "Command palette", "Jump to latest unread", "https://cmux.com/docs", "https://discord.gg/xsgFEVrWCZ", "founders@cmux.com"]) {
       expect(motd).toContain(line);
     }
     expect(dockerfile).toContain("COPY cmux-motd /etc/update-motd.d/00-cmux");

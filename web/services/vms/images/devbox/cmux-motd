@@ -51,5 +51,5 @@ printf '\n'
 printf "  ${bold}Docs${reset}${subdued}                https://cmux.com/docs${reset}\n"
 printf "  ${bold}Discord${reset}${subdued}             https://discord.gg/xsgFEVrWCZ${reset}\n"
 printf "  ${bold}GitHub${reset}${subdued}              https://github.com/manaflow-ai/cmux (please leave a star ⭐)${reset}\n"
-printf "  ${bold}Email${reset}${subdued}               founders@manaflow.com${reset}\n"
+printf "  ${bold}Email${reset}${subdued}               founders@cmux.com${reset}\n"
 printf '\n'
