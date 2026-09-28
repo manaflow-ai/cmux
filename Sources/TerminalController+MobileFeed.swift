@@ -100,11 +100,13 @@ extension TerminalController {
         if !pendingOnly {
             // Agent-hook notifications (permission, plan, question, and
             // turn-completion banners) mirror workstream rows the Feed already
-            // shows, so only human-facing notifications (cmux notify, watchers)
-            // join as their own rows. Records from before the flag existed
-            // (nil) stay until they age out.
+            // shows, so only notifications explicitly known to be human-facing
+            // (cmux notify, watchers) join as their own rows. Records from
+            // before the flag existed (nil) are excluded too: they are mostly
+            // agent echoes, and every notification stays in the Notifications
+            // tab regardless.
             for notification in notificationSnapshot.notifications
-            where !workstreamIDs.contains(notification.id) && notification.isAgentEvent != true {
+            where !workstreamIDs.contains(notification.id) && notification.isAgentEvent == false {
                 datedRows.append((notification.createdAt, notification.id.uuidString, mobileNotificationFeedRow(notification)))
             }
         }
