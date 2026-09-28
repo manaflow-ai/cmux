@@ -66,23 +66,26 @@ def load_mergers():
 def project_location(module, text: str) -> tuple[str | None, int, str | None]:
     """The trusted section, dictionary depth and innermost array at text's end."""
     section: str | None = None
-    for line in text.splitlines():
-        stripped = line.strip()
-        if match := SECTION_BEGIN_RE.fullmatch(stripped):
-            section = match.group(1)
-        elif match := SECTION_END_RE.fullmatch(stripped):
-            if section == match.group(1):
-                section = None
-    tokens = [
-        match.group()
-        for match in module.PBX_TOKEN_RE.finditer(text)
-        if match.lastgroup != "comment"
-    ]
     stack: list[tuple[str, str | None]] = []
     assigned_key: str | None = None
-    for index, token in enumerate(tokens):
-        if token == "=" and index:
-            assigned_key = tokens[index - 1].strip("\"'")
+    previous_token: str | None = None
+    for match in module.PBX_TOKEN_RE.finditer(text):
+        token = match.group()
+        if match.lastgroup == "comment":
+            # Section comments have meaning only between entries in the root
+            # objects dictionary. In particular, marker-shaped text inside a
+            # quoted shell script is part of one string token, never a comment.
+            in_objects = stack == [("dictionary", None), ("dictionary", "objects")]
+            if in_objects:
+                stripped = token.strip()
+                if begin := SECTION_BEGIN_RE.fullmatch(stripped):
+                    section = begin.group(1)
+                elif end := SECTION_END_RE.fullmatch(stripped):
+                    if section == end.group(1):
+                        section = None
+            continue
+        if token == "=" and previous_token is not None:
+            assigned_key = previous_token.strip("\"'")
         elif token == "{":
             stack.append(("dictionary", assigned_key))
             assigned_key = None
@@ -95,6 +98,7 @@ def project_location(module, text: str) -> tuple[str | None, int, str | None]:
             assigned_key = None
         elif token not in {",", ";"}:
             assigned_key = None
+        previous_token = token
     dictionary_depth = sum(kind == "dictionary" for kind, _ in stack)
     array = next((name for kind, name in reversed(stack) if kind == "array"), None)
     return section, dictionary_depth, array

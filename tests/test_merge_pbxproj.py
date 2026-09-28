@@ -117,6 +117,14 @@ def run(base, ours, theirs):
         return result.returncode, paths["A"].read_text(encoding="utf-8"), result.stderr
 
 
+def load_driver(name="merge_pbxproj_test"):
+    spec = importlib.util.spec_from_file_location(name, DRIVER)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def entries(text, name):
     """Which of the four regions declare this file, as a set of region names.
 
@@ -211,10 +219,7 @@ def test_invalid_utf8_leaves_an_explicit_byte_preserving_conflict():
 
 
 def test_helper_load_failure_still_materializes_a_conflict():
-    spec = importlib.util.spec_from_file_location("merge_pbxproj_failure_test", DRIVER)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = load_driver("merge_pbxproj_failure_test")
     module.load_mergers = lambda: (_ for _ in ()).throw(SyntaxError("broken helper"))
     with tempfile.TemporaryDirectory() as directory:
         paths = [Path(directory) / name for name in ("base", "ours", "theirs")]
@@ -347,6 +352,54 @@ def test_nested_dictionary_cannot_spoof_a_top_level_object_entry():
     theirs = base.replace(
         needle,
         needle + f"\t\t{uuid('nested-b')} /* NestedB.swift */ = {{isa = PBXBuildFile; fileRef = Y; }};\n",
+    )
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 1
+    assert "<" * 32 in merged
+    assert "automatic union is limited to source-file project entries" in stderr
+
+
+def test_section_markers_are_comments_at_the_objects_dictionary_depth():
+    module = load_driver("merge_pbxproj_location_test")
+    mergers = module.load_mergers()
+    text = project(["Alpha.swift"])
+
+    begin = text.index("/* Begin PBXGroup section */") + len("/* Begin PBXGroup section */")
+    section, depth, array = module.project_location(mergers, text[:begin])
+    assert (section, depth, array) == ("PBXGroup", 2, None)
+
+    child = text.index("/* Alpha.swift */,", begin)
+    section, depth, array = module.project_location(mergers, text[:child])
+    assert (section, depth, array) == ("PBXGroup", 3, "children")
+
+    end = text.index("/* End PBXGroup section */") + len("/* End PBXGroup section */")
+    section, depth, array = module.project_location(mergers, text[:end])
+    assert (section, depth, array) == (None, 2, None)
+
+
+def test_marker_text_in_a_quoted_scalar_cannot_spoof_a_section():
+    marker = "/* Begin XCBuildConfiguration section */"
+    target = f'''/* Begin PBXNativeTarget section */
+\t\t{uuid('target')} /* app */ = {{
+\t\t\tisa = PBXNativeTarget;
+\t\t\tnote = "before
+/* Begin PBXGroup section */
+after";
+\t\t\tchildren = (
+\t\t\t\t{uuid('existing')} /* Existing.swift */,
+\t\t\t);
+\t\t\tname = app;
+\t\t}};
+/* End PBXNativeTarget section */
+
+'''
+    base = project(["Alpha.swift"]).replace(marker, target + marker)
+    needle = 'after";\n\t\t\tchildren = (\n'
+    ours = base.replace(
+        needle, needle + f"\t\t\t\t{uuid('spoof-a')} /* Consumer.swift */,\n", 1
+    )
+    theirs = base.replace(
+        needle, needle + f"\t\t\t\t{uuid('spoof-b')} /* Producer.swift */,\n", 1
     )
     code, merged, stderr = run(base, ours, theirs)
     assert code == 1
