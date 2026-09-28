@@ -736,6 +736,28 @@ extension TerminalPredictionEngineTests {
         #expect(!session.engine.holdsLayoutUntilFrame)
     }
 
+    @Test func aLayoutHoldWithNoFrameReleasesAfterTheConfirmationHold() {
+        // A host that never reports presented frames (ghostty's IOSurface
+        // layer skips the drawable hook frames are counted on) must not keep
+        // the overlay frozen on the blanks the erase removed.
+        var session = armedSession()
+        session.type("s")
+        session.type(Self.backspace)
+        session.remote("s")
+        session.remote("\u{8}\u{1B}[K")
+        #expect(session.engine.holdsLayoutUntilFrame)
+        let held = session.clock
+        #expect(session.engine.nextExpiry == held + .milliseconds(120))
+
+        let changedEarly = session.engine.tick(at: held + .milliseconds(100))
+        #expect(!changedEarly)
+        #expect(session.engine.holdsLayoutUntilFrame)
+        let changedAfter = session.engine.tick(at: held + .milliseconds(121))
+        #expect(changedAfter)
+        #expect(!session.engine.holdsLayoutUntilFrame)
+        #expect(session.engine.nextExpiry == nil)
+    }
+
     @Test func backspaceOnAnEmptyLineWithdraws() {
         var session = armedSession()
         session.advance(.milliseconds(5))
