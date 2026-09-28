@@ -1581,11 +1581,8 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Enable cmux integration hooks for Claude Code."
         },
-        "codexIntegration": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe."
-        },
+        "codexIntegration": {"type": "boolean", "default": true, "description": "Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe."},
+        "piIntegration": {"type": "boolean", "default": true, "description": "Enable cmux integration hooks for Pi."},
         "claudeBinaryPath": {
           "type": "string",
           "default": "",

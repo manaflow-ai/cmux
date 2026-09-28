@@ -64,6 +64,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.workspaceTitlebarVisibility",
         "automation.claudeBinaryPath",
         "automation.claudeCodeIntegration",
+        "automation.piIntegration",
         "automation.cursorIntegration",
         "automation.geminiIntegration",
         "automation.portBase",
