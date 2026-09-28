@@ -933,6 +933,14 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
 
     private func startDirectQuicListener(token: UUID) async {
         guard directQuicListener == nil, pairingEnabled(), let identity, let registry, let admission else { return }
+        // Relay-only pins every session to the relay. A wildcard UDP Direct
+        // QUIC listener (and the Tailscale direct routes published once its
+        // port exists) would bypass that policy, so it never starts; the nil
+        // port keeps `publishTailscaleRoutes` clearing the advertised routes.
+        guard !Self.forceRelayOnly else {
+            Self.journal.record("direct-quic", "listener-skipped", ["reason": "relay-only"])
+            return
+        }
         var started: (listener: DirectQuicListener, port: UInt16)?
         // A deterministic window above the configured Iroh port: another
         // cmux instance on this Mac (a second dev build, or the stable app)
