@@ -250,6 +250,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Output delivered before the runtime surface exists. Flushed once the
     /// surface is created so background mirror output is not lost.
     var pendingRemoteOutput = Data()
+    /// Completion callbacks for replacement replays buffered with
+    /// ``pendingRemoteOutput``. They must run after the buffered bytes have
+    /// crossed the native output lane, otherwise replay-fidelity tracking can
+    /// race runtime creation and trigger an unnecessary reconnect.
+    var pendingRemoteReplayCompletions: [@MainActor @Sendable () -> Void] = []
     let maxPendingRemoteOutputBytes = 4 * 1_048_576
     /// FIFO native-output lane for the current runtime surface generation.
     var remoteOutputLane: TerminalSurfaceRemoteOutputLane

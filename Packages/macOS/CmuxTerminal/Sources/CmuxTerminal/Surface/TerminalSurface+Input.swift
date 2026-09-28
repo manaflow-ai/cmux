@@ -698,7 +698,11 @@ extension TerminalSurface {
         guard !pendingRemoteOutput.isEmpty else { return }
         let buffered = pendingRemoteOutput
         pendingRemoteOutput = Data()
-        remoteOutputLane.enqueue(buffered, to: surface)
+        let replayCompletions = pendingRemoteReplayCompletions
+        pendingRemoteReplayCompletions.removeAll(keepingCapacity: true)
+        remoteOutputLane.enqueue(buffered, to: surface) {
+            replayCompletions.forEach { $0() }
+        }
     }
 
     private func keycodeForLetter(_ letter: Character) -> UInt32? {

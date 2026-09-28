@@ -36,8 +36,47 @@ private final class RemoteOutputFixture {
     }
 }
 
+@MainActor
+private final class ReplayCompletionBox {
+    var called = false
+}
+
 @Suite(.serialized)
 struct TerminalSurfaceRemoteOutputTests {
+    @Test
+    func bufferedReplayCompletionWaitsForRuntimeFlush() async {
+        let initialRuntime = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let replacementRuntime = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let initialBits = UInt(bitPattern: initialRuntime)
+        let replacementBits = UInt(bitPattern: replacementRuntime)
+        let fixture = await MainActor.run {
+            RemoteOutputFixture(surface: makeSurface(runtimeSurfaceBits: initialBits))
+        }
+        let completion = await MainActor.run { ReplayCompletionBox() }
+        defer {
+            initialRuntime.deallocate()
+            replacementRuntime.deallocate()
+        }
+
+        await MainActor.run {
+            fixture.releaseSurface()
+            fixture.surface.processRemoteReplay(Data("buffered replay".utf8)) {
+                completion.called = true
+            }
+            #expect(!completion.called)
+            let replacement = UnsafeMutableRawPointer(bitPattern: replacementBits)!
+            fixture.surface.installRuntimeSurfaceForTesting(replacement)
+            fixture.surface.flushPendingRemoteOutput(to: replacement)
+        }
+
+        for _ in 0 ..< 100 {
+            if await MainActor.run(body: { completion.called }) { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await MainActor.run(body: { completion.called }))
+        await MainActor.run { fixture.releaseSurface() }
+    }
+
     @Test
     func remoteOutputDoesNotBlockTheMainActorOnNativeParser() async {
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
