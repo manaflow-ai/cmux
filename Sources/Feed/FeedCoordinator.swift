@@ -289,7 +289,19 @@ final class FeedCoordinator: @unchecked Sendable {
                     guard case .accepted(let acceptedEvent, let item) = acceptance else {
                         return nil
                     }
-                    FeedCoordinator.shared.waiterRegistry.accepted(registration, event: acceptedEvent, item: item)
+                    let decisionToApply = FeedCoordinator.shared.waiterRegistry.accepted(
+                        registration,
+                        event: acceptedEvent,
+                        item: item,
+                        deferDecisionSignal: true
+                    )
+                    if let decisionToApply {
+                        FeedCoordinator.shared.store.markResolved(item.id, decision: decisionToApply)
+                        FeedCoordinator.shared.waiterRegistry.signalResolved(
+                            requestID: registration.requestID,
+                            groupID: registration.groupID
+                        )
+                    }
                     guard FeedCoordinator.shared.waiterRegistry.isAwaiting(requestId) else { return acceptedEvent }
                     // Surface in-app attention (needs-input status + workspace
                     // elevation) for the blocking decision. This fires
@@ -452,7 +464,11 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Called by the `feed.*.reply` handlers. Marks the corresponding
     /// item resolved on the main-actor store and wakes any waiter.
     func deliverReply(requestId: String, decision: WorkstreamDecision) {
-        let reply = waiterRegistry.resolve(requestID: requestId, decision: decision)
+        let reply = waiterRegistry.resolve(
+            requestID: requestId,
+            decision: decision,
+            deferSignalUntilStoreCommit: true
+        )
         concludeAttentionOnMain(reply?.target)
 
         let resolve: @Sendable () -> Void = { [requestId, decision, reply] in
@@ -467,7 +483,13 @@ final class FeedCoordinator: @unchecked Sendable {
                    let itemId = Self.findItemId(for: requestId, in: store.items) {
                     store.markResolved(itemId, decision: decision)
                 }
-                if let reply { FeedCoordinator.shared.waiterRegistry.replyStored(reply) }
+                if let reply {
+                    FeedCoordinator.shared.waiterRegistry.replyStored(reply)
+                    FeedCoordinator.shared.waiterRegistry.signalResolved(
+                        requestID: reply.requestID,
+                        groupID: reply.groupID
+                    )
+                }
             }
         }
         if Thread.isMainThread {

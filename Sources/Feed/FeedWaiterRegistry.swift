@@ -34,6 +34,7 @@ final class FeedWaiterRegistry: Sendable {
         var target: FeedAttentionTarget?
         var replyStored = false
         var cleanupClaimed = false
+        var decisionSignaled = false
     }
     private let groups = OSAllocatedUnfairLock(initialState: [String: Group]())
 
@@ -52,12 +53,21 @@ final class FeedWaiterRegistry: Sendable {
         }
     }
 
-    func accepted(_ registration: Registration, event: WorkstreamEvent, item: WorkstreamItem) {
+    @discardableResult
+    func accepted(
+        _ registration: Registration,
+        event: WorkstreamEvent,
+        item: WorkstreamItem,
+        deferDecisionSignal: Bool = false
+    ) -> WorkstreamDecision? {
+        var decisionToApply: WorkstreamDecision?
         groups.withLock { groups in
             guard var group = groups[registration.requestID], group.id == registration.groupID else { return }
             group.event = event
             group.itemID = item.id
-            if group.decision == nil {
+            if let decision = group.decision {
+                decisionToApply = decision
+            } else {
                 switch item.status {
                 case .resolved:
                     // A handled retry is a no-op; never grant permission again from history.
@@ -70,10 +80,15 @@ final class FeedWaiterRegistry: Sendable {
                 }
             }
             groups[registration.requestID] = group
-            if group.decision != nil || group.terminalResult != nil {
-                for semaphore in group.subscribers.values { semaphore.signal() }
+            if group.terminalResult != nil || (group.decision != nil && !deferDecisionSignal) {
+                if !group.decisionSignaled {
+                    for semaphore in group.subscribers.values { semaphore.signal() }
+                    group.decisionSignaled = true
+                    groups[registration.requestID] = group
+                }
             }
         }
+        return decisionToApply
     }
 
     /// Records a delivery failure unless the user already decided: a decision made
@@ -98,15 +113,39 @@ final class FeedWaiterRegistry: Sendable {
         }
     }
 
-    func resolve(requestID: String, decision: WorkstreamDecision) -> Reply? {
+    func resolve(
+        requestID: String,
+        decision: WorkstreamDecision,
+        deferSignalUntilStoreCommit: Bool = false
+    ) -> Reply? {
         groups.withLock { groups in
             guard var group = groups[requestID], group.decision == nil, group.terminalResult == nil else { return nil }
             group.decision = decision
             let reply = Reply(requestID: requestID, groupID: group.id, event: group.event, target: group.target)
             group.target = nil
             groups[requestID] = group
-            if group.itemID != nil { for semaphore in group.subscribers.values { semaphore.signal() } }
+            if group.itemID != nil && !deferSignalUntilStoreCommit {
+                for semaphore in group.subscribers.values { semaphore.signal() }
+                group.decisionSignaled = true
+                groups[requestID] = group
+            }
             return reply
+        }
+    }
+
+    /// Wakes blocking callers after the corresponding WorkstreamItem has been
+    /// updated in the store. This ordering makes a resolved ingest result
+    /// authoritative when the caller immediately reads the item state.
+    func signalResolved(requestID: String, groupID: UUID) {
+        groups.withLock { groups in
+            guard var group = groups[requestID],
+                  group.id == groupID,
+                  group.itemID != nil,
+                  group.decision != nil,
+                  !group.decisionSignaled else { return }
+            for semaphore in group.subscribers.values { semaphore.signal() }
+            group.decisionSignaled = true
+            groups[requestID] = group
         }
     }
 
