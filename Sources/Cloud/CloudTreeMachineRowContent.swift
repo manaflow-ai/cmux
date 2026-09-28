@@ -130,7 +130,10 @@ struct CloudTreeMachineRowContent: View {
         }
         parts.append(machine.kindLabel)
         if let createdAt = machine.createdAt {
-            parts.append(Self.relativeFormatter.localizedString(for: createdAt, relativeTo: Date()))
+            // `now`, not `Date()`: the row's metrics already read the injected
+            // clock, so a test that pins one got an age measured against the
+            // other and the two halves of the same row disagreed.
+            parts.append(Self.relativeFormatter.localizedString(for: createdAt, relativeTo: now))
         }
         if machine.freeAccess == .expired {
             parts.append(String(localized: "machines.row.locked", defaultValue: "Locked"))

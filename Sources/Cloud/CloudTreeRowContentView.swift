@@ -414,3 +414,115 @@ enum CloudTreeBrowserDetail {
         return row.workspaceTitle
     }
 }
+
+/// The hover text and the assistive-technology label for one Cloud row.
+///
+/// Both belong to the cell rather than to the hosted SwiftUI content.
+/// `CloudTreePassthroughHostingView` returns nil from `hitTest` so the outline
+/// owns every pointer event, which also means a `.help()` inside a row view
+/// never receives the hover that would show it. Rows that kept their secondary
+/// information "on hover" had no way to present it to a pointer; computing it
+/// here and letting `CloudTreeCellView` assign `toolTip` gives every row kind
+/// one tooltip path and one accessibility path.
+struct CloudTreeRowDescription: Equatable {
+    /// nil leaves the cell without hover text: short, fixed group labels.
+    let toolTip: String?
+    let accessibilityLabel: String
+}
+
+enum CloudTreeRowToolTip {
+    /// Hover text and accessibility label for `node`, including the presence
+    /// heads the cell resolved for a workspace row.
+    @MainActor
+    static func describe(
+        node: CloudTreeNode,
+        style: CloudTreeStyle,
+        presenceHeads: [WorkspacePresenceParticipant]
+    ) -> CloudTreeRowDescription {
+        switch node.kind {
+        case .machine(let machine, _):
+            let content = CloudTreeMachineRowContent(machine: machine, style: style, resources: node.resourceSection)
+            return .init(toolTip: content.toolTip, accessibilityLabel: content.accessibilityLabel)
+        case .pendingMachine(let operation):
+            // The failure's first line rides along so a red row explains itself on hover.
+            return .init(toolTip: operation.summaryLine, accessibilityLabel: node.searchableTitle)
+        case .localMachine(let row):
+            return .init(toolTip: row.name, accessibilityLabel: node.searchableTitle)
+        case .device(let row):
+            // Full status and counts: the row itself carries only a dim fact.
+            let content = CloudTreeDeviceRowContent(row: row, style: style)
+            return .init(toolTip: content.toolTip, accessibilityLabel: content.accessibilityLabel)
+        case .workspace(_, let workspace, let terminalCount, _, _):
+            let lines = workspaceLines(workspace, terminalCount: terminalCount, presenceHeads: presenceHeads)
+            let names = WorkspacePresencePolicy.accessibilityLabel(presenceHeads)
+            return .init(
+                toolTip: joined(lines),
+                accessibilityLabel: presenceHeads.isEmpty
+                    ? node.searchableTitle
+                    : "\(node.searchableTitle), \(names)"
+            )
+        case .localWorkspace(let row):
+            return .init(toolTip: row.title, accessibilityLabel: node.searchableTitle)
+        case .terminal(let row):
+            let text = CloudTreeTerminalRowContent(row: row, style: style).toolTip
+            return .init(toolTip: text.isEmpty ? nil : text, accessibilityLabel: text)
+        case .display(let resource, _, _):
+            // `searchableTitle` already resolves the remote view name, the
+            // resource title and the "Desktop" fallback in that order.
+            let detail = CloudTreeRowContentView.text(for: resource)
+            return .init(
+                toolTip: joined([node.searchableTitle, detail]),
+                accessibilityLabel: [node.searchableTitle, detail].joined(separator: ", ")
+            )
+        case .browser(let row):
+            // An untitled browser's `searchableTitle` is the empty resource
+            // title, which would leave the row unlabelled for VoiceOver.
+            let title = row.resource.title.isEmpty
+                ? String(localized: "cloudTree.browser.untitled", defaultValue: "browser")
+                : row.resource.title
+            return .init(
+                toolTip: joined([title, row.resource.url, CloudTreeBrowserDetail.text(for: row)]),
+                accessibilityLabel: title
+            )
+        case .port(let resource, let url, _):
+            return .init(
+                toolTip: joined([url, resource.title, resource.detail]),
+                accessibilityLabel: node.searchableTitle
+            )
+        case .resource(_, let row):
+            return .init(toolTip: row.accessibilityLabel, accessibilityLabel: row.accessibilityLabel)
+        case .placeholder(_, let placeholder):
+            return .init(toolTip: placeholder.text, accessibilityLabel: node.searchableTitle)
+        case .terminalsPool, .displaysPool, .workspacesGroup, .browsersGroup, .portsGroup,
+             .resourcesPool, .devicesSection, .cloudMachinesSection, .devicesEmpty:
+            // Fixed section labels: they never truncate, so hover text would only
+            // repeat what the row already reads.
+            return .init(toolTip: nil, accessibilityLabel: node.searchableTitle)
+        }
+    }
+
+    /// Identity, size and occupancy for a cmux-tui workspace. A workspace row
+    /// otherwise shows only a name the machine generated, with no way to tell
+    /// two of them apart.
+    private static func workspaceLines(
+        _ workspace: SurfaceRemoteWorkspace,
+        terminalCount: Int,
+        presenceHeads: [WorkspacePresenceParticipant]
+    ) -> [String?] {
+        var lines: [String?] = [workspace.name, workspace.detail]
+        lines.append(CloudTreeRowContentView.count(terminalCount))
+        if !presenceHeads.isEmpty {
+            lines.append(WorkspacePresencePolicy.accessibilityLabel(presenceHeads))
+        }
+        return lines
+    }
+
+    /// One tooltip line per fact, dropping empties. nil when nothing is left.
+    private static func joined(_ lines: [String?]) -> String? {
+        let text = lines
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        return text.isEmpty ? nil : text
+    }
+}
