@@ -35,6 +35,7 @@ import Testing
     @Test func sessionFailuresReportWhoseFaultTheyAre() {
         #expect(TerminalController.recordingErrorCode(for: WindowRecordingSessionError.unsupportedSystem) == "unsupported")
         #expect(TerminalController.recordingErrorCode(for: WindowRecordingSessionError.windowGone) == "not_found")
+        #expect(TerminalController.recordingErrorCode(for: WindowRecordingSessionError.captureTimedOut) == "timeout")
         #expect(TerminalController.recordingErrorCode(for: WindowRecordingSessionError.composeFailed) == "internal_error")
         #expect(TerminalController.recordingErrorCode(for: WindowRecordingSessionError.alreadyFinished) == "internal_error")
         #expect(

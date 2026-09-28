@@ -204,6 +204,8 @@ extension TerminalController {
                 return "unsupported"
             case .windowGone:
                 return "not_found"
+            case .captureTimedOut:
+                return "timeout"
             case .outputNotAFile:
                 // The caller's `out` names something that is not a file the
                 // recorder may replace, so this is their parameter, not our bug.

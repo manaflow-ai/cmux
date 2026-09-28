@@ -31,15 +31,22 @@ enum WindowCaptureValueDecoding {
         guard let number = numericValue(value), number.isFinite else {
             throw WindowCaptureValueFailure.notANumber(field: field)
         }
-        // `Int(exactly:)` rather than `Int(_:)`: converting a value past Int's
-        // range traps, and "--fps 1e30" is something a caller can type.
-        guard let rounded = Int(exactly: number.rounded()), range.contains(rounded) else {
+        // Integer fields never round. In particular, a JSON caller's 12.5 fps
+        // must not silently become 13, and converting a value past Int's range
+        // must not trap.
+        guard number.rounded(.towardZero) == number else {
+            throw WindowCaptureValueFailure.outOfRange(
+                field: field,
+                message: "must be a whole number between \(range.lowerBound) and \(range.upperBound)"
+            )
+        }
+        guard let integer = Int(exactly: number), range.contains(integer) else {
             throw WindowCaptureValueFailure.outOfRange(
                 field: field,
                 message: "must be between \(range.lowerBound) and \(range.upperBound)"
             )
         }
-        return rounded
+        return integer
     }
 
     static func double(

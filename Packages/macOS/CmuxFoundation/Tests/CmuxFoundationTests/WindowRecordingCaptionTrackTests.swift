@@ -68,4 +68,29 @@ import Testing
         #expect(track.notesInOrder.allSatisfy { $0.offsetSeconds == 0 })
         #expect(track.caption(atOffsetSeconds: .nan) == nil)
     }
+
+    @Test func noteStorageKeepsOnlyABoundedRecentTail() {
+        var track = WindowRecordingCaptionTrack(visibleSeconds: 10_000)
+
+        for offset in 0..<(WindowRecordingCaptionTrack.maximumNotes + 25) {
+            track.append(text: "note \(offset)", atOffsetSeconds: Double(offset))
+        }
+
+        #expect(track.count == WindowRecordingCaptionTrack.maximumNotes + 25)
+        #expect(track.notesInOrder.count == WindowRecordingCaptionTrack.maximumNotes)
+        #expect(track.notesInOrder.first?.text == "note 25")
+        #expect(track.notesInOrder.last?.text == "note 536")
+        #expect(track.caption(atOffsetSeconds: 400) == "note 400")
+    }
+
+    @Test func lookupFindsTheLatestOfManyOrderedAndOutOfOrderNotes() {
+        var track = WindowRecordingCaptionTrack(visibleSeconds: 20)
+        for offset in stride(from: 500, through: 0, by: -1) {
+            track.append(text: "note \(offset)", atOffsetSeconds: Double(offset))
+        }
+
+        #expect(track.caption(atOffsetSeconds: 249.9) == "note 249")
+        #expect(track.caption(atOffsetSeconds: 250) == "note 250")
+        #expect(track.caption(atOffsetSeconds: 500) == "note 500")
+    }
 }

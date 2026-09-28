@@ -109,6 +109,15 @@ import Testing
         #expect(failure?.message == "max_width must be between 64 and 8192")
     }
 
+    @Test func fractionalMaximumWidthsAreRejectedInsteadOfRounded() {
+        for value: Any in [799.5, "799.5"] {
+            let failure = #expect(throws: WindowScreenshotRequest.Failure.self) {
+                try WindowScreenshotRequest.make(params: ["max_width": value])
+            }
+            #expect(failure?.message == "max_width must be a whole number between 64 and 8192")
+        }
+    }
+
     @Test func nonNumbersAreRefusedByName() throws {
         let failure = #expect(throws: WindowScreenshotRequest.Failure.self) {
             try WindowScreenshotRequest.make(params: ["quality": "sharp"])

@@ -10,6 +10,14 @@ import Testing
 @testable import cmux
 #endif
 
+private actor CaptureDeadlineRetirementProbe {
+    private(set) var retired = false
+
+    func markRetired() {
+        retired = true
+    }
+}
+
 /// Covers the half of `cmux shot` that does not need a window on screen:
 /// encoding one image to a png or a jpeg, and the error code each failure comes
 /// back to the caller as.
@@ -247,7 +255,59 @@ import Testing
 
     // MARK: Error codes
 
+    @Test func successfulCaptureRetiresItsDeadlineBeforeReturning() async throws {
+        let probe = CaptureDeadlineRetirementProbe()
+        let result = try await OwnWindowFrameCapture.withDeadline(
+            timeoutNanoseconds: 1,
+            operation: { 42 },
+            sleep: { _ in
+                do {
+                    try await Task.sleep(nanoseconds: 10_000_000_000)
+                } catch {
+                    await probe.markRetired()
+                    throw error
+                }
+            }
+        )
+
+        #expect(result == 42)
+        #expect(await probe.retired)
+    }
+
+    @Test func timedOutCaptureRetiresItsOperationBeforeReturning() async {
+        let started = CaptureDeadlineRetirementProbe()
+        let retired = CaptureDeadlineRetirementProbe()
+
+        await #expect(throws: OwnWindowFrameCapture.Failure.timedOut) {
+            try await OwnWindowFrameCapture.withDeadline(
+                timeoutNanoseconds: 1,
+                operation: {
+                    await started.markRetired()
+                    do {
+                        try await Task.sleep(nanoseconds: 10_000_000_000)
+                        return 42
+                    } catch {
+                        await retired.markRetired()
+                        throw error
+                    }
+                },
+                sleep: { _ in
+                    while !(await started.retired) {
+                        await Task.yield()
+                    }
+                }
+            )
+        }
+
+        #expect(await retired.retired)
+    }
+
     @Test func captureFailuresReportWhoseFaultTheyAre() {
+        #expect(
+            TerminalController.screenshotErrorCode(
+                for: OwnWindowFrameCapture.Failure.timedOut
+            ) == "timeout"
+        )
         #expect(
             TerminalController.screenshotErrorCode(
                 for: OwnWindowFrameCapture.Failure.unsupportedSystem

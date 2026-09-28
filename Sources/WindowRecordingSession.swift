@@ -6,6 +6,7 @@ import ScreenCaptureKit
 enum WindowRecordingSessionError: Error, LocalizedError {
     case unsupportedSystem
     case windowGone
+    case captureTimedOut
     case captureFailed(String)
     case composeFailed
     case alreadyFinished
@@ -17,6 +18,8 @@ enum WindowRecordingSessionError: Error, LocalizedError {
             "recording a cmux window needs macOS 14.4 or later"
         case .windowGone:
             "the window is no longer available"
+        case .captureTimedOut:
+            "window capture timed out"
         case let .captureFailed(detail):
             "window capture failed: \(detail)"
         case .composeFailed:
@@ -37,6 +40,8 @@ extension WindowRecordingSessionError {
             self = .unsupportedSystem
         case .windowGone:
             self = .windowGone
+        case .timedOut:
+            self = .captureTimedOut
         case let .captureFailed(detail):
             self = .captureFailed(detail)
         }

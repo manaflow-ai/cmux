@@ -22,9 +22,13 @@ public struct WindowRecordingCaptionTrack: Sendable, Equatable {
     public static let defaultVisibleSeconds: Double = 2.5
     /// Longest caption drawn; a whole prompt would cover the window.
     public static let maximumCharacters = 120
+    /// Captions are advisory UI, not an event log. Keep a bounded recent tail
+    /// even if an automation client floods `record note` for the full clip.
+    public static let maximumNotes = 512
 
     public let visibleSeconds: Double
     private var notes: [Note] = []
+    private var acceptedNoteCount = 0
 
     public init(visibleSeconds: Double = WindowRecordingCaptionTrack.defaultVisibleSeconds) {
         self.visibleSeconds = max(0.1, visibleSeconds)
@@ -32,7 +36,9 @@ public struct WindowRecordingCaptionTrack: Sendable, Equatable {
 
     public var isEmpty: Bool { notes.isEmpty }
     public var notesInOrder: [Note] { notes }
-    public var count: Int { notes.count }
+    /// Total accepted notes, independent of how many old captions were pruned
+    /// from the bounded lookup history.
+    public var count: Int { acceptedNoteCount }
 
     /// Records one caption. Returns false when the text carries nothing to draw.
     ///
@@ -53,11 +59,15 @@ public struct WindowRecordingCaptionTrack: Sendable, Equatable {
             offsetSeconds: offset.isFinite ? max(0, offset) : 0,
             text: clipped
         )
+        acceptedNoteCount += 1
         if let last = notes.last, last.offsetSeconds <= note.offsetSeconds {
             notes.append(note)
         } else {
-            let index = notes.firstIndex { $0.offsetSeconds > note.offsetSeconds } ?? notes.endIndex
+            let index = insertionIndex(after: note.offsetSeconds)
             notes.insert(note, at: index)
+        }
+        if notes.count > Self.maximumNotes {
+            notes.removeFirst(notes.count - Self.maximumNotes)
         }
         return true
     }
@@ -65,14 +75,28 @@ public struct WindowRecordingCaptionTrack: Sendable, Equatable {
     /// The caption to draw on the frame captured at `offset`, if any.
     public func caption(atOffsetSeconds offset: Double) -> String? {
         guard offset.isFinite else { return nil }
-        var current: Note?
-        for note in notes {
-            if note.offsetSeconds > offset { break }
-            current = note
-        }
-        guard let current, offset - current.offsetSeconds < visibleSeconds else {
+        let index = insertionIndex(after: offset)
+        guard index > notes.startIndex else { return nil }
+        let current = notes[notes.index(before: index)]
+        guard offset - current.offsetSeconds < visibleSeconds else {
             return nil
         }
         return current.text
+    }
+
+    /// First note strictly later than `offset`. Both out-of-order insertion and
+    /// per-frame lookup stay logarithmic in the bounded note history.
+    private func insertionIndex(after offset: Double) -> Int {
+        var lower = notes.startIndex
+        var upper = notes.endIndex
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if notes[middle].offsetSeconds <= offset {
+                lower = middle + 1
+            } else {
+                upper = middle
+            }
+        }
+        return lower
     }
 }

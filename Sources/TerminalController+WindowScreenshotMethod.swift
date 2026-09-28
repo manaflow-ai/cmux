@@ -160,6 +160,8 @@ extension TerminalController {
                 return "unsupported"
             case .windowGone:
                 return "not_found"
+            case .timedOut:
+                return "timeout"
             case .captureFailed:
                 return "internal_error"
             }

@@ -123,6 +123,23 @@ import Testing
         }
     }
 
+    @Test func fractionalFrameRatesAreRejectedInsteadOfRounded() {
+        for value: Any in [12.5, "12.5"] {
+            let failure = #expect(throws: WindowRecordingRequest.Failure.self) {
+                try WindowRecordingRequest.make(params: ["fps": value])
+            }
+            #expect(failure?.message == "fps must be a whole number between 1 and 30")
+        }
+    }
+
+    @Test func fractionalMaximumWidthsAreRejectedInsteadOfRounded() {
+        for value: Any in [639.5, "639.5"] {
+            #expect(throws: WindowRecordingRequest.Failure.self) {
+                try WindowRecordingRequest.make(params: ["max_width": value])
+            }
+        }
+    }
+
     @Test func durationIsCappedSoAStuckAgentCannotFillTheDisk() {
         #expect(throws: (any Error).self) {
             try WindowRecordingRequest.make(params: ["max_seconds": 3600])

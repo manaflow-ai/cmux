@@ -1,6 +1,6 @@
 import CoreGraphics
 import Foundation
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit
 
 /// One captured frame of one of cmux's own windows.
 ///
@@ -24,8 +24,14 @@ struct OwnWindowFrameCapture {
     enum Failure: Error, Equatable {
         case unsupportedSystem
         case windowGone
+        case timedOut
         case captureFailed(String)
     }
+
+    /// Shorter than the socket command's 20-second deadline so both the
+    /// content lookup and the first frame have their own chance to fail and
+    /// retire before the socket worker gives up.
+    static let operationTimeoutNanoseconds: UInt64 = 8_000_000_000
 
     let windowID: CGWindowID
 
@@ -40,7 +46,11 @@ struct OwnWindowFrameCapture {
             // windows even if that permission was granted.
             let content: SCShareableContent
             do {
-                content = try await SCShareableContent.currentProcess
+                content = try await Self.withDeadline {
+                    try await SCShareableContent.currentProcess
+                }
+            } catch let failure as Failure {
+                throw failure
             } catch {
                 throw Failure.captureFailed(error.localizedDescription)
             }
@@ -72,11 +82,15 @@ struct OwnWindowFrameCapture {
         configuration.ignoreShadowsSingleWindow = true
         configuration.captureResolution = .best
         do {
-            let image = try await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: configuration
-            )
+            let image = try await withDeadline {
+                try await SCScreenshotManager.captureImage(
+                    contentFilter: filter,
+                    configuration: configuration
+                )
+            }
             return OwnWindowFrame(image: image, pointPixelScale: pixelScale)
+        } catch let failure as Failure {
+            throw failure
         } catch {
             throw Failure.captureFailed(error.localizedDescription)
         }
@@ -87,5 +101,47 @@ struct OwnWindowFrameCapture {
     func captureOnce() async throws -> OwnWindowFrame {
         let filter = try await resolveFilter()
         return try await Self.sample(filter: filter)
+    }
+
+    /// Gives one ScreenCaptureKit operation its own deadline. A task-group
+    /// scope does not return until all children have finished, so cancelling
+    /// the losing child also retires it before the caller can start another
+    /// capture or report completion.
+    static func withDeadline<T: Sendable>(
+        timeoutNanoseconds: UInt64 = operationTimeoutNanoseconds,
+        operation: @escaping @Sendable () async throws -> T,
+        sleep: @escaping @Sendable (UInt64) async throws -> Void = { nanoseconds in
+            try await Task.sleep(nanoseconds: nanoseconds)
+        }
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try Task.checkCancellation()
+                return try await operation()
+            }
+            group.addTask {
+                try await sleep(timeoutNanoseconds)
+                try Task.checkCancellation()
+                throw Failure.timedOut
+            }
+
+            let winner: Result<T, Error>
+            do {
+                guard let result = try await group.next() else {
+                    throw Failure.timedOut
+                }
+                winner = .success(result)
+            } catch {
+                winner = .failure(error)
+            }
+            group.cancelAll()
+            // Drain the cancelled loser explicitly. This is what makes a
+            // timeout/cancellation a retirement boundary rather than merely a
+            // promise to ignore a ScreenCaptureKit result that arrives later.
+            while !group.isEmpty {
+                _ = try? await group.next()
+            }
+            return try winner.get()
+        }
     }
 }
