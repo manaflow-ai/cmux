@@ -6,10 +6,10 @@ import SwiftUI
 
 /// What the workspace list shows about the selected SSH computer (PRD D22).
 /// Parity with a paired Mac: rows carry their own connection status, the
-/// title picker carries the computer's, and an empty list shows only
-/// "No Workspaces" plus one status line (a host serves every kind, PRD D31).
-/// New workspaces come from `+`; pull-to-refresh reconnects. Value-only;
-/// actions are closures.
+/// title picker carries the computer's, and an empty list renders the exact
+/// paired-Mac empty state with one status line as its message (a host serves
+/// every kind, PRD D31). New workspaces come from `+`; pull-to-refresh
+/// reconnects. Value-only; actions are closures.
 struct SSHWorkspaceListPanel: Equatable {
     let hostID: UUID
     let status: MobileSSHHostStatus
@@ -26,10 +26,6 @@ struct SSHWorkspaceListPanel: Equatable {
         case .idle: willAutoConnect ? .reconnecting : .notConnected
         case .failed: .notConnected
         }
-    }
-
-    var emptyTitle: String {
-        L10n.string("mobile.ssh.empty.title", defaultValue: "No Workspaces")
     }
 
     /// The single secondary line under an empty list's title; `nil` when
@@ -134,8 +130,9 @@ private struct SSHInstallingNotice: View {
     }
 }
 
-/// No workspaces on this SSH computer: the plain empty-state title and one
-/// status line, in a scroll view so pull-to-refresh works on the empty list
+/// No workspaces on this SSH computer: the paired-Mac empty state's exact
+/// layout (same scaffold, icon, and typography) with one SSH status line as
+/// its message, in a scroll view so pull-to-refresh works on the empty list
 /// exactly as it does on a populated one.
 private struct SSHWorkspaceEmptyState: View {
     let panel: SSHWorkspaceListPanel
@@ -145,14 +142,11 @@ private struct SSHWorkspaceEmptyState: View {
         let hostID = panel.hostID
         let refresh = actions.refresh
         ScrollView {
-            ContentUnavailableView {
-                Text(panel.emptyTitle)
-            } description: {
-                if let status = panel.emptyStatusText {
-                    Text(status)
-                        .accessibilityIdentifier("ssh.empty.status")
-                }
-            }
+            WorkspaceListEmptyStateScaffold(
+                message: panel.emptyStatusText,
+                messageAccessibilityIdentifier: "ssh.empty.status"
+            )
+            .accessibilityElement(children: .contain)
             .containerRelativeFrame(.vertical)
         }
         .refreshable { await refresh(hostID) }

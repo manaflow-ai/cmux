@@ -17,6 +17,69 @@ private struct MobileDocsSafariView: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }
 
+/// The one empty-workspace-list layout: icon, title, optional message, and
+/// optional footer content, in the paired-Mac empty state's typography.
+///
+/// Shared by the workspace table's empty row (paired Macs and the SSH-variant
+/// All Computers) and the per-SSH-host overlay, so every "no workspaces"
+/// surface renders identically; variants differ only in copy and actions,
+/// never in layout, icon, or type.
+struct WorkspaceListEmptyStateScaffold<Detail: View, Actions: View>: View {
+    let message: String?
+    let messageAccessibilityIdentifier: String
+    /// Extra secondary lines under the message (e.g. a retry timeout note).
+    @ViewBuilder var detail: Detail
+    /// The action buttons, when the variant has any.
+    @ViewBuilder var actions: Actions
+
+    /// One title for every empty workspace list, Mac or SSH.
+    static var title: String {
+        L10n.string("mobile.workspaces.empty.title", defaultValue: "No workspaces yet")
+    }
+
+    init(
+        message: String?,
+        messageAccessibilityIdentifier: String,
+        @ViewBuilder detail: () -> Detail = { EmptyView() },
+        @ViewBuilder actions: () -> Actions = { EmptyView() }
+    ) {
+        self.message = message
+        self.messageAccessibilityIdentifier = messageAccessibilityIdentifier
+        self.detail = detail()
+        self.actions = actions()
+    }
+
+    var body: some View {
+        // A plain stack, not ContentUnavailableView: these surfaces are
+        // self-sized by their hosts, and ContentUnavailableView fills
+        // whatever height it is offered, which stretched the action buttons
+        // into label-less capsules.
+        VStack(spacing: 16) {
+            Image(systemName: "macbook.and.iphone")
+                .font(.system(size: 44))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            VStack(spacing: 8) {
+                Text(Self.title)
+                    .font(.title2.bold())
+                    .accessibilityAddTraits(.isHeader)
+                if let message {
+                    Text(message)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(messageAccessibilityIdentifier)
+                }
+                detail
+            }
+            .multilineTextAlignment(.center)
+            actions
+        }
+        .frame(maxWidth: 420)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 32)
+    }
+}
+
 struct MobileWorkspaceListEmptyRow: View {
     private static let docsURL = URL(string: "https://cmux.com/docs/ios#prerequisites")!
     private static let retryTimeout: Duration = .seconds(30)
@@ -41,16 +104,6 @@ struct MobileWorkspaceListEmptyRow: View {
     @State private var retryTimedOut = false
     @State private var isDocsPresented = false
 
-    /// The SSH title matches the per-host SSH empty state (PRD D36).
-    private var title: String {
-        switch guidance {
-        case .macPairing:
-            L10n.string("mobile.workspaces.empty.title", defaultValue: "No workspaces yet")
-        case .sshComputers:
-            L10n.string("mobile.ssh.empty.title", defaultValue: "No Workspaces")
-        }
-    }
-
     private var message: String {
         switch guidance {
         case .macPairing:
@@ -64,39 +117,24 @@ struct MobileWorkspaceListEmptyRow: View {
     }
 
     var body: some View {
-        // A plain stack, not ContentUnavailableView: this row is self-sized
-        // by the workspace table, and ContentUnavailableView fills whatever
-        // height it is offered, which stretched the action buttons into
-        // label-less capsules.
-        VStack(spacing: 16) {
-            Image(systemName: guidance == .sshComputers ? "terminal" : "macbook.and.iphone")
-                .font(.system(size: 44))
+        WorkspaceListEmptyStateScaffold(
+            message: message,
+            messageAccessibilityIdentifier: guidance == .sshComputers
+                ? "MobileWorkspaceEmptySSHGuidance"
+                : "MobileWorkspaceEmptyPairingGuidance"
+        ) {
+            if retryTimedOut {
+                Text(
+                    L10n.string(
+                        "mobile.workspaces.empty.retryTimedOut",
+                        defaultValue: "The connection is taking longer than expected. Try again or check the setup guide."
+                    )
+                )
+                .font(.footnote)
                 .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            VStack(spacing: 8) {
-                Text(title)
-                    .font(.title2.bold())
-                    .accessibilityAddTraits(.isHeader)
-                Text(message)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier(
-                        guidance == .sshComputers
-                            ? "MobileWorkspaceEmptySSHGuidance"
-                            : "MobileWorkspaceEmptyPairingGuidance"
-                    )
-                if retryTimedOut {
-                    Text(
-                        L10n.string(
-                            "mobile.workspaces.empty.retryTimedOut",
-                            defaultValue: "The connection is taking longer than expected. Try again or check the setup guide."
-                        )
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("MobileWorkspaceEmptyRetryTimedOut")
-                }
+                .accessibilityIdentifier("MobileWorkspaceEmptyRetryTimedOut")
             }
-            .multilineTextAlignment(.center)
+        } actions: {
             // Mac recovery actions: Retry drives the Mac workspace-list
             // recovery and the docs page explains Mac pairing, so an
             // SSH-only empty state offers neither.
@@ -176,10 +214,6 @@ struct MobileWorkspaceListEmptyRow: View {
                 .padding(.top, 8)
             }
         }
-        .frame(maxWidth: 420)
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 32)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileWorkspaceEmptyState")
         .sheet(isPresented: $isDocsPresented) {
