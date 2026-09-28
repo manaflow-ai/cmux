@@ -563,15 +563,17 @@ final class WorkspaceContentViewVisibilityTests {
 #endif
     }
 
-    /// Drains until three consecutive drains re-evaluate no chrome body, so a
-    /// measurement only counts what the change under test invalidates.
+    /// Drains until ten consecutive drains re-evaluate no chrome body, so a
+    /// measurement only counts what the change under test invalidates. The
+    /// selected workspace can publish its initial file-explorer root on a
+    /// later run-loop turn, after the first few quiet rounds.
     @MainActor
     private static func waitForQuietChromeBodies(
         counts: MinimalModeBodyProbeCounts,
         window: NSWindow
     ) async -> Bool {
         var quietRounds = 0
-        for _ in 0..<100 where quietRounds < 3 {
+        for _ in 0..<100 where quietRounds < 10 {
             counts.reset()
             await drainMainRunLoop(for: window)
             let settled = counts.contentViewBody == 0
@@ -579,7 +581,7 @@ final class WorkspaceContentViewVisibilityTests {
                 && counts.verticalTabsSidebarBody == 0
             quietRounds = settled ? quietRounds + 1 : 0
         }
-        return quietRounds >= 3
+        return quietRounds >= 10
     }
 
     @MainActor
