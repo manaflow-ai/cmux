@@ -16,6 +16,11 @@ import Testing
 @MainActor
 @Suite("The Cloud toolbar names the failure it has and offers its fix", .serialized)
 struct MachinesListStatusToolbarRowTests {
+    /// The three list failures, in the order the panel can hit them.
+    private static let problems: [MachinesPanelViewModel.CloudListProblem] = [
+        .unreachable, .sessionRejected, .requiresPro,
+    ]
+
     @Test("Each failure offers the action that can fix it")
     func failureOffersItsAction() throws {
         let expected: [(MachinesPanelViewModel.CloudListProblem, String)] = [
@@ -31,32 +36,51 @@ struct MachinesListStatusToolbarRowTests {
         }
     }
 
-    @Test("The three failures do not read the same line")
+    /// Each row must carry its own sentence, not merely differ from the other
+    /// two: a different glyph and a different button already make three
+    /// identical sentences compare unequal, so pairwise inequality proves
+    /// nothing. Each rendered row is matched against its own stale line, and
+    /// the three stale lines are checked to be distinct. Comparing against the
+    /// catalog rather than English literals keeps a copy edit or a non-`en`
+    /// host from reddening this for reasons unrelated to the behavior.
+    @Test("Each failure renders its own line, and the stale one, not the panel headline")
     func failuresReadDifferently() throws {
-        let unreachable = Self.text(of: Self.host(.failed(.unreachable)))
-        let rejected = Self.text(of: Self.host(.failed(.sessionRejected)))
-        let pro = Self.text(of: Self.host(.failed(.requiresPro)))
-        #expect(!unreachable.isEmpty)
-        #expect(unreachable != rejected)
-        #expect(unreachable != pro)
-        #expect(rejected != pro)
-    }
-
-    @Test("A failure still says the cached rows are the last known ones")
-    func failureKeepsTheStaleQualifier() throws {
-        for problem in [MachinesPanelViewModel.CloudListProblem.unreachable, .sessionRejected, .requiresPro] {
+        for problem in Self.problems {
+            let presentation = MachineListStatusPresentation(.failed(problem))
+            let stale = try #require(presentation.staleTitle, "\(problem) has no stale line")
             let text = Self.text(of: Self.host(.failed(problem)))
-            #expect(text.contains("last known"), "\(problem) dropped the stale qualifier: \(text)")
+            #expect(text.contains(stale), "\(problem) rendered \(text), not \(stale)")
+            // The toolbar sits beside cached rows, so it takes the one-line
+            // stale form. The panel's paragraph belongs to the notice and the
+            // empty state, and would blow the toolbar's single line apart.
+            let paragraph = try #require(presentation.subtitle, "\(problem) has no panel subtitle")
+            #expect(!text.contains(paragraph), "\(problem) rendered the panel subtitle in the toolbar")
         }
+        let lines = Self.problems.compactMap { MachineListStatusPresentation(.failed($0)).staleTitle }
+        #expect(Set(lines).count == Self.problems.count, "two failures share a stale line: \(lines)")
     }
 
-    /// Waiting for the network is not a failure: it keeps its own glyph and
-    /// offers nothing, because the coordinator retries on its own.
+    /// Waiting for the network is not a failure: it keeps its own glyph, offers
+    /// nothing, and cannot be dismissed, because the coordinator retries on its
+    /// own and there is no error to dismiss.
     @Test("Offline is not dressed up as a failure")
     func offlineOffersNoAction() throws {
         let hosted = Self.host(.waitingForNetwork)
         #expect(Self.element("CloudMachinesUnavailableRetryButton", in: hosted) == nil)
-        #expect(Self.text(of: hosted).contains("Offline"))
+        let offline = try #require(MachineListStatusPresentation(.waitingForNetwork).staleTitle)
+        #expect(Self.text(of: hosted).contains(offline))
+        // The dismiss button is what pins `failure = isFailure ? error : nil`.
+        // Without this, simplifying that line to `let failure = error` leaves
+        // every other case in this suite green while offline gains an orange
+        // dismissable chip, hover text and a context menu it never had.
+        #expect(Self.element("CloudBannerDismissButton", in: hosted) == nil, "offline offered a dismiss button")
+        #expect(Self.element("CloudBannerDismissButton", in: Self.host(.reconnecting)) == nil)
+        for problem in Self.problems {
+            #expect(
+                Self.element("CloudBannerDismissButton", in: Self.host(.failed(problem))) != nil,
+                "\(problem) lost its dismiss button"
+            )
+        }
     }
 
     /// Pressing the toolbar's action runs the same handler the notice and the
@@ -66,7 +90,9 @@ struct MachinesListStatusToolbarRowTests {
         let performed = ActionLog()
         let hosted = Self.host(.failed(.requiresPro), perform: { performed.actions.append($0) })
         let element = try #require(Self.element("CloudMachinesRequiresProUpgradeButton", in: hosted))
-        try #require(Self.press(element), "The upgrade affordance must be a button an assistive client can press")
+        // `press` only reports that a press selector exists; the assertion
+        // below is what proves the press reached the handler.
+        try #require(Self.press(element), "The upgrade affordance exposes no press action")
         #expect(performed.actions == [.upgrade])
     }
 
@@ -90,8 +116,6 @@ struct MachinesListStatusToolbarRowTests {
         _ status: MachineListStatus,
         perform: @escaping (MachineListStatusPresentation.Action) -> Void = { _ in }
     ) -> Hosted {
-        // In-process there is no assistive client to switch SwiftUI's
-        // accessibility output on, so this hierarchy asks for it directly.
         let view = NSHostingView(
             rootView: MachinesListStatusToolbarRow(
                 status: status,
@@ -99,9 +123,13 @@ struct MachinesListStatusToolbarRowTests {
                 onDismiss: { _ in },
                 perform: perform
             )
-            .environment(\.accessibilityEnabled, true)
         )
         view.frame = NSRect(x: 0, y: 0, width: 420, height: 28)
+        // A window, because an `NSHostingView` outside one does not publish its
+        // SwiftUI children to the accessibility tree. The earlier
+        // `.environment(\.accessibilityEnabled, true)` here did nothing: that
+        // key is a read-only signal for app code, it does not switch SwiftUI's
+        // accessibility output on, and it is deprecated.
         let window = NSWindow(contentRect: view.frame, styleMask: [], backing: .buffered, defer: false)
         window.contentView = view
         view.layoutSubtreeIfNeeded()

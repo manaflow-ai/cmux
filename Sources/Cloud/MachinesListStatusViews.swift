@@ -206,7 +206,7 @@ struct MachinesListStatusToolbarRow: View {
         // Only a failure is orange, carries the raw error on hover, and can be
         // dismissed. Waiting and reconnecting stay quiet.
         let failure = presentation.isFailure ? error : nil
-        HStack(spacing: 5) {
+        let row = HStack(spacing: 5) {
             if let symbolName = presentation.symbolName {
                 Image(systemName: symbolName)
                     .font(.system(size: 10, weight: .semibold))
@@ -218,14 +218,25 @@ struct MachinesListStatusToolbarRow: View {
                 Button(action.shortTitle) { perform(action) }
                     .buttonStyle(.link)
                     .cmuxFont(size: 11)
+                    // The sidebar gets narrow. Truncating the status line is
+                    // survivable, losing the only affordance that fixes the
+                    // failure is not, so the verb keeps its width.
+                    .fixedSize()
                     .accessibilityIdentifier(action.accessibilityIdentifier)
             }
         }
         .foregroundColor(presentation.isFailure ? .orange.opacity(0.9) : .secondary)
-        .help(failure ?? "")
-        .cloudErrorCopyMenu(failure)
+        // Hover text and the copy menu belong to a failure only.
+        // `cloudErrorCopyMenu(nil)` attaches an empty `.contextMenu {}`, which
+        // suppresses whatever menu the header would otherwise inherit, so it
+        // must not run for waiting or reconnecting.
         if let failure {
+            row
+                .help(failure)
+                .cloudErrorCopyMenu(failure)
             CloudBannerDismissButton { onDismiss(failure) }
+        } else {
+            row
         }
     }
 
