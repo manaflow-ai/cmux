@@ -5,7 +5,7 @@
 // or credential is ever accepted here.
 import { randomUUID } from "node:crypto";
 
-import { deferCoderouterTask } from "./analytics";
+import { deferCoderouterTask } from "./deferredTask";
 import {
   CODEROUTER_API_RATE_CARD_VERSION,
   estimateApiEquivalent,
