@@ -119,6 +119,11 @@ private struct CloudSidebarDebugControls: View {
                                 }
                             }
                             .labelsHidden()
+                            // `labelsHidden()` leaves the picker with nothing a
+                            // dogfood tour can aim at, so a tour could reach the
+                            // lab but never change preset. The presets are the
+                            // point of the lab.
+                            .accessibilityIdentifier("CloudSidebarDebugLab.preset")
                             Spacer(minLength: 0)
                             CloudSidebarDebugResetButton(
                                 title: String(localized: "debug.cloudSidebarSpacing.preset", defaultValue: "Preset"),
