@@ -1561,28 +1561,25 @@ jobs:
           exit 1
 
   # The UI test classes a pull request changes, run once on its head through
-  # test-e2e.yml (scripts/run-e2e.sh): no pull request job executes
-  # cmuxUITests/ otherwise. The dispatch adopts the app-host product this run
-  # compiles for the merge, waiting for it, so this costs a test run, not a
-  # second compile, and routes to an owned Mac (e2e_runner_pool.py). A fork
-  # cannot dispatch it, so its run fails here until a maintainer runs the
-  # classes and adds 'no-full-ci'. It waits for the admission gate: the gate
-  # holds the compile it adopts, so the gate must not wait for it, and a fast
-  # Linux failure spends no test run. A run that reuses an earlier compile
-  # skips the gate, and still runs the classes, once static preflight passes:
-  # the dispatch adopts that compile by its product key.
+  # test-e2e.yml: no pull request job executes cmuxUITests/ otherwise. The run
+  # adopts the app-host product this run compiles for the merge, waiting for
+  # it, so this costs a test run, not a second compile, and routes to an owned
+  # Mac (e2e_runner_pool.py). It waits for the admission gate: the gate holds
+  # the compile it adopts, so the gate must not wait for it, and a fast Linux
+  # failure spends no test run. A run that reuses an earlier compile skips the
+  # gate, and still runs the classes, once static preflight passes: the
+  # dispatch adopts that compile by its product key.
   #
-  # The one job in this workflow with actions: write, which dispatching takes.
-  # Only a same-repository pull request reaches the dispatch, and its author
-  # can already dispatch any workflow (and edit this job, which a pull_request
-  # run takes from the pull request); a fork's token is read-only regardless.
-  # The dispatcher it runs is main's, matching the test-e2e.yml definition it
-  # dispatches, so a change to scripts/run-e2e.sh or the helpers it imports
-  # never runs with the token before review. The pull request supplies only
-  # the selectors, which must be plain UI test class or method names, and the
-  # revision under test. The flags and CMUX_* variables below are this file's,
-  # read by main's dispatcher: a pull request that changes both takes effect
-  # here only once it merges, and its dispatcher change is not exercised here.
+  # Dispatching takes actions: write, which no job in this file holds: a
+  # pull_request run takes this file from the pull request. This job validates
+  # the selectors and uploads them as a request; ci-ui-tests.yml, which always
+  # runs from the default branch, picks the request up, runs main's dispatcher
+  # on it, and cancels the dispatched run if this run ends first. This job then
+  # reports that run's verdict, so the result stays on the pull request and
+  # under ci-status. A fork's request is refused here: ci-ui-tests.yml serves
+  # only same-repository pull requests, so a maintainer runs its classes with
+  # scripts/run-e2e.sh and adds 'no-full-ci'. scripts/ci/ui_tests_dispatch.py
+  # has both halves.
   ui-tests:
     needs:
       - changes
@@ -1591,10 +1588,10 @@ jobs:
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-admission-gate.result == 'success' || needs.macos-admission-gate.result == 'skipped' && needs.changes.outputs.compile_admitted == 'true') && needs.changes.outputs.ui_selectors != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A compile wait of up to 50 minutes, then the tests.
-    timeout-minutes: 120
+    timeout-minutes: 150
     permissions:
       contents: read
-      actions: write
+      actions: read
     steps:
       - name: Refuse a fork
         if: github.event.pull_request.head.repo.full_name != github.repository
@@ -1604,74 +1601,39 @@ jobs:
           echo "::error::This fork pull request changes UI test classes ($SELECTORS), which only a same-repository dispatch can run. A maintainer runs scripts/run-e2e.sh on its head and adds the 'no-full-ci' label."
           exit 1
 
-      - name: Checkout the dispatcher from the default branch
+      - name: Checkout the request script
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
+          sparse-checkout: scripts/ci/ui_tests_dispatch.py
+          sparse-checkout-cone-mode: false
 
-      # The dispatcher compares the product inputs of the head and the merge
-      # (git ls-tree / git show), so it needs their objects. Fetched, never
-      # checked out; without them it only finds fewer products to adopt.
-      - name: Fetch the revisions under test
+      # Each selector must be cmuxUITests/<Class>[/<method>];
+      # ci-ui-tests.yml validates the request again before it dispatches.
+      - name: Validate the UI test selectors
         env:
+          SELECTORS: ${{ needs.changes.outputs.ui_selectors }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           MERGE_SHA: ${{ github.sha }}
-        run: |
-          git fetch --no-tags --depth=1 origin "$HEAD_SHA" "$MERGE_SHA" \
-            || echo "::warning::could not fetch $HEAD_SHA and $MERGE_SHA; the dispatch may compile instead of adopting a product"
+        run: python3 scripts/ci/ui_tests_dispatch.py request --out "$RUNNER_TEMP/request.json"
 
-      - name: Run the changed UI test classes
+      - name: Request the UI test run
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # ci-ui-tests.yml waits for this name (ui_tests_dispatch.request_artifact()).
+          name: ui-tests-request-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/request.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Wait for the UI test run
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          SELECTORS: ${{ needs.changes.outputs.ui_selectors }}
-          # A re-run of this job dispatches again, even past a failure at this head.
-          FORCE: ${{ github.run_attempt > 1 && '--force' || '' }}
-          # A job token cannot list repository variables (HTTP 403), so the
-          # dispatcher reads its routing inputs from these instead.
-          CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}
-          CMUX_CI_E2E_LARGE_POOL_OVERFLOW: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_E2E_LARGE_POOL_OVERFLOW || '' }}
-          CMUX_CI_PR_POOL_ORDER: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_ORDER || '' }}
-          CMUX_CI_PR_POOL_MAX_QUEUED: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_MAX_QUEUED || '' }}
-          CMUX_CI_PR_POOL_QUEUE_ROUNDS: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_QUEUE_ROUNDS || '' }}
-          CMUX_CI_PR_POOL_OWNED: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED || '' }}
-          CMUX_CI_OWNED_POOL_SLOTS: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_OWNED_POOL_SLOTS || '' }}
-          CMUX_CMUX_CI_XCODE_APP_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
-          CMUX_CI_E2E_OWNED_UI: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_E2E_OWNED_UI || '' }}
-        run: |
-          set -uo pipefail
-          # A newer push cancels this job; the dispatched run would otherwise
-          # keep an owned Mac for a superseded head. Its URL is the "Run:" line.
-          log="$RUNNER_TEMP/ui-tests.log"
-          : > "$log"
-          cancel_dispatch() {
-            run_id="$(sed -n 's|^Run: https://github.com/.*/actions/runs/\([0-9]*\).*|\1|p' "$log" | tail -1)"
-            if [ -n "$run_id" ]; then
-              gh run cancel "$run_id" --repo "$GITHUB_REPOSITORY" || true
-            fi
-            exit 130
-          }
-          trap cancel_dispatch INT TERM
-          # The selectors come from the pull request's own `changes` job, so
-          # each must be a UI test class or method, never an option.
-          read -r -a selectors <<< "$SELECTORS"
-          if [ "${#selectors[@]}" -eq 0 ]; then
-            echo "::error::no UI test selectors to run"
-            exit 1
-          fi
-          for selector in "${selectors[@]}"; do
-            if [[ ! "$selector" =~ ^cmuxUITests/[A-Za-z_][A-Za-z0-9_]*(/[A-Za-z_][A-Za-z0-9_]*)?$ ]]; then
-              echo "::error::refusing UI test selector '$selector': not cmuxUITests/<Class>[/<method>]"
-              exit 1
-            fi
-          done
-          extra=(--wait --no-video)
-          if [ "$FORCE" = "--force" ]; then
-            extra+=(--force)
-          fi
-          scripts/run-e2e.sh "${selectors[@]}" --ref "$HEAD_SHA" "${extra[@]}" > >(tee "$log") 2>&1 &
-          wait $!
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python3 scripts/ci/ui_tests_dispatch.py await-verdict
 
   dogfood-build:
     # One sticky comment per app pull request with a link to a tagged dev build
