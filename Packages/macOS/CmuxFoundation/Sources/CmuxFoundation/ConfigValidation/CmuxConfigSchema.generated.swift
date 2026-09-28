@@ -663,9 +663,17 @@ enum CmuxEmbeddedConfigSchema {
           "description": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "reorderOnNotification": {
-          "type": "boolean",
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "enum": ["off", "notifications", "agentActivity"]
+            }
+          ],
           "default": true,
-          "description": "Move workspaces with new notifications toward the top."
+          "description": "Automatic workspace reordering. true or \"notifications\" moves workspaces with new notifications toward the top. \"agentActivity\" also moves them when an agent finishes a turn, needs input, or fails, at most once per burst and never while the pointer is over the sidebar. false or \"off\" keeps the order stable."
         },
         "iMessageMode": {
           "type": "boolean",
@@ -802,12 +810,12 @@ enum CmuxEmbeddedConfigSchema {
         "showPasswordInputIndicator": {
           "type": "boolean",
           "default": true,
-          "description": "Show a lock badge in the terminal corner while the foreground program has turned echo off for a password prompt (sudo, ssh, passwd, gpg). cmux draws the badge itself and never changes terminal text."
+          "description": "Show a lock badge in the terminal corner while the foreground program has turned echo off for a password prompt (sudo, ssh, passwd, gpg). cmux draws the badge itself and never changes terminal text. Only prompts on the local terminal are detected: an ssh password prompt counts, but sudo run inside an ssh session does not. Changes apply to an open prompt at once."
         },
         "showPasswordInputDots": {
           "type": "boolean",
           "default": false,
-          "description": "When the password input badge is shown, also draw one dot per typed character. cmux keeps only a count, never the typed characters. Backspace removes a dot; Enter or echo turning back on clears them."
+          "description": "When the password input badge is shown, also draw one dot per typed character. cmux keeps only a count, never the typed characters. Backspace removes a dot; Enter or echo turning back on clears them. Pasted text is not counted."
         },
         "autoResumeAgentSessions": {
           "type": "boolean",
@@ -1118,12 +1126,26 @@ enum CmuxEmbeddedConfigSchema {
           "descriptionKey": "schemaDescriptions.notifications.paneFlashColor",
           "description": "Override the pane flash and unread ring color. Null keeps the built-in blue."
         },
+        "soundWhenFocused": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.notifications.soundWhenFocused",
+          "description": "Play the notification sound even when the pane that notified is already focused. Off by default, so a focused pane shows only its ring and flash."
+        },
         "suppressOnlyFocusedSurface": {
           "x-cmux-scopes": ["global"],
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.notifications.suppressOnlyFocusedSurface",
           "description": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw."
+        },
+        "suppressWhenAppFocused": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.notifications.suppressWhenAppFocused",
+          "description": "When enabled, cmux skips the desktop banner for every notification while cmux is the active app, not only for the focused pane. Notifications still appear in the sidebar, the sound and custom command still run, and phone forwarding is unchanged. Off keeps showing banners for other workspaces and panes while cmux is focused."
         },
         "agentPermissionPrompt": {
           "x-cmux-scopes": ["global"],

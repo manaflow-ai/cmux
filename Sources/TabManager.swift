@@ -1966,6 +1966,11 @@ class TabManager: ObservableObject {
         workspaceReordering.moveTabToTopForNotification(tabId)
     }
 
+    /// Whether a notification bump would leave this workspace where it is.
+    func isAtTopOfUnpinnedTier(_ tabId: UUID) -> Bool {
+        workspaceReordering.isAtTopOfUnpinnedTier(tabId)
+    }
+
     @discardableResult
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int, isDragOperation: Bool = false) -> Bool {
         workspaceReordering.reorderWorkspace(tabId: tabId, toIndex: targetIndex, isDragOperation: isDragOperation)
@@ -6492,6 +6497,7 @@ extension TabManager {
         hasher.combine(launchCommand.arguments)
         hashOptionalString(launchCommand.workingDirectory, into: &hasher)
         hashOptionalString(launchCommand.verificationHome, into: &hasher)
+        hasher.combine(launchCommand.launcherPrefix)
         if let environment = launchCommand.environment {
             hasher.combine(true)
             hasher.combine(environment.count)
