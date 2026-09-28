@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Light cleanup for dictated text headed to an agent prompt.
 ///
