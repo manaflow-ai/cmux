@@ -203,8 +203,10 @@ public struct ChatUsageAccumulator: Sendable {
         else { return }
 
         let model = message["model"]?.string.flatMap { $0.isEmpty ? nil : $0 }
-        // A synthetic message had no API call behind it, so it is not a
-        // response and its zeroed usage block is not a report.
+        // Claude Code writes client-side assistant messages (API errors,
+        // interrupts) with model `<synthetic>` and an all-zero usage block.
+        // No API call happened, so they are not responses and must not
+        // count as one or open a `<synthetic>` bucket in the model split.
         if model == Self.claudeSyntheticModel { return }
 
         // A usage block with no response id cannot be deduplicated, and

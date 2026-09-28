@@ -19,6 +19,7 @@ even `verify-local.py --help` and `--list` load repository code.
 | See what a UI test did, one frame per action | `scripts/ui-test ClassName` or `scripts/ui-test <run URL>` ([guide](references/ui-test-frames.md)) |
 | Render view code to PNGs in seconds, light and dark, without building the app | `scripts/ui-lab/ui-lab.py <harness> [--watch]` ([guide](references/ui-lab.md)) |
 | Dogfood the app from CI: drive it with a JSON tour and get screenshots and accessibility trees | `scripts/run-e2e.sh --scenario dogfood/scenarios/<tour>.json --ref <sha> --frames` ([guide](references/dogfood-scenarios.md)) |
+| Read the screenshots and GIF CI posted of an app PR's build before merging it | the PR's dogfood comment ([guide](references/dogfood-scenarios.md#pr-media)) |
 
 Add a base ref after `--swift-changed` to include committed changes. Use `--list`
 to find other checks and `--help` for options. Parsing checks syntax; it doesn't

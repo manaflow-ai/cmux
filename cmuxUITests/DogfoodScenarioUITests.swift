@@ -181,6 +181,15 @@ final class DogfoodScenarioUITests: XCTestCase {
             if let saveAs {
                 saved[saveAs] = response["result"] ?? [:]
             }
+        case .socketLine(let line):
+            let resolved = substituteInline(line)
+            guard let reply = socketLine(resolved, path: socketPath, timeout: 15) else {
+                throw DogfoodError("no reply to socketLine: \(lastSocketError)")
+            }
+            attachText("> \(resolved)\n< \(reply)", name: "\(label)-socketLine.txt")
+            if reply.hasPrefix("ERROR") || reply.hasPrefix("error") {
+                throw DogfoodError("socketLine failed: \(reply)")
+            }
         case .expect(let target, let exists):
             let matches = query(target, in: app)
             let element = target.index.map { matches.element(boundBy: $0) } ?? matches.firstMatch
@@ -253,17 +262,44 @@ final class DogfoodScenarioUITests: XCTestCase {
 
     // MARK: Socket
 
+    /// Resolves `name.key.0.key` against saved results; numeric components
+    /// index arrays.
+    private func resolve(_ path: [String]) -> Any? {
+        var current: Any? = saved[path.first ?? ""]
+        for key in path.dropFirst() {
+            if let array = current as? [Any], let index = Int(key) {
+                current = array.indices.contains(index) ? array[index] : nil
+            } else {
+                current = (current as? [String: Any])?[key]
+            }
+        }
+        return current
+    }
+
+    /// Replaces every `${path}` inside `line` with the resolved value's text.
+    private func substituteInline(_ line: String) -> String {
+        var result = ""
+        var rest = Substring(line)
+        while let open = rest.range(of: "${"), let close = rest[open.upperBound...].firstIndex(of: "}") {
+            result += rest[..<open.lowerBound]
+            let path = rest[open.upperBound..<close].split(separator: ".").map(String.init)
+            if let value = resolve(path) {
+                result += "\(value)"
+            } else {
+                result += rest[open.lowerBound...close]
+            }
+            rest = rest[rest.index(after: close)...]
+        }
+        return result + rest
+    }
+
     /// `"${name.key}"` in a param string takes that field of a saved result,
     /// so a later step can target the workspace or surface an earlier one made.
     private func substitute(_ value: Any) -> Any {
         if let string = value as? String,
            string.hasPrefix("${"), string.hasSuffix("}") {
             let path = string.dropFirst(2).dropLast().split(separator: ".").map(String.init)
-            var current: Any? = saved[path.first ?? ""]
-            for key in path.dropFirst() {
-                current = (current as? [String: Any])?[key]
-            }
-            return current ?? string
+            return resolve(path) ?? string
         }
         if let dictionary = value as? [String: Any] {
             return dictionary.mapValues { substitute($0) }
@@ -455,6 +491,9 @@ enum DogfoodStep {
     case hoverAt(Double, Double, XCUIElement.KeyModifierFlags)
     case menu([String])
     case socket(method: String, params: Any, saveAs: String?)
+    /// One raw v1 line (for example `agent_journal_append {...}`); `${...}`
+    /// placeholders inside it resolve from saved socket results.
+    case socketLine(String)
     case expect(DogfoodTarget, exists: Bool)
 
     var summary: String {
@@ -477,13 +516,16 @@ enum DogfoodStep {
             return "hoverAt \(x),\(y)\(Self.describe(modifiers))"
         case .menu(let path): return "menu \(path.joined(separator: " > "))"
         case .socket(let method, _, _): return "socket \(method)"
+        case .socketLine(let line): return "socketLine \(line.prefix(40))"
         case .expect(let target, let exists): return "expect \(target) exists=\(exists)"
         }
     }
 
     var usesSocket: Bool {
-        if case .socket = self { return true }
-        return false
+        switch self {
+        case .socket, .socketLine: return true
+        default: return false
+        }
     }
 
     init(json: Any) throws {
@@ -521,6 +563,9 @@ enum DogfoodStep {
         case "socket":
             guard let method = value as? String else { throw DogfoodError("socket takes a method name") }
             self = .socket(method: method, params: object["params"] ?? [String: Any](), saveAs: object["save"] as? String)
+        case "socketLine":
+            guard let line = value as? String, !line.isEmpty else { throw DogfoodError("socketLine takes a string") }
+            self = .socketLine(line)
         case "expect":
             self = .expect(try DogfoodTarget(json: value), exists: object["exists"] as? Bool ?? true)
         default:
@@ -530,7 +575,7 @@ enum DogfoodStep {
 
     private static let kinds: Set<String> = [
         "shot", "tree", "wait", "type", "key", "click", "doubleClick", "rightClick",
-        "hover", "clickAt", "hoverAt", "menu", "socket", "expect",
+        "hover", "clickAt", "hoverAt", "menu", "socket", "socketLine", "expect",
     ]
 
     private static func key(named name: String) -> String {
