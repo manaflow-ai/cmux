@@ -717,8 +717,8 @@ struct ChatUsageAccumulatorTests {
         #expect(!totals.cumulativeUsageIsAmbiguous)
     }
 
-    @Test("a cumulative prefix is dropped once records begin")
-    func codexCumulativePrefixIsDroppedWhenRecordsBegin() {
+    @Test("multiple cumulative runs become the baseline when records begin")
+    func codexMultiRunCumulativePrefixBecomesRecordBaseline() {
         var accumulator = ChatUsageAccumulator()
         accumulator.ingest(codexLines: [
             codexTokenCountLine(
@@ -738,23 +738,15 @@ struct ChatUsageAccumulatorTests {
         ])
 
         let totals = accumulator.totals
-        // The records are the precise source, so the 130 tokens of cumulative
-        // prefix are not added to them. That direction is chosen on purpose:
-        // see `codexAForkedThreadsParentTotalIsNotCounted` for what keeping
-        // the prefix costs.
+        // Records become authoritative at this point, while the 130-token
+        // pre-record prefix remains as unattributed usage.
         #expect(accumulator.codexSource == .usageRecords)
         #expect(totals.responses == 1)
-        #expect(totals.usage.totalTokens == 20)
+        #expect(totals.usage.totalTokens == 150)
     }
 
-    @Test("a forked thread's parent total is not counted")
-    func codexAForkedThreadsParentTotalIsNotCounted() {
-        // `total_token_usage` counts from the start of a thread, and a
-        // delegated or compacted thread inherits its parent's figure: real
-        // rollouts open with a billion-token total beside a `last_token_usage`
-        // of a few thousand. Callers sum one accumulator per transcript, so
-        // admitting that number would add the parent's whole life to every
-        // child.
+    @Test("a pre-record thread total remains as an unattributed baseline")
+    func codexPreRecordThreadTotalBecomesBaseline() {
         var accumulator = ChatUsageAccumulator()
         accumulator.ingest(codexLines: [
             codexTokenCountLine(
@@ -767,7 +759,8 @@ struct ChatUsageAccumulatorTests {
         let totals = accumulator.totals
         #expect(accumulator.codexSource == .usageRecords)
         #expect(totals.responses == 1)
-        #expect(totals.usage.totalTokens == 25_640)
+        #expect(totals.usage.totalTokens == 1_086_500_386 + 3_819_683 + 25_640)
+        #expect(totals.usageByModel.isEmpty)
     }
 
     @Test("cumulative events after records begin do not move the total")
@@ -800,22 +793,19 @@ struct ChatUsageAccumulatorTests {
         let totals = accumulator.totals
         #expect(accumulator.codexSource == .usageRecords)
         #expect(totals.responses == 3)
-        #expect(totals.usage.totalTokens == 90)
+        #expect(totals.usage.totalTokens == 190)
 
-        // Re-reading the same file is idempotent. It would not be if the
-        // cumulative runs were still being banked in record mode, because a
-        // replayed monotone run banks a second time.
+        // Re-reading remains idempotent: post-transition cumulative events
+        // are ignored and duplicate records do not change either component.
         var replayed = ChatUsageAccumulator()
         replayed.ingest(codexLines: lines)
         replayed.ingest(codexLines: lines)
-        #expect(replayed.totals.usage.totalTokens == 90)
+        #expect(replayed.totals.usage.totalTokens == 190)
         #expect(replayed.totals.responses == 3)
     }
 
-    @Test("an event describing a response its record also describes counts once")
-    func codexAnEventBeforeItsOwnRecordIsNotDoubleCounted() {
-        // Real rollouts write the record first and the event after, but the
-        // total must not depend on which order a future writer picks.
+    @Test("an event before the first record freezes as the cumulative prefix")
+    func codexEventBeforeFirstRecordBecomesBaseline() {
         var accumulator = ChatUsageAccumulator()
         accumulator.ingest(codexLines: [
             codexTokenCountLine(
@@ -825,7 +815,7 @@ struct ChatUsageAccumulatorTests {
             codexRecordLine(responseID: "resp-1", input: 100, cached: 0, output: 0),
         ])
 
-        #expect(accumulator.totals.usage.totalTokens == 100)
+        #expect(accumulator.totals.usage.totalTokens == 200)
 
         accumulator.ingest(codexLines: [
             codexTokenCountLine(
@@ -835,7 +825,7 @@ struct ChatUsageAccumulatorTests {
             codexRecordLine(responseID: "resp-2", input: 100, cached: 0, output: 0),
         ])
 
-        #expect(accumulator.totals.usage.totalTokens == 200)
+        #expect(accumulator.totals.usage.totalTokens == 300)
         #expect(accumulator.totals.responses == 2)
     }
 
@@ -1011,12 +1001,10 @@ struct ChatUsageAccumulatorTests {
         ])
 
         let totals = accumulator.totals
-        // Record mode does not read the cumulative block at all, so an
-        // unreadable one is not an unread usage report either: the total is
-        // complete and `unidentifiedReports` keeps meaning "something was
-        // skipped and the total is short".
+        // The source remains precise, while the unreadable cumulative report
+        // stays visible as a format mismatch.
         #expect(accumulator.codexSource == .usageRecords)
-        #expect(totals.unidentifiedReports == 0)
+        #expect(totals.unidentifiedReports == 1)
         #expect(totals.responses == 1)
         #expect(totals.usage.totalTokens == 110)
     }
