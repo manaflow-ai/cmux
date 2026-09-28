@@ -1392,6 +1392,33 @@ struct ChatUsageAccumulatorTests {
         #expect(totals.cumulativeUsageIsAmbiguous)
     }
 
+    @Test("record takeover preserves inherited component-reset ambiguity")
+    func codexRecordTakeoverPreservesInheritedComponentResetAmbiguity() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexSessionMetaLine(model: "", inheritedHistory: true),
+            codexTokenCountLine(
+                cumulativeInput: 1_000, cumulativeOutput: 0,
+                lastInput: 0, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 1_080, cumulativeOutput: 20,
+                lastInput: 80, lastOutput: 20
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 1_120, cumulativeOutput: 0,
+                lastInput: 120, lastOutput: 0
+            ),
+            codexRecordLine(responseID: "record-after-component-reset", input: 120, cached: 0, output: 0),
+        ])
+
+        let totals = accumulator.totals
+        #expect(accumulator.codexSource == .usageRecords)
+        #expect(totals.responses == 1)
+        #expect(totals.usage.totalTokens == 120)
+        #expect(totals.cumulativeUsageIsAmbiguous)
+    }
+
     @Test("a preserved ambiguous cumulative prefix stays ambiguous in record mode")
     func codexAmbiguousCumulativePrefixRemainsAmbiguousWithRecords() {
         var accumulator = ChatUsageAccumulator()

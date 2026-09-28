@@ -434,7 +434,9 @@ public struct ChatUsageAccumulator: Sendable {
                 prefix = withoutTail
             }
             codexRecordPrefixUsage = prefix
-            cumulativeUsageIsAmbiguous = cumulativeUsageIsAmbiguous && !prefix.isEmpty
+            // A precise record can replace the latest cumulative tail, but it
+            // cannot resolve an earlier component reset. Keep that ambiguity
+            // even when tail replacement leaves no numeric prefix.
         }
         codexSource = .usageRecords
         codexCumulativeReplaceableTail = nil
