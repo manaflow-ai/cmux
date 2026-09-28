@@ -1,22 +1,101 @@
 {
   "steps": [
-    {"socket": "workspace.create", "params": {"title": "Review docs", "initial_input": "cp /bin/sleep /tmp/codex && /tmp/codex 900\n", "focus": false}, "save": "docs"},
-    {"socket": "workspace.create", "params": {"title": "Fix the login flow", "initial_input": "cp /bin/sleep /tmp/claude && /tmp/claude 900\n", "focus": true}, "save": "login"},
-    {"socket": "workspace.create", "params": {"title": "Scratch", "initial_input": "echo scratch\n", "focus": true}, "save": "scratch"},
-    {"wait": 2},
-    {"shot": "workspaces"},
-    {"menu": ["Window", "Task Manager..."]},
-    {"wait": 5},
-    {"shot": "task-manager"},
-    {"tree": "task-manager"},
-    {"click": {"labelContains": "Fix the login flow", "type": "button"}},
-    {"wait": 1.5},
-    {"shot": "after-jump"},
-    {"key": "p", "modifiers": ["command", "shift"]},
-    {"wait": 0.5},
-    {"type": "activity"},
-    {"wait": 0.8},
-    {"shot": "palette-activity"},
-    {"key": "escape"}
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Review docs",
+        "initial_input": "cp /bin/sleep /tmp/codex; /tmp/codex 900 & P=$!; sleep 1; printf 'set_agent_pid codex %s --tab=%s --panel=%s\\nset_status codex Running --tab=%s --panel=%s\\nset_agent_lifecycle codex running --tab=%s --panel=%s\\n' $P $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID | nc -U -w 2 $CMUX_SOCKET_PATH; clear\n",
+        "focus": false
+      },
+      "save": "docs"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Fix the login flow",
+        "initial_input": "cp /bin/sleep /tmp/claude; /tmp/claude 900 & P=$!; sleep 1; printf 'set_agent_pid claude_code %s --tab=%s --panel=%s\\nset_status claude_code Idle --tab=%s --panel=%s\\nset_agent_lifecycle claude_code idle --tab=%s --panel=%s\\n' $P $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID | nc -U -w 2 $CMUX_SOCKET_PATH; clear\n",
+        "focus": true
+      },
+      "save": "login"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Scratch",
+        "initial_input": "echo scratch\n",
+        "focus": true
+      },
+      "save": "scratch"
+    },
+    {
+      "wait": 3
+    },
+    {
+      "shot": "workspaces"
+    },
+    {
+      "menu": [
+        "Window",
+        "Task Manager..."
+      ]
+    },
+    {
+      "wait": 5
+    },
+    {
+      "shot": "task-manager"
+    },
+    {
+      "tree": "task-manager"
+    },
+    {
+      "rightClick": {
+        "labelContains": "Fix the login flow",
+        "type": "button"
+      }
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "shot": "agent-context-menu"
+    },
+    {
+      "key": "escape"
+    },
+    {
+      "click": {
+        "labelContains": "Fix the login flow",
+        "type": "button"
+      }
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "shot": "after-jump"
+    },
+    {
+      "key": "p",
+      "modifiers": [
+        "command",
+        "shift"
+      ]
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "type": "activity"
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "shot": "palette-activity"
+    },
+    {
+      "key": "escape"
+    }
   ]
 }
