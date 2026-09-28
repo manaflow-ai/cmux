@@ -3472,6 +3472,7 @@
 		766E1CF043A4DC547CB08FB3 /* TerminalController+SSHTui.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA3197FBB0911D71D4EC1719 /* TerminalController+SSHTui.swift */; };
 		413F407A3FDE62533B6C33E0 /* TerminalController+SSHTuiSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53300833C8E02424D6168BD6 /* TerminalController+SSHTuiSessions.swift */; };
 		D11F75A81600B400376861D3 /* TerminalController+SSHWorkspaceResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = C48B23C47B58CA29EAC5FAC6 /* TerminalController+SSHWorkspaceResolution.swift */; };
+		AE55B7F6000000000000A004 /* TerminalController+SurfaceInputState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE55B7F6000000000000A003 /* TerminalController+SurfaceInputState.swift */; };
 		699581141E8D4560A7B156BD /* TerminalController+SurfaceMove.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3114E97F34044B0783A3B6F8 /* TerminalController+SurfaceMove.swift */; };
 		C1336903A1B2C3D4E5F60718 /* TerminalController+SurfaceResumeApproval.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1336904A1B2C3D4E5F60718 /* TerminalController+SurfaceResumeApproval.swift */; };
 		6DE491C790A24971B4418B3B /* TerminalController+SurfaceResumeBindings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4D77F29235F487C9276ED6A /* TerminalController+SurfaceResumeBindings.swift */; };
@@ -7499,6 +7500,7 @@
 		BA3197FBB0911D71D4EC1719 /* TerminalController+SSHTui.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/TerminalController+SSHTui.swift"; sourceTree = "<group>"; };
 		53300833C8E02424D6168BD6 /* TerminalController+SSHTuiSessions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/TerminalController+SSHTuiSessions.swift"; sourceTree = "<group>"; };
 		C48B23C47B58CA29EAC5FAC6 /* TerminalController+SSHWorkspaceResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/TerminalController+SSHWorkspaceResolution.swift"; sourceTree = "<group>"; };
+		AE55B7F6000000000000A003 /* TerminalController+SurfaceInputState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SurfaceInputState.swift"; sourceTree = "<group>"; };
 		3114E97F34044B0783A3B6F8 /* TerminalController+SurfaceMove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SurfaceMove.swift"; sourceTree = "<group>"; };
 		C1336904A1B2C3D4E5F60718 /* TerminalController+SurfaceResumeApproval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SurfaceResumeApproval.swift"; sourceTree = "<group>"; };
 		A4D77F29235F487C9276ED6A /* TerminalController+SurfaceResumeBindings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SurfaceResumeBindings.swift"; sourceTree = "<group>"; };
@@ -9567,6 +9569,7 @@
 				B0D1ACA70000000000000003 /* TerminalController+RemoteRelayTTYDeliveryAuthorization.swift */,
 				A13056000000000000000002 /* TerminalController+ControlWorkspaceReads.swift */,
 				A13056000000000000000001 /* TerminalController+Capabilities.swift */,
+				AE55B7F6000000000000A003 /* TerminalController+SurfaceInputState.swift */,
 				EE30D5000000000000000003 /* WorkspaceRemoteRelayCommandRewriter.swift */,
 				EE30D6000000000000000001 /* WorkspaceRemoteSessionHostAdapter.swift */,
 				EE30D6000000000000000003 /* WorkspaceRemoteSessionBuildInfo.swift */,
@@ -15077,6 +15080,7 @@
 				766E1CF043A4DC547CB08FB3 /* TerminalController+SSHTui.swift in Sources */,
 				413F407A3FDE62533B6C33E0 /* TerminalController+SSHTuiSessions.swift in Sources */,
 				D11F75A81600B400376861D3 /* TerminalController+SSHWorkspaceResolution.swift in Sources */,
+				AE55B7F6000000000000A004 /* TerminalController+SurfaceInputState.swift in Sources */,
 				699581141E8D4560A7B156BD /* TerminalController+SurfaceMove.swift in Sources */,
 				C1336903A1B2C3D4E5F60718 /* TerminalController+SurfaceResumeApproval.swift in Sources */,
 				6DE491C790A24971B4418B3B /* TerminalController+SurfaceResumeBindings.swift in Sources */,

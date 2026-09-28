@@ -1120,6 +1120,7 @@ def build_socket_cases(ctx: StressContext, capabilities: set[str]) -> list[Socke
         SocketCase("surface.report_shell_state", "surface.report_shell_state", lambda c: {**p_surface(c), "state": "running"}),
         SocketCase("surface.ports_kick", "surface.ports_kick", p_surface, expect_ok=None),
         SocketCase("surface.read_text", "surface.read_text", lambda c: {**p_surface(c), "lines": 5, "scrollback": True}, expect_ok=None),
+        SocketCase("surface.input_state", "surface.input_state", lambda c: p_surface(c), expect_ok=None),
         SocketCase("surface.clear_history", "surface.clear_history", p_surface, expect_ok=None),
         SocketCase("surface.trigger_flash", "surface.trigger_flash", p_surface, expect_ok=None),
         SocketCase("surface.create", "surface.create", lambda c: {"workspace_id": require(c.workspace_id, "workspace"), "type": "terminal", "focus": False}, layout_mutation=True),

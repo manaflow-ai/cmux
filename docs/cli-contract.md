@@ -157,11 +157,11 @@ Environment:
 | `current-workspace` | Print current workspace information. |
 | `read-selection` | Read the active selection from a terminal, file preview, Markdown, or browser surface. Plain output includes available source context; `--json` returns the complete socket response. |
 | `read-screen` | Read terminal text from a surface. `--selection` is a text-only compatibility alias for `read-selection`. |
-| `send` | Send text to a terminal surface as keystrokes (`surface.send_text`). `--paste`, before the text, sends it unchanged through the Cmd+V paste path (`terminal.paste`) instead, like `cmux paste`. Without `--paste`, large multi-line text prints a hint on stderr recommending it. |
-| `send-key` | Send one key to a terminal surface. |
-| `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Local socket only: `terminal.paste` is not on the `cmux ssh` relay allowlist. |
-| `send-panel` | Send text to a panel/surface. |
-| `send-key-panel` | Send one key to a panel/surface. |
+| `send` | Send text to a terminal surface as keystrokes (`surface.send_text`). `--paste`, before the text, sends it unchanged through the Cmd+V paste path (`terminal.paste`) instead, like `cmux paste`. Without `--paste`, large multi-line text prints a hint on stderr recommending it. Refuses to type over an agent prompt draft or into an open dialog unless `--force` comes before the text; see [Draft guard](#draft-guard). |
+| `send-key` | Send one key to a terminal surface. Refuses to send into an open agent dialog unless `--force`. |
+| `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Refuses to paste over an agent prompt draft or into an open dialog unless `--force`. Local socket only: `terminal.paste` is not on the `cmux ssh` relay allowlist. |
+| `send-panel` | Send text to a panel/surface. Same draft guard and `--force` as `send`. |
+| `send-key-panel` | Send one key to a panel/surface. Same dialog guard and `--force` as `send-key`. |
 | `notify` | Send a notification to a workspace/surface and return its notification id; `--clear` clears the resolved caller/target scope. Supports `--id-format refs\|uuids\|both` for human-readable handles. |
 | `list-notifications` | List queued notifications, including `created_at` and `tab_title`. |
 | `dismiss-notification` | Remove one notification, or remove already-read notifications with `--all-read`. |
@@ -235,6 +235,33 @@ read-only projection of work already owned by CMUX, as described in
 lifecycle change, that ordinary CMUX projection reflects it. The execution
 transport, machine placement, physical attempt, and recovery truth remain with
 their existing owners rather than being duplicated into a second CMUX ledger.
+
+## Draft Guard
+
+Before writing, `send`, `send-panel` and `paste` (and `send --paste`) ask the
+app for `surface.input_state` and refuse when an agent's prompt holds text
+someone is typing, when a question or permission dialog is open in an agent,
+or when the agent reports it is waiting on a human. `send-key` and
+`send-key-panel` refuse only for the dialog and waiting cases: `cmux send "text"`
+followed by `cmux send-key enter` leaves the sent text in the prompt, and the
+key has to go through. A refusal writes nothing, prints the reason on stderr
+and exits non-zero. `--force`, before the text or key, skips the check. When
+the app can't answer `surface.input_state` (an older build, or a `cmux ssh`
+relay, which doesn't forward it) the commands write as before.
+
+`surface.input_state` is a v2 worker-lane socket method. It takes
+`surface_id`, or the usual workspace selectors for that workspace's focused
+surface, and returns:
+
+| Field | Meaning |
+| --- | --- |
+| `state` | `empty`, `draft`, `dialog`, or `unknown` when no agent prompt is on screen. Read from the visible screen: Claude Code's and Codex's input rows, ignoring faint placeholder text, and key hints such as "Esc to cancel". |
+| `draft_length` | Characters in the draft, when `state` is `draft`. The text itself is not returned. |
+| `agent` | Whether an agent reports lifecycle state for the surface. |
+| `lifecycle` | The agent's lifecycle: `unknown`, `running`, `idle` or `needsInput`. |
+| `waiting_on_human` | `lifecycle` is `needsInput`. |
+| `blocks_typing` | Typing text now could disturb a human: a draft, a dialog in an agent, or `waiting_on_human`. |
+| `terminal` | Whether the surface is a terminal. |
 
 ## Surface Selection Contract
 
