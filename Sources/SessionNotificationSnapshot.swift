@@ -27,6 +27,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         createdAt: TimeInterval,
         isRead: Bool,
         paneFlash: Bool? = nil,
+        isAgentEvent: Bool? = nil,
         retargetsToLiveSurfaceOwner: Bool? = nil,
         correlationKey: String? = nil,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
@@ -40,6 +41,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         self.createdAt = createdAt
         self.isRead = isRead
         self.paneFlash = paneFlash
+        self.isAgentEvent = isAgentEvent
         self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
         self.correlationKey = correlationKey
         self.scrollPosition = scrollPosition
