@@ -2828,13 +2828,47 @@ mod tests {
         assert!(!text.contains(COMMAND_MARKER));
     }
 
-    /// Trust hashes verified against the real codex 0.150.1 binary: with these
+    /// Trust hashes of the current `hook_command`, from the same identity hash
+    /// that reproduces `LEGACY_CODEX_TRUSTED_HASHES` below.
+    const CODEX_TRUSTED_HASHES: &[(&str, &str)] = &[
+        (
+            "session_start",
+            "sha256:62dec7fda2eedda09e521ed25f5a3e56fdf259e2cf6e09c61caf6fde04cf9169",
+        ),
+        (
+            "user_prompt_submit",
+            "sha256:11c9dc25e1d294a6f3c33e6c03354c7e032250357e143879ac720a392cf632b9",
+        ),
+        ("stop", "sha256:c44b06979e220fd6665d250bb2cc470787cc4b06568e62b6cd8004577cdd124a"),
+        (
+            "permission_request",
+            "sha256:6a6d12a917dfc12fdfc3e0796f4c5f43d31db0a9dd1f7372cce0f6635cd32b24",
+        ),
+        ("pre_tool_use", "sha256:73db9083c29d7b48384ab6e3684e0ab49f482f9d11cc07f6c7d2584f55175a34"),
+        (
+            "post_tool_use",
+            "sha256:7eae35124685878835e8f7a4bc73214600f6732c8bddafc27370e4e89757d1a4",
+        ),
+        ("pre_compact", "sha256:e957b79dd72144e1e738feeeaade51816e2ae07fcaa31c9638fa40b895b2d580"),
+        ("post_compact", "sha256:adbb48bf6be51c36f594b09dc5b9b008d2de4b7e72bf20c7e897459beb295d6c"),
+        (
+            "subagent_start",
+            "sha256:25a7790bb05c595170f35ce823c0e64080c31ec43e5c65003875466ace055dbd",
+        ),
+        (
+            "subagent_stop",
+            "sha256:46e1ebc2d41d01b8f4c7ec6ee657e2cfc66ed0b0531fef08cfe52f7fd8f1a479",
+        ),
+        ("session_end", "sha256:b8231b7c25e8a4c9ecfbfa026269958f32763c359db6b16d4c7579416f5f3097"),
+    ];
+
+    /// Trust hashes of `legacy_hook_command`, verified against the real codex 0.150.1 binary: with these
     /// exact `hooks.state` values in `config.toml`, codex executes the installed
     /// hooks.json commands; without them it parses hooks.json (it even warns
     /// about clamping the SessionEnd timeout) and silently skips every handler,
     /// so codex sessions never reach the cmux-tui agents view
     /// (https://github.com/manaflow-ai/cmux/issues/11040).
-    const CODEX_TRUSTED_HASHES: &[(&str, &str)] = &[
+    const LEGACY_CODEX_TRUSTED_HASHES: &[(&str, &str)] = &[
         (
             "session_start",
             "sha256:397d7ce9e0c6367e34771a4293777ff95415b595bf77e2aa420425adc75d70ae",
@@ -2900,6 +2934,20 @@ mod tests {
             );
         }
         assert_eq!(state.len(), CODEX_EVENTS.len());
+    }
+
+    #[test]
+    fn codex_trust_hash_reproduces_the_hashes_codex_verified() {
+        let owned = codex_owned_trust_hashes().unwrap();
+        for (event, (label, hash)) in CODEX_EVENTS.iter().zip(LEGACY_CODEX_TRUSTED_HASHES) {
+            let legacy = codex_trust_hash(
+                label,
+                &legacy_hook_command("codex", event),
+                codex_hook_timeout(event),
+            );
+            assert_eq!(legacy, *hash, "{event}");
+            assert!(owned.contains(*hash), "{event}: an upgrade must replace the old entry");
+        }
     }
 
     #[test]
