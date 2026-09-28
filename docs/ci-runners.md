@@ -484,10 +484,15 @@ lanes it takes the pool's side label (`pr_side_runner`) when the picker names
 one, so it never holds a mini's root runner. With it a full suite without the
 helper holds 12 machines at peak (`MAX_RUN_JOBS`). On an owned Mac,
 checkout's clean would delete every package's `.build`, so
-`owned_spm_scratch.py link` points each one at a per-runner directory under
-`/Users/Shared/cmux-build-fleet/ci/spm-scratch/` outside the workspace
-(12 GiB per runner, least recently built first out) and SwiftPM rebuilds
-only what the change touched.
+`owned_spm_scratch.py link` points each one at a directory under
+`/Users/Shared/cmux-build-fleet/ci/spm-scratch/` outside the workspace, keyed
+by a hash of `xcodebuild -version`, `swift -version` and the workspace path,
+and SwiftPM rebuilds only what the change touched. The job holds its directory
+with a shared flock until it ends. The mini's scratch stays under 24 GiB, least
+recently built first out, whichever runner or Xcode left it, skipping the ones
+a job holds; a dropped directory is renamed to `.trash-*` before it is
+deleted. `keep` out of space and `owned_spm_scratch.py evict` drop every
+directory no job holds.
 
 The side lanes (`claude-wrapper`, `remote-daemon`, `swift-package-tests`)
 prefer the light minis. On attempt 1 of a same-repository pull request whose

@@ -821,7 +821,8 @@ def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
                    changes: Callable[[str], tuple[set[str], bool] | None], pr_number: int | None,
                    own: Mapping[str, Any] | None, legacy: Mapping[str, float], running: Mapping[str, Any],
                    model: Mapping[str, Any], now: dt.datetime, max_wait: float,
-                   runner_label: Callable[[str], str], member: Callable[[str], str]) -> tuple[str, dict[str, Any]]:
+                   runner_label: Callable[[str], str], member: Callable[[str], str],
+                   seen_at: dt.datetime | None = None) -> tuple[str, dict[str, Any]]:
     """The root runner whose mini's free root starts nearest, when it beats the root label by ROUTE_MARGIN_SECONDS.
 
     Every online `root` runner is a candidate. Its mini's roots (MINIS, the
@@ -833,8 +834,8 @@ def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
     exact-key start class) or the model's unknown start. The compile is
     multiplied by compile_factor() while another root runner of the mini is
     busy, and on a slower mini. A busy runner adds its expected wait (one the
-    snapshot does not list yet waits as an admission that just began) and
-    counts only within MAX_WAIT. The root label goes to
+    snapshot, taken at SEEN_AT, does not list waits as an admission started
+    then) and counts only within MAX_WAIT. The root label goes to
     whichever idle root runner GitHub picks: the mean of their costs, or,
     with every one busy, the first wait plus the mean. Ties go to the lower
     cost, then the less loaded mini, then the name. Returns the runner (""
@@ -882,8 +883,10 @@ def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
         elif name in running:
             wait = remaining_seconds(running.get(name), model, now)
         else:
-            # Busy with a job newer than the snapshot: most likely an admission that has only just begun.
-            wait = remaining_seconds({"job": "macos-compile-admission", "started_at": now.isoformat()}, model, now)
+            # Busy with a job newer than the snapshot (SEEN_AT): most likely an admission, started no earlier
+            # than the snapshot, so its wait ages from there and drops out past the p90 like a listed one.
+            started = (seen_at or now).isoformat()
+            wait = remaining_seconds({"job": "macos-compile-admission", "started_at": started}, model, now)
         taken = busy_roots.get(mini, 0) - (1 if busy else 0)
         roots = ranked.get(mini) or []
         if taken < len(roots):
@@ -977,10 +980,15 @@ def picker_distance_route(runners: Sequence[Mapping[str, Any]], root: str, *, me
         if seconds is not None:
             legacy[str(name)] = seconds
     running = snapshot.get("running") if isinstance(snapshot.get("running"), Mapping) else {}
+    try:
+        seen_at: dt.datetime | None = dt.datetime.fromisoformat(
+            str(snapshot.get("generated_at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        seen_at = None
     name, decision = distance_route(runners, root, minis=minis, changes=lambda onto: diffs.get(onto),
                                     pr_number=number, own=own, legacy=legacy, running=running, model=model,
                                     now=now, max_wait=routed_wait_limit(queue_rounds), runner_label=runner_label,
-                                    member=member)
+                                    member=member, seen_at=seen_at)
     decision["job_tier"] = job_tier
     decision["bases"] = {"compared": sum(1 for value in diffs.values() if value is not None), "total": len(diffs),
                          "fetch": fetched}

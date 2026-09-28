@@ -417,11 +417,12 @@ def distance_runner(name: str, busy: bool = False) -> dict:
 class DistanceRouting(unittest.TestCase):
     MODEL = {**MODEL, "hot_files": [], "start_classes": {"none": {"expected": 309.7}}}
 
-    def route(self, runners, minis, changes, *, own=None, legacy=None, running=None, max_wait=600.0):
+    def route(self, runners, minis, changes, *, own=None, legacy=None, running=None, max_wait=600.0, seen_at=None):
         member = lambda name: name.split("-glaeda")[0]  # noqa: E731
         return wd.distance_route(runners, ROOT_LABEL, minis=minis, changes=lambda onto: changes.get(onto),
                                  pr_number=7, own=own, legacy=legacy or {}, running=running or {},
-                                 model=self.MODEL, now=NOW, max_wait=max_wait, runner_label=label, member=member)
+                                 model=self.MODEL, now=NOW, max_wait=max_wait, runner_label=label, member=member,
+                                 seen_at=seen_at)
 
     def stamp(self, onto, root=1):
         return {"root": root, "merged_onto": onto, "pr": 3, "pr_app_swift_files": [], "pr_app_swift_total": 0,
@@ -470,8 +471,15 @@ class DistanceRouting(unittest.TestCase):
         changes = {"1" * 40: (swift(1), False)}
         name, decision = self.route([runner("m1-glaeda", busy=True)], minis, changes, max_wait=900.0)
         row = decision["candidates"][0]
-        self.assertEqual(row["wait"], 420.0)  # the admission p50, just begun
+        self.assertEqual(row["wait"], 420.0)  # the admission p50, begun at the snapshot (now)
         self.assertEqual(row["cost"], 420.0 + row["compile"])
+        # It ages from the snapshot: 5 minutes later, 5 minutes less; past the p90 it may hang and drops out.
+        _, later = self.route([runner("m1-glaeda", busy=True)], minis, changes, max_wait=900.0,
+                              seen_at=NOW - dt.timedelta(minutes=5))
+        self.assertEqual(later["candidates"][0]["wait"], 120.0)
+        _, hung = self.route([runner("m1-glaeda", busy=True)], minis, changes, max_wait=900.0,
+                             seen_at=NOW - dt.timedelta(minutes=14))
+        self.assertIsNone(hung["candidates"][0]["cost"])
 
     def test_equal_costs_do_not_pin_and_ties_are_deterministic(self):
         minis = {"m1": [self.stamp("1" * 40)], "m2": [self.stamp("1" * 40)]}
