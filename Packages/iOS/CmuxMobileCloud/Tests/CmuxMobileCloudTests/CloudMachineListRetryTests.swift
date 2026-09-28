@@ -148,7 +148,7 @@ import Testing
     @Test func terminalNamesFallBackToTitleThenDirectory() {
         #expect(CloudTerminalSummary(id: "term_1", name: "build").displayName == "build")
         #expect(CloudTerminalSummary(id: "term_1", title: "aziz@vm: ~/api").displayName == "aziz@vm: ~/api")
-        #expect(CloudTerminalSummary(id: "term_1", title: "  ", currentDirectory: "/home/user/api").displayName == "api")
+        #expect(CloudTerminalSummary(id: "term_1", title: "  ", currentDirectory: "/home/user/api").displayName == "~/api")
         #expect(CloudTerminalSummary(id: "term_1").displayName == "term_1")
     }
 }

@@ -74,8 +74,35 @@ struct CloudWorkspaceProjectorTests {
         #expect(result.workspaces[0].terminals.map(\.name) == ["zsh"])
         // A nameless workspace falls back to the last path component.
         #expect(result.workspaces[1].name == "web")
-        // A nameless terminal falls back to its daemon id rather than blank.
-        #expect(result.workspaces[1].terminals.map(\.name) == ["t-2"])
+        // A nameless terminal is numbered the way a new terminal is named,
+        // never shown as a daemon id.
+        #expect(result.workspaces[1].terminals.map(\.name) == ["Terminal 1"])
+    }
+
+    @Test("Fresh shells at home are numbered apart, while names, titles and directories show")
+    func terminalLabels() {
+        let result = state(
+            workspaces: [CloudWorkspaceSummary(id: "ws-1", name: "api")],
+            terminals: [
+                CloudTerminalSummary(id: "t-1", workspaceID: "ws-1", currentDirectory: "/home/cmux"),
+                CloudTerminalSummary(id: "t-2", workspaceID: "ws-1", currentDirectory: "/home/cmux"),
+                CloudTerminalSummary(id: "t-3", name: "server", workspaceID: "ws-1", title: "vim"),
+                CloudTerminalSummary(id: "t-4", workspaceID: "ws-1", title: "✳ Claude Code"),
+                CloudTerminalSummary(id: "t-5", workspaceID: "ws-1", currentDirectory: "/home/cmux/api/src"),
+                CloudTerminalSummary(id: "t-6", workspaceID: "ws-1", currentDirectory: "/srv/app"),
+            ]
+        )
+
+        // The daemon names no tab and a stock shell sets no title, so the
+        // directory's last component made every one of these "cmux".
+        #expect(result.workspaces[0].terminals.map(\.name) == [
+            "Terminal 1",
+            "Terminal 2",
+            "server",
+            "✳ Claude Code",
+            "~/api/src",
+            "/srv/app",
+        ])
     }
 
     @Test("Rows and terminals are addressed in the Cloud namespace")

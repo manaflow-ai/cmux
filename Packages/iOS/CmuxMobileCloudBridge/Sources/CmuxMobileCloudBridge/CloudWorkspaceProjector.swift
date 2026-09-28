@@ -1,5 +1,6 @@
 public import CmuxMobileCloud
 public import CmuxMobileShellModel
+import CmuxMobileSupport
 import Foundation
 
 /// Turns one Cloud machine's daemon catalog into the per-host workspace state
@@ -106,7 +107,7 @@ public struct CloudWorkspaceProjector: Sendable {
             macDisplayName: displayName,
             name: name,
             currentDirectory: currentDirectory,
-            terminals: terminals.map { terminal in
+            terminals: terminals.enumerated().map { offset, terminal in
                 MobileTerminalPreview(
                     id: MobileTerminalPreview.ID(
                         rawValue: CloudAddress(
@@ -114,7 +115,7 @@ public struct CloudWorkspaceProjector: Sendable {
                             component: terminal.id
                         ).identifier
                     ),
-                    name: terminal.displayName,
+                    name: terminal.descriptiveName ?? L10n.terminalName(index: offset + 1),
                     isReady: true
                 )
             }

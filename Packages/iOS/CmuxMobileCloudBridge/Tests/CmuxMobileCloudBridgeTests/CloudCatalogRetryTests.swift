@@ -21,6 +21,9 @@ struct CloudCatalogRetryTests {
 
         var reads: Int { lock.withLock { _reads } }
 
+        func createWorkspace(name: String?) async -> String? { nil }
+        func createTerminal(inWorkspace workspaceID: String, name: String?) async -> String? { nil }
+
         func loadCatalog() async throws -> (
             workspaces: [CloudWorkspaceSummary],
             terminals: [CloudTerminalSummary]

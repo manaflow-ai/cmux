@@ -203,19 +203,9 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
                 return
             }
             do {
-                let (workspaces, terminals) = try await connection.loadCatalog()
+                let catalog = try await connection.loadCatalog()
                 guard !Task.isCancelled else { return }
-                catalogFailureCounts.removeValue(forKey: machine.id)
-                bridgeLog.notice("catalog ok machine=\(machine.id, privacy: .public) workspaces=\(workspaces.count, privacy: .public) terminals=\(terminals.count, privacy: .public)")
-                lastCatalogs[machine.id] = (workspaces, terminals)
-                publish(
-                    machine: machine,
-                    workspaces: workspaces,
-                    terminals: terminals,
-                    status: .connected,
-                    isAuthoritative: true
-                )
-                reattachWantedSurface(of: machine, terminals: terminals)
+                applyCatalog(catalog, of: machine)
             } catch {
                 guard !Task.isCancelled else { return }
                 bridgeLog.error("catalog failed machine=\(machine.id, privacy: .public) error=\(String(describing: error), privacy: .public)")
@@ -235,6 +225,84 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
                 refreshCatalog(for: current)
             }
         }
+    }
+
+    /// Publishes a catalog read that succeeded.
+    private func applyCatalog(
+        _ catalog: (workspaces: [CloudWorkspaceSummary], terminals: [CloudTerminalSummary]),
+        of machine: CloudMachine
+    ) {
+        catalogFailureCounts.removeValue(forKey: machine.id)
+        bridgeLog.notice("catalog ok machine=\(machine.id, privacy: .public) workspaces=\(catalog.workspaces.count, privacy: .public) terminals=\(catalog.terminals.count, privacy: .public)")
+        lastCatalogs[machine.id] = catalog
+        publish(
+            machine: machine,
+            workspaces: catalog.workspaces,
+            terminals: catalog.terminals,
+            status: .connected,
+            isAuthoritative: true
+        )
+        reattachWantedSurface(of: machine, terminals: catalog.terminals)
+    }
+
+    /// Reads `machine`'s catalog now, replacing any read in flight, so a
+    /// caller that just changed the daemon finds its change in the rows when
+    /// this returns. A failed read hands over to the retrying read.
+    private func reloadCatalog(of machine: CloudMachine, over connection: any CloudMachineLinking) async {
+        catalogTasks[machine.id]?.cancel()
+        catalogTasks.removeValue(forKey: machine.id)
+        do {
+            let catalog = try await connection.loadCatalog()
+            guard admittedMachines.contains(where: { $0.id == machine.id }) else { return }
+            applyCatalog(catalog, of: machine)
+        } catch {
+            guard let current = admittedMachines.first(where: { $0.id == machine.id }) else { return }
+            refreshCatalog(for: current)
+        }
+    }
+
+    // MARK: Creating
+
+    public func externalHostCreateWorkspace(onHost hostID: String) async -> MobileWorkspacePreview.ID? {
+        guard let address = CloudAddress(parsing: hostID), address.component == nil,
+              let machine = admittedMachines.first(where: { $0.id == address.machineID }),
+              let connection = links.link(for: machine),
+              let remoteWorkspaceID = await connection.createWorkspace(name: nil) else {
+            bridgeLog.error("create workspace failed host=\(hostID, privacy: .public)")
+            return nil
+        }
+        await reloadCatalog(of: machine, over: connection)
+        return MobileWorkspacePreview.ID(
+            rawValue: CloudAddress(machineID: machine.id, component: remoteWorkspaceID).identifier
+        )
+    }
+
+    public func externalHostCreateTerminal(inWorkspace workspaceID: MobileWorkspacePreview.ID) async -> String? {
+        guard let address = CloudAddress(parsing: workspaceID.rawValue),
+              let remoteWorkspaceID = address.component,
+              let machine = admittedMachines.first(where: { $0.id == address.machineID }),
+              let connection = links.link(for: machine) else { return nil }
+        let remoteTerminalID: String?
+        if remoteWorkspaceID == CloudWorkspaceProjector.unassignedWorkspaceID {
+            // The row gathering terminals no workspace shows is not a daemon
+            // workspace, so a terminal made from it gets a workspace of its own.
+            if let created = await connection.createWorkspace(name: nil) {
+                await reloadCatalog(of: machine, over: connection)
+                remoteTerminalID = lastCatalogs[machine.id]?.terminals.first { $0.workspaceID == created }?.id
+            } else {
+                remoteTerminalID = nil
+            }
+        } else if let created = await connection.createTerminal(inWorkspace: remoteWorkspaceID, name: nil) {
+            await reloadCatalog(of: machine, over: connection)
+            remoteTerminalID = created
+        } else {
+            remoteTerminalID = nil
+        }
+        guard let remoteTerminalID else {
+            bridgeLog.error("create terminal failed workspace=\(workspaceID.rawValue, privacy: .public)")
+            return nil
+        }
+        return CloudAddress(machineID: machine.id, component: remoteTerminalID).identifier
     }
 
     // MARK: MobileExternalHostSource

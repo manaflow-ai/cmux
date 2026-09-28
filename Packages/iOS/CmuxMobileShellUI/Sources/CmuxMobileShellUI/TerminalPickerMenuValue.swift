@@ -14,6 +14,9 @@ struct TerminalPickerMenuValue: Equatable {
     let simulatorStreamRows: [SimulatorStreamPickerRow]
     let supportsSimulatorStream: Bool
     let activeSimulatorStreamPanelID: String?
+    /// The workspace lives on a host that is not a Mac (a Cloud machine), so
+    /// the Mac-only sections and the Mac update hint do not apply.
+    let hostIsExternal: Bool
 
     init(
         liveTerminals: [MobileTerminalPreview],
@@ -28,7 +31,8 @@ struct TerminalPickerMenuValue: Equatable {
         activeBrowserStreamPanelID: String? = nil,
         simulatorStreamRows: [SimulatorStreamPickerRow] = [],
         supportsSimulatorStream: Bool = false,
-        activeSimulatorStreamPanelID: String? = nil
+        activeSimulatorStreamPanelID: String? = nil,
+        hostIsExternal: Bool = false
     ) {
         let resolvedRows = snapshotRows.isEmpty
             ? liveTerminals.map(TerminalPickerMenuRow.init)
@@ -49,6 +53,7 @@ struct TerminalPickerMenuValue: Equatable {
         self.simulatorStreamRows = simulatorStreamRows
         self.supportsSimulatorStream = supportsSimulatorStream
         self.activeSimulatorStreamPanelID = activeSimulatorStreamPanelID
+        self.hostIsExternal = hostIsExternal
     }
 
     /// The single row that carries the checkmark. Nil while the phone-local

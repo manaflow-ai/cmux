@@ -28,6 +28,9 @@ struct CloudReconnectTests {
             set { lock.withLock { _failCatalog = newValue } }
         }
 
+        func createWorkspace(name: String?) async -> String? { nil }
+        func createTerminal(inWorkspace workspaceID: String, name: String?) async -> String? { nil }
+
         func loadCatalog() async throws -> (
             workspaces: [CloudWorkspaceSummary],
             terminals: [CloudTerminalSummary]

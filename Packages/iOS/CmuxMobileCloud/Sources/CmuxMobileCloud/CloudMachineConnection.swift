@@ -114,6 +114,24 @@ public final class CloudMachineConnection {
         }
     }
 
+    /// Create a terminal inside `workspaceID` and return its id, refreshing
+    /// the catalog.
+    @discardableResult
+    public func createTerminal(inWorkspace workspaceID: String, name: String? = nil) async -> String? {
+        isCreatingTerminal = true
+        defer { isCreatingTerminal = false }
+        do {
+            let session = try await connectedSession()
+            let id = try await session.createTerminal(inWorkspace: workspaceID, name: name)
+            lastError = nil
+            refreshTerminals()
+            return id
+        } catch {
+            lastError = CloudSessionFailure.classify(error, stage: .link)
+            return nil
+        }
+    }
+
     /// Attach to `terminalID`, streaming events to `output` until the
     /// returned attachment is detached.
     public func attach(

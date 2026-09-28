@@ -29,6 +29,7 @@ let package = Package(
         .package(path: "../CmuxMobileCloud"),
         .package(path: "../CmuxMobileShell"),
         .package(path: "../CmuxMobileShellModel"),
+        .package(path: "../CmuxMobileSupport"),
     ],
     targets: [
         .target(
@@ -37,6 +38,7 @@ let package = Package(
                 "CmuxMobileCloud",
                 "CmuxMobileShell",
                 "CmuxMobileShellModel",
+                "CmuxMobileSupport",
             ],
             swiftSettings: swiftSettings
         ),

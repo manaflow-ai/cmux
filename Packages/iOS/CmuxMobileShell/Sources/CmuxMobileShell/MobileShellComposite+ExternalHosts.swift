@@ -45,10 +45,22 @@ public protocol MobileExternalHostSource: AnyObject {
     /// The user hid or revealed one of this source's hosts, so the source can
     /// persist it. The store has already applied the change.
     func externalHostVisibilityDidChange(_ hostID: String, hidden: Bool)
+
+    /// Creates a workspace with one terminal on an owned host and returns
+    /// the new row's id as the source published it, once it is published,
+    /// or nil when the host refused.
+    func externalHostCreateWorkspace(onHost hostID: String) async -> MobileWorkspacePreview.ID?
+
+    /// Creates a terminal in an owned workspace, named by the row id the
+    /// source published, and returns the terminal's surface id once it is
+    /// published, or nil when the host refused.
+    func externalHostCreateTerminal(inWorkspace workspaceID: MobileWorkspacePreview.ID) async -> String?
 }
 
 extension MobileExternalHostSource {
     public func externalHostVisibilityDidChange(_ hostID: String, hidden: Bool) {}
+    public func externalHostCreateWorkspace(onHost hostID: String) async -> MobileWorkspacePreview.ID? { nil }
+    public func externalHostCreateTerminal(inWorkspace workspaceID: MobileWorkspacePreview.ID) async -> String? { nil }
 }
 
 @MainActor
@@ -202,6 +214,45 @@ extension MobileShellComposite {
     public func externalHostOwnsHost(_ hostID: String) -> Bool {
         guard !hostID.isEmpty, !externalHostSources.isEmpty else { return false }
         return externalHostSources.values.contains { $0.externalHostOwnsHost(hostID) }
+    }
+
+    /// The external host serving a workspace row, when one does.
+    public func externalHostID(ofWorkspace id: MobileWorkspacePreview.ID) -> String? {
+        guard let hostID = workspaces.first(where: { $0.id == id })?.macDeviceID,
+              externalHostOwnsHost(hostID) else { return nil }
+        return hostID
+    }
+
+    /// Whether an external host is serving live rows, which is when it can
+    /// take a create.
+    public func externalHostIsConnected(_ hostID: String) -> Bool {
+        workspacesByMac.contains { $0.key.pairingID == hostID && $0.value.status == .connected }
+    }
+
+    /// The source contributing this host, when one does.
+    func externalHostSource(owningHost hostID: String) -> (any MobileExternalHostSource)? {
+        externalHostSources.values.first { $0.externalHostOwnsHost(hostID) }
+    }
+
+    /// Creates a workspace on the external host serving `workspaceID`, then
+    /// selects it and its terminal the way a Mac-side create does, so the
+    /// same navigation follows it.
+    public func createExternalHostWorkspace(
+        beside workspaceID: MobileWorkspacePreview.ID
+    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        let hostName = workspaces.first { $0.id == workspaceID }?.macDisplayName
+        guard let hostID = externalHostID(ofWorkspace: workspaceID),
+              let source = externalHostSource(owningHost: hostID) else {
+            return .failure(.notConnected(hostDisplayName: hostName))
+        }
+        // The source names rows as it published them; the list scopes them.
+        guard let created = await source.externalHostCreateWorkspace(onHost: hostID),
+              let row = workspaces.first(where: { $0.macDeviceID == hostID && $0.rpcWorkspaceID == created }) else {
+            return .failure(.rejected(hostDisplayName: hostName))
+        }
+        selectedWorkspaceID = row.id
+        selectedTerminalID = row.terminals.first?.id
+        return .success(())
     }
 
     /// Whether an aggregated workspace row belongs to an external host.

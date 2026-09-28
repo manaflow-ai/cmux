@@ -23,6 +23,12 @@ public protocol CloudMachineLinking: Sendable {
         terminalID: String,
         output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void
     ) async throws -> any CloudTerminalLinking
+    /// Creates a workspace with one starter terminal and returns its id, or
+    /// nil when the daemon refused.
+    func createWorkspace(name: String?) async -> String?
+    /// Creates a terminal inside `workspaceID` and returns its id, or nil
+    /// when the daemon refused.
+    func createTerminal(inWorkspace workspaceID: String, name: String?) async -> String?
 }
 
 /// Supplies a link per machine, once the tunnel is up.

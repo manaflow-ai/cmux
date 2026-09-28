@@ -1778,11 +1778,19 @@ struct WorkspaceShellView: View {
         toggleSidebar: (() -> Void)? = nil,
         showsSidebarToggle: Bool = false
     ) -> some View {
-        WorkspaceDetailContainer(
+        // A Cloud machine's workspace makes its new workspace on that machine,
+        // whether or not a Mac is connected.
+        let externalHostID = workspaceID.flatMap { store.externalHostID(ofWorkspace: $0) }
+        return WorkspaceDetailContainer(
             store: store,
             workspaceID: workspaceID,
-            createWorkspace: createWorkspace,
-            canCreateWorkspace: canCreateWorkspaceForSelection,
+            createWorkspace: externalHostID == nil || workspaceID == nil
+                ? createWorkspace
+                : { [workspaceID] in
+                    if let workspaceID { createWorkspaceOnExternalHost(beside: workspaceID) }
+                },
+            canCreateWorkspace: externalHostID.map { store.externalHostIsConnected($0) }
+                ?? canCreateWorkspaceForSelection,
             renameWorkspace: renameWorkspaceClosure,
             customizeWorkspace: customizeWorkspaceClosure,
             setWorkspaceUnread: setWorkspaceUnreadClosure,

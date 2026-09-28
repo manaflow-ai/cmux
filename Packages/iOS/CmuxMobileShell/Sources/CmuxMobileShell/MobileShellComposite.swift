@@ -8713,6 +8713,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         clearTerminalCreationError()
+        if let targetWorkspaceID, externalHostID(ofWorkspace: targetWorkspaceID) != nil {
+            createExternalHostTerminal(in: targetWorkspaceID)
+            return
+        }
         guard remoteClient == nil else {
             // Bail BEFORE pinning selection when a create is already in flight,
             // so a second "+" on another workspace can't strand the UI on that
@@ -8774,6 +8778,35 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             .terminalCreateSucceeded,
             correlationID: terminal.id.rawValue
         )
+    }
+
+    /// Creates a terminal on the external host serving `workspaceID` and
+    /// selects it once the host publishes it. No Mac knows the workspace, so
+    /// the Mac create path must never see it.
+    private func createExternalHostTerminal(in workspaceID: MobileWorkspacePreview.ID) {
+        guard createTerminalTask == nil,
+              let row = workspaces.first(where: { $0.id == workspaceID }),
+              let hostID = externalHostID(ofWorkspace: workspaceID),
+              let source = externalHostSource(owningHost: hostID) else { return }
+        selectedWorkspaceID = workspaceID
+        let publishedWorkspaceID = row.rpcWorkspaceID
+        let taskID = UUID()
+        createTerminalTaskID = taskID
+        createTerminalTask = Task { @MainActor [weak self] in
+            defer { self?.clearCreateTerminalTask(id: taskID) }
+            let surfaceID = await source.externalHostCreateTerminal(inWorkspace: publishedWorkspaceID)
+            guard let self else { return }
+            guard let surfaceID, let owner = self.workspaceID(forTerminalID: surfaceID) else {
+                self.terminalCreationError = L10n.string(
+                    "mobile.terminal.creationFailed",
+                    defaultValue: "Couldn't create a terminal."
+                )
+                self.terminalCreationErrorWorkspaceID = workspaceID
+                return
+            }
+            self.selectedWorkspaceID = owner
+            self.selectedTerminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+        }
     }
 
     private func armCreatedTerminalSelectionExpiry(

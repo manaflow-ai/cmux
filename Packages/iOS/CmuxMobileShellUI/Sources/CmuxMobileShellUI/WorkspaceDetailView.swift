@@ -917,7 +917,8 @@ struct WorkspaceDetailView: View {
                 activeBrowserStreamPanelID: activeBrowserStream?.id,
                 simulatorStreamRows: simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(SimulatorStreamPickerRow.init),
                 supportsSimulatorStream: store.supportsSimulatorStream,
-                activeSimulatorStreamPanelID: activeSimulatorStream?.id
+                activeSimulatorStreamPanelID: activeSimulatorStream?.id,
+                hostIsExternal: hostIsExternal
             ),
             actions: TerminalPickerMenuActions(
                 selectTerminal: selectTerminalFromPicker,
@@ -1178,8 +1179,21 @@ struct WorkspaceDetailView: View {
         createTerminal()
     }
 
+    /// Whether this workspace lives on a host that is not a Mac (a Cloud
+    /// machine). Mac-only chrome keys off it.
+    private var hostIsExternal: Bool {
+        store.externalHostID(ofWorkspace: workspace.id) != nil
+    }
+
     private func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
+        // A Cloud machine has no Mac to create a browser pane on. The phone's
+        // own browser reaches the machine's private addresses when the Cloud
+        // system VPN is on.
+        guard !hostIsExternal else {
+            openLocalBrowserFallback()
+            return
+        }
         // New Browser creates a real Mac browser pane and streams it, so it
         // shows the same surface as the Mac Browsers rows. The phone-local
         // WKWebView pane remains only as a fallback for Macs that cannot
