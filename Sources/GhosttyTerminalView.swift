@@ -9305,6 +9305,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         let menu = NSMenu()
+        // First, the way Safari and Terminal.app order a link menu: what the
+        // pointer is on outranks what the pane can do.
+        addLinkContextMenuItems(
+            to: menu,
+            pointerLocation: sendsTerminalPointerEvent ? convert(event.locationInWindow, from: nil) : nil
+        )
         if onTriggerFlash != nil {
             let flashItem = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.triggerFlash", defaultValue: "Trigger Flash"),
