@@ -11,7 +11,7 @@ final class AgentActionPillUITests: BrowserFixtureSocketTestCase {
         let app = try launchApp(additionalLaunchArguments: [
             "-agentActionsTurnControlEnabled", "YES",
         ])
-        app.activate()
+        try waitForMainThreadHop()
         let target = try focusedTerminal()
 
         try startClaudeTurn(on: target)
@@ -36,7 +36,7 @@ final class AgentActionPillUITests: BrowserFixtureSocketTestCase {
         let app = try launchApp(additionalLaunchArguments: [
             "-agentActionsTurnControlEnabled", "NO",
         ])
-        app.activate()
+        try waitForMainThreadHop()
         let target = try focusedTerminal()
 
         try startClaudeTurn(on: target)
@@ -56,12 +56,25 @@ final class AgentActionPillUITests: BrowserFixtureSocketTestCase {
         let surfaceID: String
     }
 
+    /// Waits until the app services a main-thread socket hop. A first launch
+    /// on a clean runner can keep the main thread busy for a while after the
+    /// socket answers `ping` (see FocusHistoryShortcutUITests).
+    private func waitForMainThreadHop() throws {
+        var reply: String?
+        for _ in 0..<12 {
+            reply = controlSocketCommandViaNetcat("activate_app", socketPath: socketPath, responseTimeout: 10.0)
+            if reply == "OK" { return }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        XCTFail("Main thread never serviced an activate_app socket hop: \(reply ?? "nil")")
+    }
+
     /// Opens a focused terminal workspace and returns its ids.
     private func focusedTerminal() throws -> Terminal {
         let params: [String: Any] = ["title": "Agent Stop pill", "focus": true]
         let request: [String: Any] = ["id": UUID().uuidString, "method": "workspace.create", "params": params]
         var last: [String: Any]?
-        let deadline = Date().addingTimeInterval(20.0)
+        let deadline = Date().addingTimeInterval(40.0)
         repeat {
             // The netcat path is the fallback for hosted runners where the
             // in-process socket client cannot connect.
