@@ -50,10 +50,10 @@ enum WorkspaceListEmptyGuidance: Equatable {
     case sshComputers
 
     /// Mac copy stays whenever a paired Mac gives it context; only an
-    /// SSH-only setup (SSH computers and no paired Mac — the signed-out SSH
-    /// shell, or a signed-in account before its first pairing) switches,
-    /// because the Mac copy would describe a Mac the user does not have
-    /// (PRD D29: mode-aware empty states).
+    /// SSH-only setup (SSH computers and no paired Mac — a signed-in account
+    /// before its first pairing) switches, because the Mac copy would
+    /// describe a Mac the user does not have (PRD D29: mode-aware empty
+    /// states).
     init(hasSSHComputers: Bool, hasPairedMacs: Bool) {
         self = hasSSHComputers && !hasPairedMacs ? .sshComputers : .macPairing
     }

@@ -44,7 +44,7 @@ struct MobileRootPresentationState: Equatable {
         case computers
         case pairing(PairingPresentation)
         /// The SSH computer form opened outside the Computers sheet (from
-        /// pairing, the signed-out SSH shell, or a workspace-list empty state).
+        /// pairing or a workspace-list empty state).
         case sshComputerEditor(SSHComputerEditorTarget)
         case child(ChildPresentation)
         case dismissingChild(

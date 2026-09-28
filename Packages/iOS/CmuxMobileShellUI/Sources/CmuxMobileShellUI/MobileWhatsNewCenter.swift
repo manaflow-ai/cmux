@@ -244,16 +244,6 @@ public final class MobileWhatsNewCenter {
         }
     }
 
-    /// Pages the one-time launch sheet shows to `audience`. Every page
-    /// announces paired-computer (Mac) features, so the signed-out SSH shell
-    /// (PRD D5: no account, no Mac) shows none. Nothing is acknowledged
-    /// here, so the same pages still appear after a later sign-in.
-    func launchSheetPages(for audience: MobileWhatsNewAudience) -> [MobileWhatsNewPage] {
-        switch audience {
-        case .pairedComputers: unseenPages
-        case .signedOutSSH: []
-        }
-    }
 
     /// Records the given pages as seen: shown announcements join the
     /// acknowledged id set, and the marker advances (never retreats) to the
@@ -330,10 +320,3 @@ public final class MobileWhatsNewCenter {
 }
 #endif
 
-/// Who is looking at the workspace shell, for Mac-centric notices.
-enum MobileWhatsNewAudience: Equatable {
-    /// A signed-in shell that pairs with computers (today's behavior).
-    case pairedComputers
-    /// The signed-out SSH-only shell: no account and no Mac to set up.
-    case signedOutSSH
-}

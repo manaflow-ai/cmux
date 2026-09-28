@@ -54,8 +54,8 @@ struct MobileSettingsAccountSection: View {
         }
     }
 
-    /// Signed out in the SSH shell (PRD D5): no account to show or delete.
-    /// `signOut` here returns to the sign-in screen.
+    /// No Stack account (an attach-ticket session): nothing to show or
+    /// delete. `signOut` here returns to the sign-in screen.
     private var signedOutSection: some View {
         Section {
             if let signOut {

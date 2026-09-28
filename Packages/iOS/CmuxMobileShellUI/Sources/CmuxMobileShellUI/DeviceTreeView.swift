@@ -32,8 +32,8 @@ struct DeviceTreeView: View {
     /// leave this nil and retain the environment dismissal fallback.
     var dismissAction: (() -> Void)? = nil
     /// Whether the Mac sections, pairing, and account-scoped reloads apply.
-    /// `false` in the signed-out SSH-only shell (PRD D5), which lists only SSH
-    /// computers.
+    /// `false` without Stack auth (an attach-ticket session), which lists
+    /// only SSH computers.
     var macPairingAvailable = true
     /// The workspace list's computer filter; selecting an SSH computer here
     /// scopes the list to it (PRD D22).

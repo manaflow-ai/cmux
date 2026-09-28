@@ -107,21 +107,4 @@ struct SSHComputersUITests {
         #expect(scope.switchTarget(for: sshID)?.macDeviceID == sshID)
         #expect(!scope.canMutateForegroundGroupsForSelection)
     }
-
-    // MARK: Signed-out preference
-
-    @MainActor
-    @Test func signedOutPreferenceIsAutomaticUntilChosen() throws {
-        let defaults = try #require(UserDefaults(suiteName: "SSHComputersUITests.\(UUID().uuidString)"))
-        let preference = MobileSSHOnlyPreference(defaults: defaults)
-        #expect(!preference.showsSignedOutShell(hasSSHComputers: false))
-        #expect(preference.showsSignedOutShell(hasSSHComputers: true))
-        preference.chooseSSHShell()
-        #expect(preference.showsSignedOutShell(hasSSHComputers: false))
-        #expect(MobileSSHOnlyPreference(defaults: defaults).choice == true)
-        preference.chooseSignIn()
-        #expect(!preference.showsSignedOutShell(hasSSHComputers: true))
-        preference.reset()
-        #expect(MobileSSHOnlyPreference(defaults: defaults).choice == nil)
-    }
 }

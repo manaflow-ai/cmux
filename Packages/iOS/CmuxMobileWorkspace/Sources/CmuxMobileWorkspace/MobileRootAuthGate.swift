@@ -36,18 +36,16 @@ public struct MobileRootAuthGate {
     /// shell would flash the add-device surface, so sign-in keeps the screen
     /// (showing its restore status) until validation settles. A live attach
     /// ticket always proceeds directly to the shell to complete the attach
-    /// flow. Signed out, `showsSignedOutSSHShell` (the user chose SSH without
-    /// an account, or has saved SSH computers; PRD D5) lets the shell through
-    /// once launch restore settles, since SSH needs no account.
+    /// flow. Signed out there is no other surface: every user signs in
+    /// before using the app, including SSH computers.
     public static func shouldShowSignIn(
         stackAuthenticated: Bool,
         attachTicketAuthenticated: Bool = false,
         isRestoringSession: Bool,
-        onboardingPending: Bool = false,
-        showsSignedOutSSHShell: Bool = false
+        onboardingPending: Bool = false
     ) -> Bool {
         if attachTicketAuthenticated { return false }
-        if !stackAuthenticated { return !(showsSignedOutSSHShell && !isRestoringSession) }
+        if !stackAuthenticated { return true }
         return isRestoringSession && onboardingPending
     }
 

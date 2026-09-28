@@ -628,9 +628,8 @@ public final class MobileSSHComputers {
         hosts.first { $0.id == id }
     }
 
-    /// The host a launch should land on when it must pick one (the signed-out
-    /// shell has no "All Computers" scope that works without a Mac): the one
-    /// used last, else the oldest.
+    /// The host a flow should land on when it must pick one: the one used
+    /// last, else the oldest.
     public var preferredHost: SSHHostRecord? {
         lastUsedHostID.flatMap(host(id:)) ?? hosts.first
     }
