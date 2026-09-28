@@ -6,7 +6,14 @@ public import Foundation
 /// printed chord is what they listen for. Claude Code prints some hints with
 /// their default chord; when the user rebound that action in
 /// `~/.claude/keybindings.json`, the user's chord is sent instead.
-public enum AgentKeyHintChordResolver {
+public struct AgentKeyHintChordResolver: Sendable {
+    /// The user's Claude Code keybindings; empty for other agents.
+    public var claudeKeybindings: ClaudeCodeKeybindings
+
+    public init(claudeKeybindings: ClaudeCodeKeybindings = .empty) {
+        self.claudeKeybindings = claudeKeybindings
+    }
+
     /// A Claude Code action a hint names, and the chord Claude prints for it by default.
     struct ClaudeAction {
         var actionPrefix: String
@@ -23,16 +30,12 @@ public enum AgentKeyHintChordResolver {
     ]
 
     /// Keys to send for `hint`, in order.
-    public static func keys(
-        for hint: AgentKeyHint,
-        agent: AgentKeyHintDetector.Agent,
-        claudeKeybindings: ClaudeCodeKeybindings
-    ) -> [String] {
+    public func keys(for hint: AgentKeyHint, agent: AgentKeyHintDetector.Agent) -> [String] {
         guard agent == .claudeCode else { return hint.keys }
         let action = hint.action.lowercased()
         // A printed chord other than the default was already rendered from
         // the user's bindings; only a default chord can be stale.
-        guard let known = claudeActions.first(where: { action.hasPrefix($0.actionPrefix) }),
+        guard let known = Self.claudeActions.first(where: { action.hasPrefix($0.actionPrefix) }),
               hint.keys == known.defaultKeys || hint.keys == known.defaultKeys + known.defaultKeys,
               let bound = claudeKeybindings.keysByAction[known.actionId], !bound.isEmpty,
               !bound.contains(known.defaultKeys) else {
@@ -48,26 +51,40 @@ public enum AgentKeyHintChordResolver {
 }
 
 /// Whether a left click on an agent key hint presses it.
-public enum AgentKeyHintClickPolicy {
+public struct AgentKeyHintClickPolicy: Sendable, Equatable {
+    /// Whether the agent has captured the mouse.
+    public var mouseCaptured: Bool
+    /// Whether Command is held.
+    public var commandHeld: Bool
+    /// Whether Shift, Option, or Control is held.
+    public var otherModifierHeld: Bool
+
+    public init(mouseCaptured: Bool, commandHeld: Bool, otherModifierHeld: Bool) {
+        self.mouseCaptured = mouseCaptured
+        self.commandHeld = commandHeld
+        self.otherModifierHeld = otherModifierHeld
+    }
+
     /// A plain click presses a hint unless the agent has captured the mouse,
     /// in which case the click belongs to the agent and only a Command-click
     /// presses the hint. Shift, Option, and Control clicks keep their
     /// selection meanings.
-    public static func pressesHint(
-        mouseCaptured: Bool,
-        commandHeld: Bool,
-        otherModifierHeld: Bool
-    ) -> Bool {
+    public var pressesHint: Bool {
         guard !otherModifierHeld else { return false }
         return commandHeld || !mouseCaptured
     }
 }
 
-/// Legacy terminal encodings for named keys, for when the key's chord is
-/// taken by a terminal keybinding and can't travel as a key event.
-public enum TerminalLegacyKeyEncoding {
-    /// The bytes a legacy terminal sends for `keyName`, or `nil` when there is none.
-    public static func text(forNamedKey keyName: String) -> String? {
+extension String {
+    /// The bytes a legacy terminal sends for the named key `keyName`, or `nil`
+    /// when there is none. Used when the key's chord is taken by a terminal
+    /// keybinding and can't travel as a key event.
+    public init?(terminalLegacyEncodingOfNamedKey keyName: String) {
+        guard let text = Self.terminalLegacyEncoding(ofNamedKey: keyName) else { return nil }
+        self = text
+    }
+
+    private static func terminalLegacyEncoding(ofNamedKey keyName: String) -> String? {
         let name = keyName.lowercased().replacingOccurrences(of: "-", with: "+")
         switch name {
         case "escape", "esc": return "\u{1b}"

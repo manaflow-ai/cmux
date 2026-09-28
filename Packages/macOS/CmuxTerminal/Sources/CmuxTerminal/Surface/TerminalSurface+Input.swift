@@ -656,7 +656,7 @@ extension TerminalSurface {
     @MainActor
     @discardableResult
     public func sendNamedKeyAvoidingTerminalBindings(_ keyName: String) -> Bool {
-        let legacyText = TerminalLegacyKeyEncoding.text(forNamedKey: keyName)
+        let legacyText = String(terminalLegacyEncodingOfNamedKey: keyName)
         guard let event = pendingKeyEvent(for: keyName) else {
             guard let legacyText else { return false }
             return sendKeyText(legacyText)

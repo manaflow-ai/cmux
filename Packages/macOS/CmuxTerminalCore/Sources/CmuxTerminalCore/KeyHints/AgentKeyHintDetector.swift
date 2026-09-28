@@ -27,11 +27,18 @@ public struct AgentKeyHint: Sendable, Equatable {
 ///
 /// Chords that quit, suspend, or signal (`ctrl+c`, `ctrl+d`, `ctrl+z`,
 /// `ctrl+\`) are never returned.
-public enum AgentKeyHintDetector {
+public struct AgentKeyHintDetector: Sendable {
     public enum Agent: Sendable {
         case claudeCode
         case codex
         case openCode
+    }
+
+    /// The agent whose hints this detector reads.
+    public let agent: Agent
+
+    public init(agent: Agent) {
+        self.agent = agent
     }
 
     static let blockedKeys: Set<String> = ["ctrl+c", "ctrl+d", "ctrl+z", "ctrl+\\"]
@@ -50,18 +57,18 @@ public enum AgentKeyHintDetector {
     private static let actionTerminators: Set<Character> = ["·", "•", "|", "(", ")", ",", ";", "[", "]"]
 
     /// The hint covering `column`, if any.
-    public static func hint(in line: String, atColumn column: Int, agent: Agent) -> AgentKeyHint? {
-        hints(in: line, agent: agent).first { $0.columns.contains(column) }
+    public func hint(in line: String, atColumn column: Int) -> AgentKeyHint? {
+        hints(in: line).first { $0.columns.contains(column) }
     }
 
     /// Every hint on the line, left to right.
-    public static func hints(in line: String, agent: Agent) -> [AgentKeyHint] {
+    public func hints(in line: String) -> [AgentKeyHint] {
         let cells = TerminalCellText(line)
         let words = cells.words
         var hints: [AgentKeyHint] = []
         var index = 0
         while index < words.count {
-            guard let hint = hint(startingAt: index, words: words, cells: cells, agent: agent) else {
+            guard let hint = hint(startingAt: index, words: words, cells: cells) else {
                 index += 1
                 continue
             }
@@ -71,20 +78,19 @@ public enum AgentKeyHintDetector {
         return hints
     }
 
-    private static func hint(
+    private func hint(
         startingAt start: Int,
         words: [TerminalCellText.Word],
-        cells: TerminalCellText,
-        agent: Agent
+        cells: TerminalCellText
     ) -> (hint: AgentKeyHint, nextWord: Int)? {
         var keys: [String] = []
         var index = start
-        while index < words.count, let key = chord(words[index].text) {
+        while index < words.count, let key = Self.chord(words[index].text) {
             keys.append(key)
             index += 1
         }
-        guard !keys.isEmpty, !keys.contains(where: blockedKeys.contains) else { return nil }
-        let isStrongHint = keys.contains { isStrong($0, printed: words[start].text) }
+        guard !keys.isEmpty, !keys.contains(where: Self.blockedKeys.contains) else { return nil }
+        let isStrongHint = keys.contains { Self.isStrong($0, printed: words[start].text) }
         if index < words.count, words[index].text.lowercased() == "again" {
             index += 1
         }
@@ -102,9 +108,9 @@ public enum AgentKeyHintDetector {
         while actionEnd < words.count {
             let word = words[actionEnd]
             if actionEnd > actionStart, cells.hasGapBefore(word) { break }
-            if let first = word.text.first, actionTerminators.contains(first) { break }
+            if let first = word.text.first, Self.actionTerminators.contains(first) { break }
             actionEnd += 1
-            if let last = word.text.last, actionTerminators.contains(last) { break }
+            if let last = word.text.last, Self.actionTerminators.contains(last) { break }
         }
         guard actionEnd > actionStart else { return nil }
         let action = words[actionStart..<actionEnd]
@@ -113,19 +119,19 @@ public enum AgentKeyHintDetector {
             .trimmingCharacters(in: .whitespaces)
         guard !action.isEmpty else { return nil }
         if connector != "to" && connector != "for" {
-            guard openCodeBareActions.contains(action.lowercased()) else { return nil }
+            guard Self.openCodeBareActions.contains(action.lowercased()) else { return nil }
         }
         // Bare key words and single characters read as prose (`end to end`,
         // `up to date`, `a to b`); they count only before a hint verb.
         // Modifier chords, Esc, and key glyphs always count.
         if !isStrongHint {
             let verb = action.split(separator: " ").first.map { $0.lowercased() } ?? ""
-            guard weakHintVerbs.contains(verb) else { return nil }
+            guard Self.weakHintVerbs.contains(verb) else { return nil }
         }
         let first = words[start]
         let last = words[actionEnd - 1]
         var endColumn = last.columns.upperBound
-        if let trailing = last.text.last, actionTerminators.contains(trailing) {
+        if let trailing = last.text.last, Self.actionTerminators.contains(trailing) {
             endColumn -= 1
         }
         var startColumn = first.columns.lowerBound

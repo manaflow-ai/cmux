@@ -28,14 +28,14 @@ extension TerminalPanel {
         atColumn column: Int
     ) -> (hint: AgentKeyHint, agent: AgentKeyHintDetector.Agent)? {
         guard Self.agentKeyHintsEnabled, let agent = agentKeyHintAgent,
-              let hint = AgentKeyHintDetector.hint(in: line, atColumn: column, agent: agent) else { return nil }
+              let hint = AgentKeyHintDetector(agent: agent).hint(in: line, atColumn: column) else { return nil }
         return (hint, agent)
     }
 
     /// The keys a click on `hint` sends, after the user's Claude Code keybindings.
     func agentKeyHintKeys(for hint: AgentKeyHint, agent: AgentKeyHintDetector.Agent) -> [String] {
         let bindings = agent == .claudeCode ? ClaudeCodeKeybindingsFile.shared.current() : .empty
-        return AgentKeyHintChordResolver.keys(for: hint, agent: agent, claudeKeybindings: bindings)
+        return AgentKeyHintChordResolver(claudeKeybindings: bindings).keys(for: hint, agent: agent)
     }
 
     /// A click on an agent key hint, resolved before it is pressed.
@@ -54,11 +54,11 @@ extension TerminalPanel {
         modifierFlags: NSEvent.ModifierFlags
     ) -> AgentKeyHintClick? {
         let flags = modifierFlags.intersection([.command, .shift, .option, .control])
-        guard AgentKeyHintClickPolicy.pressesHint(
+        guard AgentKeyHintClickPolicy(
             mouseCaptured: mouseCaptured,
             commandHeld: flags.contains(.command),
             otherModifierHeld: !flags.subtracting(.command).isEmpty
-        ),
+        ).pressesHint,
             !isAgentHibernated,
             let match = agentKeyHint(inLine: line, atColumn: column) else { return nil }
         return AgentKeyHintClick(hint: match.hint, agent: match.agent)

@@ -5,7 +5,7 @@ import Testing
 @Suite("Agent key hint chord resolver")
 struct AgentKeyHintChordResolverTests {
     private func hint(_ line: String, _ agent: AgentKeyHintDetector.Agent = .claudeCode) throws -> AgentKeyHint {
-        try #require(AgentKeyHintDetector.hints(in: line, agent: agent).first)
+        try #require(AgentKeyHintDetector(agent: agent).hints(in: line).first)
     }
 
     private func bindings(_ json: String) -> ClaudeCodeKeybindings {
@@ -14,54 +14,52 @@ struct AgentKeyHintChordResolverTests {
 
     @Test func sendsThePrintedChordWithoutUserBindings() throws {
         let expand = try hint("(ctrl+o to expand)")
-        #expect(AgentKeyHintChordResolver.keys(for: expand, agent: .claudeCode, claudeKeybindings: .empty) == ["ctrl+o"])
+        #expect(AgentKeyHintChordResolver(claudeKeybindings: .empty).keys(for: expand, agent: .claudeCode) == ["ctrl+o"])
     }
 
     @Test func sendsTheUsersChordForARemappedClaudeAction() throws {
         let user = bindings("""
         {"bindings": [{"context": "Global", "bindings": {"ctrl+o": null, "ctrl+t": "app:toggleTranscript"}}]}
         """)
-        #expect(AgentKeyHintChordResolver.keys(for: try hint("(ctrl+o to expand)"), agent: .claudeCode, claudeKeybindings: user) == ["ctrl+t"])
+        #expect(AgentKeyHintChordResolver(claudeKeybindings: user).keys(for: try hint("(ctrl+o to expand)"), agent: .claudeCode) == ["ctrl+t"])
 
         let cycle = bindings("""
         {"bindings": [{"context": "Chat", "bindings": {"meta+m": "chat:cycleMode"}}]}
         """)
-        #expect(AgentKeyHintChordResolver.keys(for: try hint("(shift+tab to cycle)"), agent: .claudeCode, claudeKeybindings: cycle) == ["alt+m"])
+        #expect(AgentKeyHintChordResolver(claudeKeybindings: cycle).keys(for: try hint("(shift+tab to cycle)"), agent: .claudeCode) == ["alt+m"])
 
         let background = bindings("""
         {"bindings": [{"context": "Task", "bindings": {"ctrl+g": "task:background"}}]}
         """)
-        #expect(AgentKeyHintChordResolver.keys(
-            for: try hint("ctrl+b ctrl+b to run in background"), agent: .claudeCode, claudeKeybindings: background
-        ) == ["ctrl+g", "ctrl+g"])
+        #expect(AgentKeyHintChordResolver(claudeKeybindings: background).keys(for: try hint("ctrl+b ctrl+b to run in background"), agent: .claudeCode) == ["ctrl+g", "ctrl+g"])
     }
 
     @Test func keepsThePrintedChordWhenItIsStillBound() throws {
         let user = bindings("""
         {"bindings": [{"context": "Global", "bindings": {"ctrl+o": "app:toggleTranscript", "ctrl+t": "app:toggleTranscript"}}]}
         """)
-        #expect(AgentKeyHintChordResolver.keys(for: try hint("(ctrl+o to expand)"), agent: .claudeCode, claudeKeybindings: user) == ["ctrl+o"])
+        #expect(AgentKeyHintChordResolver(claudeKeybindings: user).keys(for: try hint("(ctrl+o to expand)"), agent: .claudeCode) == ["ctrl+o"])
     }
 
     @Test func aNonDefaultPrintedChordIsAlreadyTheUsers() throws {
         let user = bindings("""
         {"bindings": [{"context": "Global", "bindings": {"ctrl+t": "app:toggleTranscript"}}]}
         """)
-        #expect(AgentKeyHintChordResolver.keys(for: try hint("(ctrl+y to expand)"), agent: .claudeCode, claudeKeybindings: user) == ["ctrl+y"])
+        #expect(AgentKeyHintChordResolver(claudeKeybindings: user).keys(for: try hint("(ctrl+y to expand)"), agent: .claudeCode) == ["ctrl+y"])
     }
 
     @Test func neverSendsASignalChordFromTheBindingsFile() throws {
         let user = bindings("""
         {"bindings": [{"context": "Chat", "bindings": {"escape": null, "ctrl+c": "chat:cancel"}}]}
         """)
-        #expect(AgentKeyHintChordResolver.keys(for: try hint("esc to interrupt"), agent: .claudeCode, claudeKeybindings: user) == ["escape"])
+        #expect(AgentKeyHintChordResolver(claudeKeybindings: user).keys(for: try hint("esc to interrupt"), agent: .claudeCode) == ["escape"])
     }
 
     @Test func otherAgentsUseThePrintedChord() throws {
         let user = bindings("""
         {"bindings": [{"context": "Global", "bindings": {"ctrl+t": "app:toggleTranscript"}}]}
         """)
-        #expect(AgentKeyHintChordResolver.keys(for: try hint("ctrl+o to expand", .codex), agent: .codex, claudeKeybindings: user) == ["ctrl+o"])
+        #expect(AgentKeyHintChordResolver(claudeKeybindings: user).keys(for: try hint("ctrl+o to expand", .codex), agent: .codex) == ["ctrl+o"])
     }
 
     @Test func parsesChordSequencesAndDropsUnsendableChords() {
@@ -97,12 +95,12 @@ struct AgentKeyHintChordResolverTests {
 @Suite("Agent key hint click policy")
 struct AgentKeyHintClickPolicyTests {
     @Test func plainClickPressesUnlessTheAgentOwnsTheMouse() {
-        #expect(AgentKeyHintClickPolicy.pressesHint(mouseCaptured: false, commandHeld: false, otherModifierHeld: false))
-        #expect(!AgentKeyHintClickPolicy.pressesHint(mouseCaptured: true, commandHeld: false, otherModifierHeld: false))
-        #expect(AgentKeyHintClickPolicy.pressesHint(mouseCaptured: true, commandHeld: true, otherModifierHeld: false))
-        #expect(AgentKeyHintClickPolicy.pressesHint(mouseCaptured: false, commandHeld: true, otherModifierHeld: false))
-        #expect(!AgentKeyHintClickPolicy.pressesHint(mouseCaptured: false, commandHeld: false, otherModifierHeld: true))
-        #expect(!AgentKeyHintClickPolicy.pressesHint(mouseCaptured: true, commandHeld: true, otherModifierHeld: true))
+        #expect(AgentKeyHintClickPolicy(mouseCaptured: false, commandHeld: false, otherModifierHeld: false).pressesHint)
+        #expect(!AgentKeyHintClickPolicy(mouseCaptured: true, commandHeld: false, otherModifierHeld: false).pressesHint)
+        #expect(AgentKeyHintClickPolicy(mouseCaptured: true, commandHeld: true, otherModifierHeld: false).pressesHint)
+        #expect(AgentKeyHintClickPolicy(mouseCaptured: false, commandHeld: true, otherModifierHeld: false).pressesHint)
+        #expect(!AgentKeyHintClickPolicy(mouseCaptured: false, commandHeld: false, otherModifierHeld: true).pressesHint)
+        #expect(!AgentKeyHintClickPolicy(mouseCaptured: true, commandHeld: true, otherModifierHeld: true).pressesHint)
     }
 }
 
@@ -114,11 +112,11 @@ struct TerminalLegacyKeyEncodingTests {
         ("down", "\u{1b}[B"), ("right", "\u{1b}[C"), ("left", "\u{1b}[D"), ("?", "?"),
     ])
     func encodesKnownKeys(key: String, text: String) {
-        #expect(TerminalLegacyKeyEncoding.text(forNamedKey: key) == text)
+        #expect(String(terminalLegacyEncodingOfNamedKey: key) == text)
     }
 
     @Test(arguments: ["alt+x", "ctrl+shift+o", "pageup", "f1", "ctrl+?"])
     func skipsKeysWithoutALegacyEncoding(key: String) {
-        #expect(TerminalLegacyKeyEncoding.text(forNamedKey: key) == nil)
+        #expect(String(terminalLegacyEncodingOfNamedKey: key) == nil)
     }
 }

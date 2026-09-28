@@ -4,16 +4,16 @@ import Testing
 @Suite("Agent key hint detector")
 struct AgentKeyHintDetectorTests {
     private func hints(_ line: String, _ agent: AgentKeyHintDetector.Agent = .claudeCode) -> [AgentKeyHint] {
-        AgentKeyHintDetector.hints(in: line, agent: agent)
+        AgentKeyHintDetector(agent: agent).hints(in: line)
     }
 
     @Test func claudeCodeFooterHints() {
         let expand = "  ⎿  … +53 lines (ctrl+o to expand)"
         #expect(hints(expand) == [AgentKeyHint(keys: ["ctrl+o"], action: "expand", columns: 18..<34)])
-        #expect(AgentKeyHintDetector.hint(in: expand, atColumn: 18, agent: .claudeCode)?.keys == ["ctrl+o"])
-        #expect(AgentKeyHintDetector.hint(in: expand, atColumn: 33, agent: .claudeCode) != nil)
-        #expect(AgentKeyHintDetector.hint(in: expand, atColumn: 17, agent: .claudeCode) == nil, "The ( is not part of the hint")
-        #expect(AgentKeyHintDetector.hint(in: expand, atColumn: 34, agent: .claudeCode) == nil, "Nor the )")
+        #expect(AgentKeyHintDetector(agent: .claudeCode).hint(in: expand, atColumn: 18)?.keys == ["ctrl+o"])
+        #expect(AgentKeyHintDetector(agent: .claudeCode).hint(in: expand, atColumn: 33) != nil)
+        #expect(AgentKeyHintDetector(agent: .claudeCode).hint(in: expand, atColumn: 17) == nil, "The ( is not part of the hint")
+        #expect(AgentKeyHintDetector(agent: .claudeCode).hint(in: expand, atColumn: 34) == nil, "Nor the )")
 
         #expect(hints("✻ Thinking… (12s · ↑ 1.2k tokens · esc to interrupt)").map(\.keys) == [["escape"]])
         #expect(hints("  ⏵⏵ accept edits on (shift+tab to cycle)").map(\.keys) == [["shift+tab"]])

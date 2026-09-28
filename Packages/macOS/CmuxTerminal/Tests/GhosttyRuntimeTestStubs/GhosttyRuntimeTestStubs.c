@@ -512,6 +512,7 @@ uint64_t ghostty_surface_foreground_pid(void *surface) {
 }
 void ghostty_surface_has_selection(void) {}
 void ghostty_surface_key(void) {}
+bool ghostty_surface_key_is_binding(void) { return false; }
 void ghostty_surface_mouse_button(void) {}
 void ghostty_surface_mouse_pos(void) {}
 void ghostty_surface_mouse_scroll(void) {}
