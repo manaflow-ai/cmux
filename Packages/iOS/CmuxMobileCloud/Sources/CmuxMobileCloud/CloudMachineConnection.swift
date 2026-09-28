@@ -168,7 +168,7 @@ public final class CloudMachineConnection {
         if let connectTask { return try await connectTask.value }
         let task = Task<any CloudTerminalSession, any Error> { [service, connector, tunnel, identity, stateDirectory, deviceName, approvalClock, machine] in
             let endpoint = try await service.openAttach(machineID: machine.id, deviceFingerprint: identity.fingerprint)
-            cloudLinkLog.info("Cloud link started trustedCarrier=\(endpoint.trustedCarrier, privacy: .public) invitation=\(endpoint.invitation != nil, privacy: .public)")
+            cloudLinkLog.notice("Cloud link started trustedCarrier=\(endpoint.trustedCarrier, privacy: .public) invitation=\(endpoint.invitation != nil, privacy: .public)")
             var approval: Task<Void, Never>?
             if !endpoint.trustedCarrier, let invitation = endpoint.invitation {
                 approval = Task {

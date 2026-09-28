@@ -2,6 +2,11 @@ public import CmuxMobileCloud
 public import CmuxMobileShell
 public import CmuxMobileShellModel
 import Foundation
+import OSLog
+
+/// Attach and catalog milestones at notice level, so they survive in the
+/// persisted log a dogfood report pulls. Ids only; never terminal bytes.
+private let bridgeLog = Logger(subsystem: "dev.cmux.ios", category: "cloud-bridge")
 
 /// Publishes the account's Cloud machines into the phone's workspace
 /// experience and serves their terminals.
@@ -196,6 +201,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
                 let (workspaces, terminals) = try await connection.loadCatalog()
                 guard !Task.isCancelled else { return }
                 catalogFailureCounts.removeValue(forKey: machine.id)
+                bridgeLog.notice("catalog ok machine=\(machine.id, privacy: .public) workspaces=\(workspaces.count, privacy: .public) terminals=\(terminals.count, privacy: .public)")
                 publish(
                     machine: machine,
                     workspaces: workspaces,
@@ -205,6 +211,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
                 )
             } catch {
                 guard !Task.isCancelled else { return }
+                bridgeLog.error("catalog failed machine=\(machine.id, privacy: .public) error=\(String(describing: error), privacy: .public)")
                 // The catalog read failed: keep the machine visible as
                 // unreachable rather than dropping its row, so the user can
                 // see it and retry instead of watching it vanish.
@@ -281,6 +288,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
             // dropping it; `ensureAttached` flushes in order once the link is
             // up.
             pendingInputBySurfaceID[surfaceID, default: Data()].append(Data(text.utf8))
+            bridgeLog.notice("input held until attached machine=\(machine.id, privacy: .public) bytes=\(text.utf8.count, privacy: .public)")
             return
         }
         attachment.send(Data(text.utf8))
@@ -333,10 +341,14 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         // link down and ask for the same screen again, which a view reset or
         // a resync sweep can trigger repeatedly.
         if attachingSurfaceIDsByMachine[machine.id] == surfaceID { return }
-        guard let connection = links.link(for: machine) else { return }
+        guard let connection = links.link(for: machine) else {
+            bridgeLog.notice("attach skipped: no link machine=\(machine.id, privacy: .public)")
+            return
+        }
         teardownAttachment(machineID: machine.id)
         attachedSurfaceIDsByMachine[machine.id] = surfaceID
         attachingSurfaceIDsByMachine[machine.id] = surfaceID
+        bridgeLog.notice("attach start machine=\(machine.id, privacy: .public) terminal=\(terminalID, privacy: .public)")
 
         // The daemon's callback runs on library threads. Yielding into a
         // stream preserves arrival order across that boundary; one consumer
@@ -346,7 +358,12 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         )
         outputStreams[machine.id] = continuation
         deliveryTasks[machine.id] = Task { @MainActor [weak self] in
+            var delivered = 0
             for await event in events {
+                if delivered == 0 {
+                    bridgeLog.notice("first output terminal=\(terminalID, privacy: .public) kind=\(event.logKind, privacy: .public)")
+                }
+                delivered += 1
                 self?.deliver(event, surfaceID: surfaceID)
             }
         }
@@ -364,6 +381,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
                 }
                 attachments[machine.id] = attachment
                 attachingSurfaceIDsByMachine.removeValue(forKey: machine.id)
+                bridgeLog.notice("attach ok machine=\(machine.id, privacy: .public) terminal=\(terminalID, privacy: .public)")
                 // The mounted view reports its grid as soon as it lays out,
                 // which is usually before this attachment exists. Replay the
                 // last report so the daemon's pseudo-terminal matches the
@@ -379,6 +397,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
             } catch {
                 continuation.finish()
                 guard !Task.isCancelled else { return }
+                bridgeLog.error("attach failed machine=\(machine.id, privacy: .public) terminal=\(terminalID, privacy: .public) error=\(String(describing: error), privacy: .public)")
                 attachingSurfaceIDsByMachine.removeValue(forKey: machine.id)
                 pendingInputBySurfaceID.removeValue(forKey: surfaceID)
                 if attachedSurfaceIDsByMachine[machine.id] == surfaceID {
@@ -487,5 +506,16 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
 
     private func machine(id: String) -> CloudMachine? {
         admittedMachines.first { $0.id == id }
+    }
+}
+
+private extension CloudTerminalOutputEvent {
+    var logKind: String {
+        switch self {
+        case .snapshot: "snapshot"
+        case .output: "output"
+        case .resized: "resized"
+        case .exited: "exited"
+        }
     }
 }
