@@ -170,6 +170,53 @@ struct CloudWorkspaceCreationRevealTests {
         }
     }
 
+    /// ⌘N's reveal is completed from the binding the real create path leaves on
+    /// the workspace, so it must name the same row the daemon's receipt adds.
+    @Test("⌘N on a selected VM reveals the row the real create path adds")
+    func currentMachineShortcutRevealsTheCreatedRow() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.provider.usesReceipt = true
+            let window = KeyStatusTestWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480), styleMask: [.titled], backing: .buffered, defer: false)
+            window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(fixture.windowID.uuidString)")
+            let context = try #require(fixture.app.mainWindowContexts.values.first { $0.windowId == fixture.windowID })
+            context.window = window
+            defer { context.window = fixture.window; withExtendedLifetime(window) {} }
+            let suite = "cloud-workspace-reveal-\(UUID().uuidString)"
+            let defaults = try #require(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let operations = CloudWorkspaceOperationController(isAvailable: { true })
+            fixture.app.cloudWorkspaceOperationController = operations
+            fixture.app.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
+                machinePinStore: CloudMachinePinStore(defaults: defaults, scopeProvider: { "scope" }),
+                allowsOperation: { true }, loadMachines: { [fixture.provider.machine.rawValue] },
+                createWorkspace: { _ in
+                    // The same unfocused create the app composes for ⌘N.
+                    try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                        machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                        name: nil, focus: false, host: .init(manager: fixture.manager)
+                    ).opened?.workspaceID
+                }
+            )
+
+            #expect(fixture.app.performNewCloudWorkspaceOnCurrentMachineAction(
+                tabManager: fixture.manager, vmID: fixture.provider.machine.rawValue
+            ))
+            await operations.waitForPendingOperations()
+
+            let workspace = try #require(fixture.provider.createdWorkspaces.first)
+            let nodeID = CloudTreeNodeBuilder.nodeID(workspace: workspace.id, machine: fixture.provider.machine)
+            let reveal = try #require(SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: fixture.manager))
+            #expect(fixture.manager.selectedTabId != fixture.originalWorkspaceID)
+            #expect(reveal.nodeID == nodeID)
+            #expect(!reveal.isWithdrawn)
+            #expect(fixture.workspaceRows().contains { $0.id == nodeID })
+            #expect(fixture.catalog.cloudWorkspaceCreationCoordinator.reveals.reveal(for: fixture.manager) == nil,
+                    "The unfocused create inside ⌘N publishes no reveal of its own")
+        }
+    }
+
     /// A create can outlive the window that started it; the reveal must not keep
     /// that window's manager alive while the daemon works.
     @Test("Closing the window during ⌘N releases its manager before the create finishes",
@@ -271,6 +318,52 @@ struct CloudWorkspaceCreationRevealTests {
         #expect(reveals.reveal(for: manager)?.nodeID == CloudTreeNodeBuilder.nodeID(workspace: "ws_1", machine: .cloud("observed")))
         await expectInvalidation("withdraw") { reveals.withdraw(started) }
         #expect(reveals.reveal(for: manager)?.isWithdrawn == true)
+    }
+
+    @Test("Each window keeps its own reveal, and only its newest live create can change it")
+    func revealsBelongToTheirWindowsNewestCreate() {
+        let reveals = CloudWorkspaceCreationReveals()
+        let first = TabManager(createInitialWorkspace: false)
+        let second = TabManager(createInitialWorkspace: false)
+        let machine = SurfaceMachineID.cloud("ledger")
+        let replaced = reveals.begin(in: first)
+        let current = reveals.begin(in: first)
+        let other = reveals.begin(in: second)
+
+        reveals.receive(replaced, machine: machine, remoteWorkspaceID: "ws_replaced")
+        reveals.withdraw(replaced)
+        #expect(reveals.reveal(for: first) == CloudWorkspaceCreationReveal(token: current), "A replaced create is a no-op")
+        reveals.receive(current, machine: machine, remoteWorkspaceID: "ws_1")
+        #expect(reveals.reveal(for: first)?.nodeID == CloudTreeNodeBuilder.nodeID(workspace: "ws_1", machine: machine))
+        #expect(reveals.reveal(for: second) == CloudWorkspaceCreationReveal(token: other), "Another window's create leaves it alone")
+
+        reveals.withdraw(current)
+        reveals.receive(current, machine: machine, remoteWorkspaceID: "ws_2")
+        #expect(reveals.reveal(for: first)?.isWithdrawn == true, "A withdrawn reveal stays withdrawn")
+        #expect(reveals.reveal(for: first)?.nodeID == CloudTreeNodeBuilder.nodeID(workspace: "ws_1", machine: machine))
+    }
+
+    @Test("A selected workspace without a complete Cloud binding withdraws its reveal",
+          arguments: ["none", "noRemoteWorkspace", "emptyMachine"])
+    func unboundWorkspaceWithdrawsTheReveal(binding: String) {
+        let reveals = CloudWorkspaceCreationReveals()
+        let manager = TabManager(createInitialWorkspace: false)
+        let workspace = Workspace(title: "Cloud VM", initialSurface: .cloudVMLoading)
+        defer { workspace.teardownAllPanels() }
+        switch binding {
+        case "noRemoteWorkspace":
+            workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "ledger", isBase: false, remoteWorkspaceID: nil)
+        case "emptyMachine":
+            workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "", isBase: false, remoteWorkspaceID: "ws_1")
+        default:
+            break
+        }
+        let token = reveals.begin(in: manager)
+
+        reveals.receive(token, revealing: workspace)
+        let reveal = reveals.reveal(for: manager)
+        #expect(reveal?.isWithdrawn == true)
+        #expect(reveal?.nodeID == nil)
     }
 
     private static func create(_ fixture: CloudWorkspaceCreationSidebarFixture, focus: Bool) -> Task<Void, any Error> {
