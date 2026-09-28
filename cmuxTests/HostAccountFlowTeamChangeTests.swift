@@ -111,48 +111,7 @@ struct HostAccountFlowTeamChangeTests {
     }
 
     private func makeFlow(client: TeamChangeAuthClient) async throws -> HostAccountFlow {
-        let defaults = try #require(UserDefaults(suiteName: "HostAccountFlowTeamChangeTests.\(UUID())"))
-        let anchor = AuthPresentationContextProvider()
-        let coordinator = AuthCoordinator(
-            client: client,
-            sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "session"),
-            userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "user"),
-            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "team"),
-            anchor: anchor,
-            config: AuthConfig(
-                stack: CMUXAuthConfig(projectId: "fixture", publishableClientKey: "fixture"),
-                magicLinkCallbackURL: "http://127.0.0.1:1/callback", apiBaseURL: "http://127.0.0.1:1"
-            ),
-            launch: AuthLaunchOptions(
-                clearAuthRequested: false, mockDataEnabled: false,
-                environment: [
-                    "CMUX_UITEST_AUTH_FIXTURE": "1",
-                    "CMUX_UITEST_AUTH_USER_ID": "fixture",
-                    "CMUX_UITEST_AUTH_FIXTURE_TEAMS": "1",
-                ],
-                includesDevAuth: true
-            )
-        )
-        coordinator.start()
-        await coordinator.awaitBootstrapped()
-        try #require(coordinator.isAuthenticated)
-        try #require(coordinator.availableTeams.map(\.id) == ["team-a", "team-b"])
-        let signInURL = try #require(URL(string: "http://127.0.0.1:1/sign-in"))
-        let browserSignIn = HostBrowserSignInFlow(
-            coordinator: coordinator,
-            tokenStore: FileStackTokenStore(
-                directory: FileManager.default.temporaryDirectory
-                    .appendingPathComponent("HostAccountFlowTeamChangeTests-\(UUID())", isDirectory: true)
-            ),
-            sessionFactory: ASWebBrowserAuthSessionFactory(anchor: anchor),
-            callbackRouter: AuthCallbackRouter(),
-            makeSignInURL: { _ in signInURL },
-            callbackScheme: { "cmux-test" },
-            openExternalURL: { _ in false }
-        )
-        let flow = HostAccountFlow(coordinator: coordinator, browserSignIn: browserSignIn)
-        try #require(flow.confirmedTeamID == "team-a")
-        return flow
+        try await HostAccountFlow.makeForTeamChangeTests(client: client)
     }
 
     private func waitUntil(_ condition: () async -> Bool) async throws {

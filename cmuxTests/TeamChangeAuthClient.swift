@@ -1,6 +1,13 @@
 import CMUXAuthCore
 import CmuxAuthRuntime
 import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
 
 /// Serves two teams and can hold the next team create or team switch open
 /// until the test releases it, so a test can start a second change mid-flight.
@@ -66,4 +73,52 @@ actor TeamChangeAuthClient: AuthClient {
     func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {}
     func revokeSession(accessToken: String?, refreshToken: String?) async throws {}
     func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? { accessToken }
+}
+
+extension HostAccountFlow {
+    /// A signed-in flow over `client`, with `team-a` confirmed.
+    static func makeForTeamChangeTests(client: TeamChangeAuthClient) async throws -> HostAccountFlow {
+        let defaults = try #require(UserDefaults(suiteName: "HostAccountFlowTeamChangeTests.\(UUID())"))
+        let anchor = AuthPresentationContextProvider()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "session"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "team"),
+            anchor: anchor,
+            config: AuthConfig(
+                stack: CMUXAuthConfig(projectId: "fixture", publishableClientKey: "fixture"),
+                magicLinkCallbackURL: "http://127.0.0.1:1/callback", apiBaseURL: "http://127.0.0.1:1"
+            ),
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false, mockDataEnabled: false,
+                environment: [
+                    "CMUX_UITEST_AUTH_FIXTURE": "1",
+                    "CMUX_UITEST_AUTH_USER_ID": "fixture",
+                    "CMUX_UITEST_AUTH_FIXTURE_TEAMS": "1",
+                ],
+                includesDevAuth: true
+            )
+        )
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+        try #require(coordinator.isAuthenticated)
+        try #require(coordinator.availableTeams.map(\.id) == ["team-a", "team-b"])
+        let signInURL = try #require(URL(string: "http://127.0.0.1:1/sign-in"))
+        let browserSignIn = HostBrowserSignInFlow(
+            coordinator: coordinator,
+            tokenStore: FileStackTokenStore(
+                directory: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("HostAccountFlowTeamChangeTests-\(UUID())", isDirectory: true)
+            ),
+            sessionFactory: ASWebBrowserAuthSessionFactory(anchor: anchor),
+            callbackRouter: AuthCallbackRouter(),
+            makeSignInURL: { _ in signInURL },
+            callbackScheme: { "cmux-test" },
+            openExternalURL: { _ in false }
+        )
+        let flow = HostAccountFlow(coordinator: coordinator, browserSignIn: browserSignIn)
+        try #require(flow.confirmedTeamID == "team-a")
+        return flow
+    }
 }

@@ -155,8 +155,8 @@ struct CloudTeamPickerMenuTests {
         #expect(probe.drainedWhileTracking == true, "The menu tracked inside a main-queue callout.")
     }
 
-    /// Create Team… opens a sheet, which must not start while the menu's
-    /// tracking loop still holds the event loop.
+    /// An item's follow-up, such as Create Team…'s sheet, waits until the
+    /// menu's tracking loop has returned. A stand-in tracking loop queues it.
     @Test func itemFollowUpRunsAfterTheMenuCloses() throws {
         let anchor = CloudTeamPickerMenuAnchorView(frame: NSRect(x: 0, y: 0, width: 120, height: 22))
         var events: [String] = []
