@@ -355,6 +355,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resolve the restoring-gate flags, so a superseded older attempt can't clear
     /// the gate while a newer reconnect is still in progress.
     var storedMacReconnectGeneration = 0
+    /// Generations of stored-Mac reconnects still running. A superseded
+    /// attempt consults this to tell a newer owner from a bare generation bump.
+    @ObservationIgnored var storedMacReconnectGenerationsInFlight: Set<Int> = []
     /// Set when a connection-method change arrives during a reconnect. The
     /// latest forced retry starts as soon as the current attempt settles.
     var pendingForcedStoredMacReconnect = false
@@ -3155,6 +3158,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // gate (or clobber the hint) while a newer reconnect is still running.
         storedMacReconnectGeneration &+= 1
         let generation = storedMacReconnectGeneration
+        storedMacReconnectGenerationsInFlight.insert(generation)
+        defer {
+            storedMacReconnectGenerationsInFlight.remove(generation)
+            settleStoodDownConnectionRecoveryIfOwnerless()
+        }
         isReconnectingStoredMac = true
         let restoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         // Bound the complete visible retry window, including scope resolution,
@@ -3187,8 +3195,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // ignores cancellation.
         let deadlineNanoseconds = runtime?.reconnectAttemptDeadlineNanoseconds
             ?? 30_000_000_000
+        let deadlineSleep: RPCTaskTimeout.Sleep = { [runtime] nanoseconds in
+            if let runtime {
+                try await runtime.sleepUntilReconnectAttemptDeadline(
+                    nanoseconds: nanoseconds
+                )
+            } else {
+                try await RPCTaskTimeout.continuousClockSleep(nanoseconds: nanoseconds)
+            }
+        }
         let race = await Self.raceAgainstDeadline(
-            nanoseconds: deadlineNanoseconds
+            nanoseconds: deadlineNanoseconds,
+            sleep: deadlineSleep
         ) { [weak self] in
             await self?.performReconnectActiveMacAttempt(
                 stackUserID: stackUserID,
@@ -3221,6 +3239,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         MobileDebugLog.anchormux(
             "storedMacReconnect deadline expired generation=\(generation)"
         )
+        // When a newer reconnect owns the connection, reporting this expiry as
+        // a failure would let the caller tear down that newer session and arm
+        // backoff for a dial nobody is waiting on.
+        if generation != storedMacReconnectGeneration,
+           newerStoredMacReconnectOwnsConnection(than: generation) {
+            return .superseded
+        }
         finishStoredMacReconnectAttempt(generation: generation)
         if Self.shouldRecordReconnectBackoff(
             abandonedDialCount: abandonedReconnectDialCount
@@ -8532,6 +8557,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         refreshRoutesFromRegistry(for: mac, scope: scope)
     }
     #endif
+
+    /// Whether a reconnect newer than `generation` (any in-flight reconnect
+    /// when `nil`) is still dialing, or the shell already has a live
+    /// connection. Code that lost the reconnect generation must leave the
+    /// connection alone only when such an owner exists.
+    func newerStoredMacReconnectOwnsConnection(than generation: Int?) -> Bool {
+        hasActiveMacConnection
+            || storedMacReconnectGenerationsInFlight.contains { inFlight in
+                generation.map { inFlight > $0 } ?? true
+            }
+    }
 
     func invalidateStoredMacReconnectAttempt() {
         storedMacReconnectGeneration &+= 1

@@ -48,8 +48,9 @@ A tour is a steps array, or an object with `steps` and an optional `launch`:
 | `{"wait": 0.5}` | Seconds to let animations and renders settle. |
 | `{"key": "d", "modifiers": ["command", "shift"]}` | A key press. Names: `return`, `escape`, `tab`, `delete`, `space`, `up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`, or one character. |
 | `{"type": "echo hi\n"}` | Types text into the focused view. |
-| `{"click": target}`, `doubleClick`, `rightClick`, `hover` | Acts on an element. |
-| `{"clickAt": {"x": 0.1, "y": 0.2}}`, `hoverAt` | Acts on a point in the main window, 0 to 1 from the top left. |
+| `{"click": target}`, `doubleClick`, `rightClick`, `hover` | Acts on an element. All four also take `"modifiers"`. |
+| `{"clickAt": {"x": 0.1, "y": 0.2}}`, `hoverAt` | Acts on a point in the main window, 0 to 1 from the top left. Both also take `"modifiers"`. |
+| `{"clickAt": {"x": 0.5, "y": 0.4}, "modifiers": ["command"]}` | A cmd-click. Same modifier names as `key`. Needed for anything behind cmd-click, such as opening a link in terminal output. The modifiers are held as global keyboard state around the click, so a cmd-`hover` works the same way for hover affordances. |
 | `{"menu": ["File", "New Workspace"]}` | Clicks through the menu bar. |
 | `{"socket": "method", "params": {...}, "save": "name"}` | A v2 control socket request. The reply is attached; `save` keeps its `result`, and a later param `"${name.workspace_id}"` reads a field from it. |
 | `{"expect": target, "exists": false}` | Checks that an element exists (or not). |
