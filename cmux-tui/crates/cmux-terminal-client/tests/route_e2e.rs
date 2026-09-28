@@ -8,6 +8,7 @@
 //! tunneled TCP connection to it, which is what a VPC address looks like from
 //! the client.
 
+use std::collections::BTreeMap;
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,12 +21,16 @@ use cmux_remote::daemon::{RemoteDaemon, serve_direct_websocket};
 use cmux_remote::identity::AuthDatabase;
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::session::SessionLimits;
-use cmux_remote_protocol::{Lane, Service, ServiceControl};
+use cmux_remote_protocol::{
+    Lane, Service, ServiceControl, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY,
+    TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
+};
 use cmux_terminal_client::{
     cmux_terminal_client_attach_with_timeout, cmux_terminal_client_connect_route,
-    cmux_terminal_client_create_terminal, cmux_terminal_client_disconnect,
-    cmux_terminal_client_has_exited, cmux_terminal_client_list_terminals,
-    cmux_terminal_client_set_output_callback, cmux_terminal_client_string_free,
+    cmux_terminal_client_create_terminal, cmux_terminal_client_detach,
+    cmux_terminal_client_disconnect, cmux_terminal_client_has_exited,
+    cmux_terminal_client_list_terminals, cmux_terminal_client_set_output_callback,
+    cmux_terminal_client_set_viewer_size_priority, cmux_terminal_client_string_free,
     cmux_wireguard_net_free, cmux_wireguard_net_start,
 };
 use cmux_tui_core::terminal_host_protocol::{
@@ -96,15 +101,31 @@ fn frame(kind: MessageKind, payload: Vec<u8>, sequence: u64) -> Bytes {
     Bytes::from(encode_frame(&frame).unwrap())
 }
 
+/// What the fake daemon records about TerminalBytes opens, and whether it
+/// rejects the viewer-size priority key the way a daemon that predates it does.
+#[derive(Default)]
+struct PhoneDaemon {
+    rejects_viewer_size_priority: bool,
+    terminal_opens: Mutex<Vec<BTreeMap<String, String>>>,
+}
+
 /// The daemon side of the services a phone client uses: one TerminalBytes
 /// stream that replays a prompt and writes one line, and MuxControl answering
 /// `terminal.list` and `workspace.create` with canned protocol/2 replies.
-async fn serve_phone_services(daemon: Arc<ServiceMultiplexer>) {
+async fn serve_phone_services(daemon: Arc<ServiceMultiplexer>, phone: Arc<PhoneDaemon>) {
     loop {
         let Ok(Some(incoming)) = daemon.accept().await else { return };
         let stream = Arc::new(incoming.stream);
         match stream.service() {
             Service::TerminalBytes => {
+                phone.terminal_opens.lock().unwrap().push(incoming.metadata.clone());
+                if phone.rejects_viewer_size_priority
+                    && incoming.metadata.contains_key(TERMINAL_BYTES_VIEWER_SIZE_PRIORITY)
+                {
+                    let message = "terminal byte stream metadata only supports terminal";
+                    stream.reject("invalid-argument".into(), message.into()).await.unwrap();
+                    continue;
+                }
                 let opened =
                     serde_json::to_vec(&ServiceControl::Opened { service: Service::TerminalBytes })
                         .unwrap();
@@ -292,7 +313,7 @@ fn phone_path_over_wireguard_with_persistent_identity() {
         tokio::spawn(async move {
             while let Some(connection) = accepted.recv().await {
                 let services = ServiceMultiplexer::new(connection, EndpointRole::Daemon);
-                tokio::spawn(serve_phone_services(services));
+                tokio::spawn(serve_phone_services(services, Arc::default()));
             }
         });
         let invitation = auth.create_invitation(Duration::from_secs(60), vec![]).await.unwrap();
@@ -500,4 +521,105 @@ fn unsupported_scheme_and_missing_state_dir_fail_cleanly() {
     };
     assert!(client.is_null());
     assert!(!error_text(&error).is_empty());
+}
+
+/// Connects over a plain loopback route, attaches once per entry of
+/// `choices` (detaching in between) with that viewer-size priority choice,
+/// and returns whether each TerminalBytes open the daemon saw carried the key.
+fn viewer_size_priority_opens(rejects_key: bool, choices: &[bool]) -> Vec<bool> {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let daemon_state = tempdir().unwrap();
+    let client_state = tempdir().unwrap();
+    let phone =
+        Arc::new(PhoneDaemon { rejects_viewer_size_priority: rejects_key, ..Default::default() });
+    let (auth, server, invitation_uri, route) = runtime.block_on(async {
+        let auth = AuthDatabase::load_or_create(daemon_state.path(), "priority", false).unwrap();
+        let (daemon, mut accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
+        let server = serve_direct_websocket(daemon, "127.0.0.1:0".parse().unwrap(), 65_535, false)
+            .await
+            .unwrap();
+        let phone = phone.clone();
+        tokio::spawn(async move {
+            while let Some(connection) = accepted.recv().await {
+                let services = ServiceMultiplexer::new(connection, EndpointRole::Daemon);
+                tokio::spawn(serve_phone_services(services, phone.clone()));
+            }
+        });
+        let invitation = auth.create_invitation(Duration::from_secs(60), vec![]).await.unwrap();
+        let route = format!("ws://{}/v1/link", server.local_addr());
+        (auth, server, invitation.to_uri().unwrap(), route)
+    });
+    let approver = runtime.spawn(async move {
+        let pending = auth.wait_for_pending(Duration::from_secs(10)).await.unwrap();
+        auth.approve(&pending[0].invitation_id).await.unwrap();
+    });
+
+    let mut error = vec![0 as c_char; 512];
+    let route_c = c(&route);
+    let state_c = c(client_state.path().to_str().unwrap());
+    let device_c = c("iPhone priority test");
+    let invitation_c = c(&invitation_uri);
+    // SAFETY: all strings are live NUL-terminated; no tunnel is used.
+    let client = unsafe {
+        cmux_terminal_client_connect_route(
+            route_c.as_ptr(),
+            state_c.as_ptr(),
+            device_c.as_ptr(),
+            invitation_c.as_ptr(),
+            std::ptr::null(),
+            error.as_mut_ptr(),
+            error.len(),
+            TIMEOUT_MS,
+        )
+    };
+    assert!(!client.is_null(), "connect failed: {}", error_text(&error));
+    runtime.block_on(approver).unwrap();
+
+    let terminal_c = c(TERMINAL_ID);
+    for &preferred in choices {
+        // SAFETY: live handle; the terminal id is NUL-terminated.
+        let attached = unsafe {
+            assert!(cmux_terminal_client_set_viewer_size_priority(client, preferred));
+            cmux_terminal_client_attach_with_timeout(
+                client,
+                terminal_c.as_ptr(),
+                error.as_mut_ptr(),
+                error.len(),
+                TIMEOUT_MS,
+            )
+        };
+        assert!(attached, "attach failed: {}", error_text(&error));
+        // SAFETY: live handle.
+        unsafe { cmux_terminal_client_detach(client) };
+    }
+    // SAFETY: live handle, owned exactly once.
+    unsafe { cmux_terminal_client_disconnect(client) };
+    runtime.block_on(async { server.shutdown().await.unwrap() });
+
+    let opens = phone.terminal_opens.lock().unwrap();
+    opens
+        .iter()
+        .map(|metadata| {
+            assert_eq!(metadata.get("terminal").map(String::as_str), Some(TERMINAL_ID));
+            match metadata.get(TERMINAL_BYTES_VIEWER_SIZE_PRIORITY) {
+                Some(value) => {
+                    assert_eq!(value, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED);
+                    true
+                }
+                None => false,
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn viewer_size_priority_open_metadata_follows_the_client_choice() {
+    assert_eq!(viewer_size_priority_opens(false, &[false, true, true]), [false, true, true]);
+}
+
+#[test]
+fn viewer_size_priority_is_dropped_after_an_old_daemon_rejects_it() {
+    // The rejected open is retried without the key within the same attach,
+    // and later attaches on this connection no longer ask for it.
+    assert_eq!(viewer_size_priority_opens(true, &[false, true, true]), [false, true, false, false]);
 }
