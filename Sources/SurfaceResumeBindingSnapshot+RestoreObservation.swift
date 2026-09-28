@@ -36,7 +36,6 @@ extension SurfaceResumeBindingSnapshot {
             lhs.approvalPolicy == rhs.approvalPolicy &&
             lhs.approvalRecordId == rhs.approvalRecordId &&
             lhs.launchFlavor == rhs.launchFlavor &&
-            lhs.wasDecodedWithoutLaunchFlavor == rhs.wasDecodedWithoutLaunchFlavor &&
             lhs.updatedAt == rhs.updatedAt
     }
 }
