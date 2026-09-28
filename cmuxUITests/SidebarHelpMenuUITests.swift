@@ -358,8 +358,17 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
 
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 3.0) {
-                !app.buttons["SidebarAccountMenuButton"].exists && !app.buttons["Help"].exists
-            }
+                // Not the footer button's identifier. The sidebar container
+                // sets its own, and SwiftUI hands that one down to every
+                // descendant, so the footer button reports `Sidebar` and a
+                // lookup by `SidebarAccountMenuButton` never finds it. An
+                // assertion that it does not exist would pass with the sidebar
+                // wide open. The label survives, and so does the container.
+                !app.otherElements["Sidebar"].exists
+                    && !app.buttons["Account"].exists
+                    && !app.buttons["Help"].exists
+            },
+            "Expected Cmd-B to take the sidebar and its footer button away"
         )
 
         app.typeKey("f", modifierFlags: [.command, .option])
