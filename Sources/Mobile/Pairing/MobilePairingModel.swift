@@ -108,6 +108,8 @@ final class MobilePairingModel {
     private(set) var selectedIOSAppTarget: MobileIOSAppTarget
 
     private let host: MobileHostService
+    private let coordinatorOverride: AuthCoordinator?
+    private let isListeningEnabled: @MainActor () -> Bool
     private let ticketTTL: TimeInterval
     private let iosAppTargetStore: MobileIOSPairingTargetStore
     /// Observes host status while a code is shown and tracks new connections.
@@ -134,11 +136,15 @@ final class MobilePairingModel {
     ///     expires.
     init(
         host: MobileHostService? = nil,
+        coordinator: AuthCoordinator? = nil,
+        isListeningEnabled: @escaping @MainActor () -> Bool = { MobileHostService.isListeningEnabled },
         ticketTTL: TimeInterval = 600,
         preparationClock: any Clock<Duration> = ContinuousClock(),
         preparationTimeout: Duration = .seconds(30)
     ) {
         self.host = host ?? .shared
+        self.coordinatorOverride = coordinator
+        self.isListeningEnabled = isListeningEnabled
         self.ticketTTL = ticketTTL
         self.preparationClock = preparationClock
         self.preparationTimeout = preparationTimeout
@@ -161,7 +167,7 @@ final class MobilePairingModel {
 
     deinit { preparationTimeoutTask?.cancel() }
 
-    private var coordinator: AuthCoordinator? { AppDelegate.shared?.auth?.coordinator }
+    private var coordinator: AuthCoordinator? { coordinatorOverride ?? AppDelegate.shared?.auth?.coordinator }
 
     /// Selects one exact iOS app for legacy compatibility previews.
     func selectIOSAppTarget(_ target: MobileIOSAppTarget) async {
@@ -210,7 +216,7 @@ final class MobilePairingModel {
             return
         }
         signedInEmail = coordinator.currentUser?.primaryEmail
-        guard MobileHostService.isListeningEnabled else {
+        guard isListeningEnabled() else {
             state = .pairingDisabled
             return
         }
@@ -330,7 +336,7 @@ final class MobilePairingModel {
             for await status in self.host.statusUpdates() {
                 if Task.isCancelled { return }
                 guard generation == self.refreshGeneration else { return }
-                guard MobileHostService.isListeningEnabled else {
+                guard self.isListeningEnabled() else {
                     self.state = .pairingDisabled
                     return
                 }
