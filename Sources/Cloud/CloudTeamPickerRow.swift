@@ -44,19 +44,9 @@ struct CloudTeamPickerRow: View {
                     .cmuxFont(size: 11, weight: .medium)
                     .lineLimit(1)
                     .layoutPriority(1)
-                // A symbol, not ProgressView: a hosted progress indicator
-                // splits the button's accessibility element, so VoiceOver and
-                // UI tests lose the trigger while a change is pending.
-                if pendingStatus != nil {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .symbolEffect(.pulse)
-                } else {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 7)
             .frame(height: 22)
