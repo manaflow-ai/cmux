@@ -141,12 +141,24 @@ else:
             cargo.chmod(0o755)
             swift = bindir / "swift"
             swift.write_text("""#!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, time
 from pathlib import Path
 args = sys.argv[1:]
 with open(os.environ['CALLS'], 'a') as f:
     f.write(json.dumps(args) + '\\n')
 package = Path(args[args.index('--package-path') + 1]).name
+if args[0] == 'build':
+    # Rendezvous: record that this build started, then wait briefly for a
+    # second one. Seeing two at once proves the prebuilds overlap.
+    started = Path(os.environ['CALLS'] + '.started')
+    started.mkdir(exist_ok=True)
+    (started / package).touch()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if len(list(started.iterdir())) >= 2:
+            Path(os.environ['CALLS'] + '.overlap').touch()
+            break
+        time.sleep(0.05)
 if package == os.environ['WARNING_PACKAGE'] and '-warnings-as-errors' in args:
     print('error: compiler warning promoted to an error')
     sys.exit(1)
@@ -165,6 +177,7 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
             )
             result = subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env,
                                     text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            self.prebuilds_overlapped = Path(str(calls) + ".overlap").exists()
             return result, [json.loads(line) for line in calls.read_text().splitlines()]
 
     def test_package_warning_gates_run_once(self):
@@ -188,6 +201,7 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
         # Every build precedes every test run.
         self.assertLess(max(calls.index(args) for args in builds),
                         min(calls.index(args) for args in tests))
+        self.assertTrue(self.prebuilds_overlapped, "no two prebuilds ran at once")
         self.assertIn("at a time", result.stdout)
 
     def test_package_warning_is_still_fatal(self):
