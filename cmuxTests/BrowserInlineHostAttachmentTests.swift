@@ -78,6 +78,7 @@ struct BrowserInlineHostAttachmentTests {
             abs(panel.webView.frame.width - host.bounds.width) < 1 &&
                 abs(panel.webView.frame.height - host.bounds.height) < 1
         })
+        print("deferred attachment state hostWindow=\(host.window?.windowNumber ?? -1) webSuperview=\(String(describing: panel.webView.superview.map { type(of: $0) })) webWindow=\(panel.webView.window?.windowNumber ?? -1) hostSubviews=\(host.subviews.map { String(describing: type(of: $0)) })")
     }
 
     @Test func deferredOldHostCannotReclaimBrowserAfterPaneOwnershipChanges() throws {
