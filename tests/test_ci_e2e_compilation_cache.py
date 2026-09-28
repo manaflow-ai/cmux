@@ -229,7 +229,10 @@ exit 97
             checkout = step('Checkout the E2E test steps', job)
             self.assertEqual(checkout['with']['ref'], '${{ github.workflow_sha }}')
             self.assertEqual(checkout['with']['path'], '.e2e-workflow')
-            self.assertEqual(checkout['with']['sparse-checkout'], '.github/actions/e2e-run-tests')
+            self.assertEqual(
+                checkout['with']['sparse-checkout'].split(),
+                ['.github/actions/e2e-run-tests', 'scripts/ci/e2e-frames.py'],
+            )
         # The build job's budget covers compiling and testing.
         self.assertEqual(WORKFLOW['jobs']['build']['timeout-minutes'],
                          '${{ fromJSON(needs.filter.outputs.build_timeout) }}')
@@ -250,6 +253,21 @@ exit 97
         # upload runs whenever the early one stood aside.
         self.assertEqual(by_id('late-upload-check')['if'],
                          "${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' }}")
+
+    def test_the_fallback_test_job_waits_for_the_gui_token_in_a_step(self):
+        # The `test` job runs only when build could not get the gui token, so
+        # glaeda gives it none at job start (a 240 s wait there ended in a
+        # refusal): it waits here, after the product download and before the
+        # tests, and fails only if the token stays taken past the wait.
+        names = [entry.get('name') for entry in JOBS['test']]
+        take = names.index("Take this Mac's gui token")
+        self.assertLess(take, names.index('Checkout the E2E test steps'))
+        self.assertLess(take, names.index('Run selected tests'))
+        run = step("Take this Mac's gui token", 'test')['run']
+        self.assertIn('[ -x "$helper" ] || exit 0', run, 'Blacksmith has no helper')
+        self.assertIn('take-gui --wait 900', run)
+        self.assertIn('0|2) ;;', run, 'held, or a hook that gave the token at job start')
+        self.assertNotIn('set -e', run, 'take-gui exit statuses decide')
 
     def test_an_owned_mac_uploads_the_product_after_its_tests(self):
         # An owned Mac uploads at 6-7 MB/s, about 130 s for the product, which
