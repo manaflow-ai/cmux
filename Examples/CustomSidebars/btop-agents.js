@@ -118,7 +118,9 @@ function sample(workspaces, now) {
     slot.n += 1;
     if (agents.some((a) => a.status === "working")) slot.busy += 1;
     h.set(bucket, slot);
-    for (const b of h.keys()) if (b <= bucket - KEEP) h.delete(b);
+    // Wall-clock corrections can move `bucket` backward. Drop future buckets
+    // too, otherwise every clock era leaves another KEEP entries behind.
+    for (const b of h.keys()) if (b <= bucket - KEEP || b > bucket) h.delete(b);
   }
   for (const id of Array.from(history.keys())) if (!live.has(id)) history.delete(id);
 }
