@@ -870,6 +870,9 @@ final class FileExplorerStore: ObservableObject {
     /// Paths currently being loaded
     private(set) var loadingPaths: Set<String> = []
 
+    /// Identifies the current tree so late results from a prior reload are ignored.
+    private var loadGeneration: UInt64 = 0
+
     /// In-flight load tasks keyed by path
     private var loadTasks: [String: Task<Void, Never>] = [:]
 
@@ -1141,16 +1144,18 @@ final class FileExplorerStore: ObservableObject {
         NSLog("[FileExplorer] reload() path=\(rootPath) provider=\(type(of: provider).self)")
         #endif
         contentRevision &+= 1
+        loadGeneration &+= 1
         cancelAllLoads()
         rootNodes = []
         nodesByPath = [:]
         guard !rootPath.isEmpty, provider != nil else { return }
         isRootLoading = true
         let path = rootPath
+        let generation = loadGeneration
         loadingPaths.insert(path)
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.loadChildren(for: nil, at: path)
+            await self.loadChildren(for: nil, at: path, generation: generation)
         }
         loadTasks[rootPath] = task
     }
@@ -1163,10 +1168,11 @@ final class FileExplorerStore: ObservableObject {
             node.error = nil
             objectWillChange.send()
             let nodePath = node.path
+            let generation = loadGeneration
             loadingPaths.insert(nodePath)
             let task = Task { [weak self] in
                 guard let self else { return }
-                await self.loadChildren(for: node, at: nodePath)
+                await self.loadChildren(for: node, at: nodePath, generation: generation)
             }
             loadTasks[node.path] = task
         }
@@ -1218,13 +1224,14 @@ final class FileExplorerStore: ObservableObject {
         guard node.resourceContextID == nil || node.resourceContextID == resourceContextID, node.isDirectory, node.children == nil, !loadingPaths.contains(node.path) else { return }
         // Debounce: only prefetch if hover persists for 200ms
         let path = node.path
+        let generation = loadGeneration
         let scheduler = prefetchSchedulers[path] ?? MainActorDeferredActionScheduler()
         prefetchSchedulers[path] = scheduler
         scheduler.schedule(after: .milliseconds(200)) { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, node.children == nil, !self.loadingPaths.contains(path) else { return }
                 // Silent prefetch: don't show loading indicator
-                await self.loadChildren(for: node, at: path, silent: true)
+                await self.loadChildren(for: node, at: path, generation: generation, silent: true)
             }
         }
     }
@@ -1244,10 +1251,16 @@ final class FileExplorerStore: ObservableObject {
         reload()
     }
 
-    // MARK: - Private
+        // MARK: - Private
 
     @MainActor
-    private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
+    private func loadChildren(
+        for parentNode: FileExplorerNode?,
+        at path: String,
+        generation: UInt64,
+        silent: Bool = false
+    ) async {
+        guard generation == loadGeneration else { return }
         guard parentNode?.resourceContextID == nil || parentNode?.resourceContextID == resourceContextID else { return }
         // A load cancelled by cancelAllLoads (e.g. a root reload during an SSH provider swap) must not
         // reach provider.listDirectory: the provider may have been replaced, so a stale in-flight load
@@ -1271,6 +1284,7 @@ final class FileExplorerStore: ObservableObject {
         do {
             let entries = try await provider.listDirectory(path: path, showHidden: showHiddenFiles)
             try Task.checkCancellation()
+            guard generation == loadGeneration else { return }
             let children = entries.filter { entry in
                 !FileExplorerExcludeMatcher.matches(
                     path: entry.path,
@@ -1315,10 +1329,11 @@ final class FileExplorerStore: ObservableObject {
                 child.isLoading = true
                 objectWillChange.send()
                 let childPath = child.path
+                let childGeneration = loadGeneration
                 loadingPaths.insert(childPath)
                 let childTask = Task { [weak self] in
                     guard let self else { return }
-                    await self.loadChildren(for: child, at: childPath)
+                    await self.loadChildren(for: child, at: childPath, generation: childGeneration)
                 }
                 loadTasks[child.path] = childTask
             }
