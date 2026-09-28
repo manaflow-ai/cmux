@@ -349,6 +349,9 @@ class TabManager: ObservableObject {
             if !isRestoringSessionSnapshot {
                 workspaces.expandWorkspaceGroupForSelectionIfNeeded()
             }
+            if let selectedTabId {
+                workspacesById[selectedTabId]?.admitStartupRestoresAwaitingFirstVisit()
+            }
             sentryBreadcrumb("workspace.switch", data: [
                 "tabCount": tabs.count
             ])
@@ -1350,6 +1353,7 @@ class TabManager: ObservableObject {
         inheritWorkingDirectory: Bool = true,
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
+        initialTerminalStartsOnFirstVisit: Bool = false,
         placementOverride: WorkspacePlacement? = nil,
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
@@ -1445,6 +1449,7 @@ class TabManager: ObservableObject {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
+                initialTerminalStartsOnFirstVisit: initialTerminalStartsOnFirstVisit,
                 initialTerminalEnvironment: resolvedInitialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,

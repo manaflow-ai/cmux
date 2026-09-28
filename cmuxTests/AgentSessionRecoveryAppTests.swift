@@ -270,6 +270,17 @@ struct AgentSessionRecoveryAppTests {
         let recovered = manager.tabs.filter { !existing.contains($0.id) }
         #expect(recovered.count == candidates.count)
         #expect(manager.pendingBackgroundWorkspaceLoadIds.count == AgentRecoveryStartPlan.defaultImmediateLimit)
+        // Only the sessions picked to start now are released; the rest hold
+        // their terminal until their workspace is first shown.
+        func isHeld(_ workspace: Workspace) -> Bool {
+            workspace.focusedTerminalPanel?.surface.isAwaitingStartupRestoreAdmission == true
+        }
+        let held = recovered.filter(isHeld)
+        #expect(held.count == candidates.count - AgentRecoveryStartPlan.defaultImmediateLimit)
+        let visited = try #require(held.first)
+        manager.selectedTabId = visited.id
+        #expect(!isHeld(visited))
+        #expect(visited.startupRestorePanelIdsAwaitingFirstVisit.isEmpty)
         // Every recovered panel carries its session, so a second recovery
         // skips the ones that have not started yet.
         let carried = Set(recovered.flatMap { $0.restoredAgentSnapshotsByPanelId.values.map(\.sessionId) })

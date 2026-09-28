@@ -38,6 +38,14 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
     /// arguments it forwarded.
     public static let accountEnvironmentKey = "CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT"
 
+    /// Launch metadata the wrapper exports for a routed launch, which the
+    /// queued Claude hooks must carry to the session-start capture.
+    public static let hookCapturedEnvironmentKeys = [
+        environmentKey,
+        launchBoundEnvironmentKey,
+        accountEnvironmentKey,
+    ]
+
     /// Directory-name prefix of the private settings directory `sr claude proxy` creates.
     public static let privateSettingsDirectoryPrefix = "subrouter-claude-settings-"
 

@@ -242,9 +242,9 @@ extension AgentSessionRecovery {
                 select: false,
                 // A session picked to start now runs without waiting for a
                 // visit (its hook record then carries a live pid). The rest
-                // start when their workspace is first shown, the way startup
-                // restore treats background workspaces.
-                eagerLoadTerminal: startsNow
+                // hold their terminal until the workspace is first selected.
+                eagerLoadTerminal: startsNow,
+                initialTerminalStartsOnFirstVisit: !startsNow
             ) != nil else {
                 if startupAgent == nil {
                     AgentResumeLaunchGuard.shared.releaseResumeLaunch(kind: candidate.kind, sessionId: candidate.sessionId)
