@@ -144,8 +144,17 @@ public final class DirectQuicListener: @unchecked Sendable {
                 guard let self else { return }
                 self.lock.withLock { self.pendingAdmissions -= 1 }
             }
-            if case .dropped = continuation.yield(carrier) {
+            switch continuation.yield(carrier) {
+            case let .dropped(dropped):
+                // bufferingNewest enqueues this carrier and evicts the
+                // oldest unconsumed one, which is what must be closed.
+                dropped.close(errorCode: 1, reason: IrxCloseCode.hostShutdown.reasonData)
+            case .terminated:
+                // cancel() raced the handshake: nobody will consume this
+                // carrier, so close it instead of leaving it to idle out.
                 carrier.close(errorCode: 1, reason: IrxCloseCode.hostShutdown.reasonData)
+            default:
+                break
             }
         }
     }

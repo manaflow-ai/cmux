@@ -11,13 +11,21 @@ extension MobileIrxRuntimeComposition {
         let currentRelay = await endpointSupervisor?.homeRelayURL()
         let paths = await localPathSnapshot()
         let selectedPath = await selectedTransportPath()
-        // Direct QUIC holds no endpoint, so an admitted pinned session
+        // Direct QUIC holds no endpoint, so a LIVE admitted pinned session
         // counts; legacy pinned entries still bind a direct-only endpoint.
-        let directIsBound = await directEndpointSupervisor?.boundEndpoint() != nil
-            || activeDialIntentByPeer.values.contains { intent in
-                if case .direct = intent { return true }
-                return false
+        // `activeDialIntentByPeer` records the last admitted intent for
+        // change detection and outlives its session, so the intent alone
+        // must not keep the status active after the session closes.
+        var directIsBound = await directEndpointSupervisor?.boundEndpoint() != nil
+        if !directIsBound {
+            for (peerHex, engine) in enginesByPeer {
+                guard let intent = activeDialIntentByPeer[peerHex],
+                      case .direct = intent,
+                      await engine.currentSession() != nil else { continue }
+                directIsBound = true
+                break
             }
+        }
         let status: CmxIrohSettingsSnapshot.RuntimeStatus
         if activeScope == nil { status = .inactive }
         else if await endpointSupervisor?.boundEndpoint() != nil || directIsBound { status = .active }
