@@ -273,8 +273,12 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         }
         cloudItems.removeAll(keepingCapacity: true)
 
-        let items = CloudMenuAppKitRenderer.items(cloudMenuEntries())
+        var items = CloudMenuAppKitRenderer.items(cloudMenuEntries())
         cloudSectionSeparator.isHidden = items.isEmpty
+        // The section closes with its own separator, which replaces the one
+        // that opens the notification list.
+        if !items.isEmpty { items.append(.separator()) }
+        notificationListSeparator.isHidden = !items.isEmpty || notificationItems.isEmpty
         let insertionIndex = menu.index(of: cloudSectionSeparator) + 1
         guard !items.isEmpty, insertionIndex > 0 else { return }
         for (offset, item) in items.enumerated() {
@@ -289,7 +293,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         }
         notificationItems.removeAll(keepingCapacity: true)
 
-        notificationListSeparator.isHidden = recentNotifications.isEmpty
+        notificationListSeparator.isHidden = recentNotifications.isEmpty || !cloudItems.isEmpty
         notificationSectionSeparator.isHidden = recentNotifications.isEmpty
         guard !recentNotifications.isEmpty else { return }
 
