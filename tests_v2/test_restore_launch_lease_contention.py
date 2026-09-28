@@ -2,8 +2,9 @@
 """Run two real restore CLIs with isolated homes, PTYs, and an app RPC fixture.
 
 Usage: python3 tests_v2/test_restore_launch_lease_contention.py --cli /path/to/cmux
-No running cmux app or real Codex account is accessed. The first restore execs
-a stand-in agent and the real cmux exit watcher holds its launch lease.
+With no --cli, discover it from the test runner's configured app (read-only).
+Restores never access that app's panes or real Codex data. The first restore
+execs a stand-in agent and the real cmux exit watcher holds its launch lease.
 """
 
 from __future__ import annotations
@@ -166,9 +167,18 @@ def exercise(cli: Path, reports_owner: bool, owner_cli: Path, launching: bool = 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cli", type=Path, required=True)
+    parser.add_argument("--cli", type=Path, default=os.environ.get("CMUX_BUNDLED_CLI_PATH")
+                        or os.environ.get("CMUXTERM_CLI"))
     parser.add_argument("--owner-cli", type=Path, help="Optional older CLI to verify stable/nightly interoperability")
     arguments = parser.parse_args()
+    if arguments.cli is None:
+        socket_path = os.environ.get("CMUX_SOCKET_PATH")
+        if not socket_path:
+            parser.error("Pass --cli or set CMUX_BUNDLED_CLI_PATH / CMUX_SOCKET_PATH")
+        from cmux import cmux
+        with cmux(socket_path) as client:
+            identity = client._call("system.identify")
+        arguments.cli = Path(identity["app_bundle_path"]) / "Contents/Resources/bin/cmux"
     for reports_owner in (True, False):
         exercise(arguments.cli.resolve(), reports_owner, (arguments.owner_cli or arguments.cli).resolve())
     exercise(arguments.cli.resolve(), False, arguments.cli.resolve(), launching=True)

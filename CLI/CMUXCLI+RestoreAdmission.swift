@@ -132,7 +132,8 @@ extension CMUXCLI {
     /// Best-effort rollback when preflight or `execve` fails after admission.
     func releaseRestoreLaunchAdmission(
         _ claim: RestoreLaunchAdmissionClaim?,
-        client: SocketClient
+        client: SocketClient,
+        deadline: Date? = nil
     ) {
         guard let claim else { return }
         _ = try? client.sendV2(
@@ -143,7 +144,8 @@ extension CMUXCLI {
                 "kind": claim.kind,
                 "session_id": claim.sessionID,
                 "claim_id": claim.claimID,
-            ]
+            ],
+            deadline: deadline
         )
     }
 }

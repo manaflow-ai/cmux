@@ -30,13 +30,15 @@ extension CMUXCLI {
             if let workspaceID = restorePayload["workspace_id"] as? String,
                let surfaceID = restorePayload["surface_id"] as? String,
                restorePayload["agent_restore_admission_supported"] as? Bool == true {
+                let deadline = Date.now.addingTimeInterval(2)
                 var params: [String: Any] = [
                     "workspace_id": workspaceID, "surface_id": surfaceID,
                     "kind": record.kind, "session_id": sessionID,
                     "codex_home": home, "launch_lease_pending": true
                 ]
                 let response = (try? sendRestoreAdmission(
-                    params: &params, restorePayload: restorePayload, client: client, responseTimeout: 2
+                    params: &params, restorePayload: restorePayload, client: client,
+                    responseTimeout: 2, deadline: deadline
                 )) ?? [:]
                 processID = processID ?? (response["live_owner_pid"] as? NSNumber)?.int64Value
                 // Older apps do not understand the pending hint. Return any
@@ -45,7 +47,7 @@ extension CMUXCLI {
                     releaseRestoreLaunchAdmission(RestoreLaunchAdmissionClaim(
                         workspaceID: (params["workspace_id"] as? String) ?? workspaceID, surfaceID: surfaceID,
                         kind: record.kind, sessionID: sessionID, claimID: claimID
-                    ), client: client)
+                    ), client: client, deadline: deadline)
                 }
             }
             throw restoreLaunchConflictError(kind: record.kind, sessionID: sessionID, processID: processID)
