@@ -96,6 +96,9 @@ public protocol SettingsHostActions: AnyObject {
     /// Applies the current persisted control-socket configuration to the live server.
     func socketControlConfigurationDidChange()
 
+    /// Applies a newly committed automatic update-check cadence to the running updater.
+    func updateCheckFrequencyDidChange()
+
     /// Live-reloads Ghostty after the adaptive-default-theme preference commits.
     func terminalAdaptiveDefaultThemeDidChange()
 
@@ -482,6 +485,7 @@ public extension SettingsHostActions {
 
     /// Default no-op for previews and tests without a live control socket.
     func socketControlConfigurationDidChange() {}
+    func updateCheckFrequencyDidChange() {}
 
     /// Right-sidebar tab defaults for previews, tests, and package-only
     /// hosts: no tabs, refuse mutations, no updates.

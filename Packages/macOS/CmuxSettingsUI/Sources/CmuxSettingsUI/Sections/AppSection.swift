@@ -13,7 +13,7 @@ import SwiftUI
 /// Notifications, Notification Sound, Notification Command, Send
 /// anonymous telemetry, Warn Before Quit, Warn Before Closing Tab /
 /// X Button / Hide Tab Close Button, Rename Selects Existing Name,
-/// Command Palette Searches All Surfaces.
+/// Command Palette Searches All Surfaces, Update Checks.
 @MainActor
 public struct AppSection: View {
     private let catalog: SettingCatalog
@@ -68,6 +68,7 @@ public struct AppSection: View {
     @State private var soundOverridesModel: NotificationSoundOverridesModel
     private let soundAgentCache: NotificationSoundAgentCache
     @State private var telemetry: DefaultsValueModel<Bool>
+    @State private var updateCheckFrequency: DefaultsValueModel<UpdateCheckFrequency>
     @State private var confirmQuit: DefaultsValueModel<ConfirmQuitMode>
     @State private var warnCloseTab: DefaultsValueModel<Bool>
     @State private var warnCloseX: DefaultsValueModel<Bool>
@@ -141,6 +142,7 @@ public struct AppSection: View {
             initialJSON: defaultsStore.initialValue(for: catalog.notifications.soundOverrides)
         ))
         _telemetry = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.sendAnonymousTelemetry))
+        _updateCheckFrequency = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.updateCheckFrequency))
         _confirmQuit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.confirmQuitMode))
         _warnCloseTab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTab))
         _warnCloseX = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTabXButton))
@@ -171,7 +173,7 @@ public struct AppSection: View {
             AppChannelSwitchCard(hostActions: hostActions)
         }
         .task {
-            startSettingsObservation([language, appearance, accentColor, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, accentColor, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, updateCheckFrequency, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
             await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
@@ -195,6 +197,19 @@ public struct AppSection: View {
     private func setGlobalFontMagnification(_ percent: Int) {
         let clamped = GlobalFontMagnification.clamp(percent)
         globalFontMagnification.set(clamped) { NotificationCenter.default.post(name: GlobalFontMagnification.didChangeNotification, object: nil) }
+    }
+
+    private func updateCheckFrequencySubtitle(_ frequency: UpdateCheckFrequency) -> String {
+        switch frequency {
+        case .never:
+            return String(localized: "settings.app.updateChecks.subtitle.never", defaultValue: "Check manually from the Help menu or command palette.")
+        case .hourly:
+            return String(localized: "settings.app.updateChecks.subtitle.hourly", defaultValue: "Check for updates in the background every hour.")
+        case .daily:
+            return String(localized: "settings.app.updateChecks.subtitle.daily", defaultValue: "Check for updates in the background every day.")
+        case .weekly:
+            return String(localized: "settings.app.updateChecks.subtitle.weekly", defaultValue: "Check for updates in the background every week.")
+        }
     }
 
     @ViewBuilder
@@ -866,6 +881,29 @@ public struct AppSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .disabled(telemetryManagedByPolicy)
+            }
+            SettingsCardDivider()
+
+            // Update Checks
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                searchAnchorID: "setting:app:update-check-frequency",
+                String(localized: "settings.app.updateChecks", defaultValue: "Update Checks"),
+                subtitle: updateCheckFrequencySubtitle(updateCheckFrequency.current),
+                controlWidth: Self.columnWidth
+            ) {
+                Picker("", selection: Binding(
+                    get: { updateCheckFrequency.current },
+                    set: { updateCheckFrequency.set($0) { hostActions.updateCheckFrequencyDidChange() } }
+                )) {
+                    Text(String(localized: "settings.app.updateChecks.never", defaultValue: "Never")).tag(UpdateCheckFrequency.never)
+                    Text(String(localized: "settings.app.updateChecks.hourly", defaultValue: "Every Hour")).tag(UpdateCheckFrequency.hourly)
+                    Text(String(localized: "settings.app.updateChecks.daily", defaultValue: "Every Day")).tag(UpdateCheckFrequency.daily)
+                    Text(String(localized: "settings.app.updateChecks.weekly", defaultValue: "Every Week")).tag(UpdateCheckFrequency.weekly)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("SettingsUpdateChecksPicker")
             }
             SettingsCardDivider()
 

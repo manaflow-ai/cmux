@@ -10663,6 +10663,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateController.checkForUpdates()
     }
 
+    func updateCheckFrequencyDidChange() {
+        updateController.updateCheckFrequencyDidChange()
+    }
+
     func checkForUpdatesInCustomUI() {
         guard managedAutoUpdateAllowsCheck() else { return }
         updateController.model.setOverrideState(nil)

@@ -13,6 +13,88 @@ import Testing
 /// accepted install and Sparkle's download callback.
 @MainActor
 @Suite struct UpdateControllerPipelineTests {
+    /// A settings change must reach the running Sparkle updater without requiring a relaunch.
+    /// This is the user-visible behavior behind the App settings cadence picker.
+    @Test func scheduledCheckIntervalChangesApplyToRunningUpdater() async {
+        let harness = Harness()
+        #expect(harness.updater.updateCheckInterval == 3600)
+
+        harness.defaults.set(24 * 60 * 60, forKey: UpdateSettings.scheduledCheckIntervalKey)
+        harness.controller.updateCheckFrequencyDidChange()
+        await waitUntil("scheduled interval update") {
+            harness.updater.updateCheckInterval == 24 * 60 * 60
+                && harness.updater.automaticallyChecksForUpdates
+        }
+    }
+
+    @Test func disablingScheduledChecksKeepsManualChecksAvailable() async {
+        let harness = Harness()
+        harness.defaults.set(0, forKey: UpdateSettings.scheduledCheckIntervalKey)
+        harness.controller.updateCheckFrequencyDidChange()
+
+        await waitUntil("scheduled checks to disable") {
+            harness.defaults.bool(forKey: UpdateSettings.automaticChecksKey) == false
+                && !harness.updater.automaticallyChecksForUpdates
+        }
+        #expect(harness.updater.updateCheckInterval == 0)
+
+        harness.controller.checkForUpdates()
+        #expect(harness.updater.checkForUpdatesCallCount == 1)
+    }
+
+    @Test func largePersistedIntervalDoesNotCrashInitialization() {
+        let suiteName = "cmux.updater.large-interval-tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: UpdateSettings.migrationKey)
+        let interval = Double(Int.max) * 2
+        defaults.set(interval, forKey: UpdateSettings.scheduledCheckIntervalKey)
+
+        let updater = FakeUpdater()
+        let controller = UpdateController(
+            log: NoopUpdateLog(),
+            clock: TestDeadlineClock(),
+            defaults: defaults,
+            isDevLikeBundle: false,
+            updaterFactory: { _, _ in updater }
+        )
+
+        #expect(updater.updateCheckInterval == interval)
+        controller.checkForUpdates()
+        #expect(updater.checkForUpdatesCallCount == 1)
+    }
+
+    @Test func persistedNeverDisablesAutomaticChecksDuringInitialization() {
+        let suiteName = "cmux.updater.persisted-never-tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: UpdateSettings.migrationKey)
+        defaults.set(0, forKey: UpdateSettings.scheduledCheckIntervalKey)
+        defaults.set(true, forKey: UpdateSettings.automaticChecksKey)
+
+        let updater = FakeUpdater()
+        updater.automaticallyChecksForUpdates = true
+        let controller = UpdateController(
+            log: NoopUpdateLog(),
+            clock: TestDeadlineClock(),
+            defaults: defaults,
+            isDevLikeBundle: false,
+            updaterFactory: { _, _ in updater }
+        )
+
+        #expect(updater.updateCheckInterval == 0)
+        #expect(!updater.automaticallyChecksForUpdates)
+        #expect(defaults.bool(forKey: UpdateSettings.automaticChecksKey) == false)
+
+        // Reasserting a stale Sparkle permission must still be repaired when the interval is
+        // unchanged, as can happen after an interrupted settings write.
+        defaults.set(true, forKey: UpdateSettings.automaticChecksKey)
+        updater.automaticallyChecksForUpdates = true
+        controller.updateCheckFrequencyDidChange()
+        #expect(!updater.automaticallyChecksForUpdates)
+        #expect(defaults.bool(forKey: UpdateSettings.automaticChecksKey) == false)
+    }
+
     private func updateAvailable(_ version: String, replyingInto box: ChoiceBox) -> UpdateState {
         let item = SUAppcastItem(dictionary: [
             "title": "cmux \(version)",

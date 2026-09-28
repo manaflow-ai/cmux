@@ -42,6 +42,7 @@ public final class UpdateController {
     var attemptCoordinator = AttemptUpdateCoordinator()
     private var stateReactionTask: Task<Void, Never>?
     private var noUpdateDismissTask: Task<Void, Never>?
+    private var appliedScheduledCheckInterval: TimeInterval?
     var pendingCheckIntent: UpdateCheckIntent?
     var activeCheckIntent: UpdateCheckIntent?
     /// Armed when the user asks to install; fires a visible "Update Didn't Start" error if the
@@ -149,6 +150,7 @@ public final class UpdateController {
         self.driver = driver
         self.updater = updaterFactory(driver, hostBundle)
         driver.eventDelegate = self
+        applyScheduledCheckInterval(synchronizeAutomaticChecks: false)
         startStateReactions()
     }
 
@@ -157,6 +159,47 @@ public final class UpdateController {
         noUpdateDismissTask?.cancel()
         readyCheckTask?.cancel()
         // installWatchdog cancels its own pending timer in its deinit (it is released with self).
+    }
+
+    /// Applies a committed cadence setting to the live Sparkle scheduler.
+    ///
+    /// Settings owns persistence while the app delegate owns this runtime side effect. Keeping
+    /// the callback here makes the settings picker and any future settings entrypoint share one
+    /// update path; manual checks remain available when the cadence is ``never``.
+    public func updateCheckFrequencyDidChange() {
+        applyScheduledCheckInterval(synchronizeAutomaticChecks: true)
+    }
+
+    /// Applies a changed cadence to Sparkle and synchronizes whether its scheduler is enabled.
+    ///
+    /// The initial application preserves Sparkle's existing permission choice. Subsequent
+    /// interval changes come from cmux's cadence setting, so selecting Never or another cadence
+    /// updates the scheduler immediately. Manual checks remain available in both cases.
+    private func applyScheduledCheckInterval(synchronizeAutomaticChecks: Bool) {
+        let interval = defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey)
+        guard interval.isFinite, interval >= 0 else { return }
+        if appliedScheduledCheckInterval != interval {
+            appliedScheduledCheckInterval = interval
+            updater.updateCheckInterval = interval
+        }
+
+        // Never must remain authoritative even when the interval itself has not changed. This
+        // also repairs an older install whose persisted Sparkle permission predates the cadence
+        // setting. Positive intervals preserve Sparkle's existing permission until a live setting
+        // change explicitly synchronizes it below.
+        if interval == 0 {
+            updater.automaticallyChecksForUpdates = false
+            if defaults.bool(forKey: UpdateSettings.automaticChecksKey) {
+                defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
+            }
+        } else if synchronizeAutomaticChecks {
+            let shouldEnableAutomaticChecks = !isDevLikeBundle && !isDisabledByPolicy()
+            updater.automaticallyChecksForUpdates = shouldEnableAutomaticChecks
+            if defaults.bool(forKey: UpdateSettings.automaticChecksKey) != shouldEnableAutomaticChecks {
+                defaults.set(shouldEnableAutomaticChecks, forKey: UpdateSettings.automaticChecksKey)
+            }
+        }
+        log.append("scheduled update check interval applied (interval=\(interval.rounded())s)")
     }
 
     // MARK: - Reaction stream
@@ -289,7 +332,7 @@ public final class UpdateController {
         do {
             try updater.start()
             didStartUpdater = true
-            let interval = Int(updater.updateCheckInterval.rounded())
+            let interval = updater.updateCheckInterval.rounded()
             log.append(
                 "updater started (autoChecks=\(updater.automaticallyChecksForUpdates), interval=\(interval)s, autoDownloads=\(updater.automaticallyDownloadsUpdates))"
             )
