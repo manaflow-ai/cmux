@@ -94,7 +94,7 @@ extension TerminalSSHSessionDetector {
             }
             guard byteCount > 0 else { return [] }
             let count = min(Int(byteCount) / MemoryLayout<pid_t>.stride, pids.count)
-            if count < pids.count || capacity == 4096 {
+            if count < pids.count {
                 return pids.prefix(count).compactMap { pid in
                     processSnapshot(
                         for: pid,
@@ -103,6 +103,9 @@ extension TerminalSSHSessionDetector {
                     )
                 }
             }
+            // A full final buffer may have omitted a group member. Treat that
+            // incomplete snapshot as unknown so the caller keeps the bounded
+            // asynchronous detector instead of assuming the job is local.
             capacity *= 4
         }
         return []
