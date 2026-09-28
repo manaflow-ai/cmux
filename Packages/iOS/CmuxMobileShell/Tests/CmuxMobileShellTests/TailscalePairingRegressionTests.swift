@@ -123,7 +123,10 @@ import Testing
         #expect(store.connectionState == MobileConnectionState.connected)
         let saved = try #require(try await pairedMacStore.activeMac(stackUserID: "phone-user"))
         #expect(saved.directAddresses == [
-            MobilePairedMacDirectAddress(address: host, port: port, label: "Tailscale"),
+            MobilePairedMacDirectAddress(
+                address: host, port: port, label: "Tailscale",
+                transport: MobilePairedMacDirectAddress.directQuicTransport,
+                origin: MobilePairedMacDirectAddress.pairingCodeOrigin),
         ])
         #expect(saved.legacyTailscaleRoutes == nil)
     }
