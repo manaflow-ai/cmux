@@ -110889,7 +110889,7 @@
           }
         }
       }
-    }
+    },
     "cli.sshPtyAttach.bridgeClosedReattaching": {
       "extractionState": "manual",
       "localizations": {
