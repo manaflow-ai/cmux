@@ -46,13 +46,13 @@ extension TerminalSSHSessionDetector {
     /// Lists one process group, keeping the members whose controlling
     /// terminal is `ttyName`.
     ///
-    /// Complexity contract: this runs on the main actor for every terminal
-    /// drop and paste, so its cost must scale with the size of the foreground
-    /// job (usually one to three processes), never with the number of
-    /// processes on the Mac. A busy Mac runs thousands of processes at load
-    /// averages above 200, and a per-drop walk of all of them (`/bin/ps`, or
-    /// a filter over every PID) froze drops for seconds. Keep this a
-    /// group-filtered kernel list plus one `proc_pidinfo` per member.
+    /// Cost contract: this runs on the main actor for every terminal drop and
+    /// paste. The kernel filters the process list by group in one call
+    /// (sub-millisecond even with thousands of processes), and the app then
+    /// makes one `proc_pidinfo` call per group member, usually one to three.
+    /// Do not replace it with work per process on the TTY or the machine
+    /// (`/bin/ps`, or `proc_pidinfo` over every PID): at load averages above
+    /// 200 that froze each drop for seconds.
     static func processSnapshots(inProcessGroup processGroupID: Int32, ttyName: String) -> [ProcessSnapshot] {
         guard processGroupID > 0,
               let ttyDevice = CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName),
