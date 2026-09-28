@@ -32,6 +32,7 @@ struct CloudMachineNotificationDeliveryTests {
         let manager = TabManager()
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
+        let originalControllerTabManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
 
         store.replaceNotificationsForTesting([])
@@ -40,6 +41,7 @@ struct CloudMachineNotificationDeliveryTests {
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
         AppDelegate.shared = appDelegate
+        TerminalController.shared.setActiveTabManager(manager)
         AppFocusState.overrideIsFocused = false
 
         let workspace = manager.addWorkspace(select: true)
@@ -52,6 +54,7 @@ struct CloudMachineNotificationDeliveryTests {
             store.resetSuppressedNotificationFeedbackHandlerForTesting()
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
+            TerminalController.shared.setActiveTabManager(originalControllerTabManager)
             AppDelegate.shared = originalAppDelegate
             AppFocusState.overrideIsFocused = originalAppFocusOverride
         }
