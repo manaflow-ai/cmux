@@ -167,18 +167,17 @@ describe("billing subscription route", () => {
     expect(dbUpdates[0].values.cancelAtPeriodEnd).toBe(false);
   });
 
-  test("cancels the current user's Team subscription from the derived billing team", async () => {
+  test("cancels the current user's Team subscription from the derived billing team (legacy form without teamId)", async () => {
     signedInUser.selectedTeam = { id: "team-pro" };
     subscriptionRows = [{ id: "sub_team" }];
 
     const response = await postAction("cancel", {
       scope: "team",
-      teamId: "team-pro",
     });
 
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe(
-      "https://cmux.test/dashboard/billing?billing=cancelled",
+      "https://cmux.test/dashboard/billing?team=team-pro&billing=cancelled",
     );
     expect(updateSubscription).toHaveBeenCalledWith("sub_team", {
       cancel_at_period_end: true,
@@ -186,7 +185,7 @@ describe("billing subscription route", () => {
     expect(dbUpdates[0].values.cancelAtPeriodEnd).toBe(true);
   });
 
-  test("rejects Team subscription changes for a posted team outside the user's billing team", async () => {
+  test("rejects Team subscription changes for a posted team the user is not a member of", async () => {
     signedInUser.selectedTeam = { id: "team-a" };
 
     const response = await postAction("cancel", {
@@ -196,7 +195,7 @@ describe("billing subscription route", () => {
 
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe(
-      "https://cmux.test/dashboard/billing?billing=error",
+      "https://cmux.test/dashboard/billing?team=team-b&billing=team_not_found",
     );
     expect(updateSubscription).not.toHaveBeenCalled();
     expect(dbUpdates).toHaveLength(0);

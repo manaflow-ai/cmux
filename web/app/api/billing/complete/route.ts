@@ -97,9 +97,7 @@ export function makeBillingCompleteHandler(
             return NextResponse.redirect(new URL(`/pricing?billing=${reason}`, requestOrigin(request)));
           }
           if (session.metadata?.plan === "team") {
-            return NextResponse.redirect(
-              new URL("/dashboard/billing?welcome=team", requestOrigin(request)),
-            );
+            return NextResponse.redirect(teamWelcomeURL(request, session));
           }
           const success = new URL("/billing/success", requestOrigin(request));
           success.searchParams.set("session_id", session.id);
@@ -132,4 +130,20 @@ function expandedCustomer(
   return typeof session.customer === "object" && session.customer !== null
     ? session.customer
     : null;
+}
+
+/**
+ * A Team purchase lands on that team's billing page. The id comes from the
+ * Stripe session we created, so it is trusted to select a page, and the page
+ * itself re-checks membership. Legacy sessions without an id keep the old
+ * dashboard billing destination.
+ */
+function teamWelcomeURL(request: NextRequest, session: Stripe.Checkout.Session): URL {
+  const stackTeamId = session.metadata?.stackTeamId;
+  const teamId = typeof stackTeamId === "string" ? stackTeamId.trim() : "";
+  const url = teamId
+    ? new URL(`/dashboard/teams/${encodeURIComponent(teamId)}/billing`, requestOrigin(request))
+    : new URL("/dashboard/billing", requestOrigin(request));
+  url.searchParams.set("welcome", "team");
+  return url;
 }

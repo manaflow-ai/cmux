@@ -23,6 +23,18 @@ export type DashboardCatalogTeam = {
     readonly use: boolean;
     readonly manageAccounts: boolean;
   };
+  /**
+   * Billing fields from `/api/subrouter/teams`. Absent from VM-bound catalogs
+   * and older servers, so consumers must treat undefined as unknown.
+   */
+  readonly billing?: DashboardCatalogTeamBilling;
+};
+
+export type DashboardCatalogTeamBilling = {
+  readonly planId: string | null;
+  readonly seats: number | null;
+  readonly role: "admin" | "member";
+  readonly canManageBilling: boolean;
 };
 
 export type DashboardTeamScope =
@@ -256,6 +268,7 @@ export function parseTeamCatalog(value: unknown): DashboardTeamCatalog | null {
       return null;
     }
     seen.add(raw.id);
+    const billing = parseCatalogTeamBilling(raw);
     teams.push({
       id: raw.id,
       name: raw.name,
@@ -264,9 +277,23 @@ export function parseTeamCatalog(value: unknown): DashboardTeamCatalog | null {
         use: raw.permissions.use,
         manageAccounts: raw.permissions.manageAccounts,
       },
+      ...(billing ? { billing } : {}),
     });
   }
   return { selectedTeamId, teams };
+}
+
+/**
+ * Billing fields are optional and additive: a malformed or missing set drops
+ * only the billing view of that team, never the whole catalog.
+ */
+export function parseCatalogTeamBilling(raw: Record<string, unknown>): DashboardCatalogTeamBilling | null {
+  const { planId, seats, role, canManageBilling } = raw;
+  if (role !== "admin" && role !== "member") return null;
+  if (typeof canManageBilling !== "boolean") return null;
+  if (planId !== null && !validText(planId)) return null;
+  if (seats !== null && !(typeof seats === "number" && Number.isSafeInteger(seats) && seats > 0)) return null;
+  return { planId, seats, role, canManageBilling };
 }
 
 function validText(value: unknown): value is string {

@@ -247,9 +247,10 @@ describe("billing portal route", () => {
     expect(response.headers.get("location")).toBe(
       "https://billing.stripe.com/session/test",
     );
+    // Legacy implicit team: the portal returns to that team's billing view.
     expect(createPortalSession).toHaveBeenCalledWith({
       customer: "cus_team",
-      return_url: "https://cmux.test/dashboard/billing",
+      return_url: "https://cmux.test/dashboard/billing?team=team-pro",
     });
   });
 

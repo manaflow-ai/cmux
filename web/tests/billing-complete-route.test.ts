@@ -130,7 +130,7 @@ describe("billing complete route", () => {
     expect(recordCheckoutCompletion).toHaveBeenCalled();
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(
-      "https://cmux.test/dashboard/billing?welcome=team",
+      "https://cmux.test/dashboard/teams/team-1/billing?welcome=team",
     );
   });
 

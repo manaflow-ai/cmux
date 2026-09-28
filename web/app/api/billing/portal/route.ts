@@ -19,6 +19,17 @@ import { personalPortalSession } from "../../../../services/billing/personalPort
 import { checkoutAttributionFromRequest } from "../../../../services/analytics/checkoutAttribution";
 import { resolveBillingTeam } from "../../../../services/billing/teamResolution";
 import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import {
+  explicitTeamId,
+  resolveTeamBillingAccess,
+  type TeamBillingAccessError,
+  type TeamBillingAccessUser,
+} from "../../../../services/billing/teamBillingAccess";
+import {
+  stripeCustomerIdForStackTeam,
+  teamBillingReturnURL,
+  teamPortalSession,
+} from "../../../../services/billing/teamPortal";
 
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -55,6 +66,11 @@ export async function GET(request: NextRequest) {
     stackUserId = user.id;
 
     const requestedScope = billingPortalScope(request.nextUrl.searchParams.get("scope"));
+    const requestedTeamId = requestedScope === "team"
+      ? explicitTeamId(request.nextUrl.searchParams.get("teamId"))
+      : null;
+    if (requestedTeamId) return await explicitTeamPortal(request, user, requestedTeamId);
+    // Legacy `?scope=team` without a team id: the implicit billing team.
     const team = requestedScope === "team" ? await resolveBillingTeam(user) : null;
     const customerId = team?.id
       ? await stripeCustomerIdForStackTeam(team.id)
@@ -74,7 +90,9 @@ export async function GET(request: NextRequest) {
       return pricingRedirect(request, "unavailable");
     }
 
-    const returnUrl = new URL("/dashboard/billing", requestOrigin(request)).toString();
+    const returnUrl = team?.id
+      ? teamBillingReturnURL(requestOrigin(request), team.id)
+      : new URL("/dashboard/billing", requestOrigin(request)).toString();
     const target = request.nextUrl.searchParams.get("plan");
     const wantsSwitch = !team && request.nextUrl.searchParams.get("flow") === "switch_plan" && (target === "go" || target === "max" || target === "pro");
     if (wantsSwitch && target === "go" && !(await isGoPlanEnabled(user.id))) {
@@ -100,6 +118,33 @@ export async function GET(request: NextRequest) {
   }
 }
 
+/**
+ * `?scope=team&teamId=`: the named team's portal, for its admins only.
+ * Refusals return to that team's billing view with a banner code.
+ */
+async function explicitTeamPortal(
+  request: NextRequest,
+  user: TeamBillingAccessUser,
+  teamId: string,
+): Promise<NextResponse> {
+  const access = await resolveTeamBillingAccess(user, teamId, { requireAdmin: true });
+  if (!access.ok) return teamBillingRedirect(request, teamId, access.error);
+  const session = await teamPortalSession({ teamId, origin: requestOrigin(request) });
+  if (!session) return teamBillingRedirect(request, teamId, "nosub");
+  return NextResponse.redirect(session.url, 302);
+}
+
+function teamBillingRedirect(
+  request: NextRequest,
+  teamId: string,
+  billing: TeamBillingAccessError | "nosub",
+): NextResponse {
+  const url = new URL("/dashboard/billing", requestOrigin(request));
+  if (billing !== "personal_team_not_upgradable_to_team") url.searchParams.set("team", teamId);
+  url.searchParams.set("billing", billing);
+  return NextResponse.redirect(url, 302);
+}
+
 async function currentStackUser(getStackServerApp: GetStackServerApp) {
   const stackServerApp = getStackServerApp();
   return (
@@ -118,15 +163,6 @@ async function stripeCustomerIdForStackUser(stackUserId: string): Promise<string
         isNull(stripeCustomers.stackTeamId),
       ),
     )
-    .limit(1);
-  return rows[0]?.id ?? null;
-}
-
-async function stripeCustomerIdForStackTeam(stackTeamId: string): Promise<string | null> {
-  const rows = await cloudDb()
-    .select({ id: stripeCustomers.id })
-    .from(stripeCustomers)
-    .where(eq(stripeCustomers.stackTeamId, stackTeamId))
     .limit(1);
   return rows[0]?.id ?? null;
 }
