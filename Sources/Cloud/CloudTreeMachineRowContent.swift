@@ -56,8 +56,16 @@ struct CloudTreeMachineRowContent: View {
     }
 
     /// Combines this machine's identity, activity, and resource readings for assistive technology.
+    ///
+    /// `subtitle` in the same position the tooltip puts it: the default preset
+    /// is single-line, so the id and the created-at are not rendered anywhere
+    /// and the pointer only reaches them by hovering. Assistive technology has
+    /// no pointer, so without this the row says less to the people who have the
+    /// least other way to get it. `subtitle` always has at least the kind, so
+    /// there is no empty component to filter.
     var accessibilityLabel: String {
         var parts = [machine.displayName, machine.activityLabel, metrics.summary]
+        parts.append(subtitle)
         parts.append(usageSummary)
         return parts.joined(separator: ", ")
     }
@@ -74,7 +82,13 @@ struct CloudTreeMachineRowContent: View {
         lines.append(subtitle)
         lines.append(machine.image)
         lines.append(usageSummary)
-        return lines.joined(separator: "\n")
+        // A machine the catalog found before the fleet list named it is built
+        // with `image: info.image ?? ""`, and an empty line in the middle of a
+        // popup reads as a missing fact rather than an absent one.
+        return lines
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
     }
 
     /// A missing backend report remains visible instead of looking like a removed feature.
@@ -130,7 +144,11 @@ struct CloudTreeMachineRowContent: View {
         }
         parts.append(machine.kindLabel)
         if let createdAt = machine.createdAt {
-            parts.append(Self.relativeFormatter.localizedString(for: createdAt, relativeTo: Date()))
+            // `now`, not `Date()`: every other part of this struct reads the
+            // injected clock, so the age was the one value a test could not
+            // pin. Both shipping call sites leave `now` at its default, so
+            // this changes no rendered text today.
+            parts.append(Self.relativeFormatter.localizedString(for: createdAt, relativeTo: now))
         }
         if machine.freeAccess == .expired {
             parts.append(String(localized: "machines.row.locked", defaultValue: "Locked"))
