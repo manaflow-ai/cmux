@@ -928,6 +928,7 @@
 		7A0CE100000000000000072E /* CloudTunnelStatusBlockerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE100000000000000072D /* CloudTunnelStatusBlockerTests.swift */; };
 		7A0CE1000000000000000402 /* CloudTunnelTestFakes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000401 /* CloudTunnelTestFakes.swift */; };
 		7A0CE1000000000000000902 /* CloudTunnelWireGuardAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000901 /* CloudTunnelWireGuardAdapter.swift */; };
+		477763FE3E5E69EB53D1A8AC /* CloudVMActionLauncher+Recreate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84BD57BCB72058926678E64C /* CloudVMActionLauncher+Recreate.swift */; };
 		C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00020000000000000002 /* CloudVMActionLauncher.swift */; };
 		CFSF00000000000000000003 /* CloudVMFileExplorerProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000003 /* CloudVMFileExplorerProvider.swift */; };
 		C7F29A7CD7C6410F87BB8537 /* CloudVMLoadingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0581DFBCDBEE482A8D4CDB70 /* CloudVMLoadingPanel.swift */; };
@@ -5094,6 +5095,7 @@
 		7A0CE100000000000000072D /* CloudTunnelStatusBlockerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTunnelStatusBlockerTests.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000401 /* CloudTunnelTestFakes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTunnelTestFakes.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000901 /* CloudTunnelWireGuardAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTunnelWireGuardAdapter.swift; sourceTree = "<group>"; };
+		84BD57BCB72058926678E64C /* CloudVMActionLauncher+Recreate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudVMActionLauncher+Recreate.swift"; sourceTree = "<group>"; };
 		C10D00020000000000000002 /* CloudVMActionLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMActionLauncher.swift; sourceTree = "<group>"; };
 		CFSR00000000000000000003 /* CloudVMFileExplorerProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMFileExplorerProvider.swift; sourceTree = "<group>"; };
 		0581DFBCDBEE482A8D4CDB70 /* CloudVMLoadingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CloudVMLoadingPanel.swift; sourceTree = "<group>"; };
@@ -8835,6 +8837,7 @@
 				82E7E938E768DFC9404CFA32 /* UserDefaults+CloudTreeExpansionPersistence.swift */,
 				992B0254AB37BC40A67DD998 /* CloudTreeDisclosureScope.swift */,
 				19DEAD6E4E3C5032540D9D69 /* CloudTreeOutlineView+Disclosure.swift */,
+				84BD57BCB72058926678E64C /* CloudVMActionLauncher+Recreate.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -13560,6 +13563,7 @@
 				124760000000000000000006 /* CloudTuiManualMirrorSession+Capabilities.swift in Sources */,
 				C11322F10000000000000001 /* CloudTuiManualMirrorSession.swift in Sources */,
 				0F2A151D749994FC57D403CA /* CloudTunnelActivationObserver.swift in Sources */,
+				477763FE3E5E69EB53D1A8AC /* CloudVMActionLauncher+Recreate.swift in Sources */,
 				C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */,
 				CFSF00000000000000000003 /* CloudVMFileExplorerProvider.swift in Sources */,
 				C7F29A7CD7C6410F87BB8537 /* CloudVMLoadingPanel.swift in Sources */,
