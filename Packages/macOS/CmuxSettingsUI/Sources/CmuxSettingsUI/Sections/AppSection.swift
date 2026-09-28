@@ -851,6 +851,7 @@ public struct AppSection: View {
                 .labelsHidden()
                 .pickerStyle(.segmented)
                 .controlSize(.small)
+                .accessibilityIdentifier("SettingsAppWhatsNewPicker")
             }
             SettingsCardDivider()
 
