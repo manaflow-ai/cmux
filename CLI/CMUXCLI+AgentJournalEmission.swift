@@ -257,12 +257,14 @@ extension CMUXCLI {
     /// Publishes when the agent last replied with visible text, shown in the
     /// sidebar beside its status ("Running · replied 7:41 AM").
     ///
-    /// `payloadCarriesReply` is for Stop hooks whose payload holds the final
-    /// assistant message: that reply just happened. Otherwise the local
-    /// transcript tail gives the newest text reply's own timestamp; tool
-    /// calls, tool results and subagent messages never count. Best effort:
-    /// no transcript, no reply in the tail, or a relay-backed socket leaves
-    /// the time already shown in place.
+    /// The local transcript tail gives the newest text reply's own
+    /// timestamp; tool calls, tool results, subagent and synthetic messages
+    /// never count. `payloadCarriesReply` (a Stop payload holding the final
+    /// assistant message) is only the fallback when no transcript is
+    /// readable: hooks can be replayed late and a repeated Stop repeats the
+    /// same text, so "now" is less exact than the transcript. Best effort:
+    /// no reply found, or a relay-backed socket, leaves the time already
+    /// shown in place.
     func publishAgentLastReply(
         client: SocketClient,
         agentKey: String,
@@ -272,14 +274,12 @@ extension CMUXCLI {
         payloadCarriesReply: Bool = false
     ) {
         guard !client.isRelayBacked else { return }
-        let repliedAt: Date?
-        if payloadCarriesReply {
-            repliedAt = Date()
-        } else if let path = normalizedHookValue(transcriptPath),
-                  let lines = readRecentTextFileLines(path: path, maxBytes: Self.agentLastReplyTranscriptTailBytes) {
+        var repliedAt: Date?
+        if let path = normalizedHookValue(transcriptPath),
+           let lines = readRecentTextFileLines(path: path, maxBytes: Self.agentLastReplyTranscriptTailBytes) {
             repliedAt = AgentTranscriptLastReply.lastReplyDate(inJSONLLines: lines)
-        } else {
-            repliedAt = nil
+        } else if payloadCarriesReply {
+            repliedAt = Date()
         }
         guard let repliedAt else { return }
         let milliseconds = Int64((repliedAt.timeIntervalSince1970 * 1000).rounded())

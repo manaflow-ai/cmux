@@ -64,11 +64,10 @@ extension Workspace {
             }
             let updated = current.withLastReplyAt(date)
             agentStatusEntriesByPanelId[panelId]?[key] = updated
-            // The workspace entry is this pane's copy when the pane wrote
-            // last; updating it also refreshes the row.
-            if statusEntries[key] == current {
-                statusEntries[key] = updated
-            }
+            // The reply counts as this pane's latest report for the key, like
+            // `setStatusEntry`. Writing the workspace entry is also what
+            // republishes the row: the per-pane copies are not observed.
+            statusEntries[key] = updated
         } else if let current = statusEntries[key],
                   SidebarStatusEntry.shouldReplaceLastReply(current.lastReplyAt, with: date) {
             statusEntries[key] = current.withLastReplyAt(date)

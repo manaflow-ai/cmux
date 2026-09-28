@@ -22,12 +22,14 @@ struct AgentTranscriptLastReplyTests {
         #expect(AgentTranscriptLastReply.lastReplyDate(inJSONLLines: lines) == Self.date("2026-09-28T14:41:03.250Z"))
     }
 
-    @Test("sidechain subagent text and blank text do not count as a reply")
+    @Test("sidechain, blank, synthetic and API-error text do not count as a reply")
     func sidechainAndBlankIgnored() {
         let lines = [
             #"{"type":"assistant","timestamp":"2026-09-28T09:00:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Launched a background agent."}]}}"#,
             #"{"type":"assistant","isSidechain":true,"timestamp":"2026-09-28T09:05:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"subagent says hi"}]}}"#,
             #"{"type":"assistant","timestamp":"2026-09-28T09:06:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"  \n"}]}}"#,
+            #"{"type":"assistant","timestamp":"2026-09-28T09:07:00.000Z","message":{"role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"No response requested."}]}}"#,
+            #"{"type":"assistant","isApiErrorMessage":true,"timestamp":"2026-09-28T09:08:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"API Error: overloaded"}]}}"#,
         ]
         #expect(AgentTranscriptLastReply.lastReplyDate(inJSONLLines: lines) == Self.date("2026-09-28T09:00:00.000Z"))
     }

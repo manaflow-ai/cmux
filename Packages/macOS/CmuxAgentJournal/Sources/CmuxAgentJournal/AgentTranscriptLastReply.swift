@@ -6,7 +6,8 @@ public import Foundation
 /// A reply is an assistant message with non-empty text. Tool calls,
 /// reasoning, tool results and subagent (sidechain) messages do not count, so
 /// a turn busy with tools keeps the time of the last thing the person could
-/// read. Both transcript shapes are understood:
+/// read. Claude's synthetic and API-error assistant lines do not count
+/// either. Both transcript shapes are understood:
 ///
 /// - Claude Code: `{"type":"assistant","timestamp":…,"message":{"role":"assistant","content":[{"type":"text",…}]}}`
 /// - Codex rollouts: `{"timestamp":…,"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text",…}]}}`
@@ -29,7 +30,11 @@ public enum AgentTranscriptLastReply {
     }
 
     static func replyDate(in object: [String: Any]) -> Date? {
-        if object["isSidechain"] as? Bool == true { return nil }
+        // Subagent messages and Claude's synthetic or API-error assistant
+        // lines are not something the agent said to the person.
+        if object["isSidechain"] as? Bool == true || object["isApiErrorMessage"] as? Bool == true {
+            return nil
+        }
         let message: [String: Any]?
         if let claudeMessage = object["message"] as? [String: Any] {
             message = claudeMessage
@@ -42,6 +47,7 @@ public enum AgentTranscriptLastReply {
         }
         guard let message,
               message["role"] as? String == "assistant",
+              message["model"] as? String != "<synthetic>",
               hasVisibleText(message["content"]),
               let rawTimestamp = object["timestamp"] as? String else {
             return nil

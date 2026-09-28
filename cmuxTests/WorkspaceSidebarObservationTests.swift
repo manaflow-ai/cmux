@@ -476,6 +476,56 @@ struct WorkspaceSidebarObservationTests {
 
         #expect(workspace.sidebarStatusEntriesInDisplayOrder().map(\.key) == ["claude_code", "codex"])
     }
+
+    /// The row keeps saying when the agent last replied while its turn runs
+    /// tools or waits on background agents: status changes never erase the
+    /// time, a late hook never rolls it back, and a new session clears it.
+    @Test func agentLastReplyCarriesAcrossStatusChangesAndOnlyMovesForward() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let owner = ControlSidebarPanelOwner.workspace(workspace)
+        workspace.recordAgentPID(key: "claude_code", pid: 12_405, panelId: panelId, refreshPorts: false)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
+        owner.setStatusEntry(
+            SidebarStatusEntry(key: "claude_code", value: "Running"),
+            key: "claude_code",
+            panelId: panelId
+        )
+        func shownReply() -> Date? {
+            workspace.sidebarStatusEntriesInDisplayOrder().first { $0.key == "claude_code" }?.lastReplyAt
+        }
+        #expect(shownReply() == nil)
+
+        let reply = Date(timeIntervalSince1970: 1_790_000_000)
+        owner.recordAgentReply(key: "claude_code", at: reply, panelId: panelId)
+        #expect(shownReply() == reply)
+
+        owner.recordAgentReply(key: "claude_code", at: reply.addingTimeInterval(-60), panelId: panelId)
+        #expect(shownReply() == reply, "A late hook must not roll the reply time back.")
+
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .idle)
+        owner.setStatusEntry(
+            SidebarStatusEntry(key: "claude_code", value: "Idle"),
+            key: "claude_code",
+            panelId: panelId
+        )
+        #expect(shownReply() == reply, "A status change keeps the reply time.")
+        #expect(workspace.statusEntries["claude_code"]?.lastReplyAt == reply)
+
+        owner.recordAgentReply(key: "claude_code", at: nil, panelId: panelId)
+        #expect(shownReply() == nil, "A new session in the pane forgets the old reply time.")
+    }
+
+    @Test func agentLastReplyLabelShowsTheTimeTodayAndTheDateOtherwise() {
+        let now = Date()
+        let today = SidebarStatusEntry.lastReplyLabel(now, now: now)
+        let earlier = SidebarStatusEntry.lastReplyLabel(now.addingTimeInterval(-3 * 86_400), now: now)
+        #expect(today.contains(now.formatted(date: .omitted, time: .shortened)))
+        #expect(earlier.count > today.count)
+        let entry = SidebarStatusEntry(key: "claude_code", value: "Running", lastReplyAt: now)
+        #expect(entry.sidebarRowText == "Running · \(today)")
+        #expect(SidebarStatusEntry(key: "claude_code", value: "Running").sidebarRowText == "Running")
+    }
 }
 
 // Mutable flag captured by Observation's Sendable onChange closure in this test.
@@ -565,54 +615,5 @@ private final class VirtualCoalesceScheduler: Scheduler {
     ) -> Cancellable {
         scheduledActions.append(action)
         return AnyCancellable {}
-    }
-    /// The row keeps saying when the agent last replied while its turn runs
-    /// tools or waits on background agents: status changes never erase the
-    /// time, a late hook never rolls it back, and a new session clears it.
-    @Test func agentLastReplyCarriesAcrossStatusChangesAndOnlyMovesForward() throws {
-        let workspace = Workspace()
-        let panelId = try #require(workspace.focusedPanelId)
-        let owner = ControlSidebarPanelOwner.workspace(workspace)
-        workspace.recordAgentPID(key: "claude_code", pid: 12_405, panelId: panelId, refreshPorts: false)
-        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
-        owner.setStatusEntry(
-            SidebarStatusEntry(key: "claude_code", value: "Running"),
-            key: "claude_code",
-            panelId: panelId
-        )
-        func shownReply() -> Date? {
-            workspace.sidebarStatusEntriesInDisplayOrder().first { $0.key == "claude_code" }?.lastReplyAt
-        }
-        #expect(shownReply() == nil)
-
-        let reply = Date(timeIntervalSince1970: 1_790_000_000)
-        owner.recordAgentReply(key: "claude_code", at: reply, panelId: panelId)
-        #expect(shownReply() == reply)
-
-        owner.recordAgentReply(key: "claude_code", at: reply.addingTimeInterval(-60), panelId: panelId)
-        #expect(shownReply() == reply, "A late hook must not roll the reply time back.")
-
-        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .idle)
-        owner.setStatusEntry(
-            SidebarStatusEntry(key: "claude_code", value: "Idle"),
-            key: "claude_code",
-            panelId: panelId
-        )
-        #expect(shownReply() == reply, "A status change keeps the reply time.")
-        #expect(workspace.statusEntries["claude_code"]?.lastReplyAt == reply)
-
-        owner.recordAgentReply(key: "claude_code", at: nil, panelId: panelId)
-        #expect(shownReply() == nil, "A new session in the pane forgets the old reply time.")
-    }
-
-    @Test func agentLastReplyLabelShowsTheTimeTodayAndTheDateOtherwise() {
-        let now = Date()
-        let today = SidebarStatusEntry.lastReplyLabel(now, now: now)
-        let earlier = SidebarStatusEntry.lastReplyLabel(now.addingTimeInterval(-3 * 86_400), now: now)
-        #expect(today.contains(now.formatted(date: .omitted, time: .shortened)))
-        #expect(earlier.count > today.count)
-        let entry = SidebarStatusEntry(key: "claude_code", value: "Running", lastReplyAt: now)
-        #expect(entry.sidebarRowText == "Running · \(today)")
-        #expect(SidebarStatusEntry(key: "claude_code", value: "Running").sidebarRowText == "Running")
     }
 }
