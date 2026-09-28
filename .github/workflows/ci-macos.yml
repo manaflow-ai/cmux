@@ -1620,11 +1620,13 @@ jobs:
     # admission does (a full re-run, or a re-run of a failed admission); a
     # re-run of failed jobs after admission keeps its outputs from the attempt
     # before, so the jobs take `runners` only when `attempt` is this one.
+    # The bot's attempt 3 (the rescue's move of a stuck attempt 2) skips it,
+    # so every job of that attempt takes the retry runner.
     # Pull requests only: main's full-suite dispatch already runs on the owned
     # pools and keeps CI_OWNED_MAIN_RESERVE's machines for pull requests.
     needs:
       - macos-compile-admission
-    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' }}
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
     permissions:
