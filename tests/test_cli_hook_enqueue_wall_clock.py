@@ -58,8 +58,9 @@ def resolve_cmux_cli() -> str:
 class FakeAppSocket:
     """Answers socket auth and v2 requests; `enqueue_replies` controls admission."""
 
-    def __init__(self, enqueue_replies: bool) -> None:
+    def __init__(self, enqueue_replies: bool, resolve_replies: bool = True) -> None:
         self.enqueue_replies = enqueue_replies
+        self.resolve_replies = resolve_replies
         self.stop_event = threading.Event()
         self.ready_event = threading.Event()
         self.lock = threading.Lock()
@@ -93,6 +94,14 @@ class FakeAppSocket:
                     params = request.get("params")
                     return params if isinstance(params, dict) else None
         return None
+
+    def enqueue_payloads(self) -> list[str]:
+        with self.lock:
+            return [
+                str(request["params"].get("payload"))
+                for request in self.requests
+                if request.get("method") == "agent.hook.enqueue" and isinstance(request.get("params"), dict)
+            ]
 
     def _serve(self) -> None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
@@ -151,6 +160,8 @@ class FakeAppSocket:
         request_id = request.get("id")
         if method == "agent.hook.enqueue" and not self.enqueue_replies:
             return None
+        if method == "agent.resolve_delivery_target" and not self.resolve_replies:
+            return None
         result: dict = {}
         if method == "agent.resolve_delivery_target":
             result = {"source": "none"}
@@ -161,6 +172,9 @@ def hook_environment(socket_path: str, extra: dict[str, str] | None = None) -> d
     env = dict(os.environ)
     env["CMUX_SOCKET_PATH"] = socket_path
     env.pop("CMUX_SOCKET", None)
+    # Never drain the developer's own Claude spool into the fake app.
+    env.pop("CMUX_CLAUDE_HOOK_SPOOL_DIR", None)
+    env.pop("CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP", None)
     # An explicit password keeps the harness away from the user's keychain.
     env["CMUX_SOCKET_PASSWORD"] = SOCKET_PASSWORD
     env["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
@@ -238,6 +252,38 @@ def run_enqueue(
     )
 
 
+SPOOLED_SESSION_ID = "wall-clock-spooled-session"
+
+
+def make_spool_with_one_record(root: str) -> tuple[str, str]:
+    """Creates a private Claude hook spool holding one published record.
+
+    Returns the spool path and the record path. The format is
+    `AgentHookSpoolRecord` (CMUXAgentLaunch): marker, agent, subcommand,
+    NUL-terminated environment entries, an empty entry, then the payload.
+    """
+    spool = os.path.join(root, "spool")
+    os.mkdir(spool, 0o700)
+    for name in ("forwarder.lock", "drain.lock"):
+        with open(os.path.join(spool, name), "wb"):
+            pass
+    payload = json.dumps({"session_id": SPOOLED_SESSION_ID, "hook_event_name": "UserPromptSubmit"}).encode()
+    record = b"cmux-agent-hook-v1\nclaude\nprompt-submit\n"
+    for key, value in (
+        ("CMUX_CLAUDE_PID", str(os.getpid())),
+        ("CMUX_SURFACE_ID", "22222222-2222-2222-2222-222222222222"),
+        ("CMUX_WORKSPACE_ID", "11111111-1111-1111-1111-111111111111"),
+    ):
+        record += f"{key}={value}".encode() + b"\0"
+    record += b"\0" + payload
+    now = time.time_ns()
+    record_path = os.path.join(spool, f"{now // 1_000_000_000}.{now % 1_000_000_000:09d}-{os.getpid()}.rec")
+    with open(record_path, "wb") as handle:
+        handle.write(record)
+    os.chmod(record_path, 0o600)
+    return spool, record_path
+
+
 def check(
     failures: list[str],
     name: str,
@@ -305,6 +351,35 @@ def main() -> int:
                 ),
                 max_elapsed=2.5,
             )
+
+        # The enqueue fallback first drains records the session's hooks
+        # published earlier. The watchdog must not exit between claiming
+        # (unlinking) such a record and handing it to the app, or a lifecycle
+        # event the spool promises to deliver is lost. Route resolution stalls
+        # here, so the claim is still in flight when the tiny budget expires.
+        with FakeAppSocket(enqueue_replies=True, resolve_replies=False) as app:
+            spool, record_path = make_spool_with_one_record(app.root.name)
+            check(
+                failures,
+                "spool drain under the watchdog",
+                lambda: run_enqueue(
+                    cli_path,
+                    app.path,
+                    close_stdin=True,
+                    harness_timeout=6.0,
+                    extra_env={
+                        "CMUX_AGENT_HOOK_ENQUEUE_BUDGET_SEC": "0.05",
+                        "CMUX_CLAUDE_HOOK_SPOOL_DIR": spool,
+                    },
+                ),
+                max_elapsed=2.5,
+            )
+            delivered = any(SPOOLED_SESSION_ID in payload for payload in app.enqueue_payloads())
+            if not delivered and not os.path.exists(record_path):
+                failures.append(
+                    "spool drain under the watchdog: the spooled record was claimed but never "
+                    f"sent to the app; saw {app.methods()!r}"
+                )
     except Exception as exc:
         failures.append(f"test harness raised {type(exc).__name__}: {exc}")
 
