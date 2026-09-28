@@ -1272,6 +1272,7 @@ struct WorkspaceShellView: View {
             createWorkspace: resolvedCreateWorkspace,
             createWorkspaceInGroup: resolvedCreateWorkspaceInGroup,
             createWorkspaceGroup: resolvedCreateWorkspaceGroup,
+            createWorkspaceOnCloudMachine: { createWorkspaceOnExternalHost(onHost: $0) },
             canCreateWorkspace: canCreateWorkspaceForSelection,
             macSelection: $macSelection,
             switchMac: { macDeviceID, instanceTag in

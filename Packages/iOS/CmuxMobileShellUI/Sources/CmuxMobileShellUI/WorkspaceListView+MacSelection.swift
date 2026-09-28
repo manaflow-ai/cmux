@@ -126,8 +126,20 @@ extension WorkspaceListView {
         }
     }
 
+    /// The Cloud machine the computers picker is scoped to, when it is one.
+    var scopedExternalHostID: String? {
+        guard case .machine(let id) = macSelectionScope.visibleSelection,
+              store?.externalHostOwnsHost(id) == true else { return nil }
+        return id
+    }
+
     var canCreateWorkspaceForMacSelection: Bool {
-        macSelectionScope.canCreateWorkspace(base: canCreateWorkspace)
+        // A Cloud machine is not the foreground Mac pairing, so the Mac rule
+        // below would always deny it; its own liveness is the gate.
+        if let scopedExternalHostID {
+            return store?.externalHostIsConnected(scopedExternalHostID) == true
+        }
+        return macSelectionScope.canCreateWorkspace(base: canCreateWorkspace)
     }
 
     #if os(iOS)

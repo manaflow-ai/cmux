@@ -5,14 +5,38 @@ import SwiftUI
 
 extension WorkspaceListView {
     var newWorkspaceButton: WorkspaceListNewWorkspaceMenu {
-        WorkspaceListNewWorkspaceMenu(
+        let scopedExternalHostID = scopedExternalHostID
+        // Under All Computers every visible Cloud machine is a create target;
+        // scoped to one computer, the plain tap already targets it.
+        let cloudTargets: [WorkspaceListNewWorkspaceMenuValue.CloudTarget] =
+            scopedExternalHostID == nil
+            ? (store?.externalHostSummaries ?? [])
+                .filter { !$0.isHidden }
+                .map { summary in
+                    WorkspaceListNewWorkspaceMenuValue.CloudTarget(
+                        hostID: summary.hostID,
+                        name: summary.displayName ?? summary.hostID,
+                        isConnected: summary.status == .connected
+                    )
+                }
+            : []
+        return WorkspaceListNewWorkspaceMenu(
             value: WorkspaceListNewWorkspaceMenuValue(
                 canCreate: canCreateWorkspaceForMacSelection,
-                canCreateGroup: createWorkspaceGroup != nil
+                // Groups are a Mac concept; a Cloud machine has none.
+                canCreateGroup: createWorkspaceGroup != nil && scopedExternalHostID == nil,
+                cloudTargets: createWorkspaceOnCloudMachine == nil ? [] : cloudTargets
             ),
             actions: WorkspaceListNewWorkspaceMenuActions(
-                createWorkspace: createWorkspace,
-                createWorkspaceGroup: createWorkspaceGroup
+                createWorkspace: {
+                    if let scopedExternalHostID, let createWorkspaceOnCloudMachine {
+                        createWorkspaceOnCloudMachine(scopedExternalHostID)
+                    } else {
+                        createWorkspace()
+                    }
+                },
+                createWorkspaceGroup: createWorkspaceGroup,
+                createWorkspaceOnCloudMachine: createWorkspaceOnCloudMachine
             )
         )
     }

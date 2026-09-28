@@ -245,9 +245,21 @@ extension MobileShellComposite {
     public func createExternalHostWorkspace(
         beside workspaceID: MobileWorkspacePreview.ID
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
-        let hostName = workspaces.first { $0.id == workspaceID }?.macDisplayName
-        guard let hostID = externalHostID(ofWorkspace: workspaceID),
-              let source = externalHostSource(owningHost: hostID) else {
+        guard let hostID = externalHostID(ofWorkspace: workspaceID) else {
+            let hostName = workspaces.first { $0.id == workspaceID }?.macDisplayName
+            return .failure(.notConnected(hostDisplayName: hostName))
+        }
+        return await createExternalHostWorkspace(onHost: hostID)
+    }
+
+    /// Creates a workspace on an external host chosen by id (the workspace
+    /// list's New Workspace targets, and its computer-scoped create), then
+    /// selects the new row and its terminal.
+    public func createExternalHostWorkspace(
+        onHost hostID: String
+    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        let hostName = externalHostSummaries.first { $0.hostID == hostID }?.displayName
+        guard let source = externalHostSource(owningHost: hostID) else {
             return .failure(.notConnected(hostDisplayName: hostName))
         }
         // The source names rows as it published them; the list scopes them.

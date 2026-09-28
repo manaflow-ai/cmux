@@ -180,6 +180,19 @@ struct CloudCreateTests {
         #expect(store.selectedTerminalID.map(existing.contains) ?? true)
     }
 
+    @Test("New Workspace aimed at a machine by id opens the new one")
+    func storeCreatesWorkspaceOnTheMachineByID() async {
+        let (_, _, store) = await makeBridge()
+
+        let result = await store.createExternalHostWorkspace(onHost: Self.hostID)
+
+        guard case .success = result else {
+            Issue.record("create failed: \(result)")
+            return
+        }
+        #expect(store.selectedWorkspaceID == listed("ws-2", in: store))
+    }
+
     @Test("New Workspace beside a Cloud workspace opens the new one on the same machine")
     func storeCreatesWorkspaceOnTheMachine() async {
         let (_, _, store) = await makeBridge()
