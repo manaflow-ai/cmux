@@ -2517,8 +2517,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
         mainWindowLifecycleCoordinator.cancelAllWindowlessRouteFreezeTasks()
-        // Stays set for the terminate-path save that follows; the app is going away.
+        // Stays set for the terminate-path save that follows. If the app is still running a
+        // minute later the install failed, and ordinary saves must not mark these panels.
         UpdateRelaunchContinuationNudges.shared.midTaskPanelIds = takeUpdateRelaunchMidTaskPanelIds()
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(60))
+            UpdateRelaunchContinuationNudges.shared.midTaskPanelIds = []
+        }
         if let prepared = updateRelaunchIndexCapture.take(now: ProcessInfo.processInfo.systemUptime) {
             _ = saveSessionSnapshot(
                 includeScrollback: true,
