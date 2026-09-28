@@ -293308,124 +293308,6 @@
         }
       }
     },
-    "settings.app.compactAgentStatus": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compact Agent Status"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حالة الوكيل المختصرة"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kompakter Agentenstatus"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estado de agente compacto"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Statut d’agent compact"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェント状態のコンパクト表示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "간결한 에이전트 상태"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "精简代理状态"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "精簡代理狀態"
-          }
-        }
-      }
-    },
-    "settings.app.compactAgentStatus.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show a workspace's agent, unread and pull request state as one colored icon before the title instead of separate rows. Hover the icon for details."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار حالة الوكيل والعناصر غير المقروءة وطلب السحب لمساحة العمل كأيقونة ملونة واحدة قبل العنوان بدلاً من صفوف منفصلة. مرّر المؤشر فوق الأيقونة لعرض التفاصيل."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenten-, Ungelesen- und Pull-Request-Status eines Workspace als ein farbiges Symbol vor dem Titel anzeigen statt in eigenen Zeilen. Details erscheinen, wenn du den Zeiger über das Symbol bewegst."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar el estado del agente, lo no leído y la pull request de un espacio de trabajo como un único icono de color antes del título, en lugar de filas separadas. Pasa el cursor sobre el icono para ver los detalles."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’état de l’agent, des éléments non lus et de la pull request d’un espace de travail sous forme d’une seule icône colorée avant le titre, au lieu de lignes distinctes. Survolez l’icône pour voir les détails."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースのエージェント、未読、プルリクエストの状態を、個別の行ではなくタイトルの前の色付きアイコン1つで示します。詳細はアイコンにポインタを合わせると表示されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "워크스페이스의 에이전트, 읽지 않음, 풀 리퀘스트 상태를 별도의 줄이 아니라 제목 앞의 색상 아이콘 하나로 나타냅니다. 자세한 내용은 아이콘 위에 포인터를 올려 확인하세요."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用标题前的单个彩色图标表示工作区的代理、未读和拉取请求状态，而不是各自占一行。将指针悬停在图标上可查看详细信息。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "以標題前的單一彩色圖示表示工作區的代理、未讀與拉取請求狀態，而非各自佔一行。將游標移到圖示上可查看詳細資訊。"
-          }
-        }
-      }
-    },
     "settings.app.configWindow": {
       "extractionState": "manual",
       "localizations": {
@@ -345744,65 +345626,6 @@
         }
       }
     },
-    "settings.search.alias.setting.app.compact-agent-status": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex مختصر وكيل حالة أيقونة سطر العنوان"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex kompakt Agent Status Symbol Titelzeile"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex compacto agente estado icono línea de título"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex compact agent statut icône ligne de titre"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex コンパクト エージェント 状態 アイコン タイトル行"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 간결 에이전트 상태 아이콘 제목 줄"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 精简 代理 状态 图标 标题行"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 精簡 代理 狀態 圖示 標題列"
-          }
-        }
-      }
-    },
     "settings.search.alias.setting.app.default-terminal": {
       "extractionState": "manual",
       "localizations": {
@@ -386984,65 +386807,6 @@
         }
       }
     },
-    "sidebar.agentStatus.glyph.tooltip": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ : %2$@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：%2$@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：%2$@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：%2$@"
-          }
-        }
-      }
-    },
     "sidebar.browserStack.closeGroup": {
       "extractionState": "manual",
       "localizations": {
@@ -388999,65 +388763,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 上的雲端工作區"
-          }
-        }
-      }
-    },
-    "sidebar.compactStatus.profile": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Profile"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الملف الشخصي"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Profil"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Perfil"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Profil"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プロファイル"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "프로필"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "配置文件"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定檔"
           }
         }
       }
@@ -569898,596 +569603,6 @@
         }
       }
     },
-    "agent.claude.stopFailure.body.generic": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code stopped on an API error"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code は API エラーで停止しました"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code 因 API 错误而停止"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code wurde wegen eines API-Fehlers gestoppt"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code s'est arrêté sur une erreur d'API"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "توقف Claude Code بسبب خطأ في واجهة API"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code se detuvo por un error de la API"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code 因 API 錯誤而停止"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code가 API 오류로 중지되었습니다"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.apiError": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API error"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API エラー"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API 错误"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API-Fehler"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erreur d'API"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "خطأ في واجهة API"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Error de la API"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API 錯誤"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API 오류"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.authentication": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Auth error"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "認証エラー"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "认证错误"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Authentifizierungsfehler"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erreur d'authentification"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "خطأ في المصادقة"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Error de autenticación"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "驗證錯誤"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "인증 오류"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.billing": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Billing error"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "請求エラー"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "账单错误"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrechnungsfehler"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erreur de facturation"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "خطأ في الفوترة"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Error de facturación"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "帳單錯誤"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "결제 오류"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.connectionDropped": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connection dropped"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続が切断されました"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "连接已断开"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verbindung abgebrochen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connexion interrompue"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "انقطع الاتصال"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conexión perdida"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "連線已中斷"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "연결 끊김"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.outputLimit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Output limit"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "出力上限"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "输出上限"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ausgabelimit"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limite de sortie"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حد المخرجات"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Límite de salida"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "輸出上限"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "출력 한도"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.overloaded": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API overloaded"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API 過負荷"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API 过载"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API überlastet"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API surchargée"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "واجهة API محمّلة فوق طاقتها"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API sobrecargada"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API 過載"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API 과부하"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.rateLimited": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rate limited"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "レート制限中"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已限速"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ratenbegrenzt"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limite de requêtes atteinte"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تم تقييد المعدل"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Límite de frecuencia alcanzado"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已限速"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "속도 제한됨"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.usageLimit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usage limit"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用量の上限"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用量上限"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nutzungslimit"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limite d'utilisation"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حد الاستخدام"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Límite de uso"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用量上限"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용량 한도"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.usageLimitResets": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usage limit, resets %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用量の上限、%@ にリセット"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用量上限，%@ 重置"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nutzungslimit, Reset %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limite d'utilisation, réinitialisation %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حد الاستخدام، يُعاد التعيين %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Límite de uso, se restablece %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用量上限，%@ 重設"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용량 한도, %@에 초기화"
-          }
-        }
-      }
-    },
     "cli.focus.defaultHelp": {
       "extractionState": "manual",
       "localizations": {
@@ -570602,6 +569717,301 @@
           "stringUnit": {
             "state": "translated",
             "value": "포커스:\n  --focus                 새 워크스페이스로 전환합니다\n  --no-focus              백그라운드에서 엽니다"
+          }
+        }
+      }
+    },
+    "settings.app.compactAgentStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact Agent Status"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حالة الوكيل المختصرة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakter Agentenstatus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estado de agente compacto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statut d’agent compact"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント状態のコンパクト表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "간결한 에이전트 상태"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "精简代理状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "精簡代理狀態"
+          }
+        }
+      }
+    },
+    "settings.app.compactAgentStatus.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a workspace's agent, unread and pull request state as one colored icon before the title instead of separate rows. Hover the icon for details."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار حالة الوكيل والعناصر غير المقروءة وطلب السحب لمساحة العمل كأيقونة ملونة واحدة قبل العنوان بدلاً من صفوف منفصلة. مرّر المؤشر فوق الأيقونة لعرض التفاصيل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten-, Ungelesen- und Pull-Request-Status eines Workspace als ein farbiges Symbol vor dem Titel anzeigen statt in eigenen Zeilen. Details erscheinen, wenn du den Zeiger über das Symbol bewegst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar el estado del agente, lo no leído y la pull request de un espacio de trabajo como un único icono de color antes del título, en lugar de filas separadas. Pasa el cursor sobre el icono para ver los detalles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’état de l’agent, des éléments non lus et de la pull request d’un espace de travail sous forme d’une seule icône colorée avant le titre, au lieu de lignes distinctes. Survolez l’icône pour voir les détails."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのエージェント、未読、プルリクエストの状態を、個別の行ではなくタイトルの前の色付きアイコン1つで示します。詳細はアイコンにポインタを合わせると表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스의 에이전트, 읽지 않음, 풀 리퀘스트 상태를 별도의 줄이 아니라 제목 앞의 색상 아이콘 하나로 나타냅니다. 자세한 내용은 아이콘 위에 포인터를 올려 확인하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用标题前的单个彩色图标表示工作区的代理、未读和拉取请求状态，而不是各自占一行。将指针悬停在图标上可查看详细信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以標題前的單一彩色圖示表示工作區的代理、未讀與拉取請求狀態，而非各自佔一行。將游標移到圖示上可查看詳細資訊。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.compact-agent-status": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex مختصر وكيل حالة أيقونة سطر العنوان"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex kompakt Agent Status Symbol Titelzeile"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex compacto agente estado icono línea de título"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex compact agent statut icône ligne de titre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex コンパクト エージェント 状態 アイコン タイトル行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 간결 에이전트 상태 아이콘 제목 줄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 精简 代理 状态 图标 标题行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 精簡 代理 狀態 圖示 標題列"
+          }
+        }
+      }
+    },
+    "sidebar.agentStatus.glyph.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        }
+      }
+    },
+    "sidebar.compactStatus.profile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الملف الشخصي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perfil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profil"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定檔"
           }
         }
       }
