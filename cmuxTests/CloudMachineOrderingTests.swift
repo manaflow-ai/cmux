@@ -34,14 +34,10 @@ struct CloudMachineOrderingTests {
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,
             proposedItem: target, proposedChildIndex: NSOutlineViewDropOnItemIndex) == .move)
         #expect(fixture.base.defaults.data(forKey: CloudMachinePinStore.defaultsKey) == before)
-        let line = try #require(outline.subviews.first { $0.identifier?.rawValue == "sidebarReorderIndicator" })
-        #expect(!line.isHidden && line.frame.height == 2)
-        #expect(line.frame.minX == outline.visibleRect.minX + 8)
-        let edge = after ? outline.rect(ofRow: outline.numberOfRows - 1).maxY - 2 : rect.minY
-        #expect(line.frame.minY == edge)
+        // Cloud tree drags intentionally stay free of custom insertion hints.
+        #expect(outline.subviews.first { $0.identifier?.rawValue == "sidebarReorderIndicator" } == nil)
         #expect(coordinator.outlineView(outline, acceptDrop: drag.info, item: nil, childIndex: after ? 5 : 1))
         #expect(fixture.order == (after ? ["b", "c", "d", "a"] : ["d", "a", "b", "c"]))
-        #expect(line.isHidden)
         #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == source.id)
         #expect(outline.isItemExpanded(target) == !collapsed)
         let moved = try fixture.root(try #require(source.machineOrderID))
@@ -65,9 +61,7 @@ struct CloudMachineOrderingTests {
         let drag = try fixture.begin(pinnedSource ? "a" : "d")
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,
             proposedItem: nil, proposedChildIndex: pinnedSource ? 5 : 0) == .move)
-        let line = try #require(outline.subviews.first { $0.identifier?.rawValue == "sidebarReorderIndicator" })
-        let boundary = outline.rect(ofRow: outline.row(forItem: try fixture.root("c"))).minY
-        #expect(line.frame.minY == boundary)
+        #expect(outline.subviews.first { $0.identifier?.rawValue == "sidebarReorderIndicator" } == nil)
         #expect(coordinator.outlineView(outline, acceptDrop: drag.info, item: nil, childIndex: 3))
         #expect(fixture.order == (pinnedSource ? ["b", "a", "c", "d"] : ["a", "b", "d", "c"]))
         #expect(fixture.store.pinnedMachineIDs == ["a", "b"])
