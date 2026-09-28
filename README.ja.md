@@ -418,6 +418,6 @@ cmuxは無料でオープンソースであり、今後もそうあり続けま�
 
 ## ライセンス
 
-cmuxは[GPL-3.0-or-later](LICENSE)の下でオープンソースです。
+cmuxは[GPL-3.0-or-later](LICENSE)の下でオープンソースです。cmuxのサーバーソフトウェア（`web/`、Cloudflare Worker、および[LICENSE](LICENSE)に記載されたリレーサービス）は、代わりに[Business Source License 1.1](web/LICENSE)で提供されます。非本番用途での閲覧・改変・実行は可能ですが、本番利用やセルフホスティングには商用ライセンスが必要です。
 
 GPLに準拠できない組織向けに、商用ライセンスもご用意しています。詳細は[founders@manaflow.com](mailto:founders@manaflow.com)までお問い合わせください。

@@ -73,6 +73,16 @@ def run_one(path: str, env: dict[str, str], log_path: Path, timeout: float) -> R
     # refuses helpers below a world-writable ancestor such as /tmp.
     # Output goes to a file, not a pipe: a background process the test leaves
     # behind cannot hold the runner open by keeping the pipe's write end.
+    # The CLI finds its socket password under Foundation's home directory,
+    # which follows CFFIXED_USER_HOME rather than HOME. A runner account that
+    # also runs cmux keeps a real password there, and the CLI then sends
+    # `auth` to every fake socket fixture first. Give each test an empty home
+    # unless the job already sets one; tests may still override it for their
+    # own subprocesses.
+    if "CFFIXED_USER_HOME" not in env:
+        home = log_path.with_suffix(".home")
+        home.mkdir(mode=0o700, exist_ok=True)
+        env = {**env, "CFFIXED_USER_HOME": str(home)}
     started = time.monotonic()
     try:
         with log_path.open("wb") as log:
