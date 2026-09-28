@@ -33,6 +33,7 @@ ANNOTATING_MODULES = (
     "tests/test_ci_helper_prebuild_lifecycle.py",
     "tests/test_ci_late_placement.py",
     "tests/test_ci_main_regression_bisect.py",
+    "tests/test_ci_parallel_artifact_transport.py",
     "tests/test_ci_pr_media.py",
     "tests/test_ci_prune_pr_media.py",
     "tests/test_ci_ui_tests_dispatch.py",
@@ -42,7 +43,8 @@ ANNOTATING_MODULES = (
 # unittest's progress characters share stderr with the script's output, so a
 # command may follow them on one line of the combined log; the runner reads
 # stdout and stderr as separate streams, where it starts the line.
-COMMAND = re.compile(r"^[.EFsxu]*::(?:error|warning|notice|group|endgroup|debug|add-mask|stop-commands)\b")
+COMMAND = re.compile(r"^\s*[.EFsxu]*::(?:error|warning|notice|debug|group|endgroup|add-mask|stop-commands|echo"
+                     r"|set-output|save-state|set-env|add-path|add-matcher|remove-matcher)\b")
 
 
 def run_module(relative: str) -> tuple[int, str]:
@@ -67,7 +69,8 @@ class GuardTestsEmitNoWorkflowCommandsTests(unittest.TestCase):
             code, output = result
             with self.subTest(module=relative):
                 if code != 0:
-                    continue
+                    # Its own step reports the failure; say which module this check skipped.
+                    self.skipTest(f"{relative} failed here (exit {code}), so its output was not checked")
                 checked += 1
                 leaked = [line for line in output.splitlines() if COMMAND.match(line)]
                 # repr() quotes each line, so this report is never read as a command itself.
