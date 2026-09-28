@@ -7,4 +7,6 @@ struct TerminalLinkOpenRequest: Sendable {
     let sourcePanelId: UUID?
     let workingDirectory: String?
     var focus: Bool = true
+    /// Whether the remote machine asked for the open without a click on this Mac.
+    var isRemoteInitiated: Bool = false
 }

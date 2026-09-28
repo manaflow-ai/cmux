@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCore
 import CmuxTerminalCore
 import CmuxTestSupport
 import CmuxWorkspaces
@@ -140,15 +141,29 @@ struct TerminalLinkOpenCoordinator {
         let cloudURL = request.sourcePanelId.flatMap {
             container?.cloudTerminalLinkTarget(url: target.url, sourcePanelId: $0)?.url
         }
-        let destinationURL = cloudURL ?? target.url
+        let destinations = RemoteLinkOpenPolicy().destinations(
+            for: target.url,
+            machineRoute: cloudURL,
+            remoteInitiated: request.isRemoteInitiated
+        )
+        guard let browserURL = destinations.browserURL else {
+            // Returning false lets a remote requester print the URL instead.
+            log("link.openURL refused remote-initiated non-public url=\(target.url)")
+            return false
+        }
         guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
-            return openExternally(destinationURL, reason: "cmux browser disabled")
+            return openExternally(destinations.externalURL, reason: "cmux browser disabled")
         }
         switch target {
         case .external:
-            return openExternally(destinationURL, reason: "external target")
+            return openExternally(destinations.externalURL, reason: "external target")
         case .embeddedBrowser:
-            return openEmbeddedBrowserURL(destinationURL, request: request, container: container)
+            return openEmbeddedBrowserURL(
+                browserURL,
+                externalURL: destinations.externalURL,
+                request: request,
+                container: container
+            )
         }
     }
 
@@ -240,12 +255,18 @@ struct TerminalLinkOpenCoordinator {
         return true
     }
 
+    /// Opens `url` in the cmux browser, falling back to `externalURL` in the
+    /// system browser. A nil `externalURL` means the link must stay in cmux.
     private func openEmbeddedBrowserURL(
         _ url: URL,
+        externalURL: URL?,
         request: TerminalLinkOpenRequest,
         container: (any TerminalLinkOpenContainer)?
     ) -> Bool {
-        switch externalNavigationHandler.openConfiguredExternallyResult(url) {
+        let externalPatternResult: BrowserExternalNavigationHandler.OpenResult = externalURL == nil
+            ? .notConfigured
+            : externalNavigationHandler.openConfiguredExternallyResult(url)
+        switch externalPatternResult {
         case .opened:
             log(
                 "link.openURL opening externally reason=external pattern " +
@@ -262,15 +283,15 @@ struct TerminalLinkOpenCoordinator {
             break
         }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
-            return openExternally(url, reason: "invalid host")
+            return openExternally(externalURL, reason: "invalid host")
         }
         guard BrowserLinkOpenSettings.hostMatchesWhitelist(host, defaults: defaults) else {
-            return openExternally(url, reason: "host whitelist miss")
+            return openExternally(externalURL, reason: "host whitelist miss")
         }
         guard BrowserAvailabilitySettings.isEnabled(defaults: defaults),
               let sourcePanelId = request.sourcePanelId,
               let container else {
-            return openExternally(url, reason: "source container unavailable")
+            return openExternally(externalURL, reason: "source container unavailable")
         }
 
         log(
@@ -287,7 +308,7 @@ struct TerminalLinkOpenCoordinator {
                 && currentContainer?.openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId) == true
             if openedInBrowser { return }
             self.log("link.openURL embedded open failed, opening externally host=\(host) surfaceId=\(sourcePanelId) url=\(url)")
-            if !self.externalOpen(url) { NSSound.beep() }
+            if !self.openExternally(externalURL, reason: "embedded open failed") { NSSound.beep() }
         }
         return true
     }
@@ -305,7 +326,11 @@ struct TerminalLinkOpenCoordinator {
         return container?.terminalLinkWorkingDirectory(for: sourcePanelId)
     }
 
-    private func openExternally(_ url: URL, reason: String) -> Bool {
+    private func openExternally(_ url: URL?, reason: String) -> Bool {
+        guard let url else {
+            log("link.openURL refused external open of remote-initiated url reason=\(reason)")
+            return false
+        }
         if url.isFileURL {
             log("link.openURL opening file via preferred-editor seam reason=\(reason) url=\(url)")
             fileOpen.open(url)
