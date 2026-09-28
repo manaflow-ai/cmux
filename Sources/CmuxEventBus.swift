@@ -261,7 +261,7 @@ final class CmuxEventBus: @unchecked Sendable {
         self.maxPendingEventsPerSubscription = max(1, maxPendingEventsPerSubscription)
         self.restorePending = eventLogURL != nil
         self.restoreTask = nil
-        self.sequenceStore = eventLogURL.map(CmuxEventSequenceStore.init(eventLogURL:))
+        self.sequenceStore = eventLogURL.map { CmuxEventSequenceStore(eventLogURL: $0) }
         self.publicationQueue = DispatchQueue(
             label: "com.cmuxterm.event-publish.\(UUID().uuidString)",
             qos: .utility
