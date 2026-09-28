@@ -435,4 +435,24 @@ struct SSHConnectionSharingOptionsTests {
             options: ["ControlMaster=auto", "ControlPath=~/.ssh/custom-%C"]
         ) == nil)
     }
+
+    @Test(
+        "Stale-socket preflight passes the destination as one host operand",
+        arguments: [
+            "alice@example.test\n",
+            "alice@example.test\r",
+            "alice@example.test\r\n",
+            "alice\n@example.test",
+        ]
+    )
+    func preflightPassesDestinationAsOneHostOperand(destination: String) throws {
+        let function = try #require(options.controlPathPreflightShellFunction(
+            sshArguments: ["ssh", "-p", "2222"],
+            destination: destination,
+            options: options.mergingDefaults(into: [])
+        ))
+
+        #expect(function.contains("ssh -p 2222 -G -- '\(destination)' 2>/dev/null"))
+        #expect(function.contains("-O check -- '\(destination)' >/dev/null"))
+    }
 }

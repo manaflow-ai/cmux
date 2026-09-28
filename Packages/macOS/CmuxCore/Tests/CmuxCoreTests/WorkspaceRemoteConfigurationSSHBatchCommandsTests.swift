@@ -248,4 +248,71 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
                 ) == nil
         )
     }
+
+    @Test("Every batch builder ends option parsing before the destination")
+    func batchBuildersEndOptionParsingBeforeTheDestination() throws {
+        let configuration = configuration()
+        let builders: [[String]] = [
+            configuration.daemonTransportArguments(remotePath: "/remote/cmuxd-remote"),
+            configuration.daemonSocketForwardArguments(
+                localPort: 64123,
+                remoteSocketPath: "/run/cmuxd-remote.sock"
+            ),
+            try #require(configuration.reverseRelayControlMasterArguments(
+                controlCommand: "forward",
+                forwardSpec: "127.0.0.1:64007:127.0.0.1:54321",
+                effectiveSSHOptions: configuration.sshOptions
+            )),
+            configuration.batchSSHCommandArguments(
+                command: "printf relay-metadata",
+                effectiveSSHOptions: configuration.sshOptions
+            ),
+        ]
+        for arguments in builders {
+            let destinationIndex = try #require(arguments.lastIndex(of: "cmux-macmini"))
+            #expect(destinationIndex > 0 && arguments[destinationIndex - 1] == "--")
+        }
+    }
+
+    /// A batch command never needs the user's agent, X11 display or port
+    /// forwards. Each override precedes the configured options because
+    /// OpenSSH keeps the first value it obtains.
+    @Test("batch command turns off forwarding ahead of configured options")
+    func batchCommandTurnsOffForwarding() throws {
+        let configured = ["ForwardAgent=yes", "ForwardX11=yes", "ClearAllForwardings=no"]
+        let arguments = configuration(sshOptions: configured).batchSSHCommandArguments(
+            command: "printf relay-metadata",
+            effectiveSSHOptions: configured
+        )
+        for (override, option) in zip(
+            ["ForwardAgent=no", "ForwardX11=no", "ClearAllForwardings=yes"],
+            configured
+        ) {
+            let overrideIndex = try #require(pairIndex(arguments, "-o", override))
+            let configuredIndex = try #require(pairIndex(arguments, "-o", option))
+            #expect(overrideIndex < configuredIndex)
+        }
+    }
+
+    /// The socket forward needs its own `-L`, so it cannot clear forwardings,
+    /// but it never needs the user's agent or X11 display.
+    @Test("socket forward turns off agent and X11 forwarding but keeps its -L")
+    func socketForwardTurnsOffAgentAndX11Forwarding() throws {
+        let configured = ["ForwardAgent=yes", "ForwardX11=yes"]
+        let arguments = configuration(sshOptions: configured).daemonSocketForwardArguments(
+            localPort: 64123,
+            remoteSocketPath: "/run/cmuxd-remote.sock"
+        )
+        for (override, option) in zip(["ForwardAgent=no", "ForwardX11=no"], configured) {
+            let overrideIndex = try #require(pairIndex(arguments, "-o", override))
+            let configuredIndex = try #require(pairIndex(arguments, "-o", option))
+            #expect(overrideIndex < configuredIndex)
+        }
+        #expect(pairIndex(arguments, "-o", "ClearAllForwardings=yes") == nil)
+        #expect(pairIndex(arguments, "-L", "127.0.0.1:64123:/run/cmuxd-remote.sock") != nil)
+    }
+
+    private func pairIndex(_ arguments: [String], _ first: String, _ second: String) -> Int? {
+        arguments.indices.dropLast().first { arguments[$0] == first && arguments[$0 + 1] == second }
+    }
 }
