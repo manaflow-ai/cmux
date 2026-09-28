@@ -38,6 +38,12 @@ extension GhosttyNSView {
                 }
                 let target = await terminalSurface
                     .resolvedImageTransferTargetAsync(mode: mode)
+                guard self.terminalSurface === terminalSurface else {
+                    preparedContent.cleanupTransferredTemporaryFiles(
+                        using: GhosttyApp.terminalPasteboard
+                    )
+                    return
+                }
                 _ = self.executePreparedImageTransfer(
                     preparedContent,
                     mode: mode,
