@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "Test class or class/method, or a comma-separated list sharing one target; optionally target-qualified as cmuxUITests/Class or cmuxTests/Class"
+        description: "Test class or class/method, or a comma-separated list sharing one target; optionally target-qualified as cmuxUITests/Class or cmuxTests/Class. cmuxUITests/FuzzRegressions replays the UI fuzzer's checked-in repros against the app"
         required: true
       dispatch_id:
         description: "Optional caller-generated id echoed into the run name so dispatchers can resolve their exact run"
@@ -232,6 +232,7 @@ jobs:
       selector: ${{ steps.filter.outputs.selector }}
       selectors: ${{ steps.filter.outputs.selectors }}
       count: ${{ steps.filter.outputs.count }}
+      fuzz_regressions: ${{ steps.filter.outputs.fuzz_regressions }}
       record_video: ${{ steps.filter.outputs.record_video }}
       build_timeout: ${{ steps.filter.outputs.build_timeout }}
     steps:
@@ -277,6 +278,7 @@ jobs:
           filters=""
           test_target=""
           count=0
+          fuzz_regressions=false
           rest="$raw_filter"
           while [ -n "$rest" ]; do
             case "$rest" in
@@ -328,6 +330,19 @@ jobs:
               exit 1
             fi
 
+            # Not a test class: the UI fuzzer's checked-in repros, which the
+            # E2E action replays against the same app after any selected
+            # classes (ui_tests_dispatch.FUZZ_REGRESSIONS_SELECTOR). It needs
+            # the UI product and the console session, so it is a UI entry.
+            if [ "$entry_target/$entry_filter" = "cmuxUITests/FuzzRegressions" ]; then
+              if [ "$fuzz_regressions" = true ]; then
+                echo "::error::test_filter repeats 'cmuxUITests/FuzzRegressions'"
+                exit 1
+              fi
+              fuzz_regressions=true
+              continue
+            fi
+
             case ",$selectors," in
               *",$entry_target/$entry_filter,"*)
                 echo "::error::test_filter repeats '$entry_target/$entry_filter'"
@@ -366,6 +381,7 @@ jobs:
             echo "selector=$test_selector"
             echo "selectors=$selectors"
             echo "count=$count"
+            echo "fuzz_regressions=$fuzz_regressions"
             echo "record_video=$record_video_effective"
             echo "build_timeout=$((JOB_TIMEOUT * 2))"
           } >> "$GITHUB_OUTPUT"
@@ -373,6 +389,7 @@ jobs:
           echo "Requested filter: $raw_filter"
           echo "Resolved target: $test_target"
           echo "Resolved selectors ($count): $selectors"
+          echo "Fuzz regressions: $fuzz_regressions"
 
   sibling:
     # Dispatches of one commit with other selectors run in other concurrency
@@ -1141,6 +1158,7 @@ jobs:
           selector: ${{ needs.filter.outputs.selector }}
           selectors: ${{ needs.filter.outputs.selectors }}
           count: ${{ needs.filter.outputs.count }}
+          fuzz-regressions: ${{ needs.filter.outputs.fuzz_regressions }}
           record-video: ${{ needs.filter.outputs.record_video }}
           test-filter: ${{ inputs.test_filter }}
           test-timeout: ${{ inputs.test_timeout || '120' }}
@@ -1358,6 +1376,7 @@ jobs:
           selector: ${{ needs.filter.outputs.selector }}
           selectors: ${{ needs.filter.outputs.selectors }}
           count: ${{ needs.filter.outputs.count }}
+          fuzz-regressions: ${{ needs.filter.outputs.fuzz_regressions }}
           record-video: ${{ needs.filter.outputs.record_video }}
           test-filter: ${{ inputs.test_filter }}
           test-timeout: ${{ inputs.test_timeout || '120' }}

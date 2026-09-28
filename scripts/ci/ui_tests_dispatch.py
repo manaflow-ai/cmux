@@ -52,6 +52,26 @@ SHA = re.compile(r"[0-9a-f]{40}")
 MAX_SELECTORS = 8
 MAX_REQUEST_BYTES = 16_384
 UI_TEST_PREFIX = "cmuxUITests/"
+# Not a test class: test-e2e.yml reads this entry as "replay the UI fuzzer's
+# checked-in repros (dogfood/fuzz/regressions) against the app", after the
+# selected classes or alone.
+FUZZ_REGRESSIONS_SELECTOR = "cmuxUITests/FuzzRegressions"
+# What those repros exercise: the sidebar, splits and panes, and the main
+# window's size, plus the fuzzer and its repros. choose_ci_suite.py adds the
+# selector for a diff that touches one; a path ending in "/" is a directory.
+FUZZ_REGRESSION_PATHS = (
+    "dogfood/fuzz/",
+    "scripts/fuzz",
+    "vendor/bonsplit",
+    "Packages/macOS/CmuxPanes/",
+    "Packages/macOS/CmuxSidebar/",
+    "Sources/Sidebar/",
+    "Sources/App/CmuxMainWindow.swift",
+    "Sources/App/MainWindowFrameReconciler.swift",
+    "Sources/AppDelegate+WindowFramePolicy.swift",
+)
+# Workspace's split code: Workspace+EqualizeSplitsSupport.swift and the like.
+FUZZ_REGRESSION_PATTERN = re.compile(r"Sources/Workspace\+[^/]*Split[^/]*\.swift")
 # The files API lists at most 3000 files of a pull request.
 MAX_FILE_PAGES = 30
 POLL_SECONDS = 60
@@ -184,11 +204,19 @@ def serves(run: dict, repository: str) -> str | None:
     return None
 
 
-def touches_ui_tests(gh: GitHub, pull_numbers: list[int]) -> bool | None:
-    """Whether any of these pull requests changes cmuxUITests/; None when unknown.
+def fuzz_regression_path(path: str) -> bool:
+    """Whether a change to `path` asks for the UI fuzzer's regression replays."""
+    return FUZZ_REGRESSION_PATTERN.fullmatch(path) is not None or any(
+        path.startswith(entry) if entry.endswith("/") else path == entry or path.startswith(entry + "/")
+        for entry in FUZZ_REGRESSION_PATHS)
 
-    Only a cmuxUITests/ change yields selectors (choose_ci_suite.changed_ui_selectors),
-    so this spares every other pull request the wait for a request.
+
+def touches_ui_tests(gh: GitHub, pull_numbers: list[int]) -> bool | None:
+    """Whether any of these pull requests changes cmuxUITests/ or a fuzz regression path; None when unknown.
+
+    Only those changes yield selectors (choose_ci_suite.changed_ui_selectors and
+    FUZZ_REGRESSIONS_SELECTOR), so this spares every other pull request the wait
+    for a request.
     """
     if not pull_numbers:
         return None
@@ -197,7 +225,7 @@ def touches_ui_tests(gh: GitHub, pull_numbers: list[int]) -> bool | None:
             files = gh.get(f"repos/{{repo}}/pulls/{number}/files?per_page=100&page={page}")
             for entry in files:
                 for name in (entry.get("filename"), entry.get("previous_filename")):
-                    if isinstance(name, str) and name.startswith(UI_TEST_PREFIX):
+                    if isinstance(name, str) and (name.startswith(UI_TEST_PREFIX) or fuzz_regression_path(name)):
                         return True
             if len(files) < 100:
                 break
@@ -251,7 +279,8 @@ def await_request(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
     numbers = [int(pr["number"]) for pr in run.get("pull_requests") or [] if isinstance(pr.get("number"), int)]
     touched = retrying(lambda: touches_ui_tests(gh, numbers), sleep=sleep)
     if touched is False:
-        print(f"Nothing to run: pull request {numbers} changes nothing under {UI_TEST_PREFIX}.", flush=True)
+        print(f"Nothing to run: pull request {numbers} changes nothing under {UI_TEST_PREFIX} "
+              "and no path the fuzz regressions cover.", flush=True)
         return None
     name = request_artifact(attempt)
     print(f"Waiting for {name} from {run.get('html_url', run_id)} (head {head_sha}).", flush=True)
