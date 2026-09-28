@@ -10,8 +10,8 @@ import Testing
 
 @Suite(.serialized)
 struct TerminalSSHSessionDetectorProcessSnapshotTests {
-    @Test("A TTY's foreground process is read from the kernel with its group and name")
-    func processSnapshotsFindTheProcessOwningATTY() throws {
+    @Test("A TTY's foreground process group is read from the kernel with its members' names")
+    func processSnapshotsFindTheForegroundProcessGroup() throws {
         var controller: Int32 = -1
         var follower: Int32 = -1
         var nameBuffer = [CChar](repeating: 0, count: 128)
@@ -47,7 +47,7 @@ struct TerminalSSHSessionDetectorProcessSnapshotTests {
         let deadline = Date().addingTimeInterval(10)
         // posix_spawn returns before the child has exec'd and opened its TTY.
         while Date() < deadline {
-            snapshot = TerminalSSHSessionDetector.processSnapshots(forTTY: ttyName)
+            snapshot = TerminalSSHSessionDetector.processSnapshots(inProcessGroup: pid, ttyName: ttyName)
                 .first { $0.pid == pid && $0.executableName == "sleep" }
             if snapshot != nil { break }
             usleep(20_000)
@@ -57,10 +57,13 @@ struct TerminalSSHSessionDetectorProcessSnapshotTests {
         #expect(found.tty == ttyName)
         #expect(found.pgid == pid)
         #expect(found.tpgid == pid)
+        // A TTY that does not exist matches no member of the group.
+        #expect(TerminalSSHSessionDetector.processSnapshots(inProcessGroup: pid, ttyName: "ttys-cmux-missing").isEmpty)
+        #expect(TerminalSSHSessionDetector.detect(foregroundProcessGroup: pid, ttyName: ttyName) == nil)
     }
 
-    @Test("A TTY that does not exist has no processes")
-    func processSnapshotsForMissingTTYAreEmpty() {
-        #expect(TerminalSSHSessionDetector.processSnapshots(forTTY: "ttys-cmux-missing").isEmpty)
+    @Test("An empty process group has no processes")
+    func processSnapshotsForMissingProcessGroupAreEmpty() {
+        #expect(TerminalSSHSessionDetector.processSnapshots(inProcessGroup: 0, ttyName: "ttys000").isEmpty)
     }
 }
