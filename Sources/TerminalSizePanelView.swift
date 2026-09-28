@@ -2,11 +2,13 @@ import CmuxTerminalSharing
 import CmuxTerminalSizing
 import SwiftUI
 
-/// The shared-terminal size panel: current size and why, the mode control,
-/// a size map, one row per participant (counts switch, priority order,
-/// disconnect) and "Disconnect Other Clients" with an inline confirmation.
-/// Every control calls ``TerminalSharingStore``, the shared action path.
+/// The shared-terminal size panel, anchored under the terminal's tab: the
+/// grid and its owner, the sizing mode, one row per participant and
+/// "Disconnect Others" with an inline confirmation. Every control calls
+/// ``TerminalSharingStore``, the shared action path.
 struct TerminalSizePanelView: View {
+    static let width: CGFloat = 280
+
     let store: TerminalSharingStore
     let surfaceID: UUID
     @State var confirmingDisconnectOthers: Bool
@@ -22,51 +24,58 @@ struct TerminalSizePanelView: View {
     var body: some View {
         Group {
             if let snapshot = store.snapshot(for: surfaceID) {
-                content(snapshot)
+                content(TerminalSharingDisplay(snapshot: snapshot))
             } else {
                 Text(String(localized: "terminalSharing.panel.unavailable", defaultValue: "This terminal is not shared."))
                     .foregroundStyle(.secondary)
-                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .frame(width: 380)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(width: Self.width, alignment: .leading)
+        // Opaque, so pane content never shows through the popover.
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    @ViewBuilder
-    private func content(_ snapshot: TerminalSharingSnapshot) -> some View {
-        let display = TerminalSharingDisplay(snapshot: snapshot)
-        VStack(alignment: .leading, spacing: 0) {
-            header(snapshot, display: display)
+    private func content(_ display: TerminalSharingDisplay) -> some View {
+        let presentation = display.presentation
+        let snapshot = display.snapshot
+        return VStack(alignment: .leading, spacing: 8) {
+            header(presentation)
+            modeRow(snapshot.state.policy.mode)
+            if snapshot.state.policy.mode == .fixed {
+                fixedSizeEditor(snapshot.state.policy.fixed ?? snapshot.state.size)
+            }
             Divider()
-            modeSection(snapshot)
-            Divider()
-            participantList(snapshot, display: display)
-            Divider()
-            footer(snapshot)
+            participantList(presentation)
+            if presentation.canDisconnectOthers {
+                Divider()
+                footer
+            }
         }
     }
 
-    private func header(_ snapshot: TerminalSharingSnapshot, display: TerminalSharingDisplay) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(String(localized: "terminalSharing.panel.title", defaultValue: "Terminal Size"))
-                .font(.caption)
+    private func header(_ presentation: TerminalSharingPresentation) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(verbatim: TerminalSharingPresentation.gridLabel(presentation.state.size))
+                .font(.headline.monospacedDigit())
+            Spacer(minLength: 8)
+            Text(presentation.ownerLabel)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text(TerminalSharingDisplay.gridLabel(snapshot.state.size))
-                .font(.system(size: 22, design: .monospaced))
-                .monospacedDigit()
-            Text(display.reasonSentence)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 
-    private func modeSection(_ snapshot: TerminalSharingSnapshot) -> some View {
-        let mode = snapshot.state.policy.mode
-        return VStack(alignment: .leading, spacing: 10) {
+    private func modeRow(_ mode: TerminalSizingMode) -> some View {
+        HStack(spacing: 8) {
+            Text(String(localized: "terminalSharing.panel.sizeLabel", defaultValue: "Size"))
+            Spacer(minLength: 8)
             Picker(
-                String(localized: "terminalSharing.panel.mode", defaultValue: "Sizing Mode"),
+                String(localized: "terminalSharing.panel.sizeLabel", defaultValue: "Size"),
                 selection: Binding(
                     get: { mode },
                     set: { _ = store.setMode($0, surfaceID: surfaceID) }
@@ -76,95 +85,88 @@ struct TerminalSizePanelView: View {
                     Text(TerminalSharingDisplay.modeTitle(mode)).tag(mode)
                 }
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.menu)
             .labelsHidden()
-            Text(TerminalSharingDisplay.modeHelp(mode))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if mode == .fixed {
-                fixedSizeEditor(snapshot)
-            }
-            TerminalSizeMapView(snapshot: snapshot)
-                .frame(height: 110)
+            .fixedSize()
         }
-        .padding(14)
     }
 
-    private func fixedSizeEditor(_ snapshot: TerminalSharingSnapshot) -> some View {
-        let fixed = snapshot.state.policy.fixed ?? snapshot.state.size
-        return HStack(spacing: 8) {
+    private func fixedSizeEditor(_ fixed: TerminalGridSize) -> some View {
+        HStack(spacing: 6) {
+            Spacer(minLength: 0)
             TextField(
                 String(localized: "terminalSharing.panel.fixedColumns", defaultValue: "Columns"),
                 text: $fixedColumns,
-                prompt: Text("\(fixed.cols)")
+                prompt: Text(verbatim: "\(fixed.cols)")
             )
-            .frame(width: 70)
-            Text(verbatim: "×")
+            .frame(width: 52)
+            Text(verbatim: "×").foregroundStyle(.secondary)
             TextField(
                 String(localized: "terminalSharing.panel.fixedRows", defaultValue: "Rows"),
                 text: $fixedRows,
-                prompt: Text("\(fixed.rows)")
+                prompt: Text(verbatim: "\(fixed.rows)")
             )
-            .frame(width: 70)
-            Button(String(localized: "terminalSharing.panel.fixedApply", defaultValue: "Apply")) {
-                let cols = Int(fixedColumns) ?? fixed.cols
-                let rows = Int(fixedRows) ?? fixed.rows
-                _ = store.setFixedSize(
-                    TerminalGridSize(cols: min(max(cols, 20), 500), rows: min(max(rows, 5), 200)),
-                    surfaceID: surfaceID
-                )
-                fixedColumns = ""
-                fixedRows = ""
-            }
+            .frame(width: 44)
         }
         .textFieldStyle(.roundedBorder)
+        .labelsHidden()
+        .multilineTextAlignment(.trailing)
+        .monospacedDigit()
+        .onSubmit { applyFixedSize(fixed) }
     }
 
-    private func orderedRows(_ snapshot: TerminalSharingSnapshot) -> [TerminalSizingParticipantState] {
-        let rows = snapshot.state.participants
-        guard snapshot.state.policy.mode == .priority else { return rows }
-        let order = snapshot.state.policy.priority
-        return rows.sorted { lhs, rhs in
-            let l = order.firstIndex(of: lhs.priorityKey) ?? Int.max
-            let r = order.firstIndex(of: rhs.priorityKey) ?? Int.max
-            return l < r
-        }
+    private func applyFixedSize(_ fixed: TerminalGridSize) {
+        let cols = Int(fixedColumns.trimmingCharacters(in: .whitespaces)) ?? fixed.cols
+        let rows = Int(fixedRows.trimmingCharacters(in: .whitespaces)) ?? fixed.rows
+        _ = store.setFixedSize(
+            TerminalGridSize(cols: min(max(cols, 20), 500), rows: min(max(rows, 5), 200)),
+            surfaceID: surfaceID
+        )
+        fixedColumns = ""
+        fixedRows = ""
     }
 
-    private func participantList(_ snapshot: TerminalSharingSnapshot, display: TerminalSharingDisplay) -> some View {
-        let rows = orderedRows(snapshot)
-        let isPriority = snapshot.state.policy.mode == .priority
+    private func participantList(_ presentation: TerminalSharingPresentation) -> some View {
+        let rows = presentation.panelParticipants
+        let isPriority = presentation.state.policy.mode == .priority
+        let snapshot = presentation.snapshot
         return VStack(spacing: 2) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                TerminalSizeParticipantRow(
+                let isSelf = row.id == snapshot.selfParticipantID
+                let rowView = TerminalSizeParticipantRow(
                     row: row,
-                    label: display.label(for: row.participant),
-                    isSelf: row.id == snapshot.selfParticipantID,
+                    initials: presentation.initials(for: row.participant),
+                    label: presentation.participantLabel(for: row.participant),
                     setsSize: snapshot.state.owners.contains(row.id),
-                    priorityIndex: isPriority ? index + 1 : nil,
-                    onCountsChange: { counts in
-                        _ = store.setCountsOverride(counts ? nil : false, participantID: row.id, surfaceID: surfaceID)
-                        if counts, store.snapshot(for: surfaceID)?.state.participant(row.id)?.counts == false {
-                            _ = store.setCountsOverride(true, participantID: row.id, surfaceID: surfaceID)
-                        }
-                    },
-                    onMoveUp: isPriority && index > 0 ? { movePriority(rows, from: index, to: index - 1) } : nil,
-                    onDisconnect: row.id == snapshot.selfParticipantID ? nil : {
+                    showsDragHandle: isPriority,
+                    onCountsChange: { setCounts($0, participantID: row.id) },
+                    onDisconnect: isSelf ? nil : {
                         _ = store.disconnect(participantID: row.id, surfaceID: surfaceID)
                     }
                 )
-                .draggable(row.priorityKey)
-                .dropDestination(for: String.self) { keys, _ in
-                    guard isPriority, let key = keys.first,
-                          let from = rows.firstIndex(where: { $0.priorityKey == key }) else { return false }
-                    movePriority(rows, from: from, to: index)
-                    return true
+                if isPriority {
+                    rowView
+                        .draggable(row.priorityKey)
+                        .dropDestination(for: String.self) { keys, _ in
+                            guard let key = keys.first,
+                                  let from = rows.firstIndex(where: { $0.priorityKey == key }) else { return false }
+                            movePriority(rows, from: from, to: index)
+                            return true
+                        }
+                } else {
+                    rowView
                 }
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
+    }
+
+    /// `true` clears any viewer override (automatic rule); if the automatic
+    /// rule still excludes the participant, forces it to count.
+    private func setCounts(_ counts: Bool, participantID: String) {
+        _ = store.setCountsOverride(counts ? nil : false, participantID: participantID, surfaceID: surfaceID)
+        if counts, store.snapshot(for: surfaceID)?.state.participant(participantID)?.counts == false {
+            _ = store.setCountsOverride(true, participantID: participantID, surfaceID: surfaceID)
+        }
     }
 
     private func movePriority(_ rows: [TerminalSizingParticipantState], from: Int, to: Int) {
@@ -176,32 +178,32 @@ struct TerminalSizePanelView: View {
         _ = store.setPriority(keys.filter { seen.insert($0).inserted }, surfaceID: surfaceID)
     }
 
-    private func footer(_ snapshot: TerminalSharingSnapshot) -> some View {
-        HStack(spacing: 8) {
-            if confirmingDisconnectOthers {
+    @ViewBuilder
+    private var footer: some View {
+        if confirmingDisconnectOthers {
+            HStack(spacing: 8) {
                 Text(String(localized: "terminalSharing.panel.disconnectOthers.confirm", defaultValue: "Disconnect all other clients?"))
                     .font(.callout)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                Button(String(localized: "terminalSharing.panel.cancel", defaultValue: "Cancel")) {
+                    confirmingDisconnectOthers = false
+                }
+                .keyboardShortcut(.cancelAction)
                 Button(String(localized: "terminalSharing.panel.disconnectOthers.confirmButton", defaultValue: "Disconnect"), role: .destructive) {
                     _ = store.disconnectOthers(surfaceID: surfaceID)
                     confirmingDisconnectOthers = false
                 }
-                Button(String(localized: "terminalSharing.panel.cancel", defaultValue: "Cancel")) {
-                    confirmingDisconnectOthers = false
-                }
-            } else {
-                Button(String(localized: "terminalSharing.panel.disconnectOthers", defaultValue: "Disconnect Other Clients…")) {
-                    confirmingDisconnectOthers = true
-                }
-                .buttonStyle(.link)
-                .disabled(snapshot.otherParticipantIDs.isEmpty)
-                Spacer()
-                Button(String(localized: "terminalSharing.panel.sizeToMe", defaultValue: "Size to My Window")) {
-                    _ = store.sizeToMe(surfaceID: surfaceID)
-                }
                 .keyboardShortcut(.defaultAction)
-                .disabled(snapshot.selfParticipant == nil)
             }
+            .controlSize(.small)
+        } else {
+            Button(String(localized: "terminalSharing.panel.disconnectOthersButton", defaultValue: "Disconnect Others")) {
+                confirmingDisconnectOthers = true
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.red)
         }
-        .padding(14)
     }
 }

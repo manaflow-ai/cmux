@@ -2,83 +2,88 @@ import CmuxTerminalSharing
 import CmuxTerminalSizing
 import SwiftUI
 
-/// One participant row of the size panel.
+/// One participant row of the size panel: avatar, name, "sets size" for the
+/// owner, and on hover a "…" menu with Counts toward size and Disconnect.
+/// In priority mode a leading drag handle shows the row can be reordered.
 struct TerminalSizeParticipantRow: View {
     let row: TerminalSizingParticipantState
+    let initials: String
     let label: String
-    let isSelf: Bool
     let setsSize: Bool
-    let priorityIndex: Int?
+    let showsDragHandle: Bool
     let onCountsChange: (Bool) -> Void
-    let onMoveUp: (() -> Void)?
     let onDisconnect: (() -> Void)?
+
+    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 8) {
-            if let priorityIndex {
-                Text(verbatim: "\(priorityIndex)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 14)
+            if showsDragHandle {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
             }
-            Circle()
-                .fill(TerminalSharingDisplay.color(for: row.participant))
-                .frame(width: 22, height: 22)
-                .overlay(
-                    Text(TerminalSharingDisplay.initials(for: row.participant))
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.black.opacity(0.8))
-                )
-            VStack(alignment: .leading, spacing: 1) {
-                Text(label).lineLimit(1)
-                Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
+            avatar
+            Text(label)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .foregroundStyle(row.counts ? HierarchicalShapeStyle.primary : HierarchicalShapeStyle.secondary)
             Spacer(minLength: 4)
             if setsSize {
-                badge(String(localized: "terminalSharing.panel.badge.setsSize", defaultValue: "Sets size"))
-            } else if !row.counts {
-                badge(String(localized: "terminalSharing.panel.badge.viewer", defaultValue: "Viewer"))
+                Text(String(localized: "terminalSharing.panel.setsSize", defaultValue: "sets size"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
             }
-            if let onMoveUp {
-                Button(action: onMoveUp) { Image(systemName: "arrow.up") }
-                    .buttonStyle(.borderless)
-                    .help(String(localized: "terminalSharing.panel.moveUp", defaultValue: "Move Up in Priority"))
-            }
-            if let onDisconnect {
-                Button(action: onDisconnect) { Image(systemName: "eject") }
-                    .buttonStyle(.borderless)
-                    .help(String(localized: "terminalSharing.panel.disconnect", defaultValue: "Disconnect"))
-                    .accessibilityLabel(String(
-                        format: String(localized: "terminalSharing.panel.disconnect.accessibility", defaultValue: "Disconnect %@"),
-                        label
-                    ))
-            }
-            Toggle(isOn: Binding(get: { row.counts }, set: onCountsChange)) { EmptyView() }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .labelsHidden()
-                .help(String(localized: "terminalSharing.panel.counts", defaultValue: "Counts toward size"))
-                .accessibilityLabel(String(
-                    format: String(localized: "terminalSharing.panel.counts.accessibility", defaultValue: "%@ counts toward size"),
-                    label
-                ))
+            optionsMenu
+                .opacity(isHovered ? 1 : 0)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 5)
+        .frame(minHeight: 24)
         .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
     }
 
-    private var detail: String {
-        let device = TerminalSharingDisplay.deviceKindLabel(row.participant.deviceKind)
-        guard let viewport = row.participant.viewport else { return device }
-        return "\(device) · \(TerminalSharingDisplay.compactGridLabel(viewport))"
+    private var avatar: some View {
+        Circle()
+            .fill(TerminalSharingDisplay.color(for: row.participant))
+            .frame(width: 18, height: 18)
+            .overlay(
+                Text(verbatim: initials)
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.black.opacity(0.8))
+            )
+            .opacity(row.counts ? 1 : 0.55)
+            .accessibilityHidden(true)
     }
 
-    private func badge(_ text: String) -> some View {
-        Text(text)
-            .font(.caption2)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 1)
-            .overlay(Capsule().strokeBorder(TerminalSharingDisplay.color(for: row.participant)))
+    private var optionsMenu: some View {
+        Menu {
+            Toggle(
+                String(localized: "terminalSharing.panel.counts", defaultValue: "Counts toward size"),
+                isOn: Binding(get: { row.counts }, set: onCountsChange)
+            )
+            if let onDisconnect {
+                Divider()
+                Button(String(localized: "terminalSharing.panel.disconnect", defaultValue: "Disconnect"), role: .destructive) {
+                    onDisconnect()
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel(String(
+            format: String(localized: "terminalSharing.panel.rowOptions", defaultValue: "Options for %@"),
+            label
+        ))
     }
 }

@@ -3633,7 +3633,7 @@
 		A1329C040000000000000101 /* TerminalSharingDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1329C040000000000000001 /* TerminalSharingDisplay.swift */; };
 		85510003A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85510004A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift */; };
 		A1329C050000000000000101 /* TerminalSizeBoundsOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1329C050000000000000001 /* TerminalSizeBoundsOverlayView.swift */; };
-		A1329C090000000000000101 /* TerminalSizeMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1329C090000000000000001 /* TerminalSizeMapView.swift */; };
+		A1329C090000000000000101 /* TerminalSizePanelPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1329C090000000000000001 /* TerminalSizePanelPresenter.swift */; };
 		A1329C070000000000000101 /* TerminalSizePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1329C070000000000000001 /* TerminalSizePanelView.swift */; };
 		A1329C080000000000000101 /* TerminalSizeParticipantRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1329C080000000000000001 /* TerminalSizeParticipantRow.swift */; };
 		A5001543 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001545 /* TerminalSSHSessionDetector.swift */; };
@@ -7661,7 +7661,7 @@
 		A1329C040000000000000001 /* TerminalSharingDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSharingDisplay.swift; sourceTree = "<group>"; };
 		85510004A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalShellResolver+CurrentUser.swift"; sourceTree = "<group>"; };
 		A1329C050000000000000001 /* TerminalSizeBoundsOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSizeBoundsOverlayView.swift; sourceTree = "<group>"; };
-		A1329C090000000000000001 /* TerminalSizeMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSizeMapView.swift; sourceTree = "<group>"; };
+		A1329C090000000000000001 /* TerminalSizePanelPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSizePanelPresenter.swift; sourceTree = "<group>"; };
 		A1329C070000000000000001 /* TerminalSizePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSizePanelView.swift; sourceTree = "<group>"; };
 		A1329C080000000000000001 /* TerminalSizeParticipantRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSizeParticipantRow.swift; sourceTree = "<group>"; };
 		A5001545 /* TerminalSSHSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetector.swift; sourceTree = "<group>"; };
@@ -9587,7 +9587,7 @@
 				A1329C060000000000000001 /* TerminalSharingDetachedCard.swift */,
 				A1329C070000000000000001 /* TerminalSizePanelView.swift */,
 				A1329C080000000000000001 /* TerminalSizeParticipantRow.swift */,
-				A1329C090000000000000001 /* TerminalSizeMapView.swift */,
+				A1329C090000000000000001 /* TerminalSizePanelPresenter.swift */,
 				A13056000000000000000001 /* TerminalController+Capabilities.swift */,
 				EE30D5000000000000000003 /* WorkspaceRemoteRelayCommandRewriter.swift */,
 				EE30D6000000000000000001 /* WorkspaceRemoteSessionHostAdapter.swift */,
@@ -15219,7 +15219,7 @@
 				A1329C040000000000000101 /* TerminalSharingDisplay.swift in Sources */,
 				85510003A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift in Sources */,
 				A1329C050000000000000101 /* TerminalSizeBoundsOverlayView.swift in Sources */,
-				A1329C090000000000000101 /* TerminalSizeMapView.swift in Sources */,
+				A1329C090000000000000101 /* TerminalSizePanelPresenter.swift in Sources */,
 				A1329C070000000000000101 /* TerminalSizePanelView.swift in Sources */,
 				A1329C080000000000000101 /* TerminalSizeParticipantRow.swift in Sources */,
 				A5001543 /* TerminalSSHSessionDetector.swift in Sources */,
