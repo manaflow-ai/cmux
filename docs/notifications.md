@@ -100,8 +100,8 @@ Inside a machine:
 `cmux notify` in a terminal on another Mac under **My Devices** also reaches this Mac while
 the link to that Mac is up. This Mac reads the other Mac's notification feed and shows each
 unread notification on the pane that mirrors that terminal, or on the local workspace that
-shows the terminal's remote workspace. A terminal you have not opened here gets no local
-notification. Reading or dismissing the notification here marks it read on the other Mac.
+shows the terminal's remote workspace. A notification whose terminal and remote workspace are
+both not shown here gets no local notification. Reading or dismissing the notification here marks it read on the other Mac.
 
 The same untrusted-text clamps and admission budget as Cloud machines apply, and hooks see
 `CMUX_NOTIFICATION_ORIGIN=device-mac:<device>`. Notifications that the other Mac itself got

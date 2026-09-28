@@ -25,10 +25,10 @@ extension DeviceSurfaceProvider {
                     _ = try await self.link.request("notification.feed.mark_read", params: [
                         "notification_ids": batch.ids,
                     ])
-                } catch DeviceLinkError.hostRejected {
-                    // The host answered and will never accept this batch
-                    // (every id malformed or unknown). Retrying would block
-                    // every later read behind it.
+                } catch DeviceLinkError.hostRejected(code: .some("invalid_params"), message: _) {
+                    // No id in the batch was a valid UUID: the host will never
+                    // accept it, and retrying would block every later read.
+                    // Any other rejection (an expired admission) stays pending.
                 }
             },
             unreadChanged: { terminalIDs in
@@ -94,7 +94,9 @@ extension DeviceSurfaceProvider {
                 response = try await link.request("notification.feed.list")
             } catch {
                 // A dropped link reconnects and fetches again; a host that
-                // refused the list has nothing this Mac can show.
+                // refused the list has nothing this Mac can show, unless a
+                // change arrived meanwhile, which earns one more attempt.
+                if notificationFeedRefetch, link.isConnected, !Task.isCancelled { continue }
                 return
             }
             guard !Task.isCancelled, let notificationSync else { return }
