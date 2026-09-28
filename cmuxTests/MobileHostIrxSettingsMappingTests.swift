@@ -12,6 +12,26 @@ import Testing
 /// Pure-projection coverage for the irx-backed Settings Networking snapshot
 /// (`MobileHostIrxRuntime+SettingsControl`).
 struct MobileHostIrxSettingsMappingTests {
+    @Test func forgetRecoveryRestartsOnceAndWaitsForRestoredEnrollment() {
+        let identity = V2Identity(appNamespace: "cmux", buildTag: "test", deviceID: "mac",
+            environment: "test", projectID: "project", teamID: "team", userID: "owner")
+        let active = V2CachedState(identity: identity)
+        var forgotten = active
+        forgotten.authorityRevoked = true
+        forgotten.authorityRevocationRecoverable = true
+        #expect(MobileHostIrxRuntime.revocationAction(previous: active, current: forgotten, status: .ready) == .restart)
+        // A replacement restores this state before its signed enrollment. It
+        // must survive every connecting/backoff publication to finish recovery.
+        for status in [V2ControlSnapshot.Status.connecting, .backingOff] {
+            #expect(MobileHostIrxRuntime.revocationAction(previous: forgotten, current: forgotten, status: status) == .awaitRecovery)
+        }
+        #expect(MobileHostIrxRuntime.revocationAction(previous: forgotten, current: forgotten, status: .stopped) == .stop)
+        #expect(MobileHostIrxRuntime.revocationAction(previous: forgotten, current: active, status: .ready) == .none)
+        #expect(MobileHostIrxRuntime.revocationAction(previous: active, current: forgotten, status: .stopped) == .restart)
+        forgotten.authorityRevocationRecoverable = false
+        #expect(MobileHostIrxRuntime.revocationAction(previous: active, current: forgotten, status: .ready) == .stop)
+    }
+
     private let homeRelay = "https://use4.relay.cmux.dev./"
     private let fleet = [
         "https://use4.relay.cmux.dev/",
@@ -248,10 +268,10 @@ struct MobileHostV2ConfigurationTests {
             )
             #if DEBUG
             #expect(configuration.environment == "development")
-            #expect(configuration.baseURL.absoluteString == "https://cmux-iroh-v2-development.debussy.workers.dev")
+            #expect(configuration.baseURL.absoluteString == "https://cmux-v2-development.debussy.workers.dev")
             #else
             #expect(configuration.environment == "production")
-            #expect(configuration.baseURL.absoluteString == "https://cmux-iroh-v2.debussy.workers.dev")
+            #expect(configuration.baseURL.absoluteString == "https://cmux-v2.debussy.workers.dev")
             #endif
         }
     }
@@ -265,7 +285,7 @@ struct MobileHostV2ConfigurationTests {
                 bundle: bundle
             )
             #expect(configuration.environment == "production")
-            #expect(configuration.baseURL.absoluteString == "https://cmux-iroh-v2.debussy.workers.dev")
+            #expect(configuration.baseURL.absoluteString == "https://cmux-v2.debussy.workers.dev")
         }
     }
 

@@ -25,11 +25,17 @@ permissions:
   contents: read
   actions: read
 
+# r2-cache.sh reads and writes through this URL. Without it every restore is
+# a miss and every save prints "nothing saved", so the package and
+# compilation caches from #14180 never filled (09-24/25: 0 hits, 344 misses).
+env:
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+
 jobs:
   decide:
     name: Check for new main revision
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       # The batch step, when it runs, has the last word on scheduled polls.
       upload: ${{ steps.batch.outputs.upload || steps.decide.outputs.upload }}
@@ -193,8 +199,12 @@ jobs:
     # dispatch against a feature branch must not upload arbitrary code.
     needs: decide
     if: needs.decide.outputs.upload == 'true' && github.ref == 'refs/heads/main'
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
+    # Saves the iOS compilation cache. Every R2 cache writer declares this
+    # environment (#14147); the guard in test_ci_pull_request_caches_are_read_only.py
+    # enforces it.
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     outputs:
       build_number: ${{ steps.upload.outputs.final_build_number }}
     env:
@@ -329,11 +339,52 @@ jobs:
           IOS_APPSTORE_KEYCHAIN_NAME: ios-appstore.keychain
         run: ./.github/scripts/install-app-store-provisioning-profile.sh
 
+      # Upload archives used to start cold: fresh DerivedData, every Swift
+      # package re-cloned, every module rebuilt in Release. Restore the Swift
+      # packages test-ios.yml seeds on main and this lane's own compilation
+      # cache (newest by prefix; r2_cache_prune.py keeps a day of them).
+      # IOS_UPLOAD_COMPILATION_CACHE=0 turns the compilation cache off.
+      - name: Compute iOS compilation cache key
+        id: ios-compilation-cache-key
+        if: ${{ (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' }}
+        run: echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore iOS compilation cache
+        id: ios-compilation-cache-restore
+        if: ${{ (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/cmux-ios-upload/DerivedData/CompilationCache.noindex
+          key: xcode-compilation-ios-appstore-${{ runner.os }}-${{ runner.arch }}-${{ steps.ios-compilation-cache-key.outputs.toolchain }}-${{ github.sha }}
+          restore-keys: |
+            xcode-compilation-ios-appstore-${{ runner.os }}-${{ runner.arch }}-${{ steps.ios-compilation-cache-key.outputs.toolchain }}-
+
+      - name: Restore iOS SwiftPM cache
+        id: ios-spm-restore
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/cmux-ios-spm
+          key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            ios-spm-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Sanitize iOS SwiftPM cache
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cmux-ios-spm"
+          python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$RUNNER_TEMP/cmux-ios-spm"
+
       - name: Archive, export, and upload to App Store Connect
         id: upload
         env:
           INPUT_BUILD_NUMBER: ${{ github.event.inputs.build_number }}
           CMUX_IOS_UPLOAD_DIR: ${{ runner.temp }}/cmux-ios-upload
+          CMUX_IOS_SPM_CACHE_DIR: ${{ runner.temp }}/cmux-ios-spm
+          CMUX_IOS_COMPILATION_CACHE: ${{ (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' && '1' || '0' }}
           CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-build-number.txt
         run: |
           set -euo pipefail
@@ -351,6 +402,61 @@ jobs:
           echo "final_build_number=$FINAL_BN" >> "$GITHUB_OUTPUT"
           echo "Shipped CFBundleVersion: $FINAL_BN"
 
+
+      - name: Bound iOS compilation cache size
+        id: ios-compilation-cache-bound
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' && steps.ios-compilation-cache-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cache_path="$RUNNER_TEMP/cmux-ios-upload/DerivedData/CompilationCache.noindex"
+          max_cache_kib=$((5 * 1024 * 1024))
+          save=false
+          if [ -d "$cache_path" ]; then
+            # Drop the CAS generations Xcode itself would collect (see nightly.yml).
+            python3 scripts/ci/prune-xcode-compilation-cache.py "$cache_path" \
+              || echo "::warning::Xcode compilation cache pruning failed; measuring it unpruned"
+            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
+            echo "iOS compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
+            if [ "$cache_kib" -gt "$max_cache_kib" ]; then
+              echo "::warning::iOS compilation cache exceeds 5 GiB; skipping cache save"
+            elif [ "$cache_kib" -gt 0 ]; then
+              save=true
+            fi
+          fi
+          echo "save=${save}" >> "$GITHUB_OUTPUT"
+
+      - name: Save iOS compilation cache
+        if: ${{ !cancelled() && steps.ios-compilation-cache-bound.outputs.save == 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          # Only an R2 save sees the bucket credentials.
+          AWS_ACCESS_KEY_ID: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/cmux-ios-upload/DerivedData/CompilationCache.noindex
+          key: xcode-compilation-ios-appstore-${{ runner.os }}-${{ runner.arch }}-${{ steps.ios-compilation-cache-key.outputs.toolchain }}-${{ github.sha }}
+
+      # test-ios.yml saves this key only on a seed_cache dispatch, so nothing
+      # wrote it; the upload lanes resolve the same packages on main anyway.
+      - name: Save iOS SwiftPM cache
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.ios-spm-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          # Only an R2 save sees the bucket credentials.
+          AWS_ACCESS_KEY_ID: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/cmux-ios-spm
+          key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
       - name: Record completed upload before group assignment
         id: record_upload
         # The next scheduled poll skips this revision only if this marker
@@ -457,7 +563,7 @@ jobs:
       always() && needs.decide.result == 'success' &&
       (needs.upload.result == 'success' || needs.upload.result == 'skipped') &&
       (needs.upload.outputs.build_number != '' || needs.decide.outputs.retry_build_number != '')
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}

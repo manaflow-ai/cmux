@@ -36,6 +36,9 @@ final class FileExplorerState: ObservableObject {
     /// persisted).
     @Published var rightSidebarOwnsInputFocus: Bool = false
 
+    /// The right-sidebar Cloud picker belongs to this window, even before it mounts.
+    @MainActor lazy var cloudTeamPickerPresentation = CloudTeamPickerPresentation()
+
     /// Active mode for the right sidebar (file tree, search, sessions, or enabled beta modes).
     var mode: RightSidebarMode {
         get { storedMode }

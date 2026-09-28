@@ -42,6 +42,15 @@ on:
         required: false
         default: ""
         type: string
+      # For a caller whose macos_runner is an owned label on attempt 1 only:
+      # plan-build bakes macos_runner into the matrix, and a re-run of failed
+      # jobs reuses that output, so the macOS builds read this instead from
+      # attempt 2 on (the owned-pool rescue's re-run, or a person's).
+      macos_retry_runner:
+        description: "Optional macOS runner label for attempt 2 and later"
+        required: false
+        default: ""
+        type: string
       linux_runner:
         description: "Optional Linux x64 runner label override"
         required: false
@@ -73,7 +82,7 @@ permissions: {}
 jobs:
   plan-build:
     name: select binary targets
-    runs-on: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -85,8 +94,8 @@ jobs:
           TARGET_SET: ${{ inputs.target_set }}
           PACKAGE_NPM: ${{ inputs.package_npm }}
           PACKAGE_PYPI: ${{ inputs.package_pypi }}
-          MACOS_RUNNER: ${{ inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-          LINUX_RUNNER: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+          MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+          LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
           LINUX_ARM64_RUNNER: ${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
           VERIFY_LINUX_ARM64: ${{ inputs.verify_linux_arm64 }}
         shell: bash
@@ -171,7 +180,7 @@ jobs:
   build:
     name: build ${{ matrix.target }}
     needs: plan-build
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && inputs.macos_retry_runner || matrix.runner }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -547,7 +556,7 @@ jobs:
         needs.build.result == 'success' &&
         (!inputs.include_windows || needs.build-windows.result == 'success')
       }}
-    runs-on: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
     timeout-minutes: 30
     permissions:
       contents: read

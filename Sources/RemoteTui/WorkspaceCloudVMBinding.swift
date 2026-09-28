@@ -27,4 +27,3 @@ struct WorkspaceCloudVMBinding: Equatable, Sendable {
         return trimmed
     }
 }
-

@@ -21,7 +21,10 @@ protocol DeferredAgentResumeAdmissionOwner: AnyObject {
     /// Fresh evidence for this owner's pending requests.
     var deferredAgentResumeIndexProvider: @MainActor @Sendable () async -> SharedLiveAgentIndexRefreshOutcome { get }
     /// Waits for the next evidence event; cancellation releases the wait.
-    var deferredAgentResumeEvidenceWait: @Sendable () async -> Void { get }
+    /// The process identities are the owners observed by the just-completed
+    /// scan. Waiting on their kernel exit events closes the gap where a
+    /// SessionEnd hook cannot write because the old cmux socket is gone.
+    var deferredAgentResumeEvidenceWait: @Sendable ([AgentPIDProcessIdentity]) async -> Void { get }
 }
 
 extension DeferredAgentResumeAdmissionOwner {
@@ -39,11 +42,17 @@ extension DeferredAgentResumeAdmissionOwner {
         deferredAgentResumeIndexTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 let outcome = await refresh()
+                guard !Task.isCancelled else { return }
                 // Do not hold the owner across the evidence wait: teardown must
                 // not be delayed by a restore that is still observing evidence.
-                guard !Task.isCancelled,
-                      self?.applyDeferredAgentResumeOutcome(outcome) == true else { return }
-                await waitForEvidence()
+                let processIdentities: [AgentPIDProcessIdentity]? = {
+                    guard let self,
+                          self.applyDeferredAgentResumeOutcome(outcome) else { return nil }
+                    guard case .index(let index) = outcome else { return [] }
+                    return self.deferredAgentResumeOwnerProcessIdentities(using: index)
+                }()
+                guard !Task.isCancelled, let processIdentities else { return }
+                await waitForEvidence(processIdentities)
             }
         }
     }
@@ -52,13 +61,33 @@ extension DeferredAgentResumeAdmissionOwner {
         { await SharedLiveAgentIndex.shared.indexForOwnershipDecision() }
     }
 
-    var deferredAgentResumeEvidenceWait: @Sendable () async -> Void {
-        {
+    var deferredAgentResumeEvidenceWait: @Sendable ([AgentPIDProcessIdentity]) async -> Void {
+        { processIdentities in
             await AgentRestoreEvidenceObservation().wait(
-                process: nil,
+                processes: processIdentities,
                 paths: [RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent().path]
             )
         }
+    }
+
+    /// Returns the process generations that kept a staged restore pending in
+    /// the completed scan. A missing identity is intentionally not synthesized:
+    /// the next refresh must decide whether the record is stale or unavailable.
+    func deferredAgentResumeOwnerProcessIdentities(
+        using index: RestorableAgentSessionIndex
+    ) -> [AgentPIDProcessIdentity] {
+        var identities = Set<AgentPIDProcessIdentity>()
+        for restore in deferredAgentResumeRestoresByPanelId.values {
+            guard let kind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind,
+                  let sessionID = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId,
+                  let owner = index.liveSessionOwner(
+                      kind: kind,
+                      sessionID: sessionID,
+                      revalidateProcessEvidence: false
+                  ) else { continue }
+            identities.insert(owner.processIdentity)
+        }
+        return Array(identities)
     }
 
     /// Applies one index outcome to every pending restore.

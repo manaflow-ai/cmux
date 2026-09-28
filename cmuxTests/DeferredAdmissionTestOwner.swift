@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 #if canImport(cmux_DEV)
@@ -24,9 +25,9 @@ final class DeferredAdmissionTestOwner: DeferredAgentResumeAdmissionOwner {
         { .index(.empty) }
     }
 
-    var deferredAgentResumeEvidenceWait: @Sendable () async -> Void {
+    var deferredAgentResumeEvidenceWait: @Sendable ([AgentPIDProcessIdentity]) async -> Void {
         let entered = waits.continuation
-        return {
+        return { _ in
             let (events, continuation) = AsyncStream<Void>.makeStream()
             defer { continuation.finish() }
             entered.yield()

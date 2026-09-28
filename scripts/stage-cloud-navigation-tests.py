@@ -46,18 +46,19 @@ def main():
                          "staged_sha256": hashlib.sha256(content.encode()).hexdigest()})
 
     for name in ["CloudTreeTerminalNavigationCoordinator", "CloudTerminalNavigationCatalog",
-                 "CloudTerminalNavigationHost", "CloudTerminalNavigationScheduling",
                  "SurfaceResourceGroup+CloudNavigation"]:
         stage(f"Sources/Cloud/{name}.swift")
-    stage("Sources/Surfaces/SurfaceMachineID.swift", "enum SurfaceMachineID:")
+    for name in ["CloudTerminalNavigationHost", "CloudTerminalNavigationScheduling"]:
+        stage(f"Packages/macOS/CmuxCloud/Sources/CmuxCloud/Link/{name}.swift")
+    stage("Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/SurfaceMachineID.swift", "enum SurfaceMachineID:")
     for kind, name in [("enum", "SurfaceResourceKind"),
                        ("enum", "SurfaceLifecycle"), ("struct", "SurfaceAgentBadge"),
                        ("struct", "CloudCreationAttachment"), ("struct", "SurfaceResource"),
                        ("struct", "SurfaceResourceID"), ("struct", "SurfaceRemoteWorkspace"),
                        ("struct", "SurfaceRemoteView"), ("struct", "SurfaceProjection"),
                        ("enum", "SurfaceSplitDirection"), ("enum", "SurfaceCatalogError")]:
-        stage("Sources/Surfaces/SurfaceCatalogModel.swift", f"{kind} {name}:")
-    stage("Sources/Surfaces/SurfaceResourcePlacement.swift")
+        stage("Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/SurfaceCatalogModel.swift", f"{kind} {name}:")
+    stage("Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/SurfaceResourcePlacement.swift")
     stage("Sources/Surfaces/SurfaceCatalog+Groups.swift", "struct SurfaceResourceGroup:")
     stage("Sources/Surfaces/CloudWorkspaceLayoutTranslator.swift", "indirect enum SurfaceProjectionLayout:")
     for name in ["CloudTerminalNavigationFixture", "CloudTerminalNavigationCapabilityTests"]:

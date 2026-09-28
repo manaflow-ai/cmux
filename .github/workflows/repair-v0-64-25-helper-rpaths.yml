@@ -1,0 +1,280 @@
+name: Repair v0.64.25 cmux-cua rpaths
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type v0.64.25 to replace the GitHub release asset and stable R2 appcast; any other value is a dry run
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stable-appcast-publication
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 90
+    env:
+      TARGET_TAG: v0.64.25
+      REPAIR_ROOT: ${{ github.workspace }}/.cmux-v0.64.25-repair
+      APP_PATH: ${{ github.workspace }}/.cmux-v0.64.25-repair/cmux.app
+      DMG_PATH: ${{ github.workspace }}/cmux-macos.dmg
+      APPCAST_PATH: ${{ github.workspace }}/appcast.xml
+    steps:
+      - name: Checkout repair tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Install create-dmg
+        run: |
+          set -euo pipefail
+          CMUX_NODE_BIN="$(command -v node)"
+          npm_config_prefix="$RUNNER_TEMP/npm-global"
+          export npm_config_prefix
+          mkdir -p "$npm_config_prefix"
+          npm install --global "create-dmg@8.0.0"
+          wrapper_dir="$RUNNER_TEMP/create-dmg-wrapper"
+          mkdir -p "$wrapper_dir"
+          cat > "$wrapper_dir/create-dmg" <<EOF
+          #!/usr/bin/env bash
+          exec "$CMUX_NODE_BIN" "$npm_config_prefix/lib/node_modules/create-dmg/cli.js" "\$@"
+          EOF
+          chmod +x "$wrapper_dir/create-dmg"
+          echo "$wrapper_dir" >> "$GITHUB_PATH"
+
+      - name: Download v0.64.25 DMG
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPAIR_ROOT/input"
+          gh release download "$TARGET_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern cmux-macos.dmg \
+            --dir "$REPAIR_ROOT/input" \
+            --clobber
+          test -s "$REPAIR_ROOT/input/cmux-macos.dmg"
+
+      - name: Extract and validate shipped app
+        run: |
+          set -euo pipefail
+          mount_dir="$REPAIR_ROOT/mount"
+          mkdir -p "$mount_dir" "$REPAIR_ROOT"
+          cleanup_mount() {
+            hdiutil detach "$mount_dir" >/dev/null 2>&1 || hdiutil detach -force "$mount_dir" >/dev/null 2>&1 || true
+          }
+          trap cleanup_mount EXIT
+          hdiutil attach "$REPAIR_ROOT/input/cmux-macos.dmg" -nobrowse -readonly -mountpoint "$mount_dir" >/dev/null
+          source_app="$(find "$mount_dir" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$source_app"
+          ditto "$source_app" "$APP_PATH"
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")"
+          test "$version" = "0.64.25"
+          for helper in \
+            "$APP_PATH/Contents/Resources/bin/cmux-cua" \
+            "$APP_PATH/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"; do
+            test -x "$helper"
+            echo "$helper: $(lipo -archs "$helper")"
+          done
+
+      - name: Import release signing certificate
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$APPLE_CERTIFICATE_BASE64"
+          test -n "$APPLE_CERTIFICATE_PASSWORD"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          ./scripts/import-apple-developer-id-intermediates.sh build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
+
+      - name: Strip helper toolchain rpaths
+        run: |
+          set -euo pipefail
+          ./scripts/strip-cmux-cua-rpaths.sh \
+            "$APP_PATH/Contents/Resources/bin/cmux-cua" \
+            "$APP_PATH/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
+
+      - name: Start helper notarization
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          ./scripts/ci/notarize-computer-use-helper.sh \
+            --start "$REPAIR_ROOT/computer-use-notarization.state" \
+            "$APP_PATH" \
+            cmux.release.entitlements \
+            "$APPLE_SIGNING_IDENTITY"
+
+      - name: Re-sign repaired app
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          test -n "$APPLE_SIGNING_IDENTITY"
+          CMUX_SIGN_MODE=all-except-computer-use \
+            ./scripts/sign-cmux-bundle.sh \
+            "$APP_PATH" \
+            cmux.release.entitlements \
+            "$APPLE_SIGNING_IDENTITY"
+
+      - name: Verify repaired Mach-O load commands
+        run: ./scripts/verify-bundle-load-commands.sh "$APP_PATH"
+
+      - name: Finish helper notarization
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          ./scripts/ci/notarize-computer-use-helper.sh \
+            --finish "$REPAIR_ROOT/computer-use-notarization.state" \
+            "$APP_PATH" \
+            cmux.release.entitlements \
+            "$APPLE_SIGNING_IDENTITY"
+
+      - name: Notarize and staple repaired app
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          zip_path="$REPAIR_ROOT/cmux-notary.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$zip_path"
+          submit_json="$(xcrun notarytool submit "$zip_path" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait --output-format json)"
+          status="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$submit_json")"
+          if [ "$status" != Accepted ]; then
+            echo "Repaired app notarization failed: $status" >&2
+            exit 1
+          fi
+          xcrun stapler staple "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+          spctl -a -vv --type execute "$APP_PATH"
+          rm -f "$zip_path"
+
+      - name: Create and notarize repaired DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          dmg_dir="$REPAIR_ROOT/dmg-output"
+          mkdir -p "$dmg_dir"
+          create-dmg --no-code-sign "$APP_PATH" "$dmg_dir"
+          created_dmg="$(find "$dmg_dir" -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "$created_dmg"
+          mv "$created_dmg" "$DMG_PATH"
+          codesign --force --timestamp --keychain build.keychain \
+            --sign "$APPLE_SIGNING_IDENTITY" "$DMG_PATH"
+          codesign --verify --verbose=2 "$DMG_PATH"
+          submit_json="$(xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait --output-format json)"
+          status="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$submit_json")"
+          if [ "$status" != Accepted ]; then
+            echo "Repaired DMG notarization failed: $status" >&2
+            exit 1
+          fi
+          xcrun stapler staple "$DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
+
+      - name: Gate repaired app with syspolicy_check
+        run: syspolicy_check distribution "$APP_PATH"
+
+      - name: Regenerate signed Sparkle appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SPARKLE_PRIVATE_KEY"
+          ./scripts/sparkle_generate_appcast.sh "$DMG_PATH" "$TARGET_TAG" "$APPCAST_PATH"
+          test -s "$APPCAST_PATH"
+          grep -q 'sparkle:edSignature' "$APPCAST_PATH"
+          grep -q 'cmux-macos.dmg' "$APPCAST_PATH"
+
+      - name: Upload dry-run artifacts
+        if: inputs.confirmation != 'v0.64.25'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-v0.64.25-rpath-repair-dry-run
+          path: |
+            cmux-macos.dmg
+            appcast.xml
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Replace v0.64.25 GitHub release assets
+        if: inputs.confirmation == 'v0.64.25'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TARGET_TAG" "$DMG_PATH" "$APPCAST_PATH" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Replace stable R2 appcast when v0.64.25 is current
+        if: inputs.confirmation == 'v0.64.25'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          latest="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --json tagName -q '.[].tagName' | sort -V | tail -1)"
+          if [ "$latest" != "$TARGET_TAG" ]; then
+            echo "Skipping stable R2 replacement: $TARGET_TAG is not the latest release ($latest)"
+            exit 0
+          fi
+          python3 scripts/ci/upload-r2-object.py \
+            --file "$APPCAST_PATH" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --bucket cmux-binaries \
+            --key stable/appcast.xml \
+            --content-type application/xml \
+            --cache-control 'no-cache, no-store, must-revalidate'
+
+      - name: Cleanup signing keychain
+        if: always()
+        run: |
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          rm -f /tmp/cert.p12

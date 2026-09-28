@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileHost
 import CmuxTerminal
 import Foundation
 

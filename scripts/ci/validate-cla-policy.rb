@@ -22,16 +22,35 @@ MAX_FILE_BYTES = 300_000
 MAX_YAML_NODES = 10_000
 MAX_YAML_DEPTH = 64
 # A policy transition may start from one of the two reviewed legacy action
-# revisions or from the exact workflow currently on main. Those references
-# are accepted only with their matching immutable workflow/helper bytes. A
-# changed policy must move directly to the maintained final revision.
+# revisions or from a reviewed workflow that main has carried. Those
+# references are accepted only with their matching immutable workflow/helper
+# bytes. A changed policy must move directly to the maintained final revision.
 CLA_ACTION_LEGACY_REFS = %w[
   manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a64325956
   manaflow-ai/cla-github-action@b4d3c4fab86d21e7775c63522d4b39b3724ea4bf
 ].freeze
-CLA_ACTION_CURRENT_BASE_REF = "manaflow-ai/cla-github-action@f567430d44e22bc0bb6ecd1e00d383ef22886025".freeze
+# Reviewed single-job cla.yml revisions that main has carried, oldest first,
+# as [action reference, cla.yml SHA-256] pairs with no helper. A pull request
+# records the main revision it was last synchronized against as its base, so
+# a cla.yml bump on main appends a pin here and keeps the earlier ones: a
+# branch behind main still names a reviewed base. The last pin is main now.
+CLA_ACTION_REVIEWED_MAIN_PINS = [
+  # #14668: f567 action on the GitHub-hosted runner.
+  %w[
+    manaflow-ai/cla-github-action@f567430d44e22bc0bb6ecd1e00d383ef22886025
+    ce0112907844270c70c5e2cc235e20f8a45eb7a0ef42a88f054ceb6dc0198a64
+  ].freeze,
+  # #14913: 3bdedfb action, trusted merge status for pr-catch-up.yml merges.
+  %w[
+    manaflow-ai/cla-github-action@3bdedfb05157fd9c1c879dfea58455e32a770f96
+    317432cd2145726daadec61cd3a6d84674197374ac92bf66ba09c8f6761853cc
+  ].freeze
+].freeze
+CLA_ACTION_CURRENT_BASE_REF = CLA_ACTION_REVIEWED_MAIN_PINS.last.fetch(0)
 CLA_ACTION_FINAL = "manaflow-ai/cla-github-action@212a0f2dd659b24b48a30ba35966e06dc41736af".freeze
-CLA_ACTION_BASE_REFS = (CLA_ACTION_LEGACY_REFS + [CLA_ACTION_CURRENT_BASE_REF, CLA_ACTION_FINAL]).freeze
+CLA_ACTION_BASE_REFS = (
+  CLA_ACTION_LEGACY_REFS + CLA_ACTION_REVIEWED_MAIN_PINS.map(&:first) + [CLA_ACTION_FINAL]
+).uniq.freeze
 CLA_ACTION = CLA_ACTION_FINAL
 # CLA policy jobs handle repository trust decisions and must stay on an
 # ephemeral GitHub-hosted runner. A repository variable could redirect this
@@ -60,7 +79,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "9fa2952791cfd01c5a74ca92640a9e1827fe5c98b78071
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "cda4c1369aaa53f3d7f78651eff6b8c9d5664d83eac627c00b0a5bb485c26477"
+EXPECTED_GUARD_SCRIPT_DIGEST = "06ee4057cd81a198aa0e3d5612bd639dd6f4cddd136764a080470904d7599d53"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -77,9 +96,9 @@ LEGACY_CLA_HELPER_PATH = ".github/scripts/rerun-failed-cla.sh".freeze
 LEGACY_B4D3_CLA_WORKFLOW_DIGEST = "e03fa7a1d41eb5d59843807bf3a3bd153f5f7ab343f78e521d1d43cbecc43891"
 LEGACY_B4D3_CLA_REFRESH_DIGEST = "580ea1130f9745be686e428e45aa39c93ad290ca48736330c429e3206d9211ec"
 LEGACY_B4D3_CLA_HELPER_PATH = ".github/scripts/refresh-cla-check.sh".freeze
-# origin/main currently carries the f567 workflow and intentionally has no
-# rerun helper. This is a bounded one-time bridge to the final v3 workflow.
-CURRENT_MAIN_CLA_WORKFLOW_DIGEST = "eb7b2307430453b4b7067fa0b20394b4ead6e9356b9668f1d198be6acb9623e1".freeze
+# origin/main currently carries the single-job workflow and intentionally has
+# no rerun helper. It is the newest reviewed main pin above.
+CURRENT_MAIN_CLA_WORKFLOW_DIGEST = CLA_ACTION_REVIEWED_MAIN_PINS.last.fetch(1)
 REVIEWED_CLA_BASES = {
   CLA_ACTION_LEGACY_REFS.fetch(0) => {
     workflow_digest: LEGACY_CLA_WORKFLOW_DIGEST,
@@ -90,13 +109,23 @@ REVIEWED_CLA_BASES = {
     workflow_digest: LEGACY_B4D3_CLA_WORKFLOW_DIGEST,
     helper_digest: LEGACY_B4D3_CLA_REFRESH_DIGEST,
     helper_path: LEGACY_B4D3_CLA_HELPER_PATH
-  }.freeze,
-  CLA_ACTION_CURRENT_BASE_REF => {
-    workflow_digest: CURRENT_MAIN_CLA_WORKFLOW_DIGEST,
-    helper_digest: nil,
-    helper_path: nil
   }.freeze
-}.freeze
+}.merge(
+  CLA_ACTION_REVIEWED_MAIN_PINS.to_h do |reference, digest|
+    [reference, { workflow_digest: digest, helper_digest: nil, helper_path: nil }.freeze]
+  end
+).freeze
+CLA_WORKFLOW_PATH = ".github/workflows/cla.yml".freeze
+# Every path that makes up the CLA policy. Both reviewed helper paths are
+# listed, so the set does not depend on parsing any revision's workflow.
+CLA_POLICY_PATHS = [
+  CLA_WORKFLOW_PATH, CLA_DOCUMENT_PATH, LEGACY_CLA_HELPER_PATH, LEGACY_B4D3_CLA_HELPER_PATH
+].freeze
+GUARD_WORKFLOW_PATH = ".github/workflows/cla-policy-guard.yml".freeze
+GUARD_SCRIPT_PATH = "scripts/ci/validate-cla-policy.rb".freeze
+GUARD_PATHS = [GUARD_WORKFLOW_PATH, GUARD_SCRIPT_PATH].freeze
+TEST_MERGE_ATTEMPTS = 6
+TEST_MERGE_RETRY_SECONDS = 5
 # Designated maintainers who may approve a trusted control-plane update. The
 # PR author is deliberately excluded, even when they are an administrator, so
 # the validator cannot turn self-approval into a policy-change bypass. IDs are
@@ -715,6 +744,137 @@ def run_yaml_regression_matrix!
   puts "PASS: bounded YAML regression matrix (#{cases.length + 1} cases)"
 end
 
+# A branch cut before a policy or guard bump on main still carries the older
+# bytes, so its head differs from its base without proposing anything. What
+# decides that is what landing the head does to main. GitHub's test merge
+# commit for the pull request is the tree that the merge button produces for
+# both merge commits and squash merges (rebase merging is off). When its
+# first parent is a main revision at or after the validated base and its
+# second parent is the exact head, a head whose files differ from the base
+# changes main only if the test merge's files differ from that first parent.
+# Without a clean, current test merge, every difference counts as a change.
+def pull_request_changes_files?(base:, head:, landed_parent:, landed:)
+  return false if head == base
+
+  landed_parent.nil? || landed.nil? || landed != landed_parent
+end
+
+# The policy a pull request proposes: its own files when it changes them,
+# otherwise main's files, which are what landing it leaves in place.
+def effective_head_policy(base:, head:, landed_parent:, landed:)
+  if pull_request_changes_files?(base: base, head: head, landed_parent: landed_parent, landed: landed)
+    head
+  else
+    base
+  end
+end
+
+def run_test_merge_regression_matrix!
+  older = { CLA_WORKFLOW_PATH => "older main policy" }
+  newer = { CLA_WORKFLOW_PATH => "newer main policy" }
+  other = { CLA_WORKFLOW_PATH => "proposed policy" }
+  gone = { CLA_WORKFLOW_PATH => nil }
+  cases = [
+    ["up to date, untouched", newer, newer, newer, newer, false],
+    ["up to date, untouched, no test merge", newer, newer, nil, nil, false],
+    ["behind main bump, untouched", newer, older, newer, newer, false],
+    ["behind main bump, no test merge", newer, older, nil, nil, true],
+    ["behind main bump, parent only", newer, older, newer, nil, true],
+    # A head can equal one merge base in a criss-cross history while the
+    # merge still lands its bytes. Only the landed tree decides.
+    ["reverts main to its older policy", newer, older, newer, older, true],
+    ["edits a stale branch", newer, other, newer, other, true],
+    ["edits an up-to-date branch", newer, other, newer, other, true],
+    ["deletes the policy", newer, gone, newer, gone, true]
+  ]
+  failures = cases.each_with_object([]) do |(name, base, head, landed_parent, landed, expected), errors|
+    actual = pull_request_changes_files?(base: base, head: head, landed_parent: landed_parent, landed: landed)
+    errors << "#{name}: expected #{expected}, got #{actual}" unless actual == expected
+  end
+  fail!("test merge regression matrix failed: #{failures.join('; ')}") unless failures.empty?
+
+  # End to end through the action contract: each label stands for one cla.yml
+  # revision, identified by its action reference and workflow digest.
+  previous_ref, previous_digest = CLA_ACTION_REVIEWED_MAIN_PINS.fetch(-2)
+  revisions = {
+    previous: [previous_ref, previous_digest],
+    current: [CLA_ACTION_CURRENT_BASE_REF, CURRENT_MAIN_CLA_WORKFLOW_DIGEST],
+    final: [CLA_ACTION_FINAL, "0" * 64]
+  }
+  policy_cases = [
+    # Recorded base still at the previous main revision; head never touched cla.yml.
+    ["stale base, untouched head", :previous, :previous, :current, :current, true],
+    # Main moved on; the branch still carries the previous main revision.
+    ["new base, head behind main", :current, :previous, :current, :current, true],
+    ["new base, head behind main, no test merge", :current, :previous, nil, nil, false],
+    ["new base, up-to-date head", :current, :current, :current, :current, true],
+    # The branch edits cla.yml back to the previous main revision. It is a
+    # policy change, and a policy change may only move to the final revision.
+    ["new base, head reverts to previous main", :current, :previous, :current, :previous, false],
+    ["new base, head proposes final", :current, :final, :current, :final, true]
+  ]
+  snapshot = ->(label) { label && { CLA_WORKFLOW_PATH => label } }
+  policy_failures = policy_cases.each_with_object([]) do |(name, base, head, landed_parent, landed, expected), errors|
+    effective = effective_head_policy(
+      base: snapshot.call(base),
+      head: snapshot.call(head),
+      landed_parent: snapshot.call(landed_parent),
+      landed: snapshot.call(landed)
+    )
+    base_ref, base_digest = revisions.fetch(base)
+    candidate_ref = revisions.fetch(effective.fetch(CLA_WORKFLOW_PATH)).fetch(0)
+    actual = begin
+      assert_cla_action_transition!(
+        base_ref: base_ref,
+        candidate_ref: candidate_ref,
+        base_workflow_digest: base_digest,
+        base_script_digest: nil,
+        base_script_path: nil,
+        policy_changed: effective != snapshot.call(base)
+      )
+      true
+    rescue PolicyError
+      false
+    end
+    errors << "#{name}: expected #{expected}, got #{actual}" unless actual == expected
+  end
+  fail!("test merge policy regression matrix failed: #{policy_failures.join('; ')}") unless policy_failures.empty?
+  puts "PASS: test merge regression matrix (#{cases.length + policy_cases.length} cases)"
+end
+
+def fetch_snapshot(repository, sha, paths)
+  paths.to_h { |path| [path, fetch_file(repository, sha, path, allow_missing: true)] }
+end
+
+# Returns [first parent, test merge] for the exact head, or nil when GitHub
+# reports a conflict or has not produced a current test merge in time. All
+# of it is GitHub-computed data in the protected repository.
+def pull_request_test_merge(repository, pr_number, base_sha, head_sha)
+  TEST_MERGE_ATTEMPTS.times do |attempt|
+    sleep(TEST_MERGE_RETRY_SECONDS) if attempt.positive?
+    pr = api_json(repository, "repos/#{repository}/pulls/#{pr_number}")
+    fail!("pull request metadata is malformed") unless pr.is_a?(Hash)
+    fail!("pull request metadata changed while validating") unless pr.dig("head", "sha") == head_sha
+    return nil if pr["mergeable"] == false
+
+    merge_sha = pr["merge_commit_sha"]
+    next unless pr["mergeable"] == true && merge_sha.is_a?(String) && merge_sha.match?(SHA)
+
+    commit = api_json(repository, "repos/#{repository}/git/commits/#{merge_sha}")
+    parents = commit.is_a?(Hash) ? commit["parents"] : nil
+    next unless parents.is_a?(Array) && parents.length == 2 && parents.all?(Hash)
+
+    parent_shas = parents.map { |parent| parent["sha"] }
+    next unless parent_shas[1] == head_sha && parent_shas[0].is_a?(String) && parent_shas[0].match?(SHA)
+
+    comparison = api_json(repository, "repos/#{repository}/compare/#{base_sha}...#{parent_shas[0]}?per_page=1")
+    next unless comparison.is_a?(Hash) && %w[ahead identical].include?(comparison["status"])
+
+    return [parent_shas[0], merge_sha]
+  end
+  nil
+end
+
 def reviewed_cla_base?(base_ref:, base_workflow_digest:, base_script_digest:, base_script_path:)
   expected = REVIEWED_CLA_BASES[base_ref]
   expected &&
@@ -789,21 +949,27 @@ def run_action_transition_regression_matrix!
   fc608 = CLA_ACTION_LEGACY_REFS.fetch(0)
   b4d3 = CLA_ACTION_LEGACY_REFS.fetch(1)
   current = CLA_ACTION_CURRENT_BASE_REF
+  previous, previous_digest = CLA_ACTION_REVIEWED_MAIN_PINS.fetch(-2)
   final = CLA_ACTION_FINAL
   cases = [
     ["fc608 no-op", fc608, fc608, false, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, true],
     ["b4d3 no-op", b4d3, b4d3, false, LEGACY_B4D3_CLA_WORKFLOW_DIGEST, LEGACY_B4D3_CLA_REFRESH_DIGEST, LEGACY_B4D3_CLA_HELPER_PATH, true],
-    ["current f567 no-op", current, current, false, CURRENT_MAIN_CLA_WORKFLOW_DIGEST, nil, nil, true],
-    ["current f567 to final", current, final, true, CURRENT_MAIN_CLA_WORKFLOW_DIGEST, nil, nil, true],
+    ["current main no-op", current, current, false, CURRENT_MAIN_CLA_WORKFLOW_DIGEST, nil, nil, true],
+    ["current main to final", current, final, true, CURRENT_MAIN_CLA_WORKFLOW_DIGEST, nil, nil, true],
+    ["previous main no-op", previous, previous, false, previous_digest, nil, nil, true],
+    ["previous main to final", previous, final, true, previous_digest, nil, nil, true],
+    ["previous main ref with current bytes", previous, previous, false, CURRENT_MAIN_CLA_WORKFLOW_DIGEST, nil, nil, false],
+    ["current main ref with previous bytes", current, current, false, previous_digest, nil, nil, false],
+    ["current main reverted to previous main", current, previous, true, CURRENT_MAIN_CLA_WORKFLOW_DIGEST, nil, nil, false],
     ["fc608 to final", fc608, final, true, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, true],
     ["b4d3 to final", b4d3, final, true, LEGACY_B4D3_CLA_WORKFLOW_DIGEST, LEGACY_B4D3_CLA_REFRESH_DIGEST, LEGACY_B4D3_CLA_HELPER_PATH, true],
     ["final policy update", final, final, true, "0" * 64, "1" * 64, LEGACY_CLA_HELPER_PATH, true],
     ["final no-op", final, final, false, "0" * 64, "1" * 64, LEGACY_CLA_HELPER_PATH, true],
     ["unknown base", "manaflow-ai/cla-github-action@#{'a' * 40}", final, true, "0" * 64, nil, nil, false],
     ["unknown candidate", final, "manaflow-ai/cla-github-action@#{'b' * 40}", true, "0" * 64, nil, LEGACY_CLA_HELPER_PATH, false],
-    ["f567 wrong workflow", current, final, true, "0" * 64, nil, nil, false],
-    ["f567 has helper", current, final, true, CURRENT_MAIN_CLA_WORKFLOW_DIGEST, "1" * 64, LEGACY_CLA_HELPER_PATH, false],
-    ["f567 downgraded", current, fc608, true, CURRENT_MAIN_CLA_WORKFLOW_DIGEST, nil, nil, false],
+    ["current main wrong workflow", current, final, true, "0" * 64, nil, nil, false],
+    ["current main has helper", current, final, true, CURRENT_MAIN_CLA_WORKFLOW_DIGEST, "1" * 64, LEGACY_CLA_HELPER_PATH, false],
+    ["current main downgraded", current, fc608, true, CURRENT_MAIN_CLA_WORKFLOW_DIGEST, nil, nil, false],
     ["fc608 paired with b4d3 bytes", fc608, final, true, LEGACY_B4D3_CLA_WORKFLOW_DIGEST, LEGACY_B4D3_CLA_REFRESH_DIGEST, LEGACY_B4D3_CLA_HELPER_PATH, false],
     ["b4d3 paired with fc608 bytes", b4d3, final, true, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, false],
     ["legacy changed helper", fc608, fc608, false, LEGACY_CLA_WORKFLOW_DIGEST, "1" * 64, LEGACY_CLA_HELPER_PATH, false],
@@ -2403,6 +2569,11 @@ def validate_guard_script(raw, pr_author_id: nil)
     "run_lifecycle_regression_matrix!",
     "run_document_contract_regression_matrix!",
     "run_trusted_review_regression_matrix!",
+    "run_test_merge_regression_matrix!",
+    "def pull_request_changes_files?",
+    "def effective_head_policy",
+    "def pull_request_test_merge",
+    "parent_shas[1] == head_sha",
     "CLA_LIFECYCLE_ACTIONS",
     "ready_for_review",
     "collect_latest_trusted_review!",
@@ -2522,6 +2693,7 @@ begin
   run_lifecycle_regression_matrix!
   run_document_contract_regression_matrix!
   run_trusted_review_regression_matrix!
+  run_test_merge_regression_matrix!
   repository = required_env("GH_REPO", REPOSITORY)
   pr_number = required_env("PR_NUMBER", /\A[1-9][0-9]*\z/)
   base_sha = required_env("BASE_SHA", SHA)
@@ -2562,26 +2734,48 @@ begin
   head_repository = live_head_repo["full_name"].to_s
   fail!("pull request head repository name is malformed") unless head_repository.match?(REPOSITORY)
 
-  base_workflow = fetch_file(repository, base_sha, ".github/workflows/cla.yml")
   # A fork pull request stores the head commit in the head repository. Fetch
-  # base files from the protected repository and candidate files from the
-  # validated head repository, so normal external contributions are admitted.
-  head_workflow = fetch_file(head_repository, head_sha, ".github/workflows/cla.yml")
+  # base and test-merge files from the protected repository and candidate
+  # files from the validated head repository, so normal external
+  # contributions are admitted.
+  base_guard = fetch_snapshot(repository, base_sha, GUARD_PATHS)
+  head_guard = fetch_snapshot(head_repository, head_sha, GUARD_PATHS)
+  base_policy = fetch_snapshot(repository, base_sha, CLA_POLICY_PATHS)
+  head_policy = fetch_snapshot(head_repository, head_sha, CLA_POLICY_PATHS)
+  landed_parent_guard = landed_guard = landed_parent_policy = landed_policy = nil
+  if head_guard != base_guard || head_policy != base_policy
+    landed_parent_sha, landed_sha = pull_request_test_merge(repository, pr_number, base_sha, head_sha)
+    if landed_sha
+      landed_parent_guard = fetch_snapshot(repository, landed_parent_sha, GUARD_PATHS)
+      landed_guard = fetch_snapshot(repository, landed_sha, GUARD_PATHS)
+      landed_parent_policy = fetch_snapshot(repository, landed_parent_sha, CLA_POLICY_PATHS)
+      landed_policy = fetch_snapshot(repository, landed_sha, CLA_POLICY_PATHS)
+    end
+  end
+  head_guard_workflow = head_guard.fetch(GUARD_WORKFLOW_PATH)
+  head_guard_script = head_guard.fetch(GUARD_SCRIPT_PATH)
+  guard_changed = pull_request_changes_files?(
+    base: base_guard, head: head_guard, landed_parent: landed_parent_guard, landed: landed_guard
+  )
+  # A branch whose landing leaves every policy path as main has it proposes
+  # no policy, so main's bytes are the candidate. Any head that would change
+  # main's policy is still a proposal and is checked below.
+  head_policy = effective_head_policy(
+    base: base_policy, head: head_policy, landed_parent: landed_parent_policy, landed: landed_policy
+  )
+  base_workflow = base_policy.fetch(CLA_WORKFLOW_PATH)
+  head_workflow = head_policy.fetch(CLA_WORKFLOW_PATH)
+  fail!("CLA workflow is missing from the base revision") if base_workflow.nil?
   fail!("CLA workflow is missing from the pull-request revision") if head_workflow.nil?
-  base_guard_workflow = fetch_file(repository, base_sha, ".github/workflows/cla-policy-guard.yml", allow_missing: true)
-  head_guard_workflow = fetch_file(head_repository, head_sha, ".github/workflows/cla-policy-guard.yml", allow_missing: true)
-  base_guard_script = fetch_file(repository, base_sha, "scripts/ci/validate-cla-policy.rb", allow_missing: true)
-  head_guard_script = fetch_file(head_repository, head_sha, "scripts/ci/validate-cla-policy.rb", allow_missing: true)
-  guard_changed = base_guard_workflow != head_guard_workflow || base_guard_script != head_guard_script
-
-  base_cla = fetch_file(repository, base_sha, CLA_DOCUMENT_PATH)
-  head_cla = fetch_file(head_repository, head_sha, CLA_DOCUMENT_PATH)
+  base_cla = base_policy.fetch(CLA_DOCUMENT_PATH)
+  head_cla = head_policy.fetch(CLA_DOCUMENT_PATH)
+  fail!("CLA document is missing") if base_cla.nil? || head_cla.nil?
   base_action_ref = cla_action_reference(base_workflow, "base CLA workflow")
   head_action_ref = cla_action_reference(head_workflow, "proposed CLA workflow")
   base_script_path = cla_helper_path(base_action_ref)
   head_script_path = cla_helper_path(head_action_ref)
-  base_script = base_script_path && fetch_file(repository, base_sha, base_script_path, allow_missing: true)
-  head_script = head_script_path && fetch_file(head_repository, head_sha, head_script_path, allow_missing: true)
+  base_script = base_script_path && base_policy.fetch(base_script_path)
+  head_script = head_script_path && head_policy.fetch(head_script_path)
   policy_changed = base_workflow != head_workflow ||
     base_script_path != head_script_path ||
     base_script != head_script

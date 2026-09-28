@@ -13,12 +13,6 @@ struct TerminalTabAgentIconResolver {
                 || definition.directBasenames.contains(normalized)
         }?.assetName
     }
-
-    func titleStatusKey(from title: String) -> String? {
-        let token = title.split(whereSeparator: { $0.isWhitespace }).first.map(String.init)?.lowercased()
-        guard let token else { return nil }
-        return assetName(forStatusKey: token) == nil ? nil : token
-    }
 }
 
 extension Workspace {
@@ -31,8 +25,20 @@ extension Workspace {
         if let asset = statusKeys.compactMap(resolver.assetName(forStatusKey:)).first {
             return asset
         }
-        guard let restored = restoredAgentSnapshotsByPanelId[panelId] else { return nil }
+        // A restored snapshot outlives its agent (completed sessions stay for
+        // history), so it only names the tab while that agent is running.
+        guard let restored = restoredAgentSnapshotsByPanelId[panelId],
+              restoredAgentIsRunning(panelId: panelId) else { return nil }
         return restored.registration?.iconAssetName ?? resolver.assetName(forStatusKey: restored.kind.rawValue)
+    }
+
+    private func restoredAgentIsRunning(panelId: UUID) -> Bool {
+        switch restoredAgentResumeStatesByPanelId[panelId] {
+        case .autoResumeCommandRunning, .observedAgentCommandRunning:
+            return true
+        case .manualResumeAvailable, .awaitingAutoResumeCommand, .completedAgentExit, nil:
+            return false
+        }
     }
 
     /// Reconciles a terminal tab's provider mark after agent lifecycle state changes.

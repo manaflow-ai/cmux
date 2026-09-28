@@ -27,7 +27,7 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
     )
 
     /// Stroke color of the attention ring and pane flash, as a `#RRGGBB` hex.
-    /// Empty (the default) keeps the built-in `systemBlue`.
+    /// Empty (the default) uses the cmux accent (`app.accentColor`).
     public let paneFlashColorHex = DefaultsKey<String>(
         id: "notifications.paneFlashColor",
         defaultValue: "",
@@ -38,6 +38,15 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         id: "notifications.sound",
         defaultValue: "default",
         userDefaultsKey: "notificationSound"
+    )
+
+    /// Plays the notification sound even when the notifying pane is already
+    /// focused. Off by default: the focused pane shows the ring and flash only,
+    /// since its "default" sound is the system alert that also marks errors.
+    public let soundWhenFocused = DefaultsKey<Bool>(
+        id: "notifications.soundWhenFocused",
+        defaultValue: false,
+        userDefaultsKey: "notificationSoundWhenFocused"
     )
 
     public let customSoundFilePath = DefaultsKey<String>(
@@ -101,14 +110,20 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationAgentIdleReminderEnabled"
     )
 
+    /// Catalog handle for the `notifications.hooks` path. The runtime reader
+    /// is the app's notification config parser, which decodes an array of
+    /// hook objects (`id`, `command`, `timeoutSeconds`, `enabled`); nothing
+    /// reads this key's typed value.
     public let hooks = JSONKey<[String: String]>(
         id: "notifications.hooks",
         defaultValue: [:]
     )
 
+    /// `"append"` (the runtime default when unset) adds project-local hooks
+    /// after inherited ones; `"replace"` drops the inherited hooks first.
     public let hooksMode = JSONKey<String>(
         id: "notifications.hooksMode",
-        defaultValue: "merge"
+        defaultValue: "append"
     )
 
     public init() {}

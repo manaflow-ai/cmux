@@ -75,7 +75,7 @@ jobs:
     # The wrapper dispatches to manaflow-ai/cmux, so a fork keeps its own
     # `tests` job.
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.unit_test_suites != '' && inputs.skip_ui_tests && !inputs.skip_unit_tests }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write
@@ -93,8 +93,9 @@ jobs:
           # runner the wrapper cannot see an identical run already in flight.
           CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}
           CMUX_CI_E2E_LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
-          CMUX_CI_E2E_OVERFLOW_MIN_QUEUED: ${{ vars.CI_E2E_OVERFLOW_MIN_QUEUED }}
-          CMUX_CI_E2E_OVERFLOW_MAX_LARGE_RUNNING: ${{ vars.CI_E2E_OVERFLOW_MAX_LARGE_RUNNING }}
+          CMUX_CI_PR_POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          CMUX_CI_PR_POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          CMUX_CI_PR_POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           UNIT_TEST_SUITES: ${{ inputs.unit_test_suites }}
           TEST_REF: ${{ inputs.ref || github.sha }}
           TEST_TIMEOUT: ${{ inputs.test_timeout }}
@@ -120,13 +121,13 @@ jobs:
     if: ${{ !(github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.unit_test_suites != '' && inputs.skip_ui_tests && !inputs.skip_unit_tests) }}
     # Keep this lane on the repository's normal macOS runner and do not
     # expose a provider override.
-    runs-on: ${{ vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
     steps:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           # The self-hosted fleet also carries a macos-26 label, so a macos-*
@@ -217,11 +218,15 @@ jobs:
 
       - name: Restore Swift packages
         continue-on-error: true
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        env:
+          CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
-          # Consume the existing E2E dependency cache without publishing caches
-          # from a manually selected revision. Test products remain fresh.
+          # Consume the Swift package seed nightly.yml saves, without
+          # publishing caches from a manually selected revision. Test products
+          # remain fresh.
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
@@ -395,12 +400,25 @@ jobs:
             ONLY_TESTING="-only-testing:cmuxUITests"
           fi
 
+          UI_TEST_LOG="$RUNNER_TEMP/cmux-ui-tests.log"
+          set +e
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
-            "$ONLY_TESTING" test
+            "$ONLY_TESTING" test 2>&1 | tee "$UI_TEST_LOG"
+          UI_TEST_STATUS=${PIPESTATUS[0]}
+          set -e
+          if [ "$UI_TEST_STATUS" -ne 0 ]; then
+            exit "$UI_TEST_STATUS"
+          fi
+          # A filter that matches nothing exits 0 after executing zero tests.
+          if [ -n "$TEST_FILTER" ] && ! scripts/ci/require_selected_test_execution.sh \
+            "$UI_TEST_LOG" "cmuxUITests/$TEST_FILTER" >/dev/null; then
+            echo "::error::test_filter cmuxUITests/$TEST_FILTER executed zero tests; check the class and method names"
+            exit 1
+          fi
 
       - name: Upload unit test results
         if: ${{ always() && !inputs.skip_unit_tests }}
