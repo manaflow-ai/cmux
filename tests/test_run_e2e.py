@@ -295,9 +295,16 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 3, result.stderr)
         self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
 
+    def test_adopt_only_reports_a_compile_landing_where_no_ui_run_can_load_it(self):
+        building = {**self.PR_CI, "status": "in_progress"}
+        unusable = [{"name": "macos / macOS compile admission", "labels": ["macos-15"]}]
+        result = self.adopt_only(**self.ci_env(building, artifacts=[], jobs=unusable, status="in_progress"))
+        self.assertEqual(result.returncode, 4, result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
     def test_adopt_only_exits_when_the_product_is_on_a_pool_ui_runs_cannot_use(self):
         result = self.adopt_only(**{**self.ci_env(), "CMUX_CI_E2E_OWNED_UI": ""})
-        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertEqual(result.returncode, 4, result.stderr)
         self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
 
     def test_adopt_only_takes_ui_runs_on_the_default_runner(self):
