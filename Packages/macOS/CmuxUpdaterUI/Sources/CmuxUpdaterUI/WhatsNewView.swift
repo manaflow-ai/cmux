@@ -78,6 +78,15 @@ public struct WhatsNewView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 24)
                 .padding(.top, 24)
+                // On the title rather than on the VStack below. An identifier
+                // on the container does not stay on the container: SwiftUI
+                // pushes it onto each accessibility element the modified view
+                // resolves to, which is every direct child here, and that
+                // overwrites the identifiers the footer's picker and Done
+                // button set for themselves. Keeping it here still gives a
+                // stable element in the loading, failed and empty phases,
+                // which is all the container identifier was ever for.
+                .accessibilityIdentifier("WhatsNewView")
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
@@ -85,7 +94,6 @@ public struct WhatsNewView: View {
         }
         .frame(width: 560, height: 620)
         .cmuxFontMagnificationEnvironment()
-        .accessibilityIdentifier("WhatsNewView")
     }
 
     @ViewBuilder
