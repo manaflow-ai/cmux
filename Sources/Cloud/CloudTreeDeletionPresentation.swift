@@ -15,7 +15,7 @@ final class CloudTreeDeletionPresentation {
     ///   - previous: The rows shown before this snapshot; hidden rows are remembered from here.
     ///   - next: The rows the catalog projects now (pending deletions already hidden).
     ///   - pending: Workspaces admitted for deletion but not yet confirmed, per machine.
-    ///   - pendingMachines: Cloud machines the lists hide while their delete runs.
+    ///   - pendingMachines: Cloud machines whose delete may still roll back.
     ///   - selectedNodeID: The outline's current selection.
     /// - Returns: The selection to restore and the rows whose expansion state must survive,
     ///   including hidden rows so a rollback reopens them exactly as they were.

@@ -15,11 +15,27 @@ final class MachineDeleteCoordinator {
     }
 
     private let deletions = CloudMachineDeletionCoordinator()
+    private let destroyMachine: @MainActor (String) async throws -> Void
+    private let didHide: @MainActor (String) -> Void
+    private let didRetire: @MainActor (String) -> Void
     private var requests: [String: Request] = [:]
     private var accountEpoch: UInt64 = 0
     private var accessDidEndObserver: NSObjectProtocol?
 
-    init(notificationCenter: NotificationCenter = .default) {
+    /// - Parameters:
+    ///   - notificationCenter: Where `.cmuxCloudVMAccessDidEnd` is posted.
+    ///   - destroyMachine: Sends the provider destroy request.
+    ///   - didHide: Detaches the machine's local presentations once it is hidden.
+    ///   - didRetire: Closes the machine's registrations once its delete is confirmed.
+    init(
+        notificationCenter: NotificationCenter = .default,
+        destroyMachine: @escaping @MainActor (String) async throws -> Void = { try await VMClient.shared.destroy(id: $0) },
+        didHide: @escaping @MainActor (String) -> Void = MachineDeleteCoordinator.detachLocalPresentations(of:),
+        didRetire: @escaping @MainActor (String) -> Void = { AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: $0) }
+    ) {
+        self.destroyMachine = destroyMachine
+        self.didHide = didHide
+        self.didRetire = didRetire
         accessDidEndObserver = notificationCenter.addObserver(
             forName: .cmuxCloudVMAccessDidEnd, object: nil, queue: .main
         ) { [weak self] _ in
@@ -30,6 +46,10 @@ final class MachineDeleteCoordinator {
     /// Machines with a delete in flight, and this account's confirmed deletions.
     /// Reading it inside a view body or tracked closure observes changes.
     var hiddenMachineIDs: Set<String> { deletions.projection.hiddenMachineIDs }
+
+    /// The hidden machines whose delete has not reported an outcome, the only
+    /// ones whose rows can come back.
+    var pendingMachineIDs: Set<String> { deletions.projection.pendingMachineIDs }
 
     /// Whether a new delete of the machine may start.
     /// - Parameter machineID: The exact provider machine identifier.
@@ -49,10 +69,17 @@ final class MachineDeleteCoordinator {
     @discardableResult
     func begin(_ machineID: String) -> Bool {
         guard deletions.begin(machineID) else { return false }
+        didHide(machineID)
+        return true
+    }
+
+    /// Closes the machine's local workspaces and URL-backed panes, and stops a
+    /// create still reconciling it.
+    /// - Parameter machineID: The exact provider machine identifier.
+    static func detachLocalPresentations(of machineID: String) {
         AppDelegate.shared?.closeLocalWorkspaces(forCloudVMID: machineID)
         SurfaceCatalog.shared.closeURLBackedPanes(on: .cloud(machineID))
         MachineCreateCoordinator.shared.machineDeletionBegan(machineID)
-        return true
     }
 
     /// Destroys the machine for the `vm.destroy` socket method, which every
@@ -71,7 +98,7 @@ final class MachineDeleteCoordinator {
             let result: CloudMachineDeletionResult
             var failure: Error?
             do {
-                try await VMClient.shared.destroy(id: machineID)
+                try await self.destroyMachine(machineID)
                 result = .deleted
             } catch VMClientError.httpStatus(404, _) {
                 // Delete is idempotent from the person's perspective: a machine the
@@ -105,7 +132,7 @@ final class MachineDeleteCoordinator {
         guard deletions.finish(machineID, result: result) == .retired else { return }
         // Unregisters the machine's surface provider, which closes any URL-backed
         // pane opened since the delete began.
-        AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: machineID)
+        didRetire(machineID)
     }
 
     /// Sign-out and account or team switches forget every deletion without

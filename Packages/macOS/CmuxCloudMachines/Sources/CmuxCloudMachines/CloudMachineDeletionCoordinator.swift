@@ -45,7 +45,10 @@ public final class CloudMachineDeletionCoordinator {
     public func begin(_ machineID: String) -> Bool {
         guard !machineID.isEmpty, entries[machineID] == nil else { return false }
         entries[machineID] = .pending
-        projection.hiddenMachineIDs.insert(machineID)
+        var next = projection
+        next.hiddenMachineIDs.insert(machineID)
+        next.pendingMachineIDs.insert(machineID)
+        projection = next
         return true
     }
 
@@ -57,15 +60,20 @@ public final class CloudMachineDeletionCoordinator {
     ///   for a duplicate outcome or one that outlived its account.
     public func finish(_ machineID: String, result: CloudMachineDeletionResult) -> CloudMachineDeletionTransition {
         guard entries[machineID] == .pending else { return .ignored }
+        var next = projection
+        next.pendingMachineIDs.remove(machineID)
+        let transition: CloudMachineDeletionTransition
         switch result {
         case .deleted, .notFound:
             entries[machineID] = .deleted
-            return .retired
+            transition = .retired
         case .failed:
             entries[machineID] = nil
-            projection.hiddenMachineIDs.remove(machineID)
-            return .restored
+            next.hiddenMachineIDs.remove(machineID)
+            transition = .restored
         }
+        projection = next
+        return transition
     }
 
     /// Forgets every deletion when the account or team changes. Outcomes that
@@ -75,7 +83,7 @@ public final class CloudMachineDeletionCoordinator {
     public func endAccount() -> Bool {
         guard !entries.isEmpty else { return false }
         entries.removeAll()
-        projection.hiddenMachineIDs.removeAll()
+        projection = CloudMachineDeletionProjection()
         return true
     }
 }

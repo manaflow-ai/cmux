@@ -88,15 +88,16 @@ and the CLI's idempotency store remain outside this package.
 
 `CloudMachineDeletionCoordinator` owns optimistic machine deletion. `begin` hides a
 machine from every list before the destroy request starts; a second `begin` for the
-same machine is a no-op. The destroy outcome retires the entry (deleted or 404) or
-restores the row (failure). A pending deletion stays hidden whatever a fleet read
-returns. A confirmed one stays hidden until the account ends: provider machine IDs
-are never reused, and each list polls on its own schedule, so no single read proves
-that every list has dropped the machine. `endAccount()` forgets every entry without
-rollback. The app adapter owns the CLI,
-alerts, and closing workspaces, and calls the create owner's
-`retireCreates(producing:)` so a create for the same machine stops without a second
-destroy request:
+same machine is a no-op. On success or 404 the machine stays hidden as a confirmed
+deletion; on failure its row is listed again. A pending deletion stays hidden
+whatever a fleet read returns. A confirmed one stays hidden until the account ends:
+provider machine IDs are never reused, and each list polls on its own schedule, so
+no single read proves that every list has dropped the machine. The projection's
+`hiddenMachineIDs` is what lists omit; `pendingMachineIDs` is the subset that can
+still come back, so a view keeps rollback state only for those. `endAccount()`
+forgets every entry without rollback. The app adapter owns the CLI, alerts, and
+closing workspaces, and calls the create owner's `retireCreates(producing:)` so a
+create for the same machine stops without a second destroy request:
 
 ```swift
 let deletions = CloudMachineDeletionCoordinator()
@@ -107,5 +108,5 @@ case .retired: break                              // close local registrations; 
 case .restored: break                             // row is listed again; alert
 case .ignored: break                              // duplicate, or the account ended
 }
-deletions.endAccount()                            // sign-out: hidden set is empty
+deletions.endAccount()                            // sign-out: both sets are empty
 ```

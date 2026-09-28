@@ -472,7 +472,7 @@ struct MachinesPanelView: View {
             )
         }
         return CloudTreeOutlineView(
-            machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.hiddenMachineIDs,
+            machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
             adoptedOperationIDs: includesCloud ? viewModel.adoptedOperationIDs : [:],
             snapshot: treeSnapshot,

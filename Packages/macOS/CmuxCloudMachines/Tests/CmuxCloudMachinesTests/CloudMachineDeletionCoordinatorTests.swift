@@ -27,13 +27,15 @@ struct CloudMachineDeletionCoordinatorTests {
         )
     }
 
-    @Test func pendingDeletionStaysHiddenUntilItsOutcome() {
+    @Test func pendingDeletionIgnoresOtherMachinesOutcomes() {
         let owner = CloudMachineDeletionCoordinator()
         #expect(owner.begin("doomed"))
         #expect(owner.projection.hiddenMachineIDs == ["doomed"])
+        #expect(owner.projection.pendingMachineIDs == ["doomed"])
         #expect(owner.isPending("doomed"))
         #expect(owner.finish("other", result: .failed) == .ignored, "an unrelated outcome changes nothing")
         #expect(owner.projection.hiddenMachineIDs == ["doomed"])
+        #expect(owner.projection.pendingMachineIDs == ["doomed"])
     }
 
     @Test(arguments: [CloudMachineDeletionResult.deleted, .notFound])
@@ -42,6 +44,7 @@ struct CloudMachineDeletionCoordinatorTests {
         owner.begin("gone")
         #expect(owner.finish("gone", result: result) == .retired)
         #expect(!owner.isPending("gone"))
+        #expect(owner.projection.pendingMachineIDs.isEmpty, "a confirmed deletion has nothing to roll back")
         // One list's fresh read can omit the machine while another list still shows an
         // older read. Provider IDs are never reused, so only the account's end unhides it.
         #expect(owner.projection.hiddenMachineIDs == ["gone"])
@@ -57,6 +60,7 @@ struct CloudMachineDeletionCoordinatorTests {
         owner.begin("other")
         #expect(owner.finish("fails", result: .failed) == .restored)
         #expect(owner.projection.hiddenMachineIDs == ["other"])
+        #expect(owner.projection.pendingMachineIDs == ["other"])
         #expect(owner.finish("fails", result: .deleted) == .ignored, "a late duplicate must not hide the restored row")
         #expect(owner.projection.hiddenMachineIDs == ["other"])
         #expect(owner.begin("fails"), "the person can delete again after a failure")
@@ -137,6 +141,7 @@ struct CloudMachineDeletionCoordinatorTests {
 
         #expect(owner.endAccount())
         #expect(owner.projection.hiddenMachineIDs.isEmpty)
+        #expect(owner.projection.pendingMachineIDs.isEmpty)
         #expect(!owner.endAccount())
         #expect(owner.finish("in-flight", result: .failed) == .ignored, "the departed account's failure must not alert")
         #expect(owner.finish("in-flight", result: .deleted) == .ignored)
