@@ -152,6 +152,11 @@ path = "tests/test_claude_wrapper_subrouter_resume_marker.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_claude_wrapper_generated_settings_fast_path.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_claude_teams_test_utils.py"
 lane = "macos-cli-no-socket"
 
@@ -239,6 +244,12 @@ lane = "macos-cli-no-socket"
 [[test]]
 path = "tests/test_issue_10926_watcher_pid_reuse_guard.py"
 lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_issue_15066_zsh_watcher_sleep.py"
+lane = "macos-cli-no-socket"
+# This test starts disowned watcher processes and verifies their teardown; run it alone.
+serial = true
 
 [[test]]
 path = "tests/test_issue_15067_bash_watcher_churn.py"

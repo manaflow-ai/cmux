@@ -223,9 +223,10 @@ runner between the pick and the queue.
 GUI jobs (app-host shards, tests-build-and-lag) take an owned pool unless
 `vars.CI_PR_POOL_OWNED_GUI == '0'`: the minis' runners are LaunchAgents in
 the logged-in user's Aqua session, and each mini runs one job at a time. With
-it 0 they take `retry_runner`. ci.yml turns off `unit_in_admission` for every
-persistent pick, so the changed suites a compile admission would run itself
-move to shard 8: glaeda gives admission the compile token, not the gui token. On a pool with a root
+it 0 they take `retry_runner`. A compile admission on an owned pool runs the
+changed suites itself when it can take its mini's gui token (take-gui in
+ci-macos.yml) and otherwise leaves them to shard 8, so the plan always counts
+that shard. On a pool with a root
 count whose gui label (`glaeda-gui-<class>-xcode-<version>`, one runner per mini) has a count in
 CI_OWNED_POOL_SLOTS, the placed gui-token jobs (gui_token_job(): the GUI jobs and cli-product) take
 the `gui_runner` output instead of the root label (gui_runner()), so each mini gets at most the one
@@ -2205,8 +2206,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # run is charged the most machines any run can hold.
     plan = FULL_RUN if "RUN_MACOS" not in env else run_plan(
         macos=env.get("RUN_MACOS"), full_suite=env.get("RUN_FULL_SUITE"), unit_suite=env.get("RUN_UNIT_SUITE"),
-        # A persistent pick moves the changed suites out of admission to
-        # shard 8 (ci.yml), so the plan always counts that shard.
+        # An owned admission that cannot take its mini's gui token leaves the
+        # changed suites to shard 8 (ci-macos.yml), so the plan counts it.
         unit_in_admission="false", claude_wrapper=env.get("RUN_CLAUDE_WRAPPER"),
         cli=env.get("RUN_CLI"), remote_daemon=env.get("RUN_REMOTE_DAEMON"),
         unit_selectors=env.get("RUN_UNIT_SELECTORS"),
