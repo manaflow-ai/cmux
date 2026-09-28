@@ -397,6 +397,11 @@ public struct TerminalPredictionEngine: Sendable {
                 hasObservedAlternateScreenSwitch = true
                 changed = withdrawAll(countingMisprediction: false, at: now) || changed
 
+            case .disruptive where isAwaitingBarrier:
+                // The remote's answer to Return, an arrow or a paste: the
+                // unmodelled key did what it does, not a wrong guess.
+                changed = resolveBarrier(at: now) || changed
+
             case .disruptive:
                 // The remote moved the screen somewhere we did not predict, so
                 // every offset we are holding is now measured from the wrong
@@ -426,6 +431,9 @@ public struct TerminalPredictionEngine: Sendable {
     public mutating func typedLineErase(at now: PredictionInstant) -> Bool {
         guard isActive else { return false }
         let expired = expire(at: now)
+        // Behind a barrier the line was already submitted or changed in a
+        // way not modelled; this key acts on whatever the remote shows now.
+        if hasBarrier { return expired }
         var changed = false
         for index in entries.indices where entries[index].standing == .speculative {
             guard case .glyph = entries[index].keystroke,
@@ -433,7 +441,6 @@ public struct TerminalPredictionEngine: Sendable {
             entries[index].isMasked = true
             changed = true
         }
-        if hasBarrier { return changed || expired }
         if raiseBarrierIfInFlight(at: now) { return changed || expired }
         return withdrawAll(countingMisprediction: false, at: now, sendingKeystroke: true) || expired
     }
@@ -637,6 +644,11 @@ public struct TerminalPredictionEngine: Sendable {
         entries.contains { $0.keystroke == .barrier }
     }
 
+    /// Whether the next output answers a barrier rather than a prediction.
+    private var isAwaitingBarrier: Bool {
+        entries.first { $0.standing == .speculative }?.keystroke == .barrier
+    }
+
     /// Puts a barrier behind the glyphs in flight, when there are any the
     /// user can see, so they stay drawn until their own echoes confirm them.
     /// Returns whether it did; without one the caller withdraws as before.
@@ -694,12 +706,15 @@ public struct TerminalPredictionEngine: Sendable {
 
         // Erases and retracted glyphs expire too: an echo that never comes
         // leaves every later offset measured from the wrong cell.
-        let expiredSpeculation = entries.contains {
+        let expired = entries.filter {
             $0.standing == .speculative && now - $0.typedAt > configuration.speculativeLifetime
         }
-        guard expiredSpeculation else { return staleConfirmation }
+        guard !expired.isEmpty else { return staleConfirmation }
         // Nothing came back. Whatever we drew was wrong, or the link stalled.
-        return withdrawAll(countingMisprediction: true, at: now) || staleConfirmation
+        // A key with no visible effect (an arrow at the end of the line) can
+        // leave only its barrier unanswered, which guessed nothing.
+        let guessed = expired.contains { $0.keystroke != .barrier }
+        return withdrawAll(countingMisprediction: guessed, at: now) || staleConfirmation
     }
 
     private static func isAlternateScreen(_ signal: TerminalOutputSignal) -> Bool {
