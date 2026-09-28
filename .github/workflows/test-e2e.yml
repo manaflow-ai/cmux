@@ -1147,9 +1147,15 @@ jobs:
       # dispatch still publishes what it compiled. The tested revision's test
       # code ran between packaging and here, so the archive must still hash
       # to what the package step sealed.
+      #
+      # A product this job adopted is already published by the run that
+      # compiled it, under the same name, and later dispatches adopt it from
+      # there. Uploading it again only held the verdict: 162 s at the median
+      # on owned Macs (18 adopting runs, 2026-09-25 to 09-28). It is uploaded
+      # only when the `test` job needs it.
       - name: Check the product archive before the late upload
         id: late-upload-check
-        if: ${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' }}
+        if: ${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' && (steps.reuse.outputs.hit != 'true' || steps.test-here.outputs.tested != 'true') }}
         env:
           EXPECTED_SHA256: ${{ steps.package.outputs.sha256 }}
         run: echo "$EXPECTED_SHA256  $RUNNER_TEMP/app-host-products.tar.gz" | shasum -a 256 -c -
