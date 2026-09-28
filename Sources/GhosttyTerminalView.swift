@@ -356,6 +356,10 @@ class GhosttyApp {
     /// Diagnostics from the most recent full load of the user's Ghostty
     /// config (launch or reload), read by the config-error notice.
     private(set) var lastLoadedConfigDiagnosticMessages: [String] = []
+    /// Runs on the main actor immediately before a full configuration reload
+    /// reads the user's config files, so the config file watcher records
+    /// exactly what that load sees.
+    @MainActor var configurationFilesWillLoad: (@MainActor () -> Void)?
 #if DEBUG
     /// Installs `newConfig` as the app config and returns the previous one,
     /// which the caller then owns. Tests change a setting on a clone through
@@ -2096,6 +2100,7 @@ class GhosttyApp {
             completion()
             return
         }
+        configurationFilesWillLoad?()
         let renderingModeChanged = loadDefaultConfigFilesWithLegacyFallback(
             newConfig,
             preferredColorScheme: reloadColorScheme
