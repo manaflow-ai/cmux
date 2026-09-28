@@ -1,6 +1,6 @@
 import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 import { requireVmPrincipal, vmPrincipalFailureResponse } from "@/services/vms/vmPrincipal";
-import { vmPromptName } from "@/services/vms/guestPrompt";
+import { vmPromptName } from "@/services/vms/promptName";
 
 const JSON_HEADERS = {
   "cache-control": "no-store",
