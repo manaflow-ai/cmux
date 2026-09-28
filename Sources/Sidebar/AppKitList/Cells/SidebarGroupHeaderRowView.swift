@@ -111,6 +111,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         statusGlyphView.isPresentationActive = isActive
     }
 
+    /// Stops the live presentation without forgetting what it should go back
+    /// to. Only the glyph view's flag is cleared, never this cell's: `configure`
+    /// reapplies the cell's stored `isPresentationActive` to the glyph view on
+    /// every reconfiguration, so clearing the stored one here would leave
+    /// nothing to restore it and a reused cell's pulse would never start again.
     func suspendPresentation() {
         actions = nil
         contextMenuDidOpen = nil
