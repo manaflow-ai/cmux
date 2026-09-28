@@ -143,17 +143,34 @@ class GuiOverflow(unittest.TestCase):
         self.assertIn(f"and 50 on `{RETRY}`", why)
 
     def test_jobs_move_only_while_blacksmith_would_start_them_sooner(self):
-        # 25 ahead on ten gui runners: the first job starts in 2.6 rounds there, 1.8 behind 8 on 12vcpu's
-        # five. Each move lengthens Blacksmith's queue by a fifth of a round and the gui one by a tenth,
-        # so the ninth job (3.4 against 3.4) stays.
+        # 25 ahead on ten gui runners: a job starts in 2.6 rounds there, 1.8 behind 8 on 12vcpu's five.
+        # A move lengthens Blacksmith's queue by a fifth of a round, a job that stays the gui one by a
+        # tenth: 1st to 4th move (1.8 to 2.4), 5th stays (2.6 against 2.6), 6th moves (2.6 against 2.7),
+        # 7th and 8th stay, 9th moves (2.8 against 2.9).
         count, _ = self.backlog(queued=25, retry_queued=8)
         placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], count)
-        order = sorted(placed, key=late.pool.priority)
-        self.assertEqual(len(placed), 8)
+        mine = sorted({*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"}, key=late.pool.priority)
+        self.assertEqual(placed, {mine[i]: RETRY for i in (0, 1, 2, 3, 5, 8)})
+
+    def test_an_empty_blacksmith_pool_takes_its_machines_at_once(self):
+        # Twenty gui runners, twenty jobs ahead: each job waits over a round there, none on an idle 12vcpu.
+        count, _ = self.backlog(queued=20, retry_queued=0)
+        placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=20)], count)
+        self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"})
+
+    def test_no_gui_runner_online_moves_every_owned_gui_job_without_a_read(self):
+        count, calls = self.backlog(queued=0, retry_queued=99)
+        placed, _ = late.decide(OWNED, roots(idle=2), count)
         self.assertEqual(set(placed.values()), {RETRY})
-        stayed = {*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"} - set(placed)
-        self.assertEqual(len(stayed), 1)
-        self.assertGreater(late.pool.priority(stayed.pop()), late.pool.priority(order[-1]))
+        self.assertEqual(len(placed), 9)
+        self.assertEqual(calls, [])
+
+    def test_the_kill_switch_reads_only_the_gui_backlog(self):
+        count, calls = self.backlog(queued=1, retry_queued=99)
+        placed, _ = late.decide(dict(OWNED, POOL_QUEUE_ROUNDS="0"), [*roots(idle=2), *guis(idle=3, busy=7)], count)
+        self.assertEqual(calls, [[GUI]])
+        # The one queued ahead takes an idle runner: two of the nine stay, whatever Blacksmith's queue.
+        self.assertEqual(len(placed), 7)
 
     def test_a_backlog_past_a_round_moves_every_owned_gui_job(self):
         count, _ = self.backlog(queued=25)

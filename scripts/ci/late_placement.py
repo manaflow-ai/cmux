@@ -151,25 +151,32 @@ def gui_backlog(github: Any, labels: Sequence[str], *, exclude_run_id: int | Non
 def overflow(jobs: Sequence[str], *, owned_jobs: str, gui_idle: int, gui_online: int, backlog: int,
              rounds: int, retry_queued: int | None = None, retry_capacity: int = pool.POOL_CAPACITY) -> tuple[str, ...]:
     """The owned gui-token jobs that would wait more than `rounds` gui job lengths and would start sooner on
-    the retry pool; the highest priority stay.
+    the retry pool.
 
     The `backlog` queued before them takes the idle runners first; after those, a job at queue place q
-    waits about q / gui_online rounds, so gui_idle + rounds x gui_online places are allowed in all. Past
-    those, a job moves only while the retry pool, with `retry_queued` jobs ahead on `retry_capacity`
-    machines and the jobs moved before it, would start it within fewer rounds. Without `retry_queued`
-    (rounds 0, the kill switch) every job past the allowed places moves."""
+    waits about q / gui_online rounds, so gui_idle + rounds x gui_online places are allowed in all, to the
+    highest priority jobs. Past those, in priority order, each job goes wherever it starts sooner: behind
+    the jobs that stayed on the gui label, or behind `retry_queued` and the jobs moved before it on the
+    retry pool's `retry_capacity` machines, which start at once while nothing is queued there. Without
+    `retry_queued` (rounds 0, the kill switch) every job past the allowed places moves."""
     owned = f" {owned_jobs.strip()} "
     mine = sorted((key for key in jobs if f" {key} " in owned and pool.gui_token_job(key)), key=pool.priority)
     # GitHub hands the idle runners to the jobs queued before these first.
     keep = max(0, max(0, gui_idle) + rounds * max(0, gui_online) - max(0, backlog))
     if retry_queued is None:
         return tuple(mine[keep:])
+    capacity = max(1, retry_capacity)
+    retry_idle = capacity if retry_queued <= 0 else 0
     moved: list[str] = []
-    for place, key in enumerate(mine[keep:], start=keep):
-        gui_rounds = (max(0, backlog) + place - max(0, gui_idle) + 1) / gui_online if gui_online > 0 else float("inf")
-        retry_rounds = (max(0, retry_queued) + len(moved) + 1) / max(1, retry_capacity)
+    stayed = 0
+    for key in mine[keep:]:
+        ahead = max(0, backlog) + keep + stayed - max(0, gui_idle)
+        gui_rounds = (ahead + 1) / gui_online if gui_online > 0 else float("inf")
+        retry_rounds = max(0, max(0, retry_queued) + len(moved) + 1 - retry_idle) / capacity
         if retry_rounds < gui_rounds:
             moved.append(key)
+        else:
+            stayed += 1
     return tuple(moved)
 
 
@@ -206,14 +213,18 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
         online = pool.live_online(runners, [gui_label])[gui_label]
         try:
             # With no rounds (the kill switch) nothing queues on purpose: every job past the idle runners moves,
-            # whatever the retry pool's queue, and with nothing idle all move without a read.
-            labels = [gui_label, retry] if rounds > 0 else [gui_label] if gui_idle > 0 else []
+            # whatever the retry pool's queue. With nothing idle and no rounds or no gui runner online, every
+            # job moves without a read.
+            if gui_idle <= 0 and (rounds <= 0 or online <= 0):
+                labels = []
+            else:
+                labels = [gui_label, retry] if rounds > 0 else [gui_label]
             counts = backlog(labels) if labels else {}
         except Exception as error:  # noqa: BLE001 - an unread backlog moves nothing
             print(f"::warning title=late placement::could not count the gui backlog ({error})")
             counts = None
         if counts is not None:
-            queued, retry_queued = counts.get(gui_label, 0), counts.get(retry) if rounds > 0 else None
+            queued, retry_queued = counts.get(gui_label, 0), counts.get(retry) if labels[1:] else None
             moved_off = overflow(jobs, owned_jobs=owned_jobs, gui_idle=gui_idle, gui_online=online,
                                  backlog=queued, rounds=rounds, retry_queued=retry_queued,
                                  retry_capacity=pool.POOL_CAPACITIES.get(retry, pool.POOL_CAPACITY))
