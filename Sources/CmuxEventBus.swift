@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+nonisolated private let cmuxEventBusLogger = Logger(subsystem: "com.cmuxterm.app", category: "events")
 
 struct CmuxEventSubscriptionSnapshot {
     let subscription: CmuxEventSubscription
@@ -245,6 +248,7 @@ final class CmuxEventBus: @unchecked Sendable {
     private var subscriptions: [UUID: CmuxEventSubscription] = [:]
     private var pendingPublishes: [PendingPublish] = []
     private var pendingSubscriptions: [UUID: PendingSubscription] = [:]
+    private var sequenceAllocationFailureLogged = false
 
     init(
         retainedEventLimit: Int = CmuxEventBus.defaultRetainedEventLimit,
@@ -361,6 +365,13 @@ final class CmuxEventBus: @unchecked Sendable {
     private func publishDurableOnPublicationQueue(_ pending: PendingPublish) {
         guard let sequenceStore,
               let sequence = sequenceStore.allocate() else {
+            lock.lock()
+            let shouldLog = !sequenceAllocationFailureLogged
+            sequenceAllocationFailureLogged = true
+            lock.unlock()
+            if shouldLog {
+                cmuxEventBusLogger.error("Dropped durable event because sequence range reservation failed")
+            }
             return
         }
 
@@ -627,6 +638,7 @@ final class CmuxEventBus: @unchecked Sendable {
         subscriptions.removeAll()
         pendingPublishes.removeAll()
         pendingSubscriptions.removeAll()
+        sequenceAllocationFailureLogged = false
         lock.unlock()
         active.forEach { $0.close() }
         sequenceStore?.resetForTesting()
@@ -699,13 +711,19 @@ final class CmuxEventBus: @unchecked Sendable {
         }
 
         var loaded = segments.flatMap { $0 }
+        let persistedHighWater = CmuxEventSequenceStore(eventLogURL: eventLogURL).current()
         var seenSequences = Set<Int64>()
         var highestSequence: Int64 = 0
+        var rebaseFloor = persistedHighWater
         for index in loaded.indices {
             guard let originalSequence = int64(loaded[index]["seq"]) else { continue }
-            let normalizedSequence = seenSequences.contains(originalSequence)
-                ? highestSequence + 1
-                : originalSequence
+            let normalizedSequence: Int64
+            if seenSequences.contains(originalSequence) {
+                rebaseFloor = max(rebaseFloor, highestSequence) + 1
+                normalizedSequence = rebaseFloor
+            } else {
+                normalizedSequence = originalSequence
+            }
             if normalizedSequence != originalSequence {
                 loaded[index]["legacy_seq"] = NSNumber(value: originalSequence)
                 loaded[index]["seq"] = NSNumber(value: normalizedSequence)
@@ -719,7 +737,6 @@ final class CmuxEventBus: @unchecked Sendable {
             (int64(lhs["seq"]) ?? 0) < (int64(rhs["seq"]) ?? 0)
         }
 
-        let persistedHighWater = CmuxEventSequenceStore(eventLogURL: eventLogURL).current()
         let nextSequence = max(highestSequence, persistedHighWater) + 1
 
         return PersistedEventRestore(

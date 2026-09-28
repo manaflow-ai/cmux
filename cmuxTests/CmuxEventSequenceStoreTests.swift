@@ -46,6 +46,27 @@ final class CmuxEventSequenceStoreTests: XCTestCase {
         XCTAssertEqual(secondHighWater, firstHighWater)
     }
 
+    func testDuplicateReplayRebasesAbovePersistedHighWater() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-sequence-rebase-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let first: [String: Any] = ["type": "event", "seq": 1, "name": "first"]
+        let duplicate: [String: Any] = ["type": "event", "seq": 1, "name": "duplicate"]
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let lines = try [first, duplicate].map { try XCTUnwrap(CmuxEventBus.encodeLine($0)) }.joined(separator: "\n") + "\n"
+        try lines.write(to: logURL, atomically: true, encoding: .utf8)
+        try "100\n".write(to: logURL.appendingPathExtension("seq"), atomically: true, encoding: .utf8)
+
+        let bus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL)
+        await bus.waitUntilRestored()
+        let replay = bus.subscribe(afterSequence: 0, names: [], categories: [])
+        defer { bus.unsubscribe(replay.subscription) }
+
+        XCTAssertEqual(replay.replay.compactMap { CmuxEventBus.int64($0["seq"]) }, [1, 101])
+    }
+
     func testSequenceStoresSharingFileLeaseUniqueRanges() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-sequence-shared-\(UUID().uuidString)", isDirectory: true)
