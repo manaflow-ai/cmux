@@ -225,6 +225,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             ? 6
             : 4
         backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
+        applySelectionEdge(headerSelectionEdgeColor(for: model))
 
         topDropIndicator.accentColor = model.accentColor
         bottomDropIndicator.accentColor = model.accentColor
@@ -260,6 +261,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     }
 
 #if DEBUG
+    var selectionEdgeWidthForTesting: CGFloat {
+        backgroundView.layer?.borderWidth ?? 0
+    }
+
     var dropIndicatorPaintForTesting: (top: Bool, bottom: Bool) {
         (!topDropIndicator.isHidden, !bottomDropIndicator.isHidden)
     }
@@ -290,6 +295,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 4
         backgroundView.layer?.backgroundColor = labelColor.withAlphaComponent(0.08).cgColor
+        applySelectionEdge(model.anchorActiveEdgeColor)
         CATransaction.commit()
         nameField.textColor = labelColor
     }
@@ -302,6 +308,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 6
         backgroundView.layer?.backgroundColor = headerMultiSelectionBackgroundColor(for: model).cgColor
+        applySelectionEdge(model.multiSelectionBackgroundStyle.edgeColor)
         CATransaction.commit()
     }
 
@@ -313,6 +320,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 4
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
+        applySelectionEdge(nil)
         CATransaction.commit()
         let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
         nameField.textColor = SidebarAppearanceColorResolver().resolvedColor(
@@ -346,6 +354,18 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             return headerMultiSelectionBackgroundColor(for: model)
         }
         return .clear
+    }
+
+    /// Subtle-selection hairline, matching selected workspace rows.
+    private func headerSelectionEdgeColor(for model: SidebarGroupHeaderRowModel) -> NSColor? {
+        if model.isAnchorActive { return model.anchorActiveEdgeColor }
+        if model.isMultiSelected { return model.multiSelectionBackgroundStyle.edgeColor }
+        return nil
+    }
+
+    private func applySelectionEdge(_ edgeColor: NSColor?) {
+        backgroundView.layer?.borderWidth = edgeColor == nil ? 0 : 1
+        backgroundView.layer?.borderColor = edgeColor?.cgColor
     }
 
     private func headerMultiSelectionBackgroundColor(

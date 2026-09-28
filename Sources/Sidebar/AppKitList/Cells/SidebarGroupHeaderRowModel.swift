@@ -20,6 +20,9 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let isAnchorActive: Bool
     let isMultiSelected: Bool
     let multiSelectionBackgroundStyle: SidebarWorkspaceRowBackgroundStyle
+    /// Subtle-selection hairline for the anchor-active header; nil when the
+    /// header paints no edge.
+    var anchorActiveEdgeColor: NSColor? = nil
     let memberCount: Int
     var anchorUnreadCount: Int
     var canMarkRead: Bool
