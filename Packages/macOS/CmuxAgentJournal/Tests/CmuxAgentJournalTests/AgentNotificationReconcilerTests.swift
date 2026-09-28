@@ -9,12 +9,12 @@ struct AgentNotificationReconcilerTests {
     private func event(_ sequence: Int64, _ kind: AgentJournalEventKind, source: String,
                        turn: String? = "turn-1", request: String? = nil, pending: Bool = false,
                        notify: Bool = true, occurredAt: Int64? = nil, nativeID: String? = nil,
-                       surfaceID: String? = nil) -> AgentJournalEvent {
+                       surfaceID: String? = nil, declaredPhase: AgentLifecyclePhase? = nil) -> AgentJournalEvent {
         AgentJournalEvent(sequence: sequence, committedAtMs: 1000 + sequence,
             draft: AgentJournalEventDraft(eventId: "event-\(sequence)", kind: kind,
                 occurredAtMs: occurredAt ?? sequence, source: source, agentKey: source,
                 sessionId: "session", workspaceId: workspace, surfaceId: surfaceID ?? surface,
-                pendingWork: pending, attention: AgentAttentionContext(eventIdentity: nativeID,
+                pendingWork: pending, declaredPhase: declaredPhase, attention: AgentAttentionContext(eventIdentity: nativeID,
                     turnIdentity: turn, requestIdentity: request,
                     notification: notify ? AgentJournalNotification(title: "Agent", subtitle: "",
                         body: "Ready", category: kind == .turnCompleted ? "turn-complete" : "needs-permission") : nil)))
@@ -302,6 +302,17 @@ struct AgentNotificationReconcilerTests {
         #expect(reconciler.apply(replay).invalidatedCorrelationKeys.isEmpty)
         #expect(reconciler.lifecycleEvent(replay).draft.declaredPhase == .needsInput)
         #expect(later.identity != wait.identity)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func idleAttentionResolutionProjectsIdle(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnStarted, source: source, notify: false))
+        _ = reconciler.apply(event(2, .questionRequested, source: source, request: "idle-dialog"))
+        let response = event(3, .attentionResolved, source: source, request: "idle-dialog",
+                             notify: false, declaredPhase: .idle)
+        _ = reconciler.apply(response)
+        #expect(reconciler.lifecycleEvent(response).draft.declaredPhase == .idle)
     }
 
     @Test(arguments: ["claude", "codex"])
