@@ -22,6 +22,23 @@ struct EmptyPaneArtSettingsTests {
         #expect(CmuxSettingsFileStore.supportedSettingsJSONPaths.contains("emptyPane.artFile"))
     }
 
+    @Test func removingArtFileFromSettingsRestoresTheDefaultView() throws {
+        let suiteName = "cmux-empty-pane-art-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settingsFile = directory.appendingPathComponent("cmux.json")
+
+        try #"{ "emptyPane": { "artFile": "/tmp/art.ans" } }"#.write(to: settingsFile, atomically: true, encoding: .utf8)
+        _ = makeStore(settingsFile: settingsFile, defaults: defaults)
+        #expect(defaults.string(forKey: artFileKey) == "/tmp/art.ans")
+
+        try "{}".write(to: settingsFile, atomically: true, encoding: .utf8)
+        _ = makeStore(settingsFile: settingsFile, defaults: defaults)
+        #expect((defaults.string(forKey: artFileKey) ?? "").isEmpty)
+    }
+
     @Test func settingsFileStoreIgnoresNonStringArtFile() throws {
         try withSettingsFile(#"{ "emptyPane": { "artFile": 42 } }"#) { defaults in
             #expect(defaults.object(forKey: artFileKey) == nil)
@@ -68,7 +85,13 @@ struct EmptyPaneArtSettingsTests {
         let settingsFile = directory.appendingPathComponent("cmux.json")
         try json.write(to: settingsFile, atomically: true, encoding: .utf8)
 
-        let store = KeyboardShortcutSettingsFileStore(
+        let store = makeStore(settingsFile: settingsFile, defaults: defaults)
+        #expect(store.activeSourcePath == settingsFile.path)
+        try verify(defaults)
+    }
+
+    private func makeStore(settingsFile: URL, defaults: UserDefaults) -> KeyboardShortcutSettingsFileStore {
+        KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFile.path,
             fallbackPath: nil,
             additionalFallbackPaths: [],
@@ -77,8 +100,6 @@ struct EmptyPaneArtSettingsTests {
             startWatching: false,
             isUserDefaultsKeyForcedByProfile: { _ in false }
         )
-        #expect(store.activeSourcePath == settingsFile.path)
-        try verify(defaults)
     }
 
     private func makeTemporaryDirectory() throws -> URL {

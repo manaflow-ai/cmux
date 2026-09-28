@@ -139,6 +139,25 @@ import Testing
         #expect(art.lines[0].text.hasSuffix("B"))
     }
 
+    @Test func c1StringsAndMalformedCSIDoNotPrintTheirPayload() throws {
+        let art = try #require(parser.parse("A\u{9D}0;title\u{07}B\u{90}payload\u{9C}C\(esc)[!1mD\(esc)[1 ;2mE"))
+        #expect(art.lines.map(\.text) == ["ABCDE"])
+        #expect(runs(art).allSatisfy { !$0.style.isBold })
+    }
+
+    @Test func colonTruecolorWithColorspaceAndExtrasPicksRGB() throws {
+        let art = try #require(parser.parse("\(esc)[38:2:0:10:20:30:0:0mA\(esc)[48:2:1:40:50:60mB"))
+        #expect(runs(art)[0].style.foreground == .rgb(ANSIArtRGB(10, 20, 30)))
+        #expect(runs(art)[1].style.background == .rgb(ANSIArtRGB(40, 50, 60)))
+    }
+
+    @Test func wideCharactersTakeTwoCells() throws {
+        let art = try #require(parser.parse("日本\u{1F600}a"))
+        #expect(art.columnCount == 7)
+        #expect(ANSIArt.cellWidth(of: "━") == 1)
+        #expect(ANSIArt.cellWidth(of: "\u{AC00}") == 2)
+    }
+
     @Test func combiningMarksShareTheirBaseCell() throws {
         let art = try #require(parser.parse("e\u{301}x\n\u{301}"))
         #expect(art.lines[0].columnCount == 2)
