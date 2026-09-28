@@ -47,6 +47,8 @@ SOURCE_CHILD_RE = re.compile(
 SOURCE_PHASE_RE = re.compile(
     r"^\s*[0-9A-Za-z]+ /\* .+\.(?:swift|m|mm|c|cc|cpp|h|metal) in Sources \*/,\s*$"
 )
+PBX_PATH_RE = re.compile(r"\bpath\s*=\s*([^;]+);")
+PBX_SOURCE_TREE_RE = re.compile(r"\bsourceTree\s*=\s*([^;]+);")
 
 
 def load_mergers():
@@ -132,7 +134,9 @@ def source_entry_union(module, base: str, ours: str, theirs: str) -> str:
             prefix += part
             continue
         ours_lines, base_lines, theirs_lines = part
+        file_references: list[dict[tuple[str, str], set[str]]] = []
         for side in (ours_lines, theirs_lines):
+            side_references: dict[tuple[str, str], set[str]] = {}
             slots = module.insertions(base_lines, side)
             if slots is None:
                 raise ValueError(
@@ -148,6 +152,20 @@ def source_entry_union(module, base: str, ours: str, theirs: str) -> str:
                         "automatic union is limited to source-file project entries;"
                         " order-sensitive or unknown insertions need a person"
                     )
+                if section == "PBXFileReference" and depth == 2 and array is None:
+                    for line in lines:
+                        path = PBX_PATH_RE.search(line)
+                        source_tree = PBX_SOURCE_TREE_RE.search(line)
+                        if path and source_tree:
+                            key = (path.group(1).strip(), source_tree.group(1).strip())
+                            side_references.setdefault(key, set()).add(line.strip())
+            file_references.append(side_references)
+        ours_references, theirs_references = file_references
+        for key in ours_references.keys() & theirs_references.keys():
+            if ours_references[key] != theirs_references[key]:
+                raise ValueError(
+                    "both sides added the same logical file with different Xcode object IDs"
+                )
         prefix += "".join(base_lines)
     return merged
 
@@ -206,7 +224,7 @@ def normalized(text: str, name: str) -> str | None:
         scratch = Path(directory) / "project.pbxproj"
         scratch.write_text(text, encoding="utf-8")
         completed = subprocess.run(
-            [sys.executable, str(NORMALIZER), str(scratch)],
+            [sys.executable, "-I", str(NORMALIZER), str(scratch)],
             capture_output=True,
             text=True,
             check=False,

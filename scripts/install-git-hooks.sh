@@ -88,13 +88,13 @@ case "$PYTHON3_BIN" in
         exit 1
         ;;
 esac
-printf -v XCSTRINGS_DRIVER '%q %q %%O %%A %%B %%P' \
+printf -v XCSTRINGS_DRIVER '%q -I %q %%O %%A %%B %%P' \
     "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-xcstrings.py"
-printf -v PBXPROJ_DRIVER '%q %q %%O %%A %%B %%P' \
+printf -v PBXPROJ_DRIVER '%q -I %q %%O %%A %%B %%P' \
     "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-pbxproj.py"
-git config merge.xcstrings.name "Xcode string catalog (key-wise three-way merge)"
-git config merge.xcstrings.driver "$XCSTRINGS_DRIVER"
-echo "==> .xcstrings merge driver installed (merge.xcstrings.driver)."
-git config merge.pbxproj.name "Xcode project file (three-way union of added entries)"
-git config merge.pbxproj.driver "$PBXPROJ_DRIVER"
-echo "==> project.pbxproj merge driver installed (merge.pbxproj.driver)."
+git config merge.xcstrings-v2.name "Xcode string catalog (trusted key-wise three-way merge)"
+git config merge.xcstrings-v2.driver "$XCSTRINGS_DRIVER"
+echo "==> .xcstrings merge driver installed (merge.xcstrings-v2.driver)."
+git config merge.pbxproj-v1.name "Xcode project file (trusted union of added entries)"
+git config merge.pbxproj-v1.driver "$PBXPROJ_DRIVER"
+echo "==> project.pbxproj merge driver installed (merge.pbxproj-v1.driver)."

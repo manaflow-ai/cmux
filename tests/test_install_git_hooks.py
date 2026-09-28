@@ -76,15 +76,16 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertTrue((installed / "ci" / "catch_up_pr.py").is_file())
 
         for key, name in (
-            ("merge.xcstrings.driver", "merge-xcstrings.py"),
-            ("merge.pbxproj.driver", "merge-pbxproj.py"),
+            ("merge.xcstrings-v2.driver", "merge-xcstrings.py"),
+            ("merge.pbxproj-v1.driver", "merge-pbxproj.py"),
         ):
             command = self.git("config", "--get", key).stdout.strip()
             words = shlex.split(command)
             self.assertTrue(Path(words[0]).is_absolute())
             self.assertFalse(Path(words[0]).resolve().is_relative_to(self.repo.resolve()))
-            self.assertEqual(Path(words[1]).resolve(), (installed / name).resolve())
-            self.assertEqual(words[2:], ["%O", "%A", "%B", "%P"])
+            self.assertEqual(words[1], "-I")
+            self.assertEqual(Path(words[2]).resolve(), (installed / name).resolve())
+            self.assertEqual(words[3:], ["%O", "%A", "%B", "%P"])
             self.assertNotIn(f"scripts/{name}", command)
 
     def test_clean_clone_uses_tracked_hooks(self):
@@ -96,8 +97,8 @@ class InstallGitHooksTests(unittest.TestCase):
     def test_merge_driver_does_not_follow_checked_out_script_changes(self):
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
-        command = self.git("config", "--get", "merge.pbxproj.driver").stdout.strip()
-        installed_driver = Path(shlex.split(command)[1])
+        command = self.git("config", "--get", "merge.pbxproj-v1.driver").stdout.strip()
+        installed_driver = Path(shlex.split(command)[2])
         reviewed = installed_driver.read_bytes()
 
         (self.repo / "scripts" / "merge-pbxproj.py").write_text(

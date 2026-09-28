@@ -171,6 +171,20 @@ def test_both_sides_add_the_same_file_once():
     assert merged.count("Shared.swift in Sources */ = {isa = PBXBuildFile;") == 1, merged
 
 
+def test_same_file_with_different_object_ids_is_refused():
+    base = project(["Alpha.swift"])
+    ours = project(["Alpha.swift", "Shared.swift"])
+    theirs = project(["Alpha.swift", "Shared.swift"])
+    theirs = theirs.replace(uuid("frShared.swift"), uuid("frShared.swift-theirs"))
+    theirs = theirs.replace(uuid("bfShared.swift"), uuid("bfShared.swift-theirs"))
+
+    code, merged, stderr = run(base, ours, theirs)
+
+    assert code == 1
+    assert "same logical file" in stderr, stderr
+    assert "<" * 32 in merged
+
+
 def test_one_sided_change_applies():
     base = project(["Alpha.swift"])
     ours = project(["Alpha.swift"])
