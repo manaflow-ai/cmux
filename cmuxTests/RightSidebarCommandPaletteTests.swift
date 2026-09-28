@@ -9,6 +9,22 @@ import XCTest
 #endif
 
 final class RightSidebarCommandPaletteTests: XCTestCase {
+    func testStoredLegacyDockOptOutDoesNotHideDockCommand() throws {
+        let defaults = UserDefaults.standard
+        let key = "rightSidebar.beta.dock.enabled"
+        let previous = defaults.object(forKey: key)
+        defaults.set(false, forKey: key)
+        defer {
+            if let previous { defaults.set(previous, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+
+        XCTAssertTrue(RightSidebarMode.availableModes().contains(.dock))
+        XCTAssertTrue(
+            ContentView.commandPaletteRightSidebarModeCommandContributions()
+                .contains { $0.commandId == ContentView.commandPaletteRightSidebarModeCommandID(.dock) }
+        )
+    }
     func testCommandPaletteIncludesDefaultRightSidebarModes() throws {
         try withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
