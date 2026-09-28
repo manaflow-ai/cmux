@@ -13,7 +13,7 @@ import { parseAgentUpdatesBody } from "../../../../../services/vms/agentUpdatesR
  * Set whether a machine keeps its image's coding-agent versions ("image") or
  * updates them to npm's latest on attach ("latest"). The row is the source of
  * truth; a running machine is told after the response, and every attach of an
- * opted-in machine re-sends it. Answers with the machine entry.
+ * opted-in machine re-sends it. Answers `{ id, agentUpdates }`.
  */
 export async function PUT(
   request: Request,
@@ -48,7 +48,7 @@ export async function PUT(
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }), { request });
       if (!run.ok) return run.response;
-      return jsonResponse(run.value);
+      return jsonResponse({ id: run.value.providerVmId, agentUpdates: run.value.agentUpdates });
     },
   );
 }

@@ -164,6 +164,8 @@ export async function GET(request: Request): Promise<Response> {
         // (epoch ms); null on paid plans or when the window is disabled. Clients
         // render countdowns from this instead of re-deriving the policy.
         freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, freeAccessWindowDays),
+        // "image" keeps the baked coding-agent pins; "latest" updates them on attach.
+        agentUpdates: entry.agentUpdates,
       }));
       const limits = listEntitlements
         ? {
@@ -329,6 +331,7 @@ export async function POST(request: Request): Promise<Response> {
         // (~2 s measured) for data this response already had.
         address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
         cmuxTuiContract: created.cmuxTuiContract,
+        agentUpdates: created.agentUpdates,
       });
     },
   );

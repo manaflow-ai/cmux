@@ -234229,6 +234229,65 @@
         }
       }
     },
+    "machines.operation.agentUpdates": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changing agent updates on %@…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Updates für %@ werden geändert…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modification des mises à jour des agents sur %@…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ تغيير تحديثات الوكلاء على %@…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiando las actualizaciones de agentes en %@…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在變更 %@ 的代理更新…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在更改 %@ 的代理更新…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 에이전트 업데이트 변경 중…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のエージェントの更新を変更しています…"
+          }
+        }
+      }
+    },
     "machines.operation.fork": {
       "extractionState": "manual",
       "localizations": {
@@ -569124,6 +569183,714 @@
           "stringUnit": {
             "state": "translated",
             "value": "Термінал зараз не запущено, наприклад тому що він у режимі сну або ще запускається. Покажіть його в cmux і спробуйте ще раз."
+          }
+        }
+      }
+    },
+    "cli.vm.agentUpdates.invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: agent updates must be latest or image."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: يجب أن تكون قيمة تحديثات الوكلاء latest أو image."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Agent-Updates müssen latest oder image sein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: las actualizaciones de agentes deben ser latest o image."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ : les mises à jour des agents doivent valoir latest ou image."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: エージェントの更新は latest または image を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 에이전트 업데이트는 latest 또는 image여야 합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：代理更新必须是 latest 或 image。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：代理更新必須是 latest 或 image。"
+          }
+        }
+      }
+    },
+    "cli.vm.agentUpdates.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm agent-updates <id>                 Show the machine's setting.\n  cmux vm agent-updates <id> <latest|image>  Change it.\n\nlatest updates Claude Code, Codex, OpenCode, and Pi to the newest npm\nrelease when you connect, at most once a day. image keeps the versions the\nmachine's image baked (the default). Updates need registry.npmjs.org: with\nnetwork mode none, or an allowlist without the npm preset, they fail. Add\n--json for the structured result."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام:\n  cmux vm agent-updates <id>                 اعرض إعداد الآلة.\n  cmux vm agent-updates <id> <latest|image>  غيّره.\n\nيحدّث latest كلًا من Claude Code وCodex وOpenCode وPi إلى أحدث إصدار على npm\nعند الاتصال، مرة واحدة يوميًا على الأكثر. ويُبقي image الإصدارات المضمّنة في\nصورة الآلة (الافتراضي). تحتاج التحديثات إلى registry.npmjs.org: ستفشل في وضع\nالشبكة none أو مع قائمة سماح دون الإعداد المسبق npm.\nأضف --json للنتيجة المنظّمة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung:\n  cmux vm agent-updates <id>                 Einstellung der Maschine anzeigen.\n  cmux vm agent-updates <id> <latest|image>  Einstellung ändern.\n\nlatest aktualisiert Claude Code, Codex, OpenCode und Pi beim Verbinden auf\ndas neueste npm-Release, höchstens einmal am Tag. image behält die Versionen\naus dem Image der Maschine (Standard). Updates brauchen registry.npmjs.org:\nmit Netzwerkmodus none oder einer Allowlist ohne npm-Preset schlagen sie\nfehl. Mit --json erhalten Sie das strukturierte Ergebnis."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso:\n  cmux vm agent-updates <id>                 Muestra el ajuste de la máquina.\n  cmux vm agent-updates <id> <latest|image>  Lo cambia.\n\nlatest actualiza Claude Code, Codex, OpenCode y Pi a la versión más reciente\nde npm al conectarte, como máximo una vez al día. image conserva las versiones\nde la imagen de la máquina (predeterminado). Las actualizaciones necesitan\nregistry.npmjs.org: con el modo de red none, o una lista de permitidos sin el\npreajuste npm, fallan. Añade --json para obtener el resultado estructurado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation :\n  cmux vm agent-updates <id>                 Afficher le réglage de la machine.\n  cmux vm agent-updates <id> <latest|image>  Le modifier.\n\nlatest met à jour Claude Code, Codex, OpenCode et Pi vers la dernière\nversion npm à la connexion, au plus une fois par jour. image conserve les\nversions de l'image de la machine (par défaut). Les mises à jour exigent\nregistry.npmjs.org : en mode réseau none, ou avec une liste d'autorisation\nsans le préréglage npm, elles échouent. Ajoutez --json pour le résultat structuré."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方:\n  cmux vm agent-updates <id>                 マシンの設定を表示します。\n  cmux vm agent-updates <id> <latest|image>  設定を変更します。\n\nlatest は接続時に Claude Code、Codex、OpenCode、Pi を npm の最新リリースに\n更新します（1 日に最大 1 回）。image はマシンのイメージに含まれるバージョンを\n維持します（既定）。更新には registry.npmjs.org へのアクセスが必要です。\nネットワークモードが none、または npm プリセットのない許可リストでは失敗します。\n構造化された結果には --json を追加してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법:\n  cmux vm agent-updates <id>                 머신의 설정을 표시합니다.\n  cmux vm agent-updates <id> <latest|image>  설정을 변경합니다.\n\nlatest는 연결할 때 Claude Code, Codex, OpenCode, Pi를 npm 최신 릴리스로\n업데이트하며, 하루에 최대 한 번입니다. image는 머신 이미지에 포함된 버전을\n유지합니다(기본값). 업데이트에는 registry.npmjs.org가 필요합니다. 네트워크 모드가\nnone이거나 npm 프리셋이 없는 허용 목록이면 실패합니다.\n구조화된 결과는 --json을 추가하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：\n  cmux vm agent-updates <id>                 显示机器的设置。\n  cmux vm agent-updates <id> <latest|image>  更改设置。\n\nlatest 会在连接时将 Claude Code、Codex、OpenCode 和 Pi 更新到 npm 的最新版本，\n每天最多一次。image 保留机器镜像内置的版本（默认）。更新需要访问\nregistry.npmjs.org：网络模式为 none，\n或允许列表未包含 npm 预设时，更新会失败。\n加上 --json 可获取结构化结果。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：\n  cmux vm agent-updates <id>                 顯示機器的設定。\n  cmux vm agent-updates <id> <latest|image>  變更設定。\n\nlatest 會在連線時將 Claude Code、Codex、OpenCode 和 Pi 更新到 npm 的最新版本，\n每天最多一次。image 保留機器映像內建的版本（預設）。更新需要存取\nregistry.npmjs.org：網路模式為 none，\n或允許清單未包含 npm 預設時，更新會失敗。\n加上 --json 可取得結構化結果。"
+          }
+        }
+      }
+    },
+    "cloud.agentUpdates.npmBlocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates need npm registry access. Add the npm preset or they will fail."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتاج التحديثات إلى الوصول إلى سجل npm. أضف الإعداد المسبق npm وإلا فستفشل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates brauchen Zugriff auf die npm-Registry. Fügen Sie das npm-Preset hinzu, sonst schlagen sie fehl."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las actualizaciones necesitan acceso al registro de npm. Añade el preajuste npm o fallarán."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les mises à jour nécessitent l'accès au registre npm. Ajoutez le préréglage npm, sinon elles échoueront."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新には npm レジストリへのアクセスが必要です。npm プリセットを追加しないと失敗します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트에는 npm 레지스트리 액세스가 필요합니다. npm 프리셋을 추가하지 않으면 실패합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新需要访问 npm 注册表。请添加 npm 预设，否则更新会失败。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新需要存取 npm 登錄庫。請加入 npm 預設，否則更新會失敗。"
+          }
+        }
+      }
+    },
+    "cli.vm.agentUpdates.helpDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show or change whether the machine keeps its coding agents up to date; see `cmux vm agent-updates --help`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض أو غيّر ما إذا كانت الآلة تُبقي وكلاء البرمجة محدَّثين؛ راجع `cmux vm agent-updates --help`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt oder ändert, ob die Maschine ihre Coding-Agents aktuell hält; siehe `cmux vm agent-updates --help`."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra o cambia si la máquina mantiene actualizados sus agentes de código; consulta `cmux vm agent-updates --help`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche ou modifie la mise à jour automatique des agents de code de la machine ; voir `cmux vm agent-updates --help`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンでコーディングエージェントを最新に保つかどうかを表示または変更します。`cmux vm agent-updates --help` を参照してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신이 코딩 에이전트를 최신 상태로 유지할지 표시하거나 변경합니다. `cmux vm agent-updates --help`를 참조하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示或更改机器是否让编码代理保持最新；请参阅 `cmux vm agent-updates --help`。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示或變更機器是否讓編碼代理保持最新；請參閱 `cmux vm agent-updates --help`。"
+          }
+        }
+      }
+    },
+    "cli.vm.new.agentUpdatesFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "latest keeps coding agents up to date; image (default) keeps the baked versions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُبقي latest وكلاء البرمجة محدَّثين؛ ويُبقي image (الافتراضي) الإصدارات المضمّنة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "latest hält Coding-Agents aktuell; image (Standard) behält die vorinstallierten Versionen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "latest mantiene actualizados los agentes de código; image (predeterminado) conserva las versiones incluidas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "latest garde les agents de code à jour ; image (par défaut) conserve les versions préinstallées"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "latest はコーディングエージェントを最新に保ち、image（既定）は組み込みのバージョンを維持します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "latest는 코딩 에이전트를 최신 상태로 유지하고, image(기본값)는 포함된 버전을 유지합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "latest 让编码代理保持最新；image（默认）保留内置版本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "latest 讓編碼代理保持最新；image（預設）保留內建版本"
+          }
+        }
+      }
+    },
+    "cloud.operation.kind.agentUpdates": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change agent updates"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغيير تحديثات الوكلاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Updates ändern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar las actualizaciones de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifier les mises à jour des agents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの更新を変更"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 업데이트 변경"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更改代理更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "變更代理更新"
+          }
+        }
+      }
+    },
+    "machines.menu.keepAgentsUpdated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Agents Up to Date"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاء الوكلاء محدَّثين"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents aktuell halten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener los agentes actualizados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder les agents à jour"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントを最新に保つ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트를 최신 상태로 유지"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让代理保持最新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓代理保持最新"
+          }
+        }
+      }
+    },
+    "machines.new.agentUpdates.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates Claude Code, Codex, OpenCode, and Pi to the newest release when you connect, at most once a day."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحدّث Claude Code وCodex وOpenCode وPi إلى أحدث إصدار عند الاتصال، مرة واحدة يوميًا على الأكثر."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisiert Claude Code, Codex, OpenCode und Pi beim Verbinden auf das neueste Release, höchstens einmal am Tag."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualiza Claude Code, Codex, OpenCode y Pi a la versión más reciente al conectarte, como máximo una vez al día."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Met à jour Claude Code, Codex, OpenCode et Pi vers la dernière version à la connexion, au plus une fois par jour."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続時に Claude Code、Codex、OpenCode、Pi を最新リリースに更新します（1 日に最大 1 回）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결할 때 Claude Code, Codex, OpenCode, Pi를 최신 릴리스로 업데이트하며, 하루에 최대 한 번입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接时将 Claude Code、Codex、OpenCode 和 Pi 更新到最新版本，每天最多一次。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線時將 Claude Code、Codex、OpenCode 和 Pi 更新到最新版本，每天最多一次。"
+          }
+        }
+      }
+    },
+    "machines.new.agentUpdates.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep coding agents up to date"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاء وكلاء البرمجة محدَّثين"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding-Agents aktuell halten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener actualizados los agentes de código"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder les agents de code à jour"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コーディングエージェントを最新に保つ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코딩 에이전트를 최신 상태로 유지"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让编码代理保持最新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓編碼代理保持最新"
+          }
+        }
+      }
+    },
+    "socket.cloudVM.agentUpdates.idRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requires `id`. Run `cmux vm ls` to find one."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب %@ المعامل `id`. شغّل `cmux vm ls` للعثور على واحد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ erfordert `id`. Führen Sie `cmux vm ls` aus, um eine zu finden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requiere `id`. Ejecuta `cmux vm ls` para encontrar uno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nécessite `id`. Exécutez `cmux vm ls` pour en trouver un."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ には `id` が必要です。`cmux vm ls` を実行して確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에는 `id`가 필요합니다. `cmux vm ls`를 실행해 찾으세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要 `id`。运行 `cmux vm ls` 查找。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要 `id`。執行 `cmux vm ls` 以找到一個。"
+          }
+        }
+      }
+    },
+    "socket.cloudVM.agentUpdates.invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.agent_updates_set `agent_updates` must be latest or image."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.agent_updates_set: يجب أن تكون قيمة `agent_updates` هي latest أو image."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.agent_updates_set: `agent_updates` muss latest oder image sein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.agent_updates_set: `agent_updates` debe ser latest o image."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.agent_updates_set : `agent_updates` doit valoir latest ou image."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.agent_updates_set の `agent_updates` には latest または image を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.agent_updates_set의 `agent_updates`는 latest 또는 image여야 합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.agent_updates_set 的 `agent_updates` 必须是 latest 或 image。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.agent_updates_set 的 `agent_updates` 必須是 latest 或 image。"
+          }
+        }
+      }
+    },
+    "socket.cloudVM.create.invalidAgentUpdates": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create `agent_updates` must be latest or image."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create: يجب أن تكون قيمة `agent_updates` هي latest أو image."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create: `agent_updates` muss latest oder image sein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create: `agent_updates` debe ser latest o image."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create : `agent_updates` doit valoir latest ou image."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create の `agent_updates` には latest または image を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create의 `agent_updates`는 latest 또는 image여야 합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create 的 `agent_updates` 必须是 latest 或 image。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create 的 `agent_updates` 必須是 latest 或 image。"
           }
         }
       }

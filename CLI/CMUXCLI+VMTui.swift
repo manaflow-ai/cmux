@@ -987,6 +987,7 @@ extension CMUXCLI {
         switch verb.lowercased() {
         case "resize": return vmResizeUsage
         case "network": return vmNetworkUsage
+        case "agent-updates": return vmAgentUpdatesUsage
         case "layout": return vmLayoutUsage
         case "env": return vmEnvUsage
         case "workspace": return vmWorkspaceUsage

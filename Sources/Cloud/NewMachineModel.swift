@@ -207,8 +207,25 @@ final class NewMachineModel {
         return network.policy
     }
 
+    /// "Keep coding agents up to date": the create sends `--agent-updates
+    /// latest`. Starts from the last submitted choice (off by default).
+    var keepsAgentsUpdated: Bool
+    var supportsAgentUpdates: Bool { mode == .newMachine }
+
+    /// Remembers the last submitted "Keep coding agents up to date" choice.
+    nonisolated static let keepsAgentsUpdatedDefaultsKey = "cloud.newMachine.keepsAgentsUpdated"
+
+    /// Shown under the toggle when the chosen network policy blocks the npm
+    /// registry the updates download from. Only once the policy is editable,
+    /// since until then the machine gets full internet.
+    var agentUpdatesNetworkNote: String? {
+        guard supportsAgentUpdates, keepsAgentsUpdated, networkAvailability == .available else { return nil }
+        return CloudAgentUpdates.latest.networkNote(for: network.policy)
+    }
+
     private let submit: Submit
     private let selectionWindowID: UUID?
+    private let defaults: UserDefaults
 
     func upgradePlan(for memoryMb: Int) -> String? {
         if let memoryUpgradePlansByMb { return memoryUpgradePlansByMb[String(memoryMb)] }
@@ -244,6 +261,7 @@ final class NewMachineModel {
             memoryUpgradePlanId: limits.memoryUpgradePlanId,
             memoryUpgradePlansByMb: limits.memoryUpgradePlansByMb,
             selectionWindowID: selectionWindowID,
+            defaults: defaults,
             submit: submit
         )
         plan = updated.plan
@@ -268,8 +286,11 @@ final class NewMachineModel {
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
         selectionWindowID: UUID? = nil,
+        defaults: UserDefaults = .standard,
         submit: @escaping Submit
     ) {
+        self.defaults = defaults
+        self.keepsAgentsUpdated = defaults.bool(forKey: Self.keepsAgentsUpdatedDefaultsKey)
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
         self.mode = mode
         self.plan = plan
@@ -444,6 +465,8 @@ final class NewMachineModel {
             arguments = ["vm", "new", Self.machineKind.cliFlag]
             if supportsSize { arguments += ["--size", String(memoryMb)] }
             if let policy = requestedNetworkPolicy { arguments += ["--network-policy", policy.jsonString] }
+            // Off sends nothing, so a server without the setting sees the old request.
+            if keepsAgentsUpdated { arguments += ["--agent-updates", CloudAgentUpdates.latest.rawValue] }
             arguments += ["--focus", "false"]
         case .base(let workspaceID):
             arguments = [
@@ -482,6 +505,7 @@ final class NewMachineModel {
             )
             return
         }
+        if supportsAgentUpdates { defaults.set(keepsAgentsUpdated, forKey: Self.keepsAgentsUpdatedDefaultsKey) }
         finish(.submitted)
     }
 

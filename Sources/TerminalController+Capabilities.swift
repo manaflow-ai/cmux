@@ -115,6 +115,8 @@ extension TerminalController {
             "vm.resize",
             "vm.network_get",
             "vm.network_update",
+            "vm.agent_updates_get",
+            "vm.agent_updates_set",
             "vm.rename",
             "vm.snapshot",
             "vm.fork",

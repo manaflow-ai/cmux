@@ -60,6 +60,7 @@ cmux vm status <id>                    # provider, status, image
 cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
 cmux vm resize <id> --disk 40G         # grow persistent disk in 4 GiB steps (never shrinks)
 cmux vm network <id>                   # outbound policy: mode, presets, domains, ranges, applied state
+cmux vm agent-updates <id>             # latest (updated on attach) or image (baked pins)
 cmux vm tools <id>                     # which tools are installed
 cmux vm ports <id>                     # listening TCP ports inside the machine
 cmux vm handoff <id>                   # short attach block to paste to a human or another agent
@@ -198,6 +199,27 @@ registries, the git remote, model providers), then check with
 Socket methods `vm.network_get {id}` and `vm.network_update {id, edits}`; the
 machine row's Network… menu, the web dashboard, and `PUT /api/vm/<id>/network`
 use the same policy.
+
+### `cmux vm agent-updates`
+
+```bash
+cmux vm agent-updates <id> [--json]     # show: latest or image
+cmux vm agent-updates <id> latest       # update coding agents on attach, at most once a day
+cmux vm agent-updates <id> image        # keep the image's versions (the default)
+cmux vm new --agent-updates latest      # choose at create
+```
+
+`latest` makes each attach start a detached updater on the machine that installs
+npm's latest Claude Code, Codex, OpenCode, Pi, and agent-browser, at most once a
+day; attach never waits for it. Switching back to `image` stops further updates
+but does not downgrade what is installed. Updates need `registry.npmjs.org`: with
+`cmux vm network` mode `none`, or an allowlist without the `npm` preset, they fail
+and are retried on the next attach (the CLI prints a note when you set `latest`).
+On the machine, `/etc/cmux/agent-updates.state` records the last check and
+`/var/log/cmux-agent-updates.log` its output. Socket methods
+`vm.agent_updates_get {id}` and `vm.agent_updates_set {id, agent_updates}`; the
+machine row's Keep Agents Up to Date menu item and
+`PUT /api/vm/<id>/agent-updates` use the same setting.
 
 ### `cmux vm wait`
 

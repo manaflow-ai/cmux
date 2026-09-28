@@ -12,6 +12,7 @@ extension CMUXCLI {
         switch verb {
         case "resize": return vmResizeUsage
         case "network": return vmNetworkUsage
+        case "agent-updates": return vmAgentUpdatesUsage
         case "run": return vmRunUsage
         case "route": return vmRouteUsage
         case "agent": return vmAgentUsage

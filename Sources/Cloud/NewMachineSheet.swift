@@ -19,6 +19,9 @@ struct NewMachineSheet: View {
             if model.supportsNetworkPolicy {
                 networkSection
             }
+            if model.supportsAgentUpdates {
+                agentUpdatesSection
+            }
             if model.hasNoAllowedMemoryOptions {
                 Text(String(localized: "machines.new.size.noneAllowed", defaultValue: "No machine size is available for this plan. Close this dialog and reopen it to refresh your plan."))
                     .cmuxFont(size: 12)
@@ -97,6 +100,31 @@ struct NewMachineSheet: View {
             }
         }
         .accessibilityIdentifier("NewMachineSheet.network")
+    }
+
+    private var agentUpdatesSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(
+                String(localized: "machines.new.agentUpdates.label", defaultValue: "Keep coding agents up to date"),
+                isOn: $model.keepsAgentsUpdated
+            )
+            .cmuxFont(size: 13)
+            .accessibilityIdentifier("NewMachineSheet.agentUpdates")
+            Text(String(
+                localized: "machines.new.agentUpdates.help",
+                defaultValue: "Updates Claude Code, Codex, OpenCode, and Pi to the newest release when you connect, at most once a day."
+            ))
+            .cmuxFont(size: 11)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            if let note = model.agentUpdatesNetworkNote {
+                Text(note)
+                    .cmuxFont(size: 11)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("NewMachineSheet.agentUpdates.networkNote")
+            }
+        }
     }
 
     private var sizeSection: some View {

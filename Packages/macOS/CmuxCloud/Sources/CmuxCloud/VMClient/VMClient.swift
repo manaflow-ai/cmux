@@ -280,7 +280,8 @@ public struct VMSummary: Sendable {
         freeAccessExpiresAt: Int64? = nil,
         addressIPv4: String? = nil,
         addressIPv6: String? = nil,
-        cmuxTuiContract: String? = nil
+        cmuxTuiContract: String? = nil,
+        agentUpdates: CloudAgentUpdates? = nil
     ) {
         self.id = id
         self.provider = provider
@@ -296,6 +297,7 @@ public struct VMSummary: Sendable {
         self.addressIPv4 = addressIPv4
         self.addressIPv6 = addressIPv6
         self.cmuxTuiContract = cmuxTuiContract
+        self.agentUpdates = agentUpdates
     }
 
     public let id: String
@@ -325,6 +327,9 @@ public struct VMSummary: Sendable {
     /// (`"snapshot-v2"`: baked daemon, trusted private-network listener).
     /// Only the create response carries it; list reads leave it nil.
     public var cmuxTuiContract: String?
+    /// Whether the machine keeps its image's coding agents or updates them on
+    /// attach; nil when the server predates the setting (treat as `.image`).
+    public var agentUpdates: CloudAgentUpdates?
 
     /// The name to show people: the label when set, else the generated slug,
     /// else the machine id.
@@ -1155,6 +1160,7 @@ public actor VMClient {
                 }
                 summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
+                summary.agentUpdates = CloudAgentUpdates(wireValue: dict["agentUpdates"])
                 if let address = dict["address"] as? [String: Any] {
                     summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                     summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1539,7 +1545,7 @@ public actor VMClient {
         return result
     }
 
-    public func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, displayName: String? = nil, networkPolicy: CloudNetworkPolicy? = nil, idempotencyKey: String) async throws -> VMSummary {
+    public func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, displayName: String? = nil, networkPolicy: CloudNetworkPolicy? = nil, agentUpdates: CloudAgentUpdates? = nil, idempotencyKey: String) async throws -> VMSummary {
         return try await withOperation(.create, foreground: true) {
             var body: [String: Any] = [:]
             if let image { body["image"] = image }
@@ -1551,6 +1557,8 @@ public actor VMClient {
             if let displayName { body["displayName"] = displayName }
             // Omitted means the server default (full internet).
             if let networkPolicy { body["networkPolicy"] = networkPolicy.foundationObject }
+            // Omitted means the server default (the image's agent versions).
+            if let agentUpdates { body["agentUpdates"] = agentUpdates.rawValue }
             // The CLI owns key stability across command retries. VMClient only forwards the
             // key so the backend can short-circuit duplicate paid provider creates.
             let headers = ["Idempotency-Key": idempotencyKey]
@@ -1593,6 +1601,7 @@ public actor VMClient {
                 summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             }
             summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.agentUpdates = CloudAgentUpdates(wireValue: obj["agentUpdates"])
             machineCache.record(hasAnyMachine: true)
             return summary
         }
@@ -1670,6 +1679,7 @@ public actor VMClient {
                 summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             }
+            summary.agentUpdates = CloudAgentUpdates(wireValue: obj["agentUpdates"])
             return summary
         }
     }
