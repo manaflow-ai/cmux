@@ -24,9 +24,11 @@ would sit, which shares the same post-config execution point). It asserts:
 2. With the bootstrap applied, ``which claude`` resolves to the shim again.
 3. Actually running ``claude`` executes the shim, arguments intact.
 4. The bootstrap normalizes a user config that left ``PATH`` a string.
-5. Only ``$CMUX_CLAUDE_WRAPPER_SHIM_ROOT`` moves, and only when it is a real
-   directory this user owns: a symlinked root, a root another user owns and
-   any other ``cmux-cli-shims`` entry stay where they are.
+5. Only the surface's shim root moves, and only when it is a real directory
+   this user owns: a symlinked root, a root another user owns and any other
+   ``cmux-cli-shims`` entry stay where they are.
+6. The shim root still moves when Claude integration is off, since the
+   Codex, Pi, Amp and Hermes shims live there too.
 
 It is deterministic: no PTY, no sleeps, no network. Skips loudly when ``nu``
 is not installed locally, but fails when ``CI`` is set so the suite can never
@@ -148,6 +150,8 @@ def _make_sandbox(tmp: Path, env_nu_body: str, symlinked_root: bool = False) -> 
                 [str(shim_dir), "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
             ),
             "CMUX_SURFACE_ID": SURFACE_ID,
+            # The app sets both when the Claude shim is installed.
+            "CMUX_AGENT_COMMAND_SHIM_ROOT": str(shim_dir),
             "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(shim_dir),
         }
     )
@@ -342,6 +346,7 @@ def test_nushell_bootstrap_skips_a_shim_root_another_user_owns() -> None:
             _DECOY_PREPEND_ENV_NU.replace("__DECOY_DIR__", str(tmp / "decoy-bin")),
         )
         env = sandbox["env"]
+        env["CMUX_AGENT_COMMAND_SHIM_ROOT"] = other_owner
         env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = other_owner
         env["PATH"] = os.pathsep.join([other_owner, "/usr/bin", "/bin", "/usr/sbin", "/sbin"])
         decoy_dir = str(sandbox["decoy_dir"])
@@ -389,6 +394,31 @@ def test_nushell_bootstrap_moves_only_the_shim_root() -> None:
         )
 
 
+def test_nushell_bootstrap_refronts_shim_root_without_claude_integration() -> None:
+    nu = _require_nu()
+    if nu is None:
+        return
+    one_liner = _bootstrap_one_liner()
+
+    with tempfile.TemporaryDirectory(prefix="cmux-nu-no-claude-") as td:
+        tmp = Path(td)
+        sandbox = _make_sandbox(
+            tmp,
+            _DECOY_PREPEND_ENV_NU.replace("__DECOY_DIR__", str(tmp / "decoy-bin")),
+        )
+        env = sandbox["env"]
+        # Without the Claude shim, the app sets only the shared agent root.
+        env.pop("CMUX_CLAUDE_WRAPPER_SHIM_ROOT", None)
+        shim_claude = str(sandbox["shim_dir"] / "claude")
+
+        ran = _run_nu(nu, env, one_liner + "; which claude | get 0.path")
+        assert ran.returncode == 0, "bootstrap run failed" + _debug(ran)
+        assert ran.stdout.strip() == shim_claude, (
+            "bootstrap must re-front the agent shim root when Claude "
+            f"integration is off (got {ran.stdout.strip()!r})" + _debug(ran)
+        )
+
+
 if __name__ == "__main__":
     test_nushell_bootstrap_refronts_shim_over_user_path_prepends()
     test_nushell_bootstrap_normalizes_string_path()
@@ -396,6 +426,7 @@ if __name__ == "__main__":
     test_nushell_bootstrap_skips_a_symlinked_shim_root()
     test_nushell_bootstrap_skips_a_shim_root_another_user_owns()
     test_nushell_bootstrap_moves_only_the_shim_root()
+    test_nushell_bootstrap_refronts_shim_root_without_claude_integration()
     if _find_nu() is None:
         print("SKIP: nushell (nu) not found; nothing was verified")
     else:
