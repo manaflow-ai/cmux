@@ -27,12 +27,55 @@ scripts/run-e2e.sh --scenario dogfood/scenarios/sidebar-and-chrome-tour.json --r
   to the foreground, and XCUITest ended the test inside `launch()`. It happens
   on some Blacksmith runners; dispatch the tour again.
 
+## PR media
+
+Every push to a same-repository app pull request (the ones that get a dogfood
+build link; docs or web only changes don't) gets screenshots and a GIF of its
+build, with no setup. `.github/workflows/pr-media.yml` runs beside CI, never in
+its verdict:
+
+1. It picks up to two tours whose `paths` globs match the changed files, or
+   `sidebar-and-chrome-tour` when none match. A line in the PR description
+   overrides the pick on the next push: `Dogfood-tours: browser-notifications-tour, right-sidebar-and-menus-tour`,
+   or `Dogfood-tours: none` to turn it off.
+2. Each tour runs on the app and UI test bundle the PR's own CI compiled
+   (`run-e2e.sh --adopt-only`); the tour run fails rather than compiling the
+   app a second time. When CI left no product a UI run can load (a CLI-only
+   push, say), no tour runs and the comment gets no media; a tour run that
+   could not load it is listed as not run, and the next CI attempt of that
+   head tries again; `gh workflow run pr-media.yml --repo manaflow-ai/cmux -f pr=<n> -f allow_compile=true`
+   runs it now with a full build.
+3. The frames become a few key PNGs and a captioned GIF, uploaded to the
+   `pr-media` branch at `<pr>/<sha8>/<tour>/` and shown in a media section of
+   the PR's sticky dogfood comment, each labelled with its tour and SHA. A new
+   push replaces the section; tours of a head that already has media are not
+   run again (`-f force=true` reruns them).
+
+**Before merging a PR, read its media.** Check the section's SHA is the head
+you are merging, then look at every key frame and the GIF critically: does the
+changed UI appear, and does it look right in each state the tour reaches? A
+passing tour only means no step failed; a frame that shows a blank window, the
+wrong screen, a system dialog over the app or the old behavior is a finding.
+Open the run link for all frames and the accessibility trees. When no tour
+reaches the change, add or extend one (with `paths` for the files it covers)
+in the same PR; the next push that changes app code shows it (a push that
+changes no app code gets no new build, so no media, and
+`gh workflow run pr-media.yml --repo manaflow-ai/cmux -f pr=<n> -f allow_compile=true` is the way to see a tour-only edit). For evidence no tour can produce
+(a drag, a recording from a fleet dogfood), upload it with `scripts/pr-media.py`;
+the workflow uploads through the same tool.
+
+Give every new tour a `paths` list of `fnmatch` globs (`*` crosses
+directories), for example `"paths": ["Sources/*Browser*", "Packages/macOS/CmuxBrowser/*"]`.
+The test reads only `steps` and `launch`, so `paths` changes nothing about a run.
+
 ## Write a tour
 
-A tour is a steps array, or an object with `steps` and an optional `launch`:
+A tour is a steps array, or an object with `steps`, an optional `launch`, and
+the `paths` globs [PR media](#pr-media) picks it by:
 
 ```json
 {
+  "paths": ["Sources/*Sidebar*"],
   "launch": {"env": {"KEY": "value"}, "args": ["-someDefault", "YES"], "language": "ja", "locale": "ja_JP", "zoom": true},
   "steps": [
     {"socket": "workspace.create", "params": {"title": "Build", "focus": true}, "save": "build"},
