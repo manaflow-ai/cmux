@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxFoundation
 
@@ -7,10 +8,19 @@ import CmuxFoundation
 final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
     lazy var reorderPresentation = CloudTreeReorderPresentation(outline: self)
+    let disclosureScope = CloudTreeDisclosureScope()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         draggingDestinationFeedbackStyle = .none
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(menuDidBeginTracking(_:)),
+            name: NSMenu.didBeginTrackingNotification, object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(menuDidEndTracking(_:)),
+            name: NSMenu.didEndTrackingNotification, object: nil
+        )
     }
 
     @available(*, unavailable)
@@ -18,12 +28,21 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     private var hoverTrackingArea: NSTrackingArea?
     private weak var hoveredCell: CloudTreeCellView?
+    /// Menus that are tracking right now, and the row that was hovered when the
+    /// first one opened. An open menu (the ⋯, a context menu) takes over the
+    /// pointer: the outline sees an exit, stray moves, and possibly a reload
+    /// behind it. Hover stays on that row until the last menu closes, so the
+    /// control that opened the menu does not fade out from under it.
+    private var trackingMenus: Set<ObjectIdentifier> = []
+    private var menuPinnedNodeID: String?
 
     /// The outline owns exactly one hover target. Cells cannot retain independent
     /// enter/exit state across tracking-area replacement, scrolling, or reloads.
     private func updateHover(at point: NSPoint?) {
         var next: CloudTreeCellView?
-        if let point, visibleRect.contains(point) {
+        if let menuPinnedNodeID {
+            next = visibleCell(forNodeID: menuPinnedNodeID)
+        } else if let point, visibleRect.contains(point) {
             let row = row(at: point)
             if row >= 0,
                let cell = view(atColumn: 0, row: row, makeIfNecessary: false) as? CloudTreeCellView,
@@ -47,6 +66,33 @@ final class CloudTreeNSOutlineView: NSOutlineView {
             NSRect(origin: window.mouseLocationOutsideOfEventStream, size: .zero)
         ).origin
         updateHover(at: convert(pointerInWindow, from: nil))
+    }
+
+    private func visibleCell(forNodeID id: String) -> CloudTreeCellView? {
+        let visibleRows = rows(in: visibleRect)
+        guard visibleRows.location != NSNotFound else { return nil }
+        for row in visibleRows.location..<min(visibleRows.location + visibleRows.length, numberOfRows)
+        where (item(atRow: row) as? CloudTreeNode)?.id == id {
+            return view(atColumn: 0, row: row, makeIfNecessary: false) as? CloudTreeCellView
+        }
+        return nil
+    }
+
+    @objc private func menuDidBeginTracking(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu else { return }
+        if trackingMenus.isEmpty, let hoveredCell {
+            let row = row(for: hoveredCell)
+            menuPinnedNodeID = row >= 0 ? (item(atRow: row) as? CloudTreeNode)?.id : nil
+        }
+        trackingMenus.insert(ObjectIdentifier(menu))
+    }
+
+    @objc private func menuDidEndTracking(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu,
+              trackingMenus.remove(ObjectIdentifier(menu)) != nil,
+              trackingMenus.isEmpty else { return }
+        menuPinnedNodeID = nil
+        refreshHover()
     }
 
     @objc private func hoverEnvironmentDidChange(_ notification: Notification) {
@@ -82,7 +128,10 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if window !== newWindow { reorderPresentation.clear() }
+        if window !== newWindow {
+            reorderPresentation.clear()
+            menuPinnedNodeID = nil
+        }
         updateHover(at: nil)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: window)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: window)
@@ -152,7 +201,6 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     var onOpenSelection: (() -> Void)?
-    let ownershipFeedback = SurfaceDropFeedback()
     var onMoveSelection: ((Int) -> Void)?
     var onMoveMachine: ((Int) -> Bool)?
     var onDisclosure: ((RightSidebarKeyboardNavigation.DisclosureAction) -> Void)?
@@ -182,28 +230,24 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
-        ownershipFeedback.clear()
         guard reorderPresentation.isCurrent(sender) else { return }
         super.draggingExited(sender)
         reorderPresentation.clear(sequence: sender?.draggingSequenceNumber)
     }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
-        ownershipFeedback.clear()
         guard reorderPresentation.isCurrent(sender) else { return }
         // NSOutlineView may not implement this optional destination notification.
         reorderPresentation.ended(sender)
     }
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
-        ownershipFeedback.clear()
         guard reorderPresentation.isCurrent(sender) else { return }
         super.concludeDragOperation(sender)
         reorderPresentation.clear(sequence: sender?.draggingSequenceNumber)
     }
 
     override func viewDidHide() {
-        ownershipFeedback.clear()
         super.viewDidHide()
         reorderPresentation.clear()
     }
@@ -303,19 +347,23 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     override func expandItem(_ item: Any?, expandChildren: Bool) {
-        NSAnimationContext.beginGrouping()
-        NSAnimationContext.current.duration = 0
-        super.expandItem(item, expandChildren: expandChildren)
-        NSAnimationContext.endGrouping()
-        onDocumentContentChanged?()
+        disclosureScope.perform(item: item, recursive: expandChildren) {
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0
+            super.expandItem(item, expandChildren: expandChildren)
+            NSAnimationContext.endGrouping()
+            onDocumentContentChanged?()
+        }
     }
 
     override func collapseItem(_ item: Any?, collapseChildren: Bool) {
-        NSAnimationContext.beginGrouping()
-        NSAnimationContext.current.duration = 0
-        super.collapseItem(item, collapseChildren: collapseChildren)
-        NSAnimationContext.endGrouping()
-        onDocumentContentChanged?()
+        disclosureScope.perform(item: item, recursive: collapseChildren) {
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0
+            super.collapseItem(item, collapseChildren: collapseChildren)
+            NSAnimationContext.endGrouping()
+            onDocumentContentChanged?()
+        }
     }
 
     override func reloadData() {
@@ -362,6 +410,14 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
         var frame = super.frameOfCell(atColumn: column, row: row)
+        if let node = item(atRow: row) as? CloudTreeNode, case .devicesEmpty = node.kind {
+            // Controls own a full-width hit/hover area and inset their content
+            // onto the same icon grid as the sibling device rows.
+            let rowFrame = rect(ofRow: row)
+            frame.origin.x = rowFrame.minX
+            frame.size.width = rowFrame.width
+            return frame
+        }
         let trailing = frame.maxX
         frame.origin.x = disclosureLeading(atRow: row) + GlobalFontMagnification.scaledSize(
             treeStyle.rowGrid.disclosureSlot + treeStyle.rowGrid.disclosureGap

@@ -172,6 +172,17 @@ export class TeamStore {
     return row ? rowToDevice(row) : null;
   }
 
+  /** Only an owner's Forget action can be recovered by the device itself. */
+  canRecoverRevokedDevice(deviceRecordId: string): boolean {
+    const device = this.getDeviceByRecordId(deviceRecordId);
+    if (!device?.revoked) return false;
+    const revocation = this.#db.get<{ actor_user_id: string }>(sql`
+      SELECT "actor_user_id" FROM "authority_audit"
+      WHERE "event_type" = 'device.revoked' AND "target_id" = ${deviceRecordId} AND "revision" = ${device.revision}
+      LIMIT 1`);
+    return revocation?.actor_user_id === device.descriptor.identity.userId;
+  }
+
   /** Directory visibility is explicit: owner devices plus rows with connect permission. */
   listVisibleDevices(requestingUserId: string, afterRecordId?: string, limit = 1024): DeviceRecord[] {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1024) throw new OperationError("invalid_request", 400);
@@ -208,18 +219,20 @@ export class TeamStore {
     assertScope(this.scope, requester.descriptor.identity);
     if (!Number.isSafeInteger(now) || !Number.isSafeInteger(limit) || limit < 1 || limit > 1024) throw new OperationError("invalid_request", 400);
     const userId = requester.descriptor.identity.userId;
-    const acceptsPeers = !requester.revoked && requester.descriptor.metadata.platform === "mac" && requester.descriptor.metadata.pairingEnabled;
+    const acceptsIOSPeers = !requester.revoked && requester.descriptor.metadata.platform === "mac" && requester.descriptor.metadata.pairingEnabled;
+    const acceptsMacPeers = !requester.revoked && requester.descriptor.metadata.platform === "mac";
     const visible = sql`(d."user_id" = ${userId} OR outgoing."connect" = 1)`;
     const acceptsMacs = requester.descriptor.metadata.capabilities.includes("cmux.mac-host.v1");
     // Mac access requires opt-in hosting, the same account and exact app/build.
     // Existing team grants continue to govern the iOS admission path.
-    const macPeer = sql`(${acceptsMacs ? 1 : 0} = 1 AND d."platform" = 'mac'
+    const macPeer = sql`(${acceptsMacPeers && acceptsMacs ? 1 : 0} = 1 AND d."platform" = 'mac'
       AND d."user_id" = ${userId} AND d."endpoint_id" != ${requester.descriptor.endpointId}
       AND d."app_namespace" = ${requester.descriptor.identity.appNamespace}
       AND d."build_tag" = ${requester.descriptor.identity.buildTag}
       AND EXISTS (SELECT 1 FROM json_each(d."capabilities_json") WHERE value = 'cmux.mac-devices.v1'))`;
-    const inbound = sql`(${acceptsPeers ? 1 : 0} = 1 AND d."revoked" = 0 AND a."expires_at" > ${now}
-      AND ((d."platform" = 'ios' AND (d."user_id" = ${userId} OR incoming."connect" = 1)) OR ${macPeer}))`;
+    const inbound = sql`(${acceptsIOSPeers || acceptsMacPeers ? 1 : 0} = 1 AND d."revoked" = 0 AND a."expires_at" > ${now}
+      AND ((d."platform" = 'ios' AND ${acceptsIOSPeers ? 1 : 0} = 1 AND (d."user_id" = ${userId} OR incoming."connect" = 1))
+        OR ${macPeer}))`;
     const rows = this.#db.all<DeviceRow & { visible: number; inbound_expires_at: number | null }>(sql`
       SELECT d.*, CASE WHEN ${visible} THEN 1 ELSE 0 END AS "visible",
         CASE WHEN ${inbound} THEN a."expires_at" ELSE NULL END AS "inbound_expires_at"
@@ -295,8 +308,11 @@ export class TeamStore {
       if (challenge.nonce_hash !== input.nonceHash || challenge.payload_hash !== input.payloadHash) throw new OperationError("challenge_invalid", 400);
       if (challenge.expires_at <= input.now) throw new OperationError("challenge_expired", 409);
       const existing = this.#db.get<DeviceRow>(sql`SELECT * FROM "devices" WHERE "identity_key" = ${key}`);
-      if (existing && (existing.endpoint_id !== descriptor.endpointId || existing.identity_generation !== descriptor.identityGeneration || existing.revoked === 1)) {
-        throw new OperationError(existing.revoked === 1 ? "device_revoked" : "key_replacement_required", 409);
+      if (existing?.revoked === 1 && !this.canRecoverRevokedDevice(existing.device_record_id)) {
+        throw new OperationError("device_revoked", 403);
+      }
+      if (existing && (existing.endpoint_id !== descriptor.endpointId || existing.identity_generation !== descriptor.identityGeneration)) {
+        throw new OperationError("key_replacement_required", 409);
       }
       const nextRevision = this.readRevision() + 1;
       const record: DeviceRecord = {

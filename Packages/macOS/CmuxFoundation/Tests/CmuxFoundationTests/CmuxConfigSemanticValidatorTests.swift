@@ -22,6 +22,14 @@ struct CmuxConfigSemanticValidatorTests {
         }
     }
 
+    @Test("embedded schema is byte-for-byte web/data/cmux.schema.json")
+    func embeddedSchemaMatchesSource() throws {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { root.deleteLastPathComponent() }
+        let source = try Data(contentsOf: root.appendingPathComponent("web/data/cmux.schema.json"))
+        #expect(CmuxEmbeddedConfigSchema.data == source)
+    }
+
     @Test("accepts valid settings and preserved config sections")
     func acceptsValidConfig() throws {
         let result = try issues([

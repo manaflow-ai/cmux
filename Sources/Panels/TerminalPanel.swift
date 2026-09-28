@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import CmuxTerminalCore
 import Combine
@@ -659,6 +660,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         isClosingPanel = true
+        GlobalSearchCoordinator.shared.purgePanel(id: id)
         AgentHibernationController.shared.discardTrackingStateForClosedPanel(
             workspaceId: workspaceId,
             panelId: id
@@ -776,12 +778,6 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func needsConfirmClose() -> Bool {
         surface.needsConfirmClose()
-    }
-
-    func shouldPersistScrollbackForSessionSnapshot() -> Bool {
-        // Session restore only replays terminal output into a fresh shell. If Ghostty
-        // says we are not safely at a prompt, replaying that state later is misleading.
-        !surface.needsConfirmClose()
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {

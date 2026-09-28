@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxCommandPalette
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -57,6 +58,22 @@ struct CurrentWorkCommandPaletteTests {
         #expect(subtitle.contains(String(localized: "commandPalette.currentWork.notOpen", defaultValue: "No open local view · read only")))
         #expect(subtitle.contains(String(localized: "commandPalette.currentWork.notCurrent", defaultValue: "May be out of date")))
         #expect(subtitle.contains(item.placement.machine))
+    }
+
+    @Test
+    func testPlacementSubtitlePreservesEveryRemoteMachineIdentity() {
+        let placements = [
+            (kind: "local", machine: "local", showsMachine: false),
+            (kind: "cloud", machine: "cloud-host", showsMachine: true),
+            (kind: "ssh", machine: "ssh:build-host", showsMachine: true),
+            (kind: "device", machine: "device:other-mac@test", showsMachine: true),
+        ]
+        for placement in placements {
+            var item = fixture()
+            item.placement = .init(kind: placement.kind, machine: placement.machine)
+            let subtitle = CurrentWorkPalettePresentation(item: item).subtitle(canFocus: true)
+            #expect(subtitle.contains(placement.machine) == placement.showsMachine)
+        }
     }
 
     @Test

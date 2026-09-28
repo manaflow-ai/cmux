@@ -18,7 +18,17 @@ public struct CloudTuiCommandLine: Sendable {
     /// `--wireguard-hub <socket>` makes the client dial the route through the app's
     /// in-process WireGuard hub (``CloudWireGuardHub``) instead of the OS network stack;
     /// it is added only for routes inside the private Cloud VM network.
-    public static func linkArguments(route: String, deviceName: String, stateDir: String, carrier: Bool = false, wireguardHubSocket: String? = nil) -> [String] {
+    ///
+    /// - Parameters:
+    ///   - route: The remote carrier address.
+    ///   - deviceName: This client's device name.
+    ///   - stateDir: Directory for persistent client identity.
+    ///   - carrier: Whether the route provides trusted carrier authentication.
+    ///   - wireguardHubSocket: Optional userspace WireGuard socket.
+    ///   - session: The selected remote session, or nil for the client's default.
+    ///   - sshArguments: OpenSSH arguments forwarded individually without shell parsing.
+    /// - Returns: The headless client's argument vector.
+    public static func linkArguments(route: String, deviceName: String, stateDir: String, carrier: Bool = false, wireguardHubSocket: String? = nil, session: String? = nil, sshArguments: [String] = []) -> [String] {
         var arguments = [
             "remote", "connect", route,
             "--device-name", deviceName,
@@ -30,6 +40,12 @@ public struct CloudTuiCommandLine: Sendable {
         }
         if let wireguardHubSocket, !wireguardHubSocket.isEmpty {
             arguments += ["--wireguard-hub", wireguardHubSocket]
+        }
+        if let session {
+            arguments += ["--session", session]
+        }
+        for argument in sshArguments {
+            arguments += ["--ssh-arg", argument]
         }
         return arguments
     }

@@ -1,4 +1,3 @@
-import { canManageCoderouterAccounts } from "./permissions";
 import {
   browserMutationOriginAllowed,
   jsonResponse,
@@ -40,8 +39,8 @@ export type CodeRouterRequestContext = {
  * A Cloud VM is already authenticated by the TLS edge's VM-bound route token.
  * It must not be sent through Stack cookie/session resolution, and it must not
  * be able to choose another team. The token's team and VM pool are the entire
- * authority for the request. Human browser/native requests keep the existing
- * permission check through resolveCodeRouterRequestContext.
+ * authority for the request. Human browser/native requests resolve team
+ * membership through resolveCodeRouterRequestContext.
  */
 export type CodeRouterControlContext = {
   readonly user: Pick<AuthedUser, "id">;
@@ -158,6 +157,6 @@ export async function resolveCodeRouterRequestContext(
     // Parse native tokens so malformed mixed auth never falls through as a
     // browser-cookie request. Verification above remains authoritative.
     parseNativeStackTokens(request);
-    return { ok: true, value: { user, team: { ...team, manageAccounts: await canManageCoderouterAccounts(user.id, team.teamId) } } };
+    return { ok: true, value: { user, team } };
   }));
 }

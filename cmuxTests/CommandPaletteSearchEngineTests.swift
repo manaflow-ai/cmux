@@ -1230,6 +1230,21 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalFocusTextBoxInput"))
     }
 
+    func testPaneFocusCommandsDismissPaletteBeforeRunning() {
+        let paneFocusCommandIds = [
+            "palette.focusPaneLeft",
+            "palette.focusPaneRight",
+            "palette.focusPaneUp",
+            "palette.focusPaneDown",
+            "palette.focusPreviousPane",
+            "palette.focusNextPane"
+        ]
+
+        for commandId in paneFocusCommandIds {
+            XCTAssertTrue(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: commandId))
+        }
+    }
+
     func testForkableAgentCacheKeepsVerifiedOpenCodeVisible() {
         let workspaceId = UUID()
         let panelId = UUID()

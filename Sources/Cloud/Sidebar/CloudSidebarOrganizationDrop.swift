@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 
 /// Converts AppKit's hierarchy-relative proposal into a move among displayed

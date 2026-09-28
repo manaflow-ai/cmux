@@ -1066,7 +1066,13 @@ public final class MobilePushCoordinator {
         pendingDeeplinkTimedOutID = nil
         schedulePendingDeeplinkRecheck()
         applyPendingDeeplinkIfReady()
-        guard let pending = pendingDeeplink, let store else { return }
+        guard let pending = pendingDeeplink else { return }
+        // SwiftUI dismisses the alert as soon as its retry action runs. If
+        // the connection is still unavailable, publish a fresh alert identity
+        // so the existing recovery controls remain available until the
+        // parked notification resolves or the user cancels it.
+        tabUnavailableAlert = TabUnavailableAlert(kind: .connectionUnavailable)
+        guard let store else { return }
         Task { @MainActor [weak self] in
             await store.reconnectToMac(
                 macDeviceID: pending.macDeviceId,

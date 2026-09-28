@@ -223,4 +223,123 @@ for bad in x -1; do
   fi
 done
 
+# Regression (#14090): a PR branch touches cmux-tui, merges main into itself after main
+# also touched cmux-tui, and lands through a merge-commit PR. The artifacts workflow
+# publishes main's merge (M), never the branch-side merge (B). Plain history
+# simplification follows the branch side, so B looked like the newest candidate and
+# exact mode failed every reload build (run 36117899936, 52020d35 vs f4b331d15).
+git init -q "$TMP/merge"
+git -C "$TMP/merge" checkout -q -b main
+mcommit() {
+  mkdir -p "$(dirname "$TMP/merge/$2")"
+  echo "$1" >"$TMP/merge/$2"
+  git -C "$TMP/merge" add -A
+  GIT_COMMITTER_DATE="$3" GIT_AUTHOR_DATE="$3" git -C "$TMP/merge" commit -q -m "$1"
+  git -C "$TMP/merge" rev-parse HEAD
+}
+mcommit "base" cmux-tui/a.rs "2026-09-20T00:00:00" >/dev/null
+git -C "$TMP/merge" checkout -q -b feature
+mcommit "feature tui" cmux-tui/b.rs "2026-09-21T00:00:00" >/dev/null
+git -C "$TMP/merge" checkout -q main
+mcommit "main tui" cmux-tui/c.rs "2026-09-22T00:00:00" >/dev/null
+git -C "$TMP/merge" checkout -q feature
+GIT_COMMITTER_DATE="2026-09-23T00:00:00" git -C "$TMP/merge" merge -q --no-edit main
+B="$(git -C "$TMP/merge" rev-parse HEAD)"
+git -C "$TMP/merge" checkout -q main
+GIT_COMMITTER_DATE="2026-09-24T00:00:00" git -C "$TMP/merge" merge -q --no-ff --no-edit feature
+M="$(git -C "$TMP/merge" rev-parse HEAD)"
+mcommit "app after" Sources/App.swift "2026-09-25T00:00:00" >/dev/null
+MSTORE="$TMP/mstore"
+mkdir -p "$MSTORE/$M"
+printf '{"commit":"%s"}\n' "$M" >"$MSTORE/$M/manifest.json"
+got="$(cd "$TMP/merge" && CMUX_TUI_CLIENT_MANIFEST_BASE="file://$MSTORE" "$RESOLVER" 2>"$TMP/merge.err")" || {
+  echo "FAIL: exact mode must accept main's published merge $M for the branch-side merge $B"
+  cat "$TMP/merge.err"
+  exit 1
+}
+if [[ "$got" != "$M" ]]; then
+  echo "FAIL: expected main's published merge $M, got '$got'"
+  exit 1
+fi
+if grep -q '^::warning' "$TMP/merge.err"; then
+  echo "FAIL: a commit with identical client inputs is not a fallback and must not warn"
+  exit 1
+fi
+# A later commit off main that does not touch the client resolves the same way: main's
+# published merge stays the newest commit with its inputs.
+git -C "$TMP/merge" checkout -q -b later "$M"
+mcommit "later app" Sources/Other.swift "2026-09-26T00:00:00" >/dev/null
+got="$(cd "$TMP/merge" && CMUX_TUI_CLIENT_MANIFEST_BASE="file://$MSTORE" "$RESOLVER" 2>/dev/null)"
+if [[ "$got" != "$M" ]]; then
+  echo "FAIL: a branch off main must resolve main's published merge $M, got '$got'"
+  exit 1
+fi
+# Different inputs still count as a fallback: dropping M's manifest leaves nothing with
+# HEAD's content, so exact mode fails.
+rm "$MSTORE/$M/manifest.json"
+if (cd "$TMP/merge" && CMUX_TUI_CLIENT_MANIFEST_BASE="file://$MSTORE" "$RESOLVER" >/dev/null 2>&1); then
+  echo "FAIL: exact mode must fail when no commit with HEAD's client inputs is published"
+  exit 1
+fi
+
+# Regression (#14434 review): the candidate window counted commits, not input versions.
+# Merge commits of one version interleave, so HEAD's version spanned dozens of commits
+# and its only published member (main's first merge of it) fell past the old 20-commit
+# window: exact mode failed although a client with HEAD's inputs was published. Here 25
+# branches make the same cmux-tui change after main first merged it, so 26 commits of
+# HEAD's version precede that published merge.
+git init -q "$TMP/wide"
+git -C "$TMP/wide" checkout -q -b main
+wcommit() {
+  mkdir -p "$(dirname "$TMP/wide/$2")"
+  echo "$1" >"$TMP/wide/$2"
+  git -C "$TMP/wide" add -A
+  GIT_COMMITTER_DATE="$3" GIT_AUTHOR_DATE="$3" git -C "$TMP/wide" commit -q -m "$1"
+}
+wmerge() {
+  GIT_COMMITTER_DATE="$2" GIT_AUTHOR_DATE="$2" git -C "$TMP/wide" merge -q --no-ff --no-edit "$1"
+}
+wcommit "base" cmux-tui/a.rs "2026-09-01T00:00:00"
+BASE_SHA="$(git -C "$TMP/wide" rev-parse HEAD)"
+git -C "$TMP/wide" checkout -q -b first "$BASE_SHA"
+wcommit "tui v2" cmux-tui/a.rs "2026-09-02T00:00:00"
+git -C "$TMP/wide" checkout -q main
+wmerge first "2026-09-02T01:00:00"
+PUBLISHED="$(git -C "$TMP/wide" rev-parse HEAD)"
+for i in $(seq 10 34); do
+  git -C "$TMP/wide" checkout -q -b "b$i" "$BASE_SHA"
+  wcommit "tui v2" cmux-tui/a.rs "2026-09-03T00:$i:00"
+  git -C "$TMP/wide" checkout -q main
+  wmerge "b$i" "2026-09-03T00:$i:30"
+done
+wcommit "app after" Sources/App.swift "2026-09-04T00:00:00"
+ahead="$(git -C "$TMP/wide" log --full-history --format=%H HEAD -- cmux-tui | grep -n "^$PUBLISHED\$" | cut -d: -f1)"
+if [[ -z "$ahead" || $ahead -le 21 ]]; then
+  echo "FAIL: the published merge must sit past the 20th candidate (test setup), at '${ahead}'"
+  exit 1
+fi
+WSTORE="$TMP/wstore"
+mkdir -p "$WSTORE/$PUBLISHED"
+printf '{"commit":"%s"}\n' "$PUBLISHED" >"$WSTORE/$PUBLISHED/manifest.json"
+got="$(cd "$TMP/wide" && CMUX_TUI_CLIENT_MANIFEST_BASE="file://$WSTORE" "$RESOLVER" 2>"$TMP/wide.err")" || {
+  echo "FAIL: exact mode must find the published member $PUBLISHED of HEAD's input version"
+  cat "$TMP/wide.err"
+  exit 1
+}
+if [[ "$got" != "$PUBLISHED" ]]; then
+  echo "FAIL: expected the published merge $PUBLISHED, got '$got'"
+  exit 1
+fi
+# A shallow clone deepens until it sees an older version, so it reaches the same answer.
+git clone -q --depth 1 "file://$TMP/wide" "$TMP/wide-shallow"
+got="$(cd "$TMP/wide-shallow" && CMUX_TUI_CLIENT_MANIFEST_BASE="file://$WSTORE" "$RESOLVER" 2>"$TMP/wide-shallow.err")" || {
+  echo "FAIL: a shallow clone must deepen to the published member $PUBLISHED"
+  cat "$TMP/wide-shallow.err"
+  exit 1
+}
+if [[ "$got" != "$PUBLISHED" ]]; then
+  echo "FAIL: shallow clone expected $PUBLISHED, got '$got'"
+  exit 1
+fi
+
 echo "PASS: resolve-cmux-tui-client-commit picks the newest published cmux-tui commit, shallow or not"
