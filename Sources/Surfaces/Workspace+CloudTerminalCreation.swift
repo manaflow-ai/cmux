@@ -24,12 +24,13 @@ extension Workspace {
     /// manager when the user acts again, so no automatic loop is reintroduced.
     func recreateCloudMachine(_ machine: SurfaceMachineID) {
         guard let machineID = machine.cloudMachineID, !machineID.isEmpty else { return }
+        let failureID = cloudPaneCreationFailureStore.failure?.id
         CloudVMActionLauncher.shared.recreate(
             machineID: machineID,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             onCompletion: { [weak self] completion in
                 guard completion.succeeded else { return }
-                guard let self, let failureID = self.cloudPaneCreationFailureStore.failure?.id else { return }
+                guard let self, let failureID else { return }
                 self.cloudPaneCreationFailureStore.dismiss(id: failureID)
             }
         )
