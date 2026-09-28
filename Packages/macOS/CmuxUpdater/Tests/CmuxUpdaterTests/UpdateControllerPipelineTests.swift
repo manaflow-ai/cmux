@@ -42,6 +42,28 @@ import Testing
         #expect(harness.updater.checkForUpdatesCallCount == 1)
     }
 
+    @Test func largePersistedIntervalDoesNotCrashInitialization() {
+        let suiteName = "cmux.updater.large-interval-tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: UpdateSettings.migrationKey)
+        let interval = Double(Int.max) * 2
+        defaults.set(interval, forKey: UpdateSettings.scheduledCheckIntervalKey)
+
+        let updater = FakeUpdater()
+        let controller = UpdateController(
+            log: NoopUpdateLog(),
+            clock: TestDeadlineClock(),
+            defaults: defaults,
+            isDevLikeBundle: false,
+            updaterFactory: { _, _ in updater }
+        )
+
+        #expect(updater.updateCheckInterval == interval)
+        controller.checkForUpdates()
+        #expect(updater.checkForUpdatesCallCount == 1)
+    }
+
     @Test func persistedNeverDisablesAutomaticChecksDuringInitialization() {
         let suiteName = "cmux.updater.persisted-never-tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
