@@ -48,9 +48,9 @@ struct CloudTreeNodeActions {
     /// renames all views.
     let renameTerminal: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView?) -> Void
     /// Rename a display's or a browser's remote tab via a text prompt. The view
-    /// is not optional because those rows are built one per placement: a row
-    /// without a tab does not offer the verb rather than falling back to an
-    /// all-views rename the way a terminal pool row does.
+    /// is not optional: a row without one exact tab does not offer the verb
+    /// rather than falling back to an all-views rename the way a terminal pool
+    /// row does. A display open in two workspaces is exactly that case.
     var renameRemoteView: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView) -> Void = { _, _ in }
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
@@ -416,12 +416,13 @@ struct CloudTreeNodeActions {
             },
             renameRemoteView: { resource, view in
                 let chosen = CloudTreeResourceName.chosenName(remoteView: view)
-                // The prompt is titled with the name the row is showing, so it
-                // names what the person clicked. The field holds only a name
-                // someone typed: pre-filling a browser's live page title would
-                // pin it the moment they hit Return, which is the opposite of
-                // what a prompt they opened by accident should do.
-                let current = chosen ?? (resource.title.isEmpty ? resource.id.key : resource.title)
+                // Titled through the same helper the row renders, so the prompt
+                // names what the person clicked: an untitled browser says
+                // "browser" here too, not its daemon key. The field, separately,
+                // holds only a name someone typed: pre-filling a browser's live
+                // page title would pin it the moment they hit Return, which is
+                // the opposite of what a prompt opened by accident should do.
+                let current = CloudTreeResourceName.label(resource: resource, remoteView: view)
                 guard let name = promptForName(
                     title: String(format: String(localized: "cloudTree.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
                     current: chosen ?? "",

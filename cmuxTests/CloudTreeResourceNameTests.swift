@@ -118,10 +118,41 @@ struct CloudTreeResourceNameTests {
     }
 
     /// A rename writes to a daemon tab, so a row with no tab has nothing to
-    /// write to and must not offer the verb.
+    /// write to and must not offer the verb. A paired Mac is excluded even with
+    /// a tab: its host verb only resolves terminals.
     @Test("rename is offered only where there is a tab to rename")
     func renameNeedsATab() {
-        #expect(CloudTreeOutlineView.canRenameRemoteView(remoteView: view(name: nil)))
-        #expect(CloudTreeOutlineView.canRenameRemoteView(remoteView: nil) == false)
+        let browser = resource(kind: .browser, key: "browser-1", title: "Example Domain")
+        #expect(CloudTreeOutlineView.canRenameRemoteView(resource: browser, remoteView: view(name: nil)))
+        #expect(CloudTreeOutlineView.canRenameRemoteView(resource: browser, remoteView: nil) == false)
+
+        let onDevice = SurfaceResource(
+            id: SurfaceResourceID(
+                machine: .device(SurfaceDeviceInstanceID(deviceID: "22222222-2222-2222-2222-222222222222", tag: "default")),
+                kind: .browser,
+                key: "surface-9"
+            ),
+            title: "Example Domain",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: [],
+            port: nil,
+            url: nil
+        )
+        #expect(CloudTreeOutlineView.canRenameRemoteView(resource: onDevice, remoteView: view(name: nil)) == false)
+    }
+
+    /// The prompt and the drag payload hold a resource, not a row, so they
+    /// cannot reach the row's switch. They ask by kind instead, and must get
+    /// the same answer the row rendered.
+    @Test("a reader with only a resource gets the row's own name")
+    func labelFollowsTheRowByKind() {
+        let untitledBrowser = resource(kind: .browser, key: "browser-1", title: "")
+        #expect(CloudTreeResourceName.label(resource: untitledBrowser, remoteView: nil) == "browser")
+        let untitledDisplay = resource(kind: .display, key: "screen-1", title: "")
+        #expect(CloudTreeResourceName.label(resource: untitledDisplay, remoteView: nil) == "Desktop")
+        #expect(CloudTreeResourceName.label(resource: untitledBrowser, remoteView: view(name: "Docs")) == "Docs")
     }
 }

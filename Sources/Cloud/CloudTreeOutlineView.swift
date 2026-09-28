@@ -800,7 +800,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             resource: SurfaceResource,
             remoteView: SurfaceRemoteView?
         ) -> [NSMenuItem] {
-            guard CloudTreeOutlineView.canRenameRemoteView(remoteView: remoteView),
+            guard CloudTreeOutlineView.canRenameRemoteView(resource: resource, remoteView: remoteView),
                   let remoteView
             else { return [] }
             return [

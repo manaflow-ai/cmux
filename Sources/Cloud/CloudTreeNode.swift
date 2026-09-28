@@ -225,8 +225,12 @@ final class CloudTreeNode: NSObject {
         }
         if case .browser(let row) = kind,
            let view = row.remoteView {
+            // The group's title names the local workspace the drag produces, so
+            // it has to be the name the row is showing. Reading `resource.title`
+            // raw dropped a rename on the way out and left an untitled browser
+            // making a workspace with no name at all.
             return SurfaceResourceGroup(
-                title: row.resource.title,
+                title: CloudTreeResourceName.browser(resource: row.resource, remoteView: view),
                 placements: [SurfaceResourcePlacement(resource: row.resource.id, remoteView: view)],
                 remoteWorkspaceID: view.workspace.id
             )
@@ -234,7 +238,7 @@ final class CloudTreeNode: NSObject {
         if case .display(let resource, _, let view) = kind,
            let view {
             return SurfaceResourceGroup(
-                title: resource.title,
+                title: CloudTreeResourceName.display(resource: resource, remoteView: view),
                 placements: [SurfaceResourcePlacement(resource: resource.id, remoteView: view)],
                 remoteWorkspaceID: view.workspace.id
             )

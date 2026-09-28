@@ -12,16 +12,27 @@ extension CloudTreeOutlineView {
     /// A rename writes a name onto a daemon tab, so a row with no tab has
     /// nothing to write to and must not offer the verb.
     ///
-    /// Unlike a terminal, a display or a browser row is built from one
-    /// placement, so there is no pool row and no all-views fallback: either
-    /// this row has its tab or it is not renameable.
+    /// Another Mac is excluded even when the row does have a tab.
+    /// `DeviceSurfaceProvider.renameRemoteTab` forwards to the host's terminal
+    /// rename verb, which resolves the id with `requireTerminal: true`, so a
+    /// browser or display rename there fails with "Terminal surface not found"
+    /// after the row has already shown the new name optimistically. Renaming
+    /// these on a device needs a host verb that is not terminal-only, which is
+    /// its own change.
+    ///
+    /// There is no all-views fallback the way a terminal pool row has one. A
+    /// display open in two workspaces reaches its pool row with no single view
+    /// (`CloudTreeNodeBuilder` passes one only when there is exactly one), and
+    /// that row is not offered the verb: writing a name to one of two tabs
+    /// would be a guess. Naming every view at once is the terminal-only
+    /// "Rename All Views" path and is not extended here.
     ///
     /// A port row is not offered the verb even though its placement can carry
     /// a tab. The row renders the forwarded link and falls back to the port
     /// number, never to a name, so a rename would write something no row
     /// shows. Naming ports is its own change, in the row first.
-    static func canRenameRemoteView(remoteView: SurfaceRemoteView?) -> Bool {
-        remoteView != nil
+    static func canRenameRemoteView(resource: SurfaceResource, remoteView: SurfaceRemoteView?) -> Bool {
+        remoteView != nil && !resource.id.machine.isDevice
     }
 }
 

@@ -41,4 +41,21 @@ enum CloudTreeResourceName {
             ?? trimmedNonEmpty(resource.title)
             ?? String(localized: "cloudTree.browser.untitled", defaultValue: "browser")
     }
+
+    /// The same answer for a reader that holds a resource but not a row: the
+    /// rename prompt has to say what the row says, and it is not inside the
+    /// switch that picks the row's case.
+    ///
+    /// Only display and browser rows reach this. The default arm is the browser
+    /// rule rather than an exhaustive switch because `SurfaceResourceKind` is
+    /// wire-tolerant and a kind added to the wire should not fail to build here;
+    /// a terminal has its own name rule and does not call this.
+    static func label(resource: SurfaceResource, remoteView: SurfaceRemoteView?) -> String {
+        switch resource.id.kind {
+        case .display:
+            return display(resource: resource, remoteView: remoteView)
+        default:
+            return browser(resource: resource, remoteView: remoteView)
+        }
+    }
 }
