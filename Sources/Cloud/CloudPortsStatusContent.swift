@@ -100,11 +100,21 @@ final class CloudPortsStatusContent: NSView {
         return ceil(title + message + button + 10)
     }
 
+    /// Measures with the same wrapping label cell that draws the text. A string's
+    /// bounding rect uses the font's 13 pt line height at 11 pt, while the cell
+    /// draws 14 pt lines, so a bounding-rect row drops its last wrapped line.
+    private static let measuringLabel: NSTextField = {
+        let label = NSTextField(wrappingLabelWithString: "")
+        label.maximumNumberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        return label
+    }()
+
     private static func textHeight(_ text: String, font: NSFont, width: CGFloat) -> CGFloat {
-        ceil(NSAttributedString(string: text, attributes: [.font: font]).boundingRect(
-            with: NSSize(width: max(1, width - 4), height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        ).height)
+        measuringLabel.font = font
+        measuringLabel.stringValue = text
+        let bounds = NSRect(x: 0, y: 0, width: max(1, width), height: .greatestFiniteMagnitude)
+        return ceil(measuringLabel.cell?.cellSize(forBounds: bounds).height ?? 0)
     }
 
     @objc private func performAction() { actionHandler?() }
