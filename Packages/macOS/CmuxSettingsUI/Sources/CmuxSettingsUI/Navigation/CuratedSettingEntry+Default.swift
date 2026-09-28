@@ -138,6 +138,12 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "notification-sound", title: String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"), synonyms: "Notification Sound notifications.sound sound audio alert chime beep custom file wav mp3 caf aiff"),
             .init(
                 section: .app,
+                id: "notification-sound-when-focused",
+                title: String(localized: "settings.notifications.soundWhenFocused.title", defaultValue: "Sound for Focused Pane"),
+                synonyms: "notifications.soundWhenFocused sound focused pane active beep bonk alert bell silent quiet ring"
+            ),
+            .init(
+                section: .app,
                 id: "notification-sound-overrides",
                 title: String(localized: "settings.notifications.soundOverrides.title", defaultValue: "Per-Agent Notification Sounds"),
                 synonyms: String(

@@ -37,6 +37,7 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         )
         addTrackingArea(next)
         pointerTrackingArea = next
+        SidebarReorderInteractionState.shared.register(table: self)
     }
 
     override func mouseEntered(with event: NSEvent) {
