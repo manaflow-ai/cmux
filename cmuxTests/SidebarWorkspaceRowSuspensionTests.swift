@@ -393,17 +393,17 @@ struct SidebarWorkspaceRowSuspensionTests {
         let section = try #require(
             Self.descendants(of: cell).compactMap { $0 as? SidebarRowChecklistSection }.first
         )
-        #expect(section.checklistPopoverAnimatesForTesting == true)
+        #expect(section.popoverPresenter.popover?.animates == true)
 
         // A reparent the popover survives: the anchor announces that it is
         // leaving its window and then that it is back, and AppKit never
         // closes the popover in between.
         section.viewWillMove(toWindow: nil)
-        #expect(section.checklistPopoverAnimatesForTesting == false)
+        #expect(section.popoverPresenter.popover?.animates == false)
         section.viewDidMoveToWindow()
 
         let restored = await AppKitTestEventPump().waitUntil {
-            section.checklistPopoverAnimatesForTesting == true
+            section.popoverPresenter.popover?.animates == true
         }
         #expect(restored, "A popover that survives a reparent should animate its later close again")
         #expect(popoverWindow.isVisible)

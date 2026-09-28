@@ -30,7 +30,7 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
     /// Lazy: cells allocate presenters eagerly, but the hosting machinery
     /// only spins up when a popover actually presents (off the scroll path).
     private lazy var hostingController = NSHostingController(rootView: AnyView(EmptyView()))
-    private var popover: NSPopover?
+    private(set) var popover: NSPopover?
     private var presentationCount = 0
     private var closingProgrammatically = false
     /// Completes a close whose `popoverDidClose` never arrives; see
@@ -64,11 +64,6 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
         super.init()
     }
 
-#if DEBUG
-    /// The current popover's `animates`, or nil when none is presented.
-    var animatesForTesting: Bool? { popover?.animates }
-#endif
-
     func present(
         _ root: AnyView,
         relativeTo rect: NSRect,
@@ -83,6 +78,12 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
         }
         visibleUpdateScheduler.cancel()
         pendingRoot = nil
+        // Showing a hidden popover again supersedes any close still in
+        // flight for it: its pending fallback must not abandon the popover
+        // that is about to be visible.
+        closeCompletionFallback.cancel()
+        closeCompletionFallbackTarget = nil
+        isClosing = false
         presentationCount += 1
         applyRootView(root)
         popover.show(relativeTo: rect, of: view, preferredEdge: preferredEdge)

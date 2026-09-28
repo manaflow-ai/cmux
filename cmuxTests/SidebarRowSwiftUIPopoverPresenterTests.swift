@@ -81,7 +81,7 @@ struct SidebarRowSwiftUIPopoverPresenterTests {
         host.present(presenter)
         #expect(presenter.isShown)
         #expect(!presenter.isClosing)
-        #expect(presenter.animatesForTesting == true)
+        #expect(presenter.popover?.animates == true)
     }
 
     @Test
@@ -103,6 +103,37 @@ struct SidebarRowSwiftUIPopoverPresenterTests {
         // One second after the first willClose, not after the second.
         clock.advance(by: .milliseconds(400))
         #expect(await closeCompleted(presenter), "A repeated willClose must not push completion back")
+    }
+
+    @Test
+    func representingAHiddenPopoverCancelsThePendingFallback() async throws {
+        let host = Host()
+        let clock = SidebarTestManualClock()
+        let presenter = SidebarRowSwiftUIPopoverPresenter(closeCompletionClock: clock)
+        defer { host.tearDown(presenter) }
+        host.present(presenter)
+        let popover = try #require(presenter.popover)
+        try #require(presenter.isShown)
+
+        // A close starts and the popover goes hidden, but its didClose has
+        // not reached the presenter yet when the container presents again.
+        presenter.popoverWillClose(Notification(name: NSPopover.willCloseNotification, object: popover))
+        #expect(await fallbackArmed(on: clock))
+        popover.delegate = nil
+        popover.animates = false
+        popover.close()
+        popover.delegate = presenter
+        try #require(!presenter.isShown)
+
+        host.present(presenter)
+        #expect(presenter.isShown)
+        #expect(!presenter.isClosing, "Presenting again supersedes the close in flight")
+
+        // The old deadline passing must not abandon the popover now showing.
+        clock.advance(by: .seconds(1))
+        await AppKitTestEventPump().drain()
+        #expect(presenter.isShown, "The superseded fallback must not close the re-presented popover")
+        #expect(presenter.popover === popover)
     }
 
     @Test
