@@ -6,6 +6,7 @@ import {
 import {
   fallbackContentLocales,
   featureWorkflowContentLocales,
+  customSidebarDocsLocales,
   managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
 } from "../../../i18n/locale-availability";
@@ -82,6 +83,12 @@ export const navItems: NavEntry[] = [
   { titleKey: "vault", href: "/docs/vault", locales: featureWorkflowContentLocales },
   { titleKey: "taskManager", href: "/docs/task-manager", locales: featureWorkflowContentLocales },
   { titleKey: "customCommands", href: "/docs/custom-commands" },
+  {
+    titleKey: "customSidebars",
+    href: "/docs/custom-sidebars",
+    locales: customSidebarDocsLocales,
+    contentLocales: customSidebarDocsLocales,
+  },
   { titleKey: "dock", href: "/docs/dock" },
   { titleKey: "keyboardShortcuts", href: "/docs/keyboard-shortcuts" },
   { titleKey: "apiReference", href: "/docs/api" },

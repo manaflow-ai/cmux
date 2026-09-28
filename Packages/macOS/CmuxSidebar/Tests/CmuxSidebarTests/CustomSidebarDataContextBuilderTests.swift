@@ -399,6 +399,53 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(children[1].member("endedEpoch") == .int(150))
     }
 
+    @Test("Agent entries expose the containing workspace identity")
+    func agentWorkspaceIdentity() {
+        let builder = CustomSidebarDataContextBuilder()
+        let workspaceID = UUID()
+        let agent = CustomSidebarAgentSnapshot(
+            sessionId: "session-that-can-restart",
+            kind: "codex",
+            name: "Codex",
+            status: "idle",
+            stateSince: nil,
+            lastActivityAt: Date(timeIntervalSince1970: 5),
+            title: nil,
+            panelId: nil,
+            surfaceId: nil,
+            workingDirectory: nil,
+            transcriptPath: nil,
+            pid: nil
+        )
+        let workspace = CustomSidebarWorkspaceSnapshot(
+            id: workspaceID,
+            title: "Roster workspace",
+            isSelected: false,
+            isPinned: false,
+            index: 0,
+            directory: "/repo",
+            listeningPorts: [],
+            unreadCount: 0,
+            surfaces: [],
+            surfaceCount: 0,
+            customDescription: nil,
+            customColor: nil,
+            gitBranch: nil,
+            gitIsDirty: false,
+            pullRequestValues: [],
+            progress: nil,
+            latestConversationMessage: nil,
+            latestSubmittedMessage: nil,
+            latestSubmittedAt: nil,
+            remote: nil,
+            agents: [agent]
+        )
+
+        let value = builder.workspaceValue(workspace)
+
+        #expect(value.member("agents")?.iterationValues?.first?.member("workspaceId") == .string(workspaceID.uuidString))
+    }
+
     @Test("Agent optional fields are omitted when absent")
     func agentOptionalFieldsOmitted() {
         let builder = CustomSidebarDataContextBuilder()

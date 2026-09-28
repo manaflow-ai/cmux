@@ -352,6 +352,7 @@ describe("agent page variants", () => {
 
     expect(llms).toContain("[Getting Started](https://cmux.com/docs/getting-started.md)");
     expect(llms).toContain("[Skills](https://cmux.com/docs/skills.md)");
+    expect(llms).toContain("[Custom Sidebars](https://cmux.com/docs/custom-sidebars.md)");
     expect(llms).toContain("[Remote tmux](https://cmux.com/docs/remote-tmux.md)");
     expect(llms).toContain("Remote tmux: attach to existing tmux sessions over SSH");
     expect(llms).toContain("Text: https://cmux.com/docs/getting-started.txt");

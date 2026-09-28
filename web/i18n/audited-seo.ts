@@ -61,6 +61,7 @@ export type AuditedDocsPageKey =
   | "textBox"
   | "concepts"
   | "customCommands"
+  | "customSidebars"
   | "notifications"
   | "sessionRestore"
   | "skills"
