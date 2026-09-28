@@ -2089,9 +2089,11 @@ struct ContentView: View {
         )
     }
 
+    /// Titlebar text over the terminal background. Picks black or white by
+    /// WCAG contrast, the same rule as the sidebar and the Bonsplit tab bar,
+    /// so a saturated mid-tone theme never gets white text at 3.2:1.
     private func fakeTitlebarTextColor(appearance: WindowAppearanceSnapshot) -> Color {
-        let ghosttyBackground = appearance.terminalBackgroundColor
-        return ghosttyBackground.isLightColor
+        cmuxReadableColorScheme(for: appearance.terminalBackgroundColor) == .light
             ? Color.black.opacity(0.78)
             : Color.white.opacity(0.82)
     }
