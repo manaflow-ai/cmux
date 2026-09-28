@@ -74,6 +74,7 @@ enum SettingsSearchAliasIndex {
         "app:preferred-editor": localized("settings.search.alias.setting.app.preferred-editor", defaultValue: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
         "app:supported-file-previews": localized("settings.search.alias.setting.app.supported-file-previews", defaultValue: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
         "app:terminal-config": localized("settings.search.alias.setting.app.terminal-config", defaultValue: "ghostty config configuration terminal settings preview merged file reload macos-option-as-alt option as alt left option right option alt key meta"),
+        "app:chrome-font": localized("settings.search.alias.setting.app.chrome-font", defaultValue: "app.chromeFont chrome font interface font sidebar font tab font ui font typeface family terminal system monospace follow terminal"),
         "app:markdown-viewer": localized("settings.search.alias.setting.app.markdown-viewer", defaultValue: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
         "app:markdown-font-size": localized("settings.search.alias.setting.app.markdown-font-size", defaultValue: "markdown.fontSize md markdown viewer font size points zoom scale text bigger smaller larger default"),
         "app:markdown-font-family": localized("settings.search.alias.setting.app.markdown-font-family", defaultValue: "markdown.fontFamily md markdown viewer font font-family family typeface system stack custom"),

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSidebar
 import CmuxWorkspaces
 import SwiftUI
 
@@ -52,7 +53,7 @@ final class SidebarRowChecklistSummaryLine: NSControl {
         )
         iconView.contentTintColor = secondary
         let summaryFont = NSFont.monospacedDigitSystemFont(ofSize: model.scaled(10), weight: .semibold)
-        let itemFont = NSFont.systemFont(ofSize: model.scaled(10))
+        let itemFont = model.chromeFont(10)
         countLabel.stringValue = "\(snapshot.checklistCompletedCount)/\(snapshot.checklistTotalCount)"
         countLabel.font = summaryFont
         countLabel.textColor = primary

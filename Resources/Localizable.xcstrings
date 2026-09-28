@@ -293178,6 +293178,183 @@
         }
       }
     },
+    "settings.app.chromeFont": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface Font"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターフェイスのフォント"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "界面字体"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schriftart der Oberfläche"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Police de l'interface"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خط الواجهة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuente de la interfaz"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "介面字型"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인터페이스 글꼴"
+          }
+        }
+      }
+    },
+    "settings.app.chromeFont.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal"
+          }
+        }
+      }
+    },
+    "settings.app.chromeFont.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font family for the sidebar, tabs, and panels. Use terminal to follow the terminal font, system for the macOS interface font, or type a font family name. Text sizes do not change."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー、タブ、パネルのフォントファミリーです。terminal はターミナルのフォントに追従し、system は macOS のインターフェイスフォントを使います。フォントファミリー名を直接入力することもできます。文字サイズは変わりません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏、标签页和面板的字体。填写 terminal 跟随终端字体，填写 system 使用 macOS 界面字体，也可直接输入字体名称。文字大小不会改变。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schriftfamilie für Seitenleiste, Tabs und Panels. terminal folgt der Terminal-Schrift, system verwendet die macOS-Systemschrift, oder geben Sie einen Schriftfamiliennamen ein. Die Textgrößen ändern sich nicht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Famille de police de la barre latérale, des onglets et des panneaux. terminal suit la police du terminal, system utilise la police d'interface de macOS, ou saisissez un nom de famille de police. Les tailles de texte ne changent pas."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عائلة الخط للشريط الجانبي والعلامات واللوحات. استخدم terminal لمتابعة خط الطرفية، أو system لخط واجهة macOS، أو اكتب اسم عائلة خط. لا تتغير أحجام النص."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Familia tipográfica de la barra lateral, las pestañas y los paneles. Usa terminal para seguir la fuente del terminal, system para la fuente de la interfaz de macOS, o escribe el nombre de una familia. Los tamaños de texto no cambian."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄、分頁與面板的字型。填入 terminal 可跟隨終端機字型，填入 system 使用 macOS 介面字型，也可直接輸入字型名稱。文字大小不會改變。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바, 탭, 패널의 글꼴 패밀리입니다. terminal은 터미널 글꼴을 따르고, system은 macOS 인터페이스 글꼴을 사용하며, 글꼴 패밀리 이름을 직접 입력할 수도 있습니다. 글자 크기는 바뀌지 않습니다."
+          }
+        }
+      }
+    },
     "settings.app.closeWorkspaceOnLastSurfaceShortcut": {
       "extractionState": "manual",
       "localizations": {
@@ -345622,6 +345799,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "canvas.snappingEnabled 캔버스 스냅 스내핑 활성화 가장자리 드래그 크기 조정 정렬 분할 창 자유 형식 레이아웃 canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.chrome-font": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.chromeFont chrome font interface font sidebar font tab font ui font typeface family terminal system monospace follow terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.chromeFont chrome font interface font sidebar font tab font ui font typeface family terminal system monospace follow terminal インターフェイス フォント 書体 サイドバー タブ パネル ターミナル システム 等幅"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.chromeFont chrome font interface font sidebar font tab font ui font typeface family terminal system monospace follow terminal 界面 字体 字形 侧边栏 标签页 面板 终端 系统 等宽"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.chromeFont chrome font interface font sidebar font tab font ui font typeface family terminal system monospace follow terminal oberfläche schriftart schriftfamilie seitenleiste tabs panels terminal system monospace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.chromeFont chrome font interface font sidebar font tab font ui font typeface family terminal system monospace follow terminal interface police famille de polices barre latérale onglets panneaux terminal système monospace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.chromeFont chrome font interface font sidebar font tab font ui font typeface family terminal system monospace follow terminal واجهة خط عائلة الخطوط الشريط الجانبي علامات لوحات طرفية نظام أحادي المسافة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.chromeFont chrome font interface font sidebar font tab font ui font typeface family terminal system monospace follow terminal interfaz fuente familia tipográfica barra lateral pestañas paneles terminal sistema monoespaciada"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.chromeFont chrome font interface font sidebar font tab font ui font typeface family terminal system monospace follow terminal 介面 字型 字體 側邊欄 分頁 面板 終端機 系統 等寬"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.chromeFont chrome font interface font sidebar font tab font ui font typeface family terminal system monospace follow terminal 인터페이스 글꼴 서체 사이드바 탭 패널 터미널 시스템 고정폭"
           }
         }
       }

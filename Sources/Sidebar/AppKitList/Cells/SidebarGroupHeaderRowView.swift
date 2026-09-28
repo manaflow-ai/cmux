@@ -181,10 +181,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             ?? colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
 
         nameField.stringValue = model.name
-        nameField.font = .systemFont(
-            ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
-            weight: SidebarRowTextWeight.workspaceGroupHeaderName.appKitWeight
-        )
+        nameField.font = Self.nameFont(model: model, metrics: metrics)
         nameField.textColor = model.isAnchorActive
             ? colorResolver.resolvedColor(.labelColor, for: colorScheme)
             : colorResolver.resolvedColor(.labelColor, for: colorScheme, opacity: 0.9)
@@ -192,8 +189,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
         if showsBadge {
-            unreadBadgeFont = .systemFont(
-                ofSize: GlobalFontMagnification.scaledSize(metrics.unreadFontSize, percent: percent),
+            unreadBadgeFont = CmuxChromeFont.appKitFont(
+                typeface: model.chromeTypeface,
+                size: GlobalFontMagnification.scaledSize(metrics.unreadFontSize, percent: percent),
                 weight: .semibold
             )
             unreadBadgeView.configure(
@@ -368,16 +366,28 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     // MARK: Layout
 
+    /// The header name's font: one definition for the measured height and the
+    /// drawn line, including the family, which changes the line height.
+    static func nameFont(
+        model: SidebarGroupHeaderRowModel,
+        metrics: SidebarWorkspaceGroupHeaderMetrics
+    ) -> NSFont {
+        CmuxChromeFont.appKitFont(
+            typeface: model.chromeTypeface,
+            size: GlobalFontMagnification.scaledSize(
+                metrics.nameFontSize,
+                percent: model.globalFontMagnificationPercent
+            ),
+            weight: SidebarRowTextWeight.workspaceGroupHeaderName
+        )
+    }
+
     /// Deterministic row height; must stay in lockstep with `layout()`.
     static func preferredHeight(model: SidebarGroupHeaderRowModel) -> CGFloat {
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
-        let percent = model.globalFontMagnificationPercent
         // Must stay the same font `applyModel` installs on `nameField`, or the
-        // measured height drifts from the drawn line.
-        let nameFont = NSFont.systemFont(
-            ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
-            weight: SidebarRowTextWeight.workspaceGroupHeaderName.appKitWeight
-        )
+        // measured height drifts from the drawn line. Both call `nameFont`.
+        let nameFont = nameFont(model: model, metrics: metrics)
         let nameLineHeight = ceil(nameFont.ascender - nameFont.descender + nameFont.leading)
         let content = max(metrics.chevronFrame, metrics.iconFrame, metrics.plusFrame, nameLineHeight)
         return ceil(content + 10)

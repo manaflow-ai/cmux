@@ -165,8 +165,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// the weight follows the authoritative apply a moment later.
     private func titleFont(paintedWith painted: SidebarWorkspaceRowModel) -> NSFont {
         let measured = model ?? painted
-        return .systemFont(
-            ofSize: measured.scaled(SidebarRowTitleMetrics.fontSize),
+        return measured.chromeFont(
+            SidebarRowTitleMetrics.fontSize,
             weight: Self.titleWeight(for: measured).appKitWeight
         )
     }
@@ -677,14 +677,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             if let rendered = SidebarMarkdownRenderer(markdown: display).workspaceDescription {
                 descriptionView.configureAttributedText(
                     rendered,
-                    font: .systemFont(ofSize: model.scaled(10.5)),
+                    font: model.chromeFont(10.5),
                     color: descriptionColor,
                     linkColor: customDescriptionColor ?? palette.linkText
                 )
             } else {
                 descriptionView.configurePlainText(
                     display,
-                    font: .systemFont(ofSize: model.scaled(10.5)),
+                    font: model.chromeFont(10.5),
                     color: descriptionColor
                 )
             }
@@ -707,7 +707,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             subtitleView.stringValue = model.latestNotificationText == nil
                 ? display
                 : SidebarMarkdownRenderer(markdown: display).plainText
-            subtitleView.font = .systemFont(ofSize: model.scaled(10))
+            subtitleView.font = model.chromeFont(10)
             subtitleView.textColor = palette.secondary(0.8)
         }
 
@@ -723,13 +723,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             remoteTargetView.lineBreakMode = .byTruncatingMiddle
             remoteTargetView.toolTip = snapshot.remoteStateHelpText
             remoteStatusView.stringValue = snapshot.remoteConnectionStatusText
-            remoteStatusView.font = .systemFont(ofSize: model.scaled(9), weight: .medium)
+            remoteStatusView.font = model.chromeFont(9, weight: .medium)
             remoteStatusView.textColor = palette.secondary(0.58)
             if !remoteReconnectButton.isHidden {
                 remoteReconnectButton.attributedTitle = NSAttributedString(
                     string: String(localized: "sidebar.remote.reconnect.button", defaultValue: "Reconnect"),
                     attributes: [
-                        .font: NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold),
+                        .font: model.chromeFont(9, weight: .semibold),
                         .foregroundColor: palette.secondary(0.9),
                     ]
                 )
@@ -806,7 +806,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 : palette.accentColor
         )
         let badgeText: NSColor = model.isActive ? palette.primaryText : .white
-        let badgeFont = NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold)
+        let badgeFont = model.chromeFont(9, weight: .semibold)
 
         let leadingBadgeVisible = badgeVisible && model.settings.notificationBadgePosition == .leading
         let trailingBadgeVisible = badgeVisible && model.settings.notificationBadgePosition == .trailing
@@ -934,7 +934,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 self?.actions?.onOpenStatusURL(url)
             }
         }
-        let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
+        let toggleFont = model.chromeFont(10, weight: .semibold)
         let toggleColor = palette.secondary(0.9, inactiveOpacity: 0.9)
         metadataToggleButton.isHidden = allEntries.count <= 3
         if !metadataToggleButton.isHidden {
@@ -971,14 +971,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             if let rendered = SidebarMetadataMarkdownRenderer.rendered(display) {
                 view.configureAttributedText(
                     rendered,
-                    font: .systemFont(ofSize: model.scaled(10)),
+                    font: model.chromeFont(10),
                     color: palette.secondary(0.8),
                     linkColor: palette.linkText
                 )
             } else {
                 view.configurePlainText(
                     display,
-                    font: .systemFont(ofSize: model.scaled(10)),
+                    font: model.chromeFont(10),
                     color: palette.secondary(0.8)
                 )
             }
@@ -994,7 +994,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let progress = model.settings.visibleAuxiliaryDetails.showsProgress ? model.snapshot.progress : nil
         progressView.isHidden = progress == nil
         if let progress {
-            let labelFont = NSFont.systemFont(ofSize: model.scaled(9))
+            let labelFont = model.chromeFont(9)
             progressView.configure(
                 fraction: CGFloat(progress.value),
                 barHeight: max(3, 3 * model.fontScale),
@@ -1449,7 +1449,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             let height = SidebarRowProgressView.height(
                 barHeight: max(3, 3 * model.fontScale),
                 labelText: model.snapshot.progress?.label,
-                labelFont: .systemFont(ofSize: model.scaled(9))
+                labelFont: model.chromeFont(9)
             )
             if apply { progressView.frame = NSRect(x: leading, y: y, width: contentWidth, height: height) }
             y += height

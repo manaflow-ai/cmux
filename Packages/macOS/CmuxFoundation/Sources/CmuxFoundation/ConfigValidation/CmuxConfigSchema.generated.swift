@@ -627,6 +627,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": false,
           "description": "When true, creating a split resizes the panes in that split's row or column to equal sizes. When false, a new split halves the pane it was created from."
         },
+        "chromeFont": {
+          "type": "string",
+          "default": "terminal",
+          "examples": ["terminal", "system", "SF Mono"],
+          "description": "Typeface for cmux's own interface: sidebar rows, surface tabs and pills. `terminal` follows the font configured for the terminal, falling back to the terminal's own fallback font when that family is not installed. `system` keeps the macOS system font. Any other value names a font family, which means a family literally named `terminal` or `system` cannot be requested by name. Text sizes are unaffected."
+        },
         "preferredEditor": {
           "type": "string",
           "default": "",

@@ -23,6 +23,7 @@ extension CmuxSettingsFileStore {
         "app.paneResizeStepPixels",
         "app.focusHistoryIncludesPanesAndTabs",
         "app.equalizeSplitsOnCreate",
+        "app.chromeFont",
         "app.preferredEditor",
         "app.defaultWorkspacePath",
         "app.openSupportedFilesInCmux",
