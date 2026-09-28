@@ -5087,13 +5087,15 @@ class TabManager: ObservableObject {
            let anchorPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == fallbackAnchorPaneId }),
            let anchorTab = workspace.bonsplitController.selectedTab(inPane: anchorPane) ?? workspace.bonsplitController.tabs(inPane: anchorPane).first,
            let anchorPanelId = workspace.panelIdFromSurfaceId(anchorTab.id),
-           let browserPanelId = workspace.newBrowserSplit(
-               from: anchorPanelId,
-               orientation: orientation,
-               insertFirst: snapshot.fallbackSplitInsertFirst,
-               url: snapshot.url,
-               preferredProfileID: snapshot.profileID
-           )?.id {
+           let browserPanelId = workspace.withSplitSpaceAdmissionBypass({
+               workspace.newBrowserSplit(
+                   from: anchorPanelId,
+                   orientation: orientation,
+                   insertFirst: snapshot.fallbackSplitInsertFirst,
+                   url: snapshot.url,
+                   preferredProfileID: snapshot.profileID
+               )?.id
+           }) {
             return browserPanelId
         }
 
