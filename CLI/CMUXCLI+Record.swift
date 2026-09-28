@@ -65,8 +65,8 @@ extension CMUXCLI {
                 windowOverride: windowOverride
             )
         case "stop", "status":
-            var (recordingID, trailing) = parseOption(arguments, name: "--id")
-            if recordingID == nil, let positional = trailing.first {
+            var (recordingID, trailing) = parseRecordOption(arguments, name: "--id")
+            if recordingID == nil, let positional = trailing.first, !positional.hasPrefix("-") {
                 recordingID = positional
                 trailing = Array(trailing.dropFirst())
             }
@@ -82,7 +82,7 @@ extension CMUXCLI {
                 jsonOutput: jsonOutput
             )
         case "note":
-            let (id, trailing) = parseOption(arguments, name: "--id")
+            let (id, trailing) = parseRecordOption(arguments, name: "--id")
             let text = trailing.filter { $0 != "--" }.joined(separator: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else {
@@ -125,15 +125,15 @@ extension CMUXCLI {
         jsonOutput: Bool,
         windowOverride: String?
     ) throws {
-        let (format, afterFormat) = parseOption(arguments, name: "--format")
-        let (fps, afterFPS) = parseOption(afterFormat, name: "--fps")
-        let (maxSeconds, afterSeconds) = parseOption(afterFPS, name: "--max-seconds")
-        let (scale, afterScale) = parseOption(afterSeconds, name: "--scale")
-        let (maxWidth, afterWidth) = parseOption(afterScale, name: "--max-width")
-        let (region, afterRegion) = parseOption(afterWidth, name: "--region")
-        let (out, afterOut) = parseOption(afterRegion, name: "--out")
-        let (label, afterLabel) = parseOption(afterOut, name: "--label")
-        let (window, afterWindow) = parseOption(afterLabel, name: "--window")
+        let (format, afterFormat) = parseRecordOption(arguments, name: "--format")
+        let (fps, afterFPS) = parseRecordOption(afterFormat, name: "--fps")
+        let (maxSeconds, afterSeconds) = parseRecordOption(afterFPS, name: "--max-seconds")
+        let (scale, afterScale) = parseRecordOption(afterSeconds, name: "--scale")
+        let (maxWidth, afterWidth) = parseRecordOption(afterScale, name: "--max-width")
+        let (region, afterRegion) = parseRecordOption(afterWidth, name: "--region")
+        let (out, afterOut) = parseRecordOption(afterRegion, name: "--out")
+        let (label, afterLabel) = parseRecordOption(afterOut, name: "--label")
+        let (window, afterWindow) = parseRecordOption(afterLabel, name: "--window")
 
         var trailing = afterWindow
         let wantsGIF = trailing.contains("--gif")
@@ -173,6 +173,15 @@ extension CMUXCLI {
             ),
             jsonOutput: jsonOutput
         )
+    }
+
+    /// A flag where a value belongs is a typo rather than a value: plain
+    /// `parseOption` would let `--label --gif` name the clip "--gif" and quietly
+    /// drop the format. Hand both back so the caller's error names them.
+    private func parseRecordOption(_ args: [String], name: String) -> (String?, [String]) {
+        let (value, remaining) = parseOption(args, name: name)
+        guard let value, value.hasPrefix("--") else { return (value, remaining) }
+        return (nil, [name, value] + remaining)
     }
 
     private func requireNoRecordArguments(_ trailing: [String], subcommand: String) throws {
