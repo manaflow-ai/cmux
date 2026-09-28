@@ -15005,9 +15005,10 @@ class TerminalController {
     }
 
     /// Adds the authenticated host proof to the v2 workspace snapshot. This is
-    /// called after the mobile connection has been admitted, so it can build
-    /// the private identity payload directly from the live host service. That
-    /// avoids waiting for the public-status cache to catch up during startup.
+    /// called after the mobile connection has been admitted. Supplying the
+    /// current identity explicitly lets the cache produce the exact same
+    /// authenticated payload as the normal status exchange, even when the
+    /// cache's identity publication is a few milliseconds behind startup.
     /// If the identity is unavailable, return the plain workspace result and
     /// let the client use its legacy fallback request.
     @MainActor
@@ -15022,9 +15023,9 @@ class TerminalController {
         guard !MobileHostIdentity.deviceID().isEmpty else {
             return workspaceResult
         }
-        guard case let .ok(hostStatusPayload) = v2MobileHostStatus(
-            params: params,
-            includePrivateMetadata: true
+        guard case let .ok(hostStatusPayload) = MobileHostPublicStatusCache.result(
+            includeIdentity: true,
+            deviceID: MobileHostIdentity.deviceID()
         ), let hostStatusObject = hostStatusPayload as? [String: Any] else {
             return workspaceResult
         }
