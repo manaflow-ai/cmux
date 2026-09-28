@@ -151,4 +151,24 @@ struct AppIconAppearanceObserverTests {
         checkEqual(harness.imageRequests, ["AppIconLight", "AppIconDark"])
         checkEqual(harness.appliedIconCount, 2)
     }
+
+    @Test
+    @MainActor
+    func testLiveAppearanceObservationDeliversBeforeKVOCallbackReturns() {
+        let app = NSApplication.shared
+        let originalAppearance = app.appearance
+        defer { app.appearance = originalAppearance }
+
+        var callbackCount = 0
+        let token = AppIconAppearanceObserver.Environment.live()
+            .startEffectiveAppearanceObservation {
+                callbackCount += 1
+            }
+        defer { token?.invalidate() }
+
+        let wasDark = app.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        app.appearance = NSAppearance(named: wasDark ? .aqua : .darkAqua)
+
+        checkTrue(callbackCount > 0, "appearance KVO must deliver on the main thread")
+    }
 }
