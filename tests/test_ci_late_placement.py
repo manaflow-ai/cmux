@@ -230,10 +230,54 @@ class GuiOverflow(unittest.TestCase):
                 return {"jobs": [{"status": "queued", "labels": [GUI]}, {"status": "queued", "labels": [ROOT_STD]},
                                  {"status": "in_progress", "labels": [GUI]}, {"status": "queued", "labels": [GUI]}]}
         api = API()
-        self.assertEqual(late.gui_backlog(api, GUI, exclude_run_id=7, enough=5, now=now), 6)
-        # Oldest first; run 4 is too young to have gui jobs and 7 is this run.
-        self.assertEqual(api.jobs_read, [8, 6, 5])
+        # One batch of readers takes every eligible run, so the count may pass `enough` (decide() only
+        # compares against it). Run 4 is too young to have gui jobs and 7 is this run.
+        self.assertEqual(late.gui_backlog(api, GUI, exclude_run_id=7, enough=5, now=now), 8)
+        self.assertEqual(sorted(api.jobs_read), [5, 6, 8, 9])
         self.assertEqual(api.statuses, [("ci.yml", "queued"), ("ci.yml", "in_progress")])
+
+    def test_backlog_reads_runs_concurrently_oldest_batch_first_and_stops_when_enough(self):
+        import datetime as dt
+        import threading
+        now = dt.datetime(2026, 9, 28, 1, 0, tzinfo=dt.timezone.utc)
+        runs = [{"id": i, "created_at": (now - dt.timedelta(minutes=100 - i)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+                for i in range(1, 21)]
+        # Every read of a batch must be in flight at once, or the barrier breaks and the read raises.
+        together = threading.Barrier(late.BACKLOG_READERS, timeout=30)
+
+        class API:
+            def __init__(self):
+                self.jobs_read, self.lock = [], threading.Lock()
+
+            def runs_since(self, workflow, since, **filters):
+                return runs if filters["status"] == "in_progress" else []
+
+            def get(self, path):
+                together.wait()
+                with self.lock:
+                    self.jobs_read.append(int(path.split("/")[3]))
+                return {"jobs": [{"status": "queued", "labels": [GUI]}]}
+        api = API()
+        self.assertEqual(late.gui_backlog(api, GUI, exclude_run_id=None, enough=late.BACKLOG_READERS, now=now),
+                         late.BACKLOG_READERS)
+        # One batch: the oldest BACKLOG_READERS runs, and nothing after `enough`.
+        self.assertEqual(sorted(api.jobs_read), list(range(1, late.BACKLOG_READERS + 1)))
+
+    def test_a_failed_backlog_read_raises_so_nothing_moves(self):
+        import datetime as dt
+        now = dt.datetime(2026, 9, 28, 1, 0, tzinfo=dt.timezone.utc)
+
+        class API:
+            def runs_since(self, workflow, since, **filters):
+                return [{"id": i, "created_at": (now - dt.timedelta(minutes=30 + i)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+                        for i in range(1, 4)] if filters["status"] == "in_progress" else []
+
+            def get(self, path):
+                if path.split("/")[3] == "2":
+                    raise RuntimeError("HTTP 502")
+                return {"jobs": []}
+        with self.assertRaises(RuntimeError):
+            late.gui_backlog(API(), GUI, exclude_run_id=None, enough=5, now=now)
 
 
 class Output(unittest.TestCase):
