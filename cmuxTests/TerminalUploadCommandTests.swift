@@ -406,7 +406,7 @@ import Testing
         }
     }
 
-    // MARK: - Real /bin/sh process — exercises the default spawnCommand path
+    // MARK: - Real /bin/sh process, through spawnCommand
 
     @Test func realProcessCapturesLargeOutputWithoutDeadlock() {
         // Output far larger than a pipe buffer, from a pipeline (so the writer is a
