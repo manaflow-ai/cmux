@@ -1,8 +1,11 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { runChild } from "./helpers/run-child";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(60_000);
 import {
   CMUX_TUI_DAEMON_TERMINAL_ENV,
   CMUX_TUI_LAYOUT_MARKER_PATH,
@@ -198,7 +201,7 @@ describe("cmux-tui install and daemon commands", () => {
   });
 
   /** Runs a shell snippet with `bin` first on PATH and returns its stdout. */
-  function runWithStubs(snippet: string, stubs: Record<string, string>): string {
+  async function runWithStubs(snippet: string, stubs: Record<string, string>): Promise<string> {
     const root = mkdtempSync(join(tmpdir(), "cmux-tui-layout-"));
     const fakeBin = join(root, "bin");
     mkdirSync(fakeBin, { recursive: true });
@@ -208,9 +211,8 @@ describe("cmux-tui install and daemon commands", () => {
         writeFileSync(file, body);
         chmodSync(file, 0o755);
       }
-      const result = spawnSync("/bin/sh", ["-c", snippet], {
+      const result = await runChild("/bin/sh", ["-c", snippet], {
         env: { ...process.env, PATH: [fakeBin, "/usr/bin", "/bin"].join(":") },
-        encoding: "utf8",
       });
       expect(result.status).toBe(0);
       return (result.stdout ?? "").trim();
@@ -221,8 +223,8 @@ describe("cmux-tui install and daemon commands", () => {
 
   const report = '; printf %s:%s:%s "$CMUX_TUI_USER" "$CMUX_TUI_HOME" "$CMUX_TUI_BIN"';
 
-  test("a machine with a usable work user runs its sessions as that user", () => {
-    const out = runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
+  test("a machine with a usable work user runs its sessions as that user", async () => {
+    const out = await runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
       id: "#!/bin/sh\nexit 0\n",
       setpriv: "#!/bin/sh\nexit 0\n",
       sudo: "#!/bin/sh\nexit 0\n",
@@ -230,8 +232,8 @@ describe("cmux-tui install and daemon commands", () => {
     expect(out).toBe("cmux:/home/cmux:/home/cmux/.cmux/bin/cmux-tui");
   });
 
-  test("a machine from a pre-work-user image keeps its root daemon and /root state", () => {
-    const out = runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
+  test("a machine from a pre-work-user image keeps its root daemon and /root state", async () => {
+    const out = await runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
       // No such user: an image baked before the work user existed.
       id: "#!/bin/sh\nexit 1\n",
       setpriv: "#!/bin/sh\nexit 0\n",
@@ -239,8 +241,8 @@ describe("cmux-tui install and daemon commands", () => {
     expect(out).toBe("root:/root:/root/.cmux/bin/cmux-tui");
   });
 
-  test("a work user without passwordless sudo falls back to root rather than trapping the session", () => {
-    const out = runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
+  test("a work user without passwordless sudo falls back to root rather than trapping the session", async () => {
+    const out = await runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
       id: "#!/bin/sh\nexit 0\n",
       // the writability probe passes, the `sudo -n true` probe does not.
       setpriv: '#!/bin/sh\ncase "$*" in *sudo*) exit 1;; esac\nexit 0\n',
@@ -254,7 +256,7 @@ describe("cmux-tui attach bundle", () => {
   const stdoutFor = (probe: string, devices: string, trusted: string) =>
     ["__CMUX_PROBE__", probe, "__CMUX_DEVICES__", devices, "__CMUX_TRUSTED__", trusted, "__CMUX_END__", ""].join("\n");
 
-  const runBundle = (readyGate: string, deviceFingerprint?: string, bootstrap = "ok", cloudWelcome = false) => {
+  const runBundle = async (readyGate: string, deviceFingerprint?: string, bootstrap = "ok", cloudWelcome = false) => {
     const root = mkdtempSync(join(tmpdir(), "cmux-tui-attach-bundle-"));
     const binary = join(root, "cmux-tui");
     const callsPath = join(root, "calls");
@@ -280,15 +282,14 @@ describe("cmux-tui attach bundle", () => {
     ].join("\n"));
     chmodSync(binary, 0o755);
     try {
-      const result = spawnSync("/bin/sh", ["-c", cmuxTuiAttachBundleCommand({ readyGate, deviceFingerprint, binary, cloudWelcome })], {
-        encoding: "utf8",
+      const result = await runChild("/bin/sh", ["-c", cmuxTuiAttachBundleCommand({ readyGate, deviceFingerprint, binary, cloudWelcome })], {
         env: {
           ...process.env,
           CMUX_TEST_CALLS: callsPath,
           CMUX_TEST_BOOTSTRAP: bootstrap,
           PATH: [fakeBin, process.env.PATH || ""].join(":"),
         },
-        timeout: 5_000,
+        timeout: 15_000,
       });
       expect(result.error).toBeUndefined();
       return {
@@ -301,8 +302,8 @@ describe("cmux-tui attach bundle", () => {
     }
   };
 
-  test("a successful readiness exit reads build, devices, and the trusted probe; nothing is minted", () => {
-    const result = runBundle("exit 0", "fp-new");
+  test("a successful readiness exit reads build, devices, and the trusted probe; nothing is minted", async () => {
+    const result = await runBundle("exit 0", "fp-new");
     expect(result.status).toBe(0);
     expect(result.calls).toEqual([
       '--session cloud raw command --request-json {"cmd":"cloud-bootstrap","welcome":false}',
@@ -317,35 +318,35 @@ describe("cmux-tui attach bundle", () => {
     expect(bundle.trustedCarrier).toBe(false);
   });
 
-  test("starts the eligible first shell inside the daemon without adding stdout to the bundle", () => {
-    const result = runBundle("exit 0", undefined, "ok", true);
+  test("starts the eligible first shell inside the daemon without adding stdout to the bundle", async () => {
+    const result = await runBundle("exit 0", undefined, "ok", true);
     expect(result.status).toBe(0);
     expect(result.calls[0]).toBe('--session cloud raw command --request-json {"cmd":"cloud-bootstrap","welcome":true}');
     expect(() => parseCmuxTuiAttachBundle(result.stdout, "freestyle", "vm-1")).not.toThrow();
   });
 
-  test("older daemons remain usable, but failed bootstrap stays retryable", () => {
-    const old = runBundle("exit 0", undefined, "old", true);
+  test("older daemons remain usable, but failed bootstrap stays retryable", async () => {
+    const old = await runBundle("exit 0", undefined, "old", true);
     expect(old.status).toBe(0);
     expect(parseCmuxTuiAttachBundle(old.stdout, "freestyle", "vm-1").cloudWelcomePending).toBe(true);
-    const ineligible = runBundle("exit 0", undefined, "old", false);
+    const ineligible = await runBundle("exit 0", undefined, "old", false);
     expect(parseCmuxTuiAttachBundle(ineligible.stdout, "freestyle", "vm-1").cloudWelcomePending).toBe(false);
-    const failed = runBundle("exit 0", undefined, "failed", true);
+    const failed = await runBundle("exit 0", undefined, "failed", true);
     expect(failed.status).toBe(1);
     expect(failed.stdout).toBe("");
     expect(failed.calls).toHaveLength(1);
-    expect(runBundle("exit 0", undefined, "ok", true).status).toBe(0);
+    expect((await runBundle("exit 0", undefined, "ok", true)).status).toBe(0);
   });
 
-  test("a failed readiness exit returns the repair signal without calling the daemon", () => {
-    const result = runBundle("exit 1");
+  test("a failed readiness exit returns the repair signal without calling the daemon", async () => {
+    const result = await runBundle("exit 1");
     expect(result.status).toBe(3);
     expect(result.calls).toEqual([]);
     expect(result.stdout).toBe("");
   });
 
-  test("an enrolled device is recognized so the heal never restarts under it", () => {
-    const result = runBundle("exit 0", "fp-1");
+  test("an enrolled device is recognized so the heal never restarts under it", async () => {
+    const result = await runBundle("exit 0", "fp-1");
     expect(result.status).toBe(0);
     const bundle = parseCmuxTuiAttachBundle(result.stdout, "freestyle", "vm-1", "fp-1");
     expect(bundle.enrolled).toBe(true);

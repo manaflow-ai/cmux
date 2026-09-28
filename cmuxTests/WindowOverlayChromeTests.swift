@@ -86,8 +86,17 @@ struct WindowOverlayChromeTests {
         #expect(tabsFrame.height == 28)
     }
 
-    @Test("Browser content stays inside the content hierarchy without covering either chrome strip", arguments: [false, true])
-    func browserAndTerminalRespectChrome(useGlass: Bool) throws {
+    @Test("Browser content stays inside the content hierarchy without covering either chrome strip")
+    func browserAndTerminalRespectChrome() throws {
+        // Swift Testing starts parameterized cases concurrently even inside
+        // this serialized suite. Each case temporarily changes process-wide
+        // window backdrop defaults, so exercise the two settings sequentially.
+        for useGlass in [false, true] {
+            try exerciseBrowserAndTerminalRespectChrome(useGlass: useGlass)
+        }
+    }
+
+    private func exerciseBrowserAndTerminalRespectChrome(useGlass: Bool) throws {
         // A terminal surface re-applies the configured window backdrop when it
         // mounts (`GhosttyNSView.viewDidMoveToWindow` →
         // `applyWindowBackgroundIfActive`). With glass off in settings, that
@@ -111,11 +120,15 @@ struct WindowOverlayChromeTests {
         let browserAnchor = try #require(find("overlay.browser", in: content))
         let terminalAnchor = try #require(find("overlay.terminal", in: content))
         let glassEffect = WindowGlassEffect()
-        if useGlass {
+        // With the host's Reduce Transparency on, the app resolves the opaque
+        // window fill whatever the glass settings say, so the terminal mount
+        // removes any glass root. Install the root the app itself would keep.
+        let installsGlass = useGlass && !DisplayAccessibilityOptions.current.reduceTransparency
+        if installsGlass {
             glassEffect.apply(to: window)
         }
         let windowRoot = try #require(window.contentView)
-        if useGlass && glassEffect.isAvailable {
+        if installsGlass && glassEffect.isAvailable {
             #expect(windowRoot !== content)
             #expect(glassEffect.originalContentView(for: window) === content)
         } else {

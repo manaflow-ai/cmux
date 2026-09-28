@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from contextlib import contextmanager
 import datetime as dt
 import importlib.util
@@ -16,12 +17,15 @@ import subprocess
 import sys
 import threading
 import time
+from typing import Callable
 from urllib.parse import quote
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import app_host_test_rerun as rerun  # noqa: E402
+import product_input_identity as product_inputs  # noqa: E402
 import e2e_runner_pool as pool  # noqa: E402
+import machine_failure  # noqa: E402
 from e2e_runner_pool import SMALL_RUNNER  # noqa: E402
 
 REPO = "manaflow-ai/cmux"
@@ -51,6 +55,9 @@ RUN_DISCOVERY_ATTEMPTS = 12
 RUN_DISCOVERY_TIMEOUT_SECONDS = 60.0
 PRIOR_ATTEMPT_LIMIT = 100
 PRIOR_ATTEMPT_TIMEOUT_SECONDS = 30.0
+# Machine failures at one commit redispatched without --force. Past this, the
+# pool is broken for this selector and another dispatch will not fix it.
+MAX_MACHINE_RETRIES = 2
 # Statuses GitHub reports before a run has a conclusion. Anything else,
 # including a missing status, is not treated as occupying a runner.
 UNFINISHED = frozenset({"queued", "in_progress", "waiting", "requested", "pending"})
@@ -484,6 +491,30 @@ def live_attempts(
     ]
 
 
+def machine_failures(failures: list[dict]) -> str | None:
+    """Why the Mac failed the newest of `failures`, when every one of them was
+    a machine failure (machine_failure.py); None when any was not, or a log
+    could not be read.
+    """
+    reasons = []
+    for run in failures:
+        run_id = run.get("databaseId")
+        if not isinstance(run_id, int):
+            return None
+        try:
+            log = output(
+                "gh", "run", "view", str(run_id), "--repo", REPO, "--log-failed",
+                timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
+            )
+        except (subprocess.SubprocessError, OSError, ValueError):
+            return None
+        found = machine_failure.reason(log)
+        if found is None:
+            return None
+        reasons.append(found)
+    return reasons[0] if reasons else None
+
+
 def parsed_runner(run: dict) -> str:
     parsed = parse_run_name(str(run.get("displayTitle", "")))
     return parsed[1] if parsed else "an unknown runner"
@@ -606,18 +637,43 @@ def building_producer(commit: str) -> dict | None:
 
 
 def skips_macos(run_id: int) -> bool:
-    """Whether a CI run decided not to compile for macOS, so it will leave no products."""
+    """Whether a CI run decided not to compile for macOS, so it will leave no products.
+
+    A skipped `macos` caller (an earlier run's compile admission reused) lists
+    no admission job at all, only itself as skipped.
+    """
     listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
     return any(
-        job.get("name", "").endswith(rerun.ADMISSION_JOB) and job.get("conclusion") == "skipped"
+        (job.get("name", "").endswith(rerun.ADMISSION_JOB) or job.get("name") == "macos")
+        and job.get("conclusion") == "skipped"
         for job in listing.get("jobs", [])
     )
 
 
-def awaited_products(producer: dict, commit: str, only_testing: str) -> dict | None:
-    """Wait for a building run's products, then plan against them."""
+def admission_ended(run_id: int) -> bool:
+    """Whether a CI run's latest attempt has compile admission jobs and all have completed.
+
+    Admission uploads the products before it completes, so a finished
+    admission without them has none to give. The run itself may stay in
+    progress for long after: its ui-tests job waits for the UI dispatch that
+    waits here, so run 36435812903's refused admission held that dispatch for
+    the whole PRODUCTS_WAIT_SECONDS before it compiled for itself, and kept
+    the run open so the owned-pool rescue could not re-run the refusal.
+    """
+    listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
+    admissions = [job for job in listing.get("jobs", []) if job.get("name", "").endswith(rerun.ADMISSION_JOB)]
+    return bool(admissions) and all(job.get("status") == "completed" for job in admissions)
+
+
+def wait_for_products(producer: dict, still_wanted: Callable[[], bool] = lambda: True) -> bool:
+    """Wait for a building CI run to upload its app-host products.
+
+    True once they exist; False when the run ends without them, skips its
+    macOS compile, finishes compile admission without them, has not produced them within PRODUCTS_WAIT_SECONDS, or
+    `still_wanted` says the products it will make cannot be used.
+    """
     print(
-        f"{producer['url']} is already compiling {commit}; waiting for its app-host "
+        f"{producer['url']} is already compiling this revision; waiting for its app-host "
         "products instead of compiling them a second time.",
         flush=True,
     )
@@ -625,19 +681,175 @@ def awaited_products(producer: dict, commit: str, only_testing: str) -> dict | N
     with cancellation_scope() as cancel_event:
         while True:
             if rerun.products_artifact(REPO, str(producer["id"]), rerun.gh_api):
-                return planned_products(commit, only_testing, str(producer["id"]))
+                return True
             state = rerun.gh_api(f"repos/{REPO}/actions/runs/{producer['id']}")
             if state.get("status") not in UNFINISHED:
                 print(f"note: {producer['url']} finished without app-host products", file=sys.stderr, flush=True)
-                return None
+                return False
             if skips_macos(producer["id"]):
                 print(f"note: {producer['url']} skipped its macOS compile", file=sys.stderr, flush=True)
-                return None
+                return False
+            if admission_ended(producer["id"]) and not rerun.products_artifact(REPO, str(producer["id"]),
+                                                                               rerun.gh_api):
+                print(f"note: {producer['url']} finished compile admission without app-host products",
+                      file=sys.stderr, flush=True)
+                return False
+            if not still_wanted():
+                print(f"note: {producer['url']} compiles products this run cannot use", file=sys.stderr, flush=True)
+                return False
             if time.monotonic() > deadline:
                 print(f"note: {producer['url']} has not produced app-host products yet", file=sys.stderr, flush=True)
-                return None
+                return False
             if wait_for_retry(cancel_event, PRODUCTS_POLL_SECONDS):
                 raise ValueError("waiting for CI products cancelled")
+
+
+def awaited_products(producer: dict, commit: str, only_testing: str) -> dict | None:
+    """Wait for a building run's products, then plan against them."""
+    if not wait_for_products(producer):
+        return None
+    return planned_products(commit, only_testing, str(producer["id"]))
+
+
+# CI runs whose finished products ui_product_source() found but no UI run can load.
+UNLOADABLE_SOURCES: list[str] = []
+
+
+def ui_product_source(commit: str) -> dict | None:
+    """The CI run whose app-host products a UI run of this commit can adopt.
+
+    Compile admission builds the `cmux` scheme for testing, so its product
+    already holds cmuxUITests-Runner.app and the UI xctestrun next to the app.
+    test-e2e.yml adopts it whenever the tested tree has the same product
+    inputs. A pull request run compiles `refs/pull/N/merge`, never the head, so
+    a UI dispatch of the head missed it and compiled the whole app again
+    (75 UI runs on 2026-09-25: 32 had such a product, 36 a CI run cancelled
+    before one). Testing that merge instead is what pull request CI tests.
+
+    Returns {"revision", "id", "url", "ready"}: the revision to dispatch, which
+    is the merge for a pull request run, and whether its products exist yet.
+    None when no in-repository CI run of this commit has or will have them.
+    Only a macOS 26 product is taken, the pools an unpinned E2E run lands on.
+    """
+    try:
+        listing = rerun.gh_api(f"repos/{REPO}/actions/runs?head_sha={commit}&per_page=50")
+        runs = sorted(listing.get("workflow_runs", []), key=lambda run: run.get("created_at", ""), reverse=True)
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return None
+    pending = None
+    for run in runs:
+        # Only a pull request run: test-e2e.yml trusts no other ci.yml
+        # product (reuse_app_host_products.TRUSTED_WORKFLOWS). Main's ci.yml
+        # runs are dispatches, and main's own product comes from
+        # seed-derived-data.yml, which test-e2e.yml finds by itself.
+        if (run.get("path") != CI_WORKFLOW_PATH or run.get("event") != "pull_request"
+                or not run.get("id")
+                or str((run.get("head_repository") or {}).get("full_name", "")).casefold() != REPO.casefold()):
+            continue
+        try:
+            with chdir(ROOT):
+                built = rerun.built_revision(run)
+        except (KeyError, ValueError, subprocess.CalledProcessError):
+            continue
+        source = {"revision": built, "id": run["id"], "url": run.get("html_url", ""), "ready": False}
+        try:
+            if rerun.products_artifact(REPO, str(run["id"]), rerun.gh_api):
+                if usable_product(source):
+                    return {**source, "ready": True, "adopted": True}
+                if unusable_family(source):
+                    UNLOADABLE_SOURCES.append(source["url"])
+                continue
+        except (subprocess.CalledProcessError, json.JSONDecodeError):
+            continue
+        if pending is None and run.get("status") in UNFINISHED:
+            pending = source
+    return pending
+
+
+def same_product_inputs(first: str, second: str) -> bool:
+    """Whether two revisions have one app-host product identity (False if unknown)."""
+    try:
+        with chdir(ROOT):
+            return product_inputs.local_identity(first) == product_inputs.local_identity(second)
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        return False
+
+
+# A product's contract hashes the exact toolchain (Xcode build, SDK, rustc,
+# node, go...), which the owned Macs and the Blacksmith macOS 26 image do not
+# share, so a product only ever moves within one of these families: on
+# 2026-09-25 every adoption of a ci.yml product went Blacksmith to Blacksmith
+# (either size) or owned Mac to owned Mac, and a 12vcpu dispatch of an owned
+# Mac's product missed (run 36209020703). The UI run is pinned to the family;
+# owned classes share one toolchain (a light and a std Mac computed one key,
+# runs 36212302297 and 36213457297), so the owned choice test-e2e.yml offers
+# serves every class.
+FAMILY_RUNNERS = {"blacksmith": "blacksmith-6vcpu-macos-26"}
+OWNED_LABEL = re.compile(r"glaeda-(?:root-)?(xl|std|light)-xcode-([0-9.]+)")
+
+
+def owned_class(label: str | None) -> tuple[str, str] | None:
+    match = OWNED_LABEL.fullmatch(label or "")
+    return match.groups() if match else None
+
+
+def adopts_on(runner: str | None, family: str | None) -> bool:
+    """Whether a UI run on `runner` can load a product compiled on `family`:
+    the same owned choice, or either Blacksmith macOS 26 size (they share a
+    toolchain; see FAMILY_RUNNERS)."""
+    if not runner or not family:
+        return False
+    if family.startswith("blacksmith-"):
+        return runner.startswith("blacksmith-") and "macos-26" in runner
+    return runner == family
+
+
+def product_family(source: dict) -> str | None:
+    """The owned runner choice test-e2e.yml offers when a CI run's compile
+    admission ran on an owned Mac, or the Blacksmith macOS 26 pool it ran on;
+    "" before it has a runner; None for anything else (macOS 15, an Xcode
+    test-e2e.yml offers no owned choice for)."""
+    listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{source['id']}/jobs?filter=latest&per_page=100")
+    for job in listing.get("jobs", []):
+        if not job.get("name", "").endswith(rerun.ADMISSION_JOB):
+            continue
+        labels = job.get("labels") or []
+        owned = [label for label in labels if owned_class(label)]
+        if owned:
+            # Only while UI runs may take an owned Mac at all (e2e_runner_pool).
+            if (repository_variable(pool.OWNED_UI_VARIABLE, OWNED_UI_ENV) or "").strip() != "1":
+                return None
+            # test-e2e.yml's runner input offers one owned choice per Xcode.
+            dispatchable = f"glaeda-std-xcode-{owned_class(owned[0])[1]}"
+            return dispatchable if dispatchable in RUNNERS else None
+        blacksmith = [label for label in labels if re.fullmatch(r"blacksmith-[0-9]+vcpu-macos-26", label)]
+        if blacksmith:
+            return blacksmith[0] if blacksmith[0] in RUNNERS else FAMILY_RUNNERS["blacksmith"]
+        return None if labels else ""
+    return ""
+
+
+def unusable_family(source: dict) -> bool:
+    """Whether a CI run's compile admission has a runner whose products no UI
+    run can load; False when unknown (no runner yet, or the API failed)."""
+    try:
+        return product_family(source) is None
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return False
+
+
+def usable_product(source: dict, pending: bool = False) -> bool:
+    """Whether a CI run compiles its products where a UI run can be sent to
+    load them, recording the family in `source`. With `pending`, a run whose
+    compile admission has no runner yet may still qualify."""
+    try:
+        family = product_family(source)
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return pending
+    if family:
+        source["family"] = family
+        return True
+    return pending and family == ""
 
 
 def reuse_ci_products(commit: str, entries: list[str], workflow_ref: str | None, wait: bool) -> int | None:
@@ -718,6 +930,33 @@ def watch_run(run_id: int) -> int:
     ], cwd=ROOT).returncode
 
 
+DOGFOOD_SELECTOR = "cmuxUITests/DogfoodScenarioUITests"
+# workflow_dispatch caps the whole inputs payload at 65,535 characters.
+DOGFOOD_SCENARIO_MAX_B64 = 60_000
+# --adopt-only's status when the run would have to compile the app itself:
+# CI made no product (or has not within the wait), or made one on a pool
+# the UI runner cannot load (UNLOADABLE_PRODUCT_EXIT).
+NO_PRODUCT_EXIT = 3
+UNLOADABLE_PRODUCT_EXIT = 4
+
+
+def encode_scenario(path: Path) -> str:
+    """Validate a dogfood tour and encode it for test-e2e.yml's input.
+
+    The test does the full step parse; this only catches a file that is not
+    JSON or has no steps before a runner is spent on it.
+    """
+    raw = path.read_bytes()
+    scenario = json.loads(raw)
+    steps = scenario if isinstance(scenario, list) else scenario.get("steps") if isinstance(scenario, dict) else None
+    if not isinstance(steps, list) or not steps:
+        raise ValueError("a scenario is a non-empty steps array or an object with one")
+    encoded = base64.b64encode(json.dumps(scenario, separators=(",", ":")).encode()).decode()
+    if len(encoded) > DOGFOOD_SCENARIO_MAX_B64:
+        raise ValueError(f"encoded scenario is {len(encoded)} characters; split the tour (limit {DOGFOOD_SCENARIO_MAX_B64})")
+    return encoded
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run one suite or method on an exact pushed commit. "
@@ -727,15 +966,29 @@ def main() -> int:
     )
     parser.add_argument(
         "test_filter",
-        nargs="+",
+        nargs="*",
         help="cmuxTests/Suite[/method] or cmuxUITests/Class[/method]; bare names target UI tests. "
         "A Swift Testing method takes its call suffix, Suite/method() or Suite/method(label:); "
         "one this checkout declares gets it added. "
-        "Pass several to run them against one compile; they must share a target.",
+        "Pass several to run them against one compile; they must share a target. "
+        "cmuxUITests/FuzzRegressions replays the UI fuzzer's checked-in repros (dogfood/fuzz/regressions) "
+        "against the app, after any UI classes named with it.",
     )
     parser.add_argument("--ref", help="remote branch, tag, or SHA; default: clean local HEAD, already pushed")
     parser.add_argument("--wait", action="store_true", help="wait and return a nonzero status if the run fails")
     parser.add_argument("--no-video", action="store_true")
+    parser.add_argument(
+        "--frames",
+        action="store_true",
+        help="implies --wait; then turn the run's xcresult into per-test screenshots and "
+        "contact sheets with scripts/ci/e2e-frames.py (works without video)",
+    )
+    parser.add_argument(
+        "--scenario",
+        type=Path,
+        help="JSON dogfood tour for cmuxUITests/DogfoodScenarioUITests (the default test with this flag); "
+        "see skills/cmux-testing/references/dogfood-scenarios.md. Combine with --frames to get its screenshots",
+    )
     parser.add_argument("--timeout", type=positive_integer, default=120, help="per-test timeout in seconds (default: 120)")
     parser.add_argument("--job-timeout", type=positive_integer, default=45, help="job timeout in minutes, including compilation (default: 45)")
     parser.add_argument("--workflow-ref", help="workflow-definition branch/tag (default: repository default branch)")
@@ -744,7 +997,23 @@ def main() -> int:
         "--full-build",
         action="store_true",
         help="compile the whole app even when CI already compiled this commit's app-host products; "
-        "without it, a cmuxTests run waits (up to 50 min) for a CI run still compiling this commit",
+        "without it, a run waits (up to 50 min) for a CI run still compiling this commit, and a UI "
+        "run of a pull request head tests the merge its CI compiled",
+    )
+    parser.add_argument(
+        "--adopt-only",
+        action="store_true",
+        help="UI runs only: dispatch only when the run can adopt the app and UI test bundle a CI "
+        f"run of this commit compiled, and otherwise exit {NO_PRODUCT_EXIT} "
+        f"({UNLOADABLE_PRODUCT_EXIT} when CI's product is on a pool the UI runner cannot load); the dispatched run "
+        "fails rather than compiles if its reuse still misses (PR media tours use this)",
+    )
+    parser.add_argument(
+        "--adopt-main",
+        action="store_true",
+        help="with --adopt-only, for a pull request whose CI reused main's build: dispatch the head "
+        "without a CI run's product, and let test-e2e.yml adopt main's product of the same inputs "
+        "(it fails rather than compiles when that misses)",
     )
     parser.add_argument(
         "--force",
@@ -753,6 +1022,21 @@ def main() -> int:
         "or is already running there",
     )
     args = parser.parse_args()
+    if args.frames:
+        args.wait = True
+    scenario_b64 = ""
+    if args.scenario is not None:
+        try:
+            scenario_b64 = encode_scenario(args.scenario)
+        except (OSError, ValueError) as error:
+            parser.error(f"--scenario: {error}")
+        if not args.test_filter:
+            args.test_filter = [DOGFOOD_SELECTOR]
+        # Tours of one commit share a selector but not a scenario, so the
+        # already-failed/already-running guard would refuse every new tour.
+        args.force = True
+    elif not args.test_filter:
+        parser.error("name a test_filter, or pass --scenario")
     for entry in args.test_filter:
         if not SELECTOR.fullmatch(entry):
             parser.error(
@@ -779,6 +1063,10 @@ def main() -> int:
         parser.error("test_filter entries must all target cmuxTests or all target cmuxUITests")
     test_target = targets.pop()
     test_filter = ",".join(args.test_filter)
+    if args.adopt_only and (test_target != "cmuxUITests" or args.runner not in (None, "auto") or args.full_build):
+        parser.error("--adopt-only takes UI selectors on the default runner, without --full-build")
+    if args.adopt_main and not args.adopt_only:
+        parser.error("--adopt-main goes with --adopt-only")
     if args.ref is not None and not args.ref.strip():
         parser.error("--ref must not be empty")
     if args.workflow_ref is not None and not args.workflow_ref.strip():
@@ -799,102 +1087,212 @@ def main() -> int:
     if args.ref is None and commit != requested_ref:
         raise ValueError("GitHub revision differs from local HEAD; push the intended commit first")
 
-    # Which pools this dispatch could land on. Empty means the answer could
-    # not be established, and the in-flight guards below stay silent rather
-    # than compare against a runner they guessed. The queue is read only once
-    # the guards have decided to dispatch.
-    pinned = args.runner not in (None, "auto")
-    default = args.runner if pinned else default_runner()
-    pools = candidate_runners(default, pinned)
-    # test-e2e.yml groups on "e2e-<runner>-<ref>-<test_filter>". When the pool
-    # is unknown, measure against the longest label in the runner dropdown.
-    label = max(pools or RUNNERS, key=len)
-    group_length = len(f"e2e-{label}-{commit}-{test_filter}")
-    if group_length > MAX_CONCURRENCY_GROUP:
-        parser.error(
-            f"these selectors make a {group_length}-character concurrency group, over "
-            f"GitHub's {MAX_CONCURRENCY_GROUP}; split them across dispatches or select the whole suite"
-        )
-
-    if not args.force:
-        # A dispatch's headBranch is the branch its workflow definition came
-        # from. A run of another definition answers a different question:
-        # attaching to it, or refusing because it failed, would mean the
-        # definition under --workflow-ref never runs. Every guard below reads
-        # this filtered history.
-        workflow_ref = args.workflow_ref or DEFAULT_WORKFLOW_REF
-        history = [
-            run for run in recent_dispatches(workflow_ref)
-            if run.get("headBranch") == workflow_ref
-        ]
-
-        if pools:
-            # An identical dispatch is already answering this exact question on
-            # a pool this one could land on. Attach to it instead of cancelling
-            # it or paying a second compile on the other macOS 26 pool: the
-            # concurrency group keyed on runner/ref/test_filter would kill a
-            # same-pool run mid-compile and start the compile again from cold.
-            requested = set(args.test_filter)
-            running = [
-                run for run in history
-                if str(run.get("status", "")) in UNFINISHED
-                and watchable(run)
-                and (parsed := parse_run_name(str(run.get("displayTitle", "")))) is not None
-                and parsed[2] == commit
-                and parsed[1] in pools
-                and set(parsed[0]) == requested
-            ]
-            if running:
-                live = running[0]
+    # A UI run adopts the app-host product a CI run of this commit compiled,
+    # UI test bundle included; see ui_product_source(). For a pull request
+    # that means dispatching the merge CI built, so every guard below reads
+    # the revision actually dispatched.
+    head = commit
+    ui_source = None
+    if test_target == "cmuxUITests" and args.runner in (None, "auto") and not args.full_build:
+        ui_source = ui_product_source(commit)
+        if ui_source is not None:
+            if ui_source["revision"] != head and same_product_inputs(head, ui_source["revision"]):
+                # The merge compiles to the head's product (main moved only
+                # non-product paths), which test-e2e.yml adopts for the head.
+                ui_source["revision"] = head
+            commit = ui_source["revision"]
+            if commit != head:
                 print(
-                    f"{test_filter} is already {live['status']} at {commit} "
-                    f"on {parsed_runner(live)}; reusing that run instead of dispatching.",
+                    f"Testing {commit}, the merge of {head} into its base that {ui_source['url']} "
+                    "compiled, so this run adopts CI's app and UI test bundle instead of compiling "
+                    "them. Pass --full-build to test the head itself.",
                     flush=True,
                 )
-                print(f"Run: {live['url']}", flush=True)
-                if args.wait:
-                    return watch_run(live["databaseId"])
-                return 0
 
-        # Refuse per entry: one already-red selector makes the whole batch a
-        # reprint of a known failure, and the compile it would pay for is shared.
-        for entry in args.test_filter:
-            live = [run for run in live_attempts(history, commit, entry, pools)
-                    if watchable(run)] if pools else []
-            if live:
-                raise ValueError(
-                    f"{entry} is already {live[0]['status']} at {commit} on "
-                    f"{parsed_runner(live[0])}, in {live[0]['url']}, under a different set of "
-                    "selectors. Dispatching now would compile identical source "
-                    "a second time to answer a question already in flight. Wait "
-                    "for that run, dispatch the remaining selectors on their "
-                    "own, or pass --force."
-                )
-            earlier = prior_attempts(
-                history, commit, entry,
-                args.runner if args.runner not in (None, "auto") else None,
+    if args.adopt_only and ui_source is None and not args.adopt_main:
+        if UNLOADABLE_SOURCES:
+            print(f"{UNLOADABLE_SOURCES[0]} compiled {head}'s app-host products where no UI run can "
+                  "load them; not compiling (--adopt-only).", flush=True)
+            return UNLOADABLE_PRODUCT_EXIT
+        print(f"No CI run of {head} has or will have app-host products to adopt; "
+              "not compiling (--adopt-only).", flush=True)
+        return NO_PRODUCT_EXIT
+
+    def guards(commit: str) -> int | None:
+        """Refuse or attach before dispatching `commit`; a status means return it."""
+        nonlocal pinned, default, pools
+        # Which pools this dispatch could land on. Empty means the answer could
+        # not be established, and the in-flight guards below stay silent rather
+        # than compare against a runner they guessed. The queue is read only once
+        # the guards have decided to dispatch.
+        pinned = args.runner not in (None, "auto")
+        default = args.runner if pinned else default_runner()
+        pools = candidate_runners(default, pinned)
+        # An adopting run may be pinned to the producer's pool below.
+        if pools and ui_source is not None and ui_source.get("family"):
+            pools = tuple(dict.fromkeys((*pools, ui_source["family"])))
+        # test-e2e.yml groups on "e2e-<runner>-<ref>-<test_filter>". When the pool
+        # is unknown, measure against the longest label in the runner dropdown.
+        label = max(pools or RUNNERS, key=len)
+        group_length = len(f"e2e-{label}-{commit}-{test_filter}")
+        if scenario_b64:
+            group_length += len(f"-{uuid.uuid4().hex}")  # the dispatch id scenario runs add
+        if group_length > MAX_CONCURRENCY_GROUP:
+            parser.error(
+                f"these selectors make a {group_length}-character concurrency group, over "
+                f"GitHub's {MAX_CONCURRENCY_GROUP}; split them across dispatches or select the whole suite"
             )
-            failures = [run for run in earlier if run.get("conclusion") == "failure"]
-            if failures and not any(run.get("conclusion") == "success" for run in earlier):
-                latest = failures[0]
-                raise ValueError(
-                    f"{entry} already failed at {commit} "
-                    f"({len(failures)} time(s)); the newest is {latest['url']}. "
-                    "A focused run compiles the tree first, so the most common red "
-                    "result is a compile error in the branch, not a flaky test -- "
-                    "and re-running the same selector at the same commit returns the "
-                    "same answer. Read that run, fix the branch, push, and dispatch "
-                    "the new commit. Pass --force to dispatch anyway."
+
+        if not args.force:
+            # A dispatch's headBranch is the branch its workflow definition came
+            # from. A run of another definition answers a different question:
+            # attaching to it, or refusing because it failed, would mean the
+            # definition under --workflow-ref never runs. Every guard below reads
+            # this filtered history.
+            workflow_ref = args.workflow_ref or DEFAULT_WORKFLOW_REF
+            history = [
+                run for run in recent_dispatches(workflow_ref)
+                if run.get("headBranch") == workflow_ref
+            ]
+
+            if pools:
+                # An identical dispatch is already answering this exact question on
+                # a pool this one could land on. Attach to it instead of cancelling
+                # it or paying a second compile on the other macOS 26 pool: the
+                # concurrency group keyed on runner/ref/test_filter would kill a
+                # same-pool run mid-compile and start the compile again from cold.
+                requested = set(args.test_filter)
+                running = [
+                    run for run in history
+                    if str(run.get("status", "")) in UNFINISHED
+                    and watchable(run)
+                    and (parsed := parse_run_name(str(run.get("displayTitle", "")))) is not None
+                    and parsed[2] == commit
+                    and parsed[1] in pools
+                    and set(parsed[0]) == requested
+                ]
+                if running:
+                    live = running[0]
+                    print(
+                        f"{test_filter} is already {live['status']} at {commit} "
+                        f"on {parsed_runner(live)}; reusing that run instead of dispatching.",
+                        flush=True,
+                    )
+                    print(f"Run: {live['url']}", flush=True)
+                    if args.wait:
+                        return watch_and_extract(live["databaseId"], args.frames)
+                    return 0
+
+            # Refuse per entry: one already-red selector makes the whole batch a
+            # reprint of a known failure, and the compile it would pay for is shared.
+            for entry in args.test_filter:
+                live = [run for run in live_attempts(history, commit, entry, pools)
+                        if watchable(run)] if pools else []
+                if live:
+                    raise ValueError(
+                        f"{entry} is already {live[0]['status']} at {commit} on "
+                        f"{parsed_runner(live[0])}, in {live[0]['url']}, under a different set of "
+                        "selectors. Dispatching now would compile identical source "
+                        "a second time to answer a question already in flight. Wait "
+                        "for that run, dispatch the remaining selectors on their "
+                        "own, or pass --force."
+                    )
+                earlier = prior_attempts(
+                    history, commit, entry,
+                    args.runner if args.runner not in (None, "auto") else None,
                 )
+                failures = [run for run in earlier if run.get("conclusion") == "failure"]
+                if failures and not any(run.get("conclusion") == "success" for run in earlier):
+                    latest = failures[0]
+                    # Count first: each failure costs a log download.
+                    machine = machine_failures(failures) if len(failures) <= MAX_MACHINE_RETRIES else None
+                    if machine is not None:
+                        print(
+                            f"{entry} failed at {commit} before any test started: {machine} "
+                            f"({latest['url']}). That was the Mac, not the code, so this "
+                            "dispatches it again.",
+                            flush=True,
+                        )
+                        continue
+                    raise ValueError(
+                        f"{entry} already failed at {commit} "
+                        f"({len(failures)} time(s)); the newest is {latest['url']}. "
+                        "A focused run compiles the tree first, so the most common red "
+                        "result is a compile error in the branch, not a flaky test -- "
+                        "and re-running the same selector at the same commit returns the "
+                        "same answer. Read that run, fix the branch, push, and dispatch "
+                        "the new commit. A run the Mac failed before any test started "
+                        f"(scripts/ci/machine_failure.py) is dispatched again up to "
+                        f"{MAX_MACHINE_RETRIES} times without asking. Pass --force to dispatch anyway."
+                    )
+
+        return None
+
+    pinned = default = pools = None
+    status = guards(commit)
+    if status is not None:
+        return status
 
     # A pinned runner asks about that pool; reused products run on the pool
     # that compiled them.
     if test_target == "cmuxTests" and not pinned and not args.full_build:
         status = reuse_ci_products(commit, args.test_filter, args.workflow_ref, args.wait)
         if status is not None:
+            if args.frames:
+                print("--frames: cmuxTests attach no screenshots, so there are no frames to extract", flush=True)
             return status
 
+    if ui_source is not None and not ui_source["ready"]:
+        try:
+            adopted = wait_for_products(ui_source, lambda: usable_product(ui_source, pending=True))
+            adopted = adopted and usable_product(ui_source)
+        except (subprocess.CalledProcessError, json.JSONDecodeError):
+            adopted = False
+        ui_source["adopted"] = adopted
+        if args.adopt_only and not adopted:
+            if unusable_family(ui_source):
+                print(f"{ui_source['url']} compiles on a pool whose products no UI run can load; "
+                      "not compiling (--adopt-only).", flush=True)
+                return UNLOADABLE_PRODUCT_EXIT
+            print(f"{ui_source['url']} left no app-host products this run can adopt; "
+                  "not compiling (--adopt-only).", flush=True)
+            return NO_PRODUCT_EXIT
+        if not adopted and commit != head:
+            print(f"note: no CI products for {commit}; compiling {head} instead", file=sys.stderr, flush=True)
+            commit = head
+            # The guards above read the merge; the head needs its own.
+            status = guards(commit)
+            if status is not None:
+                return status
+
     runner = args.runner if pinned else routed_runner(default, test_target)
+    if ui_source is not None and ui_source.get("adopted") and ui_source.get("family"):
+        # Send the run where the product can be adopted; see FAMILY_RUNNERS.
+        family = ui_source["family"]
+        if family.startswith("blacksmith-"):
+            # Either Blacksmith macOS 26 size shares the toolchain; else the producer's.
+            if not runner or pool.pr_runner_pool.persistent(runner) or "macos-26" not in runner:
+                runner = family
+        elif not (runner and pool.pr_runner_pool.persistent(runner) and runner in OVERFLOW_POOLS):
+            runner = family
+        print(f"Runner: {runner}, the pool family that compiled {commit}'s products", flush=True)
+    if not pinned:
+        # Last, over the family too: a Blacksmith product the owned Macs cannot
+        # adopt only costs a compile, while Blacksmith cannot run UI tests.
+        runner = pool.ui_owned_runner(
+            runner, test_filter=test_filter,
+            owned=repository_variable(pool.OWNED_VARIABLE, OWNED_ENV),
+            owned_ui=repository_variable(pool.OWNED_UI_VARIABLE, OWNED_UI_ENV),
+            order=repository_variable(pool.ORDER_VARIABLE, ORDER_ENV),
+            owned_slots=repository_variable(pool.SLOTS_VARIABLE, SLOTS_ENV),
+            pr_xcode_app=repository_variable(pool.PR_XCODE_VARIABLE, PR_XCODE_ENV),
+            log=lambda message: print(f"Runner pool: {message}", file=sys.stderr, flush=True),
+        )
+    if args.adopt_only and ui_source is not None and not adopts_on(runner, ui_source.get("family")):
+        print(f"UI runs go to {runner}, which cannot load the products {ui_source['url']} "
+              f"compiled on {ui_source.get('family') or 'an unknown pool'}; not compiling (--adopt-only).",
+              flush=True)
+        return UNLOADABLE_PRODUCT_EXIT
     dispatch_id = uuid.uuid4().hex
     video = not args.no_video and test_target != "cmuxTests"
     fields = {
@@ -907,6 +1305,11 @@ def main() -> int:
     }
     if args.runner is not None:
         fields["runner"] = args.runner
+    if scenario_b64:
+        fields["dogfood_scenario"] = scenario_b64
+    if args.adopt_only:
+        # test-e2e.yml fails before compiling if its reuse step still misses.
+        fields["require_adopted_product"] = "true"
     # Name the pool chosen here, so the run title carries the pool the guards
     # above match on and test-e2e.yml does not read the queue a second time.
     if not pinned and runner in OVERFLOW_POOLS:
@@ -924,8 +1327,20 @@ def main() -> int:
         )
     print(f"Run: {run['url']}", flush=True)
     if args.wait:
-        return watch_run(run["databaseId"])
+        return watch_and_extract(run["databaseId"], args.frames)
     return 0
+
+
+def watch_and_extract(run_id: int, frames: bool) -> int:
+    """Watch the run; with --frames, then print where its per-test frames are."""
+    status = watch_run(run_id)
+    if frames and status != 130:  # not after an interrupt
+        subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent / "e2e-frames.py"), str(run_id)],
+            cwd=ROOT,
+            check=False,
+        )
+    return status
 
 
 if __name__ == "__main__":

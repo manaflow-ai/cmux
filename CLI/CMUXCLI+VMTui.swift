@@ -47,12 +47,13 @@ extension CMUXCLI {
         /// active workspace, creating one only for an authoritative empty graph.
         var fullClient: Bool = false
         /// Whether the open may take over what the person is looking at: select the
-        /// workspace and put keyboard focus in the new pane. `false` (`--focus false`,
-        /// the New Machine sheet's background create) opens the machine where it
-        /// belongs without switching workspaces; the pane is still focused when the
-        /// target workspace is the one already on screen, so a person who waited in it
-        /// can type straight away.
-        var focus: Bool = true
+        /// workspace and put keyboard focus in the new pane. `false` (`--no-focus`, an
+        /// agent or script by default, the New Machine sheet's background create) opens
+        /// the machine where it belongs without switching workspaces; the pane is still
+        /// focused when the target workspace is the one already on screen, so a person
+        /// who waited in it can type straight away. No default: every entrypoint decides
+        /// (`defaultFocusForUserOpen`).
+        var focus: Bool
     }
     struct VMTuiDeviceRecord: Codable {
         let deviceFingerprint: String
@@ -61,7 +62,7 @@ extension CMUXCLI {
 
     static var vmTuiUsage: String {
         """
-        Usage: cmux vm tui <id> [--window <id|ref|index>]
+        Usage: cmux vm tui <id> [--window <id|ref|index>] [--focus|--no-focus]
 
         Open the FULL cmux-tui client for a machine (its own workspaces, panes and
         tabs) in a pane. `cmux vm shell <id>` and every other open give you a plain
@@ -69,6 +70,9 @@ extension CMUXCLI {
         The pane runs the local cmux-tui client against the machine's daemon over
         the owner's private network; the network is the admission, so no device
         enrollment or approval happens.
+
+        --focus selects the new workspace; --no-focus opens it in the background.
+        \(openFocusDefaultHelp)
 
         The client binary is found via CMUX_TUI_CLIENT, then ~/.cmux/bin/cmux, then
         `cmux-tui` on PATH. Install one with:
@@ -271,13 +275,14 @@ extension CMUXCLI {
             print(Self.vmTuiUsage)
             return
         }
-        guard let vmId = rest.first(where: { !$0.hasPrefix("-") }), !vmId.isEmpty else {
+        let (focus, tuiArgs) = try parseOpenFocusFlags(rest, command: "vm tui")
+        guard let vmId = tuiArgs.first(where: { !$0.hasPrefix("-") }), !vmId.isEmpty else {
             throw CLIError(message: Self.vmTuiUsage)
         }
         let opened = try openVMTuiWorkspace(
             vmId: vmId,
             windowRaw: windowRaw,
-            options: VMTuiOpenOptions(fullClient: true),
+            options: VMTuiOpenOptions(fullClient: true, focus: focus ?? Self.defaultFocusForUserOpen()),
             client: client
         )
         if jsonOutput {
@@ -303,7 +308,7 @@ extension CMUXCLI {
     func openVMTuiWorkspace(
         vmId: String,
         windowRaw: String?,
-        options: VMTuiOpenOptions = VMTuiOpenOptions(),
+        options: VMTuiOpenOptions,
         client: SocketClient
     ) throws -> VMTuiOpenResult {
         let startedAt = Date()
@@ -821,9 +826,10 @@ extension CMUXCLI {
         """
         Usage: cmux surface ls [<machine>|local] [--refresh] [--json]
                cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>]
-                                 [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>] [--json]
+                                 [--left|--right|--up|--down|--tab] [--new] [--focus|--no-focus] [--json]
                cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>]
-                                 [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [--json] [-- <command...>]
+                                 [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open]
+                                 [--focus|--no-focus] [--json] [-- <command...>]
                cmux surface resume …   (restart metadata; see `cmux surface resume --help`)
 
         Surfaces are terminals, VNC displays and browsers on This Mac or on a cloud machine;
@@ -837,18 +843,20 @@ extension CMUXCLI {
                (it can only be shown once).
         new-terminal:  creates a terminal on the machine (a cloud one lands in its cmux-tui
                session, --remote-workspace picks which) and opens it unless --no-open.
+        --focus / --no-focus:  focus the opened pane, or open it in the background.
+               \(openFocusDefaultHelp)
         """
     }
 
     static var vmOpenUsage: String {
         """
-        Usage: cmux vm open <target> [--workspace <id|ref|index>] [--focus <true|false>] [--print]
+        Usage: cmux vm open <target> [--workspace <id|ref|index>] [--focus [<true|false>] | --no-focus] [--print]
                cmux vm open <id> <port> [--print]
 
         \(CMUXDiffViewerLocalization.string("cli.vm.open.deviceTargets", defaultValue: "Targets (from `cmux vm tree`; <machine> is a cloud ID or another Mac's `device:<uuid>@<tag>`):"))
           <machine>                      the machine's shell (same as `cmux vm shell <machine>`)
           <machine>/<workspace>          a cmux-tui workspace on it (`ws_…` id or unique name; ambiguous names fail)
-          <machine>/<workspace>/<term>   one terminal (`term_…`) — focuses the pane that
+          <machine>/<workspace>/<term>   one terminal (`term_…`) — reuses the pane that
                                          already shows it instead of opening a second one
           <machine>/<workspace>/<term>/<tab>  one tab of that terminal (`tab_…` from `cmux vm tree`)
           <machine>:desktop              the machine's noVNC screen as a browser pane
@@ -858,7 +866,9 @@ extension CMUXCLI {
         Options:
           --workspace <ws>   Put the pane in this local workspace (default: the machine's
                              open workspace, else where you are).
-          --focus <bool>     Focus the opened pane (default: false — panes open beside you).
+          --focus, --no-focus  Focus the opened shell or terminal, or open it in the background.
+                             \(openFocusDefaultHelp)
+                             A desktop opens beside you unless --focus is given; a port always does.
           --print            Ports only: print the URL, do not open a pane.
 
         Examples:
@@ -874,7 +884,7 @@ extension CMUXCLI {
 
     static let vmWorkspaceUsage = """
         Usage:
-          cmux vm workspace new <machine> [--name <name>] [--reuse] [--no-open]
+          cmux vm workspace new <machine> [--name <name>] [--reuse] [--no-open] [--focus|--no-focus]
                                                               Create a workspace on the machine (its ⌘N) and open it here.
                                                               --no-open: stage it headlessly (it shows in `vm tree` and the
                                                               sidebar; nothing opens locally) — the seat for
@@ -883,7 +893,7 @@ extension CMUXCLI {
                                                               exists, open it instead of creating a second one (get-or-create,
                                                               so a script that runs twice leaves one `tests`, not two).
           cmux vm workspace open <machine> <workspace-id>     Open a machine workspace as a new local workspace, one pane per terminal.
-              [--here] [--tabs] [--workspace <local>] [--pane <id|ref> [--left|--right|--up|--down]]
+              [--here] [--tabs] [--workspace <local>] [--pane <id|ref> [--left|--right|--up|--down]] [--focus|--no-focus]
                                                               --here: into the current (or --workspace) local workspace instead — one pane
                                                               at the destination, the rest as tabs in it ("Open All Here"); --tabs: all as
                                                               tabs of the focused (or --pane) pane ("Open All in New Tabs").
@@ -894,6 +904,9 @@ extension CMUXCLI {
                                                               Workspace…"). Permanent.
           cmux vm workspace close <machine> <workspace-id>    CLI-only: close the workspace but keep its
                                                               terminals running in the Terminals pool.
+
+        new and open: --focus switches to what opens, --no-focus opens it in the background.
+        \(openFocusDefaultHelp)
 
         Workspace ids come from `cmux vm tree`. Add --json for the raw result.
         """
@@ -1045,9 +1058,16 @@ extension CMUXCLI {
         var tabs = false
         var reuse = false
         var noOpen = false
+        var focus: Bool?
         var index = 1
         while index < rest.count {
             let arg = rest[index]
+            if let flag = try Self.openFocusFlag(in: rest, at: index, command: "vm workspace \(verb)") {
+                guard verb == "new" || verb == "open" else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                focus = flag.focus
+                index += flag.consumed
+                continue
+            }
             if let equals = arg.firstIndex(of: "=") {
                 let flag = String(arg[..<equals])
                 let value = String(arg[arg.index(after: equals)...])
@@ -1124,7 +1144,7 @@ extension CMUXCLI {
             if let nameOpt, nameOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 throw CLIError(message: Self.vmWorkspaceUsage)
             }
-            var params: [String: Any] = ["id": machine]
+            var params: [String: Any] = ["id": machine, "focus": focus ?? Self.defaultFocusForUserOpen()]
             if let nameOpt, !nameOpt.isEmpty { params["name"] = nameOpt }
             if reuse {
                 guard params["name"] != nil else {
@@ -1146,7 +1166,9 @@ extension CMUXCLI {
             }
         case "open":
             guard positional.count == 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
-            var params: [String: Any] = ["id": machine, "workspace_id": positional[1]]
+            var params: [String: Any] = [
+                "id": machine, "workspace_id": positional[1], "focus": focus ?? Self.defaultFocusForUserOpen(),
+            ]
             // "Open All Here" / "Open All in New Tabs" / a drop on a pane edge: the same
             // destination flags `surface open` takes, on top of the remote workspace.
             here = here || tabs || pane != nil || localWorkspace != nil
@@ -1908,9 +1930,11 @@ extension CMUXCLI {
                 break
             }
             // A remote workspace with nothing running: start a shell in it and show that.
-            var params: [String: Any] = ["machine": machine, "remote_workspace_id": remoteWorkspaceID, "open": true]
+            var params: [String: Any] = [
+                "machine": machine, "remote_workspace_id": remoteWorkspaceID, "open": true,
+                "focus": focus ?? Self.defaultFocusForUserOpen(),
+            ]
             if let workspaceRaw { params["workspace_id"] = workspaceRaw }
-            if let focus { params["focus"] = focus }
             let response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 180)
             if jsonOutput {
                 print(jsonString(response))
@@ -1934,11 +1958,10 @@ extension CMUXCLI {
     ) throws {
         // One terminal is one catalog resource: `<machine>/terminal/<term_…>`. Reuses the
         // pane already showing it (the catalog's default) instead of opening a second one.
-        var params: [String: Any] = ["resource": "\(machine)/terminal/\(terminalId)"]
+        var params: [String: Any] = ["resource": "\(machine)/terminal/\(terminalId)", "focus": focus ?? Self.defaultFocusForUserOpen()]
         if let workspaceRaw { params["workspace_id"] = workspaceRaw }
         if let remoteWorkspaceID { params["remote_workspace_id"] = remoteWorkspaceID }
         if let remoteTabID { params["remote_tab_id"] = remoteTabID }
-        if let focus { params["focus"] = focus }
         let response = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
         if jsonOutput {
             print(jsonString(response))
@@ -1999,7 +2022,7 @@ extension CMUXCLI {
         case "open", "project":
             let (workspaceOpt, rest1) = parseOption(rest, name: "--workspace")
             let (paneOpt, rest2) = parseOption(rest1, name: "--pane")
-            let (focusOpt, rest3) = parseOption(rest2, name: "--focus")
+            let (focus, rest3) = try parseOpenFocusFlags(rest2, command: "surface open")
             let sides: [String: String] = ["--left": "left", "--right": "right", "--up": "up", "--down": "down"]
             let directions = rest3.compactMap { sides[$0] }
             guard directions.count <= 1 else { throw CLIError(message: Self.surfaceUsage) }
@@ -2023,18 +2046,12 @@ extension CMUXCLI {
             if (direction != nil || tab) && paneOpt == nil {
                 throw CLIError(message: "surface open: --left/--right/--up/--down/--tab need --pane <id|ref>\n\n\(Self.surfaceUsage)")
             }
-            var params: [String: Any] = ["resource": resource]
+            var params: [String: Any] = ["resource": resource, "focus": focus ?? Self.defaultFocusForUserOpen()]
             if let workspaceOpt { params["workspace_id"] = workspaceOpt }
             if let paneOpt { params["pane_id"] = paneOpt }
             if let direction { params["direction"] = direction }
             if tab { params["placement"] = "tab" }
             if new { params["reuse"] = false }
-            switch focusOpt?.lowercased() {
-            case nil: break
-            case "true", "1", "yes": params["focus"] = true
-            case "false", "0", "no": params["focus"] = false
-            default: throw CLIError(message: "surface open: --focus takes true or false\n\n\(Self.surfaceUsage)")
-            }
             let response: [String: Any]
             do {
                 response = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
@@ -2058,7 +2075,8 @@ extension CMUXCLI {
             let (cwdOpt, rest2) = parseOption(rest1, name: "--cwd")
             let (nameOpt, rest3) = parseOption(rest2, name: "--name")
             let (remoteWorkspaceOpt, rest4) = parseOption(rest3, name: "--remote-workspace")
-            let (workspaceOpt, rest5) = parseOption(rest4, name: "--workspace")
+            let (workspaceOpt, rest4a) = parseOption(rest4, name: "--workspace")
+            let (focus, rest5) = try parseOpenFocusFlags(rest4a, command: "surface new-terminal")
             let noOpen = hasFlag(rest5, name: "--no-open")
             var command: [String] = []
             var flags = rest5
@@ -2072,7 +2090,7 @@ extension CMUXCLI {
             guard let machine = machineOpt, !machine.isEmpty else {
                 throw CLIError(message: "surface new-terminal: --machine <id|local> is required\n\n\(Self.surfaceUsage)")
             }
-            var params: [String: Any] = ["machine": machine, "open": !noOpen]
+            var params: [String: Any] = ["machine": machine, "open": !noOpen, "focus": focus ?? Self.defaultFocusForUserOpen()]
             if !command.isEmpty { params["command"] = command }
             if let cwdOpt { params["cwd"] = cwdOpt }
             if let nameOpt { params["name"] = nameOpt }

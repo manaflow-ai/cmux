@@ -6,6 +6,7 @@ import SwiftUI
 /// Read rows keep the compact identity edge; unread rows reserve the badge slot.
 /// Immutable input keeps AppKit cell reuse independent of observable stores.
 struct CloudSidebarRowDecoration: ViewModifier {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let isPinned: Bool
     let showsAttentionSlot: Bool
     let hasUnreadNotification: Bool
@@ -19,7 +20,7 @@ struct CloudSidebarRowDecoration: ViewModifier {
         HStack(spacing: 2) {
             if showsAttentionSlot && hasUnreadNotification {
                 Circle()
-                    .fill(Color.accentColor)
+                    .fill(cmuxAccent.color)
                     .frame(width: 6, height: 6)
                     .accessibilityLabel(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))
                     .help(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))

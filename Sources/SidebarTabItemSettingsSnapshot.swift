@@ -8,6 +8,10 @@ import Foundation
 struct SidebarTabItemSettingsSnapshot: Equatable {
     let hidesAllDetails: Bool
     let wrapsWorkspaceTitles: Bool
+    /// `sidebar.compactAgentStatus`: agent status entries draw on the title line.
+    let compactsAgentStatus: Bool
+    /// `sidebar.compactStatusIcons`, keeping only known states and non-empty names.
+    let compactStatusIcons: [String: String]
     let showsWorkspaceDescription: Bool
     let workspaceDescriptionColorHex: String?
     let sidebarShortcutHintXOffset: Double
@@ -27,17 +31,22 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let loadingSpinnerPosition: SidebarIndicatorPosition
     let notificationBadgePosition: SidebarIndicatorPosition
     let selectionColorHex: String?
+    let subtleSelection: Bool
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
     let workspaceTodoChecklistStyle: WorkspaceTodoChecklistStyle
+    /// The resolved cmux accent. Rows draw selection, progress, drop
+    /// indicators and agent status with it, and reconfigure when it changes.
+    let accentColor: CmuxAccentColor
 
     var usesLastSegmentPath: Bool { branchDirectory.usesLastSegmentPath }
     var showsSSH: Bool { details.showSSH }
 
     init(
         defaults: UserDefaults = .standard,
-        sidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize
+        sidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize,
+        accentColor: CmuxAccentColor = CmuxAccentColor()
     ) {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let sidebar = SidebarCatalogSection()
@@ -61,6 +70,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         )
         hidesAllDetails = settings.value(for: sidebar.hideAllDetails)
         wrapsWorkspaceTitles = settings.value(for: sidebar.wrapWorkspaceTitles)
+        compactsAgentStatus = settings.value(for: sidebar.compactAgentStatus)
+        compactStatusIcons = SidebarCompactStatusGlyph.validIconOverrides(settings.value(for: sidebar.compactStatusIcons))
         let detailVisibility = SidebarWorkspaceDetailVisibility(
             showWorkspaceDescription: settings.value(for: sidebar.showWorkspaceDescription),
             showNotificationMessage: settings.value(for: sidebar.showNotificationMessage),
@@ -90,9 +101,11 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         loadingSpinnerPosition = settings.value(for: sidebar.loadingSpinnerPosition)
         notificationBadgePosition = settings.value(for: sidebar.notificationBadgePosition)
         selectionColorHex = settings.value(for: workspaceColors.selectionColorHex).nilIfEmpty
+        subtleSelection = settings.value(for: workspaceColors.subtleSelection)
         notificationBadgeColorHex = settings.value(for: workspaceColors.notificationBadgeColorHex).nilIfEmpty
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
         workspaceTodoChecklistStyle = settings.value(for: betaFeatures.workspaceTodosChecklistStyle)
+        self.accentColor = accentColor
     }
 
     private static func bool(

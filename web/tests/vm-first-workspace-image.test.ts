@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runChild } from "./helpers/run-child";
 import { devboxPrepareTemplateTerminalCommand } from "../scripts/devbox-image-common";
 
 describe("first-workspace image contract", () => {
-  test.each([true, false])("only a capable daemon prepares a deferred starter (%s)", (capable) => {
+  test.each([true, false])("only a capable daemon prepares a deferred starter (%s)", async (capable) => {
     const root = mkdtempSync(join(tmpdir(), "cmux-first-workspace-image-"));
     try {
       const bin = join(root, "bin");
@@ -29,9 +29,9 @@ esac
         .replaceAll("/etc/cmux", config)
         .replaceAll("/run/cmux", join(root, "run"))
         .replaceAll("/root", home);
-      const result = spawnSync("sh", ["-c", command], {
+      const result = await runChild("sh", ["-c", command], {
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
-        encoding: "utf8", timeout: 5_000,
+        timeout: 5_000,
       });
       if (capable) {
         expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: "" });
