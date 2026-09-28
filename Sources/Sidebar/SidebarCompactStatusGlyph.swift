@@ -26,9 +26,13 @@ import Foundation
 /// 2. Needs input: amber dot.
 /// 3. Running through subagents: pulsing gray connected-points symbol. The
 ///    agent is working, but through background agents it spawned.
-/// 4. Running: pulsing gray dot. It replaces the row's loading spinner.
-/// 5. Waiting on a deterministic wakeup (a background command, a scheduled
-///    wakeup, a CI run): gray hourglass. Not your turn, and not finished.
+/// 4. Waiting on a deterministic wakeup (a background command, a scheduled
+///    wakeup, a CI run): gray hourglass. Not your turn, and not finished. A
+///    waiting pane still reports a *running* lifecycle (it must not look
+///    hibernatable), so waiting is read off the reported work state and wins
+///    over the running branch below, but only when every running agent in the
+///    workspace is covered by a waiting report.
+/// 5. Running: pulsing gray dot. It replaces the row's loading spinner.
 /// 6. Starting (agent present, state not reported yet): hollow ring.
 /// 7. Unseen (unread notifications): blue dot. Applied by the row, which owns
 ///    the unread count; see ``applyingUnread(_:latestNotificationText:)``. It

@@ -45,9 +45,19 @@ extension SidebarCompactStatusGlyph {
         // off the entries before the lifecycle branch below, and only when
         // every agent in the workspace reports it: one agent still working
         // keeps the row running.
+        //
+        // Status entries are keyed per workspace, while lifecycle states are
+        // keyed per panel, so two Claude panes in one workspace share a single
+        // `claude_code` entry and the second one to report wins. Counting the
+        // running lifecycles closes that gap: an hourglass only goes up when
+        // every running agent is covered by a waiting report. A pane that is
+        // still working can never hide behind another pane's hourglass; the
+        // cost is that two panes both waiting under one key show as running.
+        let runningLifecycleCount = input.lifecycleStates.filter { $0 == .running }.count
         let everyAgentIsWaiting = !workStates.isEmpty
             && workStates.count == input.agentEntries.count
             && workStates.allSatisfy { $0 == .waiting }
+            && runningLifecycleCount <= workStates.count
         if input.agentEntries.contains(where: Self.reportsError) {
             kind = .error
         } else if input.lifecycleStates.contains(.needsInput) {

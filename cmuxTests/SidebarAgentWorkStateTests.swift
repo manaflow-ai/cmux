@@ -1,4 +1,5 @@
 import AppKit
+import CmuxControlSocket
 import CmuxSidebar
 import Testing
 @testable import cmux_DEV
@@ -26,9 +27,30 @@ struct SidebarAgentWorkStateTests {
         #expect(SidebarAgentWorkState.parse("running") == .running)
         #expect(SidebarAgentWorkState.parse(" Subagents ") == .subagents)
         #expect(SidebarAgentWorkState.parse("WAITING") == .waiting)
-        // A value from a newer CLI degrades to a plain running row.
         #expect(SidebarAgentWorkState.parse("compacting") == nil)
         #expect(SidebarAgentWorkState.parse("") == nil)
+        // The singular reads like it should work, and it must not: the
+        // control socket rejects the whole `set_status` for it, so a parse
+        // that accepted it here would describe a state the app never sees.
+        #expect(SidebarAgentWorkState.parse("subagent") == nil)
+    }
+
+    /// The wire contract is three raw strings repeated in modules that
+    /// deliberately do not depend on each other. Nothing else fails if one
+    /// copy is renamed, so pin the two that link here; the CLI's third copy
+    /// is pinned on the wire by `ClaudeHookWorkStateTests` and
+    /// `ClaudeBackgroundWorkNotifyTests`, which read the emitted `--work=`.
+    @Test
+    func theThreeCopiesOfTheWireContractAgree() {
+        #expect(SidebarAgentWorkState.allCases.map(\.rawValue) == ["running", "subagents", "waiting"])
+        #expect(
+            ControlSidebarAgentWorkState.allCases.map(\.rawValue)
+                == SidebarAgentWorkState.allCases.map(\.rawValue)
+        )
+        for state in ControlSidebarAgentWorkState.allCases {
+            #expect(SidebarAgentWorkState(rawValue: state.rawValue) != nil,
+                    "The control socket's '\(state.rawValue)' has no sidebar twin")
+        }
     }
 
     // MARK: Resolution
@@ -83,6 +105,49 @@ struct SidebarAgentWorkStateTests {
             hasActiveAgent: true
         ))
         #expect(glyph.kind == .running)
+    }
+
+    /// Status entries are keyed per workspace and lifecycle states per panel,
+    /// so two Claude panes in one workspace share a single `claude_code`
+    /// entry: the pane that reports last wins. A pane parked on background
+    /// work must not put an hourglass over a sibling pane that is still
+    /// working, so a running lifecycle that no waiting report accounts for
+    /// keeps the row running.
+    @Test
+    func aSecondPaneStillWorkingUnderTheSharedKeyKeepsTheRowRunning() {
+        let glyph = Glyph.resolve(Glyph.Input(
+            agentEntries: [Self.entry("claude_code", "Waiting", workState: .waiting)],
+            lifecycleStates: [.running, .running],
+            hasActiveAgent: true
+        ))
+        #expect(glyph.kind == .running)
+    }
+
+    /// The same workspace once the sibling pane goes idle: one running
+    /// lifecycle, one waiting report, so the hourglass is honest again.
+    @Test
+    func theHourglassReturnsOnceTheSiblingPaneIsDone() {
+        let glyph = Glyph.resolve(Glyph.Input(
+            agentEntries: [Self.entry("claude_code", "Waiting", workState: .waiting)],
+            lifecycleStates: [.running, .idle],
+            hasActiveAgent: true
+        ))
+        #expect(glyph.kind == .waiting)
+    }
+
+    /// Two agents under two keys, both parked, is the ordinary all-waiting
+    /// case and still reads as waiting.
+    @Test
+    func twoAgentsBothParkedStayWaiting() {
+        let glyph = Glyph.resolve(Glyph.Input(
+            agentEntries: [
+                Self.entry("claude_code", "Waiting", workState: .waiting),
+                Self.entry("codex", "Waiting", workState: .waiting),
+            ],
+            lifecycleStates: [.running, .running],
+            hasActiveAgent: true
+        ))
+        #expect(glyph.kind == .waiting)
     }
 
     @Test

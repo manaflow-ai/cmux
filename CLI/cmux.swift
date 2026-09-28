@@ -4373,6 +4373,15 @@ struct CMUXCLI {
     /// points, distinct from the git-branch symbol the sidebar already uses.
     static let subagentsStatusIcon = "point.3.filled.connected.trianglepath.dotted"
 
+    /// Whether a PreToolUse tool name is Claude Code's subagent spawn.
+    /// Claude Code renamed the spawn tool "Task" -> "Agent" (2.x); both names
+    /// remain on the wire depending on CLI version, so both must count (see
+    /// `AgentChatSessionRegistry.isTaskSpawn`, which says the same thing for
+    /// the mobile child-run tracker).
+    static func spawnsSubagents(toolName: String?) -> Bool {
+        toolName == "Task" || toolName == "Agent"
+    }
+
     private static func agentNotificationMeta(
         category: AgentHookNotifyCategory,
         isError: Bool,
@@ -29516,11 +29525,13 @@ struct CMUXCLI {
                 telemetry: telemetry
             )
 
-            // A `Task` call blocks the parent inside the tool until its
+            // A spawn call blocks the parent inside the tool until its
             // subagents finish, so no other parent hook can fire meanwhile:
             // the subagent state holds for exactly that span, and the next
             // parent PreToolUse or Stop clears it. No counter to drift.
-            let runsSubagents = (parsedInput.object?["tool_name"] as? String) == "Task"
+            let runsSubagents = Self.spawnsSubagents(
+                toolName: parsedInput.object?["tool_name"] as? String
+            )
             let statusValue: String
             if UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus"),
                let toolStatus = describeToolUse(parsedInput.object) {

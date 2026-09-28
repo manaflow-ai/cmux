@@ -14836,6 +14836,7 @@ class TerminalController {
         if let url = entry.url { line += " url=\(url.absoluteString)" }
         if entry.priority != 0 { line += " priority=\(entry.priority)" }
         if entry.format != .plain { line += " format=\(entry.format.rawValue)" }
+        if let workState = entry.workState { line += " work=\(workState.rawValue)" }
         return line
     }
 

@@ -68,6 +68,18 @@ struct ClaudeHookWorkStateTests {
                 "The subagents pill must use the connected-points symbol; saw \(commands)")
     }
 
+    /// Claude Code renamed the spawn tool "Task" -> "Agent" in 2.x and both
+    /// names are still on the wire, so a row that only matched "Task" would
+    /// show a plain running dot for everyone on a current CLI.
+    @Test func renamedAgentToolAlsoReportsRunningSubagents() throws {
+        let commands = try runPreToolUse(name: "work-state-agent", toolName: "Agent", pid: "43403")
+        let status = statusLine(commands)
+        #expect(status?.contains("--work=subagents") == true,
+                "The 2.x spawn tool name must report subagents too; saw \(commands)")
+        #expect(status?.contains("--icon=point.3.filled.connected.trianglepath.dotted") == true,
+                "The subagents pill must use the connected-points symbol; saw \(commands)")
+    }
+
     /// Every other tool is the agent working directly, which must keep the
     /// pill and glyph it had before the work state existed.
     @Test func ordinaryToolReportsPlainRunning() throws {
