@@ -22,7 +22,8 @@ final class AgentJournalLifecycleCenter: Sendable {
         case submit(AgentJournalEventDraft, UUID?)
         case feed(AgentFeedSemanticInput, UUID?)
         case append(AgentJournalEventDraft)
-        case interrupt(surfaceId: String, workspaceId: String, agentKey: String, source: String)
+        case requestInterrupt(surfaceId: String, workspaceId: String, agentKey: String, source: String)
+        case settleInterrupt(surfaceId: String, workspaceId: String, agentKey: String, source: String)
         case recordAliases(workspaces: [String: String], surfaces: [String: String])
         case startupReplay
 
@@ -43,7 +44,10 @@ final class AgentJournalLifecycleCenter: Sendable {
         self.init(databaseURL: Self.defaultDatabaseURL())
     }
 
-    init(databaseURL: URL?) {
+    init(
+        databaseURL: URL?,
+        consumerStart: @escaping @Sendable () async -> Void = {}
+    ) {
         guard let databaseURL else {
             self.lazyStore = nil
             self.operations = nil
@@ -58,6 +62,7 @@ final class AgentJournalLifecycleCenter: Sendable {
         self.operations = channel.continuation
         let operationContinuation = channel.continuation
         self.consumerTask = Task.detached(priority: .utility) {
+            await consumerStart()
             let reducer = AgentLifecycleReducer()
             let replayPolicy = AgentJournalReplayPolicy()
             var state = AgentLifecycleReducerState()
@@ -160,16 +165,47 @@ final class AgentJournalLifecycleCenter: Sendable {
                     } else {
                         admissions.complete(id, accepted: false)
                     }
-                case .interrupt(let surfaceId, let workspaceId, let agentKey, let source):
-                    // Settle exactly the sessions this consumer's fold has
-                    // running on the surface, then ingest them like appends.
+                case .requestInterrupt(let surfaceId, let workspaceId, let agentKey, let source):
+                    // The second phase enters at the back of this FIFO so hook
+                    // ingress already queued behind the click is reconciled
+                    // before the synthetic completion is derived.
+                    operationContinuation.yield(.settleInterrupt(
+                        surfaceId: surfaceId,
+                        workspaceId: workspaceId,
+                        agentKey: agentKey,
+                        source: source
+                    ))
+                case .settleInterrupt(let surfaceId, let workspaceId, let agentKey, let source):
+                    // Append and reconcile in this causal operation. Re-enqueueing
+                    // either half would let later ingress overtake the completion.
                     for draft in state.userInterruptDrafts(
                         surfaceId: surfaceId,
                         workspaceId: workspaceId,
                         agentKey: agentKey,
                         source: source
                     ) {
-                        operationContinuation.yield(.append(draft))
+                        do {
+                            let outcome = try store.append(draft)
+                            _ = await reconcile(
+                                AgentJournalEvent(
+                                    sequence: outcome.sequence,
+                                    committedAtMs: outcome.committedAtMs,
+                                    draft: draft
+                                ),
+                                store: store,
+                                deliver: true
+                            )
+                        } catch {
+                            CmuxEventBus.shared.publish(
+                                name: "agent.journal.append_failed",
+                                category: "agent",
+                                source: "journal",
+                                payload: ["kind": draft.kind.rawValue]
+                            )
+#if DEBUG
+                            cmuxDebugLog("agentJournal.interrupt.error \(String(describing: error))")
+#endif
+                        }
                     }
                 case .append(let draft):
                     do {
@@ -321,7 +357,7 @@ final class AgentJournalLifecycleCenter: Sendable {
     /// Journals a user interrupt for every session of `agentKey` the journal
     /// has running on the surface (see ``AgentJournalEventDraft/userInterrupt``).
     func recordUserInterrupt(surfaceId: UUID, workspaceId: UUID, agentKey: String, source: String) {
-        operations?.yield(.interrupt(
+        operations?.yield(.requestInterrupt(
             surfaceId: surfaceId.uuidString,
             workspaceId: workspaceId.uuidString,
             agentKey: agentKey,

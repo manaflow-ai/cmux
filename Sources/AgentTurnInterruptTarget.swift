@@ -37,11 +37,14 @@ enum AgentTurnInterruptTarget: String, CaseIterable, Equatable, Sendable {
     /// Named keys that interrupt the running turn.
     var interruptKeys: [TextBoxTerminalKey] { [.escape] }
 
-    /// The running agent on a pane, or `nil` when none of the supported
-    /// agents is running there.
+    /// The unambiguous running agent on a pane, or `nil` when none is running
+    /// or multiple agents claim the pane without foreground ownership proof.
     static func resolve(
-        statusKeyedStates: [String: AgentHibernationLifecycleState]
+        statusKeyedStates: [String: AgentHibernationLifecycleState],
+        foregroundStatusKey: String? = nil
     ) -> AgentTurnInterruptTarget? {
-        allCases.first { statusKeyedStates[$0.statusKey] == .running }
+        let running = allCases.filter { statusKeyedStates[$0.statusKey] == .running }
+        guard running.count > 1 else { return running.first }
+        return running.first { $0.statusKey == foregroundStatusKey }
     }
 }
