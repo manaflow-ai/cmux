@@ -36,6 +36,8 @@ struct PaneResizeShortcutTests {
             let workspace = try #require(manager.selectedWorkspace)
             let first = try #require(workspace.focusedPanelId)
             let horizontal = direction == "left" || direction == "right"
+            // Give split admission room before the mounted layout settles.
+            workspace.bonsplitController.setContainerFrame(CGRect(x: 0, y: 0, width: 1000, height: 1000))
             let second = try #require(workspace.newTerminalSplit(
                 from: first,
                 orientation: horizontal ? .horizontal : .vertical
