@@ -7,7 +7,8 @@ import Foundation
 ///
 /// Each shell sends a lightweight `report_tty` + `ports_kick` over the socket.
 /// PortScanner coalesces kicks across all panels, then runs a single
-/// `ps -t <ttys>` + `lsof -p <pids>` covering every panel that needs scanning.
+/// `ps -t <ttys>` plus a kernel lookup of each PID's listening sockets covering
+/// every panel that needs scanning.
 ///
 /// Kick → coalesce → burst flow:
 /// 1. `kick()` adds panel to `pendingKicks` set
@@ -268,8 +269,59 @@ final class PortScanner: @unchecked Sendable {
                 coalesceTimer?.cancel()
                 coalesceTimer = nil
                 burstActive = false
+                clearPublishedPortsLocked()
             }
             updateAgentScanTimerLocked()
+        }
+    }
+
+    /// Publishes no ports for every tracked panel and agent workspace, so
+    /// readers other than the sidebar row (socket, CLI, custom sidebars, the
+    /// command palette) see "not scanning" rather than a list frozen at the
+    /// moment scanning stopped. Showing the detail again rescans from scratch.
+    private func clearPublishedPortsLocked() {
+        let panelKeys = Array(ttyNames.keys)
+        panelPortSnapshot.remove(keys: panelKeys)
+        for key in panelKeys {
+            panelPortOwnersByKey.removeValue(forKey: key)
+        }
+        enqueuePanelPublication(panelKeys.compactMap { key in
+            panelRevisionByKey[key].map {
+                PanelPortScanPublication(key: key, ports: [], revision: $0)
+            }
+        })
+
+        let agentWorkspaces = trackedAgentWorkspaces
+        guard !agentWorkspaces.isEmpty else { return }
+        agentPortSnapshot.remove(keys: Array(agentWorkspaces))
+        for workspaceId in agentWorkspaces {
+            agentPortOwnersByWorkspace.removeValue(forKey: workspaceId)
+        }
+        // Claim a request ID newer than any scan still in flight, so a late
+        // result from before the switch cannot publish over the cleared list.
+        let requestID = scanCoordination.makeRequestID()
+        let clearedWorkspaces = scanCoordination.newAgentWorkspaces(
+            agentWorkspaces,
+            eligibleWorkspaceIds: agentWorkspaces,
+            requestID: requestID
+        )
+        let publications = clearedWorkspaces.compactMap { workspaceId -> AgentPortScanPublication? in
+            guard agentPublicationHistory.shouldPublish(
+                workspaceId: workspaceId,
+                ports: [],
+                requestID: requestID,
+                forced: false
+            ) else { return nil }
+            return AgentPortScanPublication(
+                workspaceId: workspaceId,
+                ports: [],
+                revision: agentRevisionByWorkspace[workspaceId, default: 0],
+                requestID: requestID,
+                removesLifecycle: false
+            )
+        }
+        if !publications.isEmpty {
+            enqueueAgentPublication(publications)
         }
     }
 
@@ -644,7 +696,7 @@ final class PortScanner: @unchecked Sendable {
             requestID: requestID,
             applyPanelResults: isCurrentGeneration
         )
-        if hasPendingScan {
+        if hasPendingScan, scanningEnabled {
             runScan(generation: burstGeneration)
         }
     }
@@ -883,7 +935,13 @@ final class PortScanner: @unchecked Sendable {
             requestID: request.requestID
         )
         if let pendingRequest {
-            startAgentScan(pendingRequest)
+            if scanningEnabled {
+                startAgentScan(pendingRequest)
+            } else {
+                // Drop the queued request. Finishing again clears the in-flight
+                // mark the dequeue set, since nothing will run it.
+                _ = scanCoordination.finishAgentScan()
+            }
         }
     }
 

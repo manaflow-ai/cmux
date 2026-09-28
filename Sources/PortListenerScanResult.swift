@@ -1,7 +1,7 @@
 import CmuxCore
 import Foundation
 
-/// Parsed `lsof` output plus the scope of evidence that could not be inspected.
+/// Listening ports per PID plus the scope of evidence that could not be inspected.
 struct PortListenerScanResult: Sendable {
     let values: [Int: Set<Int>]
     let globallyComplete: Bool

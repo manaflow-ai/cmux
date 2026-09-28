@@ -1332,6 +1332,63 @@ struct PortScannerPortRetirementTests {
         #expect(didPublishListeningPort, "re-enabling the scanner never rescanned the panel")
     }
 
+    /// Readers other than the sidebar row (socket, CLI, custom sidebars) keep
+    /// reading published ports, so hiding the detail must not leave them a
+    /// list frozen at the moment scanning stopped.
+    @Test("Hiding the ports detail clears the published ports")
+    func disablingPortScanningClearsPublishedPorts() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyName = "ttys905"
+        let listenerPID = Int(getpid())
+        let listeningPort = 4325
+        let runner = PortLifecycleCommandRunner(
+            ttyName: ttyName,
+            sessionLeaderPID: 1,
+            pid: listenerPID,
+            port: listeningPort
+        )
+        let listenerIdentity = try #require(AgentPIDProcessIdentity(pid: pid_t(listenerPID)))
+        let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: listenerIdentity)
+        let scanner = PortScanner(
+            commandRunner: runner,
+            listeningPortsProvider: { runner.listeningPorts(pid: $0) },
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: Self.fastBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
+        )
+        scanner.setScanningEnabled(true)
+        let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+
+        await MainActor.run {
+            scanner.onPortsUpdated = { publishedWorkspaceId, publishedPanelId, ports in
+                guard publishedWorkspaceId == workspaceId, publishedPanelId == panelId else { return }
+                publishedPorts.withLock { $0.append(ports) }
+            }
+            scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
+        }
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
+
+        let didPublishListeningPort = await Self.waitForPublication(
+            in: publishedPorts,
+            matching: { $0 == [listeningPort] },
+            pollInterval: .milliseconds(25)
+        )
+        try #require(didPublishListeningPort, "the listening port was never published")
+
+        let publicationsBeforeDisable = publishedPorts.withLock { $0.count }
+        scanner.setScanningEnabled(false)
+
+        let didClearPorts = await Self.waitForPublication(
+            in: publishedPorts,
+            after: publicationsBeforeDisable,
+            matching: \.isEmpty,
+            timeout: .seconds(5),
+            pollInterval: .milliseconds(25)
+        )
+        #expect(didClearPorts, "hiding the ports detail left the published ports in place")
+    }
+
     /// Drives the whole scanner — TTY registration, kick, coalesce, burst,
     /// reconcile, publish — so a break anywhere in that chain surfaces even
     /// when every individual stage still passes its own test.
