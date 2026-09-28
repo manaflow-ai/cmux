@@ -52,6 +52,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: refs/heads/main
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -62,9 +63,12 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Guard
+        env:
+          TARGET: ${{ inputs.target }}
+          CONFIRM_PRODUCTION: ${{ inputs.confirm_production }}
         run: |
           set -euo pipefail
-          if [ "${{ inputs.target }}" = "production" ] && [ "${{ inputs.confirm_production }}" != "true" ]; then
+          if [ "$TARGET" = "production" ] && [ "$CONFIRM_PRODUCTION" != "true" ]; then
             echo "::error::A production dogfood run requires confirm_production=true"
             exit 1
           fi
@@ -79,22 +83,27 @@ jobs:
           echo "CMUX_TUI_INSTALL_MS=$(( $(date +%s%3N) - started ))" >> "$GITHUB_ENV"
 
       - name: Journey
+        env:
+          TARGET: ${{ inputs.target }}
+          SKIP_SLEEP: ${{ inputs.skip_sleep }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/dogfood/screens"
-          args=("${{ inputs.target }}" --cmux-tui "$CMUX_TUI_BIN"
+          args=("$TARGET" --cmux-tui "$CMUX_TUI_BIN"
             --result-file "$RUNNER_TEMP/dogfood/result.json"
             --screens-dir "$RUNNER_TEMP/dogfood/screens")
-          if [ "${{ inputs.skip_sleep }}" = "true" ]; then args+=(--skip-sleep); fi
+          if [ "$SKIP_SLEEP" = "true" ]; then args+=(--skip-sleep); fi
           bun run cloud-vm:dogfood -- "${args[@]}"
 
       - name: Summary
         if: ${{ always() }}
+        env:
+          TARGET: ${{ inputs.target }}
         run: |
           result="$RUNNER_TEMP/dogfood/result.json"
           [ -s "$result" ] || { echo "No result was written." >> "$GITHUB_STEP_SUMMARY"; exit 0; }
           {
-            echo "### Cloud dogfood journey (${{ inputs.target }})"
+            echo "### Cloud dogfood journey ($TARGET)"
             echo
             jq -r '"ok: \(.ok)" + (if .ok then "" else ", failed at `\(.stage)`: \(.error)" end)' "$result"
             echo

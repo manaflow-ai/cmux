@@ -104,8 +104,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // One long-running cmux-tui process whose stdout is JSON lines.
 function startJsonProcess(name, argv) {
-  const child = spawn(cmuxTui, argv, { stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(cmuxTui, [...argv, "--exit-with-parent"], { stdio: ["pipe", "pipe", "pipe"] });
   children.add(child);
+  child.on("error", (error) => { stderr += `\nspawn failed: ${error.message}`; });
   const lines = [];
   const waiters = [];
   let buffer = "";
@@ -148,25 +149,27 @@ function startJsonProcess(name, argv) {
     lines,
     exited,
     stderr: () => stderr,
-    // Resolves with the first event (already seen or future) that matches.
-    waitFor(match, timeoutMs, what) {
-      const seen = lines.find(match);
+    // A position in the event log; take it before the action whose effect you
+    // wait for, so an event that lands before the action returns is not missed.
+    mark: () => lines.length,
+    // Resolves with the first matching event at or after `from`, seen or future.
+    waitFor(match, timeoutMs, what, from = 0) {
+      const seen = lines.slice(from).find(match);
       if (seen) return Promise.resolve(seen);
       return new Promise((resolve, reject) => {
-        const waiter = { match, resolve, reject };
-        waiters.push(waiter);
-        setTimeout(() => {
+        const timer = setTimeout(() => {
           const index = waiters.indexOf(waiter);
           if (index < 0) return;
           waiters.splice(index, 1);
           reject(new Error(`${name}: no ${what} within ${timeoutMs}ms: ${stderr.slice(-600)}`));
         }, timeoutMs);
+        const waiter = {
+          match,
+          resolve: (event) => { clearTimeout(timer); resolve(event); },
+          reject: (error) => { clearTimeout(timer); reject(error); },
+        };
+        waiters.push(waiter);
       });
-    },
-    // Only events after this call.
-    waitForNext(match, timeoutMs, what) {
-      const from = lines.length;
-      return this.waitFor((event) => lines.indexOf(event) >= from && match(event), timeoutMs, what);
     },
     stop(signal = "SIGTERM") {
       if (child.exitCode === null && child.signalCode === null) child.kill(signal);
@@ -262,10 +265,16 @@ async function saveScreen(localSocket, terminal, name) {
 
 async function waitForScreen(localSocket, terminal, pattern, timeoutMs) {
   const result = await runTui(
-    ["--socket", localSocket, "terminal", terminal, "screen", "wait", "--pattern", pattern, "--timeout-ms", String(timeoutMs)],
+    ["--socket", localSocket, "--json", "terminal", terminal, "screen", "wait", "--pattern", pattern, "--timeout-ms", String(timeoutMs)],
     timeoutMs + 10_000,
   );
   if (result.code !== 0) throw new Error(`screen wait for /${pattern}/ failed (${result.code}): ${result.stderr.slice(-400)}`);
+  // A timeout is a normal result with matched false and exit status 0.
+  let matched = false;
+  try {
+    matched = JSON.parse(result.stdout).matched === true;
+  } catch {}
+  if (!matched) throw new Error(`/${pattern}/ did not appear on the terminal within ${timeoutMs}ms`);
 }
 
 async function sessionHeaders(stackUser, expiresInMillis) {
@@ -274,6 +283,92 @@ async function sessionHeaders(stackUser, expiresInMillis) {
   if (!tokens.accessToken || !tokens.refreshToken) throw new Error("Stack did not return session tokens");
   return { authorization: `Bearer ${tokens.accessToken}`, "x-stack-refresh-token": tokens.refreshToken };
 }
+
+// Deletes every VM and device grant the account holds. Returns true when the
+// account is empty, so its user can be deleted without orphaning anything.
+async function emptyAccount(headers) {
+  const saved = authHeaders;
+  authHeaders = headers;
+  try {
+    let clean = true;
+    const list = await api("GET", "/api/vm");
+    if (list.status !== 200) return false;
+    for (const vm of list.json?.vms ?? []) {
+      const destroy = await api("DELETE", `/api/vm/${encodeURIComponent(vm.id)}`);
+      if (destroy.status !== 200 && destroy.status !== 404) {
+        console.error(`cleanup_needed_vm=${vm.id} status=${destroy.status}`);
+        clean = false;
+      }
+    }
+    const grants = await api("GET", "/api/vm/tunnel");
+    if (grants.status !== 200) return false;
+    for (const grant of grants.json?.devices ?? []) {
+      const query = grant.accessGrantId ?? grant.id
+        ? `accessGrantId=${encodeURIComponent(grant.accessGrantId ?? grant.id)}`
+        : `deviceId=${encodeURIComponent(grant.deviceId)}`;
+      const revoke = await api("DELETE", `/api/vm/tunnel?${query}`);
+      if (revoke.status !== 200 && revoke.status !== 404) {
+        console.error(`cleanup_needed_tunnel=${grant.deviceId ?? grant.id} status=${revoke.status}`);
+        clean = false;
+      }
+    }
+    return clean;
+  } catch (error) {
+    console.error(`cleanup_failed ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  } finally {
+    authHeaders = saved;
+  }
+}
+
+// Earlier dogfood runs that died before cleanup (runner cancelled, job
+// timeout). The canary sweeps production smoke users; staging has no sweep.
+async function sweepDogfoodLeftovers(app, emailPrefix) {
+  const cutoff = Date.now() - 60 * 60_000;
+  const swept = { users: 0, kept: 0 };
+  for (const leftover of await app.listUsers({ query: emailPrefix, limit: 100 })) {
+    if (!leftover.primaryEmail?.startsWith(emailPrefix)) continue;
+    if (leftover.signedUpAt.getTime() > cutoff) continue;
+    const headers = await sessionHeaders(leftover, 5 * 60 * 1000).catch(() => null);
+    if (headers && await emptyAccount(headers)) {
+      await leftover.delete();
+      swept.users += 1;
+    } else {
+      swept.kept += 1;
+    }
+  }
+  return swept;
+}
+
+let cleanedUp = false;
+async function cleanup() {
+  if (cleanedUp) return;
+  cleanedUp = true;
+  for (const child of children) child.kill("SIGKILL");
+  // Covers a create that failed or timed out after the provider started a VM.
+  const clean = authHeaders ? await emptyAccount(authHeaders) : true;
+  if (user && clean) await user.delete().catch((error) => console.error(`cleanup_delete_user_failed ${error.message}`));
+  else if (user) console.error(`cleanup_kept_user_for_sweep=${user.id}`);
+  rmSync(scratch, { recursive: true, force: true });
+}
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    console.error(`received ${signal}; cleaning up`);
+    cleanup().finally(() => process.exit(130));
+  });
+}
+
+// The whole journey must end well inside the workflow's job timeout, so the
+// cleanup always gets to run.
+const DEADLINE_MS = 25 * 60 * 1000;
+const deadline = setTimeout(() => {
+  console.error(`journey exceeded ${DEADLINE_MS}ms at stage ${stage}; cleaning up`);
+  const output = summary({ ok: false, stage, error: `deadline exceeded during ${stage}` });
+  console.log(JSON.stringify(output, null, 2));
+  if (resultFile) writeFileSync(resultFile, `${JSON.stringify(output)}\n`);
+  cleanup().finally(() => process.exit(1));
+}, DEADLINE_MS);
 
 function summary(outcome) {
   return {
@@ -305,11 +400,13 @@ try {
   const version = await runTui(["--version"]);
   result.clientVersion = version.stdout.trim();
 
+  const emailPrefix = `cmux-${project.stackLabel}-smoke+dogfood-`;
+  result.swept = await sweepDogfoodLeftovers(app, emailPrefix);
   const suffix = `${Date.now()}-${randomBytes(3).toString("hex")}`;
   await timed("signIn", async () => {
     // The smoke prefix keeps these users inside the canary's leftover sweep.
     user = await app.createUser({
-      primaryEmail: `cmux-${project.stackLabel}-smoke+dogfood-${suffix}@manaflow.dev`,
+      primaryEmail: `${emailPrefix}${suffix}@manaflow.dev`,
       primaryEmailVerified: true,
       primaryEmailAuthEnabled: true,
       password: randomBytes(24).toString("base64url"),
@@ -323,7 +420,7 @@ try {
   const created = await timed("create", async () => expectStatus(await api("POST", "/api/vm", {
     ...(provider === "default" ? {} : { provider }),
     displayName,
-  }, 16 * 60 * 1000), [200], "POST /api/vm"));
+  }, 5 * 60 * 1000), [200], "POST /api/vm"));
   vmId = created.id;
   result.vm = {
     provider: created.provider,
@@ -366,9 +463,21 @@ try {
   writeFileSync(configPath, completedConfig(tunnel.clientConfig, keys.privateKey, allowed), { mode: 0o600 });
   const hubSocket = path.join(scratch, "hub", "hub.sock");
 
+  // A freshly enrolled peer can take a moment to reach the provider, and the
+  // hub gives its first handshake about 10 s.
   await timed("hub", async () => {
-    hub = startJsonProcess("wg hub", ["wg", "hub", "--config", configPath, "--socket", hubSocket]);
-    await hub.waitFor((event) => event.event === "hub-ready", 30_000, "hub-ready");
+    for (let attempt = 1; ; attempt += 1) {
+      hub = startJsonProcess("wg hub", ["wg", "hub", "--config", configPath, "--socket", hubSocket]);
+      try {
+        await hub.waitFor((event) => event.event === "hub-ready", 30_000, "hub-ready");
+        if (attempt > 1) note(`wg hub became ready on attempt ${attempt}`);
+        return;
+      } catch (error) {
+        await hub.stop("SIGKILL");
+        if (attempt >= 3) throw error;
+        await sleep(3000);
+      }
+    }
   });
 
   // The app asks once so an older daemon is brought to the trusted build; a
@@ -384,7 +493,9 @@ try {
       const retryable = response.status === 502 && response.json?.retryable === true;
       if (response.status === 200) note("attach-endpoint answered without trustedCarrier; retrying like the app would");
       if ((!retryable && response.status !== 200) || performance.now() - startedAt > 180_000) {
-        throw new Error(`attach-endpoint ${response.status}: ${response.text.slice(0, 400)}`);
+        // The 200 body carries the route token; never put it in a public log.
+        const { error, message, code } = response.json ?? {};
+        throw new Error(`attach-endpoint ${response.status}: ${JSON.stringify({ error, message, code, trustedCarrier: response.json?.trustedCarrier })}`);
       }
       await sleep(Math.max(1, response.json?.retryAfterSeconds ?? 2) * 1000);
     }
@@ -428,20 +539,23 @@ try {
   }
 
   if (!skipSleep) {
+    const beforePause = link.mark();
     await timed("pause", async () => {
-      expectStatus(await api("POST", `/api/vm/${encodeURIComponent(vmId)}/pause`, {}, 5 * 60 * 1000), [200, 202], "pause");
+      expectStatus(await api("POST", `/api/vm/${encodeURIComponent(vmId)}/pause`, {}, 3 * 60 * 1000), [200, 202], "pause");
     });
     // How the headless client reports a sleeping machine.
-    const lostAfter = await link.waitForNext((event) => event.event === "connection-snapshot" && event.connection?.state !== "connected", 60_000, "non-connected snapshot after pause")
+    const lostAfter = await link.waitFor((event) => event.event === "connection-snapshot" && event.connection?.state !== "connected", 60_000, "non-connected snapshot after pause", beforePause)
       .then((event) => event.connection.state)
       .catch((error) => { note(`client did not notice the pause within 60s (${error.message.slice(0, 120)})`); return null; });
     result.clientStateWhileAsleep = lostAfter;
+    const beforeResume = link.mark();
     await timed("resume", async () => {
-      expectStatus(await api("POST", `/api/vm/${encodeURIComponent(vmId)}/resume`, {}, 16 * 60 * 1000), [200], "resume");
+      expectStatus(await api("POST", `/api/vm/${encodeURIComponent(vmId)}/resume`, {}, 5 * 60 * 1000), [200], "resume");
     });
+    // The client may have reconnected before /resume answered; that counts.
     await timed("reconnectAfterResume", async () => {
       if (lostAfter === null) return;
-      await link.waitForNext(isConnected, 120_000, "connected snapshot after resume");
+      await link.waitFor(isConnected, 120_000, "connected snapshot after resume", beforeResume);
     });
     await timed("terminalAfterResume", async () => {
       await waitForScreen(localSocket, terminal, `${marker}-2`, 30_000);
@@ -486,16 +600,6 @@ try {
   if (resultFile) writeFileSync(resultFile, `${JSON.stringify(output)}\n`);
   process.exitCode = 1;
 } finally {
-  for (const child of children) child.kill("SIGKILL");
-  if (vmId && authHeaders) {
-    const destroy = await api("DELETE", `/api/vm/${encodeURIComponent(vmId)}`).catch(() => null);
-    if (destroy?.status === 200) vmId = undefined;
-    else console.error(`cleanup_needed_vm=${vmId}`);
-  }
-  if (deviceId && authHeaders) {
-    await api("DELETE", `/api/vm/tunnel?deviceId=${encodeURIComponent(deviceId)}`).catch(() => null);
-  }
-  // A VM that could not be deleted keeps its owner for the canary's sweep.
-  if (user && !vmId) await user.delete().catch((error) => console.error(`cleanup_delete_user_failed ${error.message}`));
-  rmSync(scratch, { recursive: true, force: true });
+  clearTimeout(deadline);
+  await cleanup();
 }
