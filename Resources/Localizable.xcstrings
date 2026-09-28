@@ -568654,6 +568654,832 @@
           }
         }
       }
+    },
+    "cli.session.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux session restore [--list] [--session <id>]...\n\nReopen Claude sessions that were running when cmux last quit unexpectedly.\ncmux finds them in the agent journal, skips any that are running or already\nopen, and resumes each in its own workspace through the launcher that started\nit.\n\nWithout --session, restore acts only after an unexpected quit.\n\nOptions:\n  --list            Show the sessions without restoring them.\n  --session <id>    Restore only this session (repeatable)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux session restore [--list] [--session <id>]...\n\nÖffnet Claude-Sitzungen erneut, die liefen, als cmux zuletzt unerwartet beendet wurde.\ncmux findet sie im Agent-Journal, überspringt laufende oder bereits geöffnete\nund setzt jede in einem eigenen Workspace\nüber den Launcher fort, der sie gestartet hat.\n\nOhne --session stellt restore nur nach einem unerwarteten Beenden wieder her.\n\nOptionen:\n  --list            Sitzungen anzeigen, ohne sie wiederherzustellen.\n  --session <id>    Nur diese Sitzung wiederherstellen (wiederholbar)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux session restore [--list] [--session <id>]...\n\nRouvre les sessions Claude en cours lorsque cmux s’est fermé de façon inattendue.\ncmux les trouve dans le journal des agents, ignore celles qui tournent ou sont déjà\nouvertes, et reprend chacune dans son propre espace de travail via le lanceur qui l’a\ndémarrée.\n\nSans --session, restore n’agit qu’après une fermeture inattendue.\n\nOptions :\n  --list            Afficher les sessions sans les restaurer.\n  --session <id>    Restaurer uniquement cette session (répétable)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux session restore [--list] [--session <id>]...\n\nيعيد فتح جلسات Claude التي كانت قيد التشغيل عندما أُغلق cmux بشكل غير متوقع آخر مرة.\nيعثر cmux عليها في سجل الوكيل، ويتخطى ما يعمل منها أو المفتوح بالفعل،\nويستأنف كل جلسة في مساحة عمل خاصة بها\nعبر المشغّل الذي بدأها.\n\nبدون --session، لا تعمل الاستعادة إلا بعد إغلاق غير متوقع.\n\nالخيارات:\n  --list            عرض الجلسات دون استعادتها.\n  --session <id>    استعادة هذه الجلسة فقط (قابل للتكرار)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux session restore [--list] [--session <id>]...\n\nVuelve a abrir las sesiones de Claude que estaban en ejecución cuando cmux se cerró inesperadamente.\ncmux las encuentra en el diario de agentes, omite las que están en ejecución o ya\nabiertas, y reanuda cada una en su propio espacio de trabajo mediante el lanzador que\nla inició.\n\nSin --session, restore solo actúa tras un cierre inesperado.\n\nOpciones:\n  --list            Mostrar las sesiones sin restaurarlas.\n  --session <id>    Restaurar solo esta sesión (repetible)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux session restore [--list] [--session <id>]...\n\n重新開啟 cmux 上次意外結束時仍在執行的 Claude 工作階段。\ncmux 會從代理日誌中找出它們，略過仍在執行或已開啟的工作階段，\n並透過原本啟動它的啟動器\n在各自的工作區中繼續。\n\n未指定 --session 時，restore 只會在意外結束後執行。\n\n選項：\n  --list            只列出工作階段，不還原。\n  --session <id>    只還原此工作階段（可重複）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux session restore [--list] [--session <id>]...\n\n重新打开 cmux 上次意外退出时仍在运行的 Claude 会话。\ncmux 会从代理日志中找到它们，跳过仍在运行或已打开的会话，\n并通过最初启动它的启动器\n在各自的工作区中继续。\n\n未指定 --session 时，restore 只会在意外退出后执行。\n\n选项：\n  --list            只列出会话，不恢复。\n  --session <id>    只恢复此会话（可重复）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux session restore [--list] [--session <id>]...\n\ncmux가 마지막으로 예기치 않게 종료될 때 실행 중이던 Claude 세션을 다시 엽니다.\ncmux는 에이전트 저널에서 세션을 찾고, 실행 중이거나 이미 열려 있는 세션은 건너뛰며,\n각 세션을 시작한 런처를 통해\n자체 워크스페이스에서 이어갑니다.\n\n--session이 없으면 restore는 예기치 않은 종료 후에만 동작합니다.\n\n옵션:\n  --list            복원하지 않고 세션만 표시합니다.\n  --session <id>    이 세션만 복원합니다(반복 가능)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux session restore [--list] [--session <id>]...\n\ncmux が前回予期せず終了したときに実行中だった Claude セッションを再び開きます。\ncmux はエージェントジャーナルからセッションを見つけ、実行中または既に開いている\nものはスキップし、それぞれを起動したランチャー経由で\n専用のワークスペースで再開します。\n\n--session を指定しない場合、restore は予期しない終了の後にのみ動作します。\n\nオプション:\n  --list            復元せずにセッションを表示します。\n  --session <id>    このセッションのみ復元します（複数指定可）。"
+          }
+        }
+      }
+    },
+    "cli.session.error.expectedRestore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session: expected 'restore' (see cmux help session)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session: 'restore' erwartet (siehe cmux help session)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session : « restore » attendu (voir cmux help session)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session: كان المتوقع 'restore' (راجع cmux help session)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session: se esperaba 'restore' (consulta cmux help session)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session：應為 'restore'（請參閱 cmux help session）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session：应为 'restore'（请参阅 cmux help session）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session: 'restore'가 필요합니다(cmux help session 참조)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session: 'restore' が必要です（cmux help session を参照）"
+          }
+        }
+      }
+    },
+    "cli.session.error.sessionRequiresId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: --session requires an id"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: --session erfordert eine ID"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore : --session nécessite un identifiant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: يتطلب --session معرّفًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: --session requiere un id"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore：--session 需要一個 ID"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore：--session 需要一个 ID"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: --session에는 ID가 필요합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: --session には ID が必要です"
+          }
+        }
+      }
+    },
+    "cli.session.error.unknownArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: unknown argument '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: unbekanntes Argument '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore : argument inconnu « %@ »"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: وسيط غير معروف '%@'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: argumento desconocido '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore：未知的參數 '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore：未知参数 '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: 알 수 없는 인수 '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session restore: 不明な引数 '%@'"
+          }
+        }
+      }
+    },
+    "cli.session.list.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent sessions to restore."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Agent-Sitzungen zum Wiederherstellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune session d’agent à restaurer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد جلسات وكيل لاستعادتها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay sesiones de agente para restaurar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可還原的代理工作階段。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可恢复的代理会话。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복원할 에이전트 세션이 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元するエージェントセッションはありません。"
+          }
+        }
+      }
+    },
+    "cli.session.restore.cleanQuit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent sessions restored: cmux last quit normally. To restore one anyway, pass --session <id> from --list."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Agent-Sitzungen wiederhergestellt: cmux wurde zuletzt normal beendet. Um trotzdem eine wiederherzustellen, übergib --session <id> aus --list."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune session d’agent restaurée : cmux s’est fermé normalement la dernière fois. Pour en restaurer une quand même, passez --session <id> depuis --list."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تتم استعادة أي جلسات وكيل: أُغلق cmux بشكل طبيعي آخر مرة. لاستعادة جلسة على أي حال، مرّر --session <id> من --list."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se restauró ninguna sesión de agente: cmux se cerró normalmente la última vez. Para restaurar una de todos modos, pasa --session <id> de --list."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未還原任何代理工作階段：cmux 上次是正常結束。若仍要還原，請傳入 --list 中的 --session <id>。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未恢复任何代理会话：cmux 上次是正常退出。若仍要恢复，请传入 --list 中的 --session <id>。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복원된 에이전트 세션이 없습니다. cmux가 마지막에 정상적으로 종료되었습니다. 그래도 복원하려면 --list에서 확인한 --session <id>를 전달하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションは復元されませんでした。cmux は前回正常に終了しています。それでも復元する場合は、--list の --session <id> を指定してください。"
+          }
+        }
+      }
+    },
+    "cli.session.restore.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent sessions restored."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Agent-Sitzungen wiederhergestellt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune session d’agent restaurée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تتم استعادة أي جلسات وكيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se restauró ninguna sesión de agente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未還原任何代理工作階段。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未恢复任何代理会话。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복원된 에이전트 세션이 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションは復元されませんでした。"
+          }
+        }
+      }
+    },
+    "cli.session.restore.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent sessions restored: %lld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiederhergestellte Agent-Sitzungen: %lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessions d’agent restaurées : %lld"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسات الوكيل المستعادة: %lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesiones de agente restauradas: %lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已還原的代理工作階段：%lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已恢复的代理会话：%lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복원된 에이전트 세션: %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元したエージェントセッション: %lld"
+          }
+        }
+      }
+    },
+    "agentRecovery.alert.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore agent sessions?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Sitzungen wiederherstellen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer les sessions d’agent ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد استعادة جلسات الوكيل؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Restaurar las sesiones de agente?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要還原代理工作階段嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要恢复代理会话吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션을 복원할까요?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションを復元しますか？"
+          }
+        }
+      }
+    },
+    "agentRecovery.alert.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux quit unexpectedly while agent sessions were running. Sessions to restore: %lld. Each one reopens in its own workspace and resumes where it left off."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux wurde unerwartet beendet, während Agent-Sitzungen liefen. Wiederherzustellende Sitzungen: %lld. Jede wird in einem eigenen Workspace geöffnet und dort fortgesetzt, wo sie aufgehört hat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux s’est fermé de façon inattendue pendant que des sessions d’agent étaient en cours. Sessions à restaurer : %lld. Chacune rouvre dans son propre espace de travail et reprend là où elle s’était arrêtée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أُغلق cmux بشكل غير متوقع أثناء تشغيل جلسات الوكيل. الجلسات المطلوب استعادتها: %lld. تُفتح كل جلسة في مساحة عمل خاصة بها وتُستأنف من حيث توقفت."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se cerró inesperadamente mientras había sesiones de agente en ejecución. Sesiones por restaurar: %lld. Cada una se abre en su propio espacio de trabajo y continúa donde se quedó."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在代理工作階段執行時意外結束。要還原的工作階段：%lld。每個工作階段都會在各自的工作區重新開啟，並從中斷處繼續。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在代理会话运行时意外退出。要恢复的会话：%lld。每个会话都会在各自的工作区重新打开，并从中断处继续。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션이 실행 중일 때 cmux가 예기치 않게 종료되었습니다. 복원할 세션: %lld. 각 세션은 자체 워크스페이스에서 다시 열리고 중단된 곳에서 이어집니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションの実行中に cmux が予期せず終了しました。復元するセッション: %lld。各セッションは専用のワークスペースで再び開き、中断したところから再開します。"
+          }
+        }
+      }
+    },
+    "agentRecovery.alert.restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Agent Sessions"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Sitzungen wiederherstellen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer les sessions d’agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استعادة جلسات الوكيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar sesiones de agente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還原代理工作階段"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复代理会话"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션 복원"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションを復元"
+          }
+        }
+      }
+    },
+    "agentRecovery.alert.notNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Now"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht jetzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas maintenant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليس الآن"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora no"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稍後"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以后再说"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나중에"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "後で"
+          }
+        }
+      }
+    },
+    "settings.notifications.soundWhenFocused.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play the notification sound even when the pane that notified is already focused. When off, a focused pane shows its ring without a sound."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شغّل صوت الإشعار حتى عندما تكون اللوحة التي أرسلت الإشعار في موضع التركيز بالفعل. عند إيقافه، تعرض اللوحة المُركَّز عليها حلقتها دون صوت."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den Benachrichtigungston auch abspielen, wenn der benachrichtigende Bereich bereits fokussiert ist. Wenn aus, zeigt ein fokussierter Bereich seinen Ring ohne Ton."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduce el sonido de notificación incluso cuando el panel que notificó ya tiene el foco. Si está desactivado, un panel con foco muestra su anillo sin sonido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jouer le son de notification même lorsque le panneau à l’origine de la notification a déjà le focus. Désactivé, un panneau actif affiche son anneau sans son."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を送ったペインがすでにフォーカスされている場合でも通知音を鳴らします。オフの場合、フォーカス中のペインは音を鳴らさずにリングを表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림을 보낸 패널이 이미 포커스된 상태여도 알림음을 재생합니다. 끄면 포커스된 패널은 소리 없이 링만 표시합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使发出通知的窗格已处于焦点状态，也播放通知声音。关闭时，处于焦点的窗格会显示光环但不发出声音。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使發出通知的窗格已在焦點中，也播放通知聲音。關閉時，焦點中的窗格會顯示光環但不發出聲音。"
+          }
+        }
+      }
+    },
+    "settings.notifications.soundWhenFocused.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sound for Focused Pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صوت للوحة المُركَّز عليها"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ton für fokussierten Bereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonido para el panel con foco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son pour le panneau actif"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のペインの通知音"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포커스된 패널 소리"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "焦点窗格的声音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "焦點窗格的聲音"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
