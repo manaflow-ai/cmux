@@ -36,9 +36,11 @@ fn assert_cells_match(source: &mut Terminal, restored: &mut Terminal, history: u
     let actual = frame(restored);
     assert_eq!(actual.size, expected.size);
     assert_eq!(restored.cursor_position(), source.cursor_position(), "history={history}");
+    assert_eq!(actual.styled_rows().len(), expected.styled_rows().len());
     for (y, (actual_row, expected_row)) in
         actual.styled_rows().iter().zip(expected.styled_rows()).enumerate()
     {
+        assert_eq!(actual_row.len(), expected_row.len(), "history={history} row={y}");
         for (x, (actual_cell, expected_cell)) in actual_row.iter().zip(expected_row).enumerate() {
             let mut actual_cell = actual_cell.clone();
             let mut expected_cell = expected_cell.clone();
