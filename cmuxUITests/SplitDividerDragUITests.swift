@@ -82,30 +82,51 @@ final class SplitDividerDragUITests: SettingsUITestCase {
 
         let topBefore = top.frame
         let bottomBefore = bottom.frame
-        // XCUI frames are top-left origin: the top pane ends where the
-        // divider starts.
-        let dividerY = (topBefore.maxY + bottomBefore.minY) / 2
+        // XCUI frames are top-left origin. The bottom pane's tab strip sits
+        // between the two terminals, so the divider is just below the top
+        // terminal, not halfway between them.
+        let dividerY = topBefore.maxY + 1
         let dividerX = topBefore.midX
         attach(window.screenshot(), name: "01 before divider drag")
 
         let start = point(in: window, x: dividerX, y: dividerY)
-        let end = start.withOffset(CGVector(dx: 0, dy: -120))
+        let end = start.withOffset(CGVector(dx: 0, dy: -70))
         start.press(forDuration: 0.3, thenDragTo: end)
 
         let resized = poll(timeout: 5) {
-            top.frame.height < topBefore.height - 60
-                && bottom.frame.height > bottomBefore.height + 60
+            top.frame.height < topBefore.height - 30
+                && bottom.frame.height > bottomBefore.height + 30
         }
         attach(window.screenshot(), name: "02 after divider drag")
         XCTAssertTrue(
             resized,
-            "Expected dragging the divider 120 pt up to resize both panes. " +
+            "Expected dragging the divider 70 pt up to resize both panes. " +
                 "before top=\(topBefore) bottom=\(bottomBefore) " +
                 "after top=\(top.frame) bottom=\(bottom.frame) divider=(\(dividerX), \(dividerY))"
         )
     }
 
     func testDraggingPaneTabReordersTabsInStandardMode() throws {
+        try assertTabDragReorders(cloudWorkspace: false, dragSelectedTab: true)
+    }
+
+    func testDraggingUnselectedPaneTabReordersTabsInStandardMode() throws {
+        try assertTabDragReorders(cloudWorkspace: false, dragSelectedTab: false)
+    }
+
+    /// Lawrence's report: in a Cloud workspace, pressing a tab and dragging it
+    /// over its neighbour neither showed a drag nor reordered the tabs.
+    func testDraggingPaneTabReordersTabsInCloudWorkspace() throws {
+        try assertTabDragReorders(cloudWorkspace: true, dragSelectedTab: true)
+    }
+
+    func testDraggingUnselectedPaneTabReordersTabsInCloudWorkspace() throws {
+        try assertTabDragReorders(cloudWorkspace: true, dragSelectedTab: false)
+    }
+
+    /// Two tabs, Alpha then Beta, with Beta selected. Drags Beta before Alpha,
+    /// or the unselected Alpha after Beta; both end as Beta|Alpha.
+    private func assertTabDragReorders(cloudWorkspace: Bool, dragSelectedTab: Bool) throws {
         let dataPath = "/tmp/cmux-ui-test-split-drag-tabs-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
         let app = XCUIApplication.cmuxTestApplication()
@@ -115,6 +136,9 @@ final class SplitDividerDragUITests: SettingsUITestCase {
         app.launchEnvironment["CMUX_TAG"] = "ui-split-drag-\(UUID().uuidString.prefix(8))"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
+        if cloudWorkspace {
+            app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_CLOUD_WORKSPACE"] = "1"
+        }
         launchAndActivate(app)
         defer {
             app.terminate()
@@ -133,6 +157,9 @@ final class SplitDividerDragUITests: SettingsUITestCase {
             XCTFail("Setup failed: \(setupError)")
             return
         }
+        if cloudWorkspace {
+            XCTAssertEqual(ready["cloudWorkspace"], "1", "Expected the workspace to be bound to a Cloud machine")
+        }
         let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
         let betaTitle = ready["betaTitle"] ?? "UITest Beta"
         let window = app.windows.firstMatch
@@ -146,9 +173,15 @@ final class SplitDividerDragUITests: SettingsUITestCase {
         )
         attach(window.screenshot(), name: "01 before tab drag")
 
-        let source = betaTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let target = alphaTab.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
-        source.press(forDuration: 0.25, thenDragTo: target)
+        if dragSelectedTab {
+            let source = betaTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let target = alphaTab.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
+            source.press(forDuration: 0.25, thenDragTo: target)
+        } else {
+            let source = alphaTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let target = betaTab.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+            source.press(forDuration: 0.25, thenDragTo: target)
+        }
 
         let reordered = poll(timeout: 5) {
             loadJSON(atPath: dataPath)["trackedPaneTabTitles"] == "\(betaTitle)|\(alphaTitle)"
@@ -156,7 +189,7 @@ final class SplitDividerDragUITests: SettingsUITestCase {
         attach(window.screenshot(), name: "02 after tab drag")
         XCTAssertTrue(
             reordered,
-            "Expected dragging the beta tab onto alpha to reorder the pane's tabs. " +
+            "Expected the tab drag to reorder the pane's tabs to Beta|Alpha. " +
                 "data=\(loadJSON(atPath: dataPath)) alpha=\(alphaTab.frame) beta=\(betaTab.frame)"
         )
     }
