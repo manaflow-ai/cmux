@@ -98,9 +98,11 @@ still come back, so a view keeps rollback state only for those. `endAccount()`
 forgets every entry without rollback. The app adapter owns the CLI, alerts, and
 closing workspaces, and calls the create owner's `retireCreates(producing:)` so a
 create for the same machine stops without a second destroy request. After a
-failure it calls `machineDeletionFailed(_:)`, so a create whose receipt names the
-restored machine keeps it; the creates the delete stopped stay stopped and never
-retry the destroy on their own:
+failure it calls `machineDeletionFailed(_:)`, so a create whose receipt first names
+the restored machine keeps it. The creates the delete stopped stay stopped, and
+receipts seen while it ran request nothing, so no create retries the destroy on its
+own. When the account ends, the create owner forgets its deletions the same way, and
+a departed create never destroys one of those machines again:
 
 ```swift
 let deletions = CloudMachineDeletionCoordinator()

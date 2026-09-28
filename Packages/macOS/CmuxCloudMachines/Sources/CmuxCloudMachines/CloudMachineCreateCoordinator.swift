@@ -23,8 +23,8 @@ public final class CloudMachineCreateCoordinator {
     @ObservationIgnored private var carries: [UUID: String] = [:]
     @ObservationIgnored private var tombstones: [CloudMachineCreateAttempt: String] = [:]
     @ObservationIgnored private var cleanupIssued: Set<String> = []
-    /// Machines whose deletion began and wasn't restored. A create never keeps one,
-    /// and cleanup never duplicates the deletion's destroy request.
+    /// Machines whose deletion began in this account and wasn't restored. A create
+    /// never keeps one, and cleanup never duplicates the deletion's destroy request.
     @ObservationIgnored private var deletedMachineIDs: Set<String> = []
     @ObservationIgnored private let output: CloudMachineCreateOutput
     @ObservationIgnored private let now: () -> Date
@@ -223,10 +223,10 @@ public final class CloudMachineCreateCoordinator {
 
     /// Lets creates keep a machine whose deletion failed and that is listed again.
     ///
-    /// A create whose receipt names the machine afterwards adopts it, and
+    /// A create whose receipt first names the machine afterwards adopts it, and
     /// cancelling that create cleans the machine up. Creates that the deletion
-    /// already retired stay retired, so the app never retries a failed delete on
-    /// its own.
+    /// already retired stay retired, and receipts seen while it ran requested
+    /// nothing, so the app never retries a failed delete on its own.
     /// - Parameter machineID: The provider machine whose deletion failed.
     public func machineDeletionFailed(_ machineID: String) {
         deletedMachineIDs.remove(machineID)
@@ -236,6 +236,11 @@ public final class CloudMachineCreateCoordinator {
     /// - Parameter cleanupCreatedMachines: Whether the departing account permits cleanup.
     /// - Returns: Teardown effects; old callbacks may only produce cleanup, never UI state.
     public func endAccount(cleanupCreatedMachines: Bool = true) -> CloudMachineCreateTransition {
+        // Deletions end with the account, without an outcome. Their machines count
+        // as cleaned up, so no departed create destroys one again, but a later create
+        // may keep one whose delete failed on the server.
+        cleanupIssued.formUnion(deletedMachineIDs)
+        deletedMachineIDs.removeAll()
         let hadAliases = !projection.adoptedOperationIDs.isEmpty
         var transition = remove(where: { _ in true }, closePresentations: true, cleanup: cleanupCreatedMachines)
         projection.adoptedOperationIDs.removeAll()
@@ -279,9 +284,11 @@ public final class CloudMachineCreateCoordinator {
     }
 
     /// Issues one destruction request even when progress and completion repeat a
-    /// receipt, and none for a machine the user is already deleting.
+    /// receipt, and none for a machine the user is already deleting. A receipt seen
+    /// during the deletion counts as its cleanup, so a failed delete never leads
+    /// to a later destroy that depends on when the receipt arrived.
     private func appendCleanup(_ id: String, to transition: inout CloudMachineCreateTransition) {
-        guard !deletedMachineIDs.contains(id), cleanupIssued.insert(id).inserted else { return }
+        guard cleanupIssued.insert(id).inserted, !deletedMachineIDs.contains(id) else { return }
         transition.cleanupMachineIDs.append(id)
     }
 }
