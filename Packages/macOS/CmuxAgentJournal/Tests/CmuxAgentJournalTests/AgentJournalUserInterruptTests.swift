@@ -21,7 +21,8 @@ struct AgentJournalUserInterruptTests {
         let draft = AgentJournalEventDraft.userInterrupt(
             source: source, agentKey: agentKey(source), sessionId: "session",
             workspaceId: workspace, surfaceId: surface,
-            occurredAt: Date(timeIntervalSince1970: Double(1_000 + sequence) / 1_000))
+            occurredAtMs: 1_000 + sequence
+        )
         return AgentJournalEvent(sequence: sequence, committedAtMs: 2_000 + sequence, draft: draft)
     }
 
@@ -60,7 +61,7 @@ struct AgentJournalUserInterruptTests {
     @Test func interruptDraftIsAdmissible() {
         let draft = AgentJournalEventDraft.userInterrupt(
             source: "claude", agentKey: "claude_code", sessionId: "session",
-            workspaceId: workspace, surfaceId: surface)
+            workspaceId: workspace, surfaceId: surface, occurredAtMs: 1_000)
         #expect(draft.validationProblem() == nil)
         #expect(draft.kind == .turnCompleted)
         #expect(draft.nativeEvent == AgentJournalEventDraft.userInterruptNativeEvent)
@@ -90,9 +91,9 @@ struct AgentJournalUserInterruptTests {
         }
 
         let drafts = state.userInterruptDrafts(
-            surfaceId: surface, workspaceId: workspace, agentKey: "claude_code", source: "claude",
-            occurredAt: Date(timeIntervalSince1970: 2))
+            surfaceId: surface, workspaceId: workspace, agentKey: "claude_code", source: "claude")
         #expect(drafts.map(\.sessionId) == [nil, "running"])
+        #expect(drafts.map(\.occurredAtMs) == [1_002, 1_001])
         #expect(drafts.allSatisfy { $0.validationProblem() == nil })
 
         for (offset, draft) in drafts.enumerated() {
@@ -100,5 +101,50 @@ struct AgentJournalUserInterruptTests {
         }
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
         #expect(state.combinedPhase(surfaceId: otherSurface, agentKey: "claude_code") == .running)
+    }
+
+    @Test func relayClockSkewAfterInterruptCanResumeTheTurn() throws {
+        let reducer = AgentLifecycleReducer()
+        var state = AgentLifecycleReducerState()
+        let started = AgentJournalEvent(
+            sequence: 1,
+            committedAtMs: 10_000,
+            draft: AgentJournalEventDraft(
+                eventId: "relay-start",
+                kind: .turnStarted,
+                occurredAtMs: 1_000,
+                source: "claude",
+                agentKey: "claude_code",
+                sessionId: "session",
+                workspaceId: workspace,
+                surfaceId: surface
+            )
+        )
+        reducer.apply(started, to: &state)
+
+        let interrupts = state.userInterruptDrafts(
+            surfaceId: surface,
+            workspaceId: workspace,
+            agentKey: "claude_code",
+            source: "claude"
+        )
+        #expect(interrupts.count == 1)
+        let interrupt = try #require(interrupts.first)
+        #expect(interrupt.occurredAtMs == 1_000)
+        reducer.apply(
+            AgentJournalEvent(sequence: 2, committedAtMs: 10_100, draft: interrupt),
+            to: &state
+        )
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
+
+        var resumed = started.draft
+        resumed.eventId = "relay-pre-tool-use"
+        resumed.occurredAtMs = 1_001
+        resumed.nativeEvent = "PreToolUse"
+        reducer.apply(
+            AgentJournalEvent(sequence: 3, committedAtMs: 10_200, draft: resumed),
+            to: &state
+        )
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .running)
     }
 }

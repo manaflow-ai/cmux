@@ -19,18 +19,18 @@ extension AgentJournalEventDraft {
     ///     or `nil` for a source whose hooks report none.
     ///   - workspaceId: The owning workspace UUID string.
     ///   - surfaceId: The terminal surface UUID string.
-    ///   - occurredAt: When the interrupt was sent.
+    ///   - occurredAtMs: The interrupted session's accepted causal timestamp.
     public static func userInterrupt(
         source: String,
         agentKey: String,
         sessionId: String?,
         workspaceId: String,
         surfaceId: String,
-        occurredAt: Date = Date()
+        occurredAtMs: Int64
     ) -> AgentJournalEventDraft {
         AgentJournalEventDraft(
             kind: .turnCompleted,
-            occurredAtMs: Int64(occurredAt.timeIntervalSince1970 * 1_000),
+            occurredAtMs: occurredAtMs,
             source: source,
             agentKey: agentKey,
             sessionId: sessionId,
@@ -51,14 +51,12 @@ extension AgentLifecycleReducerState {
     ///   - workspaceId: The owning workspace UUID string.
     ///   - agentKey: The sidebar lifecycle key (`claude_code`).
     ///   - source: The agent slug whose hooks journal these sessions (`claude`).
-    ///   - occurredAt: When the interrupt was sent.
     /// - Returns: One draft per running session; empty when none is running.
     public func userInterruptDrafts(
         surfaceId: String,
         workspaceId: String,
         agentKey: String,
-        source: String,
-        occurredAt: Date = Date()
+        source: String
     ) -> [AgentJournalEventDraft] {
         let bySession = sessions[surfaceId]?[agentKey] ?? [:]
         return bySession.keys.sorted().compactMap { sessionKey in
@@ -72,7 +70,7 @@ extension AgentLifecycleReducerState {
                 sessionId: sessionId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                occurredAt: occurredAt
+                occurredAtMs: session.lastOccurredAtMs
             )
         }
     }

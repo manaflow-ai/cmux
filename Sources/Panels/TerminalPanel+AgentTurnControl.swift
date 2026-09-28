@@ -1,3 +1,4 @@
+import CmuxTerminal
 import Foundation
 
 extension TerminalPanel {
@@ -17,20 +18,36 @@ extension TerminalPanel {
     /// interrupt so the pane leaves `running`: Claude runs no Stop hook when
     /// interrupted.
     func interruptAgentTurn(_ target: AgentTurnInterruptTarget) {
+        interruptAgentTurn(
+            target,
+            sendNamedKey: { sendNamedKeyResult($0) },
+            recordUserInterrupt: {
+                AgentJournalLifecycleCenter.shared.recordUserInterrupt(
+                    surfaceId: id,
+                    workspaceId: workspaceId,
+                    agentKey: target.statusKey,
+                    source: target.hookSource
+                )
+            }
+        )
+    }
+
+    /// Injectable form used to prove failed terminal input never settles the
+    /// journaled turn.
+    func interruptAgentTurn(
+        _ target: AgentTurnInterruptTarget,
+        sendNamedKey: (String) -> TerminalSurface.NamedKeySendResult,
+        recordUserInterrupt: () -> Void
+    ) {
         guard AgentTurnInterruptTarget.resolve(statusKeyedStates: containerAgentLifecycleStates) == target else {
             refreshAgentTurnControl()
             return
         }
         for key in target.interruptKeys {
-            _ = sendNamedKeyResult(key.rawValue)
+            guard sendNamedKey(key.rawValue).accepted else { return }
         }
         guard target.settlesTurnInJournal else { return }
-        AgentJournalLifecycleCenter.shared.recordUserInterrupt(
-            surfaceId: id,
-            workspaceId: workspaceId,
-            agentKey: target.statusKey,
-            source: target.hookSource
-        )
+        recordUserInterrupt()
     }
 
     /// Per-agent lifecycle for this pane from whichever container owns it.
