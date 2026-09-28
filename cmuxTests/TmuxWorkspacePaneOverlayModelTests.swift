@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -34,6 +35,21 @@ extension TmuxWorkspacePaneOverlayRenderState {
 
 @Suite("tmux workspace pane overlay model")
 struct TmuxWorkspacePaneOverlayModelTests {
+    @Test @MainActor
+    func windowAccessorSkipsUnchangedOverlayRefreshes() {
+        let window = NSWindow(
+            contentRect: .zero,
+            styleMask: [],
+            backing: .buffered,
+            defer: true
+        )
+        let coordinator = WindowAccessor.Coordinator()
+
+        #expect(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: 1))
+        #expect(!coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: 1))
+        #expect(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: 2))
+    }
+
     @Test @MainActor
     func tracksActivePaneBorder() {
         let model = TmuxWorkspacePaneOverlayModel()
