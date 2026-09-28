@@ -3,7 +3,6 @@ import Testing
 import WebKit
 import CmuxBrowser
 
-
 @MainActor
 @Suite
 struct BrowserUserAgentPolicyWebKitTests {

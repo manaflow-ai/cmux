@@ -2,7 +2,6 @@ import CmuxRemoteSession
 import Foundation
 import Testing
 
-
 /// Tests the OSC 777/9 desktop-notification interceptor used on mirrored
 /// `%output` (issue #833). The filter must strip a complete notification
 /// sequence (reporting `(title, body)`), survive chunk splits at any byte,

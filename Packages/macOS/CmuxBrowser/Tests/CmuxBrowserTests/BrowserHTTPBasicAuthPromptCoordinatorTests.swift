@@ -2,7 +2,6 @@ import CmuxBrowser
 import Foundation
 import Testing
 
-
 @MainActor @Suite
 struct BrowserHTTPBasicAuthPromptCoordinatorTests {
     private final class BrowserAuthChallengeSenderStub: NSObject, URLAuthenticationChallengeSender {

@@ -2,7 +2,6 @@ import CmuxBrowser
 import Foundation
 import Testing
 
-
 @MainActor
 private final class MemoryPressureHiddenWebViewDiscardTestDelegate: BrowserHiddenWebViewDiscardManagerDelegate {
     var snapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot

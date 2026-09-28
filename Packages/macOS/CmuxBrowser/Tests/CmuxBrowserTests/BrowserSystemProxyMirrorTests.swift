@@ -4,7 +4,6 @@ import Foundation
 import Network
 import Testing
 
-
 // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5888:
 // the browser pane must reach loopback directly even when a macOS system
 // proxy is active. WebKit has no implicit loopback bypass, so an active
