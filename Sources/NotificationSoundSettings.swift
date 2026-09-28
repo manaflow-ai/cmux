@@ -23,6 +23,7 @@ enum NotificationSoundSettings {
     static let customFileValue = NotificationSoundOverride.customFileValue
     static let customFilePathKey = catalog.customSoundFilePath.userDefaultsKey
     static let defaultCustomFilePath = catalog.customSoundFilePath.defaultValue
+    static let soundWhenFocusedKey = catalog.soundWhenFocused.userDefaultsKey
     static let customCommandKey = catalog.command.userDefaultsKey
     static let defaultCustomCommand = catalog.command.defaultValue
 
@@ -45,6 +46,11 @@ enum NotificationSoundSettings {
         func sound(_ sound: NSSound, didFinishPlaying finishedPlaying: Bool) {
             NotificationSoundSettings.releaseActivePlaybackSound(sound)
         }
+    }
+
+    /// Whether a notification for the already-focused pane still plays sound.
+    static func soundWhenFocused(defaults: UserDefaults = .standard) -> Bool {
+        UserDefaultsSettingsClient(defaults: defaults).value(for: catalog.soundWhenFocused)
     }
 
     static let systemSounds: [(label: String, value: String)] = {
