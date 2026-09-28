@@ -515,7 +515,7 @@ final class MobileHostService {
         }
         guard !frames.isEmpty else { return }
         Self.deliverEventFrames(topic: topic, coalesceKey: nil, stateSeq: nil) { connection in
-            frames[connection.connectionID].map { ($0, false) }
+            frames[connection.connectionID].map { (frame: $0, isFullRenderGridFrame: false) }
         }
     }
 

@@ -1,7 +1,6 @@
 import CmuxTerminalSharing
 import CmuxTerminalSizing
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// The shared-terminal size panel: current size and why, the mode control,
 /// a size map, one row per participant (counts switch, priority order,
@@ -70,7 +69,7 @@ struct TerminalSizePanelView: View {
                 String(localized: "terminalSharing.panel.mode", defaultValue: "Sizing Mode"),
                 selection: Binding(
                     get: { mode },
-                    set: { store.setMode($0, surfaceID: surfaceID) }
+                    set: { _ = store.setMode($0, surfaceID: surfaceID) }
                 )
             ) {
                 ForEach(TerminalSizingMode.allCases, id: \.self) { mode in
@@ -111,7 +110,7 @@ struct TerminalSizePanelView: View {
             Button(String(localized: "terminalSharing.panel.fixedApply", defaultValue: "Apply")) {
                 let cols = Int(fixedColumns) ?? fixed.cols
                 let rows = Int(fixedRows) ?? fixed.rows
-                store.setFixedSize(
+                _ = store.setFixedSize(
                     TerminalGridSize(cols: min(max(cols, 20), 500), rows: min(max(rows, 5), 200)),
                     surfaceID: surfaceID
                 )
@@ -145,28 +144,21 @@ struct TerminalSizePanelView: View {
                     setsSize: snapshot.state.owners.contains(row.id),
                     priorityIndex: isPriority ? index + 1 : nil,
                     onCountsChange: { counts in
-                        store.setCountsOverride(counts ? nil : false, participantID: row.id, surfaceID: surfaceID)
+                        _ = store.setCountsOverride(counts ? nil : false, participantID: row.id, surfaceID: surfaceID)
                         if counts, store.snapshot(for: surfaceID)?.state.participant(row.id)?.counts == false {
-                            store.setCountsOverride(true, participantID: row.id, surfaceID: surfaceID)
+                            _ = store.setCountsOverride(true, participantID: row.id, surfaceID: surfaceID)
                         }
                     },
                     onMoveUp: isPriority && index > 0 ? { movePriority(rows, from: index, to: index - 1) } : nil,
                     onDisconnect: row.id == snapshot.selfParticipantID ? nil : {
-                        store.disconnect(participantID: row.id, surfaceID: surfaceID)
+                        _ = store.disconnect(participantID: row.id, surfaceID: surfaceID)
                     }
                 )
-                .onDrag {
-                    NSItemProvider(object: row.priorityKey as NSString)
-                }
-                .onDrop(of: [UTType.plainText], isTargeted: nil) { providers in
-                    guard isPriority, let provider = providers.first else { return false }
-                    _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-                        guard let key = object as? String else { return }
-                        Task { @MainActor in
-                            guard let from = rows.firstIndex(where: { $0.priorityKey == key }) else { return }
-                            movePriority(rows, from: from, to: index)
-                        }
-                    }
+                .draggable(row.priorityKey)
+                .dropDestination(for: String.self) { keys, _ in
+                    guard isPriority, let key = keys.first,
+                          let from = rows.firstIndex(where: { $0.priorityKey == key }) else { return false }
+                    movePriority(rows, from: from, to: index)
                     return true
                 }
             }
@@ -181,7 +173,7 @@ struct TerminalSizePanelView: View {
         let key = keys.remove(at: from)
         keys.insert(key, at: to)
         var seen = Set<String>()
-        store.setPriority(keys.filter { seen.insert($0).inserted }, surfaceID: surfaceID)
+        _ = store.setPriority(keys.filter { seen.insert($0).inserted }, surfaceID: surfaceID)
     }
 
     private func footer(_ snapshot: TerminalSharingSnapshot) -> some View {
@@ -190,7 +182,7 @@ struct TerminalSizePanelView: View {
                 Text(String(localized: "terminalSharing.panel.disconnectOthers.confirm", defaultValue: "Disconnect all other clients?"))
                     .font(.callout)
                 Button(String(localized: "terminalSharing.panel.disconnectOthers.confirmButton", defaultValue: "Disconnect"), role: .destructive) {
-                    store.disconnectOthers(surfaceID: surfaceID)
+                    _ = store.disconnectOthers(surfaceID: surfaceID)
                     confirmingDisconnectOthers = false
                 }
                 Button(String(localized: "terminalSharing.panel.cancel", defaultValue: "Cancel")) {
@@ -204,7 +196,7 @@ struct TerminalSizePanelView: View {
                 .disabled(snapshot.otherParticipantIDs.isEmpty)
                 Spacer()
                 Button(String(localized: "terminalSharing.panel.sizeToMe", defaultValue: "Size to My Window")) {
-                    store.sizeToMe(surfaceID: surfaceID)
+                    _ = store.sizeToMe(surfaceID: surfaceID)
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(snapshot.selfParticipant == nil)

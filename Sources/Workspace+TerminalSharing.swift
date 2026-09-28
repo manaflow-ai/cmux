@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import CmuxTerminalSharing
 import CmuxTerminalSizing

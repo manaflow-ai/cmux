@@ -264,7 +264,7 @@ final class TerminalSizeBoundsOverlayView: NSView {
         ownerColor.setFill()
         NSBezierPath(ovalIn: dotRect).fill()
         let textRect = NSRect(x: dotRect.maxX + 6, y: rect.midY - textSize.height / 2, width: rect.maxX - dotRect.maxX - 12, height: textSize.height)
-        (text as NSString).draw(with: textRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: attributes)
+        (text as NSString).draw(with: textRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: attributes, context: nil)
         chipRect = rect
     }
 
