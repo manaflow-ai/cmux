@@ -12,7 +12,11 @@ public protocol TerminalSharingSurfaceControlling: AnyObject {
     /// Sets or clears a participant's counts override.
     func sharingSetCountsOverride(participantID: String, value: Bool?) -> Bool
     /// Disconnects one participant (never this view itself).
-    func sharingDisconnect(participantID: String) -> Bool
+    ///
+    /// - Parameters:
+    ///   - participantID: the participant to disconnect.
+    ///   - by: the actor to report; `nil` means this Mac's own identity.
+    func sharingDisconnect(participantID: String, by: TerminalDetachActor?) -> Bool
     /// Records explicit activity from this view.
     func sharingNoteSelfActivity()
     /// Reattaches this view after a `disconnected-by` detach.

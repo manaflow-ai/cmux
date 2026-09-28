@@ -14,6 +14,8 @@ import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
 import CmuxSurfaceCatalogModel
 import CmuxTerminal
+import CmuxTerminalSharing
+import CmuxTerminalSizing
 import CmuxSettings
 import CmuxSwiftRenderUI
 import Carbon.HIToolbox
@@ -245,8 +247,10 @@ class TerminalController {
         socketMainHopSignposter.isEnabled
     }
     private nonisolated static let v2ConsumedBrowserDownloadIDLimit = 128
-    private struct MobileViewportReport {
+    struct MobileViewportReport {
         var columns: Int; var rows: Int; var updatedAt: Date; var generation: UInt64? = nil
+        /// Device identity the phone reported with its viewport (shared sizing).
+        var deviceKind: TerminalDeviceKind = .iphone; var deviceName: String? = nil
         /// Sticky reports come from the dedicated `mobile.terminal.viewport`
         /// RPC and live for the client's connection lifetime (cleared on
         /// disconnect or surface detach), so an idle paired device keeps its
@@ -266,9 +270,18 @@ class TerminalController {
     /// this window (relay round trips inflate that gap to seconds) to cancel
     /// the clear+re-apply resize flap (issue 13474).
     private static let mobileViewportUncapApplyStabilityWindow: Duration = .seconds(3)
-    private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]; private var mobileViewportGenerationsBySurfaceID: [UUID: [String: UInt64]] = [:]
+    var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]; private var mobileViewportGenerationsBySurfaceID: [UUID: [String: UInt64]] = [:]
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
-    private var mobileViewportApplyGovernorsBySurfaceID: [UUID: MobileViewportApplyGovernor] = [:]
+    var mobileViewportApplyGovernorsBySurfaceID: [UUID: MobileViewportApplyGovernor] = [:]
+    /// Shared-sizing hosts of local terminals (docs/shared-terminal-sizing.md).
+    var localSizingHostsBySurfaceID: [UUID: LocalTerminalSizingHost] = [:]
+    var localSizingControllersBySurfaceID: [UUID: LocalTerminalSharingController] = [:]
+    /// Phones someone disconnected from a Cloud terminal, by surface then client id.
+    var cloudDetachedPhonesBySurfaceID: [UUID: [String: TerminalSharingDetachment]] = [:]
+    /// Cloud mirrors that relay phones to a cmux-tui host, by surface id.
+    var cloudSizingRelaysBySurfaceID: [UUID: CloudSizingRelayReference] = [:]
+    /// The single owner of shared-terminal size state and actions.
+    let terminalSharing = TerminalSharingStore()
     private var mobileViewportGovernorFlushTasksBySurfaceID: [UUID: Task<Void, Never>] = [:]
 #if DEBUG
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
@@ -1786,6 +1799,18 @@ class TerminalController {
             }
         case "mobile.terminal.set_font":
             return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
+        case "terminal.size_state":
+            return v2Result(id: request.id, v2MainSync { self.v2TerminalSizeState(params: request.params) })
+        case "terminal.size_policy.set":
+            return v2Result(id: request.id, v2MainSync { self.v2TerminalSizePolicySet(params: request.params) })
+        case "terminal.size_to_me":
+            return v2Result(id: request.id, v2MainSync { self.v2TerminalSizeToMe(params: request.params) })
+        case "terminal.size_counts.set":
+            return v2Result(id: request.id, v2MainSync { self.v2TerminalSizeCountsSet(params: request.params) })
+        case "terminal.participant.disconnect":
+            return v2Result(id: request.id, v2MainSync { self.v2TerminalParticipantDisconnect(params: request.params) })
+        case "terminal.participants.disconnect_others":
+            return v2Result(id: request.id, v2MainSync { self.v2TerminalParticipantsDisconnectOthers(params: request.params) })
         case "mobile.compatible_tags.get":
             return v2Result(id: request.id, v2MobileCompatibleTagsGet())
         case "mobile.compatible_tags.set":
@@ -14775,6 +14800,11 @@ class TerminalController {
         // MobileHostRPCResult` type round-trip with no behavior change. The v2
         // control socket shares the same bodies through `handleMobileHost`, so the
         // wire bytes stay identical across both entrypoints without a bridge here.
+        // A phone someone disconnected from a terminal sends no input and gets
+        // no replay for it until mobile.terminal.reattach.
+        if let detachedError = mobileDetachedGateError(method: request.method, params: request.params) {
+            return mobileHostResult(detachedError)
+        }
         let result: V2CallResult
         switch request.method {
         case "mobile.host.status":
@@ -14826,6 +14856,15 @@ class TerminalController {
             result = v2MobileTerminalViewport(params: request.params)
         case "mobile.terminal.scroll", "terminal.scroll":
             result = v2MobileTerminalScroll(params: request.params)
+        case "mobile.terminal.reattach":
+            result = v2MobileTerminalReattach(params: request.params)
+        case "mobile.terminal.size_policy.set":
+            result = v2MobileTerminalSizePolicySet(params: request.params)
+        case "mobile.terminal.participant.disconnect":
+            result = v2MobileTerminalParticipantDisconnect(
+                params: request.params,
+                connectionID: executionContext?.connectionID
+            )
         case "mobile.terminal.mouse", "terminal.mouse":
             result = v2MobileTerminalMouse(params: request.params)
         case "mobile.terminal.close":
@@ -15222,6 +15261,8 @@ class TerminalController {
         )
         mobileViewportReportsBySurfaceID.removeAll(); mobileViewportGenerationsBySurfaceID.removeAll()
         mobileViewportReportCleanupTimersBySurfaceID.removeAll()
+        // Account change or test reset: participants belonged to the old account.
+        resetLocalSizingHosts()
 
         for surfaceID in surfaceIDs {
             teardownMobileViewportGovernor(surfaceID: surfaceID)
@@ -15258,7 +15299,7 @@ class TerminalController {
     }
     #endif
 
-    private func terminalSocketTarget(surfaceID: UUID) -> ControlTerminalSocketTarget? {
+    func terminalSocketTarget(surfaceID: UUID) -> ControlTerminalSocketTarget? {
         guard let tabManager = controlTabManager(surfaceID: surfaceID),
               let workspace = tabManager.tabs.first(where: {
                   $0.terminalInputTarget(forPanelID: surfaceID) != nil
@@ -15490,6 +15531,7 @@ class TerminalController {
         // Hand the phone the host's own share of this round trip. Without it a
         // slow replay is unattributable: the phone cannot tell a slow capture
         // here from a slow or stalled transport between us.
+        addSharedSizingReplayFields(to: &payload, surfaceID: surfaceId, clientID: v2String(params, "client_id"))
         payload["host_elapsed_ms"] = Int(
             (DispatchTime.now().uptimeNanoseconds &- traceStartedAt) / 1_000_000
         )
@@ -15515,6 +15557,10 @@ class TerminalController {
         }
         let surfaceId = resolved.surfaceID
         let terminalTarget = resolved.target
+        if let clientID = v2String(params, "client_id"),
+           let detachedError = mobileClientDetachedError(surfaceID: surfaceId, clientID: clientID) {
+            return detachedError
+        }
 
         let reportedGrid: (columns: Int, rows: Int)?
         let allowLiveSurfaceFallback: Bool
@@ -15903,6 +15949,8 @@ class TerminalController {
               let rawRows = v2Int(params, "viewport_rows") else {
             return nil
         }
+        // A phone someone disconnected stays out until it reattaches.
+        if isMobileClientDetached(surfaceID: terminalPanel.id, clientID: clientID) { return nil }
         let columns = min(max(rawColumns, 20), 300)
         let rows = min(max(rawRows, 5), 120); let generation = v2Int(params, "viewport_generation").flatMap { $0 >= 0 ? UInt64($0) : nil }
         let now = Date()
@@ -15949,18 +15997,17 @@ class TerminalController {
             columns: columns,
             rows: rows,
             updatedAt: now, generation: generation,
+            deviceKind: v2String(params, "device_kind").flatMap(TerminalDeviceKind.init(rawValue:))
+                ?? reports[clientID]?.deviceKind ?? .iphone,
+            deviceName: v2String(params, "device_name") ?? reports[clientID]?.deviceName,
             sticky: reportIsSticky
         )
         mobileViewportReportsBySurfaceID[terminalPanel.id] = reports
         scheduleMobileViewportReportCleanup(surfaceID: terminalPanel.id, reports: reports)
-
-        guard let minColumns = reports.values.map(\.columns).min(),
-              let minRows = reports.values.map(\.rows).min() else {
-            return nil
-        }
-        return governMobileViewportTarget(
+        return resolveSharedSizing(
             surfaceID: terminalPanel.id,
-            target: .cap(columns: minColumns, rows: minRows),
+            reports: reports,
+            countsOverride: mobileCountsOverrideParam(params).map { (clientID: clientID, value: $0) },
             reason: reason
         )
     }
@@ -15975,7 +16022,7 @@ class TerminalController {
     ///   (the fence must describe what capture will see now, not the deferred
     ///   target; a deferred change converges on the phone's next replay).
     @discardableResult
-    private func governMobileViewportTarget(
+    func governMobileViewportTarget(
         surfaceID: UUID,
         target: MobileViewportApplyGovernor.Target,
         reason: String
@@ -16015,7 +16062,7 @@ class TerminalController {
         }
     }
 
-    private func performMobileViewportTarget(
+    func performMobileViewportTarget(
         surfaceID: UUID,
         target: MobileViewportApplyGovernor.Target,
         reason: String
@@ -16030,7 +16077,7 @@ class TerminalController {
         }
     }
 
-    private func currentMobileViewportGrid(surfaceID: UUID) -> (columns: Int, rows: Int)? {
+    func currentMobileViewportGrid(surfaceID: UUID) -> (columns: Int, rows: Int)? {
         guard let surface = terminalSocketTarget(surfaceID: surfaceID)?
             .surface.liveSurfaceForGhosttyAccess(reason: "mobileViewportGovernor.currentGrid") else {
             return nil
@@ -16067,7 +16114,7 @@ class TerminalController {
         }
     }
 
-    private func teardownMobileViewportGovernor(surfaceID: UUID) {
+    func teardownMobileViewportGovernor(surfaceID: UUID) {
         mobileViewportGovernorFlushTasksBySurfaceID[surfaceID]?.cancel()
         mobileViewportGovernorFlushTasksBySurfaceID[surfaceID] = nil
         mobileViewportApplyGovernorsBySurfaceID[surfaceID] = nil
@@ -16077,7 +16124,7 @@ class TerminalController {
     /// `mobile.terminal.viewport` clear, or a disconnect), then recompute the
     /// remaining min and re-apply or clear the surface's viewport limit so the
     /// macOS border reflects only the devices still attached.
-    private func clearMobileViewportReport(
+    func clearMobileViewportReport(
         surfaceID: UUID,
         clientID: String, generation: UInt64? = nil, requireGeneration: Bool = false,
         reason: String
@@ -16091,20 +16138,12 @@ class TerminalController {
             mobileViewportReportsBySurfaceID[surfaceID] = nil
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
-            governMobileViewportTarget(surfaceID: surfaceID, target: .uncapped, reason: reason)
+            _ = resolveSharedSizing(surfaceID: surfaceID, reports: [:], reason: reason)
             return nil
         }
         mobileViewportReportsBySurfaceID[surfaceID] = reports
         scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
-        if let minColumns = reports.values.map(\.columns).min(),
-           let minRows = reports.values.map(\.rows).min() {
-            return governMobileViewportTarget(
-                surfaceID: surfaceID,
-                target: .cap(columns: minColumns, rows: minRows),
-                reason: reason
-            )
-        }
-        return nil
+        return resolveSharedSizing(surfaceID: surfaceID, reports: reports, reason: reason)
     }
 
     /// Drop every viewport report owned by the given client IDs across all
@@ -16163,19 +16202,12 @@ class TerminalController {
             mobileViewportReportsBySurfaceID[surfaceID] = nil
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
-            governMobileViewportTarget(surfaceID: surfaceID, target: .uncapped, reason: reason)
+            _ = resolveSharedSizing(surfaceID: surfaceID, reports: [:], reason: reason)
             return
         }
 
         mobileViewportReportsBySurfaceID[surfaceID] = reports
-        if let minColumns = reports.values.map(\.columns).min(),
-           let minRows = reports.values.map(\.rows).min() {
-            governMobileViewportTarget(
-                surfaceID: surfaceID,
-                target: .cap(columns: minColumns, rows: minRows),
-                reason: reason
-            )
-        }
+        _ = resolveSharedSizing(surfaceID: surfaceID, reports: reports, reason: reason)
         scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
     }
 

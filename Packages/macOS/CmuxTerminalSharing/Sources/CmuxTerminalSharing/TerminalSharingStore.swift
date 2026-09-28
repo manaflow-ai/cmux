@@ -110,12 +110,17 @@ public final class TerminalSharingStore {
     }
 
     /// Disconnects one other participant.
+    ///
+    /// - Parameters:
+    ///   - participantID: the participant to disconnect.
+    ///   - surfaceID: the terminal surface id.
+    ///   - by: who asked, when not this Mac (a phone using the size panel).
     @discardableResult
-    public func disconnect(participantID: String, surfaceID: UUID) -> Bool {
+    public func disconnect(participantID: String, surfaceID: UUID, by: TerminalDetachActor? = nil) -> Bool {
         guard let snapshot = snapshots[surfaceID],
               participantID != snapshot.selfParticipantID,
               snapshot.state.participant(participantID) != nil else { return false }
-        return controller(surfaceID)?.sharingDisconnect(participantID: participantID) ?? false
+        return controller(surfaceID)?.sharingDisconnect(participantID: participantID, by: by) ?? false
     }
 
     /// Disconnects every participant except this view (tmux `detach-client -a`).

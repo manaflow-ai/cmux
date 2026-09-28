@@ -25,7 +25,7 @@ private final class FakeController: TerminalSharingSurfaceControlling {
 
     func sharingSetPolicy(_ policy: TerminalSizingPolicy) -> Bool { host.setPolicy(policy); publish(); return true }
     func sharingSetCountsOverride(participantID: String, value: Bool?) -> Bool { host.setCountsOverride(participantID, value); publish(); return true }
-    func sharingDisconnect(participantID: String) -> Bool {
+    func sharingDisconnect(participantID: String, by: TerminalDetachActor?) -> Bool {
         disconnected.append(participantID)
         let ok = host.disconnect(participantID, detachment: TerminalSharingDetachment(reason: .disconnectedBy(nil), at: Date()))
         publish()
