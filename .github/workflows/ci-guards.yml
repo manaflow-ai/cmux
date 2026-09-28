@@ -622,6 +622,7 @@ jobs:
           python3 tests/test_ci_focused_test_selectors.py
           python3 tests/test_ci_ui_tests_dispatch.py
           python3 tests/test_ci_pr_media.py
+          python3 tests/test_ci_guard_tests_emit_no_workflow_commands.py
 
       - name: Validate manual macOS package cache recovery
         if: ${{ matrix.group == 'app-host-execution' }}
