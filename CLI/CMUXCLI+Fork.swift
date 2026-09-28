@@ -177,7 +177,7 @@ extension CMUXCLI {
             ),
             observedPermissionMode: record.permissionMode
         )
-        guard let invocation = AgentRestorePlanner(
+        guard var invocation = AgentRestorePlanner(
             executableFileResolver: AgentRestoreExecutableFileResolver()
         ).invocation(
             for: request,
@@ -203,6 +203,20 @@ extension CMUXCLI {
                 .incompleteData,
                 stage: "record.incomplete",
                 detail: "mode=\(record.mode) kind=\(record.kind)"
+            )
+        }
+
+        if record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex",
+           let parentSessionID = normalizedHookValue(record.checkpointID) {
+            var forkEnvironment = invocation.environment
+            forkEnvironment[CodexForkSessionWatcher.parentSessionEnvironmentKey] = parentSessionID
+            forkEnvironment[CodexForkSessionWatcher.launchAtEnvironmentKey] = String(Date.now.timeIntervalSince1970)
+            invocation = AgentRestoreInvocation(
+                arguments: invocation.arguments,
+                workingDirectory: invocation.workingDirectory,
+                environment: forkEnvironment,
+                preflightInvocations: invocation.preflightInvocations,
+                codexResumeSessionID: invocation.codexResumeSessionID
             )
         }
 
@@ -238,6 +252,17 @@ extension CMUXCLI {
                 workingDirectoryBeforeFork: workingDirectoryBeforeFork
             )
             return
+        }
+        if record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex",
+           let checkpointID = normalizedHookValue(record.checkpointID) {
+            _ = clearAgentSurfaceResumeBindingOutcome(
+                client: client,
+                workspaceId: payload["workspace_id"] as? String
+                    ?? processEnvironment["CMUX_WORKSPACE_ID"]
+                    ?? "",
+                surfaceId: surfaceID,
+                sessionId: checkpointID
+            )
         }
         client.close()
         try execForkInvocation(

@@ -30993,6 +30993,14 @@ struct CMUXCLI {
         client: SocketClient
     ) -> CodexTranscriptMonitorStopReplay? {
         let env = ProcessInfo.processInfo.environment
+        if let forkParentSessionID = optionValue(commandArgs, name: "--fork-parent") {
+            runCodexForkSessionWatch(
+                commandArgs: commandArgs,
+                parentSessionID: forkParentSessionID,
+                client: client
+            )
+            return nil
+        }
         let workspaceId = optionValue(commandArgs, name: "--workspace") ?? env["CMUX_WORKSPACE_ID"] ?? ""
         let surfaceId = optionValue(commandArgs, name: "--surface") ?? env["CMUX_SURFACE_ID"]
         let sessionId = optionValue(commandArgs, name: "--session")
@@ -31145,44 +31153,6 @@ struct CMUXCLI {
             "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
             client: client
         )
-    }
-
-    private func waitForCodexTranscriptChange(path: String?, leasePath: String?, timeout: TimeInterval) {
-        guard timeout > 0 else { return }
-
-        let semaphore = DispatchSemaphore(value: 0)
-        var sources: [DispatchSourceFileSystemObject] = []
-
-        func addFileSource(path: String?, eventMask: DispatchSource.FileSystemEvent) {
-            guard let path, !path.isEmpty else { return }
-            let expandedPath = NSString(string: path).expandingTildeInPath
-            let fd = open(expandedPath, O_EVTONLY)
-            guard fd >= 0 else { return }
-            let source = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: fd,
-                eventMask: eventMask,
-                queue: DispatchQueue.global(qos: .utility)
-            )
-            source.setEventHandler {
-                semaphore.signal()
-            }
-            source.setCancelHandler {
-                close(fd)
-            }
-            source.resume()
-            sources.append(source)
-        }
-
-        addFileSource(path: path, eventMask: [.write, .extend, .delete, .rename])
-        addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
-
-        guard !sources.isEmpty else {
-            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
-            return
-        }
-
-        _ = semaphore.wait(timeout: .now() + timeout)
-        sources.forEach { $0.cancel() }
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {

@@ -29065,6 +29065,183 @@
         }
       }
     },
+    "agent.codex.fork.notice.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not identify the new fork session, so this pane was not bound to the parent. Start the fork again from the parent pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は新しいフォーク セッションを特定できなかったため、このペインを親にバインドしませんでした。親ペインからもう一度フォークしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die neue Fork-Sitzung nicht erkennen. Dieses Pane wurde daher nicht an die übergeordnete Sitzung gebunden. Starten Sie den Fork erneut im übergeordneten Pane."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu identifier la nouvelle session forkée ; ce volet n’a donc pas été lié à la session parente. Relancez le fork depuis le volet parent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر على cmux تحديد جلسة التفريع الجديدة، لذلك لم يربط هذا الجزء بالجلسة الأصلية. ابدأ التفريع مرة أخرى من الجزء الأصلي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo identificar la nueva sesión bifurcada, por lo que este panel no se vinculó a la sesión principal. Inicia el fork de nuevo desde el panel principal."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法識別新的分支工作階段，因此此窗格未繫結至父工作階段。請從父窗格重新開始分支。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法识别新的分支会话，因此此窗格未绑定到父会话。请从父窗格重新开始分支。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 새 포크 세션을 식별하지 못해 이 패널을 부모 세션에 연결하지 않았습니다. 부모 패널에서 포크를 다시 시작하세요."
+          }
+        }
+      }
+    },
+    "agent.codex.fork.notice.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォークを利用できません"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork indisponible"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التفريع غير متاح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork no disponible"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法使用分支"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分支不可用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포크를 사용할 수 없음"
+          }
+        }
+      }
+    },
+    "agent.codex.fork.notice.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex fork"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex フォーク"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex-Fork"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork Codex"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تفريع Codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork de Codex"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 分支"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 分支"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 포크"
+          }
+        }
+      }
+    },
     "agent.codex.status.idle": {
       "extractionState": "manual",
       "localizations": {
