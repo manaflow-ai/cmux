@@ -5167,6 +5167,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil {
+            cancelAgentKeyHintInteraction()
             // AppKit invokes this lifecycle edge on the UI thread before the
             // view can be deallocated. Release the native gesture here, while
             // the owning surface is still available; deinit only performs

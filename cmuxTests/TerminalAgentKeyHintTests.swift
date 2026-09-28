@@ -138,6 +138,72 @@ struct TerminalAgentKeyHintTests {
     }
 
     @Test
+    func deferredClickRequiresTheSameHintAgentLifecycleAndPolicy() throws {
+        let fixture = try makeWorkspaceFixture()
+        defer { closeWindow(fixture.windowID) }
+        setting.set(true, in: .standard)
+        defer { setting.removeValue(in: .standard) }
+        fixture.workspace.setAgentLifecycle(key: "claude_code", panelId: fixture.panel.id, lifecycle: .idle)
+        defer { _ = fixture.workspace.clearAgentLifecycle(key: "claude_code", panelId: fixture.panel.id) }
+
+        let click = try #require(fixture.panel.agentKeyHintClick(
+            line: expandLine,
+            column: 20,
+            inLiveRegion: false,
+            mouseCaptured: true,
+            modifierFlags: [.command]
+        ))
+        #expect(fixture.panel.revalidatedAgentKeyHintClick(
+            click,
+            line: expandLine,
+            column: 20,
+            inLiveRegion: false,
+            mouseCaptured: true,
+            modifierFlags: [.command]
+        ) == click)
+        #expect(fixture.panel.revalidatedAgentKeyHintClick(
+            click,
+            line: "  ⎿  … +53 lines (ctrl+p to expand)",
+            column: 20,
+            inLiveRegion: false,
+            mouseCaptured: true,
+            modifierFlags: [.command]
+        ) == nil, "A different hint in the same cell must not inherit the click")
+
+        fixture.workspace.setAgentLifecycle(key: "claude_code", panelId: fixture.panel.id, lifecycle: .running)
+        #expect(fixture.panel.revalidatedAgentKeyHintClick(
+            click,
+            line: expandLine,
+            column: 20,
+            inLiveRegion: false,
+            mouseCaptured: true,
+            modifierFlags: [.command]
+        ) == nil, "A lifecycle transition cancels the deferred click")
+
+        fixture.workspace.setAgentLifecycle(key: "claude_code", panelId: fixture.panel.id, lifecycle: .idle)
+        #expect(fixture.panel.revalidatedAgentKeyHintClick(
+            click,
+            line: expandLine,
+            column: 20,
+            inLiveRegion: false,
+            mouseCaptured: false,
+            modifierFlags: [.command]
+        ) == nil, "A changed mouse-capture policy cancels even when both policies permit the click")
+
+        _ = fixture.workspace.clearAgentLifecycle(key: "claude_code", panelId: fixture.panel.id)
+        fixture.workspace.setAgentLifecycle(key: "codex", panelId: fixture.panel.id, lifecycle: .idle)
+        defer { _ = fixture.workspace.clearAgentLifecycle(key: "codex", panelId: fixture.panel.id) }
+        #expect(fixture.panel.revalidatedAgentKeyHintClick(
+            click,
+            line: expandLine,
+            column: 20,
+            inLiveRegion: false,
+            mouseCaptured: true,
+            modifierFlags: [.command]
+        ) == nil, "A different agent must not inherit the click")
+    }
+
+    @Test
     func pointerInvalidationCancelsADeferredClick() {
         let view = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 40))
         var fired = false

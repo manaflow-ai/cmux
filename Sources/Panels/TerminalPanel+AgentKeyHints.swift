@@ -5,6 +5,11 @@ import CmuxTerminalCore
 /// Clickable agent key hints (`agentActions.keyHints`): a click on a hint an
 /// agent printed, such as `ctrl+o to expand`, presses those keys.
 extension TerminalPanel {
+    private struct AgentKeyHintAgentContext {
+        var agent: AgentKeyHintDetector.Agent
+        var lifecycle: AgentHibernationLifecycleState
+    }
+
     /// Whether the key hints setting is on.
     static var agentKeyHintsEnabled: Bool {
         AgentActionsCatalogSection().keyHints.value(in: .standard)
@@ -25,6 +30,12 @@ extension TerminalPanel {
     static func agentKeyHintAgent(
         lifecycleStates states: [String: AgentHibernationLifecycleState]
     ) -> AgentKeyHintDetector.Agent? {
+        agentKeyHintAgentContext(lifecycleStates: states)?.agent
+    }
+
+    private static func agentKeyHintAgentContext(
+        lifecycleStates states: [String: AgentHibernationLifecycleState]
+    ) -> AgentKeyHintAgentContext? {
         let agents: [(key: String, agent: AgentKeyHintDetector.Agent)] = [
             ("claude_code", .claudeCode), ("codex", .codex), ("opencode", .openCode),
         ]
@@ -35,15 +46,19 @@ extension TerminalPanel {
             case .unknown: 2
             }
         }
-        var best: (agent: AgentKeyHintDetector.Agent, rank: Int)?
+        var best: (context: AgentKeyHintAgentContext, rank: Int)?
         for (key, agent) in agents {
             guard let state = states[key] else { continue }
             let candidate = rank(state)
             if best.map({ candidate < $0.rank }) ?? true {
-                best = (agent, candidate)
+                best = (AgentKeyHintAgentContext(agent: agent, lifecycle: state), candidate)
             }
         }
-        return best?.agent
+        return best?.context
+    }
+
+    private var agentKeyHintAgentContext: AgentKeyHintAgentContext? {
+        Self.agentKeyHintAgentContext(lifecycleStates: containerAgentLifecycleStates)
     }
 
     /// The hint covering `column` of a visible terminal row. The caller has
@@ -79,9 +94,11 @@ extension TerminalPanel {
     }
 
     /// A click on an agent key hint, resolved before it is pressed.
-    struct AgentKeyHintClick {
+    struct AgentKeyHintClick: Equatable {
         var hint: AgentKeyHint
         var agent: AgentKeyHintDetector.Agent
+        var lifecycle: AgentHibernationLifecycleState
+        var policy: AgentKeyHintClickPolicy
     }
 
     /// The hint a left click on a terminal cell presses, when the setting is
@@ -99,17 +116,49 @@ extension TerminalPanel {
         modifierFlags: NSEvent.ModifierFlags
     ) -> AgentKeyHintClick? {
         let flags = modifierFlags.intersection([.command, .shift, .option, .control])
-        guard AgentKeyHintClickPolicy(
+        let policy = AgentKeyHintClickPolicy(
             mouseCaptured: mouseCaptured,
             commandHeld: flags.contains(.command),
             otherModifierHeld: !flags.subtracting(.command).isEmpty
-        ).pressesHint,
+        )
+        guard policy.pressesHint,
             Self.agentKeyHintsEnabled,
             !isAgentHibernated,
-            let agent = agentKeyHintAgent,
-            let hint = Self.agentKeyHint(inLine: line, atColumn: column, agent: agent, isLiveRow: { inLiveRegion })
+            let context = agentKeyHintAgentContext,
+            let hint = Self.agentKeyHint(
+                inLine: line,
+                atColumn: column,
+                agent: context.agent,
+                isLiveRow: { inLiveRegion }
+            )
         else { return nil }
-        return AgentKeyHintClick(hint: hint, agent: agent)
+        return AgentKeyHintClick(
+            hint: hint,
+            agent: context.agent,
+            lifecycle: context.lifecycle,
+            policy: policy
+        )
+    }
+
+    /// Resolves a deferred click again immediately before it sends input.
+    /// Every part of the authorization must still match the release: the
+    /// hint, agent, lifecycle, and mouse-capture/modifier policy.
+    func revalidatedAgentKeyHintClick(
+        _ expected: AgentKeyHintClick,
+        line: String,
+        column: Int,
+        inLiveRegion: Bool,
+        mouseCaptured: Bool,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> AgentKeyHintClick? {
+        guard let current = agentKeyHintClick(
+            line: line,
+            column: column,
+            inLiveRegion: inLiveRegion,
+            mouseCaptured: mouseCaptured,
+            modifierFlags: modifierFlags
+        ), current == expected else { return nil }
+        return current
     }
 
     /// Sends the keys for a clicked hint.

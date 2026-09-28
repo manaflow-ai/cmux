@@ -37,6 +37,8 @@ final class TerminalAgentKeyHintPointerState {
     var pressCell: TerminalAgentKeyHintCell?
     /// A released click waiting out the double-click interval.
     var deferredPress = AgentKeyHintDeferredPress(delay: NSEvent.doubleClickInterval)
+    /// Re-resolves the original cell and authorization immediately before
+    /// sending input. Invalidations clear this closure.
     var pendingPress: (() -> Void)?
     /// The cell hover last resolved; hover resolves again only when it changes.
     var hoverCell: TerminalAgentKeyHintCell?
@@ -66,6 +68,15 @@ extension GhosttyNSView {
         let press = state.pendingPress
         state.pendingPress = nil
         if due { press?() }
+    }
+
+    /// Drops both halves of an in-progress hint click. Geometry, viewport,
+    /// and ownership changes call this before the deferred action can fire.
+    func cancelAgentKeyHintInteraction() {
+        let state = agentKeyHintPointer
+        state.pressCell = nil
+        state.deferredPress.cancel()
+        state.pendingPress = nil
     }
 
     /// Remembers a single left press's cell so its release can tell a click
@@ -104,7 +115,24 @@ extension GhosttyNSView {
         return { [weak self, weak panel] in
             guard let self else { return }
             let state = self.agentKeyHintPointer
-            state.pendingPress = { [weak panel] in _ = panel?.pressAgentKeyHint(click) }
+            state.pendingPress = { [weak self, weak panel] in
+                guard let self, let panel,
+                      self.agentKeyHintPanel() === panel,
+                      let surface = self.terminalSurface?.surface,
+                      !ghostty_surface_has_selection(surface),
+                      let currentRow = self.agentKeyHintRow(pressCell.row, surface: surface),
+                      currentRow.viewport == row.viewport,
+                      let currentClick = panel.revalidatedAgentKeyHintClick(
+                          click,
+                          line: currentRow.line,
+                          column: pressCell.column,
+                          inLiveRegion: currentRow.viewport.liveRegion.contains(row: pressCell.row),
+                          mouseCaptured: ghostty_surface_mouse_captured(surface),
+                          modifierFlags: pressModifierFlags
+                      )
+                else { return }
+                _ = panel.pressAgentKeyHint(currentClick)
+            }
             let due = state.deferredPress.release(at: ProcessInfo.processInfo.systemUptime)
             // A little past the deadline, so the timer never finds it not yet due.
             let delay = max(0, due - ProcessInfo.processInfo.systemUptime) + 0.01
@@ -174,6 +202,7 @@ extension GhosttyNSView {
     /// Hides any hint hover, for the pointer leaving the terminal, a scroll,
     /// or a resize. The next mouse move resolves hover again.
     func clearAgentKeyHintHover() {
+        cancelAgentKeyHintInteraction()
         let state = agentKeyHintPointer
         state.hoverCell = nil
         hideAgentKeyHintHover()
