@@ -63,6 +63,13 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
         guard fd >= 0 else {
             throw NSError(domain: "FakeUnixSocketServer", code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "socket() failed errno=\(errno)"])
         }
+        // Set on the listener so every accepted socket inherits it. Setting it
+        // after accept fails with EINVAL once the client has already closed,
+        // and the response write would then raise SIGPIPE in the test process.
+        var noSigPipe: Int32 = 1
+        withUnsafePointer(to: &noSigPipe) { pointer in
+            _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, pointer, socklen_t(MemoryLayout<Int32>.size))
+        }
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let pathBytes = Array(path.utf8CString)
@@ -91,16 +98,6 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
         Thread.detachNewThread { [weak self] in
             let client = accept(fd, nil, nil)
             guard client >= 0 else { return }
-            var noSigPipe: Int32 = 1
-            withUnsafePointer(to: &noSigPipe) { pointer in
-                _ = setsockopt(
-                    client,
-                    SOL_SOCKET,
-                    SO_NOSIGPIPE,
-                    pointer,
-                    socklen_t(MemoryLayout<Int32>.size)
-                )
-            }
             var scratch = [UInt8](repeating: 0, count: 4096)
             while true {
                 let count = Darwin.read(client, &scratch, scratch.count)
