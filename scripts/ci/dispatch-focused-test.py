@@ -691,6 +691,10 @@ def awaited_products(producer: dict, commit: str, only_testing: str) -> dict | N
     return planned_products(commit, only_testing, str(producer["id"]))
 
 
+# CI runs whose finished products ui_product_source() found but no UI run can load.
+UNLOADABLE_SOURCES: list[str] = []
+
+
 def ui_product_source(commit: str) -> dict | None:
     """The CI run whose app-host products a UI run of this commit can adopt.
 
@@ -732,6 +736,8 @@ def ui_product_source(commit: str) -> dict | None:
             if rerun.products_artifact(REPO, str(run["id"]), rerun.gh_api):
                 if usable_product(source):
                     return {**source, "ready": True, "adopted": True}
+                if unusable_family(source):
+                    UNLOADABLE_SOURCES.append(source["url"])
                 continue
         except (subprocess.CalledProcessError, json.JSONDecodeError):
             continue
@@ -767,6 +773,17 @@ def owned_class(label: str | None) -> tuple[str, str] | None:
     return match.groups() if match else None
 
 
+def adopts_on(runner: str | None, family: str | None) -> bool:
+    """Whether a UI run on `runner` can load a product compiled on `family`:
+    the same owned choice, or either Blacksmith macOS 26 size (they share a
+    toolchain; see FAMILY_RUNNERS)."""
+    if not runner or not family:
+        return False
+    if family.startswith("blacksmith-"):
+        return runner.startswith("blacksmith-") and "macos-26" in runner
+    return runner == family
+
+
 def product_family(source: dict) -> str | None:
     """The owned runner choice test-e2e.yml offers when a CI run's compile
     admission ran on an owned Mac, or the Blacksmith macOS 26 pool it ran on;
@@ -790,6 +807,15 @@ def product_family(source: dict) -> str | None:
             return blacksmith[0] if blacksmith[0] in RUNNERS else FAMILY_RUNNERS["blacksmith"]
         return None if labels else ""
     return ""
+
+
+def unusable_family(source: dict) -> bool:
+    """Whether a CI run's compile admission has a runner whose products no UI
+    run can load; False when unknown (no runner yet, or the API failed)."""
+    try:
+        return product_family(source) is None
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return False
 
 
 def usable_product(source: dict, pending: bool = False) -> bool:
@@ -887,6 +913,11 @@ def watch_run(run_id: int) -> int:
 DOGFOOD_SELECTOR = "cmuxUITests/DogfoodScenarioUITests"
 # workflow_dispatch caps the whole inputs payload at 65,535 characters.
 DOGFOOD_SCENARIO_MAX_B64 = 60_000
+# --adopt-only's status when the run would have to compile the app itself:
+# CI made no product (or has not within the wait), or made one on a pool
+# the UI runner cannot load (UNLOADABLE_PRODUCT_EXIT).
+NO_PRODUCT_EXIT = 3
+UNLOADABLE_PRODUCT_EXIT = 4
 
 
 def encode_scenario(path: Path) -> str:
@@ -948,6 +979,14 @@ def main() -> int:
         "run of a pull request head tests the merge its CI compiled",
     )
     parser.add_argument(
+        "--adopt-only",
+        action="store_true",
+        help="UI runs only: dispatch only when the run can adopt the app and UI test bundle a CI "
+        f"run of this commit compiled, and otherwise exit {NO_PRODUCT_EXIT} "
+        f"({UNLOADABLE_PRODUCT_EXIT} when CI's product is on a pool the UI runner cannot load); the dispatched run "
+        "fails rather than compiles if its reuse still misses (PR media tours use this)",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="dispatch even if this selector already failed at this commit, "
@@ -995,6 +1034,8 @@ def main() -> int:
         parser.error("test_filter entries must all target cmuxTests or all target cmuxUITests")
     test_target = targets.pop()
     test_filter = ",".join(args.test_filter)
+    if args.adopt_only and (test_target != "cmuxUITests" or args.runner not in (None, "auto") or args.full_build):
+        parser.error("--adopt-only takes UI selectors on the default runner, without --full-build")
     if args.ref is not None and not args.ref.strip():
         parser.error("--ref must not be empty")
     if args.workflow_ref is not None and not args.workflow_ref.strip():
@@ -1036,6 +1077,15 @@ def main() -> int:
                     "them. Pass --full-build to test the head itself.",
                     flush=True,
                 )
+
+    if args.adopt_only and ui_source is None:
+        if UNLOADABLE_SOURCES:
+            print(f"{UNLOADABLE_SOURCES[0]} compiled {head}'s app-host products where no UI run can "
+                  "load them; not compiling (--adopt-only).", flush=True)
+            return UNLOADABLE_PRODUCT_EXIT
+        print(f"No CI run of {head} has or will have app-host products to adopt; "
+              "not compiling (--adopt-only).", flush=True)
+        return NO_PRODUCT_EXIT
 
     def guards(commit: str) -> int | None:
         """Refuse or attach before dispatching `commit`; a status means return it."""
@@ -1168,6 +1218,14 @@ def main() -> int:
         except (subprocess.CalledProcessError, json.JSONDecodeError):
             adopted = False
         ui_source["adopted"] = adopted
+        if args.adopt_only and not adopted:
+            if unusable_family(ui_source):
+                print(f"{ui_source['url']} compiles on a pool whose products no UI run can load; "
+                      "not compiling (--adopt-only).", flush=True)
+                return UNLOADABLE_PRODUCT_EXIT
+            print(f"{ui_source['url']} left no app-host products this run can adopt; "
+                  "not compiling (--adopt-only).", flush=True)
+            return NO_PRODUCT_EXIT
         if not adopted and commit != head:
             print(f"note: no CI products for {commit}; compiling {head} instead", file=sys.stderr, flush=True)
             commit = head
@@ -1199,6 +1257,11 @@ def main() -> int:
             pr_xcode_app=repository_variable(pool.PR_XCODE_VARIABLE, PR_XCODE_ENV),
             log=lambda message: print(f"Runner pool: {message}", file=sys.stderr, flush=True),
         )
+    if args.adopt_only and not adopts_on(runner, ui_source.get("family")):
+        print(f"UI runs go to {runner}, which cannot load the products {ui_source['url']} "
+              f"compiled on {ui_source.get('family') or 'an unknown pool'}; not compiling (--adopt-only).",
+              flush=True)
+        return UNLOADABLE_PRODUCT_EXIT
     dispatch_id = uuid.uuid4().hex
     video = not args.no_video and test_target != "cmuxTests"
     fields = {
@@ -1213,6 +1276,9 @@ def main() -> int:
         fields["runner"] = args.runner
     if scenario_b64:
         fields["dogfood_scenario"] = scenario_b64
+    if args.adopt_only:
+        # test-e2e.yml fails before compiling if its reuse step still misses.
+        fields["require_adopted_product"] = "true"
     # Name the pool chosen here, so the run title carries the pool the guards
     # above match on and test-e2e.yml does not read the queue a second time.
     if not pinned and runner in OVERFLOW_POOLS:

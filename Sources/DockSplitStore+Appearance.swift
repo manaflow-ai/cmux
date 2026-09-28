@@ -37,7 +37,7 @@ extension DockSplitStore {
             autoCloseEmptyPanes: true,
             contentViewLifecycle: .keepAllAlive,
             newTabPosition: .current,
-            tabBarVisibility: .always,
+            tabBarVisibility: resolvedTabBarVisibility(),
             appearance: makeAppearance(from: config)
         )
     }
@@ -47,6 +47,22 @@ extension DockSplitStore {
         let foldsActions = Workspace.paneTabBarActionsFoldBehindHover()
         guard bonsplitController.configuration.appearance.splitButtonsOnHover != foldsActions else { return }
         bonsplitController.configuration.appearance.splitButtonsOnHover = foldsActions
+    }
+
+    /// Resolves the app-level `app.tabBarVisibility` setting to bonsplit's
+    /// visibility mode.
+    static func resolvedTabBarVisibility() -> TabBarVisibility {
+        AppCatalogSection().tabBarVisibility.value(in: .standard).bonsplitVisibility
+    }
+
+    /// Re-resolves `app.tabBarVisibility` into this Dock's split controller so
+    /// an open Dock picks up a settings change without a relaunch.
+    func refreshTabBarVisibility() {
+        let visibility = Self.resolvedTabBarVisibility()
+        var configuration = bonsplitController.configuration
+        guard configuration.tabBarVisibility != visibility else { return }
+        configuration.tabBarVisibility = visibility
+        bonsplitController.configuration = configuration
     }
 
     static func makeAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {

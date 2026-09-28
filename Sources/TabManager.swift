@@ -761,6 +761,7 @@ class TabManager: ObservableObject {
                 self?.focusHistoryScopeSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
                 self?.interfaceDensitySettingsDidChange()
+                self?.refreshTabBarVisibility()
                 self?.refreshWindowTitle()
             }
         })
@@ -1968,6 +1969,11 @@ class TabManager: ObservableObject {
 
     func moveTabToTopForNotification(_ tabId: UUID) {
         workspaceReordering.moveTabToTopForNotification(tabId)
+    }
+
+    /// Whether a notification bump would leave this workspace where it is.
+    func isAtTopOfUnpinnedTier(_ tabId: UUID) -> Bool {
+        workspaceReordering.isAtTopOfUnpinnedTier(tabId)
     }
 
     @discardableResult
@@ -4446,6 +4452,18 @@ class TabManager: ObservableObject {
         }
         for dockStore in liveWindowDockStores {
             dockStore.refreshInterfaceDensity()
+        }
+    }
+
+    /// Re-applies `app.tabBarVisibility` to every live split controller:
+    /// workspace panes, per-workspace Docks, and window-scope Docks.
+    func refreshTabBarVisibility() {
+        for workspace in tabs {
+            workspace.refreshTabBarVisibility()
+            workspace._dockSplit?.refreshTabBarVisibility()
+        }
+        for dockStore in liveWindowDockStores {
+            dockStore.refreshTabBarVisibility()
         }
     }
 
