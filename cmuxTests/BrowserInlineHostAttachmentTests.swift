@@ -78,10 +78,16 @@ struct BrowserInlineHostAttachmentTests {
         #expect(waitUntil { panel.webView.window === visibleWindow })
         #expect(waitUntil(timeout: 15) {
             host.layoutSubtreeIfNeeded()
-            panel.webView.superview?.layoutSubtreeIfNeeded()
+            let presentationView = panel.webView.cmuxBrowserViewportPresentationView
+            presentationView.superview?.layoutSubtreeIfNeeded()
+            presentationView.layoutSubtreeIfNeeded()
             host.window?.displayIfNeeded()
-            return abs(panel.webView.frame.width - host.bounds.width) < 1 &&
-                abs(panel.webView.frame.height - host.bounds.height) < 1
+            let presentationFrame = host.convert(
+                presentationView.bounds,
+                from: presentationView
+            )
+            return abs(presentationFrame.width - host.bounds.width) < 1 &&
+                abs(presentationFrame.height - host.bounds.height) < 1
         })
     }
 
