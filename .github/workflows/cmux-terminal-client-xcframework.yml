@@ -8,6 +8,9 @@
 name: cmux-terminal-client xcframework
 
 on:
+  push:
+    branches:
+      - "xcf-build/**"
   workflow_dispatch:
     inputs:
       ref:
@@ -275,37 +278,3 @@ jobs:
             ${{ runner.temp }}/xcframework/SHA256SUMS
           if-no-files-found: error
 
-  release:
-    name: publish release
-    needs: build
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
-    permissions:
-      contents: write
-    steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: CmuxTerminalClient.xcframework
-          path: assets
-
-      - name: Create or update release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          TAG: ${{ needs.build.outputs.tag }}
-          VERSION: ${{ needs.build.outputs.version }}
-          SOURCE_SHA: ${{ github.sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          checksum="$(cat assets/CmuxTerminalClient.xcframework.zip.sha256)"
-          notes="cmux-terminal-client $VERSION as CmuxTerminalClient.xcframework (static frameworks: iOS arm64, iOS simulator arm64, macOS arm64). Source ${SOURCE_SHA}. SwiftPM binaryTarget checksum: ${checksum}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" assets/CmuxTerminalClient.xcframework.zip assets/CmuxTerminalClient.xcframework.zip.sha256 assets/SHA256SUMS --clobber
-          else
-            gh release create "$TAG" assets/CmuxTerminalClient.xcframework.zip assets/CmuxTerminalClient.xcframework.zip.sha256 assets/SHA256SUMS \
-              --target "$SOURCE_SHA" --title "$TAG" --notes "$notes" --prerelease
-          fi
-          echo "release: https://github.com/$GH_REPO/releases/tag/$TAG"
-          echo "checksum: $checksum"
