@@ -78,7 +78,9 @@ final class AgentActionPillUITests: XCTestCase {
             "-NSAppSleepDisabled", "YES",
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
-            "-agentActionsTurnControlEnabled", turnControlEnabled ? "YES" : "NO",
+            // Property-list syntax so the argument domain stores a Bool; the
+            // settings catalog does not decode the string "YES".
+            "-agentActionsTurnControlEnabled", turnControlEnabled ? "<true/>" : "<false/>",
         ]
         app.launchEnvironment["HOME"] = root.path
         app.launchEnvironment["CFFIXED_USER_HOME"] = root.path
