@@ -214,8 +214,8 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .terminal,
                 id: "agent-prompt-editing",
-                title: String(localized: "settings.agentActions.promptEditing", defaultValue: "Agent Edit Queued Button"),
-                detailText: String(localized: "settings.agentActions.promptEditing.subtitle", defaultValue: "Shows an Edit Queued button over a terminal while Claude Code has prompts waiting in its queue. Clicking it moves them back into the input, like pressing Up."),
+                title: String(localized: "settings.agentActions.promptEditing", defaultValue: "Agent Prompt Editing"),
+                detailText: String(localized: "settings.agentActions.promptEditing.subtitle", defaultValue: "Shows a Turns button over agent terminals to edit a past prompt or fork from it, and Edit Queued while Claude Code has prompts waiting, which moves them back into the input like pressing Up."),
                 paths: ["agentActions.promptEditing"],
                 synonyms: "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code click"
             ),

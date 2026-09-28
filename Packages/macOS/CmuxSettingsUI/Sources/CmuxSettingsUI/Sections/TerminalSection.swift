@@ -506,8 +506,8 @@ public struct TerminalSection: View {
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .json("agentActions.promptEditing"),
-                String(localized: "settings.agentActions.promptEditing", defaultValue: "Agent Edit Queued Button"),
-                subtitle: String(localized: "settings.agentActions.promptEditing.subtitle", defaultValue: "Shows an Edit Queued button over a terminal while Claude Code has prompts waiting in its queue. Clicking it moves them back into the input, like pressing Up.")
+                String(localized: "settings.agentActions.promptEditing", defaultValue: "Agent Prompt Editing"),
+                subtitle: String(localized: "settings.agentActions.promptEditing.subtitle", defaultValue: "Shows a Turns button over agent terminals to edit a past prompt or fork from it, and Edit Queued while Claude Code has prompts waiting, which moves them back into the input like pressing Up.")
             ) {
                 Toggle("", isOn: Binding(get: { agentPromptEditing.current }, set: { agentPromptEditing.set($0) }))
                     .labelsHidden()

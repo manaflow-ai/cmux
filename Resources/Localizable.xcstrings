@@ -566752,55 +566752,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent Edit Queued Button"
+            "value": "Agent Prompt Editing"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "زر تعديل قائمة انتظار الوكيل"
+            "value": "تحرير طلبات الوكيل"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Taste „Warteschlange bearbeiten“ für Agenten"
+            "value": "Prompt-Bearbeitung für Agenten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Botón Editar en cola del agente"
+            "value": "Edición de prompts del agente"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bouton Modifier la file pour les agents"
+            "value": "Modification des prompts des agents"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントのキュー編集ボタン"
+            "value": "エージェントのプロンプト編集"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트 대기열 편집 버튼"
+            "value": "에이전트 프롬프트 편집"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理编辑队列按钮"
+            "value": "代理提示编辑"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理編輯佇列按鈕"
+            "value": "代理提示編輯"
           }
         }
       }
@@ -566860,6 +566860,301 @@
           "stringUnit": {
             "state": "translated",
             "value": "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code click 代理 佇列 編輯"
+          }
+        }
+      }
+    },
+    "terminal.agentTurns.noSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent's session isn't in the Vault yet. Turns appear after its first prompt."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسة هذا الوكيل ليست في Vault بعد. تظهر الأدوار بعد أول طلب."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Sitzung dieses Agenten ist noch nicht im Vault. Der Verlauf erscheint nach dem ersten Prompt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sesión de este agente aún no está en el Vault. Los turnos aparecen tras su primer prompt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La session de cet agent n’est pas encore dans le Vault. Les tours apparaissent après son premier prompt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントのセッションはまだ Vault にありません。最初のプロンプトの後にターンが表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트의 세션이 아직 Vault에 없습니다. 첫 프롬프트 이후에 턴이 표시됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理的会话尚未在 Vault 中。第一个提示之后就会显示轮次。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理的工作階段尚未在 Vault 中。第一個提示之後就會顯示回合。"
+          }
+        }
+      }
+    },
+    "terminal.agentTurnControl.turns": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turns"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأدوار"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verlauf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turnos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tours"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "턴"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轮次"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回合"
+          }
+        }
+      }
+    },
+    "terminal.agentTurnControl.turns.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show this session's prompts: edit one again or fork from it"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض طلبات هذه الجلسة: عدّل أحدها مجددًا أو أنشئ فرعًا منه"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Prompts dieser Sitzung anzeigen: einen erneut bearbeiten oder davon abzweigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar los prompts de esta sesión: editar uno de nuevo o bifurcar desde él"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les prompts de cette session : en modifier un ou créer une branche à partir de lui"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このセッションのプロンプトを表示: 編集し直すか、そこから分岐します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 세션의 프롬프트 보기: 다시 편집하거나 거기서 분기합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示此会话的提示：重新编辑其中一个，或从它分叉"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示此工作階段的提示：重新編輯其中一個，或從它分支"
+          }
+        }
+      }
+    },
+    "sessionIndex.checkpoints.editPrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعديل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bearbeiten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "편집"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯"
+          }
+        }
+      }
+    },
+    "sessionIndex.checkpoints.editPromptHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Put this prompt in the agent's input to edit and send again"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضع هذا الطلب في حقل إدخال الوكيل لتعديله وإرساله مرة أخرى"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Prompt in die Eingabe des Agenten setzen, um ihn zu bearbeiten und erneut zu senden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poner este prompt en la entrada del agente para editarlo y enviarlo de nuevo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placer ce prompt dans la saisie de l’agent pour le modifier et le renvoyer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロンプトをエージェントの入力欄に入れて、編集して再送信します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 프롬프트를 에이전트 입력란에 넣어 편집한 뒤 다시 보냅니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将此提示放入代理的输入框，以便编辑后再次发送"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將此提示放入代理的輸入框，以便編輯後再次傳送"
           }
         }
       }

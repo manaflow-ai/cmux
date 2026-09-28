@@ -7226,55 +7226,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent Edit Queued Button"
+            "value": "Agent Prompt Editing"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "زر تعديل قائمة انتظار الوكيل"
+            "value": "تحرير طلبات الوكيل"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Taste „Warteschlange bearbeiten“ für Agenten"
+            "value": "Prompt-Bearbeitung für Agenten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Botón Editar en cola del agente"
+            "value": "Edición de prompts del agente"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bouton Modifier la file pour les agents"
+            "value": "Modification des prompts des agents"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントのキュー編集ボタン"
+            "value": "エージェントのプロンプト編集"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트 대기열 편집 버튼"
+            "value": "에이전트 프롬프트 편집"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理编辑队列按钮"
+            "value": "代理提示编辑"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理編輯佇列按鈕"
+            "value": "代理提示編輯"
           }
         }
       }
@@ -7285,55 +7285,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows an Edit Queued button over a terminal while Claude Code has prompts waiting in its queue. Clicking it moves them back into the input, like pressing Up."
+            "value": "Shows a Turns button over agent terminals to edit a past prompt or fork from it, and Edit Queued while Claude Code has prompts waiting, which moves them back into the input like pressing Up."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض زر تعديل قائمة الانتظار فوق الطرفية عندما تكون لدى Claude Code طلبات منتظرة. النقر عليه يعيدها إلى حقل الإدخال مثل الضغط على السهم لأعلى."
+            "value": "يعرض زر الأدوار فوق طرفيات الوكلاء لتعديل طلب سابق أو إنشاء فرع منه، وزر تعديل قائمة الانتظار عندما تكون لدى Claude Code طلبات منتظرة، فيعيدها إلى حقل الإدخال مثل السهم لأعلى."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt über dem Terminal eine Taste „Warteschlange bearbeiten“, solange Claude Code wartende Prompts hat. Ein Klick holt sie wie die Pfeiltaste nach oben zurück in die Eingabe."
+            "value": "Zeigt über Agent-Terminals eine Verlauf-Taste, um einen früheren Prompt zu bearbeiten oder davon abzuzweigen, und „Warteschlange bearbeiten“, solange Claude Code wartende Prompts hat; das holt sie wie die Pfeiltaste nach oben zurück in die Eingabe."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra un botón Editar en cola sobre el terminal mientras Claude Code tiene prompts en espera. Al hacer clic vuelven a la entrada, como al pulsar la flecha arriba."
+            "value": "Muestra un botón Turnos sobre los terminales de agentes para editar un prompt anterior o bifurcar desde él, y Editar en cola mientras Claude Code tiene prompts en espera, que los devuelve a la entrada como la flecha arriba."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche un bouton Modifier la file sur le terminal quand Claude Code a des prompts en attente. Un clic les remet dans la saisie, comme la flèche haut."
+            "value": "Affiche un bouton Tours sur les terminaux d’agent pour modifier un prompt passé ou créer une branche à partir de lui, et Modifier la file quand Claude Code a des prompts en attente, qui les remet dans la saisie comme la flèche haut."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code に待機中のプロンプトがある間、ターミナル上にキュー編集ボタンを表示します。クリックすると上矢印キーと同じように入力欄へ戻します。"
+            "value": "エージェントのターミナル上にターンボタンを表示し、過去のプロンプトを編集し直したりそこから分岐したりできます。Claude Code に待機中のプロンプトがあるときはキュー編集ボタンも表示し、上矢印キーと同じように入力欄へ戻します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code에 대기 중인 프롬프트가 있으면 터미널 위에 대기열 편집 버튼을 표시합니다. 클릭하면 위쪽 화살표를 누른 것처럼 입력란으로 되돌립니다."
+            "value": "에이전트 터미널 위에 턴 버튼을 표시해 이전 프롬프트를 다시 편집하거나 거기서 분기할 수 있고, Claude Code에 대기 중인 프롬프트가 있으면 대기열 편집 버튼으로 위쪽 화살표처럼 입력란에 되돌립니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code 有等待中的提示时，在终端上显示“编辑队列”按钮。点击即可将提示移回输入框，效果等同于按下向上键。"
+            "value": "在代理终端上显示“轮次”按钮，可重新编辑过去的提示或从它分叉；Claude Code 有等待中的提示时还会显示“编辑队列”，效果等同于按下向上键，将提示移回输入框。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code 有等待中的提示時，在終端機上顯示「編輯佇列」按鈕。按一下即可將提示移回輸入框，效果如同按下向上鍵。"
+            "value": "在代理終端機上顯示「回合」按鈕，可重新編輯過去的提示或從它分支；Claude Code 有等待中的提示時也會顯示「編輯佇列」，效果如同按下向上鍵，將提示移回輸入框。"
           }
         }
       }

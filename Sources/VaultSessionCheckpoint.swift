@@ -35,6 +35,11 @@ struct VaultSessionCheckpoint: Identifiable, Equatable, Sendable, Codable {
     let gitSHA: String?
     /// First ~80 chars of the prompt that started the anchored turn.
     let promptSnippet: String?
+    /// The full prompt (up to ``promptTextLimit`` characters) that started a
+    /// derived turn, for editing and resending it. `nil` for manual checkpoints.
+    let promptText: String?
+
+    static let promptTextLimit = 65_536
 
     init(
         id: String,
@@ -45,7 +50,8 @@ struct VaultSessionCheckpoint: Identifiable, Equatable, Sendable, Codable {
         anchor: String?,
         anchorFingerprint: String? = nil,
         gitSHA: String?,
-        promptSnippet: String?
+        promptSnippet: String?,
+        promptText: String? = nil
     ) {
         self.id = id
         self.source = source
@@ -56,6 +62,7 @@ struct VaultSessionCheckpoint: Identifiable, Equatable, Sendable, Codable {
         self.anchorFingerprint = anchorFingerprint
         self.gitSHA = gitSHA
         self.promptSnippet = promptSnippet
+        self.promptText = promptText
     }
 }
 
@@ -126,7 +133,8 @@ enum VaultSessionCheckpoints {
                         anchor: anchor,
                         anchorFingerprint: fingerprint,
                         gitSHA: nil,
-                        promptSnippet: snippet(from: prompt)
+                        promptSnippet: snippet(from: prompt),
+                        promptText: String(prompt.prefix(VaultSessionCheckpoint.promptTextLimit))
                     )
                 )
                 return false

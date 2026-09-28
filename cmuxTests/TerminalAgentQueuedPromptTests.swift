@@ -104,7 +104,7 @@ struct TerminalAgentEditQueuedTests {
         fixture.workspace.setAgentLifecycle(key: "claude_code", panelId: fixture.panel.id, lifecycle: .running)
         defer { _ = fixture.workspace.clearAgentLifecycle(key: "claude_code", panelId: fixture.panel.id) }
         #expect(!view.isEditQueuedVisible, "Nothing is queued yet")
-        #expect(view.isHidden, "Stop is off, so the pill has nothing to show")
+        #expect(view.isTurnsVisible, "Prompt editing shows Turns for any agent session")
 
         view.setQueuedPromptCount(2)
         #expect(view.isEditQueuedVisible)
