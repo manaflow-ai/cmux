@@ -200,7 +200,10 @@ struct CodexForkSessionWatcher {
     }
 
     private func claim(_ child: ChildSession) -> Bool {
-        guard !launchID.isEmpty else { return true }
+        guard !launchID.isEmpty,
+              child.sessionID.range(of: #"^[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil else {
+            return launchID.isEmpty
+        }
         do {
             try fileManager.createDirectory(at: claimsDirectory, withIntermediateDirectories: true)
             let claimURL = claimsDirectory.appendingPathComponent("\(child.sessionID).claim", isDirectory: false)
