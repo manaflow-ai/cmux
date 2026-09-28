@@ -94,7 +94,7 @@ import {
 } from "./entitlements";
 import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
 import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
-import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
+import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
@@ -390,6 +390,11 @@ export function renameVm(input: {
   });
 }
 
+/**
+ * Detach tunnels from team networks their owner no longer belongs to. Freestyle
+ * is the record of both the team networks (found by slug) and their attached
+ * tunnels; candidate teams come from the live machines billed to them.
+ */
 function reconcileTeamTunnelAttachments(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
@@ -399,46 +404,50 @@ function reconcileTeamTunnelAttachments(
   budgetMs = 60_000,
   now: () => number = Date.now,
 ): Effect.Effect<void, never> {
-  const detachAttachment = (network: { readonly provider: ProviderId; readonly id: string; readonly providerNetworkId: string }, attachment: { readonly tunnelId: string; readonly providerTunnelId: string; readonly writeToken: string }) =>
+  const reconcileTeam = (owner: { readonly teamId: string; readonly provider: ProviderId }) =>
     Effect.gen(function* () {
-      yield* providers.detachTunnelNetwork!(network.provider, attachment.providerTunnelId, network.providerNetworkId);
-      yield* repo.deleteTunnelTeamNetwork?.(attachment.tunnelId, network.id, { writeToken: attachment.writeToken }) ?? Effect.void;
+      const network = yield* providers.getNetwork!(owner.provider, networkSlugForTeam(owner.teamId));
+      if (!network) return;
+      const membersResult = yield* listTeamMemberIdsWithTimeout(directory, owner.teamId, timeoutMs);
+      if ("error" in membersResult) return;
+      const members = membersResult.memberIds ? new Set(membersResult.memberIds) : null;
+      const tunnelIds = yield* providers.listNetworkTunnelIds!(owner.provider, network.id);
+      const rows = yield* repo.findTunnelsByProviderTunnelIds!(owner.provider, tunnelIds);
+      for (const row of rows) {
+        // Tunnels with no row are skipped: the provider account can hold
+        // tunnels another environment issued.
+        const remove = members === null || row.revokedAt !== null || !members.has(row.userId);
+        if (!remove) continue;
+        yield* providers.detachTunnelNetwork!(owner.provider, row.providerTunnelId, network.id).pipe(Effect.catchAll(() => Effect.void));
+      }
     }).pipe(Effect.catchAll(() => Effect.void));
   return Effect.gen(function* () {
     const startedAt = now();
-    let afterTeamNetworkId: string | undefined;
+    let after: { teamId: string; provider: ProviderId } | undefined;
     for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
       if (now() - startedAt >= budgetMs) {
         yield* Effect.logInfo("Cloud team tunnel reconciliation budget exhausted", {
-          skippedNetworksInPage: 0,
+          skippedTeamsInPage: 0,
           remainingPagesUnread: true,
         });
         break;
       }
-      const page = yield* repo.listTeamNetworkAttachmentsPage!({ limit: pageSize, afterTeamNetworkId }).pipe(Effect.catchAll(() => Effect.succeed([])));
+      const page = yield* repo.listActiveTeamVmOwners!({ limit: pageSize, after }).pipe(Effect.catchAll(() => Effect.succeed([])));
       if (page.length === 0) break;
-      for (const [index, network] of page.entries()) {
+      for (const [index, owner] of page.entries()) {
         if (now() - startedAt >= budgetMs) {
-          // Count only fetched networks; further pages remain unread for the next run.
+          // Count only fetched teams; further pages remain unread for the next run.
           yield* Effect.logInfo("Cloud team tunnel reconciliation budget exhausted", {
-            skippedNetworksInPage: page.length - index,
+            skippedTeamsInPage: page.length - index,
             remainingPagesUnread: page.length === pageSize,
           });
           return;
         }
-        const membersResult = yield* listTeamMemberIdsWithTimeout(directory, network.teamId, timeoutMs);
-        if ("error" in membersResult) continue;
-        const members = membersResult.memberIds;
-        const memberSet = members ? new Set(members) : null;
-        for (const attachment of network.attachments) {
-          const remove = members === null || attachment.revokedAt !== null || !memberSet?.has(attachment.userId);
-          if (!remove) continue;
-          yield* detachAttachment(network, attachment);
-        }
+        yield* reconcileTeam(owner);
       }
       if (page.length < pageSize) break;
-      afterTeamNetworkId = page[page.length - 1]?.id;
-      if (!afterTeamNetworkId) break;
+      after = page[page.length - 1];
+      if (!after) break;
     }
   }).pipe(Effect.catchAllCause(() => Effect.void));
 }
@@ -513,7 +522,10 @@ export function reconcileVmProviderStatuses(input: {
       else if (outcome === "destroyed") destroyed += 1;
       else if (outcome === "skipped") skipped += 1;
     }
-    if (input.teamDirectory && repo.listTeamNetworkAttachmentsPage && providers.detachTunnelNetwork) {
+    if (
+      input.teamDirectory && repo.listActiveTeamVmOwners && repo.findTunnelsByProviderTunnelIds &&
+      providers.getNetwork && providers.listNetworkTunnelIds && providers.detachTunnelNetwork
+    ) {
       yield* reconcileTeamTunnelAttachments(
         repo, providers, input.teamDirectory, input.directoryTimeoutMs,
         input.teamNetworkPageSize, input.teamReconcileBudgetMs, input.now,

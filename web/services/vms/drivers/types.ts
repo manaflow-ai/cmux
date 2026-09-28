@@ -431,8 +431,8 @@ export interface VMPrivateNetworking {
    * must land on one network, not two.
    */
   ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean }): Promise<ProviderNetwork>;
-  /** Read a network back, or null when it no longer exists at the provider. */
-  getNetwork(networkId: string): Promise<ProviderNetwork | null>;
+  /** Read a network back by id or slug, or null when the provider has none. */
+  getNetwork(networkIdOrSlug: string): Promise<ProviderNetwork | null>;
   /** Delete a network. Must succeed when it is already gone. */
   deleteNetwork(networkId: string): Promise<void>;
   /** Create a tunnel with the network already attached. */
@@ -453,6 +453,8 @@ export interface VMPrivateNetworking {
   deleteTunnel(tunnelId: string): Promise<void>;
   attachTunnelNetwork?(tunnelId: string, networkId: string): Promise<ProviderTunnelAttachment>;
   detachTunnelNetwork?(tunnelId: string, networkId: string): Promise<void>;
+  /** Ids of every tunnel attached to a network. */
+  listNetworkTunnelIds?(networkId: string): Promise<string[]>;
 }
 
 export interface VMProvider {

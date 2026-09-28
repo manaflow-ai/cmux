@@ -13,8 +13,6 @@ import {
   cloudVmBillingGrants,
   cloudVmLeases,
   cloudVmNetworks,
-  cloudVmTeamNetworks,
-  cloudVmTunnelTeamNetworks,
   cloudVmAccessGrants,
   cloudVmAccessGrantSessions,
   cloudVmSessions,
@@ -78,8 +76,6 @@ export type CloudVmAccessLeaseRow = CloudVmLeaseRow & {
 };
 export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
 export type CloudVmNetworkRow = typeof cloudVmNetworks.$inferSelect;
-export type CloudVmTeamNetworkRow = typeof cloudVmTeamNetworks.$inferSelect;
-export type CloudVmTunnelTeamNetworkRow = typeof cloudVmTunnelTeamNetworks.$inferSelect;
 export type CloudVmAccessGrantRow = typeof cloudVmAccessGrants.$inferSelect;
 export type CloudVmAccessGrantSessionRow = typeof cloudVmAccessGrantSessions.$inferSelect;
 export type CloudVmTunnelRow = typeof cloudVmTunnels.$inferSelect;
@@ -150,21 +146,6 @@ export type VmRepositoryShape = {
     readonly cidr?: string | null;
     readonly cidrV6?: string | null;
   }) => Effect.Effect<CloudVmNetworkRow, VmDatabaseError>;
-  readonly findTeamNetwork?: (teamId: string, provider: ProviderId) => Effect.Effect<CloudVmTeamNetworkRow | null, VmDatabaseError>;
-  readonly upsertTeamNetwork?: (input: {
-    readonly teamId: string;
-    readonly provider: ProviderId;
-    readonly providerNetworkId: string;
-    readonly slug?: string | null;
-    readonly cidr?: string | null;
-    readonly cidrV6?: string | null;
-    readonly createdByUserId: string;
-  }) => Effect.Effect<CloudVmTeamNetworkRow, VmDatabaseError>;
-  readonly listTeamNetworks?: (teamIds: readonly string[], provider: ProviderId) => Effect.Effect<CloudVmTeamNetworkRow[], VmDatabaseError>;
-  readonly listTunnelTeamNetworks?: (tunnelId: string) => Effect.Effect<Array<CloudVmTunnelTeamNetworkRow & { readonly teamNetwork: CloudVmTeamNetworkRow }>, VmDatabaseError>;
-  readonly insertTunnelTeamNetwork?: (input: { tunnelId: string; teamNetworkId: string; addressV4?: string | null; addressV6?: string | null }) => Effect.Effect<CloudVmTunnelTeamNetworkRow, VmDatabaseError>;
-  readonly deleteTunnelTeamNetwork?: (tunnelId: string, teamNetworkId: string, options?: { readonly writeToken?: string }) => Effect.Effect<void, VmDatabaseError>;
-  readonly listTeamNetworkAttachmentsPage?: (input: { limit: number; afterTeamNetworkId?: string }) => Effect.Effect<Array<CloudVmTeamNetworkRow & { attachments: Array<{ tunnelId: string; providerTunnelId: string; userId: string; revokedAt: Date | null; writeToken: string }> }>, VmDatabaseError>;
   readonly deleteNetwork?: (id: string) => Effect.Effect<void, VmDatabaseError>;
   readonly findAccessGrant?: (input: {
     readonly userId: string;
@@ -220,6 +201,14 @@ export type VmRepositoryShape = {
     readonly tunnelPurpose: "terminal" | "browser";
   }) => Effect.Effect<CloudVmTunnelRow | null, VmDatabaseError>;
   readonly listUserTunnels?: (userId: string) => Effect.Effect<CloudVmTunnelRow[], VmDatabaseError>;
+  /**
+   * Tunnel rows for provider tunnel ids, revoked or not. Ids with no row are
+   * absent: the provider account may hold tunnels this database never issued.
+   */
+  readonly findTunnelsByProviderTunnelIds?: (
+    provider: ProviderId,
+    providerTunnelIds: readonly string[],
+  ) => Effect.Effect<Array<Pick<CloudVmTunnelRow, "providerTunnelId" | "userId" | "revokedAt">>, VmDatabaseError>;
   readonly insertTunnel?: (input: {
     readonly userId: string;
     readonly networkId: string;
@@ -433,6 +422,15 @@ export type VmRepositoryShape = {
     /** Unique generation returned by reserveVmResize. */
     readonly operationId: string;
   }) => Effect.Effect<void, VmDatabaseError>;
+  /**
+   * Teams with at least one live machine billed to them, one row per team and
+   * provider, in (team, provider) order for keyset paging. Personal billing is
+   * excluded; personal machines never join a team network.
+   */
+  readonly listActiveTeamVmOwners?: (input: {
+    readonly limit: number;
+    readonly after?: { readonly teamId: string; readonly provider: ProviderId };
+  }) => Effect.Effect<Array<{ teamId: string; provider: ProviderId }>, VmDatabaseError>;
   readonly reconciliationCandidates: (input: {
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
@@ -1112,10 +1110,6 @@ function networkUpsertLockKey(input: { readonly userId: string; readonly provide
   return `network:${input.provider}:${input.userId}`;
 }
 
-function teamNetworkUpsertLockKey(input: { readonly teamId: string; readonly provider: ProviderId }): string {
-  return `team-network:${input.provider}:${input.teamId}`;
-}
-
 /** The Postgres-backed repository. Workflows wrap it with the analytics sink (see workflows.ts). */
 export const vmRepositoryLiveShape: VmRepositoryShape = {
   findNetwork: (userId, provider) =>
@@ -1166,82 +1160,6 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         return row;
       });
     }),
-
-  findTeamNetwork: (teamId, provider) =>
-    dbEffect("findTeamNetwork", async () => {
-      const [row] = await cloudDb().select().from(cloudVmTeamNetworks)
-        .where(and(eq(cloudVmTeamNetworks.teamId, teamId), eq(cloudVmTeamNetworks.provider, provider))).limit(1);
-      return row ?? null;
-    }),
-
-  upsertTeamNetwork: (input) =>
-    dbEffect("upsertTeamNetwork", async () => {
-      return cloudDb().transaction(async (tx) => {
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${teamNetworkUpsertLockKey(input)}, 0))`);
-        const [row] = await tx.insert(cloudVmTeamNetworks).values({
-          teamId: input.teamId,
-          provider: input.provider,
-          providerNetworkId: input.providerNetworkId,
-          slug: input.slug ?? null,
-          cidr: input.cidr ?? null,
-          cidrV6: input.cidrV6 ?? null,
-          createdByUserId: input.createdByUserId,
-        }).onConflictDoUpdate({
-          target: [cloudVmTeamNetworks.teamId, cloudVmTeamNetworks.provider],
-          set: { providerNetworkId: input.providerNetworkId, slug: input.slug ?? null, cidr: input.cidr ?? null, cidrV6: input.cidrV6 ?? null, updatedAt: new Date() },
-        }).returning();
-        if (!row) throw new Error("upsertTeamNetwork returned no row");
-        return row;
-      });
-    }),
-
-  listTeamNetworks: (teamIds, provider) => dbEffect("listTeamNetworks", async () => {
-    if (teamIds.length === 0) return [];
-    return cloudDb().select().from(cloudVmTeamNetworks).where(and(inArray(cloudVmTeamNetworks.teamId, [...teamIds]), eq(cloudVmTeamNetworks.provider, provider)));
-  }),
-
-  listTunnelTeamNetworks: (tunnelId) => dbEffect("listTunnelTeamNetworks", async () => {
-    return cloudDb().select({ attachment: cloudVmTunnelTeamNetworks, teamNetwork: cloudVmTeamNetworks })
-      .from(cloudVmTunnelTeamNetworks)
-      .innerJoin(cloudVmTeamNetworks, eq(cloudVmTeamNetworks.id, cloudVmTunnelTeamNetworks.teamNetworkId))
-      .where(eq(cloudVmTunnelTeamNetworks.tunnelId, tunnelId))
-      .then((rows) => rows.map(({ attachment, teamNetwork }) => ({ ...attachment, teamNetwork })));
-  }),
-
-  insertTunnelTeamNetwork: (input) => dbEffect("insertTunnelTeamNetwork", async () => {
-    const [row] = await cloudDb().insert(cloudVmTunnelTeamNetworks).values({
-      tunnelId: input.tunnelId, teamNetworkId: input.teamNetworkId, addressV4: input.addressV4 ?? null, addressV6: input.addressV6 ?? null,
-    }).onConflictDoUpdate({ target: [cloudVmTunnelTeamNetworks.tunnelId, cloudVmTunnelTeamNetworks.teamNetworkId], set: { addressV4: input.addressV4 ?? null, addressV6: input.addressV6 ?? null, writeToken: sql`gen_random_uuid()` } }).returning();
-    if (!row) throw new Error("insertTunnelTeamNetwork returned no row");
-    return row;
-  }),
-
-  deleteTunnelTeamNetwork: (tunnelId, teamNetworkId, options) => dbEffect("deleteTunnelTeamNetwork", async () => {
-    await cloudDb().delete(cloudVmTunnelTeamNetworks).where(and(
-      eq(cloudVmTunnelTeamNetworks.tunnelId, tunnelId),
-      eq(cloudVmTunnelTeamNetworks.teamNetworkId, teamNetworkId),
-      ...(options?.writeToken === undefined ? [] : [eq(cloudVmTunnelTeamNetworks.writeToken, options.writeToken)]),
-    ));
-  }),
-
-  listTeamNetworkAttachmentsPage: (input) => dbEffect("listTeamNetworkAttachmentsPage", async () => {
-    const networks = await cloudDb().select().from(cloudVmTeamNetworks)
-      .where(input.afterTeamNetworkId ? gt(cloudVmTeamNetworks.id, input.afterTeamNetworkId) : undefined)
-      .orderBy(asc(cloudVmTeamNetworks.id)).limit(input.limit);
-    if (networks.length === 0) return [];
-    const networkIds = networks.map((network) => network.id);
-    const attachments = await cloudDb().select({ teamNetworkId: cloudVmTunnelTeamNetworks.teamNetworkId, writeToken: cloudVmTunnelTeamNetworks.writeToken, tunnelId: cloudVmTunnelTeamNetworks.tunnelId, providerTunnelId: cloudVmTunnels.providerTunnelId, userId: cloudVmTunnels.userId, revokedAt: cloudVmTunnels.revokedAt })
-      .from(cloudVmTunnelTeamNetworks)
-      .innerJoin(cloudVmTunnels, eq(cloudVmTunnels.id, cloudVmTunnelTeamNetworks.tunnelId))
-      .where(inArray(cloudVmTunnelTeamNetworks.teamNetworkId, networkIds));
-    const grouped = new Map<string, Array<{ tunnelId: string; providerTunnelId: string; userId: string; revokedAt: Date | null; writeToken: string }>>();
-    for (const attachment of attachments) {
-      const list = grouped.get(attachment.teamNetworkId) ?? [];
-      list.push({ tunnelId: attachment.tunnelId, providerTunnelId: attachment.providerTunnelId, userId: attachment.userId, revokedAt: attachment.revokedAt, writeToken: attachment.writeToken });
-      grouped.set(attachment.teamNetworkId, list);
-    }
-    return networks.map((network) => ({ ...network, attachments: grouped.get(network.id) ?? [] }));
-  }),
 
   deleteNetwork: (id) =>
     dbEffect("deleteNetwork", async () => {
@@ -1477,6 +1395,23 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .from(cloudVmTunnels)
         .where(and(eq(cloudVmTunnels.userId, userId), isNull(cloudVmTunnels.revokedAt)))
         .orderBy(desc(cloudVmTunnels.createdAt));
+    }),
+
+  findTunnelsByProviderTunnelIds: (provider, providerTunnelIds) =>
+    dbEffect("findTunnelsByProviderTunnelIds", async () => {
+      if (providerTunnelIds.length === 0) return [];
+      const db = cloudDb();
+      return await db
+        .select({
+          providerTunnelId: cloudVmTunnels.providerTunnelId,
+          userId: cloudVmTunnels.userId,
+          revokedAt: cloudVmTunnels.revokedAt,
+        })
+        .from(cloudVmTunnels)
+        .where(and(
+          eq(cloudVmTunnels.provider, provider),
+          inArray(cloudVmTunnels.providerTunnelId, [...providerTunnelIds]),
+        ));
     }),
 
   insertTunnel: (input) =>
@@ -2738,6 +2673,24 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             sql`${cloudVms.providerMetadata}->${sql.raw(`'${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY}'`)}->>'operationId' = ${operationId}`,
           ));
       });
+    }),
+
+  listActiveTeamVmOwners: (input) =>
+    dbEffect("listActiveTeamVmOwners", async () => {
+      const db = cloudDb();
+      return await db
+        .selectDistinct({ teamId: sql<string>`${cloudVms.billingTeamId}`, provider: cloudVms.provider })
+        .from(cloudVms)
+        .where(and(
+          isNotNull(cloudVms.billingTeamId),
+          ne(cloudVms.billingTeamId, cloudVms.userId),
+          ne(cloudVms.status, "destroyed"),
+          input.after
+            ? sql`(${cloudVms.billingTeamId}, ${cloudVms.provider}) > (${input.after.teamId}, ${input.after.provider})`
+            : undefined,
+        ))
+        .orderBy(asc(cloudVms.billingTeamId), asc(cloudVms.provider))
+        .limit(input.limit);
     }),
 
   reconciliationCandidates: (input) =>

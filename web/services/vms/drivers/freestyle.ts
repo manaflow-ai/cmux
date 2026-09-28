@@ -626,12 +626,12 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     );
   }
 
-  async getNetwork(networkId: string): Promise<ProviderNetwork | null> {
+  async getNetwork(networkIdOrSlug: string): Promise<ProviderNetwork | null> {
     try {
-      return mapFreestyleNetwork(await this.client().vpc.get(networkId));
+      return mapFreestyleNetwork(await this.client().vpc.get(networkIdOrSlug));
     } catch (err) {
       if (isNotFound(err)) return null;
-      throw new ProviderError("freestyle", `getNetwork(${networkId})`, err);
+      throw new ProviderError("freestyle", `getNetwork(${networkIdOrSlug})`, err);
     }
   }
 
@@ -788,6 +788,15 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     } catch (err) {
       if (isNotFound(err)) return;
       throw new ProviderError("freestyle", `detachTunnelNetwork(${tunnelId})`, err);
+    }
+  }
+
+  async listNetworkTunnelIds(networkId: string): Promise<string[]> {
+    try {
+      const { tunnels } = await this.client().vpc.ref(networkId).tunnels.list();
+      return tunnels.map((tunnel) => tunnel.tunnelId ?? tunnel.id);
+    } catch (err) {
+      throw new ProviderError("freestyle", `listNetworkTunnelIds(${networkId})`, err);
     }
   }
 

@@ -40,6 +40,7 @@ import {
   vmWorkflowErrorCause,
 } from "../services/vms/errors";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
+import { networkSlugForTeam } from "../services/vms/privateNetwork";
 import { isVmAttachTransportUnsupportedError } from "../services/vms/errors";
 import { freestyleGuestFixture, guestCreateOptions } from "./fixtures/freestyleGuest";
 import {
@@ -910,25 +911,15 @@ describe("VM Effect workflows", () => {
       providerMetadata: { cmuxResourceReservation: { vcpus: 2, memoryMb: 4096, diskMb: 32768 } },
     });
     const pending = testCloudVmRow({ ...source, id: "00000000-0000-4000-8000-000000000162", providerVmId: null, status: "provisioning" });
-    const team = {
-      id: "team-row-fork", teamId: source.billingTeamId!, provider: "freestyle" as const,
-      providerNetworkId: "vpc-team", slug: "team", cidr: "10.70.0.0/24", cidrV6: "fd70::/64",
-      createdByUserId: source.userId, createdAt: new Date(), updatedAt: new Date(),
-    };
     let createdNetwork: unknown;
     const repo: VmRepositoryShape = {
       ...testWorkflowRepo({ vm: source }),
       beginCreate: () => Effect.succeed({ inserted: true, vm: pending }),
       markCreateRunning: ({ providerVmId }) => Effect.succeed({ ...pending, providerVmId, status: "running" }),
-      findTeamNetwork: () => Effect.succeed(team),
-      upsertTeamNetwork: () => Effect.succeed(team),
-      listTeamNetworks: () => Effect.succeed([team]),
-      listTunnelTeamNetworks: () => Effect.succeed([]),
-      insertTunnelTeamNetwork: () => Effect.die("unused"),
-      deleteTunnelTeamNetwork: () => Effect.void,
     };
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
+      getNetwork: testTeamNetworkLookup(source.billingTeamId!),
       getStatus: () => Effect.succeed("running"),
       snapshot: () => Effect.succeed({ id: "snapshot-fork-team", createdAt: Date.now() }),
       create: (_provider, options) => {
@@ -957,7 +948,6 @@ describe("VM Effect workflows", () => {
     });
     let beginInput: { resourceReservation?: unknown } | undefined;
     let createOptions: { memoryMb?: number; network?: unknown } | undefined;
-    const teamNetwork = { id: "team-row", teamId: "team-workflow-restore-shape", provider: "freestyle" as const, providerNetworkId: "vpc-team", slug: "team", cidr: "10.70.0.0/24", cidrV6: "fd70::/64", createdByUserId: "user-workflow-restore-shape", createdAt: new Date(), updatedAt: new Date() };
     const repo = {
       ...testWorkflowRepo({ vm: provisioning }),
       pendingSnapshotDeletions: () => Effect.succeed([]),
@@ -976,15 +966,10 @@ describe("VM Effect workflows", () => {
         providerVmId,
         status: "running" as const,
       }),
-      findTeamNetwork: () => Effect.succeed(teamNetwork),
-      upsertTeamNetwork: () => Effect.succeed(teamNetwork),
-      listTeamNetworks: () => Effect.succeed([teamNetwork]),
-      listTunnelTeamNetworks: () => Effect.succeed([]),
-      insertTunnelTeamNetwork: () => Effect.succeed({ writeToken: "token-restore-unused" } as never),
-      deleteTunnelTeamNetwork: () => Effect.void,
     } as unknown as VmRepositoryShape;
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
+      getNetwork: testTeamNetworkLookup(provisioning.billingTeamId!),
       create: (_provider, options) => {
         createOptions = options;
         return Effect.succeed(testVmHandle({ providerVmId: "provider-vm-restore-shape" }));
@@ -7043,6 +7028,13 @@ function unusedProviderGateway(): VmProviderGatewayShape {
   };
 }
 
+/** A provider `getNetwork` that knows one team's network, as `resolveOwnerNetwork` finds it by slug. */
+function testTeamNetworkLookup(teamId: string): NonNullable<VmProviderGatewayShape["getNetwork"]> {
+  return (_provider, networkIdOrSlug) => Effect.succeed(networkIdOrSlug === networkSlugForTeam(teamId)
+    ? { id: "vpc-team", slug: networkIdOrSlug, cidr: "10.70.0.0/24", cidrV6: "fd70::/64" }
+    : null);
+}
+
 function testPrivateNetworkProvider(provider: VmProviderGatewayShape): VmProviderGatewayShape {
   return {
     supportsPrivateNetworking: () => true,
@@ -7385,38 +7377,54 @@ describe("private SCP workflow", () => {
   });
 });
 
-describe("team tunnel attachment repository", () => {
-  dbTest("team attachment deletes match only the current write token", async () => {
+describe("team network owner repository", () => {
+  dbTest("lists live team-billed owners once per team and provider, in keyset order", async () => {
+    const database = sql;
+    if (!database) throw new Error("test database not initialized");
+    const ids = [
+      "00000000-0000-4000-8000-0000000000e1",
+      "00000000-0000-4000-8000-0000000000e2",
+      "00000000-0000-4000-8000-0000000000e3",
+      "00000000-0000-4000-8000-0000000000e4",
+      "00000000-0000-4000-8000-0000000000e5",
+    ];
+    try {
+      await database`delete from cloud_vms where id in ${database(ids)}`;
+      await database`insert into cloud_vms (id, user_id, billing_team_id, provider, image_id, status) values
+        (${ids[0]}, 'owner-user-a', 'team-owner-a', 'freestyle', 'image', 'running'),
+        (${ids[1]}, 'owner-user-b', 'team-owner-a', 'freestyle', 'image', 'running'),
+        (${ids[2]}, 'owner-user-c', 'team-owner-b', 'freestyle', 'image', 'running'),
+        (${ids[3]}, 'owner-user-d', 'team-owner-gone', 'freestyle', 'image', 'destroyed'),
+        (${ids[4]}, 'team-owner-personal', 'team-owner-personal', 'freestyle', 'image', 'running')`;
+      const ours = (rows: Array<{ teamId: string; provider: string }>) => rows.filter((row) => row.teamId.startsWith("team-owner-"));
+      const all = await Effect.runPromise(vmRepositoryLiveShape.listActiveTeamVmOwners!({ limit: 1000 }));
+      expect(ours(all)).toEqual([
+        { teamId: "team-owner-a", provider: "freestyle" },
+        { teamId: "team-owner-b", provider: "freestyle" },
+      ]);
+      const next = await Effect.runPromise(vmRepositoryLiveShape.listActiveTeamVmOwners!({ limit: 1000, after: { teamId: "team-owner-a", provider: "freestyle" } }));
+      expect(ours(next)).toEqual([{ teamId: "team-owner-b", provider: "freestyle" }]);
+    } finally {
+      await database`delete from cloud_vms where id in ${database(ids)}`;
+    }
+  });
+
+  dbTest("finds tunnel owners by provider tunnel id", async () => {
     const database = sql;
     if (!database) throw new Error("test database not initialized");
     const networkId = "00000000-0000-4000-8000-0000000000d1";
     const grantId = "00000000-0000-4000-8000-0000000000d2";
     const tunnelId = "00000000-0000-4000-8000-0000000000d3";
-    const teamNetworkId = "00000000-0000-4000-8000-0000000000d4";
     try {
-      await database`delete from cloud_vm_team_networks where id = ${teamNetworkId}`;
       await database`delete from cloud_vm_networks where id = ${networkId}`;
       await database`delete from cloud_vm_access_grants where id = ${grantId}`;
-      await database`insert into cloud_vm_networks (id, user_id, provider, provider_network_id) values (${networkId}, 'user-team-token', 'freestyle', 'vpc-home-token')`;
-      await database`insert into cloud_vm_access_grants (id, user_id, device_id) values (${grantId}, 'user-team-token', 'device-team-token')`;
-      await database`insert into cloud_vm_tunnels (id, user_id, network_id, access_grant_id, provider, provider_tunnel_id, device_fingerprint, tunnel_purpose, client_public_key) values (${tunnelId}, 'user-team-token', ${networkId}, ${grantId}, 'freestyle', 'tun-team-token', 'device-team-token', 'browser', 'client-key')`;
-      await database`insert into cloud_vm_team_networks (id, team_id, provider, provider_network_id, created_by_user_id) values (${teamNetworkId}, 'team-token', 'freestyle', 'vpc-team-token', 'user-team-token')`;
-
-      const first = await Effect.runPromise(vmRepositoryLiveShape.insertTunnelTeamNetwork!({ tunnelId, teamNetworkId, addressV4: "10.1.0.2", addressV6: "fd01::2" }));
-      const second = await Effect.runPromise(vmRepositoryLiveShape.insertTunnelTeamNetwork!({ tunnelId, teamNetworkId, addressV4: "10.1.0.3", addressV6: "fd01::3" }));
-      expect(second.writeToken).not.toBe(first.writeToken);
-      await Effect.runPromise(vmRepositoryLiveShape.deleteTunnelTeamNetwork!(tunnelId, teamNetworkId, { writeToken: first.writeToken }));
-      expect((await Effect.runPromise(vmRepositoryLiveShape.listTunnelTeamNetworks!(tunnelId))).length).toBe(1);
-
-      await Effect.runPromise(vmRepositoryLiveShape.deleteTunnelTeamNetwork!(tunnelId, teamNetworkId));
-      const third = await Effect.runPromise(vmRepositoryLiveShape.insertTunnelTeamNetwork!({ tunnelId, teamNetworkId, addressV4: "10.1.0.4", addressV6: "fd01::4" }));
-      expect([first.writeToken, second.writeToken]).not.toContain(third.writeToken);
-      await Effect.runPromise(vmRepositoryLiveShape.deleteTunnelTeamNetwork!(tunnelId, teamNetworkId, { writeToken: second.writeToken }));
-      expect((await Effect.runPromise(vmRepositoryLiveShape.listTunnelTeamNetworks!(tunnelId))).length).toBe(1);
-      await Effect.runPromise(vmRepositoryLiveShape.deleteTunnelTeamNetwork!(tunnelId, teamNetworkId, { writeToken: third.writeToken }));
-      expect((await Effect.runPromise(vmRepositoryLiveShape.listTunnelTeamNetworks!(tunnelId))).length).toBe(0);
+      await database`insert into cloud_vm_networks (id, user_id, provider, provider_network_id) values (${networkId}, 'user-team-tunnel', 'freestyle', 'vpc-home-team-tunnel')`;
+      await database`insert into cloud_vm_access_grants (id, user_id, device_id) values (${grantId}, 'user-team-tunnel', 'device-team-tunnel')`;
+      await database`insert into cloud_vm_tunnels (id, user_id, network_id, access_grant_id, provider, provider_tunnel_id, device_fingerprint, tunnel_purpose, client_public_key) values (${tunnelId}, 'user-team-tunnel', ${networkId}, ${grantId}, 'freestyle', 'tun-team-tunnel', 'device-team-tunnel', 'browser', 'client-key')`;
+      expect(await Effect.runPromise(vmRepositoryLiveShape.findTunnelsByProviderTunnelIds!("freestyle", []))).toEqual([]);
+      const rows = await Effect.runPromise(vmRepositoryLiveShape.findTunnelsByProviderTunnelIds!("freestyle", ["tun-team-tunnel", "tun-team-unknown"]));
+      expect(rows).toEqual([{ providerTunnelId: "tun-team-tunnel", userId: "user-team-tunnel", revokedAt: null }]);
     } finally {
-      await database`delete from cloud_vm_team_networks where id = ${teamNetworkId}`;
       await database`delete from cloud_vm_networks where id = ${networkId}`;
       await database`delete from cloud_vm_access_grants where id = ${grantId}`;
     }
@@ -7424,59 +7432,103 @@ describe("team tunnel attachment repository", () => {
 });
 
 describe("team tunnel cron reconciliation", () => {
-  test("conditional delete preserves a concurrent re-attach for the next pass", async () => {
-    const vm = testCloudVmRow({ providerVmId: "provider-vm-cron-token" });
-    let writeToken = "token-initial";
-    let firstDetach = true;
-    const deleted: string[] = [];
-    const repo = {
+  type TeamOwner = { readonly teamId: string; readonly provider: "freestyle" };
+  type TunnelOwner = { readonly providerTunnelId: string; readonly userId: string; readonly revokedAt: Date | null };
+
+  function teamCronRepo(
+    vm: CloudVmRow,
+    owners: (after: TeamOwner | undefined) => TeamOwner[],
+    tunnels: readonly TunnelOwner[],
+  ): VmRepositoryShape {
+    return {
       ...testWorkflowRepo({ vm }),
-      listTeamNetworkAttachmentsPage: () => Effect.succeed([{
-        id: "token-row", teamId: "team-token", provider: "freestyle" as const,
-        providerNetworkId: "vpc-token", slug: "token", cidr: "10.63.0.0/24", cidrV6: "fd63::/64",
-        createdByUserId: "user-1", createdAt: new Date(), updatedAt: new Date(),
-        attachments: [{ tunnelId: "tun-token", providerTunnelId: "tun-token", userId: "removed", revokedAt: null, writeToken }],
-      }]),
-      deleteTunnelTeamNetwork: (_tunnelId: string, _teamNetworkId: string, options?: { writeToken?: string }) => Effect.sync(() => {
-        if (options?.writeToken === writeToken) deleted.push("token-row");
-      }),
-    } as unknown as VmRepositoryShape;
-    const provider = {
+      listActiveTeamVmOwners: ({ after }) => Effect.sync(() => owners(after as TeamOwner | undefined)),
+      findTunnelsByProviderTunnelIds: (_provider, providerTunnelIds) =>
+        Effect.succeed(tunnels.filter((tunnel) => providerTunnelIds.includes(tunnel.providerTunnelId))),
+    };
+  }
+
+  function teamCronProvider(options: {
+    readonly networks: Readonly<Record<string, readonly string[]>>;
+    readonly lookupFailures?: readonly string[];
+    readonly detached: string[];
+    readonly failDetach?: string;
+  }): VmProviderGatewayShape {
+    return {
       ...testPrivateNetworkProvider(unusedProviderGateway()),
       getStatus: () => Effect.succeed("running" as const),
-      detachTunnelNetwork: () => Effect.sync(() => { if (firstDetach) { firstDetach = false; writeToken = "token-rejoined"; } }),
-    } as VmProviderGatewayShape;
-    const directory = { listMemberIds: async () => [] };
-    const layer = Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, provider), Layer.succeed(VmBillingGateway, noOpVmBillingGateway()));
-    await Effect.runPromise(reconcileVmProviderStatuses({ teamDirectory: directory }).pipe(Effect.provide(layer)));
-    expect(deleted).toEqual([]);
-    await Effect.runPromise(reconcileVmProviderStatuses({ teamDirectory: directory }).pipe(Effect.provide(layer)));
-    expect(deleted).toEqual(["token-row"]);
+      getNetwork: (_provider, slug) => {
+        const teamId = Object.keys(options.networks).find((candidate) => networkSlugForTeam(candidate) === slug)
+          ?? options.lookupFailures?.find((candidate) => networkSlugForTeam(candidate) === slug);
+        if (teamId && options.lookupFailures?.includes(teamId)) {
+          return Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "getNetwork", cause: new Error("unavailable") }));
+        }
+        return Effect.succeed(teamId ? { id: `vpc-${teamId}`, slug, cidr: "10.60.0.0/24", cidrV6: "fd60::/64" } : null);
+      },
+      listNetworkTunnelIds: (_provider, networkId) =>
+        Effect.succeed([...(options.networks[networkId.replace(/^vpc-/, "")] ?? [])]),
+      detachTunnelNetwork: (_provider, tunnelId, networkId) => {
+        if (tunnelId === options.failDetach) {
+          return Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "detachTunnelNetwork", cause: new Error("failed") }));
+        }
+        return Effect.sync(() => { options.detached.push(`${tunnelId}@${networkId}`); });
+      },
+    };
+  }
+
+  test("detaches non-member, revoked, and gone-team tunnels, skips unknown tunnels, and isolates failures", async () => {
+    const vm = testCloudVmRow({ providerVmId: "provider-vm-cron-team" });
+    const detached: string[] = [];
+    const directoryCalls: string[] = [];
+    const owners = ["team-1", "team-no-network", "team-gone", "team-error", "team-lookup-error", "team-good"]
+      .map((teamId) => ({ teamId, provider: "freestyle" as const }));
+    const repo = teamCronRepo(vm, (after) => after ? [] : owners, [
+      { providerTunnelId: "tun-member", userId: "member-1", revokedAt: null },
+      { providerTunnelId: "tun-removed", userId: "removed", revokedAt: null },
+      { providerTunnelId: "tun-revoked", userId: "member-1", revokedAt: new Date() },
+      { providerTunnelId: "tun-gone", userId: "member-1", revokedAt: null },
+      { providerTunnelId: "tun-skipped", userId: "removed", revokedAt: null },
+      { providerTunnelId: "tun-bad", userId: "removed", revokedAt: null },
+      { providerTunnelId: "tun-good", userId: "removed", revokedAt: null },
+    ]);
+    const provider = teamCronProvider({
+      networks: {
+        "team-1": ["tun-member", "tun-removed", "tun-revoked", "tun-other-environment"],
+        "team-gone": ["tun-gone"],
+        "team-error": ["tun-skipped"],
+        "team-good": ["tun-bad", "tun-good"],
+      },
+      lookupFailures: ["team-lookup-error"],
+      detached,
+      failDetach: "tun-bad",
+    });
+    const directory = {
+      listMemberIds: async (teamId: string) => {
+        directoryCalls.push(teamId);
+        if (teamId === "team-gone") return null;
+        if (teamId === "team-error") throw new Error("directory unavailable");
+        return ["member-1"];
+      },
+    };
+    await Effect.runPromise(reconcileVmProviderStatuses({ teamDirectory: directory }).pipe(Effect.provide(Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, provider), Layer.succeed(VmBillingGateway, noOpVmBillingGateway())))));
+    expect(detached).toEqual(["tun-removed@vpc-team-1", "tun-revoked@vpc-team-1", "tun-gone@vpc-team-gone", "tun-good@vpc-team-good"]);
+    expect(directoryCalls).toEqual(["team-1", "team-gone", "team-error", "team-good"]);
   });
 
-  test("runs status and heal before the bounded team pass and keeps unprocessed attachments", async () => {
+  test("runs status and heal before the bounded team pass and leaves unprocessed teams for the next run", async () => {
     const vm = testCloudVmRow({ providerVmId: "vm-cron-budget", status: "running" });
     const events: string[] = [];
-    const deleted: string[] = [];
-    const rows = ["first", "second"].map((id) => ({
-      id, teamId: id, provider: "freestyle" as const, providerNetworkId: `vpc-${id}`,
-      slug: id, cidr: "10.60.0.0/24", cidrV6: "fd60::/64",
-      createdByUserId: "user-1", createdAt: new Date(), updatedAt: new Date(),
-      attachments: [{ tunnelId: `tun-${id}`, providerTunnelId: `tun-${id}`, userId: "removed", revokedAt: null, writeToken: "token-0" }],
-    }));
     let time = 0;
     let pages = 0;
-    const repo: VmRepositoryShape = {
-      ...testWorkflowRepo({ vm }),
-      reconciliationCandidates: () => Effect.succeed([vm]),
-      listTeamNetworkAttachmentsPage: ({ afterTeamNetworkId }) => Effect.sync(() => {
-        pages += 1;
-        return afterTeamNetworkId ? [] : rows;
-      }),
-      deleteTunnelTeamNetwork: (_tunnelId, id) => Effect.sync(() => { deleted.push(id); }),
-    };
+    const repo = teamCronRepo(vm, (after) => {
+      pages += 1;
+      return after ? [] : [{ teamId: "first", provider: "freestyle" }, { teamId: "second", provider: "freestyle" }];
+    }, [
+      { providerTunnelId: "tun-first", userId: "removed", revokedAt: null },
+      { providerTunnelId: "tun-second", userId: "removed", revokedAt: null },
+    ]);
     const provider: VmProviderGatewayShape = {
-      ...unusedProviderGateway(),
+      ...teamCronProvider({ networks: { first: ["tun-first"], second: ["tun-second"] }, detached: [] }),
       getStatus: () => Effect.sync(() => {
         events.push("status");
         // Existing status work must complete before the team's budget starts.
@@ -7499,73 +7551,30 @@ describe("team tunnel cron reconciliation", () => {
       teamNetworkPageSize: 2,
       now: () => time,
     }).pipe(Effect.provide(Layer.mergeAll(
-      Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, provider),
+      Layer.succeed(VmRepository, { ...repo, reconciliationCandidates: () => Effect.succeed([vm]) }), Layer.succeed(VmProviderGateway, provider),
     ))));
     expect(events).toEqual(["status", "revoke-model-plane", "heal", "directory-first", "tun-first"]);
-    expect(deleted).toEqual(["first"]);
     expect(pages).toBe(1);
     expect(result).toEqual({ checked: 1, updated: 0, destroyed: 1, skipped: 0, skippedNoGetStatus: false });
   });
 
-  test("detaches removed, revoked, and gone-team attachments while isolating failures", async () => {
-    const vm = testCloudVmRow({ providerVmId: "provider-vm-cron-team" });
-    const detached: string[] = [];
-    const deleted: string[] = [];
-    const teamRow = (id: string, teamId: string) => ({ id, teamId, provider: "freestyle" as const, providerNetworkId: `vpc-${id}`, slug: id, cidr: "10.60.0.0/24", cidrV6: "fd60::/64", createdByUserId: "user-1", createdAt: new Date(), updatedAt: new Date() });
-    const first = teamRow("team-row-1", "team-1");
-    const gone = teamRow("team-row-2", "team-gone");
-    const error = teamRow("team-row-3", "team-error");
-    const good = teamRow("team-row-4", "team-good");
-    const repo = {
-      ...testWorkflowRepo({ vm }),
-      listTeamNetworkAttachmentsPage: () => Effect.succeed([
-        { ...first, attachments: [
-          { tunnelId: "tun-removed", providerTunnelId: "tun-removed", userId: "removed", revokedAt: null, writeToken: "token-0" },
-          { tunnelId: "tun-revoked", providerTunnelId: "tun-revoked", userId: "member-1", revokedAt: new Date(), writeToken: "token-0" },
-        ] },
-        { ...gone, attachments: [{ tunnelId: "tun-gone", providerTunnelId: "tun-gone", userId: "member-2", revokedAt: null, writeToken: "token-0" }] },
-        { ...error, attachments: [{ tunnelId: "tun-skipped", providerTunnelId: "tun-skipped", userId: "removed", revokedAt: null, writeToken: "token-0" }] },
-        { ...good, attachments: [
-          { tunnelId: "tun-bad", providerTunnelId: "tun-bad", userId: "removed", revokedAt: null, writeToken: "token-0" },
-          { tunnelId: "tun-good", providerTunnelId: "tun-good", userId: "removed", revokedAt: null, writeToken: "token-0" },
-        ] },
-      ]),
-      deleteTunnelTeamNetwork: (_tunnelId: string, teamNetworkId: string) => Effect.sync(() => { deleted.push(teamNetworkId); }),
-    } as unknown as VmRepositoryShape;
-    const provider = {
-      ...testPrivateNetworkProvider(unusedProviderGateway()),
-      getStatus: () => Effect.succeed("running" as const),
-      detachTunnelNetwork: (_provider: string, tunnelId: string) => {
-        if (tunnelId === "tun-bad") return Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "detachTunnelNetwork", cause: new Error("failed") }));
-        return Effect.sync(() => { detached.push(tunnelId); });
-      },
-    } as VmProviderGatewayShape;
-    const directory = {
-      listMemberIds: async (teamId: string) => {
-        if (teamId === "team-gone") return null;
-        if (teamId === "team-error") throw new Error("directory unavailable");
-        return ["member-1"];
-      },
-    };
-    await Effect.runPromise(reconcileVmProviderStatuses({ teamDirectory: directory }).pipe(Effect.provide(Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, provider), Layer.succeed(VmBillingGateway, noOpVmBillingGateway())))));
-    expect(detached).toEqual(["tun-removed", "tun-revoked", "tun-gone", "tun-good"]);
-    expect(detached).not.toContain("tun-skipped");
-    expect(deleted).toEqual(["team-row-1", "team-row-1", "team-row-2", "team-row-4"]);
-    expect(deleted).not.toContain("team-row-3");
-  });
-
-  test("directory timeout skips a team and paged rows are reconciled", async () => {
+  test("directory timeout skips a team and pages continue after the last team and provider", async () => {
     const vm = testCloudVmRow({ providerVmId: "provider-vm-cron-page" });
     const detached: string[] = [];
-    const deleted: string[] = [];
-    const first = { id: "page-1", teamId: "team-page-1", provider: "freestyle" as const, providerNetworkId: "vpc-page-1", slug: "page-1", cidr: "10.61.0.0/24", cidrV6: "fd61::/64", createdByUserId: "user-1", createdAt: new Date(), updatedAt: new Date() };
-    const second = { id: "page-2", teamId: "team-page-2", provider: "freestyle" as const, providerNetworkId: "vpc-page-2", slug: "page-2", cidr: "10.62.0.0/24", cidrV6: "fd62::/64", createdByUserId: "user-1", createdAt: new Date(), updatedAt: new Date() };
-    const repo = { ...testWorkflowRepo({ vm }), listTeamNetworkAttachmentsPage: (input: { afterTeamNetworkId?: string }) => Effect.succeed(input.afterTeamNetworkId === "page-2" ? [] : input.afterTeamNetworkId ? [{ ...second, attachments: [{ tunnelId: "tun-page-2", providerTunnelId: "tun-page-2", userId: "removed", revokedAt: null, writeToken: "token-0" }] }] : [{ ...first, attachments: [{ tunnelId: "tun-timeout", providerTunnelId: "tun-timeout", userId: "removed", revokedAt: null, writeToken: "token-0" }] }]), deleteTunnelTeamNetwork: (_tunnelId: string, id: string) => Effect.sync(() => { deleted.push(id); }) } as unknown as VmRepositoryShape;
-    const provider = { ...testPrivateNetworkProvider(unusedProviderGateway()), getStatus: () => Effect.succeed("running" as const), detachTunnelNetwork: (_provider: string, id: string) => Effect.sync(() => { detached.push(id); }) } as VmProviderGatewayShape;
+    const afters: Array<TeamOwner | undefined> = [];
+    const repo = teamCronRepo(vm, (after) => {
+      afters.push(after);
+      if (!after) return [{ teamId: "team-page-1", provider: "freestyle" }];
+      if (after.teamId === "team-page-1") return [{ teamId: "team-page-2", provider: "freestyle" }];
+      return [];
+    }, [
+      { providerTunnelId: "tun-timeout", userId: "removed", revokedAt: null },
+      { providerTunnelId: "tun-page-2", userId: "removed", revokedAt: null },
+    ]);
+    const provider = teamCronProvider({ networks: { "team-page-1": ["tun-timeout"], "team-page-2": ["tun-page-2"] }, detached });
     const directory = { listMemberIds: async (teamId: string) => teamId === "team-page-1" ? new Promise<readonly string[]>(() => {}) : ["member-1"] };
     await Effect.runPromise(reconcileVmProviderStatuses({ teamDirectory: directory, directoryTimeoutMs: 1, teamNetworkPageSize: 1 }).pipe(Effect.provide(Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, provider), Layer.succeed(VmBillingGateway, noOpVmBillingGateway())))));
-    expect(detached).toEqual(["tun-page-2"]);
-    expect(deleted).toEqual(["page-2"]);
-    expect(detached).not.toContain("tun-timeout");
+    expect(detached).toEqual(["tun-page-2@vpc-team-page-2"]);
+    expect(afters).toEqual([undefined, { teamId: "team-page-1", provider: "freestyle" }, { teamId: "team-page-2", provider: "freestyle" }]);
   });
 });

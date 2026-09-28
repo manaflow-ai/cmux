@@ -138,10 +138,10 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean },
   ) => Effect.Effect<ProviderNetwork, VmProviderOperationError>;
-  /** Read a provider network without creating or repairing it. */
+  /** Read a provider network by id or slug without creating or repairing it. */
   readonly getNetwork?: (
     provider: ProviderId,
-    networkId: string,
+    networkIdOrSlug: string,
   ) => Effect.Effect<ProviderNetwork | null, VmProviderOperationError>;
   readonly deleteNetwork?: (
     provider: ProviderId,
@@ -168,6 +168,7 @@ export type VmProviderGatewayShape = {
   ) => Effect.Effect<void, VmProviderOperationError>;
   readonly attachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<ProviderTunnelAttachment, VmProviderOperationError>;
   readonly detachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<void, VmProviderOperationError>;
+  readonly listNetworkTunnelIds?: (provider: ProviderId, networkId: string) => Effect.Effect<string[], VmProviderOperationError>;
 };
 
 export class VmProviderGateway extends Context.Tag("cmux/VmProviderGateway")<
@@ -389,5 +390,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       const networking = privateNetworking(provider);
       if (!networking.detachTunnelNetwork) throw new VmOperationUnsupportedError({ provider, operation: "detachTunnelNetwork" });
       await networking.detachTunnelNetwork(tunnelId, networkId);
+    }),
+  listNetworkTunnelIds: (provider, networkId) =>
+    providerEffect(provider, "listNetworkTunnelIds", async () => {
+      const networking = privateNetworking(provider);
+      if (!networking.listNetworkTunnelIds) throw new VmOperationUnsupportedError({ provider, operation: "listNetworkTunnelIds" });
+      return await networking.listNetworkTunnelIds(networkId);
     }),
 });

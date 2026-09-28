@@ -128,8 +128,10 @@ describe("account deletion tombstone lock", () => {
   });
 });
 
-test("account deletion removes tunnel team attachments but keeps team networks", async () => {
-  const deletedAttachments: string[] = [];
+test("account deletion deletes the provider tunnel and only the personal network", async () => {
+  // Deleting the Freestyle tunnel removes its team attachments, so no team
+  // network is touched and nothing else needs cleaning up.
+  const deletedTunnels: string[] = [];
   const deletedNetworks: string[] = [];
   const tunnel = {
     id: "00000000-0000-4000-8000-000000000010",
@@ -149,41 +151,35 @@ test("account deletion removes tunnel team attachments but keeps team networks",
     lastConfigIssuedAt: null,
     revokedAt: null,
   };
-  const teamNetwork = {
-    id: "00000000-0000-4000-8000-000000000013",
-    teamId: "team-1",
+  const personalNetwork = {
+    id: tunnel.networkId,
+    userId: "user-1",
     provider: "freestyle" as const,
-    providerNetworkId: "vpc-team",
-    slug: "team",
-    cidr: "10.5.0.0/24",
-    cidrV6: "fd05::/64",
-    createdByUserId: "user-1",
+    providerNetworkId: "vpc-user",
+    slug: "user",
+    cidr: null,
+    cidrV6: "fd00::/64",
     createdAt: new Date(),
     updatedAt: new Date(),
   };
   const repo = {
-    findNetwork: () => Effect.succeed(null),
-    upsertNetwork: () => Effect.succeed(null as never),
-    deleteNetwork: (id: string) => Effect.sync(() => { deletedNetworks.push(id); }),
+    findNetwork: () => Effect.succeed(personalNetwork),
+    upsertNetwork: () => Effect.succeed(personalNetwork),
+    deleteNetwork: () => Effect.void,
     listUserTunnels: () => Effect.succeed([tunnel]),
     findTunnel: () => Effect.succeed(tunnel),
     insertTunnel: () => Effect.succeed(tunnel),
     updateTunnel: () => Effect.succeed(tunnel),
     revokeTunnel: () => Effect.succeed(true),
-    findTeamNetwork: () => Effect.succeed(teamNetwork),
-    upsertTeamNetwork: () => Effect.succeed(teamNetwork),
-    listTeamNetworks: () => Effect.succeed([teamNetwork]),
-    listTunnelTeamNetworks: () => Effect.succeed([{ tunnelId: tunnel.id, teamNetworkId: teamNetwork.id, addressV4: null, addressV6: null, attachedAt: new Date(), writeToken: "token-account-delete", teamNetwork }]),
-    insertTunnelTeamNetwork: () => Effect.succeed({ writeToken: "token-account-unused" } as never),
-    deleteTunnelTeamNetwork: (_tunnelId: string, teamNetworkId: string) => Effect.sync(() => { deletedAttachments.push(teamNetworkId); }),
   } as unknown as VmRepositoryShape;
   const gateway = {
     supportsPrivateNetworking: () => true,
     ensureNetwork: () => Effect.succeed({ id: "vpc-user", slug: "user", cidr: null, cidrV6: "fd00::/64" }),
-    deleteTunnel: () => Effect.void,
-    deleteNetwork: () => Effect.void,
+    deleteTunnel: (_provider: string, tunnelId: string) => Effect.sync(() => { deletedTunnels.push(tunnelId); }),
+    deleteNetwork: (_provider: string, networkId: string) => Effect.sync(() => { deletedNetworks.push(networkId); }),
+    detachTunnelNetwork: () => Effect.die("account deletion must not detach team networks one by one"),
   } as never;
-  await Effect.runPromise(deletePrivateNetworkingForAccountDeletion("user-1").pipe(Effect.provide(Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, gateway)) )));
-  expect(deletedAttachments).toEqual([teamNetwork.id]);
-  expect(deletedNetworks).toEqual([]);
+  await Effect.runPromise(deletePrivateNetworkingForAccountDeletion("user-1").pipe(Effect.provide(Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, gateway)))));
+  expect(deletedTunnels).toEqual(["tun-1"]);
+  expect(deletedNetworks).toEqual(["vpc-user"]);
 });

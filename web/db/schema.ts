@@ -297,33 +297,6 @@ export const cloudVmNetworks = pgTable(
 );
 
 /**
- * Shared team VPCs are separate from per-user networks: team members may
- * reach team machines, while the VPC deliberately has no members rule that
- * would expose a member's personal machines or Mac. These tables are
- * additive bookkeeping so deployed code remains compatible while they roll
- * out.
- */
-export const cloudVmTeamNetworks = pgTable(
-  "cloud_vm_team_networks",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    teamId: text("team_id").notNull(),
-    provider: vmProvider("provider").notNull(),
-    providerNetworkId: text("provider_network_id").notNull(),
-    slug: text("slug"),
-    cidr: text("cidr"),
-    cidrV6: text("cidr_v6"),
-    createdByUserId: text("created_by_user_id").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex("cloud_vm_team_networks_team_provider_unique").on(table.teamId, table.provider),
-    uniqueIndex("cloud_vm_team_networks_provider_network_id_unique").on(table.provider, table.providerNetworkId),
-  ],
-);
-
-/**
  * One WireGuard tunnel per (user, device): the user's Mac as a member of their
  * own private network.
  *
@@ -430,29 +403,6 @@ export const cloudVmTunnels = pgTable(
       .on(table.provider, table.providerTunnelId),
     index("cloud_vm_tunnels_network_idx").on(table.networkId),
     index("cloud_vm_tunnels_access_grant_idx").on(table.accessGrantId),
-  ],
-);
-
-export const cloudVmTunnelTeamNetworks = pgTable(
-  "cloud_vm_tunnel_team_networks",
-  {
-    tunnelId: uuid("tunnel_id")
-      .notNull()
-      .references(() => cloudVmTunnels.id, { onDelete: "cascade" }),
-    teamNetworkId: uuid("team_network_id").notNull(),
-    addressV4: text("address_v4"),
-    addressV6: text("address_v6"),
-    attachedAt: timestamp("attached_at", { withTimezone: true }).notNull().defaultNow(),
-    writeToken: uuid("write_token").notNull().defaultRandom(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.tunnelId, table.teamNetworkId], name: "cloud_vm_tunnel_team_networks_pkey" }),
-    index("cloud_vm_tunnel_team_networks_team_network_idx").on(table.teamNetworkId),
-    foreignKey({
-      name: "cloud_vm_tunnel_team_networks_team_network_id_fk",
-      columns: [table.teamNetworkId],
-      foreignColumns: [cloudVmTeamNetworks.id],
-    }).onDelete("cascade"),
   ],
 );
 

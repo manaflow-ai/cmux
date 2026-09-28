@@ -197,6 +197,38 @@ describe("Freestyle platform contract", () => {
     expect(isProviderTunnelNetworkOverlap({ cause: overlap })).toBe(true);
   });
 
+  test("team network lookup by slug and its tunnel list come straight from Freestyle", async () => {
+    const gets: string[] = [];
+    const refs: string[] = [];
+    const client = {
+      vpc: {
+        get: async (idOrSlug: string) => {
+          gets.push(idOrSlug);
+          if (idOrSlug === "cmux-team-net-missing") throw new FreestyleApiError(404, { code: "NOT_FOUND", message: "missing" });
+          return { id: "vpc-team", slug: "cmux-team-net-1", cidr: "10.3.0.0/24", cidrV6: "fd03::/64" };
+        },
+        ref: (networkId: string) => {
+          refs.push(networkId);
+          return { tunnels: { list: async () => ({ tunnels: [{ id: "row-1", tunnelId: "tun-1" }, { id: "tun-2" }], totalCount: 2 }) } };
+        },
+      },
+    } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    await expect(provider.privateNetworking!.getNetwork("cmux-team-net-1")).resolves.toEqual({ id: "vpc-team", slug: "cmux-team-net-1", cidr: "10.3.0.0/24", cidrV6: "fd03::/64" });
+    await expect(provider.privateNetworking!.getNetwork("cmux-team-net-missing")).resolves.toBeNull();
+    await expect(provider.privateNetworking!.listNetworkTunnelIds!("vpc-team")).resolves.toEqual(["tun-1", "tun-2"]);
+    expect(gets).toEqual(["cmux-team-net-1", "cmux-team-net-missing"]);
+    expect(refs).toEqual(["vpc-team"]);
+    const failing = new FreestyleProvider({ client: () => ({
+      vpc: {
+        get: async () => { throw new FreestyleApiError(500, { code: "INTERNAL", message: "down" }); },
+        ref: () => ({ tunnels: { list: async () => { throw new Error("list failed"); } } }),
+      },
+    } as unknown as Freestyle) });
+    await expect(failing.privateNetworking!.getNetwork("cmux-team-net-1")).rejects.toBeInstanceOf(ProviderError);
+    await expect(failing.privateNetworking!.listNetworkTunnelIds!("vpc-team")).rejects.toBeInstanceOf(ProviderError);
+  });
+
   test("a non-CONFLICT 409 is a provider error, not overlap", async () => {
     const provider = new FreestyleProvider({ client: () => ({
       tunnels: { attachVpc: async () => { throw new FreestyleApiError(409, { code: "RATE_LIMITED", message: "retry" }); } },
