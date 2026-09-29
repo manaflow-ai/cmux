@@ -27,7 +27,7 @@ final class AcpmuxRowLayoutEngine {
 
     static let sideInset: CGFloat = 16
     static let bubbleHorizontalPadding: CGFloat = 12
-    static let bubbleVerticalPadding: CGFloat = 8
+    static let bubbleVerticalPadding: CGFloat = 7.5
     static let typingSize = CGSize(width: 58, height: 34)
 
     init(theme: AcpmuxChatTheme) {
@@ -51,7 +51,8 @@ final class AcpmuxRowLayoutEngine {
     func layout(for row: TranscriptRow, position: AcpmuxRowGroupPosition, width: CGFloat, expanded: Bool) -> AcpmuxRowLayout {
         let key = Key(id: row.id, version: row.version, width: Int(width.rounded()), position: position, expanded: expanded)
         if let cached = cache[key] { return cached }
-        let computed = compute(row, position: position, width: max(width, 120), expanded: expanded)
+        var computed = compute(row, position: position, width: max(width, 120), expanded: expanded)
+        computed.surfacePath = surfacePath(for: computed, position: position)
         cache[key] = computed
         lastMeasured[row.id] = (row.version, width, computed.height)
         return computed
@@ -68,25 +69,40 @@ final class AcpmuxRowLayoutEngine {
         return (max(24, (last.height * scale).rounded()), false)
     }
 
+    private func surfacePath(for layout: AcpmuxRowLayout, position: AcpmuxRowGroupPosition) -> CGPath? {
+        let bubble = AcpmuxBubblePath()
+        switch layout.surface {
+        case .userBubble, .assistantBubble:
+            return bubble.path(
+                for: layout.surfaceFrame,
+                side: layout.surface == .userBubble ? .trailing : .leading,
+                tail: layout.showsTail,
+                groupedAbove: !position.isFirst,
+                groupedBelow: !position.isLast
+            )
+        case .typing:
+            return bubble.path(for: layout.surfaceFrame, side: .leading, tail: true, groupedAbove: false, groupedBelow: false)
+        case .card:
+            return AcpmuxBubblePath.card(layout.surfaceFrame, radius: 10)
+        case .none:
+            return nil
+        }
+    }
+
     private func compute(_ row: TranscriptRow, position: AcpmuxRowGroupPosition, width: CGFloat, expanded: Bool) -> AcpmuxRowLayout {
         let side = Self.sideInset
         let timestamp = row.at > 0 ? timeFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(row.at) / 1000)) : nil
         switch row.content {
         case .user(let message):
-            var text = renderer.userMessage(message.text)
-            if message.failed {
-                let marked = NSMutableAttributedString(attributedString: text)
-                marked.append(NSAttributedString(
-                    string: "\n" + String(localized: "acpmuxChat.message.notDelivered", defaultValue: "Not delivered"),
-                    attributes: [.font: renderer.theme.smallFont, .foregroundColor: renderer.theme.userText.withAlphaComponent(0.8)]
-                ))
-                text = marked
-            }
-            let maxBubble = min(width * 0.75, 560)
-            return bubble(text, trailing: true, maxBubble: maxBubble, width: width, position: position,
-                          surface: .userBubble, dimmed: message.isPending, timestamp: timestamp)
+            let text = renderer.userMessage(message.text)
+            // Room on the leading side for the red retry badge of an undelivered message.
+            let maxBubble = min(width * 0.7, 560) - (message.failed ? 30 : 0)
+            var layout = bubble(text, trailing: true, maxBubble: maxBubble, width: width, position: position,
+                                surface: .userBubble, dimmed: message.isPending, timestamp: timestamp)
+            layout.showsRetry = message.failed
+            return layout
         case .assistant(let markdown, _):
-            let maxBubble = min(width - 2 * side - 36, 760)
+            let maxBubble = min(width * 0.7, 760)
             return bubble(renderer.markdown(markdown), trailing: false, maxBubble: maxBubble, width: width,
                           position: position, surface: .assistantBubble, dimmed: false, timestamp: timestamp)
         case .activity(let group):
@@ -139,7 +155,7 @@ final class AcpmuxRowLayoutEngine {
         }
         let bubbleWidth = min(maxBubble, textSize.width + 2 * horizontal)
         let bubbleHeight = textSize.height + 2 * vertical
-        let top: CGFloat = position.isFirst ? 10 : 2
+        let top: CGFloat = position.isFirst ? 11 : 2
         let x = trailing ? width - Self.sideInset - bubbleWidth : Self.sideInset
         let frame = CGRect(x: x, y: top, width: bubbleWidth, height: bubbleHeight)
         let textFrame = CGRect(x: frame.minX + horizontal, y: frame.minY + vertical,

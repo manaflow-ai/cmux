@@ -184,6 +184,33 @@ struct TranscriptReducerTests {
         #expect(summaries(reducer.rows) == ["user:go", "assistant:Checking now.…", "assistant:Done: all good.…"])
     }
 
+    @Test func failedTurnMovesStreamedErrorTextOutOfBubbles() {
+        var reducer = TranscriptReducer()
+        let limit = "You've hit your weekly limit · resets Oct 2 at 4am (America/Los_Angeles)"
+        reducer.apply([
+            AcpmuxEventRecord(sessionId: "s", seq: 1, at: 1, dir: "mux", kind: "user_message", msg: .object(["text": .string("hi")])),
+            AcpmuxEventRecord(
+                sessionId: "s", seq: 2, at: 2, dir: "in", kind: "agent_message_chunk",
+                msg: .object(["jsonrpc": .string("2.0"), "method": .string("session/update"), "params": .object(["update": .object([
+                    "sessionUpdate": .string("agent_message_chunk"),
+                    "content": .object(["type": .string("text"), "text": .string(limit)]),
+                ])])])
+            ),
+            AcpmuxEventRecord(sessionId: "s", seq: 3, at: 3, dir: "mux", kind: "turn_result", msg: .object([
+                "status": .string("failed"), "error": .string("Internal error: " + limit), "turnSeq": .number(1),
+            ])),
+        ])
+        #expect(summaries(reducer.rows) == ["user:hi", "turn:failed:0"])
+    }
+
+    @Test func failedLocalMessageCanBeTakenForRetry() {
+        var reducer = TranscriptReducer()
+        reducer.addPendingUserMessage(promptId: "p", text: "hello", at: 1)
+        reducer.markPendingUserMessageFailed(promptId: "p")
+        #expect(reducer.takeFailedMessage(rowID: "user-p") == "hello")
+        #expect(reducer.rows.isEmpty)
+    }
+
     @Test func queueTracksQueuedAndDequeuedPrompts() {
         var reducer = TranscriptReducer()
         reducer.apply(AcpmuxEventRecord(

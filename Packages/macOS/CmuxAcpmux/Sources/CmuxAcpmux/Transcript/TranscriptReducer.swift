@@ -99,6 +99,15 @@ public struct TranscriptReducer: Sendable {
         queue = entries
     }
 
+    /// Removes an undelivered local message so it can be sent again.
+    /// - Returns: The message text, or `nil` when `rowID` is not a failed local message.
+    public mutating func takeFailedMessage(rowID: String) -> String? {
+        guard let index = indexByID[rowID], case .user(let message) = rows[index].content, message.failed else { return nil }
+        pendingLocal.removeAll { Self.userRowID(promptId: $0.promptId, seq: 0) == rowID }
+        removeRow(rowID)
+        return message.text
+    }
+
     /// Marks a local echo as failed, for example when the daemon rejected the prompt.
     public mutating func markPendingUserMessageFailed(promptId: String) {
         guard let index = pendingLocal.firstIndex(where: { $0.promptId == promptId }) else { return }
@@ -365,6 +374,16 @@ public struct TranscriptReducer: Sendable {
     private mutating func closeTurn(at: Int64, status: String?, error: String?, emitSummary: Bool) {
         guard let current = turn else { return }
         removeTyping()
+        if status == "failed", let error, !error.isEmpty {
+            // Harnesses often stream their error text as agent prose before the turn fails
+            // (Claude's usage-limit message). That text belongs in the failure row, not in
+            // an assistant bubble.
+            for rowID in current.streamingRowIDs {
+                guard let index = indexByID[rowID], case .assistant(let text, _) = rows[index].content else { continue }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty, error.contains(trimmed) { removeRow(rowID) }
+            }
+        }
         for rowID in current.streamingRowIDs {
             updateRow(rowID) { content in
                 switch content {

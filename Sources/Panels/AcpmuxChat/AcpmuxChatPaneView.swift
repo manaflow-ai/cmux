@@ -248,11 +248,22 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
             transcript.setRowHidden(rowID, hidden: false)
             return
         }
-        let overlay = AcpmuxMorphBubbleView(text: text.trimmingCharacters(in: .whitespacesAndNewlines), theme: theme, frame: startFrame)
+        let horizontal = AcpmuxRowLayoutEngine.bubbleHorizontalPadding
+        let vertical = AcpmuxRowLayoutEngine.bubbleVerticalPadding
+        let overlay = AcpmuxMorphBubbleView(
+            text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+            theme: theme,
+            from: startFrame,
+            textWidth: max(1, target.width - 2 * horizontal)
+        )
         addSubview(overlay)
-        overlay.morph(to: target, theme: theme) { [weak self, weak overlay] in
+        overlay.morph(to: target, textOrigin: CGPoint(x: horizontal, y: vertical)) { [weak self, weak overlay] in
+            // Reveal the real cell and drop the overlay in one transaction: no flicker frame.
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
             self?.transcript.setRowHidden(rowID, hidden: false)
             overlay?.removeFromSuperview()
+            CATransaction.commit()
         }
     }
 

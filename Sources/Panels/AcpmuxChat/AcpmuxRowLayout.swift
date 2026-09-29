@@ -19,4 +19,8 @@ struct AcpmuxRowLayout {
     let isToggleable: Bool
     let dimmed: Bool
     let timestamp: String?
+    /// The precomputed surface outline, cached with the layout (so by row size and group position).
+    var surfacePath: CGPath?
+    /// The failed-send retry affordance, for a user message that was not delivered.
+    var showsRetry = false
 }

@@ -283,6 +283,13 @@ public final class AcpmuxChatSessionModel {
         }
     }
 
+    /// Sends an undelivered message again, replacing its failed bubble.
+    public func retryUndelivered(rowID: String) {
+        guard let text = reducer.takeFailedMessage(rowID: rowID) else { return }
+        transcriptDidChange()
+        send(text)
+    }
+
     /// Cancels the running turn.
     public func cancelTurn() {
         guard let api, let sessionId, isWorking else { return }

@@ -291,19 +291,36 @@ struct AcpmuxChatTextRenderer {
         if let error = summary.error, !error.isEmpty { parts.append(error) }
         let style = paragraph(spacingAfter: 0)
         style.alignment = .center
-        return NSAttributedString(string: parts.joined(separator: " \u{00B7} "), attributes: [
-            .font: theme.smallFont,
-            .foregroundColor: summary.status == "failed" ? theme.danger : theme.tertiaryText,
-            .paragraphStyle: style,
-        ])
+        let failed = summary.status == "failed"
+        let output = NSMutableAttributedString()
+        if failed { output.append(Self.symbol("exclamationmark.triangle.fill", color: theme.danger, font: theme.smallFont)) }
+        output.append(NSAttributedString(string: (failed ? " " : "") + parts.joined(separator: " \u{00B7} "), attributes: [
+            .font: failed ? NSFont.systemFont(ofSize: 11.5, weight: .medium) : theme.smallFont,
+            .foregroundColor: failed ? theme.danger : theme.tertiaryText,
+        ]))
+        output.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: output.length))
+        return output
     }
 
     func notice(_ text: String) -> NSAttributedString {
         let style = paragraph(spacingAfter: 0)
         style.alignment = .center
-        return NSAttributedString(string: text, attributes: [
-            .font: theme.smallFont, .foregroundColor: theme.danger, .paragraphStyle: style,
-        ])
+        let output = NSMutableAttributedString(attributedString: Self.symbol("exclamationmark.triangle.fill", color: theme.danger, font: theme.smallFont))
+        output.append(NSAttributedString(string: " " + text, attributes: [.font: theme.smallFont, .foregroundColor: theme.danger]))
+        output.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: output.length))
+        return output
+    }
+
+    /// An SF Symbol as an inline text attachment tinted `color`.
+    static func symbol(_ name: String, color: NSColor, font: NSFont) -> NSAttributedString {
+        let configuration = NSImage.SymbolConfiguration(pointSize: font.pointSize, weight: .semibold)
+            .applying(NSImage.SymbolConfiguration(hierarchicalColor: color))
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration) else { return NSAttributedString() }
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        attachment.bounds = CGRect(x: 0, y: font.descender + 1, width: image.size.width, height: image.size.height)
+        return NSAttributedString(attachment: attachment)
     }
 
     // MARK: - Helpers

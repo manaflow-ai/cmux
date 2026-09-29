@@ -32,7 +32,7 @@ final class AcpmuxTypingIndicatorCellView: NSTableCellView {
         CATransaction.setDisableActions(true)
         let frame = layout.surfaceFrame
         bubbleLayer.fillColor = theme.assistantBubble.cgColor
-        bubbleLayer.path = AcpmuxBubblePath(radius: 17).path(for: frame, tail: .leading)
+        bubbleLayer.path = layout.surfacePath
         for (index, dot) in dots.enumerated() {
             dot.backgroundColor = theme.secondaryText.cgColor
             dot.frame = CGRect(x: frame.minX + 14 + CGFloat(index) * 12, y: frame.midY - 3.5, width: 7, height: 7)

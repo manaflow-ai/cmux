@@ -183,6 +183,13 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         guard !diff.isEmpty else { return }
         let anchor = isPinnedToBottom ? nil : captureAnchor()
         let appendedAtEnd = !diff.inserted.isEmpty && diff.inserted.upperBound == newRows.count && diff.removed.count <= 1
+        // The typing indicator turning into the first streamed bubble morphs in place.
+        var typingPathToMorph: CGPath?
+        if diff.removed.count == 1, diff.inserted.lowerBound == diff.removed.lowerBound,
+           rows[diff.removed.lowerBound].content == .typing,
+           newRows[diff.inserted.lowerBound].bubbleRole == .assistant {
+            typingPathToMorph = layout(for: diff.removed.lowerBound).surfacePath
+        }
         rows = newRows
         positions = newPositions
         // Row indexes shift with inserts and removals, so an unfinished refinement restarts
@@ -199,16 +206,17 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
             if !diff.removed.isEmpty {
                 // A dropped row (an abandoned partial message, a finished typing indicator)
                 // fades and collapses instead of vanishing.
-                let removedRealContent = !reduceMotion && diff.removed.count <= 3
+                let removedRealContent = !reduceMotion && diff.removed.count <= 3 && typingPathToMorph == nil
                 tableView.removeRows(at: IndexSet(integersIn: diff.removed), withAnimation: removedRealContent ? [.effectFade, .slideUp] : [])
             }
             if !diff.inserted.isEmpty { tableView.insertRows(at: IndexSet(integersIn: diff.inserted), withAnimation: []) }
             tableView.endUpdates()
             if !diff.updated.isEmpty {
-                let animateGrowth = !reduceMotion && isPinnedToBottom && diff.inserted.isEmpty && diff.updated.count == 1
+                // Growth applies in the same frame as the bottom pin below, so rows above
+                // move once per frame with the content instead of lagging behind an animation.
                 NSAnimationContext.runAnimationGroup { context in
-                    context.duration = animateGrowth ? 0.12 : 0
-                    context.allowsImplicitAnimation = animateGrowth
+                    context.duration = 0
+                    context.allowsImplicitAnimation = false
                     tableView.noteHeightOfRows(withIndexesChanged: diff.updated)
                 }
                 for index in diff.updated { reconfigure(row: index) }
@@ -230,7 +238,14 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
             }
         }
         if appendedAtEnd, !isInitial, !reduceMotion {
-            for index in diff.inserted { animateInsertion(row: index) }
+            for index in diff.inserted {
+                if index == diff.inserted.lowerBound, let typingPathToMorph,
+                   let cell = tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? AcpmuxTranscriptRowCellView {
+                    cell.animateFromTyping(typingPathToMorph, reduceMotion: reduceMotion)
+                } else if !hiddenRowIDs.contains(rows[index].id) {
+                    animateInsertion(row: index)
+                }
+            }
         }
         onScrollStateChanged?(isPinnedToBottom, unreadCount)
         onDidFlush?()
@@ -326,6 +341,12 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         if let index = rows.firstIndex(where: { $0.id == rowID }) { reconfigure(row: index) }
     }
 
+    /// The surface outline of `rowID` in its cell's coordinates.
+    func surfacePath(of rowID: String) -> CGPath? {
+        guard let index = rows.firstIndex(where: { $0.id == rowID }) else { return nil }
+        return layout(for: index).surfacePath
+    }
+
     /// The bubble frame of `rowID` in this view's coordinates, if the row is laid out.
     func bubbleFrame(of rowID: String) -> CGRect? {
         guard let index = rows.firstIndex(where: { $0.id == rowID }) else { return nil }
@@ -368,6 +389,7 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         cell.frame.size = CGSize(width: tableView.bounds.width, height: layout.height)
         cell.configure(rowID: rows[row].id, layout: layout, theme: engine.theme, hidden: hiddenRowIDs.contains(rows[row].id))
         cell.onToggle = { [weak self] rowID in self?.toggle(rowID) }
+        cell.onRetry = { [weak self] rowID in self?.model.retryUndelivered(rowID: rowID) }
         return cell
     }
 
@@ -416,19 +438,29 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     }
 
     private func animateInsertion(row: Int) {
-        guard let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false), let layer = cell.layer else { return }
-        let spring = CASpringAnimation(keyPath: "transform.translation.y")
-        spring.fromValue = 14
-        spring.toValue = 0
-        spring.damping = 16
-        spring.stiffness = 220
-        spring.mass = 1
-        spring.duration = spring.settlingDuration
+        guard let view = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) else { return }
+        let rowLayout = layout(for: row)
+        guard let cell = view as? AcpmuxTranscriptRowCellView, let layer = cell.layer else {
+            view.layer?.add(Self.fadeIn(), forKey: "acpmuxChat.insert.fade")
+            return
+        }
+        // Anchor the scale at the tail: bottom-trailing for the user, bottom-leading for the agent.
+        let frame = rowLayout.surfaceFrame
+        let x = rowLayout.surface == .userBubble ? frame.maxX : frame.minX
+        let flippedHost = layer.superlayer?.isGeometryFlipped ?? true
+        let y = flippedHost ? frame.maxY : cell.bounds.height - frame.maxY
+        if rowLayout.surface == .userBubble || rowLayout.surface == .assistantBubble {
+            cell.animateArrival(anchor: CGPoint(x: x, y: y), reduceMotion: reduceMotion)
+        } else {
+            layer.add(Self.fadeIn(), forKey: "acpmuxChat.insert.fade")
+        }
+    }
+
+    private static func fadeIn() -> CABasicAnimation {
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0
         fade.toValue = 1
-        fade.duration = 0.18
-        layer.add(spring, forKey: "acpmuxChat.insert.translate")
-        layer.add(fade, forKey: "acpmuxChat.insert.fade")
+        fade.duration = 0.2
+        return fade
     }
 }

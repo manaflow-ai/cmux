@@ -169,4 +169,12 @@ public struct TranscriptTurnSummary: Sendable, Hashable {
     public var status: String
     /// The error message for a failed turn.
     public var error: String?
+
+    /// Creates a summary.
+    public init(durationMs: Int64?, toolCount: Int, status: String, error: String?) {
+        self.durationMs = durationMs
+        self.toolCount = toolCount
+        self.status = status
+        self.error = error
+    }
 }
