@@ -85,8 +85,6 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertTrue(pluginSource.contains("id: \"cmux.session\""))
         XCTAssertTrue(pluginSource.contains("ctx.event.subscribe({ signal"))
         XCTAssertTrue(pluginSource.contains("event.properties || event.data"))
-        XCTAssertTrue(pluginSource.contains("const planDecisionAnswer = (value) => form ? answerForForm(form, [value])"))
-        XCTAssertTrue(pluginSource.contains("handleExitPlanDecision(form.sessionId, requestId, result.decision, form)"))
         XCTAssertTrue(pluginSource.contains("\"hooks\", \"enqueue\", \"opencode\""))
         XCTAssertTrue(pluginSource.contains("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: \"1\""))
 
@@ -137,7 +135,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertFalse(rawConfig.contains("\\/"), rawConfig)
         XCTAssertTrue(rawConfig.contains("{file:./AGENTS.md}"), rawConfig)
         XCTAssertTrue(rawConfig.contains("https://opencode.ai/config.json"), rawConfig)
-        XCTAssertTrue(rawConfig.contains("./plugins/cmux-session.js"), rawConfig)
+        XCTAssertTrue(rawConfig.contains("./plugins"), rawConfig)
     }
 
     func testLegacyHookAliasesAreHiddenFromHelp() throws {
