@@ -2,10 +2,12 @@ import Foundation
 
 enum BrowserWebAuthnRequestParser {
     static let maximumKindUTF8Bytes = 64
-    // The payload size is the bridge's only resource bound. Per-field limits
-    // match Chromium, Firefox and WebKit: none caps challenges, credential IDs,
-    // strings, transports or algorithms; all reject user IDs over 64 bytes.
-    static let maximumPayloadJSONUTF8Bytes = 16 * 1024 * 1024
+    // The payload size is the bridge's only resource bound; it is decoded on
+    // the main actor, so keep it small (Google's largest challenge is ~11 KB).
+    // Per-field limits match Chromium, Firefox and WebKit: none caps challenges,
+    // credential IDs, strings, transports or algorithms; all reject user IDs
+    // over 64 bytes.
+    static let maximumPayloadJSONUTF8Bytes = 1024 * 1024
     static let maximumInboundBinaryBytes = maximumPayloadJSONUTF8Bytes
     static let maximumInboundBase64URLCharacters = ((maximumInboundBinaryBytes + 2) / 3) * 4
     static let challengeByteRange = 1 ... maximumInboundBinaryBytes

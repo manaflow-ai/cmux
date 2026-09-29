@@ -7,12 +7,21 @@ import Testing
 @Suite
 struct BrowserWebAuthnRequestParserTests {
     // Google's passkey re-authentication challenge measured 10,832 bytes.
-    @Test(arguments: [16, 10_832, 1024 * 1024])
+    @Test(arguments: [16, 10_832, 512 * 1024])
     func assertionAcceptsLargeChallenges(challengeByteCount: Int) throws {
         let request = try decodeAssertion(challengeByteCount: challengeByteCount)
 
         try request.validateNativeRequestShape()
         #expect(request.publicKey.challenge.data.count == challengeByteCount)
+    }
+
+    @Test
+    func assertionRejectsEmptyChallenge() throws {
+        let request = try decodeAssertion(challengeByteCount: 0)
+
+        #expect(throws: BrowserWebAuthnBridgeError.self) {
+            try request.validateNativeRequestShape()
+        }
     }
 
     @Test
