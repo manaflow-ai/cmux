@@ -715,5 +715,23 @@
     "arguments": [
       1
     ]
+  },
+  "teamMembers.link.uses": {
+    "source": "%d uses",
+    "arguments": [
+      1
+    ]
+  },
+  "teamMembers.seatSummary": {
+    "source": "%1$d of %2$d seats used",
+    "arguments": [
+      2
+    ]
+  },
+  "teamMembers.link.usesOf": {
+    "source": "%1$d of %2$d uses",
+    "arguments": [
+      2
+    ]
   }
 }

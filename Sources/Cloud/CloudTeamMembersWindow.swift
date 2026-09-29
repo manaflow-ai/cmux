@@ -123,15 +123,11 @@ final class CloudTeamMembersModel {
             let result = try await accountFlow.inviteTeamMembers(emails: emails, role: inviteRole)
             if result.failed.isEmpty {
                 inviteEmails = ""
-                notice = String(
-                    format: String(localized: "teamMembers.invite.sent", defaultValue: "Sent %d invitation(s)."),
-                    result.invitations.count
-                )
+                notice = String(localized: "teamMembers.invite.sent", defaultValue: "Invitations sent.")
             } else {
                 let failedEmails = result.failed.map(\.email).joined(separator: ", ")
                 notice = String(
-                    format: String(localized: "teamMembers.invite.partial", defaultValue: "Sent %1$d, could not invite: %2$@"),
-                    result.invitations.count,
+                    format: String(localized: "teamMembers.invite.partial", defaultValue: "Could not invite: %@"),
                     failedEmails
                 )
                 inviteEmails = failedEmails
