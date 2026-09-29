@@ -203,6 +203,12 @@ final class CloudWorkspaceCreationCoordinator {
             let partial = operation.openedProjections
             let reservation = operation.reservation
             operations[operation.id] = nil
+            if let reservation {
+                // Retire the reserved pane first. Closing its last panel can
+                // otherwise create a replacement local shell before the host
+                // gets a chance to remove the admitted workspace.
+                operation.host?.discard(reservation, catalog: catalog)
+            }
             for projection in partial {
                 catalog.endProjections(panelID: projection.panelID, reason: .replaced)
                 if let workspace = Workspace.liveWorkspace(id: projection.workspaceID),
@@ -211,9 +217,6 @@ final class CloudWorkspaceCreationCoordinator {
                         _ = workspace.closePanel(projection.panelID, force: true)
                     }
                 }
-            }
-            if let reservation {
-                operation.host?.discard(reservation, catalog: catalog)
             }
             catalog.notifyChange()
             if error is CancellationError || Task.isCancelled { throw CancellationError() }
