@@ -6,6 +6,7 @@ import Testing
 /// A minimal `MobileSyncRuntime` for tests, supplying a transport factory,
 /// stack-token provider, timeout, and clock without pulling the app's DI bundle.
 struct TestMobileSyncRuntime: MobileSyncRuntime {
+    var connectionReadiness: (any MobileConnectionReadinessProviding)? = nil
     var supportedRouteKinds: [CmxAttachTransportKind]
     var transportFactory: any CmxByteTransportFactory
     var stackAccessTokenProvider: @Sendable () async throws -> String
@@ -19,6 +20,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
     var independentEventsMergeSurfaceLanes: Bool
 
     init(
+        connectionReadiness: (any MobileConnectionReadinessProviding)? = nil,
         transportFactory: any CmxByteTransportFactory,
         supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .iroh, .websocket, .debugLoopback],
         stackAccessToken: String? = "test-stack-token",
@@ -32,6 +34,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
         independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil,
         independentEventsMergeSurfaceLanes: Bool = false
     ) {
+        self.connectionReadiness = connectionReadiness
         self.independentEventsMergeSurfaceLanes = independentEventsMergeSurfaceLanes
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
