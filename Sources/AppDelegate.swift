@@ -2685,9 +2685,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupTerminalCmdClickUITestIfNeeded()
-#if DEBUG
         setupTerminalCmdClickWrapUITestIfNeeded()
-#endif
         setupGotoSplitUITestIfNeeded()
         setupBonsplitTabDragUITestIfNeeded()
         setupTerminalViewportUITestIfNeeded()

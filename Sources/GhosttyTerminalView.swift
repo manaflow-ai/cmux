@@ -4326,7 +4326,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // from the renderer-callback path.
     fileprivate let hoverCallbackMirror = HoverCallbackMirror()
     private let externalHoverRecomputeScheduler = MainActorDeferredActionScheduler()
-    private var externalHoverLifetimeGeneration: UInt64?
+    private var installedExternalHoverLifetimeID: RuntimeSurfaceLifetimeID?
     // (C) ExternalHover diagnostics — this surface's own serial. See
     // `Self.externalHoverSurfaceSerialCounter`'s doc.
     // `fileprivate`, not `private`: `GhosttyApp.handleAction`'s
@@ -4532,16 +4532,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func installExternalHoverLifetimeIfNeeded() {
-        guard let terminalSurface,
-              terminalSurface.surface != nil,
-              externalHoverLifetimeGeneration != terminalSurface.runtimeSurfaceGeneration else {
-            return
-        }
-        externalHoverOwnerCoordinator.beginLifetime(
+        guard let terminalSurface, terminalSurface.surface != nil else { return }
+        let lifetimeID = RuntimeSurfaceLifetimeID(
             surfaceID: terminalSurface.id,
             runtimeSurfaceGeneration: terminalSurface.runtimeSurfaceGeneration
         )
-        externalHoverLifetimeGeneration = terminalSurface.runtimeSurfaceGeneration
+        guard installedExternalHoverLifetimeID != lifetimeID else { return }
+        externalHoverOwnerCoordinator.beginLifetime(
+            surfaceID: lifetimeID.surfaceID,
+            runtimeSurfaceGeneration: lifetimeID.runtimeSurfaceGeneration
+        )
+        installedExternalHoverLifetimeID = lifetimeID
     }
 
     var hasClipboardInputDeferral: Bool {
