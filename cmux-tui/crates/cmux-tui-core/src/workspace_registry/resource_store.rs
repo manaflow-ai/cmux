@@ -1396,212 +1396,7 @@ impl WorkspaceRegistry {
     }
 
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
-        let revision = current_resource_revision(&self.connection)?;
-        let active_workspace = meta_value(&self.connection, "active_workspace_id")?
-            .map(WorkspacePublicId::parse)
-            .transpose()?;
-        let active_screens = {
-            let mut statement = self.connection.prepare(
-                "SELECT public_id, active_screen_id
-                 FROM resource_workspaces
-                 WHERE deleted_revision IS NULL
-                 ORDER BY created_revision ASC, public_id ASC",
-            )?;
-            statement
-                .query_map([], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-                })?
-                .map(|row| {
-                    let (workspace, screen) = row?;
-                    Ok((
-                        WorkspacePublicId::parse(workspace)?,
-                        screen.map(ScreenPublicId::parse).transpose()?,
-                    ))
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?
-        };
-        let screens = {
-            let mut statement = self.connection.prepare(
-                "SELECT public_id, workspace_id, position, name, layout_json,
-                        active_pane_id, zoomed_pane_id, auto_layout_json, viewport_json
-                 FROM resource_screens
-                 WHERE deleted_revision IS NULL
-                 ORDER BY workspace_id ASC, position ASC",
-            )?;
-            statement
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, String>(5)?,
-                        row.get::<_, Option<String>>(6)?,
-                        row.get::<_, Option<String>>(7)?,
-                        row.get::<_, String>(8)?,
-                    ))
-                })?
-                .map(|row| {
-                    let (
-                        public_id,
-                        workspace_id,
-                        position,
-                        name,
-                        layout,
-                        active_pane,
-                        zoomed_pane,
-                        auto_layout,
-                        viewport,
-                    ) = row?;
-                    Ok(RegistryScreen {
-                        public_id: ScreenPublicId::parse(public_id)?,
-                        workspace_id: WorkspacePublicId::parse(workspace_id)?,
-                        position: usize::try_from(position)
-                            .context("stored screen position is negative")?,
-                        name,
-                        layout: serde_json::from_str(&layout)?,
-                        active_pane: PanePublicId::parse(active_pane)?,
-                        zoomed_pane: zoomed_pane.map(PanePublicId::parse).transpose()?,
-                        auto_layout: auto_layout
-                            .map(|value| serde_json::from_str(&value))
-                            .transpose()?,
-                        viewport: serde_json::from_str(&viewport)?,
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?
-        };
-        let panes = {
-            let mut statement = self.connection.prepare(
-                "SELECT public_id, screen_id, name, active_tab_id, creation_ordinal
-                 FROM resource_panes
-                 WHERE deleted_revision IS NULL
-                 ORDER BY screen_id ASC, creation_ordinal ASC, public_id ASC",
-            )?;
-            statement
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, i64>(4)?,
-                    ))
-                })?
-                .map(|row| {
-                    let (public_id, screen_id, name, active_tab, creation_ordinal) = row?;
-                    Ok(RegistryPane {
-                        public_id: PanePublicId::parse(public_id)?,
-                        screen_id: ScreenPublicId::parse(screen_id)?,
-                        name,
-                        active_tab: active_tab.map(TabPublicId::parse).transpose()?,
-                        creation_ordinal: u64::try_from(creation_ordinal)
-                            .context("stored pane creation ordinal is negative")?,
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?
-        };
-        let tabs = {
-            let mut statement = self.connection.prepare(
-                "SELECT t.public_id, t.pane_id, t.position, t.content_kind,
-                        t.content_id, t.name, b.url, rt.terminal_id, t.name_source, t.name_revision
-                 FROM resource_tabs t
-                 LEFT JOIN resource_browsers b ON b.public_id = t.content_id
-                 LEFT JOIN resource_terminals rt ON rt.public_id = t.content_id
-                 WHERE t.deleted_revision IS NULL
-                 ORDER BY t.pane_id ASC, t.position ASC",
-            )?;
-            statement
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, Option<String>>(5)?,
-                        row.get::<_, Option<String>>(6)?,
-                        row.get::<_, Option<String>>(7)?,
-                        row.get::<_, String>(8)?,
-                        row.get::<_, i64>(9)?,
-                    ))
-                })?
-                .map(|row| {
-                    let (
-                        public_id,
-                        pane_id,
-                        position,
-                        kind,
-                        content_id,
-                        name,
-                        browser_url,
-                        terminal_id,
-                        name_source,
-                        name_revision,
-                    ) = row?;
-                    let content_id = match kind.as_str() {
-                        "terminal" => {
-                            ContentPublicId::Terminal(TerminalPublicId::parse(content_id)?)
-                        }
-                        "browser" => ContentPublicId::Browser(BrowserPublicId::parse(content_id)?),
-                        _ => anyhow::bail!("stored tab has invalid content kind {kind:?}"),
-                    };
-                    Ok(RegistryTab {
-                        public_id: TabPublicId::parse(public_id)?,
-                        pane_id: PanePublicId::parse(pane_id)?,
-                        position: usize::try_from(position)
-                            .context("stored tab position is negative")?,
-                        content_id,
-                        name,
-                        name_source: serde_json::from_value(json!(name_source))?,
-                        name_revision: u64::try_from(name_revision)
-                            .context("negative name revision")?,
-                        browser_url,
-                        terminal_id,
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?
-        };
-        let browsers = {
-            let mut statement = self.connection.prepare(
-                "SELECT public_id, url, metadata_json
-                 FROM resource_browsers
-                 WHERE deleted_revision IS NULL
-                 ORDER BY public_id ASC",
-            )?;
-            statement
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
-                })?
-                .map(|row| {
-                    let (public_id, url, metadata) = row?;
-                    let browser: RegistryBrowser = serde_json::from_str(&metadata)
-                        .with_context(|| format!("invalid metadata for browser {public_id}"))?;
-                    validate_registry_browser(&browser)?;
-                    if browser.public_id.as_str() != public_id || browser.url != url {
-                        anyhow::bail!(
-                            "browser {public_id} metadata does not match its indexed fields"
-                        );
-                    }
-                    Ok(browser)
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?
-        };
-        Ok(ResourceTopologySnapshot {
-            session_id: self.session_id.clone(),
-            generation: self.generation.clone(),
-            revision,
-            active_workspace,
-            active_screens,
-            screens,
-            panes,
-            tabs,
-            browsers,
-        })
+        load_resource_topology(&self.connection, self.session_id.clone(), self.generation.clone())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2650,6 +2445,211 @@ pub(super) fn complete_terminal_close_patch(
     Ok((patch, deltas))
 }
 
+/// Load the live resource topology from `connection`. The registry's
+/// snapshot and the startup repair (which runs inside the open transaction,
+/// before this open's generation exists) share it.
+pub(super) fn load_resource_topology(
+    connection: &Connection,
+    session_id: SessionPublicId,
+    generation: String,
+) -> anyhow::Result<ResourceTopologySnapshot> {
+    let revision = current_resource_revision(connection)?;
+    let active_workspace =
+        meta_value(connection, "active_workspace_id")?.map(WorkspacePublicId::parse).transpose()?;
+    let active_screens = {
+        let mut statement = connection.prepare(
+            "SELECT public_id, active_screen_id
+             FROM resource_workspaces
+             WHERE deleted_revision IS NULL
+             ORDER BY created_revision ASC, public_id ASC",
+        )?;
+        statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)))?
+            .map(|row| {
+                let (workspace, screen) = row?;
+                Ok((
+                    WorkspacePublicId::parse(workspace)?,
+                    screen.map(ScreenPublicId::parse).transpose()?,
+                ))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    let screens = {
+        let mut statement = connection.prepare(
+            "SELECT public_id, workspace_id, position, name, layout_json,
+                    active_pane_id, zoomed_pane_id, auto_layout_json, viewport_json
+             FROM resource_screens
+             WHERE deleted_revision IS NULL
+             ORDER BY workspace_id ASC, position ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, String>(8)?,
+                ))
+            })?
+            .map(|row| {
+                let (
+                    public_id,
+                    workspace_id,
+                    position,
+                    name,
+                    layout,
+                    active_pane,
+                    zoomed_pane,
+                    auto_layout,
+                    viewport,
+                ) = row?;
+                Ok(RegistryScreen {
+                    public_id: ScreenPublicId::parse(public_id)?,
+                    workspace_id: WorkspacePublicId::parse(workspace_id)?,
+                    position: usize::try_from(position)
+                        .context("stored screen position is negative")?,
+                    name,
+                    layout: serde_json::from_str(&layout)?,
+                    active_pane: PanePublicId::parse(active_pane)?,
+                    zoomed_pane: zoomed_pane.map(PanePublicId::parse).transpose()?,
+                    auto_layout: auto_layout
+                        .map(|value| serde_json::from_str(&value))
+                        .transpose()?,
+                    viewport: serde_json::from_str(&viewport)?,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    let panes = {
+        let mut statement = connection.prepare(
+            "SELECT public_id, screen_id, name, active_tab_id, creation_ordinal
+             FROM resource_panes
+             WHERE deleted_revision IS NULL
+             ORDER BY screen_id ASC, creation_ordinal ASC, public_id ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })?
+            .map(|row| {
+                let (public_id, screen_id, name, active_tab, creation_ordinal) = row?;
+                Ok(RegistryPane {
+                    public_id: PanePublicId::parse(public_id)?,
+                    screen_id: ScreenPublicId::parse(screen_id)?,
+                    name,
+                    active_tab: active_tab.map(TabPublicId::parse).transpose()?,
+                    creation_ordinal: u64::try_from(creation_ordinal)
+                        .context("stored pane creation ordinal is negative")?,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    let tabs = {
+        let mut statement = connection.prepare(
+            "SELECT t.public_id, t.pane_id, t.position, t.content_kind,
+                    t.content_id, t.name, b.url, rt.terminal_id, t.name_source, t.name_revision
+             FROM resource_tabs t
+             LEFT JOIN resource_browsers b ON b.public_id = t.content_id
+             LEFT JOIN resource_terminals rt ON rt.public_id = t.content_id
+             WHERE t.deleted_revision IS NULL
+             ORDER BY t.pane_id ASC, t.position ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, i64>(9)?,
+                ))
+            })?
+            .map(|row| {
+                let (
+                    public_id,
+                    pane_id,
+                    position,
+                    kind,
+                    content_id,
+                    name,
+                    browser_url,
+                    terminal_id,
+                    name_source,
+                    name_revision,
+                ) = row?;
+                let content_id = match kind.as_str() {
+                    "terminal" => ContentPublicId::Terminal(TerminalPublicId::parse(content_id)?),
+                    "browser" => ContentPublicId::Browser(BrowserPublicId::parse(content_id)?),
+                    _ => anyhow::bail!("stored tab has invalid content kind {kind:?}"),
+                };
+                Ok(RegistryTab {
+                    public_id: TabPublicId::parse(public_id)?,
+                    pane_id: PanePublicId::parse(pane_id)?,
+                    position: usize::try_from(position)
+                        .context("stored tab position is negative")?,
+                    content_id,
+                    name,
+                    name_source: serde_json::from_value(json!(name_source))?,
+                    name_revision: u64::try_from(name_revision)
+                        .context("negative name revision")?,
+                    browser_url,
+                    terminal_id,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    let browsers = {
+        let mut statement = connection.prepare(
+            "SELECT public_id, url, metadata_json
+             FROM resource_browsers
+             WHERE deleted_revision IS NULL
+             ORDER BY public_id ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+            })?
+            .map(|row| {
+                let (public_id, url, metadata) = row?;
+                let browser: RegistryBrowser = serde_json::from_str(&metadata)
+                    .with_context(|| format!("invalid metadata for browser {public_id}"))?;
+                validate_registry_browser(&browser)?;
+                if browser.public_id.as_str() != public_id || browser.url != url {
+                    anyhow::bail!("browser {public_id} metadata does not match its indexed fields");
+                }
+                Ok(browser)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    Ok(ResourceTopologySnapshot {
+        session_id,
+        generation,
+        revision,
+        active_workspace,
+        active_screens,
+        screens,
+        panes,
+        tabs,
+        browsers,
+    })
+}
+
 /// Repair terminal rows left live by older close implementations. This is a
 /// load-time migration for the durable invariant: a terminal resource is live
 /// only while both its host and identity ledger are live, and a live tab shows
@@ -2658,8 +2658,10 @@ pub(super) fn complete_terminal_close_patch(
 /// remaining tab positions of those panes, and selects a surviving tab where
 /// the retired tab was active. It advances the resource revision and emits a
 /// resource journal batch so revision-based consumers observe the tombstones
-/// after restart. Tab indexes and screen layouts that shift are restated by
-/// the next full topology projection.
+/// after restart. The batch also restates every surviving tab of an affected
+/// pane (its index and focus may move) and every screen that holds such a
+/// pane (its layout lists the pane's tabs and active tab), so an event-feed
+/// client converges without waiting for the next full topology projection.
 pub(super) fn repair_dangling_terminal_resources(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
@@ -2703,22 +2705,20 @@ pub(super) fn repair_dangling_terminal_resources(
             .collect::<Result<Vec<_>, _>>()?;
         retired_tabs.extend(rows);
     }
-    let changes = Value::Array(
-        dangling
-            .iter()
-            .map(|public_id| ("terminal", public_id))
-            .chain(retired_tabs.iter().map(|(tab_id, _, _)| ("tab", tab_id)))
-            .enumerate()
-            .map(|(sequence, (resource, public_id))| {
-                json!({
-                    "kind": "delete",
-                    "sequence": sequence,
-                    "resource": resource,
-                    "id": public_id,
-                })
+    let mut changes = dangling
+        .iter()
+        .map(|public_id| ("terminal", public_id))
+        .chain(retired_tabs.iter().map(|(tab_id, _, _)| ("tab", tab_id)))
+        .enumerate()
+        .map(|(sequence, (resource, public_id))| {
+            json!({
+                "kind": "delete",
+                "sequence": sequence,
+                "resource": resource,
+                "id": public_id,
             })
-            .collect(),
-    );
+        })
+        .collect::<Vec<_>>();
 
     // Retire the views first: this also clears an active-tab selection that
     // points at a retired tab.
@@ -2731,6 +2731,8 @@ pub(super) fn repair_dangling_terminal_resources(
             .and_modify(|first| *first = (*first).min(*position))
             .or_insert(*position);
     }
+    let affected_pane_ids =
+        affected_panes.keys().map(|pane_id| (*pane_id).to_owned()).collect::<Vec<_>>();
     for (pane_id, first_retired_position) in affected_panes {
         let survivors = {
             let mut statement = transaction.prepare(
@@ -2788,6 +2790,8 @@ pub(super) fn repair_dangling_terminal_resources(
         "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
         [repair_revision.to_string()],
     )?;
+    restate_repaired_panes(transaction, &affected_pane_ids, &mut changes)?;
+    let changes = Value::Array(changes);
     append_resource_journal_record(
         transaction,
         repair_revision,
@@ -2802,6 +2806,59 @@ pub(super) fn repair_dangling_terminal_resources(
         }),
         &changes,
     )?;
+    Ok(())
+}
+
+/// Append upserts for the surviving tabs of `pane_ids` and for the screens
+/// that hold those panes, read back from the repaired rows. Values use the
+/// same public representation as the session snapshot.
+fn restate_repaired_panes(
+    transaction: &Transaction<'_>,
+    pane_ids: &[String],
+    changes: &mut Vec<Value>,
+) -> anyhow::Result<()> {
+    if pane_ids.is_empty() {
+        return Ok(());
+    }
+    let session_id = SessionPublicId::parse(required_meta(transaction, "session_public_id")?)?;
+    // The repair runs inside the open transaction, before this open's
+    // generation exists. Public tab and screen values do not include it.
+    let topology = load_resource_topology(transaction, session_id, String::new())?;
+    let tabs_by_pane = crate::resource_screen::tabs_by_pane(&topology.tabs);
+    let panes_by_id =
+        topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
+    let mut screens = HashSet::new();
+    for pane in
+        topology.panes.iter().filter(|pane| pane_ids.iter().any(|id| id == pane.public_id.as_str()))
+    {
+        screens.insert(&pane.screen_id);
+        for tab in tabs_by_pane.get(&pane.public_id).into_iter().flatten() {
+            let sequence = changes.len();
+            changes.push(json!({
+                "kind": "upsert",
+                "sequence": sequence,
+                "resource": "tab",
+                "id": tab.public_id,
+                "value": tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)),
+            }));
+        }
+    }
+    for screen in topology.screens.iter().filter(|screen| screens.contains(&screen.public_id)) {
+        let value = crate::resource_screen::public_screen_value(
+            &topology,
+            screen,
+            &tabs_by_pane,
+            &panes_by_id,
+        )?;
+        let sequence = changes.len();
+        changes.push(json!({
+            "kind": "upsert",
+            "sequence": sequence,
+            "resource": "screen",
+            "id": screen.public_id,
+            "value": value,
+        }));
+    }
     Ok(())
 }
 

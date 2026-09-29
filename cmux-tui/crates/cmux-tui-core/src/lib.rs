@@ -40,6 +40,7 @@ mod resource_api;
 mod resource_mutation;
 pub mod resource_name;
 mod resource_router;
+mod resource_screen;
 mod resource_selector;
 mod resource_tab;
 mod short_id;
