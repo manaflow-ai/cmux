@@ -13,7 +13,7 @@ does not appear in the schema is not a license to add a guessed
 | `markdown` | Default prose size, prose font, reading-column width, and Cmd-click routing | `markdown.fontSize`, `markdown.fontFamily`, `markdown.maxWidth`, and `app.openMarkdownInCmuxViewer` | `cmux-settings validate`; `cmux reload-config` |
 | `diff` | New-viewer layout and one-invocation layout override | `diffViewer.defaultLayout`; `cmux diff --layout unified|split` overrides it for one invocation | `cmux-settings validate`; `cmux reload-config` |
 | `filePreview` | Whether a file opens in cmux, whether Markdown uses the rendered viewer, where double-click routes, and text-editor rendering | `app.openSupportedFilesInCmux`, `app.openMarkdownInCmuxViewer`, `app.preferredEditor`, `fileExplorer.doubleClickAction`, and `fileEditor.*`; generic Quick Look media has no additional cmux template knobs | `cmux-settings validate`; `cmux reload-config` |
-| `rightSidebarTool` | Which tool is shown, tab order, and Dock commands | `cmux right-sidebar set <mode>`, Settings > Sidebar > right-sidebar tabs, and `.cmux/dock.json` or `~/.config/cmux/dock.json` | `cmux right-sidebar mode`; parse Dock JSON; `cmux reload-config` for JSON changes |
+| `rightSidebarTool` | Which tool is shown, tab order, and Dock commands | Settings > Sidebar > right-sidebar tabs, and `.cmux/dock.json` or `~/.config/cmux/dock.json` | parse Dock JSON; `cmux reload-config` for JSON changes |
 | `html` | Local HTML content and browser chrome | Treat `cmux open` for `.html` as an embedded browser surface; use applicable `browser.*` presentation settings (such as theme and default zoom) and edit the HTML/CSS for page content. Local HTML opening bypasses host routing lists. | `cmux-settings validate` for JSON changes; `cmux reload-config` |
 | `notes` | Project-scoped notes rendering | No `notes.*` or `templates.notes` setting is shipped yet. If the notes surface is Markdown, use the `markdown.*` defaults; otherwise wait for its schema section | Do not write an unknown key; re-check the schema when notes customization lands |
 
@@ -47,8 +47,6 @@ cmux-settings set markdown.fontSize 16
 cmux-settings set browser.defaultZoomLevel 1.25
 cmux-settings set fileEditor.wordWrap true
 cmux-settings set diffViewer.defaultLayout '"split"'
-cmux right-sidebar set dock
-cmux right-sidebar mode
 cmux reload-config
 ```
 

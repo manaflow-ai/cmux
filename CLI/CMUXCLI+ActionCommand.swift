@@ -8,7 +8,7 @@ extension CMUXCLI {
     /// no entry: unknown commands always try the generated verbs.
     static let actionNounsSharedWithLegacyCommands: Set<String> = [
         "agent", "app", "browser", "cloud", "notification", "pane", "settings",
-        "sidebar", "tab", "terminal", "window", "workspace", "workspace-group"
+        "tab", "terminal", "workspace", "workspace-group"
     ]
 
     /// Runs `cmux action …` and generated `cmux <noun> <verb>` commands

@@ -5,7 +5,6 @@ import CmuxAgentJournal
 import CmuxControlSocket
 import CmuxFoundation
 import CmuxSettings
-import CmuxSimulator
 import CmuxSudoBroker
 import CoreFoundation
 import CryptoKit
@@ -4241,7 +4240,6 @@ final class SocketClient {
 struct CMUXCLI {
     let args: [String]
     let initialSIGPIPEInspectionPayload: [String: Any]?
-    let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
 
     private enum NotifyTargetResolution {
         case surface(
@@ -4464,13 +4462,10 @@ struct CMUXCLI {
     }
     init(
         args: [String],
-        initialSIGPIPEInspectionPayload: [String: Any]? = nil,
-        simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning =
-            SimulatorOwnedCommandRunner()
+        initialSIGPIPEInspectionPayload: [String: Any]? = nil
     ) {
         self.args = args
         self.initialSIGPIPEInspectionPayload = initialSIGPIPEInspectionPayload
-        self.simulatorOwnedCommandRunner = simulatorOwnedCommandRunner
     }
 
     /// Sends transport failures and structured protocol failures through the
@@ -4995,6 +4990,9 @@ struct CMUXCLI {
 
         let command = args[index]
         let rawCommandArgs = Array(args[(index + 1)...])
+        if let removed = removedCommandError(command) {
+            throw removed
+        }
         if let supervisor = try OwnedProcessSupervisor(command: command, arguments: rawCommandArgs) {
             exit(try supervisor.run())
         }
@@ -5113,17 +5111,6 @@ struct CMUXCLI {
                     environment: processEnv
                 ),
                 explicitPassword: socketPasswordArg,
-                jsonOutput: jsonOutput
-            )
-            return
-        }
-
-        // `window default-display` only reads/writes the shared dev setting file;
-        // it must work with no cmux running, so handle it before socket resolution.
-        if command == "window",
-           commandArgs.first?.lowercased() == "default-display" {
-            try runWindowDefaultDisplayCommand(
-                commandArgs: Array(commandArgs.dropFirst()),
                 jsonOutput: jsonOutput
             )
             return
@@ -5282,11 +5269,6 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput
             )
             return
-        }
-
-        if command == "right-sidebar" {
-            let parsed = try parseRightSidebarCLIArguments(commandArgs)
-            _ = try rightSidebarSocketArguments(from: parsed)
         }
 
         if command == "themes" {
@@ -5587,17 +5569,8 @@ struct CMUXCLI {
         switch command {
         case "automation":
             try runAutomationCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
-        case "__sidebar_footer_icon_balance":
-            let response = try sendV1Command("__sidebar_footer_icon_balance", client: client)
-            print(response)
-        case "__internal_flags":
-            let response = try sendV1Command("__internal_flags", client: client)
-            print(response)
         case "ping":
             let response = try sendV1Command("ping", client: client)
-            print(response)
-        case "iroh-diag":
-            let response = try sendV1Command("iroh_diag", client: client)
             print(response)
         case "capabilities":
             let response = try client.sendV2(method: "system.capabilities")
@@ -6943,9 +6916,6 @@ struct CMUXCLI {
         case "reorder-workspaces":
             try runReorderWorkspaces(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
-        case "simulate-sidebar-drag":
-            try runSimulateSidebarDrag(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
-
         case "workspace-action":
             try runWorkspaceAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
         case "tab-action":
@@ -6964,27 +6934,6 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
 
-        case "window":
-            try runWindowNamespace(
-                commandArgs: commandArgs,
-                client: client,
-                jsonOutput: jsonOutput,
-                idFormat: idFormat,
-                windowOverride: windowId
-            )
-
-        case "canvas":
-            try runCanvasNamespace(
-                commandArgs: commandArgs,
-                client: client,
-                jsonOutput: jsonOutput,
-                idFormat: idFormat
-            )
-
-        case "simulator":
-            try runSimulatorNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
-        case "ios":
-            try runIOSNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
         case "workspace":
             try runWorkspaceNamespace(
                 commandArgs: commandArgs,
@@ -7415,9 +7364,6 @@ struct CMUXCLI {
         case "drag-surface-to-split":
             try runSplitOff(commandName: "drag-surface-to-split", commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
-        case "refresh-surfaces":
-            let response = try sendV1Command("refresh_surfaces", client: client)
-            print(response)
         case "reload-config":
             if let unexpected = commandArgs.first {
                 throw CLIError(message: "reload-config does not accept arguments. Unexpected argument '\(unexpected)'")
@@ -7455,18 +7401,6 @@ struct CMUXCLI {
                         print("\(handle)  type=\(sType)\(inWindowStr)\(socketBinding)")
                     }
                 }
-            }
-
-        case "debug-terminals":
-            let unexpected = commandArgs.filter { $0 != "--" }
-            if let extra = unexpected.first {
-                throw CLIError(message: "debug-terminals: unexpected argument '\(extra)'")
-            }
-            let payload = try client.sendV2(method: "debug.terminals")
-            if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
-            } else {
-                print(formatDebugTerminalsPayload(payload, idFormat: idFormat))
             }
 
         case "trigger-flash":
@@ -8102,19 +8036,6 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-        case "right-sidebar":
-            try forwardRightSidebarCommand(
-                commandArgs: commandArgs,
-                client: client,
-                windowOverride: windowId
-            )
-        case "sidebar":
-            try runSidebarCommand(
-                commandArgs: commandArgs,
-                client: client,
-                jsonOutput: jsonOutput,
-                windowOverride: windowId
-            )
         case "claude-hook":
             cliTelemetry.breadcrumb("claude-hook.dispatch")
             do {
@@ -8138,15 +8059,6 @@ struct CMUXCLI {
                 socketPassword: socketPasswordArg,
                 hookDeadline: cursorHookDeadline
             )
-
-        case "set-app-focus":
-            guard let value = commandArgs.first else { throw CLIError(message: "set-app-focus requires a value") }
-            let response = try sendV1Command("set_app_focus \(value)", client: client)
-            print(response)
-
-        case "simulate-app-active":
-            let response = try sendV1Command("simulate_app_active", client: client)
-            print(response)
 
         case "__tmux-compat":
             try runClaudeTeamsTmuxCompat(
@@ -8198,10 +8110,6 @@ struct CMUXCLI {
         // Browser commands
         case "browser":
             try runBrowserCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
-
-        // Project pane
-        case "project":
-            try runProjectCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         // Legacy aliases shimmed onto the v2 browser command surface.
         case "open-browser":
@@ -8404,61 +8312,6 @@ struct CMUXCLI {
             let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
             let filePath = (payload["path"] as? String) ?? absolutePath
             print("OK surface=\(surfaceText) pane=\(paneText) path=\(filePath)")
-        }
-    }
-
-    private func runProjectCommand(
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat
-    ) throws {
-        var args = commandArgs
-        let (workspaceOpt, argsAfterWorkspace) = parseOption(args, name: "--workspace")
-        let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
-        let (focusOpt, argsAfterFocus) = parseOption(argsAfterWindow, name: "--focus")
-        args = argsAfterFocus
-
-        // Treat first token as subcommand if it's "open", else require it.
-        guard let first = args.first?.lowercased() else {
-            throw CLIError(message: "project requires a subcommand. Usage: cmux project open <path-to-.xcodeproj-or-.xcworkspace>")
-        }
-        let subArgs: [String]
-        if first == "open" {
-            subArgs = Array(args.dropFirst())
-        } else if args.count == 1 {
-            subArgs = args
-        } else {
-            throw CLIError(message: "Unknown project subcommand: \(first). Usage: cmux project open <path>")
-        }
-
-        guard let rawPath = subArgs.first, !rawPath.isEmpty else {
-            throw CLIError(message: "project open requires a path. Usage: cmux project open <path-to-.xcodeproj-or-.xcworkspace>")
-        }
-        let absolutePath = resolvePath(rawPath)
-        var params: [String: Any] = ["path": absolutePath]
-        let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-        if let workspaceRaw {
-            if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
-                params["workspace_id"] = workspace
-            }
-        }
-        if let windowRaw = windowOpt {
-            if let window = try normalizeWindowHandle(windowRaw, client: client) {
-                params["window_id"] = window
-            }
-        }
-        try applyFocusOption(focusOpt, defaultValue: true, to: &params)
-
-        let payload = try client.sendV2(method: "project.open", params: params)
-
-        if jsonOutput {
-            print(jsonString(formatIDs(payload, mode: idFormat)))
-        } else {
-            let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
-            let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
-            let path = (payload["path"] as? String) ?? absolutePath
-            print("OK surface=\(surfaceText) pane=\(paneText) project=\(path)")
         }
     }
 
@@ -10156,140 +10009,6 @@ struct CMUXCLI {
         return string
     }
 
-    private func debugBool(_ value: Any?) -> Bool? {
-        boolFromAny(value)
-    }
-
-    private func debugFlag(_ value: Any?) -> String {
-        guard let bool = debugBool(value) else { return "nil" }
-        return bool ? "1" : "0"
-    }
-
-    private func formatDebugRect(_ value: Any?) -> String? {
-        guard let rect = value as? [String: Any],
-              let x = doubleFromAny(rect["x"]),
-              let y = doubleFromAny(rect["y"]),
-              let width = doubleFromAny(rect["width"]),
-              let height = doubleFromAny(rect["height"]) else {
-            return nil
-        }
-        return String(format: "{%.1f,%.1f %.1fx%.1f}", x, y, width, height)
-    }
-
-    private func formatDebugPorts(_ value: Any?) -> String {
-        guard let array = value as? [Any], !array.isEmpty else { return "[]" }
-        let ports = array
-            .compactMap { intFromAny($0) }
-            .map(String.init)
-        return ports.isEmpty ? "[]" : ports.joined(separator: ",")
-    }
-
-    private func formatDebugList(_ value: Any?) -> String? {
-        guard let array = value as? [Any], !array.isEmpty else { return nil }
-        let items = array.compactMap { item -> String? in
-            if let string = item as? String {
-                return string
-            }
-            return debugString(item)
-        }
-        guard !items.isEmpty else { return nil }
-        return items.joined(separator: ">")
-    }
-
-    private func formatDebugAge(_ value: Any?) -> String? {
-        guard let seconds = doubleFromAny(value) else { return nil }
-        return String(format: "%.3fs", seconds)
-    }
-
-    private func formatDebugTerminalsPayload(_ payload: [String: Any], idFormat: CLIIDFormat) -> String {
-        let terminals = payload["terminals"] as? [[String: Any]] ?? []
-        guard !terminals.isEmpty else { return "No terminal surfaces" }
-
-        return terminals.map { item in
-            let index = intFromAny(item["index"]) ?? 0
-            let surface = formatHandle(item, kind: "surface", idFormat: idFormat) ?? "?"
-            let window = formatHandle(item, kind: "window", idFormat: idFormat) ?? "nil"
-            let workspace = formatHandle(item, kind: "workspace", idFormat: idFormat) ?? "nil"
-            let pane = formatHandle(item, kind: "pane", idFormat: idFormat) ?? "nil"
-            let paneTab = debugString(item["bonsplit_tab_id"]) ?? "nil"
-            let lastKnownWorkspace = debugString(item["last_known_workspace_ref"]) ?? debugString(item["last_known_workspace_id"]) ?? "nil"
-            let titleSuffix: String = {
-                guard let title = debugString(item["surface_title"]), !title.isEmpty else { return "" }
-                let escaped = title.replacingOccurrences(of: "\"", with: "\\\"")
-                return " \"\(escaped)\""
-            }()
-            let branchLabel: String = {
-                guard let branch = debugString(item["git_branch"]), !branch.isEmpty else { return "nil" }
-                return debugBool(item["git_dirty"]) == true ? "\(branch)*" : branch
-            }()
-            let teardownLabel: String = {
-                guard debugBool(item["teardown_requested"]) == true else { return "nil" }
-                let reason = debugString(item["teardown_requested_reason"]) ?? "requested"
-                let age = formatDebugAge(item["teardown_requested_age_seconds"]) ?? "unknown"
-                return "\(reason)@\(age)"
-            }()
-            let portalHostLabel: String = {
-                let hostId = debugString(item["portal_host_id"]) ?? "nil"
-                let area = doubleFromAny(item["portal_host_area"]).map { String(format: "%.1f", $0) } ?? "nil"
-                let inWindow = debugFlag(item["portal_host_in_window"])
-                return "\(hostId)/win=\(inWindow)/area=\(area)"
-            }()
-            let windowMetaLabel: String = {
-                let title = debugString(item["window_title"]) ?? "nil"
-                let windowClass = debugString(item["window_class"]) ?? "nil"
-                let controllerClass = debugString(item["window_controller_class"]) ?? "nil"
-                let delegateClass = debugString(item["window_delegate_class"]) ?? "nil"
-                return "title=\(title) class=\(windowClass) controller=\(controllerClass) delegate=\(delegateClass)"
-            }()
-
-            let line1 =
-                "[\(index)] \(surface)\(titleSuffix) " +
-                "mapped=\(debugFlag(item["mapped"])) tree=\(debugFlag(item["tree_visible"])) " +
-                "window=\(window) workspace=\(workspace) pane=\(pane) paneTab=\(paneTab) " +
-                "ctx=\(debugString(item["surface_context"]) ?? "nil")"
-
-            let line2 =
-                "    runtime=\(debugFlag(item["runtime_surface_ready"])) " +
-                "focused=\(debugFlag(item["surface_focused"])) " +
-                "selected=\(debugFlag(item["surface_selected_in_pane"])) " +
-                "pinned=\(debugFlag(item["surface_pinned"])) " +
-                "terminal=\(debugString(item["terminal_object_ptr"]) ?? "nil") " +
-                "hosted=\(debugString(item["hosted_view_ptr"]) ?? "nil") " +
-                "ghostty=\(debugString(item["ghostty_surface_ptr"]) ?? "nil") " +
-                "portal=\(debugString(item["portal_binding_state"]) ?? "nil")#\(debugString(item["portal_binding_generation"]) ?? "nil") " +
-                "teardown=\(teardownLabel)"
-
-            let line3 =
-                "    tty=\(debugString(item["tty"]) ?? "nil") " +
-                "cwd=\(debugString(item["current_directory"]) ?? debugString(item["requested_working_directory"]) ?? "nil") " +
-                "branch=\(branchLabel) " +
-                "ports=\(formatDebugPorts(item["listening_ports"])) " +
-                "visible=\(debugFlag(item["hosted_view_visible_in_ui"])) " +
-                "inWindow=\(debugFlag(item["hosted_view_in_window"])) " +
-                "superview=\(debugFlag(item["hosted_view_has_superview"])) " +
-                "hidden=\(debugFlag(item["hosted_view_hidden"])) " +
-                "ancestorHidden=\(debugFlag(item["hosted_view_hidden_or_ancestor_hidden"])) " +
-                "firstResponder=\(debugFlag(item["surface_view_first_responder"])) " +
-                "windowNum=\(debugString(item["window_number"]) ?? "nil") " +
-                "windowKey=\(debugFlag(item["window_key"])) " +
-                "frame=\(formatDebugRect(item["hosted_view_frame_in_window"]) ?? "nil")"
-
-            let line4 =
-                "    created=\(formatDebugAge(item["surface_age_seconds"]) ?? "nil") " +
-                "runtimeCreated=\(formatDebugAge(item["runtime_surface_age_seconds"]) ?? "nil") " +
-                "lastWorkspace=\(lastKnownWorkspace) " +
-                "initialCommand=\(debugString(item["initial_command"]) ?? "nil") " +
-                "portalHost=\(portalHostLabel)"
-
-            let line5 =
-                "    window=\(windowMetaLabel) " +
-                "chain=\(formatDebugList(item["hosted_view_superview_chain"]) ?? "nil")"
-
-            return [line1, line2, line3, line4, line5].joined(separator: "\n")
-        }
-        .joined(separator: "\n")
-    }
-
     /// The `reorder-workspace` options that consume the following argument, so a
     /// positional workspace selector is not confused with one of their values.
     private static let reorderWorkspaceValueOptions: Set<String> = [
@@ -10420,69 +10139,6 @@ struct CMUXCLI {
             let index = item["to_index"] ?? item["index"] ?? "?"
             return String(format: lineFormat, workspace, window, String(describing: index))
         }
-    }
-
-    private func runSimulateSidebarDrag(
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat
-    ) throws {
-        let windowRaw = optionValue(commandArgs, name: "--window")
-        let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
-        guard let windowHandle else {
-            throw CLIError(message: "simulate-sidebar-drag requires --window <id|ref|index>")
-        }
-        guard let fromRaw = optionValue(commandArgs, name: "--from") else {
-            throw CLIError(message: "simulate-sidebar-drag requires --from <workspace id|ref|index>")
-        }
-        guard let toRaw = optionValue(commandArgs, name: "--to") else {
-            throw CLIError(message: "simulate-sidebar-drag requires --to <workspace id|ref|index>")
-        }
-        let fromHandle = try normalizeWorkspaceHandle(fromRaw, client: client, windowHandle: windowHandle)
-        let toHandle = try normalizeWorkspaceHandle(toRaw, client: client, windowHandle: windowHandle)
-        guard let fromHandle, let toHandle else {
-            throw CLIError(message: "simulate-sidebar-drag could not resolve --from / --to to workspace ids")
-        }
-
-        var params: [String: Any] = [
-            "window_id": windowHandle,
-            "from_tab_id": fromHandle,
-            "to_tab_id": toHandle
-        ]
-        var requestedDurationMs = 1000  // matches server default
-        var requestedSteps: Int?
-        if let durationRaw = optionValue(commandArgs, name: "--duration-ms") {
-            guard let duration = Int(durationRaw), duration > 0 else {
-                throw CLIError(message: "--duration-ms must be a positive integer")
-            }
-            params["duration_ms"] = duration
-            requestedDurationMs = duration
-        }
-        if let stepsRaw = optionValue(commandArgs, name: "--steps") {
-            guard let steps = Int(stepsRaw), steps > 0 else {
-                throw CLIError(message: "--steps must be a positive integer")
-            }
-            params["steps"] = steps
-            requestedSteps = steps
-        }
-
-        // The handler blocks until the simulated drag completes
-        // (duration_ms in the common path; longer when --steps > path
-        // length because the per-step interval has a 1ms minimum). The
-        // default 15s socket response timeout would abort long profiling
-        // runs while the app keeps simulating. Allow generous slack.
-        let stepBasedMinMs = (requestedSteps ?? 0)  // server enforces 1ms min interval
-        let expectedRuntimeMs = max(requestedDurationMs, stepBasedMinMs)
-        let responseTimeout = max(30.0, Double(expectedRuntimeMs) / 1000.0 + 10.0)
-
-        let payload = try client.sendV2(
-            method: "debug.sidebar.simulate_drag",
-            params: params,
-            responseTimeout: responseTimeout
-        )
-        let summary = "OK steps=\(payload["steps"] ?? "?") duration_ms=\(payload["duration_ms"] ?? "?") edge=\(payload["edge"] ?? "?")"
-        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
     }
 
     private func runWorkspaceAction(
@@ -11077,277 +10733,6 @@ struct CMUXCLI {
     /// same v2 socket methods that legacy verbs use (`new-workspace`,
     /// `list-workspaces`, etc.) so behavior matches. Legacy verbs keep working
     /// unchanged for backwards compatibility.
-    /// `cmux window default-display [<name>|--clear]` — read/write the shared,
-    /// cross-tag default display that DEBUG cmux builds open new windows on.
-    ///
-    /// Persisted through ``CmuxSettings/JSONConfigStore`` in the shared
-    /// `cmux.json` under `app.devWindowDisplay`, so it applies to every tagged
-    /// dev build regardless of bundle id. No running app required: the value is
-    /// read/written directly on disk via the store on this no-socket early path.
-    private func runWindowDefaultDisplayCommand(commandArgs: [String], jsonOutput: Bool) throws {
-        let store = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
-        let key = SettingCatalog().app.devWindowDisplay
-
-        // Bridge the actor-backed store to this synchronous CLI: run the async
-        // store call on the cooperative pool and block this thread until it
-        // signals. The semaphore establishes the happens-before that makes the
-        // `nonisolated(unsafe)` result hand-off race-free.
-        func runBlocking<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) throws -> T {
-            let semaphore = DispatchSemaphore(value: 0)
-            nonisolated(unsafe) var output: Result<T, Error>!
-            Task {
-                do { output = .success(try await work()) }
-                catch { output = .failure(error) }
-                semaphore.signal()
-            }
-            semaphore.wait()
-            return try output.get()
-        }
-
-        func currentValue() throws -> String? {
-            let trimmed = try runBlocking { await store.value(for: key) }
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
-
-        if commandArgs.contains("--clear") {
-            try runBlocking { try await store.reset(key) }
-            if jsonOutput { print(jsonString(["default_display": NSNull()])) }
-            else { print("Cleared dev window display default.") }
-            return
-        }
-
-        let positional = commandArgs.filter { !$0.hasPrefix("-") }
-        if let raw = positional.first {
-            let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else {
-                throw CLIError(message: "window default-display requires a display name, or --clear")
-            }
-            try runBlocking { try await store.set(name, for: key) }
-            if jsonOutput { print(jsonString(["default_display": name])) }
-            else { print("Dev builds will open on \"\(name)\" (DEBUG builds, applied at window creation).") }
-            return
-        }
-
-        let current = try currentValue()
-        if jsonOutput {
-            if let current {
-                print(jsonString(["default_display": current]))
-            } else {
-                print(jsonString(["default_display": NSNull()]))
-            }
-        } else {
-            print(current ?? "(unset)")
-        }
-    }
-
-    private func runWindowNamespace(
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat,
-        windowOverride: String?
-    ) throws {
-        guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "window requires a subcommand. Try: display, displays, default-display")
-        }
-        let rest = Array(commandArgs.dropFirst())
-        switch sub {
-        case "displays":
-            try runWindowDisplaysCommand(client: client, jsonOutput: jsonOutput)
-        case "display":
-            try runWindowDisplayCommand(
-                commandArgs: rest,
-                client: client,
-                jsonOutput: jsonOutput,
-                idFormat: idFormat,
-                windowOverride: windowOverride
-            )
-        default:
-            throw CLIError(message: "Unknown window subcommand: \(sub). Try: display, displays")
-        }
-    }
-
-    /// `cmux canvas <info|mode|set-frame|align|reveal|overview|set-viewport|new-pane|…>`
-    /// — workspace canvas-layout control over the v2 `canvas.*` methods.
-    private func runCanvasNamespace(
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat
-    ) throws {
-        guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "canvas requires a subcommand. Try: info, mode, set-frame, align, reveal, overview, zoom, set-viewport, new-pane")
-        }
-        let rest = Array(commandArgs.dropFirst())
-        // Split flags ("--name value") from bare positionals so a flag's
-        // value is never mistaken for a positional argument.
-        var positionals: [String] = []
-        var index = 0
-        while index < rest.count {
-            let arg = rest[index]
-            if arg.hasPrefix("--") {
-                index += 2
-            } else {
-                positionals.append(arg)
-                index += 1
-            }
-        }
-
-        var params: [String: Any] = [:]
-        if let workspaceRaw = optionValue(rest, name: "--workspace"),
-           let wsId = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
-            params["workspace_id"] = wsId
-        }
-
-        func surfaceParam(positional: String?, required: Bool) throws {
-            let raw = optionValue(rest, name: "--surface") ?? positional
-            if let raw, let surfaceId = try normalizeSurfaceHandle(raw, client: client) {
-                params["surface_id"] = surfaceId
-            } else if required {
-                throw CLIError(message: "canvas \(sub) requires a surface (positional or --surface <id|ref>)")
-            }
-        }
-
-        let method: String
-        switch sub {
-        case "info":
-            method = "canvas.info"
-        case "mode":
-            guard let mode = positionals.first?.lowercased(),
-                  ["canvas", "splits", "toggle"].contains(mode) else {
-                throw CLIError(message: "Usage: cmux canvas mode <canvas|splits|toggle>")
-            }
-            params["mode"] = mode
-            method = "canvas.set_mode"
-        case "set-frame":
-            try surfaceParam(positional: positionals.first, required: true)
-            for key in ["x", "y", "width", "height"] {
-                guard let raw = optionValue(rest, name: "--\(key)"), let value = Double(raw) else {
-                    throw CLIError(message: "canvas set-frame requires numeric --x --y --width --height")
-                }
-                params[key] = value
-            }
-            method = "canvas.set_frame"
-        case "align":
-            guard let command = positionals.first?.lowercased() else {
-                throw CLIError(message: "Usage: cmux canvas align <tidy|align-left|align-right|align-top|align-bottom|equalize-widths|equalize-heights|distribute-horizontally|distribute-vertically>")
-            }
-            params["command"] = command
-            method = "canvas.align"
-        case "reveal":
-            try surfaceParam(positional: positionals.first, required: false)
-            method = "canvas.reveal"
-        case "overview":
-            method = "canvas.overview"
-        case "zoom":
-            guard let direction = positionals.first?.lowercased(),
-                  ["in", "out", "reset"].contains(direction) else {
-                throw CLIError(message: "Usage: cmux canvas zoom <in|out|reset>")
-            }
-            params["direction"] = direction
-            method = "canvas.zoom"
-        case "join":
-            try surfaceParam(positional: positionals.first, required: true)
-            guard let targetRaw = positionals.dropFirst().first ?? optionValue(rest, name: "--target"),
-                  let targetId = try normalizeSurfaceHandle(targetRaw, client: client) else {
-                throw CLIError(message: "Usage: cmux canvas join <surface> <target-surface>")
-            }
-            params["target_surface_id"] = targetId
-            method = "canvas.join"
-        case "break":
-            try surfaceParam(positional: positionals.first, required: true)
-            method = "canvas.break"
-        case "select-tab":
-            try surfaceParam(positional: positionals.first, required: true)
-            method = "canvas.select_tab"
-        case "set-viewport":
-            for key in ["x", "y"] {
-                guard let raw = optionValue(rest, name: "--\(key)"), let value = Double(raw) else {
-                    throw CLIError(message: "canvas set-viewport requires numeric --x --y")
-                }
-                params[key] = value
-            }
-            if let raw = optionValue(rest, name: "--zoom") {
-                guard let value = Double(raw) else {
-                    throw CLIError(message: "canvas set-viewport --zoom must be numeric")
-                }
-                params["zoom"] = value
-            }
-            method = "canvas.set_viewport"
-        case "new-pane":
-            if let type = optionValue(rest, name: "--type")?.lowercased() {
-                guard ["terminal", "browser", "simulator"].contains(type) else {
-                    throw CLIError(message: String(localized: "cli.canvas.error.newPaneTypeUsage", defaultValue: "Usage: cmux canvas new-pane [--type terminal|browser|simulator]", bundle: .cmuxCLI))
-                }
-                params["type"] = type
-            }
-            method = "canvas.new_pane"
-        default:
-            throw CLIError(message: "Unknown canvas subcommand: \(sub). Try: info, mode, set-frame, align, reveal, overview, zoom, join, break, select-tab, set-viewport, new-pane")
-        }
-
-        let payload = try client.sendV2(method: method, params: params)
-        printV2Payload(
-            payload,
-            jsonOutput: jsonOutput,
-            idFormat: idFormat,
-            fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace", "surface"])
-        )
-    }
-
-    /// `cmux window displays` — list connected displays (name + index).
-    private func runWindowDisplaysCommand(client: SocketClient, jsonOutput: Bool) throws {
-        let response = try client.sendV2(method: "window.displays")
-        if jsonOutput {
-            print(jsonString(response))
-            return
-        }
-        let displays = (response["displays"] as? [[String: Any]]) ?? []
-        if displays.isEmpty {
-            print("No displays found.")
-            return
-        }
-        for display in displays {
-            let name = (display["name"] as? String) ?? "(unknown)"
-            let index = (display["index"] as? Int) ?? -1
-            let isMain = (display["main"] as? Bool) ?? false
-            print("\(index): \(name)\(isMain ? "  (main)" : "")")
-        }
-    }
-
-    /// `cmux window display "<name>"` — move this instance's window(s) onto the
-    /// named display, preserving size. `--list` is an alias for `window displays`.
-    private func runWindowDisplayCommand(
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat,
-        windowOverride: String?
-    ) throws {
-        if commandArgs.contains("--list") || commandArgs.contains("-l") {
-            try runWindowDisplaysCommand(client: client, jsonOutput: jsonOutput)
-            return
-        }
-        let positional = commandArgs.filter { !$0.hasPrefix("-") }
-        guard let displayName = positional.first, !displayName.isEmpty else {
-            throw CLIError(message: "window display requires a display name. Usage: cmux window display \"LG HDR 4K\"  (list names with: cmux window displays)")
-        }
-        var params: [String: Any] = ["display": displayName]
-        if let windowOverride {
-            let normalized = try normalizeWindowHandle(windowOverride, client: client) ?? windowOverride
-            params["window_id"] = normalized
-        }
-        let response = try client.sendV2(method: "window.display", params: params)
-        if jsonOutput {
-            print(jsonString(formatIDs(response, mode: idFormat)))
-            return
-        }
-        let resolvedDisplay = (response["display"] as? String) ?? displayName
-        let movedCount = (response["moved"] as? [Any])?.count ?? 0
-        print("Moved \(movedCount) window\(movedCount == 1 ? "" : "s") to \(resolvedDisplay).")
-    }
-
     private func runWorkspaceNamespace(
         commandArgs: [String],
         client: SocketClient,
@@ -18685,59 +18070,12 @@ struct CMUXCLI {
 
             Check connectivity to the cmux socket server.
             """
-        case "iroh-diag":
-            return String(
-                localized: "cli.help.irohDiag",
-                defaultValue: """
-                Usage: cmux iroh-diag
-
-                Print the host's Iroh Connection Report as a plain-language timeline,
-                the same data as Settings > Networking > Connection Report.
-                """
-            )
         case "capabilities":
             return """
             Usage: cmux capabilities
 
             Print server capabilities as JSON.
             """
-        case "canvas":
-            return """
-            Usage: cmux canvas <subcommand> [args] [--workspace <id|ref>]
-
-            Control a workspace's freeform canvas layout.
-
-            Subcommands:
-              info                          Print layout mode and pane frames (z-order)
-              mode <canvas|splits|toggle>   Switch layout mode
-              set-frame <surface> --x <n> --y <n> --width <n> --height <n>
-                                            Place one pane at an explicit frame
-              align <command>               tidy, align-left, align-right, align-top,
-                                            align-bottom, equalize-widths, equalize-heights,
-                                            distribute-horizontally, distribute-vertically
-              reveal [<surface>]            Scroll a pane into view (default: focused)
-              overview                      Toggle fit-all overview zoom
-              zoom <in|out|reset>           Step viewport magnification
-              set-viewport --x <n> --y <n> [--zoom <n>]
-                                            Center the viewport on a canvas point
-                                            (optionally set magnification)
-              new-pane [--type terminal|browser|simulator]
-                                            Create a new free-floating canvas pane
-              join <surface> <target>       Move a surface into the pane hosting target (tab)
-              break <surface>               Tear a surface out of its multi-tab pane
-              select-tab <surface>          Select a surface as its pane's visible tab
-
-            Example:
-              cmux canvas mode canvas
-              cmux canvas set-frame surface:1 --x 0 --y 0 --width 800 --height 520
-              cmux canvas set-viewport --x 400 --y 260 --zoom 1.0
-              cmux canvas new-pane --type terminal
-              cmux canvas align tidy
-            """
-        case "simulator":
-            return simulatorSubcommandUsage()
-        case "ios":
-            return iosSubcommandUsage()
         case "events":
             let timeoutDescription = String(
                 localized: "cli.events.help.timeout",
@@ -19556,28 +18894,6 @@ struct CMUXCLI {
               cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31
               cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run
             """, bundle: .cmuxCLI)
-        case "simulate-sidebar-drag":
-            return """
-            Usage: cmux simulate-sidebar-drag --window <id|ref|index> --from <ws> --to <ws> [flags]
-
-            Drive deterministic sidebar drag-state mutations against a DEBUG build of
-            the app, intended for headless profiling under xctrace (see the profile-pr
-            skill in cmuxterm-hq). Sets dragState.draggedTabId to --from, ticks
-            dragState.dropIndicator across the rows between --from and --to over
-            --duration-ms in --steps increments, then clears both. Does NOT commit a
-            reorder. Only available in DEBUG builds.
-
-            Flags:
-              --window <id|ref|index>      Window context (required)
-              --from <id|ref|index>        Workspace to mark as the dragged tab (required)
-              --to <id|ref|index>          Final target neighbor row (required)
-              --duration-ms <n>            Total simulation duration (default: 1000)
-              --steps <n>                  Number of indicator updates (default: row count between from and to)
-
-            Example:
-              cmux simulate-sidebar-drag --window window:1 --from workspace:1 --to workspace:25 --duration-ms 2000
-              cmux simulate-sidebar-drag --window window:1 --from workspace:1 --to workspace:25 --steps 120 --duration-ms 2000
-            """
         case "workspace-action":
             return """
             Usage: cmux workspace-action --action <name> [flags]
@@ -20144,12 +19460,6 @@ struct CMUXCLI {
               cmux split-off --surface surface:1 right
               cmux split-off --workspace workspace:2 --surface surface:4 down
             """
-        case "refresh-surfaces":
-            return """
-            Usage: cmux refresh-surfaces
-
-            Refresh surface snapshots for the focused workspace.
-            """
         case "reload-config":
             return """
             Usage: cmux reload-config
@@ -20216,13 +19526,6 @@ struct CMUXCLI {
               cmux surface resume show --json
             """
             )
-        case "debug-terminals":
-            return """
-            Usage: cmux debug-terminals
-
-            Print live Ghostty terminal runtime metadata across all windows and workspaces.
-            Intended for debugging stray or detached terminal views.
-            """
         case "trigger-flash":
             return """
             Usage: cmux trigger-flash [--workspace <id|ref|index>] [--surface <id|ref|index>] [--panel <id|ref|index>] [--window <id|ref|index>]
@@ -20796,63 +20099,6 @@ struct CMUXCLI {
               cmux sidebar-state
               cmux sidebar-state --workspace workspace:2
             """
-        case "right-sidebar":
-            return String(localized: "cli.rightSidebar.usage", defaultValue: """
-            Usage: cmux right-sidebar <command> [flags]
-
-            Control the right sidebar from the CLI.
-
-            Commands:
-              toggle                         Toggle right sidebar visibility
-              show                           Show the right sidebar
-              hide                           Hide the right sidebar
-              focus                          Focus the current right sidebar mode
-              set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [sidebar-name]
-                                             Show, switch mode, and focus. `custom`
-                                             renders a JS/Swift sidebar from
-                                             ~/.config/cmux/sidebars as a right panel;
-                                             the optional name picks which one.
-              mode                           Print {"visible":bool,"mode":string}
-              files|find|vault|sessions|feed|dock|cloud|devices|custom
-                                             Alias for show + set + focus
-
-            Flags:
-              --workspace <id|ref|index>     Target the window containing a workspace
-              --window <id|ref|index>        Target a window
-              --no-focus                     With set, switch mode without moving focus
-
-            Examples:
-              cmux right-sidebar toggle
-              cmux right-sidebar set find
-              cmux right-sidebar set custom panel-info
-              cmux right-sidebar mode
-            """, bundle: .cmuxCLI)
-        case "sidebar":
-            return String(localized: "cli.sidebar.usage", defaultValue: """
-            Usage: cmux sidebar <validate|reload|select|open> [name|--all] [--json]
-            Validate, reload, select, or open custom sidebars from ~/.config/cmux/sidebars.
-            Commands:
-              validate [name]   Validate all custom sidebars, or one named sidebar
-              reload [name]     Validate all sidebars, then reload every valid one
-              select <name>     Activate one custom sidebar
-              open <name>       Open one custom sidebar as a pane
-            """, bundle: .cmuxCLI)
-        case "set-app-focus":
-            return """
-            Usage: cmux set-app-focus <active|inactive|clear>
-
-            Override app focus state for notification routing tests.
-
-            Example:
-              cmux set-app-focus inactive
-              cmux set-app-focus clear
-            """
-        case "simulate-app-active":
-            return """
-            Usage: cmux simulate-app-active
-
-            Trigger the app-active handler used by notification focus tests.
-            """
         case "claude-hook":
             return """
             Usage: cmux claude-hook <session-start|active|stop|idle|notification|notify|prompt-submit> [flags]
@@ -21308,393 +20554,6 @@ struct CMUXCLI {
             .map(shellQuote)
             .joined(separator: " ")
         return try sendV1Command(command, client: client)
-    }
-
-    private struct RightSidebarCLIArguments {
-        let positional: [String]
-        let workspace: String?
-        let window: String?
-        let noFocus: Bool
-    }
-
-    private func forwardRightSidebarCommand(
-        commandArgs: [String],
-        client: SocketClient,
-        windowOverride: String?
-    ) throws {
-        let parsed = try parseRightSidebarCLIArguments(commandArgs)
-        let socketArgs = try rightSidebarSocketArguments(from: parsed)
-        let windowId = try resolveRightSidebarWindowId(parsed.window ?? windowOverride, client: client)
-        let workspaceId = try resolveRightSidebarWorkspaceId(parsed.workspace, windowId: windowId, client: client)
-
-        var forwardedArgs = socketArgs
-        if let workspaceId {
-            forwardedArgs.append("--tab=\(workspaceId)")
-        }
-        if let windowId {
-            forwardedArgs.append("--window=\(windowId)")
-        }
-
-        let command = (["right_sidebar"] + forwardedArgs)
-            .map(shellQuote)
-            .joined(separator: " ")
-        let response = try sendV1Command(command, client: client)
-        if parsed.positional.first?.lowercased() == "mode" {
-            print(response)
-        }
-    }
-
-    private func runSidebarCommand(
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput inheritedJSONOutput: Bool,
-        windowOverride: String?
-    ) throws {
-        var args = commandArgs
-        var jsonOutput = inheritedJSONOutput
-        var explicitAll = false
-        args.removeAll { arg in
-            if arg == "--json" {
-                jsonOutput = true
-                return true
-            }
-            if arg == "--all" {
-                explicitAll = true
-                return true
-            }
-            return false
-        }
-
-        guard let action = args.first?.lowercased() else {
-            throw CLIError(
-                message: String(localized: "cli.sidebar.error.missingCommand", defaultValue: "sidebar requires a subcommand: validate, reload, select, or open", bundle: .cmuxCLI)
-            )
-        }
-
-        let remaining = Array(args.dropFirst())
-        let method: String
-        var params: [String: Any] = [:]
-
-        switch action {
-        case "validate", "reload":
-            guard remaining.count <= 1 else {
-                throw CLIError(
-                    message: String(
-                        format: String(
-                            localized: "cli.sidebar.error.unexpectedArguments",
-                            defaultValue: "sidebar %@ accepts at most one sidebar name"
-                        ),
-                        action
-                    )
-                )
-            }
-            guard !(explicitAll && !remaining.isEmpty) else {
-                throw CLIError(
-                    message: String(
-                        format: String(
-                            localized: "cli.sidebar.error.allWithName",
-                            defaultValue: "sidebar %@: use either --all or a sidebar name, not both"
-                        ),
-                        action
-                    )
-                )
-            }
-            if let name = remaining.first { params["name"] = name }
-            method = action == "validate" ? "sidebar.custom.validate" : "sidebar.custom.reload"
-
-        case "select", "open":
-            guard !explicitAll else {
-                throw CLIError(
-                    message: String(format: String(localized: "cli.sidebar.error.namedActionAll", defaultValue: "sidebar %@ does not support --all", bundle: .cmuxCLI), action)
-                )
-            }
-            let nameArgs = action == "open" ? parseOption(parseOption(remaining, name: "--workspace").1, name: "--window").1 : remaining
-            guard nameArgs.count == 1 else {
-                throw CLIError(
-                    message: String(format: String(localized: "cli.sidebar.error.namedActionRequiresName", defaultValue: "sidebar %@ requires one sidebar name", bundle: .cmuxCLI), action)
-                )
-            }
-            params["name"] = nameArgs[0]
-            if action == "open" {
-                params["focus"] = true
-                let winId = try normalizeWindowHandle(windowFromArgsOrOverride(remaining, windowOverride: windowOverride), client: client)
-                if let winId { params["window_id"] = winId }
-                let wsId = try normalizeWorkspaceHandle(workspaceFromArgsOrEnv(remaining, windowOverride: windowOverride), client: client, windowHandle: winId)
-                if let wsId { params["workspace_id"] = wsId }
-            }
-            method = action == "select" ? "sidebar.custom.select" : "sidebar.custom.open"
-
-        default:
-            throw CLIError(
-                message: String(
-                    format: String(
-                        localized: "cli.sidebar.error.unknownCommand",
-                        defaultValue: "Unknown sidebar command '%@'"
-                    ),
-                    action
-                )
-            )
-        }
-
-        let payload = try client.sendV2(method: method, params: params)
-        if jsonOutput {
-            print(jsonString(payload))
-        } else {
-            printSidebarReport(payload, action: action)
-        }
-
-        let errorCount = intValue(payload["error_count"])
-        if errorCount > 0 {
-            exit(1)
-        }
-    }
-
-    private func printSidebarReport(_ payload: [String: Any], action: String) {
-        let sidebars = payload["sidebars"] as? [[String: Any]] ?? []
-        if sidebars.isEmpty {
-            print(String(localized: "cli.sidebar.noSidebars", defaultValue: "No custom sidebars found.", bundle: .cmuxCLI))
-        }
-        for sidebar in sidebars {
-            let name = (sidebar["name"] as? String) ?? "(unknown)"
-            let path = (sidebar["path"] as? String) ?? ""
-            let kind = (sidebar["kind"] as? String) ?? ""
-            let ok = boolValue(sidebar["ok"])
-            if ok {
-                print(String(
-                    format: String(localized: "cli.sidebar.report.ok", defaultValue: "OK %@ [%@] %@", bundle: .cmuxCLI),
-                    name,
-                    kind,
-                    path
-                ))
-            } else {
-                let error = (sidebar["error"] as? String) ?? String(localized: "cli.sidebar.unknownError", defaultValue: "Unknown error", bundle: .cmuxCLI)
-                print(String(
-                    format: String(localized: "cli.sidebar.report.error", defaultValue: "ERROR %@ [%@] %@: %@", bundle: .cmuxCLI),
-                    name,
-                    kind,
-                    path,
-                    error
-                ))
-            }
-        }
-
-        let validCount = intValue(payload["valid_count"])
-        let errorCount = intValue(payload["error_count"])
-        if action == "reload" {
-            let reloadedCount = intValue(payload["reloaded_count"])
-            print(String(
-                format: String(localized: "cli.sidebar.report.reloadSummary", defaultValue: "Reloaded %d valid sidebars. %d valid, %d invalid.", bundle: .cmuxCLI),
-                reloadedCount,
-                validCount,
-                errorCount
-            ))
-        } else if action == "select", let selectedName = payload["selected_name"] as? String {
-            print(String(
-                format: String(localized: "cli.sidebar.report.selected", defaultValue: "Selected %@.", bundle: .cmuxCLI),
-                selectedName
-            ))
-        } else if action == "open", let openedName = payload["opened_name"] as? String {
-            let surface = (payload["surface_ref"] as? String) ?? (payload["surface_id"] as? String) ?? ""
-            print(String(
-                format: String(localized: "cli.sidebar.report.opened", defaultValue: "Opened %@ as pane %@.", bundle: .cmuxCLI),
-                openedName,
-                surface
-            ))
-        } else {
-            print(String(
-                format: String(localized: "cli.sidebar.report.summary", defaultValue: "%d valid, %d invalid.", bundle: .cmuxCLI),
-                validCount,
-                errorCount
-            ))
-        }
-    }
-
-    private func intValue(_ raw: Any?) -> Int {
-        if let value = Self.intValue(raw) { return value }
-        if let value = raw as? String { return Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0 }
-        return 0
-    }
-
-    private func boolValue(_ raw: Any?) -> Bool {
-        Self.boolValue(raw)
-    }
-
-    private func parseRightSidebarCLIArguments(_ args: [String]) throws -> RightSidebarCLIArguments {
-        var positional: [String] = []
-        var workspace: String?
-        var window: String?
-        var noFocus = false
-        var index = 0
-
-        while index < args.count {
-            let arg = args[index]
-            switch arg {
-            case "--workspace":
-                guard index + 1 < args.count else {
-                    throw CLIError(message: String(localized: "cli.rightSidebar.error.workspaceRequiresValue", defaultValue: "right-sidebar: --workspace requires an id", bundle: .cmuxCLI))
-                }
-                workspace = args[index + 1]
-                index += 2
-            case "--window":
-                guard index + 1 < args.count else {
-                    throw CLIError(message: String(localized: "cli.rightSidebar.error.windowRequiresValue", defaultValue: "right-sidebar: --window requires an id", bundle: .cmuxCLI))
-                }
-                window = args[index + 1]
-                index += 2
-            case "--no-focus":
-                noFocus = true
-                index += 1
-            default:
-                if arg.hasPrefix("--workspace=") {
-                    workspace = String(arg.dropFirst("--workspace=".count))
-                    index += 1
-                } else if arg.hasPrefix("--window=") {
-                    window = String(arg.dropFirst("--window=".count))
-                    index += 1
-                } else if arg.hasPrefix("--") {
-                    throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownFlag", defaultValue: "right-sidebar: unknown flag '\(arg)'", bundle: .cmuxCLI))
-                } else {
-                    positional.append(arg)
-                    index += 1
-                }
-            }
-        }
-        return RightSidebarCLIArguments(
-            positional: positional,
-            workspace: workspace,
-            window: window,
-            noFocus: noFocus
-        )
-    }
-    private func rightSidebarSocketArguments(from parsed: RightSidebarCLIArguments) throws -> [String] {
-        guard let action = parsed.positional.first?.lowercased() else {
-            throw CLIError(message: String(localized: "cli.rightSidebar.error.missingCommand", defaultValue: "right-sidebar requires a subcommand", bundle: .cmuxCLI))
-        }
-
-        switch action {
-        case "toggle", "show", "hide", "focus", "mode":
-            guard parsed.positional.count == 1 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments", bundle: .cmuxCLI))
-            }
-            guard !parsed.noFocus else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set", bundle: .cmuxCLI))
-            }
-            return [action]
-
-        case "set":
-            guard parsed.positional.count == 2 || parsed.positional.count == 3 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, devices, or custom [sidebar-name]", bundle: .cmuxCLI))
-            }
-            let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard isRightSidebarCLIMode(mode) else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownMode", defaultValue: "Unknown right-sidebar mode '\(parsed.positional[1])'", bundle: .cmuxCLI))
-            }
-            let normalized = normalizedRightSidebarCLIArgument(mode)
-            let isCustom = normalized == "custom" || normalized == "custom-sidebar"
-            guard parsed.positional.count == 2 || isCustom else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments", bundle: .cmuxCLI))
-            }
-            var args = ["set", normalized]
-            if parsed.positional.count == 3 {
-                args.append(parsed.positional[2])
-            }
-            if parsed.noFocus {
-                args.append("--no-focus")
-            }
-            return args
-
-        case "files", "find", "vault", "sessions", "feed", "dock", "cloud", "machines", "devices", "custom", "custom-sidebar":
-            guard parsed.positional.count == 1 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments", bundle: .cmuxCLI))
-            }
-            guard !parsed.noFocus else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set", bundle: .cmuxCLI))
-            }
-            return ["set", normalizedRightSidebarCLIArgument(action)]
-
-        default:
-            let rawAction = parsed.positional[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard parsed.positional.count == 1, isRightSidebarCLIMode(rawAction) else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownCommand", defaultValue: "Unknown right-sidebar command '\(action)'", bundle: .cmuxCLI))
-            }
-            guard !parsed.noFocus else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set", bundle: .cmuxCLI))
-            }
-            return ["set", normalizedRightSidebarCLIArgument(rawAction)]
-        }
-    }
-
-    private func resolveRightSidebarWindowId(_ raw: String?, client: SocketClient) throws -> String? {
-        guard let normalized = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !normalized.isEmpty else { return nil }
-        return try resolvedRightSidebarHandleID(
-            normalized,
-            expectedRefKind: "window",
-            invalidMessage: String(localized: "cli.rightSidebar.error.invalidWindow", defaultValue: "Invalid window handle: \(normalized)", bundle: .cmuxCLI),
-            missingRefMessage: String(localized: "cli.rightSidebar.error.windowRefNotFound", defaultValue: "Window ref not found", bundle: .cmuxCLI),
-            listMethod: "window.list",
-            listKey: "windows",
-            client: client
-        )
-    }
-
-    private func resolveRightSidebarWorkspaceId(
-        _ raw: String?,
-        windowId: String?,
-        client: SocketClient
-    ) throws -> String? {
-        guard let normalized = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !normalized.isEmpty else { return nil }
-        var params: [String: Any] = [:]
-        if let windowId {
-            params["window_id"] = windowId
-        }
-        return try resolvedRightSidebarHandleID(
-            normalized,
-            expectedRefKind: "workspace",
-            invalidMessage: String(localized: "cli.rightSidebar.error.invalidWorkspace", defaultValue: "Invalid workspace handle: \(normalized)", bundle: .cmuxCLI),
-            missingRefMessage: String(localized: "cli.rightSidebar.error.workspaceRefNotFound", defaultValue: "Workspace ref not found", bundle: .cmuxCLI),
-            listMethod: "workspace.list",
-            listKey: "workspaces",
-            listParams: params,
-            client: client
-        )
-    }
-
-    private func resolvedRightSidebarHandleID(
-        _ handle: String,
-        expectedRefKind: String,
-        invalidMessage: String,
-        missingRefMessage: String,
-        listMethod: String,
-        listKey: String,
-        listParams: [String: Any] = [:],
-        client: SocketClient
-    ) throws -> String {
-        let trimmed = handle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if isUUID(trimmed) { return trimmed }
-        let refIndex: Int?
-        if isHandleRef(trimmed) {
-            let pieces = trimmed.split(separator: ":", omittingEmptySubsequences: false)
-            guard pieces.count == 2, pieces[0].lowercased() == expectedRefKind else {
-                throw CLIError(message: invalidMessage)
-            }
-            refIndex = Int(pieces[1])
-        } else {
-            refIndex = Int(trimmed)
-        }
-
-        let listed = try client.sendV2(method: listMethod, params: listParams)
-        let items = listed[listKey] as? [[String: Any]] ?? []
-        for item in items {
-            guard let id = item["id"] as? String else { continue }
-            if id == trimmed ||
-                (item["ref"] as? String) == trimmed ||
-                (refIndex != nil && intFromAny(item["index"]) == refIndex) {
-                return id
-            }
-        }
-        throw CLIError(message: missingRefMessage)
     }
 
     /// Pick the display handle for an item dict based on --id-format.

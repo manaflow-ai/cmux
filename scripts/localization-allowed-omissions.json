@@ -264,17 +264,9 @@
     "class": "syntax",
     "source": "fork [--surface <id|ref>] <kind> <checkpoint-id> | fork --surface [id|ref]"
   },
-  "cli.help.ios": {
-    "class": "syntax",
-    "source": "ios <subcommand> [args] [--surface <id|ref|index>]"
-  },
   "cli.help.restore": {
     "class": "syntax",
     "source": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]"
-  },
-  "cli.help.simulator": {
-    "class": "syntax",
-    "source": "simulator <subcommand> [args] [--surface <id|ref|index>]"
   },
   "cli.localTmux.output.attached": {
     "source": "OK session=%@ surface=%@ mode=local-tmux",
@@ -303,14 +295,6 @@
   "cli.sessions.command": {
     "class": "syntax",
     "source": "sessions [list] [options]"
-  },
-  "cli.sidebar.report.error": {
-    "source": "ERROR %@ [%@] %@: %@",
-    "class": "syntax"
-  },
-  "cli.sidebar.report.ok": {
-    "source": "OK %@ [%@] %@",
-    "class": "format"
   },
   "cli.usage.readScreen": {
     "class": "syntax",
@@ -2585,16 +2569,6 @@
     "class": "brand",
     "source": "Discord"
   },
-  "sidebar.help.feedback.emailPlaceholder": {
-    "class": "syntax",
-    "source": "you@example.com"
-  },
-  "sidebar.help.feedback.message": {
-    "source": "Message",
-    "identityLocales": {
-      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
-    }
-  },
   "sidebar.help.githubIssues": {
     "source": "GitHub Issues",
     "identityLocales": {
@@ -3062,12 +3036,6 @@
   "update.error.details.url": {
     "class": "technical",
     "source": "URL"
-  },
-  "update.popover.version": {
-    "source": "Version:",
-    "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
-    }
   },
   "workspaceTodoPane.title": {
     "source": "Todos",
