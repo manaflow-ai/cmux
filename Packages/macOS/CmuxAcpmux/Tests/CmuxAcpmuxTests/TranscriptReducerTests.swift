@@ -100,6 +100,18 @@ struct TranscriptReducerTests {
         #expect(!confirmed.isPending)
     }
 
+    @Test func localEchoReconcilesByTextWhenDaemonOmitsPromptId() {
+        var reducer = TranscriptReducer()
+        reducer.addPendingUserMessage(promptId: "p1", text: "hi", at: 1)
+        reducer.apply(AcpmuxEventRecord(
+            sessionId: "s", seq: 1, at: 2, dir: "mux", kind: "user_message",
+            msg: .object(["text": .string("hi")])
+        ))
+        #expect(reducer.rows.map(\.id) == ["user-p1", "typing"])
+        guard case .user(let confirmed) = reducer.rows[0].content else { Issue.record("not a user row"); return }
+        #expect(!confirmed.isPending)
+    }
+
     @Test func codexSessionGroupsThoughtsAndToolsAndSkipsNoise() throws {
         let records = try FixtureLoader().codexSessionRecords()
         var reducer = TranscriptReducer()

@@ -178,12 +178,15 @@ public struct TranscriptReducer: Sendable {
         let msg = record.msg
         switch record.kind {
         case "user_message":
+            let text = msg["text"]?.stringValue ?? ""
+            // Daemons that do not echo `promptId` (acpmux 67d0b7e) still confirm the local
+            // echo: the oldest pending message with the same text is this prompt.
             let promptId = msg["promptId"]?.stringValue
+                ?? pendingLocal.first(where: { !$0.failed && $0.text == text })?.promptId
             if let promptId {
                 queue.removeAll { $0.promptId == promptId }
                 pendingLocal.removeAll { $0.promptId == promptId }
             }
-            let text = msg["text"]?.stringValue ?? ""
             let steersRunningTurn = msg["steer"]?.boolValue == true && turn != nil
             if !steersRunningTurn, turn == nil || turn?.hasOutput == true {
                 // Old logs have no turn_started; a user message opens the turn.
