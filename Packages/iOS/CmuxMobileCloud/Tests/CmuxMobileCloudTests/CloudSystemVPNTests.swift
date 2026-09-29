@@ -679,6 +679,38 @@ import Testing
         #expect(rig.service.calls.revokeCredentials.first?.teamID == "team-1")
     }
 
+    @Test func pendingBrowserRevocationBlocksReenableUntilCleanupSucceeds() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        let rig = Rig(
+            cleanupRetryCount: 1,
+            credentials: {
+                (accessToken: "old-access", refreshToken: "old-refresh")
+            },
+            pendingRevocationStore: pendingStore
+        )
+        rig.controller.setScope("user-1/team-1", teamID: "team-1")
+        await rig.controller.waitForPendingOperation()
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+        rig.service.revocationFailure = StubError(message: "offline")
+
+        rig.controller.setScope("user-2/team-9", teamID: "team-9")
+        await rig.controller.waitForPendingOperation()
+        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
+
+        rig.service.revocationFailure = nil
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.service.calls.enroll.count == 1)
+        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
+
+        rig.controller.setScope("user-1/team-1", teamID: "team-1")
+        await rig.controller.waitForPendingOperation()
+
+        #expect(await pendingStore.load(scope: "user-1/team-1").isEmpty)
+    }
+
     @Test func switchingAccountsPersistsTheOldBrowserPeerBeforeRevocation() async {
         let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
         let rig = Rig(pendingRevocationStore: pendingStore)
@@ -806,8 +838,14 @@ import Testing
         }
 
         let persisted = UserDefaults(suiteName: suiteName)?.dictionary(forKey: key) as? [String: [String]]
-        #expect(persisted?.count == 80)
-        #expect(await store.load(scope: "scope-79") == ["fingerprint-79", "second-79"])
-        #expect(await store.load(scope: "scope-0") == ["fingerprint-0", "second-0"])
+        #expect((persisted?.count ?? 0) <= 64)
+        for index in 0..<80 {
+            #expect(
+                await store.load(scope: "scope-\(index)") == [
+                    "fingerprint-\(index)",
+                    "second-\(index)"
+                ]
+            )
+        }
     }
 }

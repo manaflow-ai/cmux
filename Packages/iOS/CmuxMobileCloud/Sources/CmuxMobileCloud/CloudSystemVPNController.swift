@@ -245,7 +245,11 @@ public final class CloudSystemVPNController {
             publish(.failed(.enrollment))
             return
         }
-        guard !cleanupPending else {
+        guard !cleanupPending, pendingBrowserTunnelRevocations.isEmpty else {
+            if manager.isAvailable {
+                retryPendingCleanup()
+                return
+            }
             publish(.failed(.configuration))
             return
         }
