@@ -23,7 +23,7 @@ struct CloudTreeCategoryCreateActionTests {
         let action = try #require(section.children.last)
         #expect(action.kind == .createAction(.newCloudVM))
         #expect(fixture.row(for: action) >= 0)
-        #expect(try fixture.cell(for: action).accessibilityLabel() == "New Cloud Machine")
+        #expect(try fixture.cell(for: action).accessibilityLabel() == action.title)
         #expect(try fixture.createHost(for: action).passesThrough == false)
     }
 
@@ -41,7 +41,42 @@ struct CloudTreeCategoryCreateActionTests {
         let action = try #require(workspaces.children.last)
         #expect(action.kind == .createAction(.newWorkspace(.cloud(fixture.machineID))))
         #expect(fixture.row(for: action) >= 0)
-        #expect(try fixture.cell(for: action).accessibilityLabel() == "New Workspace")
+        #expect(try fixture.cell(for: action).accessibilityLabel() == action.title)
+    }
+
+    @Test("Category create rows remain reachable through keyboard selection and Return")
+    func categoryActionsAreKeyboardReachable() throws {
+        let fixture = Fixture()
+        defer { fixture.close() }
+
+        fixture.apply(machines: [])
+        let cloudSection = try #require(fixture.cloudSection)
+        let newVM = try #require(cloudSection.children.last)
+        let outline = try #require(fixture.coordinator.outlineView)
+        let sectionRow = outline.row(forItem: cloudSection)
+        let newVMRow = outline.row(forItem: newVM)
+        #expect(newVM.kind.isSelectable)
+        outline.selectRowIndexes(IndexSet(integer: sectionRow), byExtendingSelection: false)
+        fixture.coordinator.moveSelection(by: 1)
+        #expect(outline.selectedRow == newVMRow)
+        fixture.coordinator.openSelection()
+        #expect(fixture.events.cloudVMActionCalled)
+
+        fixture.apply(machines: [fixture.machine])
+        let machine = try #require(fixture.machineNode)
+        let workspaces = try #require(machine.children.first { node in
+            if case .workspacesGroup = node.kind { return true }
+            return false
+        })
+        let newWorkspace = try #require(workspaces.children.last)
+        let workspacesRow = outline.row(forItem: workspaces)
+        let newWorkspaceRow = outline.row(forItem: newWorkspace)
+        #expect(newWorkspace.kind.isSelectable)
+        outline.selectRowIndexes(IndexSet(integer: workspacesRow), byExtendingSelection: false)
+        fixture.coordinator.moveSelection(by: 1)
+        #expect(outline.selectedRow == newWorkspaceRow)
+        fixture.coordinator.openSelection()
+        #expect(fixture.events.workspaceMachine == .cloud(fixture.machineID))
     }
 
     @Test("Category rows route through the existing Cloud VM and workspace action closures")
