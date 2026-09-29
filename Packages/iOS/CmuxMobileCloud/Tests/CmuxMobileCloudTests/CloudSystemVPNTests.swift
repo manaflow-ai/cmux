@@ -214,6 +214,22 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.controller.phase == .connecting)
     }
 
+    @Test func aStartRequestStaysTransitioningUntilStatusArrives() async {
+        let rig = Rig()
+        rig.manager.phaseAfterStart = .off
+        await signedIn(rig)
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.controller.phase == .connecting)
+        rig.controller.enable()
+        #expect(rig.service.calls.enroll.count == 1)
+
+        rig.manager.report(.connected)
+        #expect(rig.controller.phase == .connected)
+    }
+
     @Test func aQueuedReplacementTimesOutAndCanBeRetried() async {
         let rig = Rig(operationTimeout: .milliseconds(100))
         rig.manager.installDelay = .milliseconds(500)

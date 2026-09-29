@@ -211,7 +211,7 @@ public final class CloudSystemVPNController {
                     try await self.manager.installAndStart(configuration: configuration.text, scope: scope)
                 }
                 guard self.isCurrent(generation) else { return }
-                phase = manager.phase
+                phase = manager.phase == .off ? .connecting : manager.phase
             } catch {
                 guard self.isCurrent(generation) else { return }
                 phase = .failed((error as? CloudSystemVPNError) ?? .configuration)
