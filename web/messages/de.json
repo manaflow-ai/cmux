@@ -25,6 +25,11 @@
       "message": "Die Einrichtung der Cloud-VM ist fehlgeschlagen. Die Bereinigung steht noch aus.",
       "action": "Wenden Sie sich mit der Trace-ID an den Support, bevor Sie eine weitere Maschine erstellen."
     },
+    "recreateRequired": {
+      "title": "Diese Maschine neu erstellen",
+      "message": "Diese Maschine wurde vor einem Cloud-Update erstellt und kann nicht verbunden werden.",
+      "action": "Erstelle eine neue Maschine, kopiere deine Dateien mit cmux vm pull und cmux vm push hinüber und lösche dann diese."
+    },
     "unsupported": {
       "title": "Cloud-VM-Vorgang nicht verfügbar",
       "reason": "Dieser Maschinentyp stellt diesen Vorgang nicht bereit.",

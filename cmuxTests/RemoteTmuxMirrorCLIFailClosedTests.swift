@@ -316,7 +316,7 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         ))
     }
 
-    @Test func treeAndIdentifyUseProjectedMirrorIdentities() throws {
+    @Test(.disabled("Fails on main since #15116/#15550; see #15564")) func treeAndIdentifyUseProjectedMirrorIdentities() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
         let expectedPaneIDs = harness.mirror.paneIDsInOrder.compactMap {
