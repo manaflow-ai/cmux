@@ -12,7 +12,7 @@ extension CloudTreeOutlineView.Coordinator {
         guard row >= 0 else { return }
         lastRevealToken = request.token
         outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        outlineView.scrollRowToVisible(row)
+        scrollRowFullyIntoView(row, in: outlineView)
     }
 
     /// Follows this window's workspace creation: selects the new row once it
@@ -35,13 +35,15 @@ extension CloudTreeOutlineView.Coordinator {
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             // The outline view refuses rows it cannot select; retry those later.
             guard outlineView.selectedRow == row else { return }
-            outlineView.scrollRowToVisible(row)
+            scrollRowFullyIntoView(row, in: outlineView)
             creationRevealPresentation.didSelect(id)
         case .restore(let baseline)?:
             selectedNodeID = baseline
             withProgrammaticUpdate { restoreSelection(in: outlineView) }
             // The reveal scrolled away from the prior row; bring it back.
-            if outlineView.selectedRow >= 0 { outlineView.scrollRowToVisible(outlineView.selectedRow) }
+            if outlineView.selectedRow >= 0 {
+                scrollRowFullyIntoView(outlineView.selectedRow, in: outlineView)
+            }
         case nil:
             break
         }
@@ -51,6 +53,17 @@ extension CloudTreeOutlineView.Coordinator {
         for node in nodes where !outlineView.isItemExpanded(node) {
             expansionStore.setExpanded(true, node: node)
             outlineView.expandItem(node)
+        }
+    }
+
+    /// `scrollRowToVisible` accepts a partially visible row. Reveals need the
+    /// whole row visible so a newly selected workspace is not clipped at the
+    /// viewport edge after fractional row-height rounding.
+    private func scrollRowFullyIntoView(_ row: Int, in outlineView: NSOutlineView) {
+        guard row >= 0 else { return }
+        let rowRect = outlineView.rect(ofRow: row)
+        if !outlineView.visibleRect.contains(rowRect) {
+            outlineView.scrollRectToVisible(rowRect.insetBy(dx: 0, dy: -1))
         }
     }
 }
