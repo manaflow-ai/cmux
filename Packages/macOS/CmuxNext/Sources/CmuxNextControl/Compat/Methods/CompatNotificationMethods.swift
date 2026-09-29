@@ -26,8 +26,8 @@ enum CompatNotificationMethods {
         let world = try await call.world()
         let target = CompatTarget(world: world, refs: call.service.refs, params: params)
         if call.method == "notification.create_for_target" {
-            guard target.string("workspace_id") != nil else { throw CompatErrors.invalid("Missing or invalid workspace_id") }
-            guard target.string("surface_id") != nil else { throw CompatErrors.invalid("Missing or invalid surface_id") }
+            guard target.string("workspace_id") != nil else { throw CompatErrors.invalid(ControlStrings.format("control.error.missingOrInvalidParam", "Missing or invalid %@", "workspace_id")) }
+            guard target.string("surface_id") != nil else { throw CompatErrors.invalid(ControlStrings.format("control.error.missingOrInvalidParam", "Missing or invalid %@", "surface_id")) }
         }
         let workspace = try target.workspace()
         let surface: CompatWorld.Surface? = target.string("surface_id") != nil ? try target.surface(in: workspace) : world.focus(in: workspace).surface
@@ -121,7 +121,7 @@ enum CompatNotificationMethods {
         }
         guard let id = call.string("id") else { throw CompatErrors.missing("id", call.method) }
         guard let entry = ledger.first(where: { $0.id == id }) else {
-            throw ControlError(code: "not_found", message: "Notification not found", data: ["id": .string(id)])
+            throw ControlError(code: "not_found", message: ControlStrings.text("control.error.notificationNotFound", "Notification not found"), data: ["id": .string(id)])
         }
         if let handle = entry.surface, let surface = world.surfaces.values.first(where: { $0.handle == handle }) {
             try await acknowledge([surface], service: call.service)

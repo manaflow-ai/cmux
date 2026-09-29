@@ -54,7 +54,7 @@ enum CompatFeed {
 
     static func events(_ params: [String: JSON]) throws -> [[String: JSON]] {
         guard params["event"] == nil || params["events"] == nil else {
-            throw CompatErrors.invalid("feed.push accepts either `event` or `events`, not both")
+            throw CompatErrors.invalid(ControlStrings.text("control.error.feedEventOrEvents", "feed.push accepts either `event` or `events`, not both"))
         }
         if case .object(let event)? = params["event"] { return [event] }
         if case .array(let items)? = params["events"] {
@@ -63,18 +63,18 @@ enum CompatFeed {
                 return nil
             }
             guard !events.isEmpty, events.count == items.count, events.count <= 64 else {
-                throw CompatErrors.invalid("feed.push requires an `event` object")
+                throw CompatErrors.invalid(ControlStrings.text("control.error.feedRequiresEvent", "feed.push requires an `event` object"))
             }
             return events
         }
         if params["session_id"] != nil, params["hook_event_name"] != nil, params["_source"] != nil { return [params] }
-        throw CompatErrors.invalid("feed.push requires an `event` object")
+        throw CompatErrors.invalid(ControlStrings.text("control.error.feedRequiresEvent", "feed.push requires an `event` object"))
     }
 
     static func push(_ call: CompatCall) async throws -> JSON {
         let wait = call.params["wait_timeout_seconds"]?.doubleValue ?? 0
         guard wait.isFinite, (0...120).contains(wait) else {
-            throw CompatErrors.invalid("feed.push wait_timeout_seconds must be between 0 and 120")
+            throw CompatErrors.invalid(ControlStrings.text("control.error.feedWaitRange", "feed.push wait_timeout_seconds must be between 0 and 120"))
         }
         let events = try events(call.params)
         let world = try await call.world()

@@ -33,9 +33,9 @@ extension CompatService {
         case .refused(let reason):
             throw ControlError(code: "unavailable", message: "\(id): \(reason)", data: ["action": .string(id), "reason": .string(reason)])
         case .unknownAction, .notBound:
-            throw CompatErrors.unsupported("the \(id) action has no handler in this build", method: method)
+            throw CompatErrors.unsupported(ControlStrings.format("control.error.actionNoHandler", "the %@ action has no handler in this build", id), method: method)
         case .unavailable, .disabled:
-            throw ControlError(code: "unavailable", message: "\(id) is not available right now", data: ["action": .string(id)])
+            throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionNotAvailableNow", "%@ is not available right now", id), data: ["action": .string(id)])
         case .confirmationRequired:
             throw ControlRouter.confirmationRequired(id)
         }

@@ -6,10 +6,10 @@ import Foundation
 extension ControlRouter {
     static func resolveAction(_ params: [String: JSONValue], in catalog: ControlCatalog) throws -> ControlActionInfo {
         guard let name = (params["action"] ?? params["id"] ?? params["cli_name"])?.stringValue, !name.isEmpty else {
-            throw ControlError.invalidParams("params.action is required (an action id or CLI name)")
+            throw ControlError.invalidParams(ControlStrings.text("control.error.actionParamRequired", "params.action is required (an action id or CLI name)"))
         }
         guard let action = catalog.resolve(name) else {
-            throw ControlError(code: "not_found", message: "Unknown action '\(name)'", data: ["action": .string(name)])
+            throw ControlError(code: "not_found", message: ControlStrings.format("control.error.unknownAction", "Unknown action '%@'", name), data: ["action": .string(name)])
         }
         return action
     }
@@ -24,13 +24,13 @@ extension ControlRouter {
         switch params["args"] ?? params["arguments"] {
         case .object(let members): rawArguments = members
         case nil, .null: rawArguments = [:]
-        default: throw ControlError.invalidParams("args must be an object of name: value")
+        default: throw ControlError.invalidParams(ControlStrings.text("control.error.argsShape", "args must be an object of name: value"))
         }
         let schema = Dictionary(action.arguments.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
         for (name, raw) in rawArguments {
             guard let argument = schema[name] else {
                 throw ControlError.invalidParams(
-                    "\(action.id) has no argument '\(name)'",
+                    ControlStrings.format("control.error.noSuchArgument", "%1$@ has no argument '%2$@'", action.id, name),
                     data: ["valid": .array(action.arguments.map { .string($0.name) })]
                 )
             }
@@ -40,7 +40,7 @@ extension ControlRouter {
         let missing = action.arguments.filter { $0.isRequired && request.arguments[$0.name] == nil }.map(\.name)
         if !missing.isEmpty, !interactive {
             throw ControlError.invalidParams(
-                "\(action.id) requires \(missing.map { "--\($0)" }.joined(separator: ", "))",
+                ControlStrings.format("control.error.missingArguments", "%1$@ requires %2$@", action.id, missing.map { "--\($0)" }.joined(separator: ", ")),
                 data: ["missing": .array(missing.map(JSONValue.string))]
             )
         }
@@ -49,7 +49,7 @@ extension ControlRouter {
 
     static func value(_ raw: JSONValue, for argument: ControlArgumentInfo, action: String, knownKinds: [String]) throws -> ControlValue {
         func fail(_ expected: String) -> ControlError {
-            .invalidParams("\(action) argument '\(argument.name)' expects \(expected)", data: ["argument": .string(argument.name)])
+            .invalidParams(ControlStrings.format("control.error.argumentExpects", "%1$@ argument '%2$@' expects %3$@", action, argument.name, expected), data: ["argument": .string(argument.name)])
         }
         switch argument.kind {
         case .string:
@@ -105,16 +105,16 @@ extension ControlRouter {
             kindText = members["kind"]?.stringValue
             id = members["id"]?.stringValue ?? ""
         default:
-            throw ControlError.invalidParams("target must be kind:id")
+            throw ControlError.invalidParams(ControlStrings.text("control.error.targetShape", "target must be kind:id"))
         }
-        guard !id.isEmpty else { throw ControlError.invalidParams("target id is empty") }
+        guard !id.isEmpty else { throw ControlError.invalidParams(ControlStrings.text("control.error.targetIDEmpty", "target id is empty")) }
         guard !allowedKinds.isEmpty else {
-            throw ControlError.invalidParams("\(action) does not take a target")
+            throw ControlError.invalidParams(ControlStrings.format("control.error.noTarget", "%@ does not take a target", action))
         }
         guard let kindText else { return ControlTargetRef(kind: allowedKinds[0], id: id) }
         guard let kind = allowedKinds.first(where: { normalizedKind($0) == normalizedKind(kindText) }) else {
             throw ControlError.invalidParams(
-                "\(action) takes a target of kind \(allowedKinds.joined(separator: " or ")), not \(kindText)",
+                ControlStrings.format("control.error.wrongTargetKind", "%1$@ takes a target of kind %2$@, not %3$@", action, allowedKinds.joined(separator: "|"), kindText),
                 data: ["targets": .array(allowedKinds.map(JSONValue.string))]
             )
         }

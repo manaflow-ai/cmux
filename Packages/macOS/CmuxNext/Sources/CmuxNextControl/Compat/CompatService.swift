@@ -59,7 +59,7 @@ public final class CompatService: Sendable {
             }
         }
         for name in CompatUnsupported.methods.keys.sorted() where Self.handlers[name] == nil {
-            let reason = CompatUnsupported.methods[name] ?? "not implemented"
+            let reason = CompatUnsupported.methods[name] ?? ControlStrings.text("control.error.notImplemented", "not implemented")
             methods.append(.snapshot(name) { _ in throw CompatErrors.unsupported(reason, method: name) })
         }
         router.register(methods)
@@ -111,7 +111,7 @@ public final class CompatService: Sendable {
         guard let router else { throw CompatErrors.stopped }
         let topology = router.snapshots.current.topology
         guard topology.isLoaded else {
-            throw ControlError(code: "unavailable", message: "cmux-next has not loaded the cmux-tui tree yet (daemon \(topology.daemonState))")
+            throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.treeNotLoaded", "cmux-next has not loaded the cmux-tui tree yet (daemon %@)", "\(topology.daemonState)"))
         }
         return CompatWorld(topology: topology, refs: refs)
     }

@@ -32,8 +32,8 @@ enum CompatBrowserMethods {
         let surface = try target.surface()
         guard surface.isBrowser else {
             throw explicit == nil
-                ? ControlError(code: "not_found", message: "No focused browser surface")
-                : CompatErrors.invalid("Surface is not a browser")
+                ? ControlError(code: "not_found", message: ControlStrings.text("control.error.noFocusedBrowser", "No focused browser surface"))
+                : CompatErrors.invalid(ControlStrings.text("control.error.surfaceNotBrowser", "Surface is not a browser"))
         }
         return (world, surface, target)
     }

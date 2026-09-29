@@ -13,7 +13,7 @@ enum CompatCreate {
         case nil, "", "terminal", "pty": return .terminal
         case "browser", "web": return .browser
         case let other?:
-            throw CompatErrors.unsupported("\(other) panes (only terminal and browser exist in cmux-next)", method: call.method)
+            throw CompatErrors.unsupported(ControlStrings.format("control.error.unsupportedPaneType", "%@ panes (only terminal and browser exist in cmux-next)", other), method: call.method)
         }
     }
 
@@ -23,7 +23,7 @@ enum CompatCreate {
         case "left", "l": return .left
         case "down", "d", "bottom": return .bottom
         case "up", "u", "top": return .top
-        default: throw CompatErrors.invalid("Missing or invalid direction (left|right|up|down)")
+        default: throw CompatErrors.invalid(ControlStrings.text("control.error.invalidDirection", "Missing or invalid direction (left|right|up|down)"))
         }
     }
 
@@ -80,7 +80,7 @@ enum CompatCreate {
     /// The surface an action just created, found by diffing fresh trees.
     static func created(since before: CompatWorld, in workspaceUUID: String, call: CompatCall) async throws -> SurfaceID {
         guard let surface = try await call.world().createdSurface(since: before, in: workspaceUUID) else {
-            throw ControlError(code: "internal_error", message: "\(call.method): the action ran but created no surface")
+            throw ControlError(code: "internal_error", message: ControlStrings.format("control.error.createdNoSurface", "%@: the action ran but created no surface", call.method))
         }
         return surface.handle
     }

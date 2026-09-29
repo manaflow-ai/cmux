@@ -35,7 +35,7 @@ struct ControlAuthorizer: Sendable {
             if !isPasswordAuthenticated {
                 if isJSON {
                     let id = (try? JSONValue.parse(Data(line.utf8)))?["id"]
-                    return (ControlRouter.encode(id: id, error: ControlError(code: "auth_required", message: "Authentication required. Send auth <password> first.")), true)
+                    return (ControlRouter.encode(id: id, error: ControlError(code: "auth_required", message: ControlStrings.text("control.error.authRequired", "Authentication required. Send auth <password> first."))), true)
                 }
                 return ("ERROR: Authentication required — send auth <password> first", true)
             }
@@ -80,10 +80,10 @@ struct ControlAuthorizer: Sendable {
 
     private mutating func loginV2(_ request: ControlRequest) -> String {
         guard let provided = request.params["password"]?.stringValue else {
-            return ControlRouter.encode(id: request.id, error: .invalidParams("auth.login requires params.password"))
+            return ControlRouter.encode(id: request.id, error: .invalidParams(ControlStrings.format("control.error.missingParam", "%1$@ requires params.%2$@", "auth.login", "password")))
         }
         guard configuration.passwordVerifier?(provided) == true else {
-            return ControlRouter.encode(id: request.id, error: ControlError(code: "auth_failed", message: "Invalid password"))
+            return ControlRouter.encode(id: request.id, error: ControlError(code: "auth_failed", message: ControlStrings.text("control.error.invalidPassword", "Invalid password")))
         }
         isPasswordAuthenticated = true
         return ControlRouter.encode(id: request.id, result: .success(["authenticated": true]))

@@ -36,7 +36,7 @@ extension ControlRouter {
                 guard let self else { throw Self.stopped }
                 let store = try self.settingsStore()
                 let path = try Self.settingsPath(call.params, allowEmpty: false)
-                guard let value = call.params["value"] else { throw ControlError.invalidParams("settings.set requires params.value") }
+                guard let value = call.params["value"] else { throw ControlError.invalidParams(ControlStrings.format("control.error.missingParam", "%1$@ requires params.%2$@", "settings.set", "value")) }
                 try await store.set(value, at: path)
                 // Read-your-writes: answer from the file until the watcher republishes.
                 self.snapshots.publish { $0.settings = nil }
@@ -62,7 +62,7 @@ extension ControlRouter {
         ] + diagnosticMethods()
     }
 
-    static let stopped = ControlError(code: "unavailable", message: "the control router stopped")
+    static let stopped = ControlError(code: "unavailable", message: ControlStrings.text("control.error.routerStopped", "the control router stopped"))
 
     private func identify() -> JSONValue {
         let transport = transportInfo
@@ -107,7 +107,7 @@ extension ControlRouter {
         let action = try Self.resolveAction(call.params, in: catalog)
         let request = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds)
         guard catalog.isAvailable(action, target: request.target) || action.unavailableReason != nil else {
-            throw ControlError(code: "unavailable", message: "\(action.id) is not available in the current context", data: [
+            throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionNotAvailableInContext", "%@ is not available in the current context", action.id), data: [
                 "action": .string(action.id), "requires": .array(action.requires.map(JSONValue.string)),
             ])
         }
@@ -137,15 +137,15 @@ extension ControlRouter {
             if let target = request.target { result["target"] = target.json }
             return .object(result)
         case .unknownAction:
-            throw ControlError(code: "not_found", message: "Unknown action '\(action.id)'")
+            throw ControlError(code: "not_found", message: ControlStrings.format("control.error.unknownAction", "Unknown action '%@'", action.id))
         case .notBound:
-            throw ControlError(code: "not_bound", message: "\(action.id) has no handler in this build", data: ["action": .string(action.id)])
+            throw ControlError(code: "not_bound", message: ControlStrings.format("control.error.actionNotBound", "%@ has no handler in this build", action.id), data: ["action": .string(action.id)])
         case .unavailable:
-            throw ControlError(code: "unavailable", message: "\(action.id) is not available in the current context", data: ["action": .string(action.id)])
+            throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionNotAvailableInContext", "%@ is not available in the current context", action.id), data: ["action": .string(action.id)])
         case .disabled:
-            throw ControlError(code: "disabled", message: "\(action.id) is disabled right now", data: ["action": .string(action.id)])
+            throw ControlError(code: "disabled", message: ControlStrings.format("control.error.actionDisabled", "%@ is disabled right now", action.id), data: ["action": .string(action.id)])
         case .refused(let reason):
-            throw ControlError(code: "unavailable", message: "\(action.id) unavailable: \(reason)", data: ["action": .string(action.id), "reason": .string(reason)])
+            throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionUnavailableReason", "%1$@ unavailable: %2$@", action.id, reason), data: ["action": .string(action.id), "reason": .string(reason)])
         case .confirmationRequired:
             throw Self.confirmationRequired(action.id)
         }
@@ -177,7 +177,7 @@ extension ControlRouter {
     }
 
     private func settingsStore() throws -> any ControlSettingsStore {
-        guard let settings else { throw ControlError(code: "unavailable", message: "settings are not available") }
+        guard let settings else { throw ControlError(code: "unavailable", message: ControlStrings.text("control.error.settingsUnavailable", "settings are not available")) }
         return settings
     }
 
@@ -187,13 +187,13 @@ extension ControlRouter {
         case .string(let dotted): path = CmuxConfigFile.keyPath(from: dotted)
         case .array(let items):
             let keys = items.compactMap(\.stringValue)
-            guard keys.count == items.count else { throw ControlError.invalidParams("path array must contain strings") }
+            guard keys.count == items.count else { throw ControlError.invalidParams(ControlStrings.text("control.error.pathArrayStrings", "path array must contain strings")) }
             path = keys
         case nil, .null: path = []
-        default: throw ControlError.invalidParams("path must be a dotted string or an array of keys")
+        default: throw ControlError.invalidParams(ControlStrings.text("control.error.pathShape", "path must be a dotted string or an array of keys"))
         }
-        guard allowEmpty || !path.isEmpty else { throw ControlError.invalidParams("path is required") }
-        guard !path.contains(where: \.isEmpty) else { throw ControlError.invalidParams("path has an empty key") }
+        guard allowEmpty || !path.isEmpty else { throw ControlError.invalidParams(ControlStrings.text("control.error.pathRequired", "path is required")) }
+        guard !path.contains(where: \.isEmpty) else { throw ControlError.invalidParams(ControlStrings.text("control.error.pathEmptyKey", "path has an empty key")) }
         return path
     }
 }

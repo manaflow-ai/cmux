@@ -153,7 +153,7 @@ public final class ControlRouter: Sendable {
     public func handle(_ request: ControlRequest, connection: ControlConnectionID = .inProcess) async -> Result<JSONValue, ControlError> {
         guard let method = method(named: request.method) else {
             if let error = state.withLock({ $0.unknownMethod })?(request.method) { return .failure(error) }
-            return .failure(ControlError(code: "method_not_found", message: "Unknown method \(request.method)",
+            return .failure(ControlError(code: "method_not_found", message: ControlStrings.format("control.error.unknownMethod", "Unknown method %@", request.method),
                                          data: ["method": .string(request.method)]))
         }
         let call = ControlCall(request: request, snapshot: snapshots.current, connection: connection,

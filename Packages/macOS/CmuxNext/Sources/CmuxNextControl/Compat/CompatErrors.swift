@@ -11,11 +11,11 @@ enum CompatErrors {
     static func unsupported(_ reason: String, method: String? = nil) -> ControlError {
         var data: [String: JSON] = ["reason": .string(reason)]
         if let method { data["method"] = .string(method) }
-        return ControlError(code: unsupportedCode, message: "unsupported in cmux-next: \(reason)", data: .object(data))
+        return ControlError(code: unsupportedCode, message: ControlStrings.format("control.error.unsupported", "unsupported in cmux-next: %@", reason), data: .object(data))
     }
 
     static func notFound(_ what: String, _ handle: String) -> ControlError {
-        ControlError(code: "not_found", message: "\(what) not found: \(handle)", data: ["kind": .string(what), "handle": .string(handle)])
+        ControlError(code: "not_found", message: ControlStrings.format("control.error.notFound", "%1$@ not found: %2$@", what, handle), data: ["kind": .string(what), "handle": .string(handle)])
     }
 
     static func invalid(_ message: String) -> ControlError {
@@ -23,15 +23,15 @@ enum CompatErrors {
     }
 
     static func missing(_ param: String, _ method: String) -> ControlError {
-        invalid("\(method) requires params.\(param)")
+        invalid(ControlStrings.format("control.error.missingParam", "%1$@ requires params.%2$@", method, param))
     }
 
-    static let stopped = ControlError(code: "unavailable", message: "the control service stopped")
+    static let stopped = ControlError(code: "unavailable", message: ControlStrings.text("control.error.serviceStopped", "the control service stopped"))
 
-    static let notConnected = ControlError(code: "unavailable", message: "cmux-tui daemon is not connected yet")
+    static let notConnected = ControlError(code: "unavailable", message: ControlStrings.text("control.error.daemonNotConnected", "cmux-tui daemon is not connected yet"))
 
     static func timeout(_ what: String, _ duration: Duration) -> ControlError {
-        ControlError(code: "timeout", message: "\(what) did not finish within \(duration)")
+        ControlError(code: "timeout", message: ControlStrings.format("control.error.timeout", "%1$@ did not finish within %2$@", what, "\(duration)"))
     }
 
     /// Maps a daemon failure to a control error the CLI prints verbatim.
@@ -43,13 +43,13 @@ enum CompatErrors {
         switch daemon {
         case .notConnected, .connectionClosed: return notConnected
         case .missingCapabilities(let caps):
-            return unsupported("the bundled cmux-tui lacks \(caps.joined(separator: ", ")) (needed for \(what))")
+            return unsupported(ControlStrings.format("control.error.missingCapabilities", "the bundled cmux-tui lacks %1$@ (needed for %2$@)", caps.joined(separator: ", "), what))
         case .command(_, let message, _):
             if message.hasPrefix("unknown ") || message.contains("not found") {
                 return ControlError(code: "not_found", message: "\(what): \(message)")
             }
             if message.contains("unknown variant") {
-                return unsupported("the bundled cmux-tui does not implement \(what)")
+                return unsupported(ControlStrings.format("control.error.daemonLacksMethod", "the bundled cmux-tui does not implement %@", what))
             }
             return ControlError(code: "daemon_error", message: "\(what): \(message)")
         default:

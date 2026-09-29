@@ -39,10 +39,10 @@ enum CompatSurfaceMethods {
 
     static func create(_ call: CompatCall) async throws -> JSON {
         if call.string("placement")?.lowercased() == "dock" {
-            throw CompatErrors.unsupported("dock panes do not exist in cmux-next", method: call.method)
+            throw CompatErrors.unsupported(ControlStrings.text("control.error.noDockPanes", "dock panes do not exist in cmux-next"), method: call.method)
         }
         if call.string("provider_id") ?? call.string("provider") != nil {
-            throw CompatErrors.unsupported("surface providers are not supported yet", method: call.method)
+            throw CompatErrors.unsupported(ControlStrings.text("control.error.noSurfaceProviders", "surface providers are not supported yet"), method: call.method)
         }
         let world = try await call.world()
         let kind = try CompatCreate.kind(call)
@@ -75,7 +75,7 @@ enum CompatSurfaceMethods {
 
     static func focus(_ call: CompatCall) async throws -> JSON {
         let world = try await call.world()
-        guard call.string("surface_id") ?? call.string("tab_id") != nil else { throw CompatErrors.invalid("Missing or invalid surface_id") }
+        guard call.string("surface_id") ?? call.string("tab_id") != nil else { throw CompatErrors.invalid(ControlStrings.format("control.error.missingOrInvalidParam", "Missing or invalid %@", "surface_id")) }
         let target = call.target(world)
         let surface = try target.surface()
         let window = try target.window()
@@ -102,7 +102,7 @@ enum CompatSurfaceMethods {
         if let anchorRaw = call.string("before_surface_id") ?? call.string("after_surface_id") {
             let anchor = try world.resolveSurface(anchorRaw, in: nil, refs: refs)
             if call.method == "surface.reorder", anchor.paneUUID != surface.paneUUID {
-                throw CompatErrors.invalid("Anchor surface must be in the same pane")
+                throw CompatErrors.invalid(ControlStrings.text("control.error.anchorSamePane", "Anchor surface must be in the same pane"))
             }
             destination = world.panes[anchor.paneUUID]
             let before = call.string("before_surface_id") != nil
@@ -117,7 +117,7 @@ enum CompatSurfaceMethods {
                                              arguments: ["workspace": .target(CompatTargets.workspace(workspace))], call: call)
             return try await moved(call, surface: surface)
         } else if call.method == "surface.move", call.string("window_id") != nil {
-            throw CompatErrors.unsupported("windows do not own workspaces in cmux-next; move to a workspace or pane", method: call.method)
+            throw CompatErrors.unsupported(ControlStrings.text("control.error.windowsDoNotOwnWorkspaces", "windows do not own workspaces in cmux-next; move to a workspace or pane"), method: call.method)
         }
         guard let destination else { throw CompatErrors.notFound("pane", "destination") }
         let paneHandle = destination.handle

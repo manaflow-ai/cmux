@@ -18,10 +18,10 @@ public struct HeadlessCompatFrontend: CompatFrontend {
     public init() {}
 
     @MainActor public func perform(_ intent: CompatFrontendIntent) throws -> JSONValue {
-        throw CompatErrors.unsupported("no app window is available for \(intent)")
+        throw CompatErrors.unsupported(ControlStrings.format("control.error.noAppWindow", "no app window is available for %@", "\(intent)"))
     }
 
     public func browser(tabID: String, url: String?, operation: CompatBrowserOperation) async throws -> JSONValue {
-        throw CompatErrors.unsupported("no browser engine is available")
+        throw CompatErrors.unsupported(ControlStrings.text("control.error.noBrowserEngine", "no browser engine is available"))
     }
 }

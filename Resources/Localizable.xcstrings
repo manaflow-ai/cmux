@@ -246801,6 +246801,4067 @@
           }
         }
       }
+    },
+    "cli.removed.reason.canvas": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "canvas layout was removed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تمت إزالة تخطيط اللوحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "canvas raspored je uklonjen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "canvas-layout blev fjernet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Canvas-Layout wurde entfernt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "el diseño de lienzo se eliminó"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la disposition en canevas a été supprimée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "il layout a canvas è stato rimosso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "キャンバスレイアウトは削除されました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្លង់ canvas ត្រូវបានលុបចេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "캔버스 레이아웃이 제거되었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "canvas-oppsettet ble fjernet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "układ canvas został usunięty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "o layout de canvas foi removido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "раскладка canvas удалена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลย์เอาต์ canvas ถูกลบแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "canvas düzeni kaldırıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "макет полотна видалено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bố cục canvas đã bị gỡ bỏ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "画布布局已移除"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "畫布版面已移除"
+          }
+        }
+      }
+    },
+    "cli.removed.reason.debugMethods": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "debug methods of the old app are not part of cmux-next"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طرق التصحيح في التطبيق القديم ليست جزءًا من cmux-next"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "metode za otklanjanje grešaka stare aplikacije nisu dio cmux-next"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "fejlfindingsmetoder fra den gamle app er ikke en del af cmux-next"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Debug-Methoden der alten App sind nicht Teil von cmux-next"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "los métodos de depuración de la app anterior no forman parte de cmux-next"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "les méthodes de débogage de l'ancienne app ne font pas partie de cmux-next"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "i metodi di debug della vecchia app non fanno parte di cmux-next"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "旧アプリのデバッグメソッドは cmux-next に含まれません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វិធីសាស្ត្រ debug របស់កម្មវិធីចាស់មិនមែនជាផ្នែកនៃ cmux-next ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이전 앱의 디버그 메서드는 cmux-next에 포함되지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feilsøkingsmetoder i den gamle appen er ikke en del av cmux-next"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "metody debugowania starej aplikacji nie są częścią cmux-next"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "os métodos de depuração do app antigo não fazem parte do cmux-next"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "отладочные методы старого приложения не входят в cmux-next"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมธอดดีบักของแอปเก่าไม่ได้เป็นส่วนหนึ่งของ cmux-next"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "eski uygulamanın hata ayıklama yöntemleri cmux-next'in parçası değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "методи налагодження старого застосунку не входять до cmux-next"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "các phương thức gỡ lỗi của ứng dụng cũ không thuộc cmux-next"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "旧版应用的调试方法不属于 cmux-next"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "舊版 App 的除錯方法不屬於 cmux-next"
+          }
+        }
+      }
+    },
+    "cli.removed.reason.irohDiag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh diagnostics of the old app are not part of cmux-next"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تشخيصات Iroh في التطبيق القديم ليست جزءًا من cmux-next"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iroh dijagnostika stare aplikacije nije dio cmux-next"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iroh-diagnostik fra den gamle app er ikke en del af cmux-next"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iroh-Diagnose der alten App ist nicht Teil von cmux-next"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "los diagnósticos de Iroh de la app anterior no forman parte de cmux-next"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "les diagnostics Iroh de l'ancienne app ne font pas partie de cmux-next"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la diagnostica Iroh della vecchia app non fa parte di cmux-next"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "旧アプリの Iroh 診断は cmux-next に含まれません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការវិនិច្ឆ័យ Iroh របស់កម្មវិធីចាស់មិនមែនជាផ្នែកនៃ cmux-next ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이전 앱의 Iroh 진단은 cmux-next에 포함되지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iroh-diagnostikk i den gamle appen er ikke en del av cmux-next"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "diagnostyka Iroh starej aplikacji nie jest częścią cmux-next"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "os diagnósticos do Iroh do app antigo não fazem parte do cmux-next"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "диагностика Iroh старого приложения не входит в cmux-next"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การวินิจฉัย Iroh ของแอปเก่าไม่ได้เป็นส่วนหนึ่งของ cmux-next"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "eski uygulamanın Iroh tanılamaları cmux-next'in parçası değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "діагностика Iroh старого застосунку не входить до cmux-next"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "chẩn đoán Iroh của ứng dụng cũ không thuộc cmux-next"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "旧版应用的 Iroh 诊断不属于 cmux-next"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "舊版 App 的 Iroh 診斷不屬於 cmux-next"
+          }
+        }
+      }
+    },
+    "cli.removed.reason.simulator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the simulator pane is not part of cmux-next"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لوحة المحاكي ليست جزءًا من cmux-next"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "okno simulatora nije dio cmux-next"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "simulatorruden er ikke en del af cmux-next"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "der Simulator-Bereich ist nicht Teil von cmux-next"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "el panel del simulador no forma parte de cmux-next"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "le panneau du simulateur ne fait pas partie de cmux-next"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "il pannello del simulatore non fa parte di cmux-next"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "シミュレータペインは cmux-next に含まれません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "pane simulator មិនមែនជាផ្នែកនៃ cmux-next ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시뮬레이터 창은 cmux-next에 포함되지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "simulatorruten er ikke en del av cmux-next"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "panel symulatora nie jest częścią cmux-next"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "o painel do simulador não faz parte do cmux-next"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "панель симулятора не входит в cmux-next"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แพนจำลองอุปกรณ์ไม่ได้เป็นส่วนหนึ่งของ cmux-next"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "simülatör bölmesi cmux-next'in parçası değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "панель симулятора не входить до cmux-next"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ngăn trình giả lập không thuộc cmux-next"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模拟器窗格不属于 cmux-next"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模擬器窗格不屬於 cmux-next"
+          }
+        }
+      }
+    },
+    "cli.removed.reason.project": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the project pane is not part of cmux-next"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لوحة المشروع ليست جزءًا من cmux-next"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "okno projekta nije dio cmux-next"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "projektruden er ikke en del af cmux-next"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "der Projektbereich ist nicht Teil von cmux-next"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "el panel de proyectos no forma parte de cmux-next"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "le panneau de projets ne fait pas partie de cmux-next"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "il pannello dei progetti non fa parte di cmux-next"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロジェクトペインは cmux-next に含まれません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "pane គម្រោងមិនមែនជាផ្នែកនៃ cmux-next ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프로젝트 창은 cmux-next에 포함되지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "prosjektruten er ikke en del av cmux-next"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "panel projektu nie jest częścią cmux-next"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "o painel de projetos não faz parte do cmux-next"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "панель проектов не входит в cmux-next"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แพนโปรเจกต์ไม่ได้เป็นส่วนหนึ่งของ cmux-next"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "proje bölmesi cmux-next'in parçası değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "панель проєкту не входить до cmux-next"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ngăn dự án không thuộc cmux-next"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "项目窗格不属于 cmux-next"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "專案窗格不屬於 cmux-next"
+          }
+        }
+      }
+    },
+    "cli.removed.reason.refreshSurfaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "there is nothing to refresh"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد ما يمكن تحديثه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nema ničega za osvježavanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "der er intet at opdatere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "es gibt nichts zu aktualisieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "no hay nada que actualizar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "il n'y a rien à actualiser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "non c'è nulla da aggiornare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新するものはありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានអ្វីត្រូវ refresh ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새로 고칠 항목이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "det er ingenting å oppdatere"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nie ma nic do odświeżenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "não há nada para atualizar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "обновлять нечего"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีอะไรให้รีเฟรช"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "yenilenecek bir şey yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "нічого оновлювати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "không có gì để làm mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有需要刷新的内容"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有需要重新整理的內容"
+          }
+        }
+      }
+    },
+    "cli.removed.reason.rightSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the right sidebar is not part of cmux-next"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الشريط الجانبي الأيمن ليس جزءًا من cmux-next"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "desna bočna traka nije dio cmux-next"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "den højre sidebjælke er ikke en del af cmux-next"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "die rechte Seitenleiste ist nicht Teil von cmux-next"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la barra lateral derecha no forma parte de cmux-next"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la barre latérale droite ne fait pas partie de cmux-next"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la barra laterale destra non fa parte di cmux-next"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "右サイドバーは cmux-next に含まれません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របារចំហៀងខាងស្តាំមិនមែនជាផ្នែកនៃ cmux-next ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "오른쪽 사이드바는 cmux-next에 포함되지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "høyre sidefelt er ikke en del av cmux-next"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "prawy pasek boczny nie jest częścią cmux-next"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "a barra lateral direita não faz parte do cmux-next"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "правая боковая панель не входит в cmux-next"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบด้านข้างขวาไม่ได้เป็นส่วนหนึ่งของ cmux-next"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sağ kenar çubuğu cmux-next'in parçası değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "права бічна панель не входить до cmux-next"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "thanh bên phải không thuộc cmux-next"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "右侧边栏不属于 cmux-next"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "右側邊欄不屬於 cmux-next"
+          }
+        }
+      }
+    },
+    "cli.removed.reason.focusOverrides": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "focus overrides were a debug feature of the old app"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تجاوزات التركيز كانت ميزة تصحيح في التطبيق القديم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nadjačavanja fokusa bila su funkcija za otklanjanje grešaka stare aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "fokusoverstyringer var en fejlfindingsfunktion i den gamle app"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokus-Überschreibungen waren eine Debug-Funktion der alten App"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "las anulaciones de foco eran una función de depuración de la app anterior"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "les remplacements de focus étaient une fonction de débogage de l'ancienne app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "gli override del focus erano una funzione di debug della vecchia app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォーカスのオーバーライドは旧アプリのデバッグ機能でした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបដិសេធ focus គឺជាមុខងារ debug របស់កម្មវិធីចាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "포커스 재정의는 이전 앱의 디버그 기능이었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "fokusoverstyringer var en feilsøkingsfunksjon i den gamle appen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nadpisania fokusu były funkcją debugowania starej aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "as substituições de foco eram um recurso de depuração do app antigo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "переопределения фокуса были отладочной функцией старого приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแทนที่โฟกัสเป็นฟีเจอร์ดีบักของแอปเก่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "odak geçersiz kılmaları eski uygulamanın bir hata ayıklama özelliğiydi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "перевизначення фокуса були функцією налагодження старого застосунку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ghi đè tiêu điểm từng là tính năng gỡ lỗi của ứng dụng cũ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "焦点覆盖曾是旧版应用的调试功能"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "焦點覆寫曾是舊版 App 的除錯功能"
+          }
+        }
+      }
+    },
+    "cli.removed.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unsupported in cmux-next: %1$@ (cmux %2$@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غير مدعوم في cmux-next: %1$@ (cmux %2$@)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nije podržano u cmux-next: %1$@ (cmux %2$@)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "understøttes ikke i cmux-next: %1$@ (cmux %2$@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "in cmux-next nicht unterstützt: %1$@ (cmux %2$@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "no compatible con cmux-next: %1$@ (cmux %2$@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "non pris en charge dans cmux-next : %1$@ (cmux %2$@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "non supportato in cmux-next: %1$@ (cmux %2$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next ではサポートされていません: %1$@ (cmux %2$@)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនគាំទ្រនៅក្នុង cmux-next: %1$@ (cmux %2$@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next에서 지원되지 않음: %1$@ (cmux %2$@)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "støttes ikke i cmux-next: %1$@ (cmux %2$@)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nieobsługiwane w cmux-next: %1$@ (cmux %2$@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sem suporte no cmux-next: %1$@ (cmux %2$@)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "не поддерживается в cmux-next: %1$@ (cmux %2$@)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่รองรับใน cmux-next: %1$@ (cmux %2$@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next'te desteklenmiyor: %1$@ (cmux %2$@)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "не підтримується в cmux-next: %1$@ (cmux %2$@)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "không được hỗ trợ trong cmux-next: %1$@ (cmux %2$@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next 不支持:%1$@(cmux %2$@)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next 不支援:%1$@(cmux %2$@)"
+          }
+        }
+      }
+    },
+    "cli.unknownCommand.errorWithSuggestion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown command '%1$@'. Did you mean '%2$@'? Run 'cmux --help' for the full command list."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أمر غير معروف '%1$@'. هل تقصد '%2$@'؟ شغّل 'cmux --help' للاطلاع على قائمة الأوامر الكاملة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nepoznata naredba '%1$@'. Jeste li mislili '%2$@'? Pokrenite 'cmux --help' za cijeli popis naredbi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukendt kommando '%1$@'. Mente du '%2$@'? Kør 'cmux --help' for den fulde kommandoliste."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unbekannter Befehl '%1$@'. Meintest du '%2$@'? Führe 'cmux --help' für die vollständige Befehlsliste aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando desconocido '%1$@'. ¿Quisiste decir '%2$@'? Ejecuta 'cmux --help' para ver la lista completa de comandos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commande inconnue '%1$@'. Vouliez-vous dire '%2$@' ? Exécutez 'cmux --help' pour la liste complète des commandes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando sconosciuto '%1$@'. Intendevi '%2$@'? Esegui 'cmux --help' per l'elenco completo dei comandi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不明なコマンド '%1$@' です。'%2$@' ではありませんか？ コマンドの一覧は 'cmux --help' で確認できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជា '%1$@' មិនស្គាល់។ តើអ្នកចង់មានន័យថា '%2$@' ទេ? សូមរត់ 'cmux --help' ដើម្បីមើលបញ្ជីពាក្យបញ្ជាទាំងអស់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "알 수 없는 명령 '%1$@'. '%2$@'을(를) 의미하셨나요? 전체 명령 목록은 'cmux --help'를 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukjent kommando '%1$@'. Mente du '%2$@'? Kjør 'cmux --help' for hele kommandolisten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nieznane polecenie '%1$@'. Czy chodziło o '%2$@'? Uruchom 'cmux --help', aby zobaczyć pełną listę poleceń."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando desconhecido '%1$@'. Você quis dizer '%2$@'? Execute 'cmux --help' para ver a lista completa de comandos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Неизвестная команда '%1$@'. Возможно, вы имели в виду '%2$@'? Выполните 'cmux --help', чтобы увидеть полный список команд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่รู้จักคำสั่ง '%1$@' คุณหมายถึง '%2$@' หรือไม่ เรียกใช้ 'cmux --help' เพื่อดูรายการคำสั่งทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bilinmeyen komut '%1$@'. '%2$@' mi demek istediniz? Komutların tam listesi için 'cmux --help' çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Невідома команда «%1$@». Ви мали на увазі «%2$@»? Виконайте «cmux --help», щоб побачити повний список команд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lệnh không xác định '%1$@'. Ý bạn là '%2$@'? Chạy 'cmux --help' để xem danh sách lệnh đầy đủ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未知命令“%1$@”。您是想输入“%2$@”吗?运行“cmux --help”查看完整命令列表。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未知指令「%1$@」。您是要輸入「%2$@」嗎?執行「cmux --help」查看完整指令列表。"
+          }
+        }
+      }
+    },
+    "cli.unknownCommand.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown command '%@'. Run 'cmux --help' for the full command list."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أمر غير معروف '%@'. شغّل 'cmux --help' للاطلاع على قائمة الأوامر الكاملة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nepoznata naredba '%@'. Pokrenite 'cmux --help' za cijeli popis naredbi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukendt kommando '%@'. Kør 'cmux --help' for den fulde kommandoliste."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unbekannter Befehl '%@'. Führe 'cmux --help' für die vollständige Befehlsliste aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando desconocido '%@'. Ejecuta 'cmux --help' para ver la lista completa de comandos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commande inconnue '%@'. Exécutez 'cmux --help' pour la liste complète des commandes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando sconosciuto '%@'. Esegui 'cmux --help' per l'elenco completo dei comandi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不明なコマンド '%@' です。コマンドの一覧は 'cmux --help' で確認できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជា '%@' មិនស្គាល់។ សូមរត់ 'cmux --help' ដើម្បីមើលបញ្ជីពាក្យបញ្ជាទាំងអស់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "알 수 없는 명령 '%@'. 전체 명령 목록은 'cmux --help'를 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukjent kommando '%@'. Kjør 'cmux --help' for hele kommandolisten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nieznane polecenie '%@'. Uruchom 'cmux --help', aby zobaczyć pełną listę poleceń."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando desconhecido '%@'. Execute 'cmux --help' para ver a lista completa de comandos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Неизвестная команда '%@'. Выполните 'cmux --help', чтобы увидеть полный список команд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่รู้จักคำสั่ง '%@' เรียกใช้ 'cmux --help' เพื่อดูรายการคำสั่งทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bilinmeyen komut '%@'. Komutların tam listesi için 'cmux --help' çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Невідома команда «%@». Виконайте «cmux --help», щоб побачити повний список команд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lệnh không xác định '%@'. Chạy 'cmux --help' để xem danh sách lệnh đầy đủ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未知命令“%@”。运行“cmux --help”查看完整命令列表。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未知指令「%@」。執行「cmux --help」查看完整指令列表。"
+          }
+        }
+      }
+    },
+    "cli.usage.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux - control cmux via Unix socket"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - التحكم في cmux عبر مقبس Unix"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - upravljanje cmux-om putem Unix socketa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - styr cmux via Unix-socket"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - cmux über Unix-Socket steuern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - controla cmux mediante un socket Unix"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - pilote cmux via un socket Unix"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - controlla cmux tramite socket Unix"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - Unix ソケット経由で cmux を操作します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - គ្រប់គ្រង cmux តាម Unix socket"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - Unix 소켓으로 cmux 제어"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - styr cmux via Unix-socket"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - steruj cmux przez gniazdo Unix"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - controla o cmux via socket Unix"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - управление cmux через сокет Unix"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - ควบคุม cmux ผ่านซ็อกเก็ต Unix"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - cmux'u Unix soketi üzerinden kontrol eder"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - керування cmux через сокет Unix"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - điều khiển cmux qua socket Unix"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - 通过 Unix 套接字控制 cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux - 透過 Unix socket 控制 cmux"
+          }
+        }
+      }
+    },
+    "cli.usage.openPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a directory in a new workspace (launches cmux if needed)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "افتح مجلدًا في مساحة عمل جديدة (يشغّل cmux عند الحاجة)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori direktorij u novom radnom prostoru (po potrebi pokreće cmux)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn en mappe i et nyt workspace (starter cmux om nødvendigt)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Verzeichnis in einem neuen Workspace öffnen (startet cmux bei Bedarf)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abre un directorio en un nuevo espacio de trabajo (inicia cmux si hace falta)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvre un répertoire dans un nouvel espace de travail (lance cmux si nécessaire)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apre una directory in un nuovo spazio di lavoro (avvia cmux se necessario)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいワークスペースでディレクトリを開きます (必要なら cmux を起動します)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកថតមួយក្នុងកន្លែងធ្វើការថ្មី (ចាប់ផ្តើម cmux ប្រសិនបើចាំបាច់)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 워크스페이스에서 디렉터리 열기 (필요하면 cmux 실행)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne en katalog i et nytt arbeidsområde (starter cmux om nødvendig)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz katalog w nowej przestrzeni roboczej (w razie potrzeby uruchamia cmux)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abre um diretório em um novo workspace (inicia o cmux se necessário)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открывает каталог в новом рабочем пространстве (при необходимости запускает cmux)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดไดเรกทอรีในเวิร์กสเปซใหม่ (เปิด cmux หากจำเป็น)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir dizini yeni bir çalışma alanında açar (gerekirse cmux'u başlatır)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити каталог у новому робочому просторі (за потреби запускає cmux)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở một thư mục trong không gian làm việc mới (khởi chạy cmux nếu cần)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在新工作区中打开目录(如需要会启动 cmux)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在新工作區中開啟目錄(必要時會啟動 cmux)"
+          }
+        }
+      }
+    },
+    "cli.usage.targets.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Targets:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأهداف:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ciljevi:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mål:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ziele:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Destinos:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cibles :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Destinazioni:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターゲット:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គោលដៅ:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대상:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mål:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cele:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alvos:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цели:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เป้าหมาย:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hedefler:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цілі:"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đích:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "目标:"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "目標:"
+          }
+        }
+      }
+    },
+    "cli.usage.targets.handles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commands that accept a window, workspace, pane, or surface take a UUID, a short ref (window:1/workspace:2/pane:3/surface:4), or an index."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأوامر التي تقبل نافذة أو مساحة عمل أو جزءًا أو سطحًا تأخذ UUID أو مرجعًا قصيرًا (window:1/workspace:2/pane:3/surface:4) أو فهرسًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Naredbe koje prihvataju prozor, radni prostor, okno ili surface primaju UUID, kratku referencu (window:1/workspace:2/pane:3/surface:4) ili indeks."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kommandoer, der accepterer et vindue, workspace, panel eller surface, tager en UUID, en kort reference (window:1/workspace:2/pane:3/surface:4) eller et indeks."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Befehle, die ein Fenster, einen Workspace, ein Pane oder eine Surface akzeptieren, nehmen eine UUID, eine Kurzreferenz (window:1/workspace:2/pane:3/surface:4) oder einen Index."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los comandos que aceptan una ventana, un espacio de trabajo, un panel o una superficie admiten un UUID, una referencia corta (window:1/workspace:2/pane:3/surface:4) o un índice."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les commandes qui acceptent une fenêtre, un espace de travail, un volet ou une surface prennent un UUID, une référence courte (window:1/workspace:2/pane:3/surface:4) ou un index."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I comandi che accettano una finestra, uno spazio di lavoro, un pannello o una superficie richiedono un UUID, un riferimento breve (window:1/workspace:2/pane:3/surface:4) o un indice."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ウィンドウ、ワークスペース、ペイン、サーフェスを受け取るコマンドは、UUID、短い参照 (window:1/workspace:2/pane:3/surface:4)、またはインデックスを指定できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជាដែលទទួលបង្អួច កន្លែងធ្វើការ pane ឬ surface ទទួល UUID, ឯកសារយោងខ្លី (window:1/workspace:2/pane:3/surface:4) ឬលេខលិបិក្រម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "윈도우, 워크스페이스, 창, 서피스를 받는 명령은 UUID, 짧은 참조(window:1/workspace:2/pane:3/surface:4) 또는 인덱스를 사용할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kommandoer som tar et vindu, arbeidsområde, rute eller flate godtar en UUID, en kort ref (window:1/workspace:2/pane:3/surface:4) eller en indeks."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Polecenia przyjmujące okno, przestrzeń roboczą, panel lub powierzchnię akceptują UUID, krótkie odwołanie (window:1/workspace:2/pane:3/surface:4) lub indeks."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comandos que aceitam uma janela, workspace, painel ou superfície usam um UUID, uma referência curta (window:1/workspace:2/pane:3/surface:4) ou um índice."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Команды, принимающие окно, рабочее пространство, панель или поверхность, принимают UUID, короткую ссылку (window:1/workspace:2/pane:3/surface:4) или индекс."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำสั่งที่รับหน้าต่าง เวิร์กสเปซ แพน หรือเซอร์เฟซ ใช้ UUID, การอ้างอิงแบบสั้น (window:1/workspace:2/pane:3/surface:4) หรือดัชนีได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pencere, çalışma alanı, bölme veya yüzey kabul eden komutlar bir UUID, kısa bir referans (window:1/workspace:2/pane:3/surface:4) veya bir dizin numarası alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Команди, що приймають вікно, робочий простір, панель або поверхню, потребують UUID, короткого посилання (window:1/workspace:2/pane:3/surface:4) або індексу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các lệnh nhận cửa sổ, không gian làm việc, ngăn hoặc bề mặt đều dùng UUID, tham chiếu ngắn (window:1/workspace:2/pane:3/surface:4) hoặc chỉ mục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "接受窗口、工作区、窗格或界面的命令可使用 UUID、短引用(window:1/workspace:2/pane:3/surface:4)或索引。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "接受視窗、工作區、窗格或介面的指令可使用 UUID、短參照(window:1/workspace:2/pane:3/surface:4)或索引。"
+          }
+        }
+      }
+    },
+    "cli.usage.targets.tabRef": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`tab-action` also accepts `tab:<n>` in addition to `surface:<n>`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يقبل `tab-action` أيضًا `tab:<n>` بالإضافة إلى `surface:<n>`."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` pored `surface:<n>` prihvata i `tab:<n>`."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` accepterer også `tab:<n>` ud over `surface:<n>`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` akzeptiert zusätzlich zu `surface:<n>` auch `tab:<n>`."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` también acepta `tab:<n>` además de `surface:<n>`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` accepte aussi `tab:<n>` en plus de `surface:<n>`."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` accetta anche `tab:<n>` oltre a `surface:<n>`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` は `surface:<n>` に加えて `tab:<n>` も受け付けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` ក៏ទទួល `tab:<n>` បន្ថែមលើ `surface:<n>` ដែរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action`은 `surface:<n>` 외에 `tab:<n>`도 받습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` godtar også `tab:<n>` i tillegg til `surface:<n>`."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` akceptuje też `tab:<n>` oprócz `surface:<n>`."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` também aceita `tab:<n>` além de `surface:<n>`."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` также принимает `tab:<n>` в дополнение к `surface:<n>`."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` รับ `tab:<n>` ได้เช่นกัน นอกเหนือจาก `surface:<n>`"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action`, `surface:<n>` yanında `tab:<n>` de kabul eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` також приймає `tab:<n>` на додачу до `surface:<n>`."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` cũng nhận `tab:<n>` bên cạnh `surface:<n>`."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` 除 `surface:<n>` 外也接受 `tab:<n>`。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action` 除 `surface:<n>` 外也接受 `tab:<n>`。"
+          }
+        }
+      }
+    },
+    "cli.usage.targets.idFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يستخدم الإخراج المراجع افتراضيًا؛ مرّر --id-format uuids أو --id-format both لتضمين UUID."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izlaz po zadanim postavkama koristi reference; proslijedite --id-format uuids ili --id-format both da uključite UUID-ove."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Output bruger som standard referencer; angiv --id-format uuids eller --id-format both for at inkludere UUID'er."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Ausgabe verwendet standardmäßig Referenzen; mit --id-format uuids oder --id-format both werden UUIDs ausgegeben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La salida usa referencias por defecto; pasa --id-format uuids o --id-format both para incluir los UUID."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sortie utilise les références par défaut ; passez --id-format uuids ou --id-format both pour inclure les UUID."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'output usa di default i riferimenti; passa --id-format uuids o --id-format both per includere gli UUID."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "出力は既定で参照形式です。UUID を含めるには --id-format uuids または --id-format both を指定します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លទ្ធផលលំនាំដើមជាឯកសារយោង; ប្រើ --id-format uuids ឬ --id-format both ដើម្បីបញ្ចូល UUID។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "출력은 기본적으로 참조를 사용합니다. UUID를 포함하려면 --id-format uuids 또는 --id-format both를 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utdata bruker refs som standard; bruk --id-format uuids eller --id-format both for å inkludere UUID-er."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Domyślnie wynik zawiera odwołania; użyj --id-format uuids lub --id-format both, aby dołączyć UUID."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A saída usa referências por padrão; passe --id-format uuids ou --id-format both para incluir UUIDs."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "По умолчанию вывод содержит ссылки; передайте --id-format uuids или --id-format both, чтобы включить UUID."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอาต์พุตแสดงการอ้างอิงเป็นค่าเริ่มต้น ระบุ --id-format uuids หรือ --id-format both เพื่อรวม UUID"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çıktı varsayılan olarak referans gösterir; UUID'leri dahil etmek için --id-format uuids veya --id-format both verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "За замовчуванням виводяться посилання; передайте --id-format uuids або --id-format both, щоб додати UUID."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mặc định đầu ra là tham chiếu; truyền --id-format uuids hoặc --id-format both để kèm UUID."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "输出默认为引用;传入 --id-format uuids 或 --id-format both 可包含 UUID。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "輸出預設為參照;傳入 --id-format uuids 或 --id-format both 可包含 UUID。"
+          }
+        }
+      }
+    },
+    "cli.usage.socketAuth.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Socket Auth:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مصادقة المقبس:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autentifikacija socketa:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Socket-godkendelse:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Socket-Authentifizierung:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autenticación del socket:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Authentification du socket :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autenticazione del socket:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ソケット認証:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការផ្ទៀងផ្ទាត់ Socket:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "소켓 인증:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Socket-autentisering:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uwierzytelnianie gniazda:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autenticação do socket:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Аутентификация сокета:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การยืนยันตัวตนซ็อกเก็ต:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Soket kimlik doğrulaması:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автентифікація сокета:"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xác thực socket:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "套接字认证:"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Socket 驗證:"
+          }
+        }
+      }
+    },
+    "cli.usage.socketAuth.precedence": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--password takes precedence, then CMUX_SOCKET_PASSWORD, then the password saved in Settings."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لـ --password الأولوية، ثم CMUX_SOCKET_PASSWORD، ثم كلمة المرور المحفوظة في الإعدادات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--password ima prednost, zatim CMUX_SOCKET_PASSWORD, zatim lozinka spremljena u Postavkama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--password har forrang, derefter CMUX_SOCKET_PASSWORD, derefter den adgangskode, der er gemt i Indstillinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--password hat Vorrang, dann CMUX_SOCKET_PASSWORD, dann das in den Einstellungen gespeicherte Passwort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--password tiene prioridad, luego CMUX_SOCKET_PASSWORD y después la contraseña guardada en Ajustes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--password est prioritaire, puis CMUX_SOCKET_PASSWORD, puis le mot de passe enregistré dans les Réglages."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--password ha la precedenza, poi CMUX_SOCKET_PASSWORD, poi la password salvata nelle Impostazioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--password が最優先で、次に CMUX_SOCKET_PASSWORD、最後に設定に保存されたパスワードが使われます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--password មានអាទិភាពមុន បន្ទាប់មក CMUX_SOCKET_PASSWORD បន្ទាប់មកពាក្យសម្ងាត់ដែលបានរក្សាទុកក្នុងការកំណត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--password가 가장 우선하며, 그다음 CMUX_SOCKET_PASSWORD, 그다음 설정에 저장된 비밀번호 순입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--password har forrang, deretter CMUX_SOCKET_PASSWORD, deretter passordet lagret i Innstillinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--password ma pierwszeństwo, następnie CMUX_SOCKET_PASSWORD, a potem hasło zapisane w Ustawieniach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--password tem precedência, depois CMUX_SOCKET_PASSWORD, depois a senha salva em Configurações."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приоритет у --password, затем CMUX_SOCKET_PASSWORD, затем пароль, сохранённый в настройках."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--password มีลำดับความสำคัญสูงสุด ถัดมาคือ CMUX_SOCKET_PASSWORD แล้วจึงเป็นรหัสผ่านที่บันทึกไว้ในการตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önce --password geçerlidir, sonra CMUX_SOCKET_PASSWORD, sonra Ayarlar'da kayıtlı parola."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спершу береться --password, потім CMUX_SOCKET_PASSWORD, потім пароль, збережений у налаштуваннях."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--password được ưu tiên, sau đó đến CMUX_SOCKET_PASSWORD, rồi đến mật khẩu đã lưu trong Cài đặt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "优先使用 --password,其次是 CMUX_SOCKET_PASSWORD,最后是“设置”中保存的密码。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "優先使用 --password,其次是 CMUX_SOCKET_PASSWORD,最後是「設定」中儲存的密碼。"
+          }
+        }
+      }
+    },
+    "cli.usage.agentHelp.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Help:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مساعدة الوكلاء:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomoć za agente:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenthjælp:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent-Hilfe:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayuda para agentes:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aide pour les agents :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aiuto per gli agenti:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェント向けヘルプ:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជំនួយសម្រាប់ Agent:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 도움말:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenthjelp:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomoc dla agentów:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajuda para agentes:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Справка для агентов:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "วิธีใช้สำหรับเอเจนต์:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan yardımı:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Довідка для агентів:"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trợ giúp cho tác tử:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理帮助:"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理程式說明:"
+          }
+        }
+      }
+    },
+    "cli.usage.agentHelp.settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change cmux settings with `cmux docs settings` and `cmux settings path`; add Dock controls with `cmux docs dock`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غيّر إعدادات cmux باستخدام `cmux docs settings` و`cmux settings path`؛ وأضف عناصر تحكم Dock باستخدام `cmux docs dock`."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mijenjajte cmux postavke pomoću `cmux docs settings` i `cmux settings path`; dodajte Dock kontrole pomoću `cmux docs dock`."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ret cmux-indstillinger med `cmux docs settings` og `cmux settings path`; tilføj Dock-kontroller med `cmux docs dock`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ändere cmux-Einstellungen mit `cmux docs settings` und `cmux settings path`; füge Dock-Steuerelemente mit `cmux docs dock` hinzu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambia los ajustes de cmux con `cmux docs settings` y `cmux settings path`; añade controles del Dock con `cmux docs dock`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modifiez les réglages de cmux avec `cmux docs settings` et `cmux settings path` ; ajoutez des contrôles Dock avec `cmux docs dock`."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modifica le impostazioni di cmux con `cmux docs settings` e `cmux settings path`; aggiungi i controlli del Dock con `cmux docs dock`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux の設定は `cmux docs settings` と `cmux settings path` で変更し、Dock のコントロールは `cmux docs dock` で追加します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ប្តូរការកំណត់ cmux ដោយ `cmux docs settings` និង `cmux settings path`; បន្ថែមការគ្រប់គ្រង Dock ដោយ `cmux docs dock`។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux docs settings`와 `cmux settings path`로 cmux 설정을 변경하고, `cmux docs dock`으로 Dock 컨트롤을 추가하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endre cmux-innstillinger med `cmux docs settings` og `cmux settings path`; legg til Dock-kontroller med `cmux docs dock`."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmieniaj ustawienia cmux przez `cmux docs settings` i `cmux settings path`; dodawaj kontrolki Dock przez `cmux docs dock`."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altere as configurações do cmux com `cmux docs settings` e `cmux settings path`; adicione controles do Dock com `cmux docs dock`."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Меняйте настройки cmux через `cmux docs settings` и `cmux settings path`; элементы управления Dock добавляйте через `cmux docs dock`."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปลี่ยนการตั้งค่า cmux ด้วย `cmux docs settings` และ `cmux settings path` เพิ่มตัวควบคุม Dock ด้วย `cmux docs dock`"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ayarlarını `cmux docs settings` ve `cmux settings path` ile değiştirin; Dock denetimlerini `cmux docs dock` ile ekleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Змінюйте налаштування cmux через `cmux docs settings` і `cmux settings path`; додавайте елементи керування Dock через `cmux docs dock`."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thay đổi cài đặt cmux bằng `cmux docs settings` và `cmux settings path`; thêm điều khiển Dock bằng `cmux docs dock`."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用 `cmux docs settings` 和 `cmux settings path` 更改 cmux 设置;使用 `cmux docs dock` 添加 Dock 控件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用 `cmux docs settings` 和 `cmux settings path` 變更 cmux 設定;使用 `cmux docs dock` 新增 Dock 控制項。"
+          }
+        }
+      }
+    },
+    "cli.usage.agentHelp.backup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before editing, back up any existing cmux.json file to a timestamped .bak copy."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قبل التحرير، انسخ أي ملف cmux.json موجود احتياطيًا إلى نسخة .bak مختومة بالوقت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prije uređivanja napravite sigurnosnu kopiju postojeće cmux.json datoteke u .bak kopiju s vremenskom oznakom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inden redigering skal du sikkerhedskopiere en eksisterende cmux.json-fil til en .bak-kopi med tidsstempel."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sichere vor dem Bearbeiten jede vorhandene cmux.json-Datei in einer .bak-Kopie mit Zeitstempel."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Antes de editar, haz una copia de seguridad de cualquier archivo cmux.json existente en una copia .bak con marca de tiempo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avant de modifier, sauvegardez tout fichier cmux.json existant dans une copie .bak horodatée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prima di modificare, esegui il backup di ogni file cmux.json esistente in una copia .bak con timestamp."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "編集する前に、既存の cmux.json をタイムスタンプ付きの .bak コピーにバックアップしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មុនពេលកែសម្រួល សូមបម្រុងទុកឯកសារ cmux.json ដែលមានស្រាប់ជាច្បាប់ចម្លង .bak ដែលមានត្រាពេលវេលា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "편집하기 전에 기존 cmux.json 파일을 타임스탬프가 붙은 .bak 사본으로 백업하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Før redigering, ta sikkerhetskopi av eksisterende cmux.json til en .bak-kopi med tidsstempel."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przed edycją utwórz kopię zapasową istniejącego pliku cmux.json jako kopię .bak ze znacznikiem czasu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Antes de editar, faça backup de qualquer arquivo cmux.json existente em uma cópia .bak com data e hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перед правкой сделайте резервную копию существующего файла cmux.json в копию .bak с отметкой времени."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ก่อนแก้ไข ให้สำรองไฟล์ cmux.json ที่มีอยู่เป็นสำเนา .bak ที่มีการประทับเวลา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzenlemeden önce mevcut cmux.json dosyasını zaman damgalı bir .bak kopyasına yedekleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перед редагуванням створіть резервну копію наявного файлу cmux.json у файл .bak з позначкою часу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trước khi chỉnh sửa, hãy sao lưu tệp cmux.json hiện có thành bản .bak có dấu thời gian."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "编辑前,请先将现有的 cmux.json 文件备份为带时间戳的 .bak 副本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "編輯前,請先將現有的 cmux.json 檔案備份為帶時間戳記的 .bak 副本。"
+          }
+        }
+      }
+    },
+    "cli.usage.agentHelp.curl": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use printed curl commands to fetch the latest docs/schema; prefer Ghostty config for terminal behavior Ghostty already supports."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدم أوامر curl المطبوعة لجلب أحدث المستندات والمخطط؛ وفضّل إعدادات Ghostty لسلوك الطرفية الذي يدعمه Ghostty بالفعل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koristite ispisane curl naredbe za preuzimanje najnovije dokumentacije i sheme; za ponašanje terminala koje Ghostty već podržava preferirajte Ghostty konfiguraciju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brug de udskrevne curl-kommandoer til at hente de nyeste dokumenter og skemaet; foretræk Ghostty-konfiguration til terminaladfærd, som Ghostty allerede understøtter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verwende die ausgegebenen curl-Befehle, um die neueste Dokumentation und das Schema abzurufen; bevorzuge die Ghostty-Konfiguration für Terminalverhalten, das Ghostty bereits unterstützt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usa los comandos curl impresos para obtener la documentación y el esquema más recientes; prefiere la configuración de Ghostty para el comportamiento del terminal que Ghostty ya admite."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utilisez les commandes curl affichées pour récupérer la dernière documentation et le dernier schéma ; préférez la configuration Ghostty pour le comportement du terminal déjà pris en charge par Ghostty."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usa i comandi curl stampati per scaricare la documentazione e lo schema più recenti; preferisci la configurazione di Ghostty per il comportamento del terminale già supportato da Ghostty."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "表示された curl コマンドで最新のドキュメントとスキーマを取得してください。Ghostty が既に対応しているターミナルの動作には Ghostty の設定を優先してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រើពាក្យបញ្ជា curl ដែលបានបោះពុម្ពដើម្បីទាញយកឯកសារនិងគ្រោងការណ៍ចុងក្រោយបំផុត; ចូលចិត្តការកំណត់ Ghostty សម្រាប់ឥរិយាបថ terminal ដែល Ghostty គាំទ្ររួចហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "출력된 curl 명령으로 최신 문서와 스키마를 가져오세요. Ghostty가 이미 지원하는 터미널 동작은 Ghostty 설정을 우선 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruk de utskrevne curl-kommandoene for å hente nyeste dokumentasjon og skjema; foretrekk Ghostty-konfigurasjon for terminaloppførsel som Ghostty allerede støtter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Użyj wypisanych poleceń curl, aby pobrać najnowszą dokumentację i schemat; dla zachowania terminala, które Ghostty już obsługuje, preferuj konfigurację Ghostty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Use os comandos curl impressos para buscar a documentação/esquema mais recente; prefira a configuração do Ghostty para o comportamento do terminal que o Ghostty já suporta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Используйте выведенные команды curl, чтобы получить свежую документацию и схему; для поведения терминала, которое уже поддерживает Ghostty, предпочитайте конфигурацию Ghostty."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้คำสั่ง curl ที่พิมพ์ออกมาเพื่อดึงเอกสารและสคีมาล่าสุด และให้เลือกใช้การตั้งค่า Ghostty สำหรับพฤติกรรมของเทอร์มินัลที่ Ghostty รองรับอยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En güncel belge ve şemayı almak için yazdırılan curl komutlarını kullanın; Ghostty'nin zaten desteklediği terminal davranışı için Ghostty yapılandırmasını tercih edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Використовуйте виведені команди curl, щоб отримати актуальну документацію та схему; для поведінки термінала, яку вже підтримує Ghostty, віддавайте перевагу конфігурації Ghostty."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dùng các lệnh curl đã in để tải tài liệu và lược đồ mới nhất; ưu tiên cấu hình Ghostty cho hành vi terminal mà Ghostty đã hỗ trợ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用输出的 curl 命令获取最新文档和架构;对于 Ghostty 已支持的终端行为,优先使用 Ghostty 配置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用輸出的 curl 指令取得最新文件與結構描述;對於 Ghostty 已支援的終端機行為,優先使用 Ghostty 設定。"
+          }
+        }
+      }
+    },
+    "cli.usage.agentHelp.ghosttyConfig": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty config lives at ~/.config/ghostty/config (terminal transparency, blur, font, theme, keybinds, etc.)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توجد إعدادات Ghostty في ~/.config/ghostty/config (شفافية الطرفية، التمويه، الخط، السمة، اختصارات المفاتيح، إلخ)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty konfiguracija nalazi se u ~/.config/ghostty/config (prozirnost terminala, zamućenje, font, tema, prečaci itd.)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty-konfigurationen ligger i ~/.config/ghostty/config (terminalgennemsigtighed, sløring, skrifttype, tema, tastebindinger osv.)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Ghostty-Konfiguration liegt in ~/.config/ghostty/config (Terminaltransparenz, Unschärfe, Schrift, Theme, Tastenkürzel usw.)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La configuración de Ghostty está en ~/.config/ghostty/config (transparencia del terminal, desenfoque, fuente, tema, atajos, etc.)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La configuration de Ghostty se trouve dans ~/.config/ghostty/config (transparence du terminal, flou, police, thème, raccourcis, etc.)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La configurazione di Ghostty si trova in ~/.config/ghostty/config (trasparenza del terminale, sfocatura, font, tema, scorciatoie, ecc.)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty の設定は ~/.config/ghostty/config にあります (ターミナルの透明度、ぼかし、フォント、テーマ、キーバインドなど)。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកំណត់ Ghostty ស្ថិតនៅ ~/.config/ghostty/config (ភាពថ្លា terminal ភាពព្រិល ពុម្ពអក្សរ ស្បែក គ្រាប់ចុច។ល។)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty 설정은 ~/.config/ghostty/config에 있습니다 (터미널 투명도, 블러, 글꼴, 테마, 키 바인딩 등)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty-konfigurasjonen ligger i ~/.config/ghostty/config (terminalgjennomsiktighet, uskarphet, skrift, tema, hurtigtaster osv.)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konfiguracja Ghostty znajduje się w ~/.config/ghostty/config (przezroczystość terminala, rozmycie, czcionka, motyw, skróty klawiszowe itd.)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A configuração do Ghostty fica em ~/.config/ghostty/config (transparência do terminal, desfoque, fonte, tema, atalhos etc.)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Конфигурация Ghostty находится в ~/.config/ghostty/config (прозрачность терминала, размытие, шрифт, тема, сочетания клавиш и т. д.)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การตั้งค่า Ghostty อยู่ที่ ~/.config/ghostty/config (ความโปร่งใสของเทอร์มินัล การเบลอ ฟอนต์ ธีม ปุ่มลัด ฯลฯ)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty yapılandırması ~/.config/ghostty/config konumundadır (terminal saydamlığı, bulanıklık, yazı tipi, tema, tuş atamaları vb.)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Конфігурація Ghostty розташована в ~/.config/ghostty/config (прозорість термінала, розмиття, шрифт, тема, скорочення тощо)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cấu hình Ghostty nằm ở ~/.config/ghostty/config (độ trong suốt terminal, làm mờ, phông chữ, chủ đề, phím tắt, v.v.)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty 配置位于 ~/.config/ghostty/config(终端透明度、模糊、字体、主题、快捷键等)。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty 設定位於 ~/.config/ghostty/config(終端機透明度、模糊、字型、主題、快捷鍵等)。"
+          }
+        }
+      }
+    },
+    "cli.usage.agentHelp.reloadConfig": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`cmux reload-config` reloads BOTH Ghostty config and ~/.config/cmux/cmux.json, then refreshes terminals in place. No app restart needed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعيد `cmux reload-config` تحميل إعدادات Ghostty وكذلك ~/.config/cmux/cmux.json معًا، ثم يحدّث الطرفيات في مكانها. لا حاجة لإعادة تشغيل التطبيق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` ponovo učitava I Ghostty konfiguraciju I ~/.config/cmux/cmux.json, a zatim osvježava terminale na mjestu. Nije potrebno ponovo pokretati aplikaciju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` genindlæser BÅDE Ghostty-konfigurationen og ~/.config/cmux/cmux.json og opdaterer derefter terminalerne på stedet. Ingen genstart af appen er nødvendig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` lädt SOWOHL die Ghostty-Konfiguration ALS AUCH ~/.config/cmux/cmux.json neu und aktualisiert dann die Terminals direkt. Kein Neustart der App nötig."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` recarga AMBOS, la configuración de Ghostty y ~/.config/cmux/cmux.json, y luego actualiza los terminales en su sitio. No hace falta reiniciar la app."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` recharge la configuration Ghostty ET ~/.config/cmux/cmux.json, puis actualise les terminaux sur place. Aucun redémarrage de l'app n'est nécessaire."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` ricarica SIA la configurazione di Ghostty SIA ~/.config/cmux/cmux.json, poi aggiorna i terminali sul posto. Non serve riavviare l'app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` は Ghostty の設定と ~/.config/cmux/cmux.json の両方を再読み込みし、その場でターミナルを更新します。アプリの再起動は不要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` ផ្ទុកឡើងវិញទាំងការកំណត់ Ghostty និង ~/.config/cmux/cmux.json បន្ទាប់មក refresh terminal នៅនឹងកន្លែង។ មិនចាំបាច់ចាប់ផ្តើមកម្មវិធីឡើងវិញទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config`는 Ghostty 설정과 ~/.config/cmux/cmux.json을 모두 다시 불러온 뒤 터미널을 즉시 새로 고칩니다. 앱을 다시 시작할 필요가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` laster inn både Ghostty-konfigurasjonen og ~/.config/cmux/cmux.json på nytt, og oppdaterer deretter terminaler på stedet. Ingen omstart av appen nødvendig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` przeładowuje ZARÓWNO konfigurację Ghostty, jak i ~/.config/cmux/cmux.json, a następnie odświeża terminale w miejscu. Restart aplikacji nie jest potrzebny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` recarrega AMBOS a configuração do Ghostty e ~/.config/cmux/cmux.json, depois atualiza os terminais no lugar. Não é preciso reiniciar o app."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` перезагружает И конфигурацию Ghostty, И ~/.config/cmux/cmux.json, затем обновляет терминалы на месте. Перезапуск приложения не нужен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` โหลดทั้งการตั้งค่า Ghostty และ ~/.config/cmux/cmux.json ใหม่ แล้วรีเฟรชเทอร์มินัลในตำแหน่งเดิม ไม่ต้องรีสตาร์ตแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` HEM Ghostty yapılandırmasını HEM DE ~/.config/cmux/cmux.json dosyasını yeniden yükler, sonra terminalleri yerinde yeniler. Uygulamayı yeniden başlatmak gerekmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` перезавантажує і конфігурацію Ghostty, і ~/.config/cmux/cmux.json, а потім оновлює термінали на місці. Перезапуск застосунку не потрібен."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` tải lại CẢ cấu hình Ghostty lẫn ~/.config/cmux/cmux.json, rồi làm mới các terminal tại chỗ. Không cần khởi động lại ứng dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` 会同时重新加载 Ghostty 配置和 ~/.config/cmux/cmux.json,然后就地刷新终端。无需重启应用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`cmux reload-config` 會同時重新載入 Ghostty 設定和 ~/.config/cmux/cmux.json,然後就地重新整理終端機。無需重新啟動 App。"
+          }
+        }
+      }
+    },
+    "cli.usage.commands.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commands:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأوامر:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Naredbe:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kommandoer:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Befehle:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comandos:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commandes :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comandi:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "コマンド:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជា:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "명령:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kommandoer:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Polecenia:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comandos:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Команды:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำสั่ง:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komutlar:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Команди:"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lệnh:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "命令:"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "指令:"
+          }
+        }
+      }
+    },
+    "cli.usage.environment.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Environment:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "البيئة:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okruženje:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Miljø:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Umgebung:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entorno:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Environnement :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ambiente:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "環境変数:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បរិស្ថាន:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "환경:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Miljø:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Środowisko:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ambiente:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Окружение:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สภาพแวดล้อม:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ortam:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Середовище:"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Môi trường:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "环境变量:"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "環境變數:"
+          }
+        }
+      }
+    },
+    "cli.usage.environment.workspaceID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-set in cmux terminals. Used as default --workspace for ALL commands (send, list-panels, new-split, notify, etc.)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يُضبط تلقائيًا في طرفيات cmux. يُستخدم كقيمة افتراضية لـ --workspace في جميع الأوامر (send وlist-panels وnew-split وnotify وغيرها)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatski se postavlja u cmux terminalima. Koristi se kao zadani --workspace za SVE naredbe (send, list-panels, new-split, notify itd.)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sættes automatisk i cmux-terminaler. Bruges som standard for --workspace i ALLE kommandoer (send, list-panels, new-split, notify osv.)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In cmux-Terminals automatisch gesetzt. Wird als Standard für --workspace bei ALLEN Befehlen verwendet (send, list-panels, new-split, notify usw.)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se define automáticamente en los terminales de cmux. Se usa como --workspace predeterminado para TODOS los comandos (send, list-panels, new-split, notify, etc.)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Défini automatiquement dans les terminaux cmux. Utilisé comme --workspace par défaut pour TOUTES les commandes (send, list-panels, new-split, notify, etc.)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impostata automaticamente nei terminali cmux. Usata come --workspace predefinito per TUTTI i comandi (send, list-panels, new-split, notify, ecc.)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux のターミナルでは自動的に設定されます。すべてのコマンド (send、list-panels、new-split、notify など) の既定の --workspace として使われます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់ដោយស្វ័យប្រវត្តិក្នុង terminal cmux។ ប្រើជា --workspace លំនាំដើមសម្រាប់ពាក្យបញ្ជាទាំងអស់ (send, list-panels, new-split, notify។ល។)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 터미널에서 자동으로 설정됩니다. 모든 명령(send, list-panels, new-split, notify 등)의 기본 --workspace로 사용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Settes automatisk i cmux-terminaler. Brukes som standard --workspace for ALLE kommandoer (send, list-panels, new-split, notify osv.)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustawiane automatycznie w terminalach cmux. Używane jako domyślne --workspace dla WSZYSTKICH poleceń (send, list-panels, new-split, notify itd.)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Definido automaticamente nos terminais do cmux. Usado como --workspace padrão para TODOS os comandos (send, list-panels, new-split, notify etc.)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задаётся автоматически в терминалах cmux. Используется как --workspace по умолчанию для ВСЕХ команд (send, list-panels, new-split, notify и т. д.)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งค่าอัตโนมัติในเทอร์มินัลของ cmux ใช้เป็น --workspace เริ่มต้นสำหรับทุกคำสั่ง (send, list-panels, new-split, notify ฯลฯ)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux terminallerinde otomatik ayarlanır. TÜM komutlar (send, list-panels, new-split, notify vb.) için varsayılan --workspace olarak kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Встановлюється автоматично в терміналах cmux. Використовується як --workspace за замовчуванням для УСІХ команд (send, list-panels, new-split, notify тощо)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự động đặt trong các terminal cmux. Dùng làm --workspace mặc định cho MỌI lệnh (send, list-panels, new-split, notify, v.v.)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 终端中自动设置。用作所有命令(send、list-panels、new-split、notify 等)的默认 --workspace。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 終端機中自動設定。用作所有指令(send、list-panels、new-split、notify 等)的預設 --workspace。"
+          }
+        }
+      }
+    },
+    "cli.usage.environment.tabID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional alias used by `tab-action`/`rename-tab` as default --tab."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اسم مستعار اختياري يستخدمه `tab-action`/`rename-tab` كقيمة افتراضية لـ --tab."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opcionalni alias koji `tab-action`/`rename-tab` koriste kao zadani --tab."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Valgfrit alias, som `tab-action`/`rename-tab` bruger som standard for --tab."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optionaler Alias, den `tab-action`/`rename-tab` als Standard für --tab verwenden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alias opcional que usan `tab-action`/`rename-tab` como --tab predeterminado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alias facultatif utilisé par `tab-action`/`rename-tab` comme --tab par défaut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alias facoltativo usato da `tab-action`/`rename-tab` come --tab predefinito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action`/`rename-tab` が既定の --tab として使う任意のエイリアスです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឈ្មោះក្លែងជម្រើសដែល `tab-action`/`rename-tab` ប្រើជា --tab លំនាំដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action`/`rename-tab`이 기본 --tab으로 사용하는 선택적 별칭입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Valgfritt alias som brukes av `tab-action`/`rename-tab` som standard --tab."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opcjonalny alias używany przez `tab-action`/`rename-tab` jako domyślne --tab."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alias opcional usado por `tab-action`/`rename-tab` como --tab padrão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Необязательный псевдоним, который `tab-action`/`rename-tab` используют как --tab по умолчанию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นามแฝงที่ไม่บังคับ ซึ่ง `tab-action`/`rename-tab` ใช้เป็น --tab เริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "`tab-action`/`rename-tab` tarafından varsayılan --tab olarak kullanılan isteğe bağlı takma ad."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Необов'язковий псевдонім, який `tab-action`/`rename-tab` використовують як --tab за замовчуванням."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bí danh tùy chọn mà `tab-action`/`rename-tab` dùng làm --tab mặc định."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "可选别名,`tab-action`/`rename-tab` 将其用作默认 --tab。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選用別名,`tab-action`/`rename-tab` 將其用作預設 --tab。"
+          }
+        }
+      }
+    },
+    "cli.usage.environment.surfaceID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-set in cmux terminals. Used as default --surface."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يُضبط تلقائيًا في طرفيات cmux. يُستخدم كقيمة افتراضية لـ --surface."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatski se postavlja u cmux terminalima. Koristi se kao zadani --surface."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sættes automatisk i cmux-terminaler. Bruges som standard for --surface."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In cmux-Terminals automatisch gesetzt. Wird als Standard für --surface verwendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se define automáticamente en los terminales de cmux. Se usa como --surface predeterminado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Défini automatiquement dans les terminaux cmux. Utilisé comme --surface par défaut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impostata automaticamente nei terminali cmux. Usata come --surface predefinita."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux のターミナルでは自動的に設定されます。既定の --surface として使われます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់ដោយស្វ័យប្រវត្តិក្នុង terminal cmux។ ប្រើជា --surface លំនាំដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 터미널에서 자동으로 설정됩니다. 기본 --surface로 사용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Settes automatisk i cmux-terminaler. Brukes som standard --surface."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustawiane automatycznie w terminalach cmux. Używane jako domyślne --surface."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Definido automaticamente nos terminais do cmux. Usado como --surface padrão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задаётся автоматически в терминалах cmux. Используется как --surface по умолчанию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งค่าอัตโนมัติในเทอร์มินัลของ cmux ใช้เป็น --surface เริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux terminallerinde otomatik ayarlanır. Varsayılan --surface olarak kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Встановлюється автоматично в терміналах cmux. Використовується як --surface за замовчуванням."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự động đặt trong các terminal cmux. Dùng làm --surface mặc định."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 终端中自动设置。用作默认 --surface。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 終端機中自動設定。用作預設 --surface。"
+          }
+        }
+      }
+    },
+    "cli.usage.environment.socketPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Override the Unix socket path. Without this, the CLI defaults to ~/.local/state/cmux/cmux.sock and auto-discovers tagged/debug sockets."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتجاوز مسار مقبس Unix. بدونه تستخدم واجهة CLI افتراضيًا ~/.local/state/cmux/cmux.sock وتكتشف تلقائيًا المقابس الموسومة/المقابس الخاصة بالتصحيح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamjenjuje putanju Unix socketa. Bez ovoga CLI po zadanim postavkama koristi ~/.local/state/cmux/cmux.sock i automatski otkriva označene/debug sockete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilsidesæt stien til Unix-socketten. Uden dette bruger CLI'en som standard ~/.local/state/cmux/cmux.sock og finder automatisk taggede/debug-sockets."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Überschreibt den Unix-Socket-Pfad. Ohne diese Angabe verwendet die CLI standardmäßig ~/.local/state/cmux/cmux.sock und erkennt getaggte/Debug-Sockets automatisch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reemplaza la ruta del socket Unix. Sin esto, la CLI usa ~/.local/state/cmux/cmux.sock y detecta automáticamente los sockets etiquetados y de depuración."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remplace le chemin du socket Unix. Sans cela, la CLI utilise ~/.local/state/cmux/cmux.sock et détecte automatiquement les sockets étiquetés et de débogage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sostituisce il percorso del socket Unix. Senza questa, la CLI usa ~/.local/state/cmux/cmux.sock e rileva automaticamente i socket con tag e di debug."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unix ソケットのパスを上書きします。未設定の場合、CLI は ~/.local/state/cmux/cmux.sock を使い、タグ付きソケットやデバッグ用ソケットを自動検出します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជំនួសផ្លូវ Unix socket។ បើគ្មានវា CLI ប្រើ ~/.local/state/cmux/cmux.sock ជាលំនាំដើម ហើយរកឃើញ socket ដែលមានស្លាក/debug ដោយស្វ័យប្រវត្តិ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unix 소켓 경로를 재정의합니다. 설정하지 않으면 CLI는 기본적으로 ~/.local/state/cmux/cmux.sock을 사용하고 태그가 붙은/디버그 소켓을 자동으로 찾습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Overstyr Unix-socket-stien. Uten denne bruker CLI-et ~/.local/state/cmux/cmux.sock som standard og finner automatisk merkede/debug-sockets."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zastąp ścieżkę gniazda Unix. Bez tego CLI domyślnie używa ~/.local/state/cmux/cmux.sock i automatycznie wykrywa gniazda otagowane/debugowania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Substitui o caminho do socket Unix. Sem isso, a CLI usa ~/.local/state/cmux/cmux.sock por padrão e descobre automaticamente sockets com tag/debug."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переопределяет путь к сокету Unix. Без него CLI использует ~/.local/state/cmux/cmux.sock и автоматически находит сокеты с тегами и отладочные сокеты."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แทนที่พาธซ็อกเก็ต Unix หากไม่ตั้งค่า CLI จะใช้ ~/.local/state/cmux/cmux.sock เป็นค่าเริ่มต้น และค้นหาซ็อกเก็ตที่ติดแท็ก/ดีบักโดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unix soketi yolunu geçersiz kılar. Bu olmadan CLI varsayılan olarak ~/.local/state/cmux/cmux.sock kullanır ve etiketli/hata ayıklama soketlerini otomatik bulur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перевизначає шлях до сокета Unix. Без нього CLI використовує ~/.local/state/cmux/cmux.sock і автоматично знаходить сокети з тегами та налагоджувальні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghi đè đường dẫn socket Unix. Nếu không đặt, CLI mặc định dùng ~/.local/state/cmux/cmux.sock và tự động tìm các socket có thẻ/gỡ lỗi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "覆盖 Unix 套接字路径。未设置时,CLI 默认使用 ~/.local/state/cmux/cmux.sock,并自动发现带标签的/调试套接字。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "覆寫 Unix socket 路徑。未設定時,CLI 預設使用 ~/.local/state/cmux/cmux.sock,並自動探索帶標籤的/除錯 socket。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

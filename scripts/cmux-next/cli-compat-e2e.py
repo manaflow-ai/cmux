@@ -137,7 +137,7 @@ def main() -> int:
     time.sleep(0.8)
     r.check("browser eval", ["browser", bref, "eval", "1 + 41"], lambda o: o == "42")
     r.check("browser url", ["browser", bref, "url"], lambda o: o.startswith("about:"))
-    r.check("unsupported is typed", ["trigger-flash", "--workspace", ws], lambda o: "unsupported in cmux-next" in o, expect_fail=True)
+    r.check("unsupported is typed", ["trigger-flash", "--workspace", ws], lambda o: "unsupported" in o, expect_fail=True)
     r.check("close-workspace", ["close-workspace", "--workspace", ws], lambda o: o.startswith("OK"))
     if not args.keep_daemon:
         ok, detail = teardown(args.cli, args.socket)

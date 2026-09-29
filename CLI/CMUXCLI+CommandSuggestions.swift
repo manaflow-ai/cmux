@@ -1,33 +1,60 @@
 import Foundation
 
 extension CMUXCLI {
-    /// Verbs that only drove features of the deleted legacy app. They keep a
-    /// typed error, so scripts learn why instead of seeing "Unknown command".
-    static let removedCommandReasons: [String: String] = [
-        "canvas": "canvas layout was removed",
-        "debug-terminals": "debug methods of the old app are not part of cmux-next",
-        "iroh-diag": "Iroh diagnostics of the old app are not part of cmux-next",
-        "ios": "the simulator pane is not part of cmux-next",
-        "project": "the project pane is not part of cmux-next",
-        "refresh-surfaces": "there is nothing to refresh",
-        "right-sidebar": "the right sidebar is not part of cmux-next",
-        "set-app-focus": "focus overrides were a debug feature of the old app",
-        "simulate-app-active": "focus overrides were a debug feature of the old app",
-        "simulate-sidebar-drag": "debug methods of the old app are not part of cmux-next",
-        "simulator": "the simulator pane is not part of cmux-next",
-    ]
+    /// The localized reason a verb that only drove a feature of the deleted
+    /// legacy app has no cmux-next equivalent, or nil for any other verb.
+    /// Removed verbs keep a typed error, so scripts learn why instead of
+    /// seeing "Unknown command".
+    static func removedCommandReason(_ command: String) -> String? {
+        switch command {
+        case "canvas":
+            return String(localized: "cli.removed.reason.canvas", defaultValue: "canvas layout was removed", bundle: .cmuxCLI)
+        case "debug-terminals", "simulate-sidebar-drag":
+            return String(localized: "cli.removed.reason.debugMethods", defaultValue: "debug methods of the old app are not part of cmux-next", bundle: .cmuxCLI)
+        case "iroh-diag":
+            return String(localized: "cli.removed.reason.irohDiag", defaultValue: "Iroh diagnostics of the old app are not part of cmux-next", bundle: .cmuxCLI)
+        case "ios", "simulator":
+            return String(localized: "cli.removed.reason.simulator", defaultValue: "the simulator pane is not part of cmux-next", bundle: .cmuxCLI)
+        case "project":
+            return String(localized: "cli.removed.reason.project", defaultValue: "the project pane is not part of cmux-next", bundle: .cmuxCLI)
+        case "refresh-surfaces":
+            return String(localized: "cli.removed.reason.refreshSurfaces", defaultValue: "there is nothing to refresh", bundle: .cmuxCLI)
+        case "right-sidebar":
+            return String(localized: "cli.removed.reason.rightSidebar", defaultValue: "the right sidebar is not part of cmux-next", bundle: .cmuxCLI)
+        case "set-app-focus", "simulate-app-active":
+            return String(localized: "cli.removed.reason.focusOverrides", defaultValue: "focus overrides were a debug feature of the old app", bundle: .cmuxCLI)
+        default:
+            return nil
+        }
+    }
 
     func removedCommandError(_ command: String) -> CLIError? {
-        guard let reason = Self.removedCommandReasons[command] else { return nil }
-        return CLIError(message: "unsupported in cmux-next: \(reason) (cmux \(command))")
+        guard let reason = Self.removedCommandReason(command) else { return nil }
+        let format = String(
+            localized: "cli.removed.error",
+            defaultValue: "unsupported in cmux-next: %1$@ (cmux %2$@)",
+            bundle: .cmuxCLI
+        )
+        return CLIError(message: String(format: format, reason, command))
     }
 
     func unknownCommandError(_ command: String) -> CLIError {
-        var message = "Unknown command '\(command)'."
+        let message: String
         if let suggestion = suggestedCommandName(for: command) {
-            message += " Did you mean '\(suggestion)'?"
+            let format = String(
+                localized: "cli.unknownCommand.errorWithSuggestion",
+                defaultValue: "Unknown command '%1$@'. Did you mean '%2$@'? Run 'cmux --help' for the full command list.",
+                bundle: .cmuxCLI
+            )
+            message = String(format: format, command, suggestion)
+        } else {
+            let format = String(
+                localized: "cli.unknownCommand.error",
+                defaultValue: "Unknown command '%@'. Run 'cmux --help' for the full command list.",
+                bundle: .cmuxCLI
+            )
+            message = String(format: format, command)
         }
-        message += " Run 'cmux --help' for the full command list."
         return CLIError(message: message, exitCode: 2)
     }
 

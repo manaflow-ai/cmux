@@ -41,7 +41,7 @@ enum CompatWorkspaceMethods {
     /// arguments; shown in the target window only with `focus: true`.
     static func create(_ call: CompatCall) async throws -> JSON {
         if call.params["layout"].map({ !$0.isNull }) == true {
-            throw CompatErrors.unsupported("workspace.create layout is not supported yet; create, then split", method: call.method)
+            throw CompatErrors.unsupported(ControlStrings.text("control.error.workspaceCreateLayout", "workspace.create layout is not supported yet; create, then split"), method: call.method)
         }
         let service = call.service
         var arguments: [String: ControlValue] = ["focus": .bool(call.wantsFocus)]
@@ -54,7 +54,7 @@ enum CompatWorkspaceMethods {
         try await service.runAction("newTab", arguments: arguments, call: call)
         let world = try await call.world()
         guard let workspace = world.createdWorkspace(since: before) else {
-            throw ControlError(code: "internal_error", message: "workspace.create: the action ran but created no workspace")
+            throw ControlError(code: "internal_error", message: ControlStrings.text("control.error.createdNoWorkspace", "workspace.create: the action ran but created no workspace"))
         }
         if let groupRaw = call.string("group_id"), let key = workspace.key {
             // No registry action places a workspace in a group by id yet.
@@ -73,7 +73,7 @@ enum CompatWorkspaceMethods {
 
     static func select(_ call: CompatCall) async throws -> JSON {
         let world = try await call.world()
-        guard let raw = call.string("workspace_id") else { throw CompatErrors.invalid("Missing or invalid workspace_id") }
+        guard let raw = call.string("workspace_id") else { throw CompatErrors.invalid(ControlStrings.format("control.error.missingOrInvalidParam", "Missing or invalid %@", "workspace_id")) }
         let workspace = try world.resolveWorkspace(raw, refs: call.service.refs)
         let window = try call.target(world).window()
         try await call.perform(.showWorkspace(workspaceID: workspace.modelID, windowID: window?.modelID))
@@ -84,7 +84,7 @@ enum CompatWorkspaceMethods {
 
     static func close(_ call: CompatCall) async throws -> JSON {
         let world = try await call.world()
-        guard let raw = call.string("workspace_id") else { throw CompatErrors.invalid("Missing or invalid workspace_id") }
+        guard let raw = call.string("workspace_id") else { throw CompatErrors.invalid(ControlStrings.format("control.error.missingOrInvalidParam", "Missing or invalid %@", "workspace_id")) }
         let workspace = try world.resolveWorkspace(raw, refs: call.service.refs)
         let window = world.window(workspace.windowUUIDs.first) ?? world.activeWindow
         // The old CLI's `close-workspace` is its own confirmation (it never
@@ -98,7 +98,7 @@ enum CompatWorkspaceMethods {
         let world = try await call.world()
         let workspace = try call.target(world).workspace()
         guard let title = call.string("title")?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
-            throw CompatErrors.invalid("Missing or invalid title")
+            throw CompatErrors.invalid(ControlStrings.format("control.error.missingOrInvalidParam", "Missing or invalid %@", "title"))
         }
         try await call.service.runAction("renameWorkspace", target: CompatTargets.workspace(workspace),
                                          arguments: ["name": .string(title)], call: call)
@@ -124,7 +124,7 @@ enum CompatWorkspaceMethods {
         let world = try await call.world()
         let refs = call.service.refs
         let workspace = try call.target(world).workspace()
-        guard let key = workspace.key else { throw CompatErrors.unsupported("the bundled cmux-tui lacks workspace-registry-v1") }
+        guard let key = workspace.key else { throw CompatErrors.unsupported(ControlStrings.format("control.error.daemonLacksCapability", "the bundled cmux-tui lacks %@", "workspace-registry-v1")) }
         var index: Int
         if let explicit = call.int("index") {
             index = explicit
@@ -135,7 +135,7 @@ enum CompatWorkspaceMethods {
             let anchor = try world.resolveWorkspace(raw, refs: refs)
             index = anchor.index >= workspace.index ? anchor.index : anchor.index + 1
         } else {
-            throw CompatErrors.invalid("workspace.reorder requires index, before_workspace_id, or after_workspace_id")
+            throw CompatErrors.invalid(ControlStrings.text("control.error.workspaceReorderAnchor", "workspace.reorder requires index, before_workspace_id, or after_workspace_id"))
         }
         let clamped = max(0, min(index, world.workspaces.count - 1))
         index = clamped

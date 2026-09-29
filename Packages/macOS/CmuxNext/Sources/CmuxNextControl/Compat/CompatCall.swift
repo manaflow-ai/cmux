@@ -13,7 +13,7 @@ struct CompatCall: Sendable {
     func snapshotWorld() throws -> CompatWorld {
         let topology = control.snapshot.topology
         guard topology.isLoaded else {
-            throw ControlError(code: "unavailable", message: "cmux-next has not loaded the cmux-tui tree yet (daemon \(topology.daemonState))")
+            throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.treeNotLoaded", "cmux-next has not loaded the cmux-tui tree yet (daemon %@)", "\(topology.daemonState)"))
         }
         return CompatWorld(topology: topology, refs: service.refs)
     }

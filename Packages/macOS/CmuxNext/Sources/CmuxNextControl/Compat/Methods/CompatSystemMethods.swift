@@ -79,7 +79,7 @@ enum CompatSystemMethods {
         let world = try await call.world()
         let target = call.target(world)
         if call.params["window_id"] != nil, call.bool("all_windows") == true {
-            throw CompatErrors.invalid("window_id and all_windows are mutually exclusive")
+            throw CompatErrors.invalid(ControlStrings.text("control.error.windowAndAllWindows", "window_id and all_windows are mutually exclusive"))
         }
         let onlyWorkspace = try target.string("workspace_id").map { try world.resolveWorkspace($0, refs: call.service.refs) }
         let active = try target.window()
@@ -117,7 +117,7 @@ enum CompatSystemMethods {
         let world = try await call.world()
         let workspace = try? call.target(world).workspace()
         let result = try await call.perform(.newWindow(workspaceID: workspace?.modelID))
-        guard let id = result["window_id"]?.stringValue else { throw ControlError(code: "app_error", message: "the app opened no window") }
+        guard let id = result["window_id"]?.stringValue else { throw ControlError(code: "app_error", message: ControlStrings.text("control.error.openedNoWindow", "the app opened no window")) }
         return .object(CompatJSON.windowIDs(modelID: id, refs: call.service.refs))
     }
 
