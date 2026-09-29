@@ -27,17 +27,22 @@ struct TmuxWorkspacePaneOverlayStateBuilder {
         guard result.target.usesWorkspacePaneOverlay || shouldShowActivePaneBorder(for: workspace) else {
             return result
         }
-        let layout = WorkspaceContentView.effectiveTmuxLayoutSnapshot(
-            cachedSnapshot: workspace.tmuxLayoutSnapshot,
-            liveSnapshot: workspace.bonsplitController.layoutSnapshot()
-        )
+        // Do not call Bonsplit's live layout snapshot from the SwiftUI input
+        // read. That walks every pane's tabs and would subscribe this leaf to
+        // title animation updates. Geometry callbacks refresh this cached
+        // snapshot before an admitted render.
+        let layout = workspace.tmuxLayoutSnapshot
         // Snapshot timestamps are sampling metadata, not rendering inputs.
         result.layout = layout.map {
             LayoutSnapshot(containerFrame: $0.containerFrame, panes: $0.panes,
                            focusedPaneId: $0.focusedPaneId, timestamp: 0)
         }
         result.isZoomed = workspace.bonsplitController.isSplitZoomed
-        result.focusedPanelId = workspace.focusedPanelId
+        if let focusedPaneId = layout?.focusedPaneId,
+           let focusedPane = layout?.panes.first(where: { $0.paneId == focusedPaneId }),
+           let selected = focusedPane.selectedTabId.flatMap(UUID.init(uuidString:)) {
+            result.focusedPanelId = workspace.panelIdFromSurfaceId(TabID(uuid: selected))
+        }
         result.flashPanelId = workspace.tmuxWorkspaceFlashPanelId
         result.flashToken = workspace.tmuxWorkspaceFlashToken
         result.flashReason = workspace.tmuxWorkspaceFlashReason
@@ -57,7 +62,6 @@ struct TmuxWorkspacePaneOverlayStateBuilder {
                 unread.hasVisibleNotificationIndicator(forWorkspaceId: workspace.id, surfaceId: $0)
             })
             result.isWorkspaceManuallyUnread = unread.hasManualUnread(forWorkspaceId: workspace.id)
-            result.manualUnreadRepresentative = workspace.representativePanelIdForWorkspaceManualUnread()
         }
         return result
     }
