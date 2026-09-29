@@ -53,6 +53,13 @@ and the [validation guide](skills/cmux-testing/references/local-vs-ci-validation
      from source with Zig (force the source build with `CMUX_GHOSTTYKIT_NO_PREBUILT=1`)
    - Create the necessary symlinks
 
+   After pulling setup or merge-driver changes into an existing clone, rerun
+   `./scripts/install-git-hooks.sh`. It replaces old checkout-relative merge-driver
+   commands with trusted copies outside the working tree. If you use a custom
+   `core.hooksPath`, the installer preserves it and prints the exact `pre-commit`
+   and `post-merge` lines to add. Wire both hooks; until `post-merge` is wired,
+   rerun the installer after pulling `main` and before merging an untrusted branch.
+
 3. Build the debug app:
    ```bash
    CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag my-feature
@@ -142,5 +149,5 @@ Agents working in this repository also follow [CLAUDE.md](CLAUDE.md) (also `AGEN
 
 By contributing to this repository, you agree that:
 
-1. Your contributions are licensed under the project's GNU General Public License v3.0 or later (`GPL-3.0-or-later`).
+1. Your contributions are licensed under the license of the directory you contribute to: the Business Source License 1.1 (`BUSL-1.1`) for the server directories listed in [LICENSE](LICENSE) (`web/`, `workers/ci-artifacts/`, `workers/iroh-v2/`, `workers/presence/`, `services/iroh-relay-minter/`, `cmux-tui/relays/cloudflare-do/`), and the project's GNU General Public License v3.0 or later (`GPL-3.0-or-later`) everywhere else unless a file states otherwise.
 2. You grant Manaflow, Inc. a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use, reproduce, modify, sublicense, and distribute your contributions under any license, including a commercial license offered to third parties.

@@ -23,6 +23,10 @@ struct SettingCatalogTests {
                 "automation.claudeCodeIntegration",
                 "integrations.claudeCode.hooksEnabled",
             ],
+            "piHooksEnabled": [
+                "automation.piIntegration",
+                "integrations.pi.hooksEnabled",
+            ],
             "codexHooksEnabled": [
                 "automation.codexIntegration",
                 "integrations.codex.hooksEnabled",
@@ -98,6 +102,7 @@ struct SettingCatalogTests {
         #expect(ids.contains("activePaneBorderColor"))
         #expect(ids.contains("mobile.iOSPairingHost.enabled"))
         #expect(ids.contains("mobile.artifactFolderAccess"))
+        #expect(ids.contains("mobile.browserTunnel.allowOtherHosts"))
         #expect(ids.contains("automation.socketControlMode"))
         #expect(ids.contains("automation.socketPassword"))
     }

@@ -367,7 +367,7 @@ cmux مجاني ومفتوح المصدر، وسيظل كذلك دائمًا. إ
 
 ### لدي طلب ميزة أو وجدت خطأ؟
 
-نريد أن نسمعه. افتح [issue](https://github.com/manaflow-ai/cmux/issues) أو [pull request](https://github.com/manaflow-ai/cmux/pulls) على GitHub، أو [راسلنا عبر البريد الإلكتروني](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+نريد أن نسمعه. افتح [issue](https://github.com/manaflow-ai/cmux/issues) أو [pull request](https://github.com/manaflow-ai/cmux/pulls) على GitHub، أو [راسلنا عبر البريد الإلكتروني](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## تاريخ النجوم
 
@@ -418,6 +418,6 @@ cmux مجاني ومفتوح المصدر وسيظل كذلك دائمًا. إذ
 
 ## الرخصة
 
-cmux مفتوح المصدر بموجب [GPL-3.0-or-later](LICENSE).
+cmux مفتوح المصدر بموجب [GPL-3.0-or-later](LICENSE). برنامج خادم cmux (`web/` وعمّال Cloudflare وخدمات الترحيل المذكورة في [LICENSE](LICENSE)) يخضع بدلاً من ذلك لـ [Business Source License 1.1](web/LICENSE): يمكنك قراءته وتعديله وتشغيله للاستخدام غير الإنتاجي، أما الاستخدام الإنتاجي أو الاستضافة الذاتية فيتطلبان ترخيصاً تجارياً.
 
-إذا لم تستطع مؤسستك الامتثال لـ GPL، فهناك ترخيص تجاري متاح. تواصل مع [founders@manaflow.com](mailto:founders@manaflow.com) للتفاصيل.
+إذا لم تستطع مؤسستك الامتثال لـ GPL، فهناك ترخيص تجاري متاح. تواصل مع [founders@cmux.com](mailto:founders@cmux.com) للتفاصيل.

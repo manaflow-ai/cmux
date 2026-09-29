@@ -21,6 +21,10 @@ struct cmuxApp: App {
     @UIApplicationDelegateAdaptor(CmuxAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
+    #if DEBUG && targetEnvironment(simulator)
+    private let notificationCleanupFixture = MobileNotificationCleanupUITestFixture()
+    #endif
+
     /// Erases this device's cmux data for Settings > Reset.
     private static let localDataEraser = MobileLocalDataEraser.current()
 
@@ -116,7 +120,13 @@ struct cmuxApp: App {
                 return try await irx.openSimulatorStreamLane(for: request, panelID: panelUUID)
             },
             // irx.serverEventByteStream merges every per-surface event lane.
-            independentEventsMergeSurfaceLanes: true
+            independentEventsMergeSurfaceLanes: true,
+            tunnelConnectProvider: { request, host, port in
+                try await irx.openTunnelConnection(for: request, host: host, port: port)
+            },
+            tunnelListeningPortsProvider: { request in
+                try await irx.tunnelListeningPorts(for: request)
+            }
         )
 
         return AppCompositionRoot(
@@ -163,7 +173,15 @@ struct cmuxApp: App {
                 // background-and-return.
                 .onChange(of: scenePhase, initial: true) { _, newPhase in
                     Self.root.handleScenePhase(newPhase)
+                    #if DEBUG && targetEnvironment(simulator)
+                    if newPhase == .background {
+                        Task { await notificationCleanupFixture.scheduleOnBackground() }
+                    }
+                    #endif
                 }
+                #if DEBUG && targetEnvironment(simulator)
+                .task { await notificationCleanupFixture.prepare() }
+                #endif
         }
     }
 
