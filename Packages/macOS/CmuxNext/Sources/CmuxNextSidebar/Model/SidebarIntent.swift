@@ -19,6 +19,14 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case setGroupColor(GroupID, SidebarColor)
     /// Dissolve a group, leaving its workspaces in place.
     case ungroup(GroupID)
+    /// Pin (save) or unpin a group.
+    case setGroupPinned(GroupID, Bool)
+    /// Close every workspace in the group. A pinned group stays as an empty,
+    /// collapsed saved group; an unpinned one disappears.
+    case closeGroup(GroupID)
+    /// Reopen an empty pinned group (clicking its header). The App restores
+    /// its workspaces; the sidebar applies no local change.
+    case openGroup(GroupID)
     case toggleCollapse(CollapseTarget)
     case close([WorkspaceID])
     case rename(WorkspaceID, String)

@@ -20,7 +20,7 @@ final class WorkspaceRowView: SidebarRowView {
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     var onClose: (() -> Void)?
 
-    override init(key: SidebarRowKey) {
+    required init(key: SidebarRowKey) {
         super.init(key: key)
         rail.cornerRadius = 1
         layer?.addSublayer(rail)
@@ -31,7 +31,28 @@ final class WorkspaceRowView: SidebarRowView {
 
     override var interactiveSubviews: [NSView] { [closeButton] }
 
+    override func prepareForReuse(key: SidebarRowKey) {
+        super.prepareForReuse(key: key)
+        isSecondarySelected = false
+        isDropTarget = false
+        onClose = nil
+    }
+
+    private struct Content: Hashable {
+        var ws: SidebarWorkspace
+        var group: GroupID?
+        var groupColor: SidebarColor?
+        var compact: Bool
+        var fontSize: CGFloat
+        var iconSize: CGFloat
+    }
+
     func configure(_ ws: SidebarWorkspace, row: SidebarRow, compact: Bool) {
+        let content = Content(
+            ws: ws, group: row.group, groupColor: row.groupColor, compact: compact,
+            fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize
+        )
+        guard needsConfigure(content) else { return }
         self.compact = compact
         grouped = row.group != nil
         groupColor = row.groupColor

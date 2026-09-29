@@ -16,8 +16,12 @@ public nonisolated enum SidebarEdits {
     @discardableResult
     public static func apply(_ intent: SidebarIntent, to sections: inout [SidebarSection]) -> Bool {
         switch intent {
-        case .select, .newWorkspace:
+        case .select, .newWorkspace, .openGroup:
             return false
+        case let .setGroupPinned(id, pinned):
+            return mutateGroup(id, in: &sections) { $0.isPinned = pinned }
+        case let .closeGroup(id):
+            return closeGroup(id, in: &sections)
         case let .reorder(ids, position):
             return reorder(ids, to: position, in: &sections)
         case let .move(ids, group):
@@ -184,6 +188,19 @@ public nonisolated enum SidebarEdits {
         return true
     }
 
+    static func closeGroup(_ id: GroupID, in sections: inout [SidebarSection]) -> Bool {
+        guard let (s, n) = locateGroup(id, in: sections),
+              case var .group(group) = sections[s].nodes[n] else { return false }
+        if group.isPinned {
+            group.workspaces = []
+            group.isCollapsed = true
+            sections[s].nodes[n] = .group(group)
+        } else {
+            sections[s].nodes.remove(at: n)
+        }
+        return true
+    }
+
     static func toggleCollapse(_ target: CollapseTarget, in sections: inout [SidebarSection]) -> Bool {
         switch target {
         case let .section(id):
@@ -262,7 +279,9 @@ public nonisolated enum SidebarEdits {
     static func pruneEmptyGroups(in sections: inout [SidebarSection], keeping: GroupID?) {
         for s in sections.indices {
             sections[s].nodes.removeAll { node in
-                if case let .group(group) = node { return group.workspaces.isEmpty && group.id != keeping }
+                if case let .group(group) = node {
+                    return group.workspaces.isEmpty && !group.isPinned && group.id != keeping
+                }
                 return false
             }
         }

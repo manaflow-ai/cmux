@@ -152,10 +152,7 @@ extension SidebarListView {
             guard let self else { return }
             self.suppressed.subtract(drag.hiddenKeys)
             for key in drag.hiddenKeys { self.rowViews[key]?.alphaValue = 1 }
-            if let pillFrame = self.activePillFrame(in: self.displayed) {
-                self.pill.frame = pillFrame
-                self.pill.alphaValue = 1
-            }
+            self.decorations.setPill(self.activePillFrame(in: self.displayed), animated: false)
             self.updateHover()
         })
     }

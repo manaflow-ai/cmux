@@ -26,7 +26,7 @@ extension DropResolver {
         sourceMachine: MachineID?
     ) -> SidebarTabDrop? {
         guard !base.rows.isEmpty else { return nil }
-        let (row, fraction) = hit(y: y, rows: base.rows)
+        let (row, fraction) = hit(y: y, layout: base)
         func machineOK(_ machine: MachineID?) -> Bool {
             guard let sourceMachine else { return machine != nil }
             return machine == sourceMachine

@@ -10,7 +10,7 @@ class SidebarRowView: NSView {
     var compact = false { didSet { if compact != oldValue { needsLayout = true } } }
     var isHovered = false { didSet { if isHovered != oldValue { hoverChanged() } } }
 
-    init(key: SidebarRowKey) {
+    required init(key: SidebarRowKey) {
         self.key = key
         super.init(frame: .zero)
         wantsLayer = true
@@ -30,6 +30,29 @@ class SidebarRowView: NSView {
             return button
         }
         return nil
+    }
+
+    /// Fingerprint of the last configured content. Reloads happen on every
+    /// drag step, so rows skip work (symbol images, attributed strings,
+    /// accessibility) when nothing they show has changed.
+    var configuredContent: AnyHashable?
+
+    /// Returns false when `content` matches the last configuration.
+    func needsConfigure(_ content: AnyHashable) -> Bool {
+        guard content != configuredContent else { return false }
+        configuredContent = content
+        return true
+    }
+
+    /// Resets transient state before a recycled view shows another row.
+    func prepareForReuse(key: SidebarRowKey) {
+        configuredContent = nil
+        self.key = key
+        isHovered = false
+        targetSize = nil
+        alphaValue = 1
+        setTitleHidden(false)
+        toolTip = nil
     }
 
     /// Buttons that receive clicks directly.
@@ -79,7 +102,7 @@ final class EmptySectionRowView: SidebarRowView {
     private let label = SidebarRowView.label(font: SidebarStyle.subtitleFont, color: Palette.textSecondary)
     private let border = CAShapeLayer()
 
-    override init(key: SidebarRowKey) {
+    required init(key: SidebarRowKey) {
         super.init(key: key)
         label.alignment = .center
         border.fillColor = nil

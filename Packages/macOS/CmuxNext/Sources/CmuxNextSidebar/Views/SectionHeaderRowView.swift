@@ -13,7 +13,7 @@ final class SectionHeaderRowView: SidebarRowView {
     private var collapsed = false
     var onAdd: (() -> Void)?
 
-    override init(key: SidebarRowKey) {
+    required init(key: SidebarRowKey) {
         super.init(key: key)
         glyph.contentTintColor = Palette.textSecondary
         chevron.contentTintColor = Palette.textSecondary
@@ -25,7 +25,22 @@ final class SectionHeaderRowView: SidebarRowView {
 
     override var interactiveSubviews: [NSView] { [addButton] }
 
+    private struct Content: Hashable {
+        // The section's kind, not its nodes: comparing 1,000 children per
+        // reload would defeat the point.
+        var kind: SidebarSection.Kind
+        var collapsed: Bool
+        var compact: Bool
+        var fontSize: CGFloat
+        var iconSize: CGFloat
+    }
+
     func configure(_ section: SidebarSection, row: SidebarRow, compact: Bool) {
+        let content = Content(
+            kind: section.kind, collapsed: row.isCollapsed, compact: compact,
+            fontSize: SidebarStyle.headerFont.pointSize, iconSize: Metrics.smallIconSize
+        )
+        guard needsConfigure(content) else { return }
         self.compact = compact
         collapsed = row.isCollapsed
         let symbol: String

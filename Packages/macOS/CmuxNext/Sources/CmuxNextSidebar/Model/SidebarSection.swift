@@ -1,5 +1,11 @@
 import Foundation
 
+/// A top-level sidebar section: the pinned area or one machine.
+public nonisolated enum SectionID: Hashable, Sendable {
+    case pinned
+    case machine(MachineID)
+}
+
 /// Machine metadata for a machine section header.
 public nonisolated struct SidebarMachine: Hashable, Sendable {
     public nonisolated enum Kind: Hashable, Sendable {

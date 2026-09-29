@@ -30,6 +30,35 @@ public enum SidebarMock {
         return model
     }
 
+    /// Scale fixture: `count` workspaces in groups of 10 on one machine.
+    public static func makeLargeModel(count: Int) -> SidebarModel {
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        var nodes: [SidebarNode] = []
+        var made = 0
+        var groupIndex = 0
+        while made < count {
+            let size = min(10, count - made)
+            let items = (0..<size).map { i in
+                SidebarWorkspace(
+                    id: WorkspaceID("ws-\(made + i)"),
+                    title: "workspace \(made + i)",
+                    subtitle: i.isMultiple(of: 2) ? "~/src/project-\(made + i)" : nil,
+                    activity: i == 3 ? .running : .idle
+                )
+            }
+            made += size
+            if groupIndex.isMultiple(of: 3) {
+                nodes.append(contentsOf: items.map(SidebarNode.workspace))
+            } else {
+                let color = SidebarColor.allCases[groupIndex % SidebarColor.allCases.count]
+                nodes.append(.group(SidebarGroup(id: GroupID("grp-\(groupIndex)"), name: "group \(groupIndex)", color: color, workspaces: items)))
+            }
+            groupIndex += 1
+        }
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: WorkspaceID("ws-0"))
+        return model
+    }
+
     static func insert(_ ws: SidebarWorkspace, into model: SidebarModel, group: GroupID?) {
         guard let s = model.sections.firstIndex(where: { $0.id == .machine(ws.machineID) }) else { return }
         if let group, let n = model.sections[s].nodes.firstIndex(where: { $0.id == .group(group) }),
@@ -80,7 +109,7 @@ public enum SidebarMock {
                 ws("ws-infra-3", local, "subrouter", "cmux-lawrence:31415", .symbol("arrow.triangle.branch"), unread: .count(2)),
                 ws("ws-infra-4", local, "pscale", "cmux-prod  staging", .symbol("cylinder.split.1x2")),
             ])),
-            .workspace(ws("ws-local-5", local, "zed", "zed/repo  main", .swatch(.mint))),
+            .workspace(ws("ws-local-5", local, "zed", "zed/repo  main", .swatch(.cyan))),
             .workspace(ws("ws-local-6", local, "notes", "~/notes", .symbol("note.text"))),
             .workspace(ws("ws-local-7", local, "iOS sim", "ios/scripts/reload.sh", .symbol("iphone"))),
             .group(SidebarGroup(id: GroupID("grp-reviews"), name: "reviews", color: .pink, workspaces: [
@@ -89,7 +118,7 @@ public enum SidebarMock {
                 ws("ws-rev-3", local, "PR 12933", "iroh relay retry", .symbol("checkmark.seal")),
             ])),
             .workspace(ws("ws-local-8", local, "htop", nil, .symbol("gauge.with.dots.needle.67percent"))),
-            .workspace(ws("ws-local-9", local, "scratch", "/tmp", .swatch(.gray))),
+            .workspace(ws("ws-local-9", local, "scratch", "/tmp", .swatch(.grey))),
             .workspace(ws("ws-local-10", local, "chatmux", "~/fun/chatmux  v2", .symbol("bubble.left.and.bubble.right"))),
         ])
 

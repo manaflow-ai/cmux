@@ -50,18 +50,26 @@ enum SidebarStyle {
         return NSColor(white: dark ? 1 : 0, alpha: dark ? 0.16 : 0.10)
     }
 
+    /// Muted tint for a user color: the system hue pulled toward the chrome
+    /// gray so group rails and swatches sit quietly in the gray UI.
     static func color(_ color: SidebarColor) -> NSColor {
-        switch color {
-        case .gray: .systemGray
+        let base: NSColor = switch color {
+        case .grey: .systemGray
+        case .blue: .systemBlue
         case .red: .systemRed
-        case .orange: .systemOrange
         case .yellow: .systemYellow
         case .green: .systemGreen
-        case .mint: .systemMint
-        case .cyan: .systemCyan
-        case .blue: .systemBlue
-        case .purple: .systemPurple
         case .pink: .systemPink
+        case .purple: .systemPurple
+        case .cyan: .systemCyan
+        case .orange: .systemOrange
+        }
+        return NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            var resolved = base
+            appearance.performAsCurrentDrawingAppearance { resolved = base.usingColorSpace(.sRGB) ?? base }
+            let gray = NSColor(white: dark ? 0.55 : 0.5, alpha: 1)
+            return resolved.blended(withFraction: dark ? 0.28 : 0.22, of: gray) ?? resolved
         }
     }
 

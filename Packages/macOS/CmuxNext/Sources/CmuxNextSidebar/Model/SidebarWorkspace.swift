@@ -1,5 +1,28 @@
 import Foundation
 
+/// Agent activity shown as a small indicator on the row.
+public nonisolated enum AgentActivity: Hashable, Sendable {
+    case idle
+    case running
+    case needsInput
+    case error
+}
+
+/// Unread state for the badge.
+public nonisolated enum UnreadState: Hashable, Sendable {
+    case none
+    case dot
+    case count(Int)
+
+    public var isUnread: Bool {
+        switch self {
+        case .none: false
+        case .dot: true
+        case let .count(n): n > 0
+        }
+    }
+}
+
 /// One workspace row.
 public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var id: WorkspaceID

@@ -25,8 +25,3 @@ public nonisolated struct MachineID: Hashable, Sendable, Codable, CustomStringCo
     public var description: String { rawValue }
 }
 
-/// A top-level sidebar section: the pinned area or one machine.
-public nonisolated enum SectionID: Hashable, Sendable {
-    case pinned
-    case machine(MachineID)
-}

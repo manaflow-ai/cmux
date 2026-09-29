@@ -15,13 +15,15 @@ import QuartzCore
 final class SidebarListView: NSView, NSTextFieldDelegate {
     let model: SidebarModel
 
-    var displayed = SidebarLayout(rows: [], totalHeight: 0, gapY: nil, gapHeight: 0, gapShift: 0)
+    var displayed = SidebarLayout.empty
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
     var sections: [SectionID: SidebarSection] = [:]
-    let pill = SelectionPillView()
-    let gapView = GapIndicatorView()
+    /// Pill and gap CALayers, under the rows.
+    let decorations = SidebarDecorationView()
+    /// Recycled row views by class; only rows near the viewport have views.
+    var reusePool: [ObjectIdentifier: [SidebarRowView]] = [:]
     var compact = false
     var hoveredKey: SidebarRowKey?
     var press: Press?
@@ -50,10 +52,8 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
         super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
-        addSubview(pill)
-        addSubview(gapView)
-        pill.alphaValue = 0
-        gapView.alphaValue = 0
+        decorations.autoresizingMask = [.width, .height]
+        addSubview(decorations)
         setAccessibilityRole(.outline)
         setAccessibilityLabel(Strings.sidebarLabel)
     }
@@ -148,12 +148,12 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
                 if animate, let previous = old.row(for: row.key) {
                     view.frame = frame(for: previous)
                 } else if animate {
-                    view.frame = target.offsetBy(dx: 0, dy: -6)
+                    view.frame = target.offsetBy(dx: 0, dy: -Metrics.space3)
                     view.alphaValue = 0
                 } else {
                     view.frame = target
                 }
-                addSubview(view, positioned: .below, relativeTo: gapView)
+                addSubview(view, positioned: .above, relativeTo: decorations)
                 rowViews[row.key] = view
             }
             if suppressed.contains(row.key) {
@@ -168,7 +168,7 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
         for (key, view) in rowViews where !keep.contains(key) {
             rowViews[key] = nil
             if suppressed.contains(key) || !animate {
-                view.removeFromSuperview()
+                recycle(view)
             } else {
                 leaving.append(view)
             }
@@ -176,7 +176,9 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
 
         let pillFrame = activePillFrame(in: layout)
         let gapFrame = layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) }
-        if gapFrame != nil, gapView.alphaValue == 0, let f = gapFrame { gapView.frame = f }
+        decorations.frame = bounds
+        decorations.setPill(pillFrame, animated: animate)
+        decorations.setGap(gapFrame, animated: animate)
 
         let changes = {
             for (view, target) in targets {
@@ -185,26 +187,14 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
             }
             for view in leaving {
                 view.animator().alphaValue = 0
-                view.animator().frame = view.frame.offsetBy(dx: 0, dy: -6)
-            }
-            if let pillFrame {
-                if self.pill.alphaValue == 0 { self.pill.frame = pillFrame }
-                self.pill.animator().frame = pillFrame
-                self.pill.animator().alphaValue = 1
-            } else {
-                self.pill.animator().alphaValue = 0
-            }
-            if let gapFrame {
-                self.gapView.animator().frame = gapFrame
-                self.gapView.animator().alphaValue = 1
-            } else {
-                self.gapView.animator().alphaValue = 0
+                view.animator().frame = view.frame.offsetBy(dx: 0, dy: -Metrics.space3)
             }
         }
         if animate {
             Motion.animate(Motion.layout, changes) { [weak self] in
-                for view in leaving where view.alphaValue == 0 { view.removeFromSuperview() }
-                self?.pruneOffscreen()
+                guard let self else { return }
+                for view in leaving where !self.rowViews.values.contains(where: { $0 === view }) { self.recycle(view) }
+                self.pruneOffscreen()
             }
         } else {
             NSAnimationContext.runAnimationGroup { context in
@@ -212,7 +202,7 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
                 context.allowsImplicitAnimation = false
                 changes()
             }
-            leaving.forEach { $0.removeFromSuperview() }
+            leaving.forEach(recycle)
         }
     }
 
@@ -221,27 +211,6 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
               !suppressed.contains(.workspace(active)),
               let row = layout.row(for: .workspace(active)) else { return nil }
         return frame(for: row)
-    }
-
-    func dequeue(_ key: SidebarRowKey) -> SidebarRowView {
-        switch key {
-        case let .workspace(id):
-            let view = WorkspaceRowView(key: key)
-            view.onClose = { [weak self] in self?.model.send(.close([id])) }
-            return view
-        case .group:
-            return GroupHeaderRowView(key: key)
-        case let .section(sectionID):
-            let view = SectionHeaderRowView(key: key)
-            if case let .machine(machine) = sectionID {
-                view.onAdd = { [weak self] in self?.model.send(.newWorkspace(machine: machine, group: nil)) }
-            } else {
-                view.allowsAdd = false
-            }
-            return view
-        case .emptySection:
-            return EmptySectionRowView(key: key)
-        }
     }
 
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
@@ -282,7 +251,8 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
             view.targetSize = target.size
             view.frame = target
         }
-        if let pillFrame = activePillFrame(in: displayed) { pill.frame = pillFrame }
+        decorations.frame = bounds
+        decorations.setPill(activePillFrame(in: displayed), animated: false)
     }
 
     /// Adds views for rows scrolled into range and drops far-away ones.
@@ -296,7 +266,7 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
             configure(view, row: row, animated: false)
             view.frame = target
             view.alphaValue = suppressed.contains(row.key) ? 0 : 1
-            addSubview(view, positioned: .below, relativeTo: gapView)
+            addSubview(view, positioned: .above, relativeTo: decorations)
             rowViews[row.key] = view
         }
         pruneOffscreen()
@@ -308,7 +278,7 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
         for row in displayed.rows {
             guard let view = rowViews[row.key], !frame(for: row).intersects(keepRect),
                   rename?.key != row.key else { continue }
-            view.removeFromSuperview()
+            recycle(view)
             rowViews[row.key] = nil
         }
     }

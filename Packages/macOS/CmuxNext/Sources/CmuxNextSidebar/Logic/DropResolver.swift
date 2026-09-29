@@ -39,7 +39,7 @@ public nonisolated enum DropResolver {
         sections: [SidebarSection]
     ) -> DropTarget? {
         guard !base.rows.isEmpty else { return nil }
-        let (row, fraction) = hit(y: y, rows: base.rows)
+        let (row, fraction) = hit(y: y, layout: base)
         switch payload {
         case let .workspaces(ids):
             guard let target = workspaceTarget(row: row, fraction: fraction, base: base, sections: sections) else { return nil }
@@ -51,16 +51,12 @@ public nonisolated enum DropResolver {
 
     /// The row under `y` and the pointer's fraction down that row. Spacing
     /// between rows belongs to the row above; outside the list clamps.
-    static func hit(y: CGFloat, rows: [SidebarRow]) -> (SidebarRow, CGFloat) {
-        if y < rows[0].y { return (rows[0], 0) }
-        for (i, row) in rows.enumerated() {
-            let next = i + 1 < rows.count ? rows[i + 1].y : .infinity
-            if y < next {
-                let fraction = row.height > 0 ? min(1, max(0, (y - row.y) / row.height)) : 0
-                return (row, fraction)
-            }
-        }
-        return (rows[rows.count - 1], 1)
+    static func hit(y: CGFloat, layout: SidebarLayout) -> (SidebarRow, CGFloat) {
+        let rows = layout.rows
+        guard let i = layout.lastIndex(startingAtOrBefore: y) else { return (rows[0], 0) }
+        let row = rows[i]
+        let fraction = row.height > 0 ? min(1, max(0, (y - row.y) / row.height)) : 0
+        return (row, fraction)
     }
 
     static func workspaceTarget(row: SidebarRow, fraction f: CGFloat, base: SidebarLayout, sections: [SidebarSection]) -> DropTarget? {

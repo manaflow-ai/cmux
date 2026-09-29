@@ -85,7 +85,12 @@ extension SidebarListView {
         case .workspace:
             if let id = press.deferredClick { model.click(id) }
         case let .group(group):
-            model.send(.toggleCollapse(.group(group)))
+            // An empty saved group reopens; any other group toggles.
+            if let g = model.group(group), g.isPinned, g.workspaces.isEmpty {
+                model.send(.openGroup(group))
+            } else {
+                model.send(.toggleCollapse(.group(group)))
+            }
         case let .section(section):
             model.send(.toggleCollapse(.section(section)))
         case .emptySection:

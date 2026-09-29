@@ -85,16 +85,24 @@ public final class SidebarModel {
         case let .select(id):
             activeWorkspaceID = id
             if !selection.contains(id) { selection = [id] }
+        case let .closeGroup(id):
+            let ids = group(id)?.workspaces.map(\.id) ?? []
+            SidebarEdits.apply(intent, to: &sections)
+            dropClosed(Set(ids))
         case let .close(ids):
             SidebarEdits.apply(intent, to: &sections)
-            let closed = Set(ids)
-            selection.subtract(closed)
-            if let active = activeWorkspaceID, closed.contains(active) {
-                activeWorkspaceID = selection.first ?? allWorkspaces.first?.id
-                if let next = activeWorkspaceID { selection.insert(next) }
-            }
+            dropClosed(Set(ids))
         default:
             SidebarEdits.apply(intent, to: &sections)
+        }
+    }
+
+    /// Clears closed workspaces from the selection and picks a new active one.
+    private func dropClosed(_ closed: Set<WorkspaceID>) {
+        selection.subtract(closed)
+        if let active = activeWorkspaceID, closed.contains(active) {
+            activeWorkspaceID = selection.first ?? allWorkspaces.first?.id
+            if let next = activeWorkspaceID { selection.insert(next) }
         }
     }
 

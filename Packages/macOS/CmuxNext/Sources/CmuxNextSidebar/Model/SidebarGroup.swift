@@ -6,9 +6,20 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     public var name: String
     public var color: SidebarColor
     public var isCollapsed: Bool
+    /// Pinned (saved) group: it survives closing its workspaces, like a
+    /// Chrome saved tab group, and clicking it while empty reopens it.
+    public var isPinned: Bool
     public var workspaces: [SidebarWorkspace]
 
-    public init(id: GroupID, name: String, color: SidebarColor = .gray, isCollapsed: Bool = false, workspaces: [SidebarWorkspace]) {
+    public init(
+        id: GroupID,
+        name: String,
+        color: SidebarColor = .grey,
+        isCollapsed: Bool = false,
+        isPinned: Bool = false,
+        workspaces: [SidebarWorkspace]
+    ) {
+        self.isPinned = isPinned
         self.id = id
         self.name = name
         self.color = color

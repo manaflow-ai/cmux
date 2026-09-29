@@ -9,20 +9,44 @@ final class GroupHeaderRowView: SidebarRowView {
     private let count = SidebarRowView.label(font: SidebarStyle.subtitleFont, color: Palette.textSecondary)
     private let activity = ActivityIndicatorView()
     private let badge = UnreadBadgeView()
-    private var color: SidebarColor = .gray
+    private let pin = NSImageView()
+    private var pinned = false
+    private var color: SidebarColor = .grey
     private var collapsed = false
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
 
-    override init(key: SidebarRowKey) {
+    required init(key: SidebarRowKey) {
         super.init(key: key)
         chevron.contentTintColor = Palette.textSecondary
         chevron.wantsLayer = true
         folder.imageScaling = .scaleProportionallyDown
         count.alignment = .right
-        [chevron, folder, name, count, activity, badge].forEach(addSubview)
+        pin.contentTintColor = Palette.textSecondary
+        [chevron, folder, name, pin, count, activity, badge].forEach(addSubview)
+    }
+
+    override func prepareForReuse(key: SidebarRowKey) {
+        super.prepareForReuse(key: key)
+        isDropTarget = false
+        collapsed = false
+        chevron.frameCenterRotation = 0
+    }
+
+    private struct Content: Hashable {
+        var group: SidebarGroup
+        var childCount: Int
+        var collapsed: Bool
+        var compact: Bool
+        var fontSize: CGFloat
+        var iconSize: CGFloat
     }
 
     func configure(_ group: SidebarGroup, row: SidebarRow, compact: Bool, animated: Bool) {
+        let content = Content(
+            group: group, childCount: row.childCount, collapsed: row.isCollapsed, compact: compact,
+            fontSize: SidebarStyle.groupFont.pointSize, iconSize: Metrics.smallIconSize
+        )
+        guard needsConfigure(content) else { return }
         self.compact = compact
         color = group.color
         name.stringValue = group.name
@@ -31,6 +55,9 @@ final class GroupHeaderRowView: SidebarRowView {
         chevron.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)?
             .withSymbolConfiguration(SidebarStyle.chevronConfig)
         count.stringValue = "\(row.childCount)"
+        pinned = group.isPinned
+        pin.image = pinned ? NSImage(systemSymbolName: "pin.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(SidebarStyle.chevronConfig) : nil
         let wasCollapsed = collapsed
         collapsed = row.isCollapsed
         let symbol = collapsed ? "folder.fill" : "folder"
@@ -83,7 +110,7 @@ final class GroupHeaderRowView: SidebarRowView {
         super.layout()
         let b = layoutBounds
         if compact {
-            [chevron, name, count, badge, activity].forEach { $0.isHidden = true }
+            [chevron, name, pin, count, badge, activity].forEach { $0.isHidden = true }
             let side = SidebarStyle.iconBox
             folder.frame = NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
             return
@@ -122,7 +149,12 @@ final class GroupHeaderRowView: SidebarRowView {
         }
         let nx = folder.frame.maxX + Metrics.space3
         let nh = ceil(name.intrinsicContentSize.height)
-        name.frame = NSRect(x: nx, y: (b.height - nh) / 2, width: max(0, trailing - nx), height: nh)
+        let pinSide = Metrics.smallIconSize - Metrics.space2
+        let pinRoom = pinned ? pinSide + Metrics.space2 : 0
+        let nameWidth = min(ceil(name.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - nx - pinRoom))
+        name.frame = NSRect(x: nx, y: (b.height - nh) / 2, width: nameWidth, height: nh)
+        pin.isHidden = !pinned
+        pin.frame = NSRect(x: name.frame.maxX + Metrics.space1, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
     }
 
     override func hoverChanged() {

@@ -3,7 +3,9 @@ import Foundation
 
 /// Flattened sidebar: rows with frames, plus the live gap when dragging.
 public nonisolated struct SidebarLayout: Hashable, Sendable {
-    public var rows: [SidebarRow]
+    public private(set) var rows: [SidebarRow]
+    /// Key to row index, so lookups stay O(1) with 1,000 workspaces.
+    private var index: [SidebarRowKey: Int]
     public var totalHeight: CGFloat
     /// Top of the open gap, if any.
     public var gapY: CGFloat?
@@ -13,10 +15,39 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
     /// Pass this to `DropResolver.baseY(forDisplayY:gapY:gapHeight:)`.
     public var gapShift: CGFloat
 
-    public func row(for key: SidebarRowKey) -> SidebarRow? { rows.first { $0.key == key } }
+    public init(rows: [SidebarRow], totalHeight: CGFloat, gapY: CGFloat?, gapHeight: CGFloat, gapShift: CGFloat) {
+        self.rows = rows
+        self.totalHeight = totalHeight
+        self.gapY = gapY
+        self.gapHeight = gapHeight
+        self.gapShift = gapShift
+        var index: [SidebarRowKey: Int] = [:]
+        index.reserveCapacity(rows.count)
+        for (i, row) in rows.enumerated() { index[row.key] = i }
+        self.index = index
+    }
+
+    public static let empty = SidebarLayout(rows: [], totalHeight: 0, gapY: nil, gapHeight: 0, gapShift: 0)
+
+    public func row(for key: SidebarRowKey) -> SidebarRow? { index[key].map { rows[$0] } }
 
     /// Row whose frame contains `y`, or nil in a gap or padding.
-    public func row(at y: CGFloat) -> SidebarRow? { rows.first { y >= $0.y && y < $0.maxY } }
+    public func row(at y: CGFloat) -> SidebarRow? {
+        guard let i = lastIndex(startingAtOrBefore: y) else { return nil }
+        return y < rows[i].maxY ? rows[i] : nil
+    }
+
+    /// Index of the last row whose top is at or above `y` (rows are sorted
+    /// by y). Binary search keeps hit testing O(log n).
+    func lastIndex(startingAtOrBefore y: CGFloat) -> Int? {
+        var low = 0
+        var high = rows.count
+        while low < high {
+            let mid = (low + high) / 2
+            if rows[mid].y <= y { low = mid + 1 } else { high = mid }
+        }
+        return low == 0 ? nil : low - 1
+    }
 
     public static func make(
         sections: [SidebarSection],
