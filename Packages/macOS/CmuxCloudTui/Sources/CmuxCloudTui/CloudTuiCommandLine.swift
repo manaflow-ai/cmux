@@ -70,6 +70,18 @@ public struct CloudTuiCommandLine: Sendable {
         return args
     }
 
+    /// The probe capability a client advertises when `remote rpc` understands `--stream`.
+    public static let workspaceRPCStreamCapability = "rpc-stream"
+
+    /// `remote rpc --stream`: one persistent, id-tagged WorkspaceRequest channel to the
+    /// machine's daemon, carried by the app's WireGuard hub.
+    public static func workspaceRPCStreamArguments(route: String, stateDir: String, wireGuardHubSocket: String, carrier: Bool) -> [String] {
+        var args = ["remote", "rpc", route, "--stream", "--state-dir", stateDir,
+                    "--wireguard-hub", wireGuardHubSocket, "--exit-with-parent"]
+        if carrier { args.append("--carrier") }
+        return args
+    }
+
     /// Whole-session public snapshot (`session current snapshot`, `--json`).
     public static func snapshotArguments(socketPath: String) -> [String] {
         ["--socket", socketPath, "--json", "session", "current", "snapshot"]

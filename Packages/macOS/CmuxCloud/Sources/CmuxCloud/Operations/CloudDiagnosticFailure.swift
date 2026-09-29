@@ -96,7 +96,7 @@ public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
         guard let error = error as? CloudMachineLinkManager.ManagerError else { return .unknown }
         switch error {
         case .clientMissing, .wireGuardHubMissing: return .process
-        case .wireGuardHubUnsupported: return .unsupported
+        case .wireGuardHubUnsupported, .workspaceRPCUnsupported: return .unsupported
         case .privateRouteRequired, .retryLater: return .network
         }
     }

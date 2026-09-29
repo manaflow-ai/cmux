@@ -30,6 +30,7 @@ public actor CloudMachineLinkManager {
         case clientMissing
         case wireGuardHubMissing
         case wireGuardHubUnsupported
+        case workspaceRPCUnsupported
         case privateRouteRequired(String)
         case retryLater(String)
 
@@ -41,6 +42,8 @@ public actor CloudMachineLinkManager {
                 return "The cmux user-space WireGuard hub is not available in this build."
             case .wireGuardHubUnsupported:
                 return "The bundled cmux-tui client does not support the user-space WireGuard hub."
+            case .workspaceRPCUnsupported:
+                return "The bundled cmux-tui client does not support the workspace RPC stream."
             case .privateRouteRequired(let route):
                 return "The Cloud machine did not provide a private-network route: \(route)"
             case .retryLater(let detail):
@@ -66,6 +69,8 @@ public actor CloudMachineLinkManager {
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
     private var browserProxies: [String: CloudBrowserProxyProcess] = [:]
     private var browserProxyStarts: [String: Task<CloudBrowserProxyEndpoint, Error>] = [:]
+    private var workspaceRPCs: [String: CloudWorkspaceRPCProcess] = [:]
+    private var workspaceRPCStarts: [String: Task<Void, Error>] = [:]
     private var lastFailure: [String: (at: Date, error: String)] = [:]
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken. Only background upkeep waits it out
@@ -355,48 +360,13 @@ public actor CloudMachineLinkManager {
         let proxy = CloudBrowserProxyProcess(addresses: addresses)
         browserProxies[machineID] = proxy
         let task = Task<CloudBrowserProxyEndpoint, Error> {
-            let knownFingerprint = self.paths.deviceFingerprint(for: machineID)
-            let carrier: Bool
-            if Self.browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: knownFingerprint) {
-                // Prepare the trusted listener through the control plane without
-                // starting a second persistent sidebar carrier. The browser
-                // carrier below is the only long-lived machine connection.
-                let client = await MainActor.run { VMClient.shared }
-                guard let client else {
-                    throw VMClientError.malformedResponse("Cloud VM client is not available (not signed in).")
-                }
-                let endpoint = try await client.openCmuxRemote(
-                    id: machineID,
-                    deviceFingerprint: nil,
-                    clientCapabilities: self.resolvedClientCapabilities(clientURL: clientURL)
-                )
-                guard endpoint.trustedCarrier else {
-                    throw ManagerError.retryLater(String(
-                        localized: "cloud.link.trustedListenerPending",
-                        defaultValue: "The Cloud machine is still preparing remote access. Try again shortly."
-                    ))
-                }
-                paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: machineID)
-                carrier = true
-            } else {
-                carrier = knownFingerprint == CloudTuiClientPaths.carrierDeviceMarker
-            }
-            try Task.checkCancellation()
-            let claim = try await hub.acquire()
-            let route: String
-            do {
-                route = try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready)
-                try Task.checkCancellation()
-            } catch {
-                await hub.release(claim.lease)
-                throw error
-            }
+            let launch = try await self.sideCarrierLaunch(machineID: machineID, clientURL: clientURL, hub: hub)
             let arguments = CloudTuiCommandLine.browserProxyArguments(
-                route: route, addresses: addresses, stateDir: self.paths.stateDir.path,
-                wireGuardHubSocket: claim.ready.socketPath,
-                carrier: carrier
+                route: launch.route, addresses: addresses, stateDir: self.paths.stateDir.path,
+                wireGuardHubSocket: launch.claim.ready.socketPath,
+                carrier: launch.carrier
             )
-            return try await proxy.start(client: clientURL, arguments: arguments) { await hub.release(claim.lease) }
+            return try await proxy.start(client: clientURL, arguments: arguments) { await hub.release(launch.claim.lease) }
         }
         browserProxyStarts[machineID] = task
         Task { [weak self] in
@@ -422,6 +392,113 @@ public actor CloudMachineLinkManager {
         if case .failure = result {
             browserProxies[machineID] = nil
             await proxy.stop()
+        }
+    }
+
+    /// Route, carrier mode and WireGuard claim for a side carrier (browser proxy or
+    /// workspace RPC). Only a first-time machine needs the one-time trusted-listener
+    /// preparation through the control plane; the side carrier is then the only
+    /// long-lived connection it adds. The caller owns releasing the claim.
+    private func sideCarrierLaunch(machineID: String, clientURL: URL, hub: CloudWireGuardHub) async throws -> (route: String, carrier: Bool, claim: (lease: CloudWireGuardHub.Lease, ready: CloudWireGuardHub.Ready)) {
+        let knownFingerprint = paths.deviceFingerprint(for: machineID)
+        let carrier: Bool
+        if Self.browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: knownFingerprint) {
+            let client = await MainActor.run { VMClient.shared }
+            guard let client else {
+                throw VMClientError.malformedResponse("Cloud VM client is not available (not signed in).")
+            }
+            let endpoint = try await client.openCmuxRemote(
+                id: machineID,
+                deviceFingerprint: nil,
+                clientCapabilities: resolvedClientCapabilities(clientURL: clientURL)
+            )
+            guard endpoint.trustedCarrier else {
+                throw ManagerError.retryLater(String(
+                    localized: "cloud.link.trustedListenerPending",
+                    defaultValue: "The Cloud machine is still preparing remote access. Try again shortly."
+                ))
+            }
+            paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: machineID)
+            carrier = true
+        } else {
+            carrier = knownFingerprint == CloudTuiClientPaths.carrierDeviceMarker
+        }
+        try Task.checkCancellation()
+        let claim = try await hub.acquire()
+        do {
+            let route = try await resolvedPrivateRoute(machineID: machineID, through: claim.ready)
+            try Task.checkCancellation()
+            return (route, carrier, claim)
+        } catch {
+            await hub.release(claim.lease)
+            throw error
+        }
+    }
+
+    /// Whether the bundled client can serve ``workspaceRPC(machineID:)``.
+    public func supportsWorkspaceRPC() -> Bool {
+        guard let clientURL else { return false }
+        return resolvedClientCapabilities(clientURL: clientURL).contains(CloudTuiCommandLine.workspaceRPCStreamCapability)
+    }
+
+    /// One persistent workspace file channel per machine, sharing the app's
+    /// userspace WireGuard hub. File listing and reads go straight to the guest
+    /// daemon instead of through the control plane's exec API.
+    public func workspaceRPC(machineID: String) async throws -> CloudWorkspaceRPCProcess {
+        try Task.checkCancellation()
+        guard isCloudEnabled(), privateRoutes[machineID] != nil else {
+            throw ManagerError.privateRouteRequired(machineID)
+        }
+        if let starting = workspaceRPCStarts[machineID], let rpc = workspaceRPCs[machineID] {
+            try await firstResult(of: starting)
+            guard workspaceRPCs[machineID] === rpc else { throw CancellationError() }
+            return rpc
+        }
+        if let existing = workspaceRPCs[machineID] {
+            if await existing.isReady { return existing }
+            workspaceRPCs[machineID] = nil
+            await existing.stop()
+            return try await workspaceRPC(machineID: machineID)
+        }
+        guard let clientURL, let hub else { throw ManagerError.wireGuardHubMissing }
+        guard supportsWorkspaceRPC() else {
+            throw ManagerError.workspaceRPCUnsupported
+        }
+        let rpc = CloudWorkspaceRPCProcess()
+        workspaceRPCs[machineID] = rpc
+        let task = Task<Void, Error> {
+            let launch = try await self.sideCarrierLaunch(machineID: machineID, clientURL: clientURL, hub: hub)
+            let arguments = CloudTuiCommandLine.workspaceRPCStreamArguments(
+                route: launch.route, stateDir: self.paths.stateDir.path,
+                wireGuardHubSocket: launch.claim.ready.socketPath,
+                carrier: launch.carrier
+            )
+            try await rpc.start(client: clientURL, arguments: arguments) { await hub.release(launch.claim.lease) }
+        }
+        workspaceRPCStarts[machineID] = task
+        Task { [weak self] in
+            let result = await task.result
+            await self?.workspaceRPCStartFinished(machineID: machineID, rpc: rpc, result: result)
+        }
+        try await firstResult(of: task)
+        guard workspaceRPCs[machineID] === rpc else { throw CancellationError() }
+        return rpc
+    }
+
+    /// A caller may cancel its wait while another caller still needs the shared carrier.
+    private func firstResult(of task: Task<Void, Error>) async throws {
+        let result = CloudLinkFirstValue<Result<Void, Error>>()
+        Task { result.resolve(await task.result) }
+        guard let value = await result.result else { throw CancellationError() }
+        try value.get()
+    }
+
+    private func workspaceRPCStartFinished(machineID: String, rpc: CloudWorkspaceRPCProcess, result: Result<Void, Error>) async {
+        guard workspaceRPCs[machineID] === rpc else { return }
+        workspaceRPCStarts[machineID] = nil
+        if case .failure = result {
+            workspaceRPCs[machineID] = nil
+            await rpc.stop()
         }
     }
 
@@ -473,6 +550,11 @@ public actor CloudMachineLinkManager {
     }
 
     public func disconnect(machineID: String) async {
+        let startingRPC = workspaceRPCStarts.removeValue(forKey: machineID)
+        startingRPC?.cancel()
+        let rpc = workspaceRPCs.removeValue(forKey: machineID)
+        await rpc?.stop()
+        _ = await startingRPC?.result
         let startingProxy = browserProxyStarts.removeValue(forKey: machineID)
         startingProxy?.cancel()
         let proxy = browserProxies.removeValue(forKey: machineID)
@@ -491,7 +573,8 @@ public actor CloudMachineLinkManager {
 
     public func disconnectAll() async {
         for task in connecting.values { task.cancel() }
-        for id in Set(links.keys).union(browserProxies.keys).union(browserProxyStarts.keys) {
+        for id in Set(links.keys).union(browserProxies.keys).union(browserProxyStarts.keys)
+            .union(workspaceRPCs.keys).union(workspaceRPCStarts.keys) {
             await disconnect(machineID: id)
         }
         for task in connecting.values { task.cancel() }

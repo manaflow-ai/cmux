@@ -23,7 +23,8 @@ final class CloudVMFileExplorerProvider: RemoteFileExplorerProvider, Sendable {
         homePath: String = "",
         isAvailable: Bool,
         target: CloudFileExplorerTarget? = nil,
-        commandRunner: (any CloudFileExplorerCommandRunning)? = nil
+        commandRunner: (any CloudFileExplorerCommandRunning)? = nil,
+        fileRPC: (any CloudWorkspaceFileRPC)? = nil
     ) {
         self.id = UUID()
         self.target = target
@@ -31,7 +32,12 @@ final class CloudVMFileExplorerProvider: RemoteFileExplorerProvider, Sendable {
         self.displayTarget = displayTarget
         self.homePath = homePath
         self.isAvailable = isAvailable
-        self.service = CloudFileExplorerService(commandRunner: commandRunner ?? LiveCloudFileExplorerCommandRunner(target: target))
+        // Production uses the machine's direct daemon channel; an injected command
+        // runner (tests) exercises the exec path unless a channel is injected too.
+        self.service = CloudFileExplorerService(
+            commandRunner: commandRunner ?? LiveCloudFileExplorerCommandRunner(target: target),
+            fileRPC: fileRPC ?? (commandRunner == nil ? LiveCloudWorkspaceFileRPC(target: target) : nil)
+        )
     }
 
     private init(provider: CloudVMFileExplorerProvider, homePath: String) {

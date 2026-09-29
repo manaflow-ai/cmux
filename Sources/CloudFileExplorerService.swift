@@ -4,12 +4,37 @@ import Foundation
 actor CloudFileExplorerService {
     private static let maxSearchResults = 500
     private static let maxPreviewBytes = 1_048_576
+    private static let daemonRetryDelay: Duration = .seconds(30)
     private let commandRunner: any CloudFileExplorerCommandRunning
     private let searchQueue = CloudFileExplorerSearchQueue()
+    private let daemon: CloudDaemonFileExplorer?
+    private var daemonUnavailableUntil: ContinuousClock.Instant?
 
-    /// Creates a service with the command transport used by one Cloud machine.
-    init(commandRunner: any CloudFileExplorerCommandRunning) {
+    /// Creates a service with the command transport used by one Cloud machine. When a
+    /// direct daemon channel is given, listing and reads use it and fall back to exec
+    /// only while that channel cannot be made.
+    init(commandRunner: any CloudFileExplorerCommandRunning, fileRPC: (any CloudWorkspaceFileRPC)? = nil) {
         self.commandRunner = commandRunner
+        self.daemon = fileRPC.map { CloudDaemonFileExplorer(rpc: $0) }
+    }
+
+    /// Runs `operation` on the daemon channel, or returns nil when the caller should
+    /// use exec. Daemon answers (including errors such as a missing file) are final.
+    private func viaDaemon<T: Sendable>(
+        _ operation: (CloudDaemonFileExplorer) async throws -> T
+    ) async throws -> T? {
+        guard let daemon else { return nil }
+        if let until = daemonUnavailableUntil, ContinuousClock.now < until { return nil }
+        do {
+            let value = try await operation(daemon)
+            daemonUnavailableUntil = nil
+            return value
+        } catch is CloudWorkspaceFileRPCUnavailable {
+            daemonUnavailableUntil = ContinuousClock.now.advanced(by: Self.daemonRetryDelay)
+            return nil
+        } catch let error as CloudWorkspaceRPCProcess.RemoteError {
+            throw FileExplorerError.remoteCommandFailed("")
+        }
     }
 
     /// Resolves the Cloud machine's home directory.
@@ -27,6 +52,11 @@ actor CloudFileExplorerService {
 
     /// Lists one remote directory without crossing the local filesystem boundary.
     func listDirectory(vmID: String, path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
+        if let entries = try await viaDaemon({
+            try await $0.listDirectory(vmID: vmID, path: path, showHidden: showHidden)
+        }) {
+            return entries
+        }
         let script = #"""
 import json, os, sys
 path = sys.argv[1]
@@ -62,6 +92,16 @@ json.dump(entries, sys.stdout, separators=(",", ":"))
 
     /// Downloads one bounded remote file to a local preview cache.
     func download(vmID: String, path: String, to localURL: URL) async throws {
+        if let data = try await viaDaemon({
+            try await $0.readFile(vmID: vmID, path: path, limit: Self.maxPreviewBytes)
+        }) {
+            try FileManager.default.createDirectory(
+                at: localURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: localURL, options: .atomic)
+            return
+        }
         let script = #"""
 import base64, os, sys, stat as stat_module
 path = sys.argv[1]
