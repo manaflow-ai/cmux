@@ -1889,144 +1889,120 @@
         }
       }
     },
-    "mobile.terminal.sizing.colsHidden": {
+    "mobile.terminal.sizing.scaled": {
       "extractionState": "manual",
       "localizations": {
         "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld col hidden"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld cols hidden"
-                }
-              }
-            }
+          "stringUnit": {
+            "state": "translated",
+            "value": "scaled"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld列非表示"
+            "value": "縮小表示"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld Sp. ausgeblendet"
+            "value": "skaliert"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld col. masquées"
+            "value": "réduit"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld عمود مخفي"
+            "value": "مُصغَّر"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld col. ocultas"
+            "value": "reducido"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 欄已隱藏"
+            "value": "已縮放"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 列已隐藏"
+            "value": "已缩放"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld열 숨겨짐"
+            "value": "축소됨"
           }
         }
       }
     },
-    "mobile.terminal.sizing.colsHidden.accessibility": {
+    "mobile.terminal.sizing.scaled.accessibility": {
       "extractionState": "manual",
       "localizations": {
         "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld column hidden"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld columns hidden"
-                }
-              }
-            }
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scaled down to fit this screen"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld列が表示されていません"
+            "value": "この画面に合わせて縮小表示"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld Spalten ausgeblendet"
+            "value": "Auf diesen Bildschirm verkleinert"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld colonnes masquées"
+            "value": "Réduit pour tenir sur cet écran"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld عمود مخفي"
+            "value": "مُصغَّر ليلائم هذه الشاشة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld columnas ocultas"
+            "value": "Reducido para caber en esta pantalla"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 欄已隱藏"
+            "value": "已縮小以符合此螢幕"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 列已隐藏"
+            "value": "已缩小以适应此屏幕"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld열이 숨겨짐"
+            "value": "이 화면에 맞게 축소됨"
           }
         }
       }

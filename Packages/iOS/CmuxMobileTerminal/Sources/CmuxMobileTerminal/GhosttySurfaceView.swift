@@ -755,6 +755,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// coordinate space. Kept so the border layer can match it without a
     /// second set_size round-trip.
     var lastRenderRect: CGRect = .zero
+    /// The exact shared grid's rendered size in points while it is larger
+    /// than this phone and displayed scaled to fit (see
+    /// `TerminalGridFitMode.scaledToFit`); nil otherwise. `lastRenderRect`
+    /// is then the DISPLAYED rect, and the renderer layer keeps these
+    /// unscaled bounds under a scale transform so presents still match the
+    /// drawable.
+    var scaledGridRenderSize: CGSize?
+    /// The pinch magnification and pan of a scaled grid.
+    var scaledGridMagnification: CGFloat = 1
+    var scaledGridOffset: CGPoint = .zero
+    /// Displayed points per rendered point: below 1 only while a larger grid
+    /// is scaled to fit.
+    var gridDisplayScale: CGFloat = 1
+    /// The magnification when the current pinch began, and the last pinch
+    /// point, while a pinch drives a scaled grid.
+    var scaledGridPinchStart: (magnification: CGFloat, location: CGPoint)?
     private var viewportCoordinator = TerminalViewportCoordinator()
     /// The bounds size the last layout-driven geometry sync ran for. Layout
     /// passes with unchanged bounds (host keyboard animation, sibling churn)
@@ -1814,7 +1830,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         case (nil, nil): contentBottom = nil
         }
         guard let contentBottom else { return nil }
-        return max(0, lastRenderRect.height - contentBottom)
+        return max(0, lastRenderRect.height - contentBottom * gridDisplayScale)
     }
 
     /// Schedules an immediate off-main content-bottom measurement, bypassing
@@ -2147,7 +2163,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// exact pixel extent the renderer drew; changed insets converge
     /// through the next geometry pass.
     private(set) var appliedRenderTopInsetPts: CGFloat = 0
-    private var appliedRenderBottomInsetPts: CGFloat = 0
+    var appliedRenderBottomInsetPts: CGFloat = 0
 
     public func setTopContentInset(_ inset: CGFloat) {
         let clamped = max(0, inset)
@@ -2170,8 +2186,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// downward by the applied scroll-edge bands, matching the surface's
     /// inflated drawable.
     private func rendererLayerRect(forGridRenderRect renderRect: CGRect) -> CGRect {
-        let top = appliedRenderTopInsetPts
-        let bottom = appliedRenderBottomInsetPts
+        let top = appliedRenderTopInsetPts * gridDisplayScale
+        let bottom = appliedRenderBottomInsetPts * gridDisplayScale
         guard top > 0 || bottom > 0 else { return renderRect }
         return CGRect(
             x: renderRect.minX,
@@ -2200,7 +2216,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         topContentInset > 0 && !chromeHidden
     }
 
-    private func layoutRenderedTerminalForCurrentViewport() {
+    func layoutRenderedTerminalForCurrentViewport() {
         layoutRenderedTerminalForCurrentViewport(using: viewportSnapshot())
     }
 
@@ -2209,7 +2225,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutVerifiedReplayFrozenPresentation(viewportRect: snapshot.layoutViewportRect)
         enforceKeyboardTransitionPresentationHold()
         guard !lastRenderRect.isEmpty else { return }
-        let renderRect = snapshot.renderRect(forRenderSize: lastRenderRect.size)
+        let renderRect = resolveGridRenderRect(for: snapshot, renderSize: lastRenderRect.size)
         guard renderRect != lastRenderRect else { return }
         MobileDebugLog.anchormux(
             "kb.renderRect \(Int(lastRenderRect.minY))->\(Int(renderRect.minY)) h=\(Int(renderRect.height))"
@@ -2869,13 +2885,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // conversion macOS ghostty applies to precise trackpad deltas. The
         // 14pt fallback stands in for a typical cell height until metrics
         // land.
-        let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
+        // A grid scaled to fit shows each rendered point smaller, so finger
+        // travel converts through the displayed cell size.
+        let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1) * gridDisplayScale
         let divisor = cellHeightPt > 1 ? Double(cellHeightPt) : 14
         pendingScrollLines += -Double(deltaY) / divisor
         // Same direction in device pixels: the pixel position is the viewport
         // top's distance from the top of scrollback, so a finger drag DOWN
         // (negative deltaY, positive lines, older content) decreases it.
         pendingScrollPixels += Double(deltaY) * Double(max(preferredScreenScale, 1))
+            / Double(max(gridDisplayScale, 0.01))
         pendingScrollCell = scrollCell(at: touchPoint)
         pendingScrollInteractionGeneration = interactionGeneration
     }
@@ -2945,8 +2964,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// alt-screen mouse-wheel reports at the cell under the finger.
     private func scrollCell(at point: CGPoint) -> (col: Int, row: Int) {
         let scale = max(preferredScreenScale, 1)
-        let cellW = max(cellPixelSize.width / scale, 1)
-        let cellH = max(cellPixelSize.height / scale, 1)
+        let cellW = max(cellPixelSize.width / scale * gridDisplayScale, 1)
+        let cellH = max(cellPixelSize.height / scale * gridDisplayScale, 1)
         let col = max(0, Int((point.x - lastRenderRect.minX) / cellW))
         let row = max(0, Int((point.y - lastRenderRect.minY) / cellH))
         return (col, row)
@@ -3164,6 +3183,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        if handleScaledGridPinch(gesture) { return }
         switch gesture.state {
         case .began:
             pinchAccumulatedScale = 1.0
@@ -5497,6 +5517,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         /// Pinned render size in points when letterboxed to an effective
         /// grid; nil means fill the container.
         let pinnedSize: CGSize?
+        /// The shared grid is larger than this phone: `pinnedSize` is the
+        /// full rendered grid, displayed scaled to fit the viewport.
+        let scaledToFit: Bool
         /// The font size the surface was rendering at when `cellPixelSize`
         /// was measured. Capacity reports must normalize with THIS font, not
         /// the main-actor `liveFontSize` read at apply time: a zoom queued
@@ -5619,30 +5642,44 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
 
             var pinnedSize: CGSize?
+            var scaledToFit = false
             if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
-                let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
-                let exactGridFitsInsideNatural = eff.cols <= Int(measured.columns)
-                    && eff.rows <= Int(measured.rows)
-                let pinnedW = CGFloat(eff.cols) * cell.width / scale
-                let pinnedH = CGFloat(eff.rows) * cell.height / scale
                 // The producer's effective grid is the contract for every
                 // authoritative render-grid replay. Even a one-row/column
                 // difference must be fitted locally, otherwise the apply
                 // fence rejects every replay and the lane keeps reopening
-                // behind a fresh recovery cycle. Keep the fit bounded to
-                // grids that actually fit inside the measured surface; a
-                // larger effective grid still needs a normal geometry pass.
-                let shouldFitEffectiveGrid = !fillsNaturalGrid
-                    && exactGridFitsInsideNatural
-                if shouldFitEffectiveGrid,
-                   pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
+                // behind a fresh recovery cycle. A grid LARGER than this
+                // phone (Follow latest, Largest, Priority, Fixed) is fitted
+                // too, at its full size: leaving the surface at its natural
+                // grid parsed a 175-column stream into 54 columns (garbled
+                // wraps and cursor moves) and failed every replay's fence.
+                // The oversized render is then displayed scaled to fit.
+                let mode = TerminalGridFit.mode(
+                    effectiveColumns: eff.cols,
+                    effectiveRows: eff.rows,
+                    measuredColumns: Int(measured.columns),
+                    measuredRows: Int(measured.rows),
+                    gridPointSize: CGSize(
+                        width: CGFloat(eff.cols) * cell.width / scale,
+                        height: CGFloat(eff.rows) * cell.height / scale
+                    ),
+                    container: CGSize(width: containerW, height: containerH)
+                )
+                if mode != .natural {
                     let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
                     let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
                     let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
-                    pinnedSize = CGSize(
-                        width: min(CGFloat(aw) / scale, containerW),
-                        height: min(CGFloat(ah) / scale, containerH)
-                    )
+                    if mode == .scaledToFit {
+                        scaledToFit = true
+                        pinnedSize = CGSize(width: CGFloat(aw) / scale, height: CGFloat(ah) / scale)
+                    } else {
+                        pinnedSize = TerminalLetterboxGeometry.clampPinnedSize(
+                            actualWidthPx: CGFloat(aw),
+                            actualHeightPx: CGFloat(ah),
+                            scale: scale,
+                            container: CGSize(width: containerW, height: containerH)
+                        )
+                    }
                 }
             }
 
@@ -5665,6 +5702,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 cellPixelSize: cell,
                 naturalSize: natural,
                 pinnedSize: pinnedSize,
+                scaledToFit: scaledToFit,
                 measuredFontSize: measuredFontSize,
                 appliedTopInsetPts: appliedTopInsetPts,
                 appliedBottomInsetPts: appliedBottomInsetPts
@@ -5721,13 +5759,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             ?? CGRect(origin: .zero, size: naturalRenderSize)
         let snapshot = result.viewportSnapshot
         layoutBottomDock(using: snapshot)
-        let renderRect = snapshot.renderRect(forRenderSize: measuredRenderRect.size)
-        lastRenderRect = renderRect
+        if result.scaledToFit {
+            scaledGridRenderSize = measuredRenderRect.size
+        } else {
+            scaledGridRenderSize = nil
+            scaledGridMagnification = 1
+            scaledGridOffset = .zero
+        }
         // The drawable this pass produced includes the scroll-edge bands;
         // the layer must grow by exactly that much or every present is
         // discarded on the size check.
         appliedRenderTopInsetPts = result.appliedTopInsetPts
         appliedRenderBottomInsetPts = result.appliedBottomInsetPts
+        let renderRect = resolveGridRenderRect(for: snapshot, renderSize: measuredRenderRect.size)
+        lastRenderRect = renderRect
         MobileDebugLog.anchormux(
             "geom container=\(Int(containerW))x\(Int(containerH)) scale=\(scale) "
             + "cellPx=\(Int(result.cellPixelSize.width))x\(Int(result.cellPixelSize.height)) "
@@ -5735,6 +5780,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
             + "pinned=\(result.pinnedSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") "
             + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))@\(Int(renderRect.minY)) "
+            + "displayScale=\(gridDisplayScale) "
             + "topInset=\(Int(result.appliedTopInsetPts))"
         )
         syncRendererLayerFrame(
@@ -5869,14 +5915,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         CATransaction.setDisableActions(true)
         var geometryChanged = layer.contentsScale != scale
         layer.contentsScale = scale
+        // `renderRect` is where the layer DISPLAYS. A grid larger than this
+        // phone keeps its exact unscaled bounds (the drawable's size, which
+        // the present path compares against) under a scale transform.
+        let placement = rendererLayerPlacement(displayRect: renderRect)
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
-            if sublayer.frame != renderRect {
+            if !CATransform3DEqualToTransform(sublayer.transform, placement.transform) {
                 geometryChanged = true
-                sublayer.frame = renderRect
+                sublayer.transform = placement.transform
             }
-            if sublayer.bounds.size != renderRect.size {
+            if sublayer.bounds != CGRect(origin: .zero, size: placement.boundsSize) {
                 geometryChanged = true
-                sublayer.bounds = CGRect(origin: .zero, size: renderRect.size)
+                sublayer.bounds = CGRect(origin: .zero, size: placement.boundsSize)
+            }
+            let position = CGPoint(
+                x: renderRect.minX + renderRect.width * sublayer.anchorPoint.x,
+                y: renderRect.minY + renderRect.height * sublayer.anchorPoint.y
+            )
+            if sublayer.position != position {
+                geometryChanged = true
+                sublayer.position = position
             }
             if sublayer.contentsScale != scale {
                 geometryChanged = true

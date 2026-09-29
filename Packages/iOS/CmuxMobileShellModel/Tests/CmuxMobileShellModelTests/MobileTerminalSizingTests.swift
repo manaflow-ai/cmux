@@ -133,6 +133,7 @@ private func sizeState(
         #expect(presentation.viewportDiffers)
         #expect(presentation.hiddenColumns == 68)
         #expect(presentation.hiddenRows == 8)
+        #expect(presentation.isScaledToFit)
         #expect(presentation.owner?.id == "c3")
         #expect(!presentation.ownerIsSelf)
         #expect(presentation.showsChip)
@@ -149,6 +150,20 @@ private func sizeState(
         #expect(presentation.viewportDiffers)
         #expect(presentation.hiddenColumns == 0)
         #expect(presentation.hiddenRows == 0)
+        #expect(!presentation.isScaledToFit)
+    }
+
+    /// A phone as wide as the grid but shorter keeps 1:1 text; the chip does
+    /// not say "scaled".
+    @Test func shorterPhoneIsNotScaled() {
+        let presentation = MobileTerminalSizingPresentation(
+            state: sizeState(generation: 1),
+            selfParticipantID: "mobile:phone",
+            localViewport: TerminalGridSize(cols: 118, rows: 20)
+        )
+        #expect(presentation.viewportDiffers)
+        #expect(presentation.hiddenRows == 18)
+        #expect(!presentation.isScaledToFit)
     }
 
     @Test func soleMatchingViewerShowsNoChip() {

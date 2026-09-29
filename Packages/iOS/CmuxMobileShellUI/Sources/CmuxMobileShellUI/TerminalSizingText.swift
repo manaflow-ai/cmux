@@ -57,17 +57,17 @@ struct TerminalSizingText {
         }
     }
 
-    /// "12 cols hidden".
-    static func hiddenColumns(_ count: Int) -> String {
-        L10n.string("mobile.terminal.sizing.colsHidden", defaultValue: "\(count) cols hidden")
+    /// "scaled", appended when the grid is drawn smaller to fit this phone.
+    static func scaled() -> String {
+        L10n.string("mobile.terminal.sizing.scaled", defaultValue: "scaled")
     }
 
-    /// The chip: "118×38 · Maya's Mac Studio", plus " · 12 cols hidden" when
-    /// this phone is narrower than the grid.
+    /// The chip: "118×38 · Maya's Mac Studio", plus " · scaled" when this
+    /// phone is narrower than the grid and shows it scaled to fit.
     static func chip(_ presentation: MobileTerminalSizingPresentation) -> String {
         let base = joined(gridSizeCompact(presentation.grid), owner(presentation.ownerLabel))
-        guard presentation.hiddenColumns > 0 else { return base }
-        return joined(base, hiddenColumns(presentation.hiddenColumns))
+        guard presentation.isScaledToFit else { return base }
+        return joined(base, scaled())
     }
 
     static func chipAccessibilityLabel(_ presentation: MobileTerminalSizingPresentation) -> String {
@@ -78,13 +78,12 @@ struct TerminalSizingText {
             "mobile.terminal.sizing.chip.accessibilityLabel",
             defaultValue: "Terminal size \(cols) by \(rows), set by \(who)"
         )
-        guard presentation.hiddenColumns > 0 else { return base }
-        let hidden = presentation.hiddenColumns
-        let hiddenText = L10n.string(
-            "mobile.terminal.sizing.colsHidden.accessibility",
-            defaultValue: "\(hidden) columns hidden"
+        guard presentation.isScaledToFit else { return base }
+        let scaledText = L10n.string(
+            "mobile.terminal.sizing.scaled.accessibility",
+            defaultValue: "Scaled down to fit this screen"
         )
-        return "\(base). \(hiddenText)"
+        return "\(base). \(scaledText)"
     }
 
     static func chipAccessibilityHint() -> String {

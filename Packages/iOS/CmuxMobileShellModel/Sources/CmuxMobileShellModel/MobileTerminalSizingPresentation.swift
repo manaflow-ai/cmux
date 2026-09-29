@@ -64,6 +64,13 @@ public struct MobileTerminalSizingPresentation: Equatable, Sendable {
         return max(0, grid.rows - viewer.rows)
     }
 
+    /// Whether this phone shows the grid scaled down: the grid is wider than
+    /// this phone, so the surface draws it whole at the viewport width
+    /// instead of hiding columns.
+    public var isScaledToFit: Bool {
+        hiddenColumns > 0
+    }
+
     /// Whether the size chip shows. It shows only while this phone's
     /// viewport differs from the grid, together with the border and hatch.
     public var showsChip: Bool {

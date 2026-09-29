@@ -2,16 +2,19 @@ public import CoreGraphics
 
 /// Pure layout for the shared-size bounds drawn on a terminal surface.
 ///
-/// The letterbox already pins the render rect to the shared grid when this
-/// phone is larger, and fills the container when it is smaller. This type
-/// turns that result into what the bounds decoration draws: a border around
-/// the grid, hatch in the unused container area, and a fade on each edge that
-/// cuts off grid content.
+/// The surface renders the exact shared grid: pinned 1:1 when this phone is
+/// larger, and scaled to fit the width when it is smaller (magnified and
+/// panned by a pinch). This type turns the displayed render rect into what
+/// the bounds decoration draws: a border around the visible grid, hatch in
+/// the unused viewport area, and a fade on each viewport edge that cuts off
+/// grid content.
 public struct TerminalSizingBoundsGeometry: Equatable, Sendable {
     /// An edge of the viewport that hides grid content.
     public enum CutEdge: Equatable, Sendable {
+        case leading
         case trailing
         case top
+        case bottom
     }
 
     /// A fade band on one cut edge.
@@ -79,25 +82,33 @@ public struct TerminalSizingBoundsGeometry: Equatable, Sendable {
         ]
         hatchRects = bands.filter { $0.width >= 0.5 && $0.height >= 0.5 }
 
-        // Grid content this viewport cannot show overflows the trailing edge
-        // (columns) and, because rows stay bottom-pinned, the top edge.
+        // A fade marks each viewport edge the displayed grid runs past.
+        let tolerance: CGFloat = 0.5
+        let widthDepth = min(Self.cutFadeDepth, visibleGrid.width / 2)
+        let heightDepth = min(Self.cutFadeDepth, visibleGrid.height / 2)
         var fades: [CutFade] = []
-        if hiddenColumns > 0 {
-            let depth = min(Self.cutFadeDepth, visibleGrid.width / 2)
+        if renderRect.maxX > viewportRect.maxX + tolerance {
             fades.append(CutFade(edge: .trailing, rect: CGRect(
-                x: visibleGrid.maxX - depth,
-                y: visibleGrid.minY,
-                width: depth,
-                height: visibleGrid.height
+                x: visibleGrid.maxX - widthDepth, y: visibleGrid.minY,
+                width: widthDepth, height: visibleGrid.height
             )))
         }
-        if hiddenRows > 0 {
-            let depth = min(Self.cutFadeDepth, visibleGrid.height / 2)
+        if renderRect.minX < viewportRect.minX - tolerance {
+            fades.append(CutFade(edge: .leading, rect: CGRect(
+                x: visibleGrid.minX, y: visibleGrid.minY,
+                width: widthDepth, height: visibleGrid.height
+            )))
+        }
+        if renderRect.minY < viewportRect.minY - tolerance {
             fades.append(CutFade(edge: .top, rect: CGRect(
-                x: visibleGrid.minX,
-                y: visibleGrid.minY,
-                width: visibleGrid.width,
-                height: depth
+                x: visibleGrid.minX, y: visibleGrid.minY,
+                width: visibleGrid.width, height: heightDepth
+            )))
+        }
+        if renderRect.maxY > viewportRect.maxY + tolerance {
+            fades.append(CutFade(edge: .bottom, rect: CGRect(
+                x: visibleGrid.minX, y: visibleGrid.maxY - heightDepth,
+                width: visibleGrid.width, height: heightDepth
             )))
         }
         cutFades = fades

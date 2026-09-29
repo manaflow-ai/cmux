@@ -3,7 +3,7 @@ import CmuxMobileTerminalKit
 import QuartzCore
 import UIKit
 
-/// The text of the size chip: "118×38 · Maya's Mac Studio · 12 cols hidden".
+/// The text of the size chip: "118×38 · Maya's Mac Studio · scaled".
 public struct TerminalSizingChipContent: Equatable, Sendable {
     public var title: String
     public var accessibilityLabel: String
@@ -168,9 +168,15 @@ final class GhosttySurfaceSharedSizingLayers {
             case .trailing:
                 layer.startPoint = CGPoint(x: 0, y: 0.5)
                 layer.endPoint = CGPoint(x: 1, y: 0.5)
+            case .leading:
+                layer.startPoint = CGPoint(x: 1, y: 0.5)
+                layer.endPoint = CGPoint(x: 0, y: 0.5)
             case .top:
                 layer.startPoint = CGPoint(x: 0.5, y: 1)
                 layer.endPoint = CGPoint(x: 0.5, y: 0)
+            case .bottom:
+                layer.startPoint = CGPoint(x: 0.5, y: 0)
+                layer.endPoint = CGPoint(x: 0.5, y: 1)
             }
             container.addSublayer(layer)
             return layer
