@@ -41,9 +41,20 @@ public struct ActionInvocation: Sendable, Hashable {
         arguments[name]
     }
 
+    /// Whether a destructive action was confirmed (`confirm: true`).
+    public var isConfirmed: Bool { arguments[ActionArgument.confirmName]?.boolValue == true }
+
+    /// This invocation with `confirm: true`.
+    public func confirmed() -> ActionInvocation {
+        var copy = self
+        copy.arguments[ActionArgument.confirmName] = .bool(true)
+        return copy
+    }
+
     /// The first argument's text form, for handlers that take one string.
     var legacyArgument: String? {
-        guard let value = arguments.values.first, arguments.count == 1 else { return nil }
+        let values = arguments.filter { $0.key != ActionArgument.confirmName }
+        guard let value = values.values.first, values.count == 1 else { return nil }
         switch value {
         case .string(let text): return text
         case .int(let number): return String(number)

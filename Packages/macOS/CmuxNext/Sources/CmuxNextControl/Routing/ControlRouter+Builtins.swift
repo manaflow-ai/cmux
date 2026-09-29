@@ -1,4 +1,5 @@
 public import CmuxNextSettings
+import CmuxNextActions
 import Foundation
 
 /// The router's own methods. Reads use the snapshot lane; `action.run`
@@ -110,6 +111,9 @@ extension ControlRouter {
                 "action": .string(action.id), "requires": .array(action.requires.map(JSONValue.string)),
             ])
         }
+        if action.isDestructive, request.arguments["confirm"] != .bool(true) {
+            throw Self.confirmationRequired(action.id)
+        }
         let executor = self.executor
         // `wait: true` answers after the daemon applied the work the handler
         // started (its command replies), within the request deadline.
@@ -142,7 +146,15 @@ extension ControlRouter {
             throw ControlError(code: "disabled", message: "\(action.id) is disabled right now", data: ["action": .string(action.id)])
         case .refused(let reason):
             throw ControlError(code: "unavailable", message: "\(action.id) unavailable: \(reason)", data: ["action": .string(action.id), "reason": .string(reason)])
+        case .confirmationRequired:
+            throw Self.confirmationRequired(action.id)
         }
+    }
+
+    /// Typed refusal for a destructive action run without `confirm: true`.
+    static func confirmationRequired(_ id: String) -> ControlError {
+        ControlError(code: "confirmation_required", message: ActionRegistry.confirmationRequiredReason(forRawID: id),
+                     data: ["action": .string(id), "argument": .string(ActionArgument.confirmName)])
     }
 
     // MARK: - settings

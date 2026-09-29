@@ -185,7 +185,8 @@ extension ActionCatalog {
                 title: String(localized: "action.closeWorkspace", defaultValue: "Close Workspace", bundle: .module),
                 keywords: ["remove"], defaultShortcut: Shortcut("w", modifiers: [.command, .shift]),
                 category: .workspace, symbol: "xmark.square", surfaces: [.palette, .keyboard, .menu, .contextMenu],
-                targets: [.workspace], cliName: "workspace close", mainMenu: .file
+                targets: [.workspace], cliName: "workspace close", mainMenu: .file,
+                destructive: true
             ),
             ActionDescriptor(
                 id: "palette.closeOtherWorkspaces",
@@ -342,7 +343,8 @@ extension ActionCatalog {
                 id: "workspaceGroup.delete",
                 title: String(localized: "action.workspaceGroup.delete", defaultValue: "Delete Group", bundle: .module),
                 keywords: ["group", "remove"], category: .workspace, symbol: "trash", surfaces: [.contextMenu],
-                targets: [.workspaceGroup], cliName: "workspace-group delete"
+                targets: [.workspaceGroup], cliName: "workspace-group delete",
+                destructive: true
             ),
             ActionDescriptor(
                 id: "workspaceGroup.editConfig",

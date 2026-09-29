@@ -42,6 +42,13 @@ public struct ActionDescriptor: Identifiable, Sendable {
     /// Main menu the action appears in, if any.
     public var mainMenu: ActionMainMenu?
     public var isDebugOnly: Bool
+    /// Deletes or closes something the user cannot get back (a Cloud
+    /// machine, a workspace group, a workspace with running processes, a
+    /// tab group). The schema gains an optional bool `confirm` argument.
+    /// Keyboard, menu, and palette runs ask the registry's
+    /// `confirmationPresenter` first; a scripted run must pass
+    /// `confirm: true` (CLI `--confirm`) or is refused.
+    public var isDestructive: Bool
 
     public init(
         id: ActionID,
@@ -58,7 +65,8 @@ public struct ActionDescriptor: Identifiable, Sendable {
         targets: [ActionTargetKind] = [],
         cliName: String? = nil,
         mainMenu: ActionMainMenu? = nil,
-        isDebugOnly: Bool = false
+        isDebugOnly: Bool = false,
+        destructive: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -71,6 +79,10 @@ public struct ActionDescriptor: Identifiable, Sendable {
         self.surfaces = surfaces
         self.requires = requires
         self.arguments = arguments
+        if destructive, !arguments.contains(where: { $0.name == ActionArgument.confirmName }) {
+            self.arguments.append(CatalogArgument.confirmBool)
+        }
+        self.isDestructive = destructive
         self.targets = targets
         self.cliName = cliName ?? Self.defaultCLIName(for: id)
         self.mainMenu = mainMenu

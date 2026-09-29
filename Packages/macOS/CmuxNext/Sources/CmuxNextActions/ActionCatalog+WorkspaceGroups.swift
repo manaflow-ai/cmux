@@ -81,7 +81,8 @@ extension ActionCatalog {
                 id: "workspaceGroup.closeWorkspaces",
                 title: String(localized: "action.workspaceGroup.closeWorkspaces", defaultValue: "Close All Workspaces in Group", bundle: .module),
                 keywords: ["group", "remove"], category: .workspace, symbol: "xmark.square", surfaces: [.palette],
-                targets: [.workspaceGroup], cliName: "workspace-group close-workspaces"
+                targets: [.workspaceGroup], cliName: "workspace-group close-workspaces",
+                destructive: true
             ),
             ActionDescriptor(
                 id: "workspaceGroup.moveToNewWindow",

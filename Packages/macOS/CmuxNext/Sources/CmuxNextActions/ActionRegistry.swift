@@ -49,6 +49,10 @@ public final class ActionRegistry {
 
     /// Sees every `refuse(_:)` reason (the App logs it and beeps).
     @ObservationIgnored public var refusalObserver: (@MainActor (String) -> Void)?
+
+    /// Confirms destructive actions run from the keyboard, menu, or palette
+    /// (`ActionRegistry+Confirmation`). Nil refuses them.
+    @ObservationIgnored public var confirmationPresenter: ConfirmationPresenter?
     @ObservationIgnored public internal(set) var isCapturingRefusal = false
     @ObservationIgnored var capturedRefusal: String?
     @ObservationIgnored var capturedWork: [ActionWork]?
@@ -247,6 +251,7 @@ public final class ActionRegistry {
             argumentCollector(id, invocation)
             return true
         }
+        if needsConfirmation(id, invocation) { return gateDestructive(id, invocation) }
         action.run(invocation)
         return true
     }

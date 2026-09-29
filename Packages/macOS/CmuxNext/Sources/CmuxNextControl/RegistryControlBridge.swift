@@ -89,6 +89,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
             target: request.target.flatMap(Self.actionTarget),
             arguments: request.arguments.compactMapValues(Self.actionValue)
         )
+        if registry.needsConfirmation(id, invocation) { return .confirmationRequired }
         var ran = false
         let refusal = registry.capturingRefusal { ran = registry.perform(id, invocation: invocation) }
         if let refusal { return .refused(refusal) }
@@ -152,6 +153,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         )
         // Snapshot for `action.list`; `action.run` re-reads it live.
         info.unavailableReason = registry.unavailableReason(for: descriptor.id)
+        info.isDestructive = descriptor.isDestructive
         return info
     }
 

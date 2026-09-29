@@ -39,6 +39,9 @@ public struct ActionArgument: Sendable, Hashable {
         self.isRequired = isRequired
     }
 
+    /// Name of the bool argument a destructive action takes (`--confirm`).
+    public nonisolated static let confirmName = "confirm"
+
     /// A copy that may be omitted.
     public var optional: ActionArgument {
         var copy = self

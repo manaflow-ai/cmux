@@ -29,14 +29,10 @@ extension CloudHandlers {
             CloudPresenter.askText(CloudStrings.renameMachineTitle, initial: session.machine.displayName ?? "", button: CloudStrings.rename,
                                    in: window(context)) { name in if let name { rename(name) } }
         }
+        // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            let kill = { run("kill machine", context) { try await cloud.deleteMachine(session.machineID) } }
-            // A scripted run (control socket) cannot answer a sheet; its
-            // explicit command is the confirmation.
-            if registry.isCapturingRefusal { return kill() }
-            CloudPresenter.confirm(CloudStrings.killMachineTitle, CloudStrings.killMachineBody, button: CloudStrings.kill,
-                                   in: window(context)) { confirmed in if confirmed { kill() } }
+            run("kill machine", context) { try await cloud.deleteMachine(session.machineID) }
         }
         bind("cloudCopyMachineID", registry, reason: reason) { invocation in CloudPresenter.copy(try machine(invocation, context).machineID) }
         bind("cloudCopyPort", registry, reason: reason) { invocation in

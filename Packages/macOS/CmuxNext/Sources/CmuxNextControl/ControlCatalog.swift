@@ -87,6 +87,9 @@ public struct ControlActionInfo: Sendable, Hashable {
     /// reaches the executor even out of context, which re-reads the live
     /// reason and reports it before the context check.
     public var unavailableReason: String?
+    /// Destructive: `action.run` requires `confirm: true`
+    /// (`ActionDescriptor.isDestructive`).
+    public var isDestructive = false
 
     public init(
         id: String, title: String, category: String, categoryTitle: String, cliName: String, symbol: String,
@@ -131,6 +134,7 @@ public struct ControlActionInfo: Sendable, Hashable {
             "available": .bool(isAvailable(contextMask: contextMask, debugActionsAvailable: debugActionsAvailable)),
             "bound": .bool(isBound),
             "debug_only": .bool(isDebugOnly),
+            "destructive": .bool(isDestructive),
         ]
         if let mainMenu { members["main_menu"] = .string(mainMenu) }
         if let unavailableReason { members["unavailable_reason"] = .string(unavailableReason) }
