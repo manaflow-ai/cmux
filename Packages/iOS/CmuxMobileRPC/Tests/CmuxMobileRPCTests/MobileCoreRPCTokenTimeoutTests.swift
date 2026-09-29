@@ -188,7 +188,7 @@ import Testing
         let tokenProvider = CancellationIgnoringTokenProvider()
         let deadline = RPCDialDeadlineGate()
         let gate = RPCStackTokenGate(timedOutResetNanoseconds: 3_600_000_000_000,
-            taskTimeout: RPCTaskTimeout(sleep: { _ in try await deadline.sleep() }))
+            taskTimeout: RPCTaskTimeout(sleep: { _ in try await deadline.waitForExpiration() }))
         await expireToken(gate: gate, tokenProvider: tokenProvider, deadline: deadline, startCount: 1)
         #expect(await tokenProvider.startCount == 1)
 
@@ -215,7 +215,7 @@ import Testing
         let tokenProvider = CancellationIgnoringTokenProvider()
         let deadline = RPCDialDeadlineGate()
         let gate = RPCStackTokenGate(timedOutResetNanoseconds: 0,
-            taskTimeout: RPCTaskTimeout(sleep: { _ in try await deadline.sleep() }))
+            taskTimeout: RPCTaskTimeout(sleep: { _ in try await deadline.waitForExpiration() }))
         await expireToken(gate: gate, tokenProvider: tokenProvider, deadline: deadline, startCount: 1)
         #expect(await tokenProvider.startCount == 1)
         await expireToken(gate: gate, tokenProvider: tokenProvider, deadline: deadline, startCount: 2)
@@ -393,7 +393,7 @@ import Testing
         let tokenProvider = CancellationIgnoringTokenProvider()
         let deadline = RPCDialDeadlineGate()
         let gate = RPCStackTokenGate(timedOutResetNanoseconds: 0,
-            taskTimeout: RPCTaskTimeout(sleep: { _ in try await deadline.sleep() }))
+            taskTimeout: RPCTaskTimeout(sleep: { _ in try await deadline.waitForExpiration() }))
 
         let first = Task {
             try await gate.token(timeoutNanoseconds: 60 * 1_000_000_000) {

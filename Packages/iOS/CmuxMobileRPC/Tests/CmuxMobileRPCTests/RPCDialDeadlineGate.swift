@@ -5,7 +5,7 @@ actor RPCDialDeadlineGate {
     private var armedCount = 0
     private var armedWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
-    func sleep() async throws {
+    func waitForExpiration() async throws {
         let id = UUID()
         try await withTaskCancellationHandler {
             try Task.checkCancellation()

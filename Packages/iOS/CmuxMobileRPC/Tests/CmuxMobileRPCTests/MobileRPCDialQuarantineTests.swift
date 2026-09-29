@@ -15,7 +15,7 @@ import Testing
         let old = MobileCoreRPCSession(connectAttemptKey: key, connectAttemptRegistry: registry,
                                       makeTransport: { hung }, diagnosticTransport: .iroh,
                                       transportConnectObserver: { _ = events.continuation.yield($0) },
-                                      taskTimeout: RPCTaskTimeout(sleep: { _ in try await clock.sleep() }))
+                                      taskTimeout: RPCTaskTimeout(sleep: { _ in try await clock.waitForExpiration() }))
         let payload = try MobileCoreRPCClient.requestData(method: "mobile.host.status", id: "old")
         let deadline = DispatchTime.now().uptimeNanoseconds + 60_000_000_000
         let first = Task {
