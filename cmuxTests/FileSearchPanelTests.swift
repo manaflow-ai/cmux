@@ -368,7 +368,7 @@ struct FilePreviewRevealLocationTests {
 /// an SSH host.
 @Suite("SSH search script", .serialized)
 struct SSHRipgrepScriptTests {
-    private static let ripgrep: String? = ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "/usr/bin/rg"]
+    static let ripgrep: String? = ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "/usr/bin/rg"]
         .first { FileManager.default.isExecutableFile(atPath: $0) }
 
     private func run(script: String, matchLimit: Int = 100) async -> (FileSearchCompletion, [FileSearchFileMatches]) {
@@ -392,7 +392,7 @@ struct SSHRipgrepScriptTests {
         #expect(groups.isEmpty)
     }
 
-    @Test("Quotes, backslashes and non-ASCII survive the remote shell", .enabled(if: ripgrep != nil))
+    @Test("Quotes, backslashes and non-ASCII survive the remote shell", .enabled(if: SSHRipgrepScriptTests.ripgrep != nil))
     func quoting() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-ssh-script-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }

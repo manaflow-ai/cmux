@@ -139,7 +139,36 @@ extension FileSearchPanelView: NSSearchFieldDelegate {
         guard let target, let matchIndex = target.matchIndex else { return }
         let node = tree.files[target.fileIndex].matchNode(at: matchIndex)
         select(item: node, scroll: true)
-        open(file: node.file, match: node.match)
+        openKeepingFocus(file: node.file, match: node.match)
+    }
+
+    /// F4 keeps keyboard focus in Find so it can be pressed again, as in
+    /// VS Code: a local file shows in its (reused) preview without taking
+    /// focus. Anything else opens through the normal path.
+    private func openKeepingFocus(file: FileSearchFileNode, match: FileSearchMatch) {
+        let hasPreferredEditor = PreferredEditorSettingsStore(defaults: .standard).resolvedCommand != nil
+        let activation = FileExplorerDoubleClickActionSettings.fileActivation(
+            action: FileExplorerDoubleClickActionSettings.resolvedAction(),
+            hasPreferredEditorCommand: hasPreferredEditor
+        )
+        guard case .preview = activation,
+              coordinator.store.provider is LocalFileExplorerProvider,
+              resourceContextID == coordinator.store.resourceContextID,
+              let window,
+              let workspaceID = coordinator.store.workspaceRootIdentity,
+              let workspace = AppDelegate.shared?.contextForMainTerminalWindow(window)?
+                .tabManager.tabs.first(where: { $0.id == workspaceID }),
+              !workspace.usesRemoteDirectoryProvenance,
+              let pane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            open(file: file, match: match)
+            return
+        }
+        recordHistory()
+        FilePreviewRevealCenter.shared.request(
+            FilePreviewRevealLocation(line: match.lineNumber, column: match.column, length: match.length),
+            forPath: file.path
+        )
+        _ = workspace.openFileSurfaces(inPane: pane, filePaths: [file.path], focus: false, reuseExisting: true)
     }
 
     // MARK: - Opening
