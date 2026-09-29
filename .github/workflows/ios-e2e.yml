@@ -13,7 +13,7 @@ name: iOS E2E
 # on unrelated PRs, which branch protection cannot require; a routed skip
 # still reports green.
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
   # The pull_request trigger stays off until the owner approves this check's
   # promotion (see docs/ci/ios-e2e.md): tests enter a CI lane by proposal and
   # approval, and the product-download stubs below would red every PR today.
@@ -183,7 +183,7 @@ jobs:
       success()
       && needs.route.outputs.run_e2e == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-14' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     outputs:
       # Debug/audit only. A job output is readable by dependents only after
@@ -198,6 +198,9 @@ jobs:
           persist-credentials: false
           # The app arrives prebuilt; the checkout is for the driver scripts.
           submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Download tagged Mac app product
         run: |
@@ -277,7 +280,7 @@ jobs:
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     # Simulator-capable pool: MACOS_RUNNER_IOS is the variable the iOS
     # simulator lanes read (test-ios.yml, ios-streamed-validate.yml).
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-14' || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     steps:
       - name: Checkout
