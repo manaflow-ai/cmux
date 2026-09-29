@@ -468,6 +468,14 @@ def resolve(
     requested = (requested or "").strip()
     if requested and requested != "auto":
         if requested not in BLACKSMITH_NO_UI:
+            # An owned pool asked for by name still takes its root runners, as auto_runner() does: glaeda gives
+            # the build a canonical root, and only the root runners' gate keeps a root free for what they take.
+            # On the pool label a non-root runner took the build, and E2E builds on two of them held both of a
+            # mini's roots while its root runner's compile admission waited (2026-09-28, cmux10s).
+            root = pr_runner_pool.root_label(requested)
+            if root and pr_runner_pool.slots(owned_slots, pr_xcode_app).get(root, 0) > 0:
+                log(f"{requested} -> {root} (an E2E build takes a canonical root)")
+                return root
             return requested
         return ui_owned_runner(requested, test_filter=test_filter, owned=owned, owned_ui=owned_ui, order=order,
                                owned_slots=owned_slots, pr_xcode_app=pr_xcode_app, log=log) or requested

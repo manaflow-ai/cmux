@@ -232,6 +232,24 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
                 }
 
+                if let store {
+                    Section {
+                        NavigationLink {
+                            SSHKeysView(computers: store.sshComputers)
+                        } label: {
+                            Label(SSHCopy().keysTitle, systemImage: "key")
+                        }
+                        .accessibilityIdentifier("ssh.settings.keys")
+                    } header: {
+                        Text(SSHCopy().sectionTitle)
+                    } footer: {
+                        Text(L10n.string(
+                            "mobile.ssh.settings.keys.footer",
+                            defaultValue: "Keys this iPhone uses to log in to SSH computers."
+                        ))
+                    }
+                }
+
                 if let irohSettingsController {
                     Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
                         NavigationLink {

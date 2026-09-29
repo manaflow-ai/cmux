@@ -6,14 +6,16 @@ run-name: "${{ github.event_name == 'workflow_dispatch' && format('PR media for 
 # the change without setting anything up. scripts/ci/pr_media.py has the rules.
 #
 # It runs beside CI, never in it: nothing here is a required check or part of
-# ci-status, so it adds nothing to a pull request's verdict. It starts with every
-# CI run attempt and returns at once for anything but a same-repository pull
-# request whose CI ran the dogfood build job (app pull requests; docs or web
-# only changes skip it). Each tour is a DogfoodScenarioUITests dispatch of
-# test-e2e.yml, first with --adopt-only so it loads the app and UI test bundle
-# the pull request's CI compiled. When CI's build is on a pool the tour's
-# runner cannot load, or CI reused main's build, an app pull request compiles
-# its head once for one tour (pr_media.py tour()).
+# ci-status, so it adds nothing to a pull request's verdict. It starts when a
+# CI run attempt completes, so nothing here holds a runner while CI builds, and
+# returns at once for anything but a same-repository pull request whose CI
+# builds the app (docs or web only changes do not). The dogfood build job is
+# opt-in (dev-build label); without it, media posts the sticky comment itself.
+# Each tour is a DogfoodScenarioUITests dispatch of test-e2e.yml with
+# --adopt-only, so it loads the app and UI test bundle the pull request's CI
+# compiled, or main's build of the same inputs when CI reused it. It never
+# compiles: a build the tour's runner cannot load gets a skip note, and only a
+# manual dispatch with allow_compile compiles (pr_media.py tour()).
 #
 # A pull_request run takes ci.yml from the pull request, so PR CI holds no
 # actions or contents write token. This workflow, and the scripts it runs,
@@ -22,7 +24,7 @@ run-name: "${{ github.event_name == 'workflow_dispatch' && format('PR media for 
 on:
   workflow_run:
     workflows: [CI]
-    types: [requested]
+    types: [completed]
   workflow_dispatch:
     inputs:
       pr:
@@ -35,7 +37,7 @@ on:
         default: false
         type: boolean
       allow_compile:
-        description: Compile the app for the tour straight away instead of first trying CI's build
+        description: Compile the app for the tour instead of adopting CI's build
         required: false
         default: false
         type: boolean
@@ -52,8 +54,8 @@ jobs:
     name: Pick tours
     if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository) }}
     runs-on: ubuntu-24.04 # github-hosted-required: reads the pull request and mostly waits; keeps CI's Linux pool free
-    # Waits for CI's dogfood build job, which follows `changes`.
-    timeout-minutes: 30
+    # CI has completed, so its reads return at once.
+    timeout-minutes: 10
     permissions:
       actions: read
       contents: read
@@ -64,7 +66,6 @@ jobs:
       build_sha: ${{ steps.plan.outputs.build_sha }}
       merge_sha: ${{ steps.plan.outputs.merge_sha }}
       compile: ${{ steps.plan.outputs.compile }}
-      compile_tour: ${{ steps.plan.outputs.compile_tour }}
       tours: ${{ steps.plan.outputs.tours }}
       run: ${{ steps.plan.outputs.run }}
     steps:
@@ -92,6 +93,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_media.py
             scripts/ci/find_admitted_build.py
+            scripts/ci/product_input_identity.py
             dogfood/scenarios
           sparse-checkout-cone-mode: false
 
@@ -112,10 +114,9 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.run != '' && needs.plan.outputs.run != '[]' }}
     runs-on: ubuntu-24.04 # github-hosted-required: holds actions write and mostly waits for the tour run
-    # A tour dispatch can wait up to 50 minutes for the compile it adopts,
-    # then up to 90 for the run (pr_media.RUN_WAIT_SECONDS), and when that
-    # build does not load, up to 90 more for a run that compiles its own.
-    timeout-minutes: 300
+    # CI's build is done, so a tour waits only for its run
+    # (pr_media.RUN_WAIT_SECONDS, 90 minutes, most of it queueing).
+    timeout-minutes: 120
     # A newer push to the same pull request replaces this tour's media.
     concurrency:
       group: pr-media-${{ needs.plan.outputs.pr }}-${{ matrix.tour }}
@@ -123,8 +124,6 @@ jobs:
     permissions:
       actions: write
       contents: read
-      # pr_media.head_moved re-reads the pull request once the read token expires.
-      pull-requests: read
     strategy:
       fail-fast: false
       matrix:
@@ -187,12 +186,11 @@ jobs:
           # The tour file comes from HEAD_SHA; the app from the build CI made
           # for BUILD_SHA, which differs when this push changed no app input.
           BUILD_SHA: ${{ needs.plan.outputs.build_sha }}
+          # The merge CI tested, which a tour of main's build dispatches.
+          MERGE_SHA: ${{ needs.plan.outputs.merge_sha }}
           TOUR: ${{ matrix.tour }}
-          # An app pull request compiles once when no CI build loads on the
-          # tour's runner (pr_media.py COMPILE_FALLBACK).
-          COMPILE: ${{ inputs.allow_compile && 'now' || needs.plan.outputs.compile || 'never' }}
-          COMPILE_TOUR: ${{ needs.plan.outputs.compile_tour }}
-          PR: ${{ needs.plan.outputs.pr }}
+          # Adopt CI's build ("ci") or main's ("main"); only allow_compile compiles.
+          COMPILE: ${{ inputs.allow_compile && 'now' || needs.plan.outputs.compile || 'ci' }}
           # A job token cannot list repository variables (HTTP 403), so the
           # dispatcher reads its routing inputs from these instead.
           CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}
@@ -214,7 +212,11 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pr-media-${{ matrix.tour }}
-          path: ${{ runner.temp }}/media/${{ matrix.tour }}
+          # The folder above the tour's, so the archive holds <tour>/...: a
+          # download of a single artifact lands without a per-artifact folder.
+          # The hidden .frames-<tour> scratch next to it stays out.
+          path: ${{ runner.temp }}/media
+          include-hidden-files: false
           if-no-files-found: ignore
           overwrite: true
           retention-days: 3
@@ -248,7 +250,7 @@ jobs:
         with:
           pattern: pr-media-*
           path: ${{ runner.temp }}/media
-          merge-multiple: false
+          merge-multiple: true
 
       - name: Upload the media and update the dogfood comment
         env:
@@ -259,8 +261,4 @@ jobs:
           TOURS: ${{ needs.plan.outputs.tours }}
         run: |
           set -euo pipefail
-          # download-artifact puts each artifact in a folder named for it.
-          for dir in "$RUNNER_TEMP"/media/pr-media-*; do
-            [ -d "$dir" ] && mv "$dir" "$RUNNER_TEMP/media/${dir##*/pr-media-}"
-          done
           python3 scripts/ci/pr_media.py publish --media "$RUNNER_TEMP/media"

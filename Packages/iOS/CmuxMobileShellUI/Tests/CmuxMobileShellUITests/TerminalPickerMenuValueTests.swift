@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShellModel
 import Testing
 @testable import CmuxMobileShellUI
@@ -155,6 +156,69 @@ import Testing
             let legacyMac = value(snapshotRows: rows, supportsBrowserStream: false)
             #expect(legacyMac.macSurfaceRows.map(\.id) == [.macSurface(browser.id), .macSurface(markdown.id)])
         }
+    }
+
+    /// SSH computers' browser tabs are not on a Mac, so the switcher's
+    /// browser section is named by the computer's kind.
+    @Test func browserSectionIsNamedByComputerKind() {
+        let terminal = MobileTerminalPreview(id: "terminal-1", name: "Shell 1")
+        func value(isSSHComputer: Bool) -> TerminalPickerMenuValue {
+            TerminalPickerMenuValue(
+                liveTerminals: [terminal],
+                snapshotRows: [],
+                selectedID: terminal.id,
+                canCreateWorkspace: true,
+                hasActiveBrowser: false,
+                supportsBrowserStream: true,
+                isSSHComputer: isSSHComputer
+            )
+        }
+        #expect(value(isSSHComputer: false).browserSectionTitle == "Mac Browsers")
+        #expect(value(isSSHComputer: true).browserSectionTitle == "Browsers")
+        // The kind is part of the menu value, so the menu rebuilds on change.
+        #expect(value(isSSHComputer: false) != value(isSSHComputer: true))
+    }
+
+    @Test func onDeviceStreamedTabKeepsItsBrowserRowChecked() {
+        let rows = ["panel-1", "panel-2"].map { id in
+            BrowserStreamPickerRow(MobileBrowserPanelDescriptor(
+                panelID: id, workspaceID: "ws", url: "http://localhost:8765/", title: id,
+                pageWidth: 0, pageHeight: 0, canGoBack: false, canGoForward: false, isLoading: false
+            ))
+        }
+        func value(hasActiveBrowser: Bool, streamed: String? = nil, onDevice: String? = nil) -> TerminalPickerMenuValue {
+            TerminalPickerMenuValue(
+                liveTerminals: [MobileTerminalPreview(id: "terminal-1", name: "Build")],
+                snapshotRows: [],
+                selectedID: "terminal-1",
+                canCreateWorkspace: true,
+                hasActiveBrowser: hasActiveBrowser,
+                browserStreamRows: rows,
+                supportsBrowserStream: true,
+                activeBrowserStreamPanelID: streamed,
+                onDeviceBrowserStreamPanelID: onDevice
+            )
+        }
+
+        // Streamed and On iPhone check the same tab row, never New Browser.
+        let streamed = value(hasActiveBrowser: false, streamed: "panel-2")
+        let onDevice = value(hasActiveBrowser: true, onDevice: "panel-2")
+        #expect(streamed.checkedBrowserStreamPanelID == "panel-2")
+        #expect(onDevice.checkedBrowserStreamPanelID == "panel-2")
+        #expect(onDevice.checksNewBrowser == false)
+        #expect(onDevice.checkedRowID == nil)
+
+        // A plain phone-local browser is New Browser.
+        let plain = value(hasActiveBrowser: true)
+        #expect(plain.checkedBrowserStreamPanelID == nil)
+        #expect(plain.checksNewBrowser)
+
+        // A tab the Mac closed leaves New Browser checked; a stale link
+        // without a visible browser checks nothing.
+        #expect(value(hasActiveBrowser: true, onDevice: "gone").checksNewBrowser)
+        let hidden = value(hasActiveBrowser: false, onDevice: "panel-1")
+        #expect(hidden.checkedBrowserStreamPanelID == nil)
+        #expect(hidden.checksNewBrowser == false)
     }
 
     private func menuValue(
