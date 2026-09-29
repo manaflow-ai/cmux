@@ -21,6 +21,8 @@ public struct MobileTerminalSizingPresentation: Equatable, Sendable {
     public let otherParticipants: [TerminalSizingParticipantState]
     /// This phone's viewport, when known.
     public let viewer: TerminalGridSize?
+    /// The viewport the host last acknowledged from this phone, if any.
+    public let localViewport: TerminalGridSize?
 
     /// Creates the presentation.
     /// - Parameters:
@@ -44,6 +46,18 @@ public struct MobileTerminalSizingPresentation: Equatable, Sendable {
         selfParticipant = selfRow
         otherParticipants = state.participants.filter { $0.id != selfParticipantID }
         viewer = localViewport ?? selfRow?.participant.viewport
+        self.localViewport = localViewport
+    }
+
+    /// Whether this size state already reflects this phone's latest
+    /// acknowledged viewport: the host lists it on this phone's row. Until
+    /// then a grid mismatch can be the old viewport's, and the sizing chrome
+    /// must not draw.
+    public var viewportConfirmed: Bool {
+        guard let localViewport, let hostViewport = selfParticipant?.participant.viewport else {
+            return false
+        }
+        return localViewport == hostViewport
     }
 
     /// Whether this phone's viewport differs from the grid.
@@ -62,6 +76,13 @@ public struct MobileTerminalSizingPresentation: Equatable, Sendable {
     public var hiddenRows: Int {
         guard let viewer else { return 0 }
         return max(0, grid.rows - viewer.rows)
+    }
+
+    /// Whether this phone shows the grid scaled down: the grid is wider than
+    /// this phone, so the surface draws it whole at the viewport width
+    /// instead of hiding columns.
+    public var isScaledToFit: Bool {
+        hiddenColumns > 0
     }
 
     /// Whether the size chip shows. It shows only while this phone's

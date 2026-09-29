@@ -283,14 +283,16 @@ struct TerminalSizeSheet: View {
 }
 
 /// A participant's avatar: the initial of their name, or their device glyph,
-/// on a neutral grey fill. The owner gets a thin neutral ring.
+/// on the sizing grey: the app's separator token at half its opacity. The
+/// owner gets a thin ring in the separator token itself, matching the
+/// surface's grid border.
 private struct TerminalSizingAvatar: View {
     let participant: TerminalSizingParticipant
     let isOwner: Bool
 
     var body: some View {
         Circle()
-            .fill(Color(.tertiarySystemFill))
+            .fill(PlatformPalette.separator.opacity(0.5))
             .frame(width: 28, height: 28)
             .overlay {
                 if let initial = MobileTerminalSizingPresentation.givenName(participant.displayName)?.first {
@@ -306,7 +308,7 @@ private struct TerminalSizingAvatar: View {
                 if isOwner {
                     Circle()
                         .inset(by: -2)
-                        .stroke(Color(.label).opacity(0.5), lineWidth: 1)
+                        .stroke(PlatformPalette.separator, lineWidth: 1)
                 }
             }
             .accessibilityHidden(true)

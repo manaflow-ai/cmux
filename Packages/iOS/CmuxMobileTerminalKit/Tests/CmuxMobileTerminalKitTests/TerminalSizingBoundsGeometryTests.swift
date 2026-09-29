@@ -33,8 +33,7 @@ import Testing
         #expect(geometry.hiddenRows == 0)
     }
 
-    /// Smaller phone: the grid fills the viewport and is cut on the trailing
-    /// edge (columns) and the top edge (rows stay bottom-pinned).
+    /// A magnified grid runs past the trailing and top edges.
     @Test func smallerViewerFadesCutEdges() {
         let geometry = TerminalSizingBoundsGeometry(
             gridColumns: 118, gridRows: 38, viewerColumns: 50, viewerRows: 30,
@@ -50,16 +49,29 @@ import Testing
         #expect(geometry.cutFades[1].rect == CGRect(x: 0, y: 0, width: 400, height: depth))
     }
 
-    @Test func narrowerButTallerViewerMixesCutAndHatch() {
-        let grid = CGRect(x: 0, y: 100, width: 400, height: 500)
+    /// A wider grid scaled to the viewport width shows whole: no cut edge,
+    /// hatch above the bottom-pinned grid.
+    @Test func widerGridScaledToFitHasNoCutEdge() {
+        let grid = CGRect(x: 0, y: 350, width: 400, height: 250)
         let geometry = TerminalSizingBoundsGeometry(
             gridColumns: 80, gridRows: 25, viewerColumns: 50, viewerRows: 30,
             viewportRect: viewport, renderRect: grid
         )
         #expect(geometry.hiddenColumns == 30)
         #expect(geometry.hiddenRows == 0)
-        #expect(geometry.cutFades.map(\.edge) == [.trailing])
-        #expect(geometry.hatchRects == [CGRect(x: 0, y: 0, width: 400, height: 100)])
+        #expect(geometry.cutFades.isEmpty)
+        #expect(geometry.hatchRects == [CGRect(x: 0, y: 0, width: 400, height: 350)])
+    }
+
+    /// A magnified grid panned to its middle is cut on all four edges.
+    @Test func pannedMagnifiedGridFadesEveryCutEdge() {
+        let geometry = TerminalSizingBoundsGeometry(
+            gridColumns: 175, gridRows: 78, viewerColumns: 50, viewerRows: 30,
+            viewportRect: viewport, renderRect: CGRect(x: -200, y: -100, width: 1000, height: 900)
+        )
+        #expect(geometry.borderRect == viewport)
+        #expect(geometry.hatchRects.isEmpty)
+        #expect(geometry.cutFades.map(\.edge) == [.trailing, .leading, .top, .bottom])
     }
 
     @Test func decorationBuildsTheSameGeometry() {

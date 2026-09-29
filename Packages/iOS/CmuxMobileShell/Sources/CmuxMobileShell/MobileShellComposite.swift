@@ -15335,9 +15335,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspaceID: workspaceID,
             terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
         )
-        let reportedViewport = reportedViewportSizesByTerminalKey[viewportKey]
-            .map { (clientID: clientID, columns: $0.columns, rows: $0.rows,
-                    generation: terminalViewportGeneration(for: surfaceID)) }
+        // The same fields carry `device_kind` and `device_name`, so the host
+        // registers this phone as a sizing participant with the replay itself
+        // and the first frame is sized to the settled shared grid.
+        let replayViewportParams = MobileTerminalViewportParameters.replay(
+            clientID: clientID,
+            viewport: reportedViewportSizesByTerminalKey[viewportKey],
+            generation: terminalViewportGeneration(for: surfaceID),
+            identity: terminalDeviceIdentity
+        )
         let replayTask = Task { @MainActor [weak self] in
             let replayResult: Result<Data, any Error>
             do {
@@ -15345,14 +15351,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "workspace_id": remoteWorkspaceID.rawValue,
                     "surface_id": surfaceID,
                 ]
-                if let reportedViewport {
-                    params["client_id"] = reportedViewport.clientID
-                    params["viewport_columns"] = reportedViewport.columns
-                    params["viewport_rows"] = reportedViewport.rows
-                    if let generation = reportedViewport.generation {
-                        params["viewport_generation"] = Int(clamping: generation)
-                    }
-                }
+                params.merge(replayViewportParams) { _, new in new }
                 // Screen-anchored replays hydrate this device's deep local
                 // scrollback only when the mirror has none (cold attach, a
                 // rebuilt-blank surface). Steady-state replays request no

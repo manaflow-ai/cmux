@@ -133,6 +133,7 @@ private func sizeState(
         #expect(presentation.viewportDiffers)
         #expect(presentation.hiddenColumns == 68)
         #expect(presentation.hiddenRows == 8)
+        #expect(presentation.isScaledToFit)
         #expect(presentation.owner?.id == "c3")
         #expect(!presentation.ownerIsSelf)
         #expect(presentation.showsChip)
@@ -149,6 +150,62 @@ private func sizeState(
         #expect(presentation.viewportDiffers)
         #expect(presentation.hiddenColumns == 0)
         #expect(presentation.hiddenRows == 0)
+        #expect(!presentation.isScaledToFit)
+    }
+
+    /// A phone as wide as the grid but shorter keeps 1:1 text; the chip does
+    /// not say "scaled".
+    @Test func shorterPhoneIsNotScaled() {
+        let presentation = MobileTerminalSizingPresentation(
+            state: sizeState(generation: 1),
+            selfParticipantID: "mobile:phone",
+            localViewport: TerminalGridSize(cols: 118, rows: 20)
+        )
+        #expect(presentation.viewportDiffers)
+        #expect(presentation.hiddenRows == 18)
+        #expect(!presentation.isScaledToFit)
+    }
+
+    /// Connect: the host's state still lists the phone's previous viewport,
+    /// so the mismatch is not settled yet.
+    @Test func stateListingAnOlderViewportIsUnconfirmed() {
+        let presentation = MobileTerminalSizingPresentation(
+            state: sizeState(generation: 1),
+            selfParticipantID: "mobile:phone",
+            localViewport: TerminalGridSize(cols: 54, rows: 44)
+        )
+        #expect(presentation.viewportDiffers)
+        #expect(!presentation.viewportConfirmed)
+    }
+
+    @Test func stateListingTheAcknowledgedViewportIsConfirmed() {
+        let presentation = MobileTerminalSizingPresentation(
+            state: sizeState(generation: 2),
+            selfParticipantID: "mobile:phone",
+            localViewport: TerminalGridSize(cols: 50, rows: 30)
+        )
+        #expect(presentation.viewportConfirmed)
+        #expect(presentation.viewportDiffers)
+    }
+
+    /// Before this phone's first acknowledged report, a host row alone (for
+    /// example from an earlier session) confirms nothing.
+    @Test func noAcknowledgedViewportIsUnconfirmed() {
+        let presentation = MobileTerminalSizingPresentation(
+            state: sizeState(generation: 1),
+            selfParticipantID: "mobile:phone",
+            localViewport: nil
+        )
+        #expect(!presentation.viewportConfirmed)
+    }
+
+    @Test func missingSelfRowIsUnconfirmed() {
+        let presentation = MobileTerminalSizingPresentation(
+            state: sizeState(generation: 1),
+            selfParticipantID: "mobile:other",
+            localViewport: TerminalGridSize(cols: 50, rows: 30)
+        )
+        #expect(!presentation.viewportConfirmed)
     }
 
     @Test func soleMatchingViewerShowsNoChip() {
@@ -294,6 +351,29 @@ private func sizeState(
         #expect(params["viewport_rows"] as? Int == 30)
         #expect(params["viewport_generation"] as? Int == 4)
         #expect(params.keys.contains("counts_override") == false)
+    }
+
+    @Test func replayCarriesViewportAndIdentity() {
+        let params = MobileTerminalViewportParameters.replay(
+            clientID: "c",
+            viewport: MobileTerminalViewportSize(columns: 54, rows: 44),
+            generation: 3,
+            identity: identity
+        )
+        #expect(params["client_id"] as? String == "c")
+        #expect(params["viewport_columns"] as? Int == 54)
+        #expect(params["viewport_rows"] as? Int == 44)
+        #expect(params["viewport_generation"] as? Int == 3)
+        #expect(params["device_kind"] as? String == "iphone")
+        #expect(params["device_name"] as? String == "Maya’s iPhone")
+        #expect(params.keys.contains("counts_override") == false)
+    }
+
+    @Test func replayWithoutViewportSendsNoSizingFields() {
+        let params = MobileTerminalViewportParameters.replay(
+            clientID: "c", viewport: nil, generation: 3, identity: identity
+        )
+        #expect(params.isEmpty)
     }
 
     @Test func countsOverrideSetAndClear() throws {

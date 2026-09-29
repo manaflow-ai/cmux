@@ -117,14 +117,17 @@ struct TerminalSharedSizingOverlay: View {
 }
 
 extension MobileTerminalSizingPresentation {
-    /// The surface decoration, or `nil` when the viewport matches the grid.
+    /// The surface decoration whenever the host published a size state and
+    /// this phone's viewport is known. The surface draws it only for a
+    /// settled mismatch (`TerminalSizingChromeGate`).
     var boundsDecoration: TerminalSizingBoundsDecoration? {
-        guard viewportDiffers, let viewer else { return nil }
+        guard let viewer else { return nil }
         return TerminalSizingBoundsDecoration(
             gridColumns: grid.cols,
             gridRows: grid.rows,
             viewerColumns: viewer.cols,
-            viewerRows: viewer.rows
+            viewerRows: viewer.rows,
+            viewportConfirmed: viewportConfirmed
         )
     }
 
