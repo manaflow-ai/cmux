@@ -107,6 +107,13 @@ public enum IrxLaneKind: String, Codable, Sendable {
     /// predates it cannot decode the descriptor and resets the stream, which
     /// the client treats as "replacement unavailable".
     case controlRepair = "control_repair"
+    /// Phone browser tunnel: one TCP connection opened from the Mac to the
+    /// descriptor's `host`/`port`, answered with an `IrxTunnelOpenReply`,
+    /// then raw bytes both ways (see `IrxTunnelHost`).
+    case tcpConnect = "tcp_connect"
+    /// Phone browser tunnel: the Mac's loopback listening ports, answered
+    /// with one `IrxListeningPortsReply` and a finished stream.
+    case listeningPorts = "listening_ports"
 }
 
 /// The first frame on every stream: which lane this is, plus lane-specific
@@ -121,6 +128,10 @@ public struct IrxLaneDescriptor: Codable, Equatable, Sendable {
     public var cursor: UInt64?
     /// Artifact byte offset.
     public var offset: UInt64?
+    /// `tcpConnect` destination host, as the phone's browser sent it.
+    public var host: String?
+    /// `tcpConnect` destination port.
+    public var port: Int?
     /// ``IrxLaneEncoding`` raw value applied to every byte after this
     /// descriptor; nil for identity. A string so a reader that meets a newer
     /// encoding can refuse that one lane instead of failing descriptor decode.
@@ -131,6 +142,8 @@ public struct IrxLaneDescriptor: Codable, Equatable, Sendable {
         resource: String? = nil,
         cursor: UInt64? = nil,
         offset: UInt64? = nil,
+        host: String? = nil,
+        port: Int? = nil,
         encoding: IrxLaneEncoding? = nil
     ) {
         v = IrxProtocol().version
@@ -138,6 +151,8 @@ public struct IrxLaneDescriptor: Codable, Equatable, Sendable {
         self.resource = resource
         self.cursor = cursor
         self.offset = offset
+        self.host = host
+        self.port = port
         self.encoding = encoding?.rawValue
     }
 }

@@ -488,9 +488,11 @@ checkout's clean would delete every package's `.build`, so
 `/Users/Shared/cmux-build-fleet/ci/spm-scratch/` outside the workspace, keyed
 by a hash of `xcodebuild -version`, `swift -version` and the workspace path,
 and SwiftPM rebuilds only what the change touched. The job holds its directory
-with a shared flock until it ends. The mini's scratch stays under 24 GiB, least
-recently built first out, whichever runner or Xcode left it, skipping the ones
-a job holds; a dropped directory is renamed to `.trash-*` before it is
+with a shared flock until it ends, or 65 minutes at most (past the job's
+60-minute timeout) if the runner dies mid-job. The mini's scratch stays under
+24 GiB, least recently used first out, whichever runner or Xcode left it,
+skipping the ones a job holds. Each directory's size is cached in a `.size`
+file beside it and measured again only after a later job used it; a dropped directory is renamed to `.trash-*` before it is
 deleted. `keep` out of space and `owned_spm_scratch.py evict` drop every
 directory no job holds.
 

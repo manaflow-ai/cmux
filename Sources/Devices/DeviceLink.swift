@@ -288,14 +288,14 @@ final class DeviceLink {
                 guard !Task.isCancelled, generation == self.generation, self.phase == .connected else { return }
                 self.terminalEvents.broadcast(.linkReconnected)
                 self.onChange?()
-            } catch is CancellationError {
-                return
             } catch {
                 guard !Task.isCancelled, generation == self.generation else { return }
                 let classified = DeviceLinkFailure.classify(error, hostName: record.deviceName)
                 self.lastFailure = classified
                 deviceLinkLog.error("device link connect failed \(self.instance.wireValue, privacy: .private(mask: .hash)) attempt=\(attempt): \(classified.code, privacy: .public)")
-                self.transition(self.applyPolicy(.connectFailed(classified)))
+                let event: DeviceLinkReconnectPolicy.Event = error is CancellationError
+                    ? .connectInterrupted : .connectFailed(classified)
+                self.transition(self.applyPolicy(event))
                 self.onChange?()
             }
         }

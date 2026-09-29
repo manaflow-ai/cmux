@@ -1959,6 +1959,38 @@ final class cmuxUITests: XCTestCase {
         assertPairingError(contains: "Enter a port from 1 to 65535", in: invalidPortApp)
     }
 
+    /// The error row sits below the pinned Pair button. A failed attempt must
+    /// bring it into view on its own, or tapping Pair looks like it did nothing.
+    @MainActor
+    func testAddDevicePairingErrorIsVisibleWithoutScrolling() throws {
+        let app = launchAddDeviceApp(environment: [
+            "CMUX_UITEST_ADD_DEVICE_HOST": "dev/path.local"
+        ])
+        defer { app.terminate() }
+
+        let pairButton = app.buttons["MobilePairButton"]
+        XCTAssertTrue(pairButton.waitForExistence(timeout: 8))
+        tap(pairButton, in: app)
+
+        let error = app.staticTexts["MobilePairingError"]
+        XCTAssertTrue(error.waitForExistence(timeout: 4))
+        // Frames are in screen space, so also require both to sit inside the
+        // app window: an error scrolled off the top is not visible either.
+        let appFrame = app.windows.firstMatch.frame
+        let visible = expectation(
+            for: NSPredicate { _, _ in
+                error.exists
+                    && error.frame.intersects(appFrame)
+                    && pairButton.frame.intersects(appFrame)
+                    && error.frame.maxY <= pairButton.frame.minY
+            },
+            evaluatedWith: nil
+        )
+        wait(for: [visible], timeout: 4)
+        XCTAssertTrue(error.frame.intersects(appFrame))
+        XCTAssertLessThanOrEqual(error.frame.maxY, pairButton.frame.minY)
+    }
+
     @MainActor
     func testManualHostConnectsAndNavigatesToWorkspace() async throws {
         let server = try MobileSyncMockHostServer()
@@ -7843,27 +7875,61 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testTerminalDropdownKeepsBottomScrollDuringWorkspaceRefresh() throws {
         let app = launchWorkspaceDetailRefreshingTerminalMenuPreviewApp()
+        assertTerminalDropdownKeepsBottomScrollDuringRefresh(in: app)
+    }
+
+    @MainActor
+    func testTerminalDropdownKeepsBottomScrollDuringBrowserRefresh() throws {
+        let app = launchWorkspaceDetailRefreshingTerminalMenuPreviewApp(environment: [
+            "CMUX_UITEST_TERMINAL_MENU_BROWSER_REFRESH": "1",
+        ])
+        assertTerminalDropdownKeepsBottomScrollDuringRefresh(in: app)
+    }
+
+    @MainActor
+    private func assertTerminalDropdownKeepsBottomScrollDuringRefresh(in app: XCUIApplication) {
+        defer { app.terminate() }
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         assertTerminalMenuItemExists("terminal-build", in: app)
+        let initialTitle = app.buttons["MobileTerminalMenuItem-terminal-build"].label
         let target = scrollTerminalMenuToItem("terminal-extra-24", in: app)
-        XCTAssertTrue(target.isHittable, "Bottom terminal must be visible before refresh pulses start.")
+        XCTAssertTrue(target.isHittable, "Bottom terminal must be visible before observing refreshes.")
+        capture("tabs-menu-scrolled-to-bottom")
 
         let refreshedTarget = app.buttons["MobileTerminalMenuItem-terminal-extra-24"]
         let deadline = Date().addingTimeInterval(3.0)
         while Date() < deadline {
             XCTAssertTrue(
                 refreshedTarget.exists && refreshedTarget.isHittable,
-                "Bottom terminal must stay visible and hittable while workspace refreshes update terminal titles."
+                "Bottom terminal must stay visible and hittable while workspace and browser titles refresh."
             )
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
+        capture("tabs-menu-bottom-after-background-refreshes")
         tapMenuItem(refreshedTarget, in: app)
         let selectedValue = app.buttons["MobileTerminalDropdown"].value as? String ?? ""
         XCTAssertTrue(
             selectedValue.contains("Terminal 24"),
             "Selecting the bottom terminal should update the picker value. value=\(selectedValue)"
         )
+        // A long press must take a fresh snapshot too; a tap-only refresh
+        // hook leaves stale titles on the native press-drag opening path.
+        app.buttons["MobileTerminalDropdown"].press(forDuration: 0.6)
+        assertTerminalMenuItemExists("terminal-build", in: app)
+        XCTAssertNotEqual(
+            app.buttons["MobileTerminalMenuItem-terminal-build"].label,
+            initialTitle,
+            "Reopening must show current names and proves refreshes occurred during the first opening."
+        )
+        capture("tabs-menu-reopened-with-current-titles")
     }
 
     @MainActor
@@ -8549,13 +8615,54 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     private func launchAddDeviceApp(environment: [String: String] = [:]) -> XCUIApplication {
+        // The Tailscale method below makes the Auto-Connect migration sheet
+        // eligible, and it would take the one root sheet slot before the Add
+        // Computer form. These tests are about the form, so opt out of it.
+        let migrationDefaults = [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+        ]
         let app = launchApp(
             mockData: true,
-            environment: environment,
+            environment: migrationDefaults.merging(environment) { _, caller in caller },
             launchArguments: ["-dev.cmux.mobile.connectionMethod.v1", "tailscale"]
         )
-        XCTAssertTrue(app.otherElements["MobileAddDeviceForm"].waitForExistence(timeout: 8))
+        let form = app.otherElements["MobileAddDeviceForm"]
+        if !form.waitForExistence(timeout: 4) {
+            // A launch-time What's New sheet can take the modal slot from the
+            // seeded form. Finish it, then open Add Computer the way a user would.
+            try? finishLaunchWhatsNewIfPresented(app)
+            let addDeviceButton = app.buttons["MobileShowAddDeviceButton"].firstMatch
+            let toolbarButton = app.buttons["MobileShowAddDeviceToolbarButton"]
+            if addDeviceButton.waitForExistence(timeout: 4) {
+                tap(addDeviceButton, in: app)
+            } else if toolbarButton.waitForExistence(timeout: 2) {
+                tap(toolbarButton, in: app)
+            }
+        }
+        XCTAssertTrue(form.waitForExistence(timeout: 8))
         return app
+    }
+
+    /// Advances through every unseen What's New page shown at launch.
+    @MainActor
+    private func finishLaunchWhatsNewIfPresented(_ app: XCUIApplication) throws {
+        let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
+        guard whatsNewContinue.waitForExistence(timeout: 4) else { return }
+        // Each tap either advances a page or dismisses the sheet. Let the
+        // transition settle before deciding whether another page remains, so
+        // a sheet that is animating away is never tapped again.
+        for _ in 0..<6 {
+            guard whatsNewContinue.waitForExistence(timeout: 1) else { break }
+            if whatsNewContinue.isHittable {
+                whatsNewContinue.tap()
+            }
+            _ = whatsNewContinue.waitForNonExistence(timeout: 2)
+        }
+        _ = try XCTUnwrap(
+            whatsNewContinue.waitForNonExistence(timeout: 4) ? true : nil,
+            "Finish every What's New page before continuing"
+        )
     }
 
     @MainActor
@@ -8573,13 +8680,16 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchWorkspaceDetailRefreshingTerminalMenuPreviewApp() -> XCUIApplication {
-        let app = launchApp(mockData: false, environment: [
+    private func launchWorkspaceDetailRefreshingTerminalMenuPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+        var launchEnvironment = [
             "CMUX_UITEST_WORKSPACE_DETAIL_REFRESHING_TERMINAL_MENU": "1",
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
-        ])
+            "CMUX_UITEST_SUPPRESS_WHATS_NEW": "1",
+        ]
+        launchEnvironment.merge(environment) { _, new in new }
+        let app = launchApp(mockData: false, environment: launchEnvironment)
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForHittable(app.buttons["MobileTerminalDropdown"], timeout: 8))
         return app
     }
 

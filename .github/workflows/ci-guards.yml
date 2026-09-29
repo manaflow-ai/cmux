@@ -195,6 +195,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_write_sidebar_extension_point.py
 
+      - name: Test btop agent sidebar example bounds
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_btop_agents_sidebar.py
+
       - name: Validate settings rows advertise supported cmux.json paths
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_settings_configuration_review_paths.py
@@ -218,6 +222,10 @@ jobs:
       - name: Validate .xcstrings merge driver
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_merge_xcstrings.py
+
+      - name: Validate project.pbxproj merge driver
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_merge_pbxproj.py
 
 
       - name: "Validate Swift Testing #require is not nested"
@@ -347,6 +355,10 @@ jobs:
           packages=(PyYAML==6.0.3)
           if [[ "${{ matrix.group }}" == "release-tooling" ]]; then
             packages+=(bashlex==0.18)
+          fi
+          # tests/test_ci_pr_media.py renders PR media with the pr-media.yml Pillow.
+          if [[ "${{ matrix.group }}" == "app-host-execution" ]]; then
+            packages+=(pillow==11.3.0)
           fi
           "$RUNNER_TEMP/workflow-guard-venv/bin/python" -m pip install \
             --disable-pip-version-check \
@@ -508,6 +520,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_triage_radar.py
 
+      - name: Validate triage severity and area rules
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_triage_rules.py
+
       - name: Validate cmux-tui focused filter routing
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_tui_focused_filter_guard.py
@@ -541,6 +557,10 @@ jobs:
       - name: Validate the R2 cache pruner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_r2_cache_prune.py
+
+      - name: Validate the PR media pruner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_prune_pr_media.py
 
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
@@ -610,6 +630,7 @@ jobs:
           python3 tests/test_ci_focused_test_selectors.py
           python3 tests/test_ci_ui_tests_dispatch.py
           python3 tests/test_ci_pr_media.py
+          python3 tests/test_ci_guard_tests_emit_no_workflow_commands.py
 
       - name: Validate manual macOS package cache recovery
         if: ${{ matrix.group == 'app-host-execution' }}
@@ -766,6 +787,10 @@ jobs:
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/tagged-device-entitlements.test.mjs
+
+      - name: Validate cached iOS release-gate launch contract
+        if: ${{ matrix.group == 'release-ios' }}
+        run: node --test ios/tests/iroh-cached-launch.test.mjs
 
       - name: Validate manual iOS workflow ref resolution
         if: ${{ matrix.group == 'release-ios' }}

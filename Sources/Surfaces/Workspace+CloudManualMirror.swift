@@ -226,12 +226,14 @@ extension Workspace {
         defer { isProgrammaticSplit = false }
         let orientation: SplitOrientation = (direction == .left || direction == .right) ? .horizontal : .vertical
         let insertFirst = direction == .left || direction == .up
-        guard bonsplitController.splitPane(
-            target,
-            orientation: orientation,
-            withTab: tab,
-            insertFirst: insertFirst
-        ) != nil else {
+        guard withSplitSpaceAdmissionBypass({
+            bonsplitController.splitPane(
+                target,
+                orientation: orientation,
+                withTab: tab,
+                insertFirst: insertFirst
+            )
+        }) != nil else {
             removeSurfaceMapping(forSurfaceId: tab.id)
             panels.removeValue(forKey: panel.id)
             panel.close()
