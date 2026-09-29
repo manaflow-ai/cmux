@@ -5,9 +5,12 @@ import Foundation
 /// browser. The app launches with a rule matching `127.0.0.1:8397` and with
 /// `CMUX_UI_TEST_CAPTURE_EXTERNAL_OPEN_PATH` configured, so system-browser
 /// escapes are written to a capture file instead of launching a real
-/// browser. Clicks are delivered through the socket `browser.click` (real
-/// WebKit link activations), which is exactly the layer where routing bugs
-/// live — matcher unit tests cannot see delegate wiring. The capture line is
+/// browser. Link clicks are real mouse clicks through accessibility, because a
+/// link only leaves for the system browser while a real input event is in
+/// flight; the socket `browser.click` runs JavaScript and would be refused.
+/// The scripted-popup and form cases still use the socket, since a scripted
+/// action is what they test. Either way this is the delegate layer where
+/// routing bugs live — matcher unit tests cannot see that wiring. The capture line is
 /// written by the shared external-navigation handler's default opener, so
 /// every escape path (navigation delegate, target=_blank, popups) lands here.
 final class BrowserExternalOpenRoutingUITests: BrowserFixtureSocketTestCase {
@@ -37,6 +40,14 @@ final class BrowserExternalOpenRoutingUITests: BrowserFixtureSocketTestCase {
             .split(separator: "\n").map(String.init) ?? []
     }
 
+    /// A real mouse click on a link, so an input event is in flight when WebKit reports the
+    /// activation, the way it is when a person clicks.
+    private func clickLink(_ title: String, in app: XCUIApplication) throws {
+        let link = app.webViews.links[title].firstMatch
+        XCTAssertTrue(link.waitForExistence(timeout: 10), "link \"\(title)\" must be on screen to click")
+        link.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+    }
+
     private func waitForCaptureLine(
         containing needle: String,
         timeout: TimeInterval = 10.0
@@ -50,10 +61,10 @@ final class BrowserExternalOpenRoutingUITests: BrowserFixtureSocketTestCase {
     }
 
     func testMatchedLinkClickEscapesToSystemBrowser() throws {
-        try launchApp()
+        let app = try launchApp()
         let sid = try openFixture("external-open-routing")
         try waitForSelector("#matched-link", surfaceID: sid)
-        try socketResult(method: "browser.click", params: ["surface_id": sid, "selector": "#matched-link"])
+        try clickLink("matched host link", in: app)
         XCTAssertTrue(
             waitForCaptureLine(containing: "http://127.0.0.1:8397/matched"),
             "Expected matched link click to escape to the system browser. capture=\(captureLines())"
@@ -71,10 +82,10 @@ final class BrowserExternalOpenRoutingUITests: BrowserFixtureSocketTestCase {
     }
 
     func testUnmatchedLinkClickStaysEmbedded() throws {
-        try launchApp()
+        let app = try launchApp()
         let sid = try openFixture("external-open-routing")
         try waitForSelector("#unmatched-link", surfaceID: sid)
-        try socketResult(method: "browser.click", params: ["surface_id": sid, "selector": "#unmatched-link"])
+        try clickLink("unmatched local link", in: app)
         try socketResult(
             method: "browser.wait",
             params: ["surface_id": sid, "load_state": "complete", "timeout_ms": 10_000],
