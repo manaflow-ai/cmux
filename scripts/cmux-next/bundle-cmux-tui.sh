@@ -8,11 +8,12 @@
 # Source order (this phase never downloads anything):
 #   1. CMUX_NEXT_TUI_BIN (a local cargo build or any hosted artifact),
 #   2. the pinned hosted artifact for this branch: scripts/cmux-next/cmux-tui.pin
-#      names a commit, its cmux-tui.yml run, and the sha256 of
-#      cmux-tui/target/hosted/<commit>/cmux-tui. Fetch it with
-#      `scripts/cmux-next/pin-cmux-tui.sh fetch`; refresh the pin after a
-#      daemon change as described in pin-cmux-tui.sh. A present binary with a
-#      different sha256 fails the build.
+#      names a commit, its public files.cmux.com url, the publishing run, and
+#      the sha256 of cmux-tui/target/hosted/<commit>/cmux-tui.
+#      scripts/reload.sh fetches it before building (no GitHub credentials
+#      needed); by hand, `scripts/cmux-next/pin-cmux-tui.sh fetch`. Refresh the
+#      pin after a daemon change as described in pin-cmux-tui.sh. A present
+#      binary with a different sha256 fails the build.
 #   3. CMUX_TUI_CLIENT_LOCAL (the release installer's local override),
 #   4. the newest slice in the release installer cache
 #      (~/Library/Caches/cmux/cmux-tui-client/<commit>/cmux-tui-<arch>-apple-darwin).
@@ -36,6 +37,7 @@ src=""
 source_kind=""
 pin_commit=""
 pin_run=""
+pin_url=""
 if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
   src="$CMUX_NEXT_TUI_BIN"
   source_kind="override"
@@ -43,6 +45,7 @@ fi
 if [[ -z "$src" && -f "$pin_file" && "$arch" == aarch64 ]]; then
   pin_commit="$(awk -F= '$1=="commit"{print $2}' "$pin_file")"
   pin_run="$(awk -F= '$1=="run"{print $2}' "$pin_file")"
+  pin_url="$(awk -F= '$1=="url"{sub(/^[^=]*=/, ""); print}' "$pin_file")"
   pin_sha256="$(awk -F= '$1=="sha256"{print $2}' "$pin_file")"
   pinned="$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-tui"
   if [[ -f "$pinned" ]]; then
@@ -93,7 +96,7 @@ if [[ -z "$commit" && "$source_kind" == release-cache ]]; then
   # Cached slices are not executable; the cache directory is the commit.
   commit="$(basename "$(dirname "$src")")"
 fi
-if [[ "$source_kind" == pinned-hosted && "$commit" != "$pin_commit" ]]; then
+if [[ "$source_kind" == pinned-hosted && ( -z "$commit" || "$pin_commit" != "$commit"* ) ]]; then
   echo "error: pinned cmux-tui reports '$version_line', not commit $pin_commit" >&2
   exit 1
 fi
@@ -102,6 +105,7 @@ version_text="commit=${commit:-unknown}
 source=$source_kind
 sha256=$sha256
 run=${pin_run}
+url=${pin_url}
 version=$version_line
 "
 
