@@ -14,6 +14,12 @@ public enum VMClientError: Error, CustomStringConvertible {
     /// The control plane answered 501 to `pause`/`resume`: this provider has no such operation.
     case lifecycleUnsupported(action: String)
 
+    /// The structured Cloud error, when this error came from a VM HTTP response.
+    public var cloudHTTPError: CloudVMHTTPError? {
+        guard case let .httpStatus(status, body) = self else { return nil }
+        return CloudVMHTTPError(status: status, body: body)
+    }
+
     public var description: String {
         switch self {
         case .notSignedIn:

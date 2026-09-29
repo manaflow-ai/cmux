@@ -2471,12 +2471,12 @@ class TabManager: ObservableObject {
         )
     }
 
-    func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
+    func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true, prevalidatedOwner: Bool = false) {
         guard tabs.count > 1 else { return }
         // Teardown SIGHUPs child processes and publishes a closed event. Only this
         // manager may close its own live workspaces; stale or foreign objects must
         // never tear down terminals or publish a second close.
-        guard tabs.contains(where: { $0.id == workspace.id }) else { return }
+        guard prevalidatedOwner || tabs.contains(where: { $0.id == workspace.id }) else { return }
         MachineCreateCoordinator.shared.cancelOperations(forPresentationWorkspace: workspace.id)
         panelTitleUpdateCoalescer.flushNow()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])

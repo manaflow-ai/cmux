@@ -2,9 +2,8 @@ import CmuxCloud
 import AppKit
 
 extension AppDelegate {
-    /// Closes local Cloud projections before a team switch so an old team's
-    /// terminals, browser URLs, and reconnect configuration cannot leak into
-    /// the newly-selected team.
+    /// Suspends Cloud access before a team switch while preserving local layout,
+    /// scrollback, and bindings for the newly-selected team to recover.
     @MainActor
     func prepareCloudVMAccessForTeamSwitch() {
         SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.cancelAll()
@@ -20,16 +19,9 @@ extension AppDelegate {
             }
             for workspace in cloudWorkspaces {
                 workspace.disconnectRemoteConnection(
-                    clearConfiguration: true,
+                    clearConfiguration: false,
                     disconnectedDetail: detail
                 )
-                if manager.tabs.count > 1 {
-                    manager.closeWorkspace(workspace, recordHistory: false)
-                } else {
-                    workspace.withClosedPanelHistorySuppressed {
-                        workspace.teardownAllPanels()
-                    }
-                }
             }
         }
         ClosedItemHistoryStore.shared.removeManagedCloudVMRecords()

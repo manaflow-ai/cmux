@@ -2,6 +2,14 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
+    /// Cloud VM IDs held by live or restored workspaces before a provider exists.
+    var boundCloudMachineIDs: Set<String> {
+        Set(cloudWorkspaceRenameService.environment.workspaces().compactMap { workspace in
+            guard let id = workspace.cloudVMID, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return id
+        })
+    }
+
     /// Returns the last accepted cwd for a stale Cloud terminal, when its identity still exists.
     ///
     /// A stale graph is useful display state, but a resource row can also contain an optimistic

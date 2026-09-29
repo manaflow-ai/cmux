@@ -16,8 +16,8 @@ import Foundation
 final class CmuxTuiSurfaceProviderRegistry {
     static let shared = CmuxTuiSurfaceProviderRegistry()
 
-    private var catalog: SurfaceCatalog?
-    private var providers: [String: CmuxTuiSurfaceProvider] = [:]
+    var catalog: SurfaceCatalog?
+    var providers: [String: CmuxTuiSurfaceProvider] = [:]
     let links: CloudMachineLinkManager
     /// The app's one WireGuard hub for private-network machines; nil when no cmux-tui
     /// client is bundled (then no link can be made at all).
@@ -51,7 +51,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// A forced refresh waits for an existing pass instead of starting a second
     /// fleet read. This prevents an older page from unregistering a machine that
     /// a newer page just added.
-    private var refreshGeneration: UInt64 = 0
+    var refreshGeneration: UInt64 = 0
     /// Bumped by every ``start(catalog:)``. `NotificationCenter` blocks queued
     /// on `.main` are already enqueued when `removeObserver` runs, so a
     /// teardown posted before a restart can still land after it. The observer
@@ -64,7 +64,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Machine IDs admitted from a successful create response remain owned by
     /// this registry until a fleet page positively observes them. A stale page
     /// must not prune a receipt that is still converging into discovery.
-    private var pendingMachineCreationIDs: Set<String> = []; private var hasCompletedInitialRefresh = false; private var refreshedMachineIDs: Set<SurfaceMachineID> = []
+    var pendingMachineCreationIDs: Set<String> = []; private var hasCompletedInitialRefresh = false; private var refreshedMachineIDs: Set<SurfaceMachineID> = []
     /// Create receipts that proved a trusted, directly dialable daemon
     /// (snapshot-v2 contract plus a private address). Consumed by the first
     /// `vm.cmux_remote_info` for that machine instead of an attach request.
@@ -76,7 +76,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private let pollInterval: Duration = .seconds(45)
     /// In-flight forward and link teardowns for deleted machines, keyed by
     /// machine id; sign-out waits for them before stopping the hub.
-    private var machineTeardowns: [String: Task<Void, Never>] = [:]
+    var machineTeardowns: [String: Task<Void, Never>] = [:]
     private var featureResumeTask: Task<Void, Never>?
     private var featureSuspensionTask: Task<Void, Never>?
     private var isFeatureSuspended = false
@@ -148,7 +148,7 @@ final class CmuxTuiSurfaceProviderRegistry {
               providers[summary.id] == nil else { return }
         let provider = CmuxTuiSurfaceProvider(
             summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope, links: links, catalog: catalog,
-            portForwards: portForwards, portAccessStore: portAccess
+            portForwards: portForwards, portAccessStore: portAccess, onMachineNotFound: missingMachineHandler
         )
         providers[summary.id] = provider
         catalog.register(provider)
@@ -411,20 +411,10 @@ final class CmuxTuiSurfaceProviderRegistry {
         return providers[machineID]
     }
 
-    /// The machine is gone: drop its provider and catalog entry now, and tear
-    /// down its forwards and link on a task the registry owns (awaited by
-    /// ``accessDidEnd()``), so no caller has to hold an unstructured task.
-    func machineWasDeleted(_ rawID: String) {
-        // A fleet page fetched before the delete must not re-register the
-        // machine on top of this teardown.
-        refreshGeneration &+= 1
-        unregisterMachine(rawID)
-    }
-
     /// Deletion and discovery share ordered teardown without waiting for unrelated machines.
-    private func unregisterMachine(_ rawID: String) {
+    func unregisterMachine(_ rawID: String, alreadyResolved: Bool = false) {
         // Match the registered casing so every ownership table is removed.
-        let id = registeredMachineID(matching: rawID)
+        let id = alreadyResolved ? rawID : registeredMachineID(matching: rawID)
         pendingMachineCreationIDs.remove(id); refreshedMachineIDs.remove(.cloud(id))
         createdTrustedCarrierIDs.remove(id)
         let provider = providers.removeValue(forKey: id)
@@ -478,20 +468,28 @@ final class CmuxTuiSurfaceProviderRegistry {
         if allowsBackgroundWork() { await wireGuardHub?.prepareForCloudUse() }
         guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled else { return nil }
         let seen = Set(page.vms.map(\.id))
+        let seenNormalized = Set(seen.map { $0.lowercased() })
         // This page is the authoritative positive observation for any receipt
         // it contains. Once observed, normal stale pruning may own that ID.
-        pendingMachineCreationIDs.subtract(seen)
+        pendingMachineCreationIDs = Set(pendingMachineCreationIDs.filter { !seenNormalized.contains($0.lowercased()) })
         // Reconcile both stores. A restored catalog can contain a machine for
         // which this process has not created a provider yet.
-        let catalogMachineIDs = Set(catalog.machines.keys.compactMap(\.cloudMachineID))
-        let staleIDs = Set(providers.keys)
+        let catalogMachineIDs = Set(catalog.machines.keys.compactMap(\.cloudMachineID)).union(catalog.boundCloudMachineIDs)
+        let candidates = Set(providers.keys)
             .union(catalogMachineIDs)
             .union(catalog.pendingRestoredMachineIDs)
-            .subtracting(pendingMachineCreationIDs)
-            .subtracting(seen)
-        for id in staleIDs {
-            unregisterMachine(id)
+        let pendingNormalized = Set(pendingMachineCreationIDs.map { $0.lowercased() })
+        let staleIDs = candidates.filter {
+            !pendingNormalized.contains($0.lowercased()) && !seenNormalized.contains($0.lowercased())
         }
+        let preservedIDs = catalog.boundCloudMachineIDs
+            .union(catalog.pendingRestoredMachineIDs)
+            .union(catalog.projectedMachines.compactMap(\.cloudMachineID))
+        let preservedNormalized = Set(preservedIDs.map { $0.lowercased() })
+        let unavailableIDs = Set(staleIDs.filter { preservedNormalized.contains($0.lowercased()) })
+        let unboundIDs = Set(staleIDs.filter { !preservedNormalized.contains($0.lowercased()) })
+        if !unavailableIDs.isEmpty { machineBecameUnavailable(unavailableIDs) }
+        if !unboundIDs.isEmpty { unregisterMachines(unboundIDs) }
         await links.retainAddresses(machineIDs: seen)
         guard !isRetired, generation == refreshGeneration else { return nil }
         for summary in page.vms {
@@ -520,7 +518,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             } else {
                 let provider = CmuxTuiSurfaceProvider(
                     summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope, links: links, catalog: catalog,
-                    portForwards: portForwards, portAccessStore: portAccess
+                    portForwards: portForwards, portAccessStore: portAccess, onMachineNotFound: missingMachineHandler
                 )
                 providers[summary.id] = provider
                 catalog.register(provider)
