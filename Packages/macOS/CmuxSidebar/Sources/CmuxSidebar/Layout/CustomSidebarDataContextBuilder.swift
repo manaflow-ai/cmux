@@ -203,6 +203,7 @@ public struct CustomSidebarDataContextBuilder {
             "title": .string(surface.title),
             "focused": .bool(surface.isFocused),
             "pinned": .bool(surface.isPinned),
+            "status": .string(surface.status),
         ]
         if let surfaceId = surface.surfaceId {
             // The id surface.* verbs accept (surface.focus etc.); `id` above

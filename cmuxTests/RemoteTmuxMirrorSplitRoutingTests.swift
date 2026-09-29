@@ -240,6 +240,13 @@ import Testing
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             workspace = try #require(manager.selectedWorkspace)
             sourcePanelId = try #require(workspace.focusedPanelId)
+            // Establish geometry before either routing path asks to split;
+            // an inherited narrow window must not decide this routing test.
+            let window = try #require(appDelegate.mainWindow(for: windowId))
+            let contentSize = CGSize(width: 1_000, height: 700)
+            window.setContentSize(contentSize)
+            window.contentView?.layoutSubtreeIfNeeded()
+            workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: contentSize))
         }
 
         func tearDown() {

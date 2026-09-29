@@ -422,7 +422,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            let windowId = appDelegate.createMainWindow()
+            let windowId = createSplitTestWindow(using: appDelegate)
             defer { closeWindow(withId: windowId) }
 
             guard let window = window(withId: windowId),
@@ -484,7 +484,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
+        let windowId = createSplitTestWindow(using: appDelegate)
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
@@ -590,7 +590,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            let windowId = appDelegate.createMainWindow()
+            let windowId = createSplitTestWindow(using: appDelegate)
             defer { closeWindow(withId: windowId) }
 
             guard let window = window(withId: windowId),
@@ -688,7 +688,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            let windowId = appDelegate.createMainWindow()
+            let windowId = createSplitTestWindow(using: appDelegate)
             defer { closeWindow(withId: windowId) }
 
             guard let window = window(withId: windowId),
@@ -746,7 +746,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            let windowId = appDelegate.createMainWindow()
+            let windowId = createSplitTestWindow(using: appDelegate)
             defer { closeWindow(withId: windowId) }
 
             guard let window = window(withId: windowId),
@@ -940,7 +940,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            let windowId = appDelegate.createMainWindow()
+            let windowId = createSplitTestWindow(using: appDelegate)
             defer { closeWindow(withId: windowId) }
 
             guard let window = window(withId: windowId),
@@ -976,7 +976,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            let windowId = appDelegate.createMainWindow()
+            let windowId = createSplitTestWindow(using: appDelegate)
             defer { closeWindow(withId: windowId) }
 
             guard let window = window(withId: windowId),
@@ -1029,7 +1029,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            let windowId = appDelegate.createMainWindow()
+            let windowId = createSplitTestWindow(using: appDelegate)
             defer { closeWindow(withId: windowId) }
 
             guard let window = window(withId: windowId),
@@ -1092,7 +1092,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            let windowId = appDelegate.createMainWindow()
+            let windowId = createSplitTestWindow(using: appDelegate)
             defer { closeWindow(withId: windowId) }
 
             guard let window = window(withId: windowId),
@@ -1229,7 +1229,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            let windowId = appDelegate.createMainWindow()
+            let windowId = createSplitTestWindow(using: appDelegate)
             defer { closeWindow(withId: windowId) }
 
             guard let window = window(withId: windowId),
@@ -1328,7 +1328,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                     return
                 }
 
-                let windowId = appDelegate.createMainWindow()
+                let windowId = createSplitTestWindow(using: appDelegate)
                 defer { closeWindow(withId: windowId) }
 
                 guard let window = window(withId: windowId),
@@ -1413,7 +1413,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            let windowId = appDelegate.createMainWindow()
+            let windowId = createSplitTestWindow(using: appDelegate)
             defer { closeWindow(withId: windowId) }
 
             guard let window = window(withId: windowId),
@@ -7448,7 +7448,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            let windowId = appDelegate.createMainWindow()
+            let windowId = createSplitTestWindow(using: appDelegate)
             guard let window = window(withId: windowId),
                   let repeatedEvent = makeKeyDownEvent(
                     key: "-",
@@ -7596,7 +7596,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                         return
                     }
 
-                    let windowId = appDelegate.createMainWindow()
+                    let windowId = createSplitTestWindow(using: appDelegate)
                     defer { closeWindow(withId: windowId) }
 
                     guard let window = window(withId: windowId),
@@ -7671,7 +7671,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            let windowId = appDelegate.createMainWindow()
+            let windowId = createSplitTestWindow(using: appDelegate)
             defer { closeWindow(withId: windowId) }
 
             guard let window = window(withId: windowId),
@@ -7776,7 +7776,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                         return
                     }
 
-                    let windowId = appDelegate.createMainWindow()
+                    let windowId = createSplitTestWindow(using: appDelegate)
                     defer { closeWindow(withId: windowId) }
 
                     guard let window = window(withId: windowId),
@@ -7865,7 +7865,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                             return
                         }
 
-                        let windowId = appDelegate.createMainWindow()
+                        let windowId = createSplitTestWindow(using: appDelegate)
                         defer { closeWindow(withId: windowId) }
 
                         guard let window = window(withId: windowId),
@@ -7927,7 +7927,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                         return
                     }
 
-                    let windowId = appDelegate.createMainWindow()
+                    let windowId = createSplitTestWindow(using: appDelegate)
                     defer { closeWindow(withId: windowId) }
 
                     guard let window = window(withId: windowId),
@@ -8236,6 +8236,24 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             try? FileManager.default.removeItem(at: settingsFileURL)
         }
         body()
+    }
+
+    /// Establishes usable split bounds before shortcuts create their first pane.
+    private func createSplitTestWindow(using appDelegate: AppDelegate) -> UUID {
+        let windowId = appDelegate.createMainWindow()
+        guard let window = appDelegate.mainWindow(for: windowId),
+              let workspace = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace else {
+            XCTFail("Expected a main window and workspace")
+            return windowId
+        }
+        // Window creation can inherit a 320-point window from an earlier test.
+        // Split admission must see this fixture's geometry, not that stale size
+        // or the initial zero container before SwiftUI publishes its layout.
+        let contentSize = CGSize(width: 1_000, height: 700)
+        window.setContentSize(contentSize)
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: contentSize))
+        return windowId
     }
 
     private func window(withId windowId: UUID) -> NSWindow? {

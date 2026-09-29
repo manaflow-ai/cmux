@@ -217,7 +217,13 @@ struct PortScanPublicationBufferTests {
     @MainActor
     @Test("Changing one TTY enqueues only that panel's empty lifecycle publication")
     func ttyChangePublicationIsPanelScoped() throws {
-        let scanner = PortScanner()
+        // Keep fixture TTY names from opening real devices on the test host.
+        let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: AgentPIDProcessIdentity(
+            pid: 100,
+            startSeconds: 1,
+            startMicroseconds: 0
+        ))
+        let scanner = PortScanner(ttySessionIdentityProvider: { _ in sessionIdentity })
         let workspaceID = UUID()
         let changedPanelID = UUID()
         let unchangedPanelID = UUID()

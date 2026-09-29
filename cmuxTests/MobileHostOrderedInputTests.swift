@@ -102,14 +102,18 @@ struct MobileHostOrderedInputTests {
         // input-1 is held on surface s1; input-2 targets surface s2 and must
         // run concurrently: ordering is a per-PTY property, and one surface's
         // slow request must not block typing on another.
+        // Use UUID-shaped identifiers because production request parsing
+        // canonicalizes the phone's terminal identifiers before bucketing.
+        let firstSurfaceID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let secondSurfaceID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
         let batch = try Self.framedBatch(
             [
                 ("input-1", "terminal.input"),
                 ("input-2", "terminal.input"),
             ],
             surfaceIDsByRequestID: [
-                "input-1": "surface-1",
-                "input-2": "surface-2",
+                "input-1": firstSurfaceID.uuidString,
+                "input-2": secondSurfaceID.uuidString,
             ]
         )
 

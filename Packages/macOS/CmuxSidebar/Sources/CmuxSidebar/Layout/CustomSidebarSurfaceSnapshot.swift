@@ -20,6 +20,10 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
     public let isFocused: Bool
     /// Whether the surface's panel is pinned (`tabs[i].pinned`).
     public let isPinned: Bool
+    /// The live agent state for this surface (`tabs[i].status`). `working`
+    /// matches the native loading spinner; `needs_input` identifies an agent
+    /// waiting for input, and `idle` means no active lifecycle is present.
+    public let status: String
     /// The surface's working directory, or `nil`/empty when unknown
     /// (`tabs[i].directory`).
     public let directory: String?
@@ -38,6 +42,7 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         title: String,
         isFocused: Bool,
         isPinned: Bool,
+        status: String = "idle",
         directory: String?,
         gitBranch: String?,
         gitIsDirty: Bool,
@@ -48,6 +53,7 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         self.title = title
         self.isFocused = isFocused
         self.isPinned = isPinned
+        self.status = status
         self.directory = directory
         self.gitBranch = gitBranch
         self.gitIsDirty = gitIsDirty

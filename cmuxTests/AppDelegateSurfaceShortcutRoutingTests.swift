@@ -218,11 +218,12 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             let workspace = try #require(manager.selectedWorkspace)
             let foregroundPanelId = try #require(workspace.focusedPanelId)
             let foregroundPanel = try #require(workspace.terminalPanel(for: foregroundPanelId))
-            let backgroundPanel = try #require(workspace.newTerminalSplit(
+            let backgroundPanel = try #require(workspace.newTerminalSplitOutcome(
                 from: foregroundPanelId,
                 orientation: .horizontal,
-                focus: false
-            ))
+                focus: false,
+                autoLayout: true
+            ).panel)
             let event = try #require(makeKeyDownEvent(
                 key: "-",
                 modifiers: [.command, .control],
@@ -379,7 +380,11 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let workspace = try #require(manager.selectedWorkspace)
             let leftPanelId = try #require(workspace.focusedPanelId)
-            _ = try #require(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal))
+            _ = try #require(workspace.newTerminalSplitOutcome(
+                from: leftPanelId,
+                orientation: .horizontal,
+                autoLayout: true
+            ).panel)
             let event = try #require(makeKeyDownEvent(
                 key: "\r",
                 modifiers: [.command, .shift],

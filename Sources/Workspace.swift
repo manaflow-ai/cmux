@@ -3306,12 +3306,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         extensionSidebarProjectRootRefreshID &+= 1
         let refreshID = extensionSidebarProjectRootRefreshID
         guard !usesRemoteDirectoryProvenance else {
-            extensionSidebarProjectRootPath = nil
+            updateExtensionSidebarProjectRootPath(nil)
             return
         }
         let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDirectory.isEmpty else {
-            extensionSidebarProjectRootPath = nil
+            updateExtensionSidebarProjectRootPath(nil)
             return
         }
 
@@ -3322,9 +3322,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                       self.extensionSidebarProjectRootRefreshID == refreshID else {
                     return
                 }
-                self.extensionSidebarProjectRootPath = projectRootPath
+                self.updateExtensionSidebarProjectRootPath(projectRootPath)
             }
         }
+    }
+
+    /// Avoids publishing a no-op root refresh. Root discovery is deferred and
+    /// commonly resolves to `nil` for loading or non-project workspaces; an
+    /// unconditional assignment would invalidate workspace content after the
+    /// view has settled even though no sidebar state changed.
+    private func updateExtensionSidebarProjectRootPath(_ path: String?) {
+        guard extensionSidebarProjectRootPath != path else { return }
+        extensionSidebarProjectRootPath = path
     }
 
     nonisolated private static func extensionSidebarProjectRootPath(onDiskFor directory: String) -> String? {

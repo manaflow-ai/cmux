@@ -13,7 +13,8 @@ import Testing
 @Suite(.serialized)
 struct PaneDropTargetIdentityTests {
     private func browserOverlay(in slot: WindowBrowserSlotView) -> NSView? {
-        var pending = slot.subviews
+        // The preview is a sibling so it can draw above the hosted browser.
+        var pending = (slot.superview ?? slot).subviews
         while let view = pending.popLast() {
             if String(describing: type(of: view)).contains("BrowserDropZoneOverlayView") {
                 return view
@@ -58,7 +59,7 @@ struct PaneDropTargetIdentityTests {
         let expected = PaneDropRouting.compactOverlayFrame(for: .center, in: secondOwner.bounds.size)
         animator.setZone(
             .center,
-            frameForZone: { expected },
+            frameForZone: { _ in expected },
             ensureAttached: {},
             bringToFront: {}
         )
