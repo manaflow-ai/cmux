@@ -1055,7 +1055,7 @@ function schedulePromptIdentityPush(
  * Tells the guest its coding-agent update setting and, for "latest", starts
  * the detached updater (services/vms/guestAgentUpdates.ts). The exec only
  * writes one file and forks, and it runs after the response, so neither
- * attach nor a setting change waits on the guest or the npm registry. A
+ * attach nor a setting change waits on the guest or GitHub. A
  * failure is logged and repaired by the next attach.
  */
 function scheduleGuestAgentUpdates(

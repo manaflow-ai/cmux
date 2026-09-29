@@ -11,7 +11,7 @@ import { parseAgentUpdatesBody } from "../../../../../services/vms/agentUpdatesR
 
 /**
  * Set whether a machine keeps its image's coding-agent versions ("image") or
- * updates them to npm's latest on attach ("latest"). The row is the source of
+ * updates them along each agent's GitHub releases on attach ("latest"). The row is the source of
  * truth; a running machine is told after the response, and every attach of an
  * opted-in machine re-sends it. Answers `{ id, agentUpdates }`.
  */

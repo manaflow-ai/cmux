@@ -6,6 +6,7 @@ import {
   parseNetworkPolicy,
   type NetworkPolicy,
 } from "./networkPolicy";
+import { GUEST_AGENT_UPDATE_DOMAINS } from "./images/agents";
 import { jsonResponse } from "./routeHelpers";
 import type { VmNetworkPolicyView } from "./workflows";
 
@@ -14,6 +15,8 @@ export function networkPolicyCatalog() {
   return {
     presets: NETWORK_POLICY_PRESETS,
     requiredDomains: CMUX_REQUIRED_DOMAINS,
+    /** The hosts coding-agent updates reach; clients warn when a policy blocks one. */
+    agentUpdateDomains: GUEST_AGENT_UPDATE_DOMAINS,
     defaultPolicy: DEFAULT_NETWORK_POLICY,
   };
 }

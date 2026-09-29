@@ -1,8 +1,8 @@
 /**
  * A machine's coding-agent update setting. "image" (the default, stored as
  * null) keeps the versions its image baked; "latest" updates the baked agents
- * to npm's `latest` release on attach, at most once a day
- * (services/vms/guestAgentUpdates.ts).
+ * to the newest GitHub release that has been public for 3 days, on attach, at
+ * most once a day (services/vms/guestAgentUpdates.ts).
  */
 export type VmAgentUpdatesSetting = "latest" | "image";
 
