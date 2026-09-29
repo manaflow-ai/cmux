@@ -1,8 +1,9 @@
 import Foundation
 
-/// Splits a pane. With `tab`, moves that existing tab into the new pane
-/// atomically instead of spawning a PTY. `tab` is TODO(feat-cmux-next-daemon)
-/// (proposed `split {pane, dir, tab}`); current daemons ignore it and spawn.
+/// Splits a pane with a new terminal (`cwd`/`env` with `terminal-env-v1`).
+/// The daemon's `split` has no `tab` field; moving an existing tab into a new
+/// pane is `move-tab-to-split` (`DaemonConnection.split(_:direction:movingTab:)`
+/// routes there). `tab` is not sent.
 public struct SplitRequest: DaemonRequest {
     public typealias Response = SurfaceCreated
     public static let command = "split"
@@ -16,12 +17,11 @@ public struct SplitRequest: DaemonRequest {
         self.tab = tab
         self.options = options
     }
-    enum CodingKeys: String, CodingKey { case pane, dir, tab }
+    enum CodingKeys: String, CodingKey { case pane, dir }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(pane, forKey: .pane)
         try c.encode(direction, forKey: .dir)
-        try c.encodeIfPresent(tab, forKey: .tab)
         try options.encode(to: encoder)
     }
 }

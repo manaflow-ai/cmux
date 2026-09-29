@@ -116,7 +116,7 @@ final class ManualFrameScheduler: FrameScheduler {
         var tree = try Fixture.response(DaemonTree.self, "list-workspaces.json")
         tree.groups = [WorkspaceGroupSnapshot(id: "g1", name: "Agents", index: 0)]
         tree.workspaces[1].group = "g1"
-        tree.workspaces[0].screens[0].panes[0].tabGroups = [TabGroupSnapshot(id: "tg", name: "API", tabs: [.surface(3), .surface(13)])]
+        tree.workspaces[0].screens[0].panes[0].tabGroups = [TabGroupSnapshot(id: "tg", name: "API", surfaces: [3, 13])]
         tree.workspaces[0].screens[0].panes[0].tabs[0].tabGroup = "tg"
         tree.workspaces[0].screens[0].panes[0].tabs[1].tabGroup = "tg"
         let store = DaemonStore()

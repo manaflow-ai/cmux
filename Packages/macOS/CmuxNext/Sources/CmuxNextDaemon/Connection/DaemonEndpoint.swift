@@ -27,17 +27,21 @@ public enum DaemonCapabilities {
         "attach-initial-size",
     ]
 
-    /// Served by the feat-cmux-next-daemon branch; the GUI hides the matching
-    /// features when a daemon lacks them (`DaemonIdentity.supports`).
+    /// Additive protocol 12 capabilities from cmux-tui PR 15518
+    /// (cmux-tui/spec/commands.md). The GUI hides the matching features when
+    /// a daemon lacks them (`DaemonIdentity.supports`).
     public static let workspaceGroups = "workspace-groups-v1"
     public static let workspaceMetadata = "workspace-metadata-v1"
     public static let tabMetadata = "tab-metadata-v1"
     public static let frontendBrowserTabs = "frontend-browser-tabs-v1"
     public static let tabDrag = "tab-drag-v1"
     public static let notificationAck = "notification-ack-v1"
-    /// TODO(feat-cmux-next-daemon): proposed name for Chrome-style tab groups.
     public static let tabGroups = "tab-groups-v1"
-    public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag, notificationAck, tabGroups]
+    public static let savedTabGroups = "saved-tab-groups-v1"
+    /// Per-terminal `env` on `new-tab`, `split`, `create-terminal`; `cwd` on `split`.
+    public static let terminalEnv = "terminal-env-v1"
+    public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
+                                            notificationAck, tabGroups, savedTabGroups, terminalEnv]
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public static let advertised: [String] = required + optional + [

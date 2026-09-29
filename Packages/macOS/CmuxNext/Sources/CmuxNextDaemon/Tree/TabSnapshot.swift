@@ -32,7 +32,7 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     public var browserEngine: String?
     public var faviconURL: String?
     public var browserProfileID: String?
-    /// Chrome-style group membership. TODO(feat-cmux-next-daemon): `tab_group`.
+    /// Chrome-style group membership (`tab-groups-v1`, wire `group`).
     public var tabGroup: TabGroupID?
 
     public init(
@@ -112,7 +112,7 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         case browserEngine = "browser_engine"
         case faviconURL = "favicon_url"
         case browserProfileID = "browser_profile_id"
-        case tabGroup = "tab_group"
+        case tabGroup = "group"
     }
 
     public init(from decoder: any Decoder) throws {

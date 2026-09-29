@@ -9,6 +9,8 @@ public final class TabGroupModel: Identifiable {
     public internal(set) var color: String?
     public internal(set) var collapsed: Bool
     public internal(set) var members: [TabGroupMember]
+    /// Linked saved record (`saved-tab-groups-v1`).
+    public internal(set) var savedID: SavedTabGroupID?
 
     init(_ s: TabGroupSnapshot) {
         id = s.id
@@ -16,6 +18,7 @@ public final class TabGroupModel: Identifiable {
         color = s.color
         collapsed = s.collapsed
         members = s.tabs
+        savedID = s.savedID
     }
 
     func update(_ s: TabGroupSnapshot) {
@@ -23,6 +26,7 @@ public final class TabGroupModel: Identifiable {
         if color != s.color { color = s.color }
         if collapsed != s.collapsed { collapsed = s.collapsed }
         if members != s.tabs { members = s.tabs }
+        if savedID != s.savedID { savedID = s.savedID }
     }
 
     func setCollapsed(_ value: Bool) {

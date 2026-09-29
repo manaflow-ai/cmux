@@ -1,30 +1,53 @@
 import Foundation
 
-/// Chrome-style tab group inside one pane's strip: named, colored, and
-/// collapsible; tabs join and leave it, and it moves as a unit.
-///
-/// TODO(feat-cmux-next-daemon): proposed shape `Pane.tab_groups[]` of
-/// `{id, name, color, collapsed, tabs}` plus `Tab.tab_group`, capability
-/// `tab-groups-v1` (plans/cmux-next/REWRITE.md "Groups"). Wire names are
-/// guesses until that branch serves them; absent fields decode as empty.
+/// Chrome-style tab group inside one pane's strip (`tab-groups-v1`): named,
+/// colored, collapsible, members contiguous. Wire shape `Pane.tab_groups[]`:
+/// `{id, name, color, collapsed, saved_id, start, count, surfaces}`. Command
+/// results carry the same object without the run fields.
 public struct TabGroupSnapshot: Sendable, Hashable, Decodable, Identifiable {
     public var id: TabGroupID
     public var name: String
-    /// Palette token or `#RRGGBB[AA]`.
+    /// One of Chrome's nine (`grey`, `blue`, `red`, `yellow`, `green`, `pink`,
+    /// `purple`, `cyan`, `orange`).
     public var color: String?
     public var collapsed: Bool
+    /// The saved record this live group is linked to (`saved-tab-groups-v1`).
+    public var savedID: SavedTabGroupID?
+    /// Strip index of the first member.
+    public var start: Int
+    public var count: Int
     /// Member tabs in strip order.
-    public var tabs: [TabGroupMember]
+    public var surfaces: [SurfaceID]
+    /// The pane, in `list-tab-groups` rows only.
+    public var pane: PaneID?
 
-    public init(id: TabGroupID, name: String = "", color: String? = nil, collapsed: Bool = false, tabs: [TabGroupMember] = []) {
+    /// Members as `TabGroupMember`s (the pre-15518 shape).
+    public var tabs: [TabGroupMember] { surfaces.map(TabGroupMember.surface) }
+
+    public init(id: TabGroupID, name: String = "", color: String? = nil, collapsed: Bool = false, savedID: SavedTabGroupID? = nil,
+                start: Int = 0, surfaces: [SurfaceID] = [], pane: PaneID? = nil) {
         self.id = id
         self.name = name
         self.color = color
         self.collapsed = collapsed
-        self.tabs = tabs
+        self.savedID = savedID
+        self.start = start
+        self.count = surfaces.count
+        self.surfaces = surfaces
+        self.pane = pane
     }
 
-    enum CodingKeys: String, CodingKey { case id, name, color, collapsed, tabs }
+    @available(*, deprecated, message: "Use init(id:name:color:collapsed:savedID:start:surfaces:pane:)")
+    public init(id: TabGroupID, name: String = "", color: String? = nil, collapsed: Bool = false, tabs: [TabGroupMember]) {
+        self.init(id: id, name: name, color: color, collapsed: collapsed, surfaces: tabs.compactMap {
+            if case .surface(let surface) = $0 { surface } else { nil }
+        })
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, color, collapsed, start, count, surfaces, pane
+        case savedID = "saved_id"
+    }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -32,12 +55,15 @@ public struct TabGroupSnapshot: Sendable, Hashable, Decodable, Identifiable {
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
         color = try c.decodeIfPresent(String.self, forKey: .color)
         collapsed = try c.decodeIfPresent(Bool.self, forKey: .collapsed) ?? false
-        tabs = try c.decodeIfPresent([TabGroupMember].self, forKey: .tabs) ?? []
+        savedID = try c.decodeIfPresent(SavedTabGroupID.self, forKey: .savedID)
+        surfaces = try c.decodeIfPresent([SurfaceID].self, forKey: .surfaces) ?? []
+        start = try c.decodeIfPresent(Int.self, forKey: .start) ?? 0
+        count = try c.decodeIfPresent(Int.self, forKey: .count) ?? surfaces.count
+        pane = try c.decodeIfPresent(PaneID.self, forKey: .pane)
     }
 }
 
-/// A group member, named by numeric surface or durable tab resource id,
-/// whichever the daemon serializes.
+/// A group member, named by numeric surface or durable tab resource id.
 public enum TabGroupMember: Sendable, Hashable, Decodable {
     case surface(SurfaceID)
     case tab(ResourceID)
