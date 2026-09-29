@@ -18,8 +18,10 @@ struct ClaudeBackgroundWorkNotifyTests {
         {"session_id":"continued-session","hook_event_name":"Stop","stop_hook_active":true,"last_assistant_message":"Intermediate response","background_tasks":[],"session_crons":[]}
         """)
         #expect(result.cachedPending == false)
-        #expect(notifyLine(result.snapshot, containing: "c=turn-complete;p=1") != nil)
-        #expect(journalEvent(result.snapshot, kind: "agent.turn.completed", pendingWork: true) != nil)
+        // `stop_hook_active` describes hook recursion, not live background work. It
+        // must not mark the completion as pending or poison the later idle signal.
+        #expect(notifyLine(result.snapshot, containing: "c=turn-complete;p=0") != nil)
+        #expect(journalEvent(result.snapshot, kind: "agent.turn.completed", pendingWork: false) != nil)
     }
 
     private func statusLine(_ snapshot: [String], value: String) -> String? {
