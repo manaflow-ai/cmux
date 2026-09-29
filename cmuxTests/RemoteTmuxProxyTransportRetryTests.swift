@@ -387,7 +387,6 @@ import Testing
         )
         let profile = host.transport.profile(
             port: host.transportPort,
-            terminalPath: host.transportTerminalPath,
             broker: host.transportBroker
         )
         #expect(profile.executablePath() == "/opt/site/bin/broker")
@@ -419,7 +418,7 @@ import Testing
     @Test func directEtArgvStillCarriesEndpointFlags() {
         let host = RemoteTmuxHost(destination: "somehost", transport: .et, transportPort: 2022)
         let argv = host.transport
-            .profile(port: host.transportPort, terminalPath: "/usr/local/bin/etterminal")
+            .profile(port: host.transportPort)
             .controlStreamArgv(host: host, sessionName: "work", mode: .attach)
         #expect(argv.contains("-p"))
         #expect(argv.contains("2022"))
@@ -432,7 +431,7 @@ import Testing
         let broker = RemoteTmuxTransportBroker(executable: "/opt/site/bin/broker",
                                                leadingArguments: ["-et"])
         let host = RemoteTmuxHost(destination: "somehost", transport: .ssh, transportBroker: broker)
-        let profile = host.transport.profile(port: nil, terminalPath: nil, broker: broker)
+        let profile = host.transport.profile(port: nil, broker: broker)
         #expect(profile.executablePath() != "/opt/site/bin/broker")
         let argv = profile.controlStreamArgv(host: host, sessionName: "work", mode: .attach)
         #expect(!argv.contains("-et"))
@@ -715,48 +714,15 @@ import Testing
         #expect(notFound.hasPrefix("/"), "must be absolute so `script` cannot mis-resolve it")
     }
 
-    /// A terminal path is always sent, and comes from the host once probed.
-    ///
-    /// Dropping the flag was measured to be worse than the literal it replaced: `etterminal` is not
-    /// on a non-interactive ssh PATH on macOS, so et fails outright with "Error starting ET process
-    /// through ssh". The fix for a hardcoded path is to resolve it, not to omit it.
-    @Test func theRemoteTerminalPathIsAlwaysSentAndComesFromTheHostWhenKnown() {
-        let unprobed = RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039)
-        let defaulted = RemoteTmuxTransportKind.et
-            .profile(port: 2039, terminalPath: unprobed.transportTerminalPath)
-            .controlStreamArgv(host: unprobed, sessionName: "work", mode: .attach)
-        #expect(
-            consecutive(defaulted, "--terminal-path", RemoteTmuxETTransportProfile.defaultRemoteTerminalPath),
-            "an unprobed host must still work, so it keeps the previous default"
-        )
-
-        let probed = RemoteTmuxHost(
-            destination: "user@host", transport: .et, transportPort: 2039,
-            transportTerminalPath: "/opt/homebrew/bin/etterminal"
-        )
-        let resolved = RemoteTmuxTransportKind.et
-            .profile(port: 2039, terminalPath: probed.transportTerminalPath)
-            .controlStreamArgv(host: probed, sessionName: "work", mode: .attach)
-        #expect(consecutive(resolved, "--terminal-path", "/opt/homebrew/bin/etterminal"))
-    }
-
-    /// How the path is discovered: one short command, covering PATH first and then the platform
-    /// locations. Short matters — it is delivered under the same canonical-line limit as any other
-    /// et command.
-    @Test func theTerminalPathProbeIsShortAndCoversEveryCandidate() {
-        let probe = RemoteTmuxETTransportProfile.remoteTerminalProbeCommand()
-        #expect(probe.hasPrefix("command -v etterminal"), "PATH first, when the host has it there")
-        for candidate in RemoteTmuxETTransportProfile.remoteTerminalCandidates {
-            #expect(probe.contains(candidate), "\(candidate) must be probed")
-        }
-        #expect(
-            probe.utf8.count < RemoteTmuxETTransportProfile.maxCanonicalLineBytes,
-            "the probe itself must fit one line, saw \(probe.utf8.count) bytes"
-        )
-        // Apple Silicon before Intel: a machine with both should use the native one.
-        let homebrew = probe.range(of: "/opt/homebrew/bin/etterminal")
-        let intel = probe.range(of: "/usr/local/bin/etterminal")
-        #expect(homebrew != nil && intel != nil && homebrew!.lowerBound < intel!.lowerBound)
+    /// A terminal path is always sent. Dropping the flag was measured to be worse than the literal
+    /// it replaced: `etterminal` is not on a non-interactive ssh PATH on macOS, so et fails outright
+    /// with "Error starting ET process through ssh".
+    @Test func theRemoteTerminalPathIsAlwaysSent() {
+        let host = RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039)
+        let argv = RemoteTmuxTransportKind.et
+            .profile(port: 2039)
+            .controlStreamArgv(host: host, sessionName: "work", mode: .attach)
+        #expect(consecutive(argv, "--terminal-path", RemoteTmuxETTransportProfile.defaultRemoteTerminalPath))
     }
 
     /// et bootstraps over ssh before its own protocol takes over, and inherits none of the host's

@@ -155,7 +155,7 @@ struct RemoteTmuxMultiplexFuzzTests {
         harness.assertNoLeaks()
     }
 
-    // MARK: - Pure linked-view planner fuzz
+    // MARK: - Pure view planner fuzz
 
     @Test(arguments: seeds)
     func linkedViewPlannerHoldsSafetyInvariants(seed: UInt64) throws {

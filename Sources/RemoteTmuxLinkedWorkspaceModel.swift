@@ -1,8 +1,8 @@
 import Foundation
 
-/// Pure mapping from the linked-view's flat window set back to cmux workspaces.
+/// Pure mapping from the multiplexer view's flat window set back to cmux workspaces.
 ///
-/// In linked-view mode a single `tmux -CC` client is attached to the hidden view
+/// With the multiplexer on, a single `tmux -CC` client is attached to the hidden view
 /// session, which contains windows linked in from many real sessions. The control
 /// stream therefore delivers `%output`/`%window-add` for windows belonging to
 /// different home sessions. cmux must regroup them: each real (home) session is a

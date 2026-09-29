@@ -1,6 +1,6 @@
 import Foundation
 
-/// The pure "brain" of the linked-view coordinator: given a snapshot of the
+/// The pure planner behind the multiplexer view: given a snapshot of the
 /// remote tmux server (its sessions + windows) and the view's current contents,
 /// it produces everything the live coordinator must do — whether to (re)create the
 /// view, which windows to link/unlink, and the resulting workspace grouping.
@@ -27,7 +27,7 @@ enum RemoteTmuxLinkedViewPlan {
         /// True when no live, current-format, owned view session exists yet and
         /// the coordinator must create one (via `view.createCommands`).
         let needsViewCreate: Bool
-        /// True when the host has NO real (non-view) session, so the linked view
+        /// True when the host has NO real (non-view) session, so the view
         /// would surface zero workspaces. The chosen behavior for `ssh-tmux` to a
         /// session-less host is to create one fresh session so the user always gets a
         /// workspace instead of an empty mirror. Derived from the SESSION LIST (not

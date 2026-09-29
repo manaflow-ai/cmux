@@ -56,7 +56,7 @@ enum RemoteTmuxRetryDelay {
     }
 }
 
-/// Live coordinator for the linked-view transport (`remoteTmux.linkedView` beta).
+/// Live coordinator for the multiplexer (`remoteTmux.multiplexer.beta.enabled`).
 ///
 /// Owns the hidden aggregate view session for one host and drives ONE
 /// `tmux -CC` control client attached to it, so every mirrored session's windows

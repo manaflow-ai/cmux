@@ -62,21 +62,11 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// port and every one-shot fails with `kex_exchange_identification`.
     let transportPort: Int?
 
-    /// Where the transport's remote helper lives, once discovered.
-    ///
-    /// `et` needs `etterminal`'s absolute path because a non-interactive ssh does not have it on
-    /// PATH, and the path differs by platform and package manager. Resolved by probing the host
-    /// rather than assumed — deliberately not part of ``connectionHash``, since it describes how to
-    /// reach the endpoint rather than which endpoint it is, and two spellings of it must not split
-    /// one host into two.
-    let transportTerminalPath: String?
-
     /// The wrapper that fronts the transport client, for a host that is not directly reachable.
     ///
     /// Set when reaching this host means going through a broker that resolves the route — a
     /// tunnel, an agent socket, a short-lived credential — and then launches the client itself.
-    /// Like ``transportTerminalPath`` this is deliberately absent from ``connectionHash``: it
-    /// describes how to reach the endpoint, not which endpoint it is, so a host reached directly
+    /// It is deliberately absent from ``connectionHash``: it describes how to reach the endpoint, not which endpoint it is, so a host reached directly
     /// and the same host reached through a broker are one endpoint that should share one
     /// connection rather than two competing ones.
     let transportBroker: RemoteTmuxTransportBroker?
@@ -87,7 +77,6 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         identityFile: String? = nil,
         transport: RemoteTmuxTransportKind = .ssh,
         transportPort: Int? = nil,
-        transportTerminalPath: String? = nil,
         transportBroker: RemoteTmuxTransportBroker? = nil
     ) {
         self.destination = destination
@@ -95,7 +84,6 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         self.identityFile = identityFile
         self.transport = transport
         self.transportPort = transportPort
-        self.transportTerminalPath = transportTerminalPath
         self.transportBroker = transportBroker
     }
 

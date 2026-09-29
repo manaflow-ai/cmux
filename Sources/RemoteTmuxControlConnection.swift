@@ -590,7 +590,6 @@ final class RemoteTmuxControlConnection {
         self.transportProfile = transportProfile
             ?? host.transport.profile(
                 port: host.transportPort,
-                terminalPath: host.transportTerminalPath,
                 broker: host.transportBroker
             )
         self.host = host
@@ -1259,10 +1258,9 @@ final class RemoteTmuxControlConnection {
         case .ended:
             return
         case .connecting, .connected:
-            // The control stream died without `%exit`. What that means depends on who owns
-            // reconnection: for ssh it is a transport loss cmux recovers from, but a
-            // transport that reconnects internally does not end for a network drop, so its
-            // exit is the session genuinely ending.
+            // The control stream died without `%exit`. After the checks below,
+            // `RemoteTmuxStreamEndDisposition.forStreamEnd` decides: reconnect if control mode
+            // was reached, otherwise treat it as a transport that failed to start.
             // A transport that could not start will not start on the next try either, and
             // retrying hides the reason: end-of-stream no longer implies the session is over, so
             // without this the mirror waits out the attach timeout with nothing to explain it.

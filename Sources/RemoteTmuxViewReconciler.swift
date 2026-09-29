@@ -1,7 +1,7 @@
 import Foundation
 
-/// Pure, declarative reconciliation for the remote-tmux **linked-view** transport
-/// (the `remoteTmux.linkedView` beta).
+/// Pure, declarative reconciliation for the remote-tmux multiplexer
+/// (`remoteTmux.multiplexer.beta.enabled`).
 ///
 /// On hosts whose `sshd` caps each connection to one concurrent session
 /// (`MaxSessions 1`), cmux cannot open a `tmux -CC` control client per remote

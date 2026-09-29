@@ -1,7 +1,7 @@
 import Foundation
 
 /// Identity and ownership for the hidden aggregate **view** session used by the
-/// remote-tmux linked-view transport (`remoteTmux.linkedView` beta).
+/// remote-tmux multiplexer (`remoteTmux.multiplexer.beta.enabled`).
 ///
 /// The view session is cmux-created remote state: one per (host, cmux owner). The
 /// single `tmux -CC` control client attaches to it and every mirrored window is

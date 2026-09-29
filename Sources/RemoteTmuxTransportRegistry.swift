@@ -44,7 +44,6 @@ enum RemoteTmuxTransportKind: String, Sendable, Equatable, CaseIterable {
     /// The profile that carries this transport.
     func profile(
         port: Int?,
-        terminalPath: String? = nil,
         broker: RemoteTmuxTransportBroker? = nil
     ) -> RemoteTmuxTransportProfile {
         switch self {
@@ -59,13 +58,12 @@ enum RemoteTmuxTransportKind: String, Sendable, Equatable, CaseIterable {
             // A terminal path has to be sent: `etterminal` is not on a non-interactive ssh PATH on
             // macOS, and without the flag et fails with "Error starting ET process through ssh".
             // Measured — dropping the flag entirely was worse than the literal it replaced.
-            //
-            // So it is resolved rather than assumed. `RemoteTmuxController` probes the host once
-            // over the ssh one-shot channel and stores the answer; this default is only the
-            // starting point for a host nobody has probed yet.
+            // The path sent is the one `et --macserver` sends. Finding it per host would cost an
+            // extra ssh connection before every attach, which is exactly what a host that asks
+            // for a tap on every connection cannot afford.
             return RemoteTmuxETTransportProfile(
                 port: resolvedTransportPort(port),
-                remoteTerminalPath: terminalPath ?? RemoteTmuxETTransportProfile.defaultRemoteTerminalPath,
+                remoteTerminalPath: RemoteTmuxETTransportProfile.defaultRemoteTerminalPath,
                 // Forwarded, and worth stating why this line is load-bearing: omitting it left the
                 // profile with no broker, so a brokered host silently built the direct argv —
                 // endpoint flags and all — and would have failed against a wrapper that rejects a
@@ -649,9 +647,10 @@ enum RemoteTmuxPseudoTerminal {
 ///   already tolerates this (unrecognized lines yield no messages) and already strips the
 ///   pty's `\r`, so the protocol survives — but the preamble is not optional, it is what
 ///   this transport always does.
-/// - **It reconnects internally**, so a dropped network does not end the process. On a real
-///   session end the client first attempts a reconnect and only then reports the session
-///   gone, which is why EOF must mean "over" rather than "respawn" here.
+/// - **It reconnects internally**, so a dropped network does not end the process. When its
+///   stream does end, ``RemoteTmuxStreamEndDisposition/forStreamEnd(hasReachedControlMode:)``
+///   decides as it does for ssh: reconnect if control mode was reached, otherwise report that
+///   the transport failed to start.
 /// - **`-x` / `--kill-other-sessions` must never be passed**: it kills every session that
 ///   user has on the host, not just stale ones.
 struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
@@ -727,30 +726,10 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         return max(0, deliverableCommandBytes - overhead - 1)
     }
 
-    /// Where `etterminal` is looked for on the remote, in preference order.
-    ///
-    /// Sent explicitly because a non-interactive ssh on macOS does not have it on PATH — which is
-    /// also why `et` ships `--macserver` at all. The list exists so a host can be probed instead
-    /// of assumed: Apple Silicon Homebrew, Intel Homebrew, then Linux packages.
-    static let remoteTerminalCandidates = [
-        "/opt/homebrew/bin/etterminal",
-        "/usr/local/bin/etterminal",
-        "/usr/bin/etterminal",
-    ]
-
-    /// Used until a host has been probed. Matches what `et --macserver` would send, so an
-    /// unprobed host behaves as before rather than worse.
+    /// Where `etterminal` is expected on the remote. Sent explicitly because a non-interactive ssh
+    /// on macOS does not have it on PATH, which is also why `et` ships `--macserver`; this is the
+    /// same path `--macserver` sends.
     static let defaultRemoteTerminalPath = "/usr/local/bin/etterminal"
-
-    /// A shell command that prints the first candidate that exists on the remote.
-    ///
-    /// Short by construction: it is delivered the same way every other et command is, so it is
-    /// subject to the same canonical-line limit.
-    static func remoteTerminalProbeCommand() -> String {
-        "command -v etterminal || " + remoteTerminalCandidates
-            .map { "([ -x \($0) ] && echo \($0))" }
-            .joined(separator: " || ")
-    }
 
     /// etserver's default port is 2022, not ssh's 22.
     let port: Int
@@ -890,8 +869,8 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
     var authenticationIsSSHShaped: Bool { false }
 
     /// et types its command into a canonical-mode pty, so an over-long line is never delivered.
-    /// Measured against real et: delivery stops between 1016 and 1080 bytes of total command line
-    /// on a host whose MAX_CANON is 1024, so the budget deliberately sits below it.
+    /// The budget is ``deliverableCommandBytes``, which sits below where delivery was measured to
+    /// stop on a host whose MAX_CANON is 1024.
     func commandLengthOverrun(
         sessionName: String,
         mode: RemoteTmuxControlAttachMode

@@ -248,7 +248,6 @@ extension RemoteTmuxController {
             // master, and the retry resumes this stream over it instead of starting over.
             let profile = host.transport.profile(
                 port: host.transportPort,
-                terminalPath: host.transportTerminalPath,
                 broker: host.transportBroker)
             let awaitingLogin = hostAuth.isAwaiting(host)
                 || heldView?.lastStreamAwaitedCredentials == true
