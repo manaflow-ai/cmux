@@ -25,8 +25,9 @@ public final class MobileConnectionLifecycle: MobileConnectionReadinessProviding
                      UIApplication.protectedDataDidBecomeAvailableNotification,
                      UIApplication.protectedDataWillBecomeUnavailableNotification] {
             let token = notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
-                // NotificationCenter's explicit main queue is the legacy callback seam.
-                MainActor.assumeIsolated { self?.update(for: note.name) }
+                // Capture the Sendable name before crossing the main-actor seam.
+                let notificationName = note.name
+                MainActor.assumeIsolated { self?.update(for: notificationName) }
             }
             observers.append(ProtectedDataAvailabilityObserverToken(token: token, notificationCenter: notificationCenter))
         }

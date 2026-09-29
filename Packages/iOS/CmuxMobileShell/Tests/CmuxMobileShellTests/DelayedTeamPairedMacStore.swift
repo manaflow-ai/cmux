@@ -21,6 +21,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
     private var blockers: [String: [(id: UUID, continuation: CheckedContinuation<Void, Never>)]] = [:]
     private var upsertCount = 0
     private var loadAllCount = 0
+    private let loadCountChanges = AsyncStream<Int>.makeStream(bufferingPolicy: .bufferingNewest(1))
     private var recordReplacement: (
         afterLoadAllCount: Int,
         teamKey: String,
@@ -166,6 +167,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
 
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         loadAllCount += 1
+        loadCountChanges.continuation.yield(loadAllCount)
         let failsByCount = loadAllFailuresRemaining > 0
         if failsByCount || loadAllFailureCalls.remove(loadAllCount) != nil {
             if failsByCount {
@@ -333,6 +335,8 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
     func backupCancellationWasCancelled(call: Int) -> Bool? {
         backupCancellationObservedCancellation[call]
     }
+
+    func loadCounts() -> AsyncStream<Int> { loadCountChanges.stream }
 
     func waitUntilLoadStarted(teamID: String?) async {
         let key = teamID ?? ""

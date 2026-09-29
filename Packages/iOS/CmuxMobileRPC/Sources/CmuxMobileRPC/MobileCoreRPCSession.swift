@@ -23,8 +23,7 @@ actor MobileCoreRPCSession {
         task: Task<any CmxByteTransport, any Error>,
         cancellationClose: MobileRPCConnectCancellationClose,
         diagnostics: MobileRPCTransportDialDiagnostics,
-        waiters: Set<UUID>,
-        completed: Bool
+        waiters: Set<UUID>
     )
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
     static let defaultLateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000
@@ -651,13 +650,8 @@ actor MobileCoreRPCSession {
                 task: task,
                 cancellationClose: cancellationClose,
                 diagnostics: diagnostics,
-                waiters: [waiterID],
-                completed: false
+                waiters: [waiterID]
             )
-            Task.detached { [weak self] in
-                _ = await task.result
-                await self?.markConnectingCompleted(id: connectionID)
-            }
         }
 
         let candidate: any CmxByteTransport
@@ -841,21 +835,6 @@ actor MobileCoreRPCSession {
         recordConnectCancellation(connecting, reason: .requestTimedOut)
         connecting.task.cancel()
         await abandonConnectionTask(connecting)
-    }
-
-    private func markConnectingCompleted(id connectionID: UUID) {
-        guard connectionTask?.id == connectionID else { return }
-        if let current = connectionTask {
-            connectionTask = (
-                id: current.id,
-                lease: current.lease,
-                task: current.task,
-                cancellationClose: current.cancellationClose,
-                diagnostics: current.diagnostics,
-                waiters: current.waiters,
-                completed: true
-            )
-        }
     }
 
     private func recordConnectCancellation(

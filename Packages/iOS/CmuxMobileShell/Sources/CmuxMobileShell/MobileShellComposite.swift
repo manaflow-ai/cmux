@@ -3143,9 +3143,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         lastReconnectStackUserID = stackUserID
         startObservingConnectionReadiness()
         guard connectionEstablishmentIsAllowed else {
-            pendingInactiveRecoveryTrigger = .foreground
+            if pendingInactiveRecoveryTrigger == nil { pendingInactiveRecoveryTrigger = .foreground }
             finishStoredMacReconnectAttempt(generation: storedMacReconnectGeneration)
-            return .superseded
+            return .failed(.cancelled)
         }
         startObservingNetworkPathChanges()
         // A hydrating restore is the launch/team-change lifecycle attempt:
@@ -3178,6 +3178,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         defer {
             storedMacReconnectGenerationsInFlight.remove(generation)
             settleStoodDownConnectionRecoveryIfOwnerless()
+            recoverPendingInactiveRecoveryIfNeeded()
         }
         isReconnectingStoredMac = true
         let restoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
@@ -3225,13 +3226,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let race = await withTaskCancellationHandler {
             await deadlineTask.value
         } onCancel: { deadlineTask.cancel() }
-        registerAbandonedReconnectDial(race.abandoned)
+        if race.didTimeOut { registerAbandonedReconnectDial(race.abandoned) }
         guard generation == storedMacReconnectGeneration else { return .superseded }
         storedMacReconnectDeadlineTask = nil
         if race.wasCancelled || !connectionEstablishmentIsAllowed {
             finishStoredMacReconnectAttempt(generation: generation)
             invalidateStoredMacReconnectAttempt()
-            return .superseded
+            return .failed(.cancelled)
         }
         if let outcome = race.value {
             if outcome.didConnect {

@@ -287,7 +287,8 @@ extension MobileShellComposite {
     /// foreground recovery passes, so a replay coalesces into any attempt
     /// they already started instead of stacking a second dial.
     func recoverPendingInactiveRecoveryIfNeeded() {
-        guard foregroundRefreshIsActive,
+        guard isSignedIn, connectionEstablishmentIsAllowed, !isReconnectingStoredMac,
+              storedMacReconnectGenerationsInFlight.isEmpty, !connectionRecoveryOwner.isActive,
               let trigger = pendingInactiveRecoveryTrigger else { return }
         pendingInactiveRecoveryTrigger = nil
         recoverMobileConnection(trigger: trigger)
@@ -743,6 +744,7 @@ extension MobileShellComposite {
             connectionRecoveryFailed = true
             if connectionState != .connected { macConnectionStatus = .unavailable }
         }
+        recoverPendingInactiveRecoveryIfNeeded()
     }
 
     private func markMacConnectionUnavailableIfNoStore() {
@@ -1130,8 +1132,8 @@ extension MobileShellComposite {
         failure: DiagnosticFailureKind,
         stackUserID: String?
     ) {
-        guard failure != .authorizationFailed,
-              failure != .accountMismatch,
+        guard failure != .cancelled, failure != .superseded,
+              failure != .authorizationFailed, failure != .accountMismatch,
               !connectionRequiresReauth else { return }
         guard isSignedIn, connectionState != .connected else { return }
         guard Self.shouldRecordReconnectBackoff(
@@ -1431,14 +1433,8 @@ extension MobileShellComposite {
     /// Races `operation` against a wall-clock deadline. Returns the
     /// operation's value, or `nil` when the deadline expires first.
     ///
-    /// Deliberately UNSTRUCTURED: a task group would structurally await the
-    /// losing child, so a dial that ignores cancellation (the exact wedge
-    /// this exists for) would suspend the race forever. Instead the
-    /// operation runs in its own task that the deadline path abandons after
-    /// a best-effort cancel; the once-guard is MainActor-confined so exactly
-    /// one side resumes. An abandoned dial retains its captures until it
-    /// eventually resolves — bounded by transport teardown and precisely the
-    /// cost of not being wedged.
+    /// Transport owners cancel their native work independently. This outer
+    /// race also bounds noncooperative store/auth work without awaiting it.
     /// Ceiling on concurrently outstanding abandoned (wedged) dials before
     /// automatic retries pause. A dial that resolves reclaims its slot and
     /// re-arms the automatic retry when still disconnected.

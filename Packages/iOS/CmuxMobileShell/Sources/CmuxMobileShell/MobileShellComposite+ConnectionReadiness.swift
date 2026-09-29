@@ -13,13 +13,18 @@ extension MobileShellComposite {
         connectionReadinessTask = Task { [weak self] in
             for await ready in changes {
                 guard let self, !Task.isCancelled else { return }
-                if ready {
-                    self.recoverPendingInactiveRecoveryIfNeeded()
-                } else {
-                    self.pendingInactiveRecoveryTrigger = .foreground
-                    self.storedMacReconnectDeadlineTask?.cancel()
-                }
+                self.connectionReadinessDidChange(ready)
             }
         }
     }
+
+    func connectionReadinessDidChange(_ ready: Bool) {
+        if ready {
+            recoverPendingInactiveRecoveryIfNeeded()
+        } else {
+            if pendingInactiveRecoveryTrigger == nil { pendingInactiveRecoveryTrigger = .foreground }
+            storedMacReconnectDeadlineTask?.cancel()
+        }
+    }
+
 }

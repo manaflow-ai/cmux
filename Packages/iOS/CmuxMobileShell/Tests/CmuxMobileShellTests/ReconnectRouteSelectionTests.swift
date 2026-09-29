@@ -423,7 +423,7 @@ import Testing
 
         #expect(!firstConnected)
         #expect(secondConnected)
-        #expect(factory.attemptedPorts() == [51000, 51001, 51001])
+        #expect(factory.attemptedPorts() == [51000, 51000, 51001, 51001], "A new owner must retry without the old busy gate")
     }
 
     @Test func staleConnectCannotReplaceAnEstablishedClientBeforeDialing() async throws {

@@ -71,7 +71,9 @@ extension MobileShellComposite {
         Task { @MainActor [weak self] in
             _ = await task.value
             guard let self else { return }
+            let retriesWerePaused = self.abandonedReconnectDialCount >= Self.maximumAbandonedReconnectDials
             self.abandonedReconnectDialCount = max(0, self.abandonedReconnectDialCount - 1)
+            guard retriesWerePaused else { return }
             // Re-arm the retry loop directly through the coalesced recovery
             // entry, NEVER by recording backoff: a backoff write here can land
             // mid-manual-retry and re-block the dial the user just requested
@@ -120,7 +122,7 @@ extension MobileShellComposite {
         }
         if let value = race.value { return value }
         expiry.expired = true
-        registerAbandonedReconnectDial(race.abandoned)
+        if race.didTimeOut { registerAbandonedReconnectDial(race.abandoned) }
         return StoredMacCandidateDial(
             outcome: race.wasCancelled ? .superseded : .failed(.timedOut),
             attemptedIroh: !usesStrictTailscale

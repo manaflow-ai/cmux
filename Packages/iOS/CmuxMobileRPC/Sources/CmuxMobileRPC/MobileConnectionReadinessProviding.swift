@@ -1,5 +1,3 @@
-public import Foundation
-
 /// Lifecycle authority for starting foreground connections, supplied by the app.
 @MainActor
 public protocol MobileConnectionReadinessProviding: Sendable {

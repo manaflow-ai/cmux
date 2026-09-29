@@ -75,13 +75,17 @@ extension IrxPeerEngine {
             }
             await self.finishDial(result, generation: generation, trigger: trigger)
         }
-        dialDeadlineTask = Task { [dialSleep, config] in
-            do { try await dialSleep(config.dialDeadline) } catch { return }
-            guard !Task.isCancelled, self.dialGeneration == generation,
-                  let outstanding = self.dialTask else { return }
-            self.finishDial(.failure(IrxDialTimedOut()), generation: generation, trigger: trigger)
-            outstanding.cancel()
+        dialDeadlineTask = Task { [weak self, dialSleep, limit = config.dialDeadline] in
+            do { try await dialSleep(limit) } catch { return }
+            guard !Task.isCancelled else { return }
+            await self?.expireDial(generation: generation, trigger: trigger)
         }
+    }
+
+    private func expireDial(generation: UInt64, trigger: String) {
+        guard dialGeneration == generation, let outstanding = dialTask else { return }
+        finishDial(.failure(IrxDialTimedOut()), generation: generation, trigger: trigger)
+        outstanding.cancel()
     }
 
     private func finishDial(
