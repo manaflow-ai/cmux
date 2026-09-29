@@ -5515,10 +5515,8 @@ final class BrowserPanel: Panel, ObservableObject {
         if cloudAccess.model != nil && cloudAccess.owns(url) {
             if cloudAccess.model?.isReady != true { return nil }
             prepareCloudBrowserNavigation()
-        } else if let provider = SurfaceCatalog.shared.machines.values.first(where: {
-            $0.privateAddress?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")) == url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        }).flatMap({ SurfaceCatalog.shared.provider(for: $0.id) as? CmuxTuiSurfaceProvider }),
-                  ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+        } else if ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+                  let provider = privateAddressRouteProvider(for: url) {
             provider.configureBrowser(self, url: url)
             return nil
         } else {

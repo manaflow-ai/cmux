@@ -361,6 +361,33 @@ struct SSHTuiMigrationTests {
         #expect(workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
     }
 
+    @MainActor
+    @Test("Only terminals known to run on this Mac resolve paths locally")
+    func unplacedAndCloudSurfacesNeverResolvePathsLocally() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let catalog = SurfaceCatalog.shared
+        defer {
+            catalog.endProjections(panelID: panelID, reason: .replaced)
+            workspace.teardownAllPanels()
+        }
+        #expect(workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
+        #expect(!workspace.terminalLinkIsRemoteTerminal(panelID))
+        let unplaced = UUID()
+        #expect(!workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: unplaced))
+        #expect(workspace.terminalLinkIsRemoteTerminal(unplaced))
+
+        let resource = SurfaceResourceID(
+            machine: .cloud("vm-path-fixture-" + UUID().uuidString),
+            kind: .terminal, key: "term_" + UUID().uuidString
+        )
+        catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: resource)],
+                        workspaceID: workspace.id, restoringWorkspace: workspace)
+        try #require(catalog.projectionIncludingPendingRestore(forPanel: panelID)?.resource == resource)
+        #expect(!workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
+        #expect(workspace.terminalLinkIsRemoteTerminal(panelID))
+    }
+
     @Test("Loopback links in SSH terminals retain remote routing")
     func sshLoopbackLinkUsesItsMachineCarrier() throws {
         let resource = SurfaceResource(
