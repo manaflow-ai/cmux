@@ -23,7 +23,7 @@ extension DockSplitStore {
 
         switch action {
         case .rename:
-            _ = promptRenameDockSurface(
+            _ = requestPaletteRenameDockSurface(
                 tabId: tab.id,
                 presentingWindow: dockContextMenuWindow
             )
