@@ -1083,6 +1083,7 @@ function FileReviewControls({
         <button
           type="button"
           className="file-review-load"
+          title={reason === "generated" ? label("generatedFile") : label("largeDiff")}
           onClick={(event) => {
             event.stopPropagation();
             onLoadDiff();
@@ -1105,7 +1106,7 @@ function FileReviewControls({
         }}
       >
         <span className="file-review-checkbox" aria-hidden="true">{viewed ? <Icon name="check" /> : null}</span>
-        <span>{label("viewed")}</span>
+        <span className="file-review-viewed-label">{label("viewed")}</span>
       </button>
     </span>
   );
@@ -1721,7 +1722,7 @@ function OptionsMenu({
           {[
             { value: "bars", icon: "bars", label: label("bars") },
             { value: "classic", icon: "classic", label: label("classic") },
-            { value: "none", icon: "eye", label: label("none") },
+            { value: "none", icon: "none", label: label("none") },
           ].map((option) => (
             <button
               key={option.value}
