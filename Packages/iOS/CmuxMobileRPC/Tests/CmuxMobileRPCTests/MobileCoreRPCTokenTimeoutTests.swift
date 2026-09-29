@@ -459,7 +459,9 @@ import Testing
     private func waitForReleasedToken(gate: RPCStackTokenGate, tokenProvider: CancellationIgnoringTokenProvider) async throws -> String {
         for _ in 0..<200 {
             do {
-                return try await gate.token(timeoutNanoseconds: 1) {
+                // This acquisition must succeed after cleanup; a one-nanosecond
+                // deadline races the released provider and creates extra retries.
+                return try await gate.token(timeoutNanoseconds: 60 * 1_000_000_000) {
                     try await tokenProvider.token()
                 }
             } catch MobileShellConnectionError.requestTimedOut {

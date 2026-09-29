@@ -49,6 +49,7 @@ public actor IrxPeerEngine {
         public var keepaliveInterval: Duration
         public var keepaliveDeadline: Duration
         public var foregroundProbeDeadline: Duration
+        /// Maximum wait for admission before the dial loses adoption authority.
         public var dialDeadline: Duration
 
         public init(
