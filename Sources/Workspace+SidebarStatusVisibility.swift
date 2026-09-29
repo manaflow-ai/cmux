@@ -89,14 +89,20 @@ extension Workspace {
         return agentPIDKeysByPanelId[panelId]?.contains { agentStatusKey(forAgentPIDKey: $0) == key } ?? false
     }
 
-    private static func sidebarStatusUrgencyRank(_ lifecycle: AgentHibernationLifecycleState?) -> Int {
+    static func sidebarStatusUrgencyRank(_ lifecycle: AgentHibernationLifecycleState?) -> Int {
         switch lifecycle {
-        case .needsInput: 3
-        case .running: 2
-        case .backgroundWorkPending: 2
+        case .running: 4
+        case .backgroundWorkPending: 3
+        case .needsInput: 2
         case .unknown, nil: 1
         case .idle: 0
         }
+    }
+
+    func sidebarStatusUrgencyRank(forKey key: String) -> Int {
+        agentLifecycleStatesByPanelId.values
+            .compactMap { Self.sidebarStatusUrgencyRank($0[key]) }
+            .max() ?? 0
     }
 
     private func shouldDisplaySidebarStatusEntry(

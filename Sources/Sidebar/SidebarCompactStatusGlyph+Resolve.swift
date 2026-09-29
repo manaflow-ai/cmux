@@ -95,14 +95,14 @@ extension SidebarCompactStatusGlyph {
     }
 
     private static func lifecycleText(_ states: [AgentHibernationLifecycleState]) -> String? {
-        if states.contains(.needsInput) {
-            return String(localized: "feed.status.needsInput", defaultValue: "Needs input")
-        }
         if states.contains(.running) {
             return String(localized: "agent.generic.status.running", defaultValue: "Running")
         }
         if states.contains(.backgroundWorkPending) {
             return String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting")
+        }
+        if states.contains(.needsInput) {
+            return String(localized: "feed.status.needsInput", defaultValue: "Needs input")
         }
         if states.contains(.idle) {
             return String(localized: "agentSession.web.status.idle", defaultValue: "Idle")

@@ -88,6 +88,8 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
             return .unknown
         case "running":
             return .running
+        case "backgroundworkpending", "background-work-pending":
+            return .backgroundWorkPending
         case "idle":
             return .idle
         case "needsinput", "needs-input":
