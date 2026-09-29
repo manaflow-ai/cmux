@@ -43,6 +43,8 @@ export type TeamInviteLink = {
 export type TeamBillingSummary = {
   readonly planId: string | null;
   readonly seats: number | null;
+  /** Roster cap of a personal (Pro/Max) plan, members included; null when uncapped. */
+  readonly memberLimit: number | null;
   readonly memberCount: number;
   readonly hasActiveSubscription: boolean;
 };

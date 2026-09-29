@@ -1,6 +1,7 @@
 import type { TeamAccess } from "./access";
 import { TeamApiError } from "./errors";
 import { databaseTeamInviteStore, type TeamInviteStore } from "./repository";
+import { assertSeatsAvailable, memberLimitForTeam } from "./seats";
 import { withStackDeadline, type StackSentInvitation } from "./stack";
 import type { TeamInvitation, TeamRole } from "./types";
 
@@ -69,7 +70,16 @@ export async function inviteTeamMembers(
   const emails = [...new Set(input.emails.map(normalizeInviteEmail))];
   const failed: { email: string; code: InviteFailureCode }[] = [];
   const sent: string[] = [];
-  const previous = emails.some((email) => !memberEmails.has(email)) ? await listStackInvitations(access) : [];
+  const newEmails = emails.filter((email) => !memberEmails.has(email));
+  const previous = newEmails.length > 0 ? await listStackInvitations(access) : [];
+  if (newEmails.length > 0 && memberLimitForTeam(access.team) !== null) {
+    const pending = new Set(previous.map(invitationEmail).filter((email): email is string => email !== null));
+    assertSeatsAvailable({
+      team: access.team,
+      occupied: access.members.length + pending.size,
+      adding: newEmails.filter((email) => !pending.has(email)).length,
+    });
+  }
   for (const email of emails) {
     if (memberEmails.has(email)) {
       failed.push({ email, code: "already_member" });

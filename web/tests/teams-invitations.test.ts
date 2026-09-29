@@ -139,3 +139,61 @@ describe("email invitations", () => {
     expect((error as TeamApiError).code).toBe("invitation_not_found");
   });
 });
+
+describe("personal plan member limit", () => {
+  const THIRD_MEMBER = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+
+  async function proTeam(extraMembers: readonly string[] = []) {
+    const stack = standardTeam();
+    stack.teams.get(TEAM_ID)!.metadata = { cmuxPlan: "pro" };
+    for (const id of extraMembers) stack.addUser({ id }).addMember(TEAM_ID, id, ["team_member"]);
+    const store = new MemoryInviteStore();
+    const access = await requireTeamAccess({ id: ADMIN_ID }, TEAM_ID, { stack: stack.app() });
+    if (!access.ok) throw new Error("access refused");
+    return { stack, store, access: access.access };
+  }
+
+  test("a Pro team of two admits one more invitation, and pending invitations hold the seat", async () => {
+    const { store, access } = await proTeam();
+    const first = await inviteTeamMembers(access, { emails: ["one@example.com"], role: "member", callbackUrl: CALLBACK }, { store });
+    expect(first.invitations.map((invitation) => invitation.email)).toEqual(["one@example.com"]);
+    await expect(
+      inviteTeamMembers(access, { emails: ["two@example.com"], role: "member", callbackUrl: CALLBACK }, { store }),
+    ).rejects.toMatchObject({ code: "seat_limit", status: 409 });
+    // Re-inviting the pending email consumes no extra seat.
+    const again = await inviteTeamMembers(access, { emails: ["one@example.com"], role: "admin", callbackUrl: CALLBACK }, { store });
+    expect(again.invitations).toHaveLength(1);
+  });
+
+  test("a full Pro roster refuses new invitations but still reports existing members", async () => {
+    const { store, access } = await proTeam([THIRD_MEMBER]);
+    await expect(
+      inviteTeamMembers(access, { emails: ["late@example.com"], role: "member", callbackUrl: CALLBACK }, { store }),
+    ).rejects.toMatchObject({ code: "seat_limit", status: 409 });
+    const members = await inviteTeamMembers(access, { emails: ["outsider@example.com"], role: "member", callbackUrl: CALLBACK }, { store })
+      .catch((error: unknown) => error);
+    expect(members).toMatchObject({ code: "seat_limit" });
+  });
+
+  test("a batch larger than the free seats is refused before any email is sent", async () => {
+    const { stack, store, access } = await proTeam();
+    await expect(
+      inviteTeamMembers(access, { emails: ["a@example.com", "b@example.com"], role: "member", callbackUrl: CALLBACK }, { store }),
+    ).rejects.toMatchObject({ code: "seat_limit" });
+    expect(stack.invitations).toHaveLength(0);
+  });
+
+  test("teams without a personal plan keep soft seats", async () => {
+    const stack = standardTeam();
+    stack.teams.get(TEAM_ID)!.metadata = { cmuxPlan: "team", cmuxSeats: 2 };
+    const store = new MemoryInviteStore();
+    const access = await requireTeamAccess({ id: ADMIN_ID }, TEAM_ID, { stack: stack.app() });
+    if (!access.ok) throw new Error("access refused");
+    const result = await inviteTeamMembers(
+      access.access,
+      { emails: ["a@example.com", "b@example.com", "c@example.com"], role: "member", callbackUrl: CALLBACK },
+      { store },
+    );
+    expect(result.invitations).toHaveLength(3);
+  });
+});

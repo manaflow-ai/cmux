@@ -156,3 +156,20 @@ describe("invite link redemption", () => {
   });
 });
 
+
+describe("personal plan member limit on links", () => {
+  test("a full Pro roster refuses link joins without burning a use", async () => {
+    const stack = standardTeam().addUser({ id: SECOND_OUTSIDER });
+    stack.teams.get(TEAM_ID)!.metadata = { cmuxPlan: "max" };
+    stack.addUser({ id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" }).addMember(TEAM_ID, "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", ["team_member"]);
+    const store = new MemoryInviteStore();
+    const access = await requireTeamAccess({ id: ADMIN_ID }, TEAM_ID, { stack: stack.app() });
+    if (!access.ok) throw new Error("access refused");
+    const { token, link } = await createTeamInviteLink(access.access, { expiresInDays: null, maxUses: 1 }, { store, now: () => store.now });
+    const deps = { store, stack: stack.app() };
+    expect(await code(redeemTeamInviteLink(OUTSIDER_ID, token, deps))).toBe("409:seat_limit");
+    expect((await listTeamInviteLinks(access.access, deps)).find((candidate) => candidate.id === link.id)?.useCount).toBe(0);
+    // An existing member re-opening the link is still a no-op success.
+    expect(await code(redeemTeamInviteLink(MEMBER_ID, token, deps))).toBe("ok");
+  });
+});

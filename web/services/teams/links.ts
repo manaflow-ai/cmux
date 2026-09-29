@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { TeamAccess } from "./access";
 import { TeamApiError } from "./errors";
+import { assertSeatsAvailable } from "./seats";
 import { databaseTeamInviteStore, type StoredInviteLink, type TeamInviteStore } from "./repository";
 import {
   defaultTeamStackApp,
@@ -85,6 +86,7 @@ type ResolvedLink = {
   readonly link: StoredInviteLink;
   readonly team: NonNullable<Awaited<ReturnType<TeamStackApp["getTeam"]>>>;
   readonly alreadyMember: boolean;
+  readonly memberCount: number;
 };
 
 async function resolveLink(
@@ -99,7 +101,7 @@ async function resolveLink(
   const team = await withStackDeadline(() => stack.getTeam(link.stackTeamId));
   if (!team) throw new TeamApiError("link_invalid", 410);
   const members = await withStackDeadline(() => team.listUsers());
-  return { link, team, alreadyMember: members.some((member) => member.id === userId) };
+  return { link, team, alreadyMember: members.some((member) => member.id === userId), memberCount: members.length };
 }
 
 function isFull(link: StoredInviteLink): boolean {
@@ -134,8 +136,9 @@ export async function redeemTeamInviteLink(
 ): Promise<{ teamId: string }> {
   const store = dependencies.store ?? databaseTeamInviteStore;
   const stack = dependencies.stack ?? defaultTeamStackApp();
-  const { link, team, alreadyMember } = await resolveLink(userId, token, store, stack);
+  const { link, team, alreadyMember, memberCount } = await resolveLink(userId, token, store, stack);
   if (!alreadyMember) {
+    assertSeatsAvailable({ team, occupied: memberCount, adding: 1 });
     const claim = await store.claimLink(link.id, userId);
     if (claim === "unavailable") throw new TeamApiError("link_invalid", 410);
     try {
