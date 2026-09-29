@@ -224,6 +224,22 @@ struct CloudMenuContentTests {
         #expect(model.machines.map(\.id) == ["vm-2"])
     }
 
+    @Test("An identical rebuild keeps the status item's rows; a visible change replaces them")
+    func signatureTracksVisibleChanges() {
+        let recorder = Recorder()
+        func entries(_ machines: [MachineSnapshot]) -> [CloudMenuEntry] {
+            CloudMenuContent.entries(
+                CloudMenuContext(account: .signedIn(Self.account(teams: 1)), machines: machines, loadState: .loaded),
+                actions: recorder.actions,
+                layout: .statusItem
+            )
+        }
+        let same = CloudMenuEntry.signature(entries([Self.machine("m0")]))
+        #expect(same == CloudMenuEntry.signature(entries([Self.machine("m0")])))
+        let renamed = MachineSnapshot(id: "m0", provider: "freestyle", image: "cmux-devbox", isDesktop: false, activity: .pending, label: "renamed")
+        #expect(same != CloudMenuEntry.signature(entries([renamed])))
+    }
+
     // MARK: Fixtures
 
     @MainActor

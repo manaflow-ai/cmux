@@ -12,6 +12,25 @@ enum CloudMenuEntry: Identifiable {
     case submenu(CloudMenuSubmenu)
     case separator(id: String)
 
+    /// Everything a row shows, flattened, so a renderer can tell whether a
+    /// rebuilt tree differs from the one on screen.
+    @MainActor
+    static func signature(_ entries: [CloudMenuEntry]) -> String {
+        entries.map { entry in
+            switch entry {
+            case .action(let action):
+                let shortcut = action.shortcut.map { String(describing: KeyboardShortcutSettings.menuShortcut(for: $0)) } ?? ""
+                return "a|\(action.id)|\(action.title)|\(action.isEnabled)|\(action.isChecked)|\(shortcut)"
+            case .header(let id, let title):
+                return "h|\(id)|\(title)"
+            case .separator(let id):
+                return "s|\(id)"
+            case .submenu(let submenu):
+                return "m|\(submenu.id)|\(submenu.title)|\(submenu.detail ?? "")|\(String(describing: submenu.tone))[\(signature(submenu.children))]"
+            }
+        }.joined(separator: "\n")
+    }
+
     var id: String {
         switch self {
         case .action(let action): return action.id

@@ -46,6 +46,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private var notificationItems: [NSMenuItem] = []
     private let cloudSectionSeparator = NSMenuItem.separator()
     private var cloudItems: [NSMenuItem] = []
+    private var cloudItemsSignature: String?
     init(
         notificationStore: TerminalNotificationStore,
         caffeineController: CaffeineController,
@@ -268,12 +269,19 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     /// app toggles and the notifications, from the same entries as the
     /// main-menu Cloud menu. It disappears entirely when Cloud is off.
     private func rebuildCloudItems() {
+        let entries = cloudMenuEntries()
+        // Rebuilding while the menu is open would collapse a machine submenu
+        // the user is in; skip when nothing visible changed.
+        let signature = CloudMenuEntry.signature(entries)
+        guard signature != cloudItemsSignature else { return }
+        cloudItemsSignature = signature
+
         for item in cloudItems {
             menu.removeItem(item)
         }
         cloudItems.removeAll(keepingCapacity: true)
 
-        var items = CloudMenuAppKitRenderer.items(cloudMenuEntries())
+        var items = CloudMenuAppKitRenderer.items(entries)
         cloudSectionSeparator.isHidden = items.isEmpty
         // The section closes with its own separator, which replaces the one
         // that opens the notification list.

@@ -104,9 +104,12 @@ final class CloudMenuModel {
         task = Task { [weak self, listMachines] in
             let result: Result<VMListPage, Error>
             do { result = .success(try await listMachines()) } catch { result = .failure(error) }
-            guard !Task.isCancelled, let self, self.generation == requested,
-                  self.scope() == scope else { return }
+            guard !Task.isCancelled, let self, self.generation == requested else { return }
             self.task = nil
+            // The team was confirmed or switched while this read was in flight
+            // (the first confirmation posts no scope notification): read again
+            // for the current scope instead of showing the old one.
+            guard self.scope() == scope else { self.refresh(); return }
             self.apply(result)
         }
     }
