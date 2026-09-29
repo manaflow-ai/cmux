@@ -342,6 +342,7 @@ def main():
     stream_cmd = f"yes 'cmux-next cli storm stream 0123456789abcdefghijklmnopqrstuvwxyz' | head -c {args.stream_bytes}; echo STREAM-DONE\r"
     daemon.call("send", {"surface": stream_surface, "text": stream_cmd}, cmd_key="cmd")
 
+    load_start = os.getloadavg()
     storm = Storm(args, profile, daemon_path, keep_tabs, stream_tab, left_pane)
     started = time.monotonic()
     threads = [threading.Thread(target=storm.worker, args=(index,)) for index in range(args.clients)]
@@ -384,6 +385,8 @@ def main():
     after_hangs = result(control.call("debug.hangs"))
 
     report = summarize(storm.samples)
+    records = hangs.get("records", [])
+    busy = [r for r in records if r.get("cpu_ms", r["duration_ms"]) >= 0.5 * r["duration_ms"]]
     max_wait_ms = report["all"]["max_ms"]
     failures = []
     if hangs.get("count", 0) > 0:
@@ -407,7 +410,9 @@ def main():
         "storm_seconds": storm_seconds, "measured_seconds": measured_seconds, "prewarm_tabs": args.prewarm_tabs, "throughput_rps": args.requests / storm_seconds if storm_seconds else 0,
         "latency": report, "frames": frames, "hangs": hangs, "hangs_after_cleanup": after_hangs, "queue": queue,
         "rss_kb": {"baseline": baseline_rss, "peak": peak_rss, "after": after_rss}, "leftover_tabs": leftover,
-        "criteria": {"stalls_over_50ms": hangs.get("count", 0), "p99_frame_ms": frames.get("p99_ms"),
+        "load_average": {"start": load_start, "end": os.getloadavg()},
+        "criteria": {"stalls_over_50ms": hangs.get("count", 0),
+                     "stalls_busy_main": len(busy), "stalls_blocked_or_descheduled": len(records) - len(busy), "p99_frame_ms": frames.get("p99_ms"),
                      "max_request_ms": max_wait_ms, "unanswered": lost,
                      "rss_after_vs_baseline": (after_rss / baseline_rss) if baseline_rss else None},
         "failures": failures, "passed": not failures,

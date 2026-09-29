@@ -20,6 +20,10 @@ public struct HangRecord: Sendable, Hashable {
     /// `CLOCK_UPTIME_RAW` nanoseconds when the main thread stopped answering.
     public var startUptimeNanos: UInt64
     public var duration: Duration
+    /// Main-thread CPU time during the stall. Close to `duration`: the main
+    /// thread was busy (app work). Much lower: it was blocked in a wait, or
+    /// descheduled on an overloaded machine.
+    public var cpu: Duration
     /// Return addresses of the main thread's stack, sampled once the stall
     /// crossed the threshold; empty when sampling failed. Symbolicated only
     /// when read (``frames``), never on the main thread.
@@ -33,6 +37,7 @@ public struct HangRecord: Sendable, Hashable {
             "sequence": JSONValue(Int(truncatingIfNeeded: sequence)),
             "start_uptime_ns": .number(Double(startUptimeNanos)),
             "duration_ms": .number(duration.fractionalMilliseconds),
+            "cpu_ms": .number(cpu.fractionalMilliseconds),
             "frames": .array(frames.map { .string($0.description) }),
         ]
     }
@@ -60,10 +65,10 @@ public final class HangLog: Sendable {
     }
 
     @discardableResult
-    func append(startUptimeNanos: UInt64, duration: Duration, addresses: [UInt]) -> HangRecord {
+    func append(startUptimeNanos: UInt64, duration: Duration, cpu: Duration = .zero, addresses: [UInt]) -> HangRecord {
         state.withLock { state in
             let record = HangRecord(sequence: state.nextSequence, startUptimeNanos: startUptimeNanos, duration: duration,
-                                    addresses: addresses)
+                                    cpu: cpu, addresses: addresses)
             state.nextSequence += 1
             if state.records.count == capacity { state.records.removeFirst() }
             state.records.append(record)

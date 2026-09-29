@@ -40,6 +40,8 @@ public final class MainThreadWatchdog: Sendable {
     // Heartbeat, written by the main-thread observer.
     private let beatNanos = Atomic<UInt64>(0)
     private let beatSequence = Atomic<UInt64>(0)
+    /// Main-thread CPU time at the last heartbeat (CLOCK_THREAD_CPUTIME_ID).
+    private let beatCPUNanos = Atomic<UInt64>(0)
     private let mainAsleep = Atomic<Bool>(true)
     private let watchdogParked = Atomic<Bool>(false)
     private let running = Atomic<Bool>(false)
@@ -64,6 +66,7 @@ public final class MainThreadWatchdog: Sendable {
     public func start() {
         guard running.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
         beatNanos.store(Self.now(), ordering: .releasing)
+        beatCPUNanos.store(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), ordering: .releasing)
         mainAsleep.store(false, ordering: .releasing)
         let activities = CFRunLoopActivity.allActivities.rawValue
         let runLoopObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, activities, true, CFIndex.min) { [weak self] _, activity in
@@ -91,12 +94,15 @@ public final class MainThreadWatchdog: Sendable {
 
     private func heartbeat(_ activity: CFRunLoopActivity) {
         let now = Self.now()
+        let cpu = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
         let previous = beatNanos.load(ordering: .acquiring)
         let wasAsleep = mainAsleep.load(ordering: .acquiring)
         let beat = beatSequence.load(ordering: .acquiring)
         if !wasAsleep, now > previous, now - previous >= thresholdNanos {
-            recordStall(start: previous, nanos: now - previous, beat: beat)
+            let previousCPU = beatCPUNanos.load(ordering: .acquiring)
+            recordStall(start: previous, nanos: now - previous, cpuNanos: cpu > previousCPU ? cpu - previousCPU : 0, beat: beat)
         }
+        beatCPUNanos.store(cpu, ordering: .releasing)
         beatNanos.store(now, ordering: .releasing)
         beatSequence.store(beat &+ 1, ordering: .releasing)
         let asleep = activity == .beforeWaiting
@@ -106,13 +112,14 @@ public final class MainThreadWatchdog: Sendable {
         }
     }
 
-    private func recordStall(start: UInt64, nanos: UInt64, beat: UInt64) {
+    private func recordStall(start: UInt64, nanos: UInt64, cpuNanos: UInt64, beat: UInt64) {
         let addresses = pendingSample.withLock { sample -> [UInt] in
             defer { sample = nil }
             guard let sample, sample.beat == beat else { return [] }
             return sample.addresses
         }
-        let record = log.append(startUptimeNanos: start, duration: .nanoseconds(Int64(nanos)), addresses: addresses)
+        let record = log.append(startUptimeNanos: start, duration: .nanoseconds(Int64(nanos)),
+                                cpu: .nanoseconds(Int64(cpuNanos)), addresses: addresses)
         if configuration.logStalls {
             // No symbolication here (main thread); `debug.hangs` resolves the stack.
             logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
