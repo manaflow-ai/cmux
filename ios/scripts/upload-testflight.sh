@@ -86,6 +86,35 @@ verify_ipa_aps_environment_production() {
   return 0
 }
 
+verify_ipa_app_store_main_entitlements() {
+  local ipa="$1"
+  local workdir app ent
+  workdir="$(mktemp -d)"
+  if ! ( cd "$workdir" && unzip -q "$ipa" ); then
+    echo "error: could not unzip IPA to verify App Store entitlements: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  app="$(find "$workdir/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1)"
+  if [[ -z "$app" || ! -d "$app" ]]; then
+    echo "error: IPA has no Payload/*.app to verify App Store entitlements: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  ent="$workdir/signed-entitlements.plist"
+  if ! codesign -d --entitlements :- --xml "$app" > "$ent" 2>/dev/null; then
+    echo "error: could not read signed App Store entitlements: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  if ! python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" --check "$ent"; then
+    rm -rf "$workdir"
+    return 1
+  fi
+  rm -rf "$workdir"
+  return 0
+}
+
 # The notification service extension decrypts the payload with key material
 # stored in the host app's keychain group. Xcode's App Store export can sign an
 # extension with a wildcard profile while dropping the requested keychain
@@ -1502,6 +1531,12 @@ PY
   plutil -replace keychain-access-groups \
     -json "[\"$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER\"]" \
     "$MERGED_ENTITLEMENTS"
+  if [[ "$LANE" == "appstore" ]]; then
+    # The production iOS App ID currently exposes profile capabilities used by
+    # the macOS VPN lane. They are valid profile metadata but are not valid
+    # entitlements for cmux's iOS main app, so keep them out of its signature.
+    python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" "$MERGED_ENTITLEMENTS"
+  fi
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
 
   # The archive is built unsigned, so $(AppIdentifierPrefix) in Info.plist
@@ -1618,6 +1653,11 @@ if [[ "$LANE" == "appstore" ]]; then
     exit 1
   fi
   echo "App Store IPA verified to omit external purchase/enrollment links: $IPA_PATH"
+  if ! verify_ipa_app_store_main_entitlements "$IPA_PATH"; then
+    echo "error: App Store IPA contains unsupported iOS main-app entitlements; refusing to upload" >&2
+    exit 1
+  fi
+  echo "App Store IPA verified to omit unsupported iOS main-app entitlements: $IPA_PATH"
 fi
 
 if [[ "$EXPORT_ONLY" -eq 1 ]]; then
