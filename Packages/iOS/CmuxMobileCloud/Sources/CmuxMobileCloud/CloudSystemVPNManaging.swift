@@ -15,6 +15,9 @@ public protocol CloudSystemVPNManaging: AnyObject {
     /// Saves the configuration (iOS asks for consent the first time) and
     /// starts it.
     func installAndStart(configuration: String, scope: String) async throws
+    /// Makes a best-effort synchronous request to stop an operation that has
+    /// exceeded its deadline.
+    func cancelPendingOperation()
     /// Stops the VPN, and optionally removes it and its secret.
     func stop(removeConfiguration: Bool) async throws
 }

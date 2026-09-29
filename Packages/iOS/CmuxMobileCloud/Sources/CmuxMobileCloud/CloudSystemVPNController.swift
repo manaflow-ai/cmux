@@ -24,15 +24,20 @@ public final class CloudSystemVPNController {
     private let deviceName: String
     private let routePolicy = CloudVPNRoutePolicy()
     private let timeout: CloudSystemVPNTaskTimeout
+    private let operationTimeout: Duration
     private let operationGate = CloudSystemVPNOperationGate()
     private let cleanupRetryCount: Int
     private var scope: String?
     private var hasLoadedScope = false
     private var cleanupPending = false
+    private var needsPlatformReconciliation = false
     private var generation: UInt64 = 0
     private var operation: Task<Void, Never>?
     private var enableRetryTask: Task<Void, Never>?
     private var enableRetryRequested = false
+    private var cleanupRetryTask: Task<Void, Never>?
+    private var cleanupRetryRequested = false
+    private var transitionTask: Task<Void, Never>?
 
     /// - Parameters:
     ///   - service: The `/api/vm` client, for enrollment.
@@ -57,12 +62,15 @@ public final class CloudSystemVPNController {
         self.identityResolver = CloudDeviceIdentityResolver(store: identityStore)
         self.manager = manager
         self.deviceName = deviceName
-        timeout = CloudSystemVPNTaskTimeout(timeout: max(.milliseconds(1), operationTimeout))
+        let boundedTimeout = max(.milliseconds(1), operationTimeout)
+        timeout = CloudSystemVPNTaskTimeout(timeout: boundedTimeout)
+        self.operationTimeout = boundedTimeout
         self.cleanupRetryCount = max(1, cleanupRetryCount)
         manager.onPhaseChange = { [weak self] phase in
             guard let self,
                   self.scope != nil,
                   self.operation == nil,
+                  !self.needsPlatformReconciliation,
                   !self.operationGate.hasPendingOperation else { return }
             self.accept(phase)
         }
@@ -81,6 +89,9 @@ public final class CloudSystemVPNController {
         enableRetryRequested = false
         enableRetryTask?.cancel()
         enableRetryTask = nil
+        cleanupRetryRequested = false
+        cleanupRetryTask?.cancel()
+        cleanupRetryTask = nil
         let previousScope = scope
         scope = newScope
         // A device that cannot run the VPN never saved one, so there is
@@ -104,11 +115,12 @@ public final class CloudSystemVPNController {
                         try await self.manager.refresh(scope: newScope)
                     }
                     guard self.isCurrent(generation) else { return }
+                    needsPlatformReconciliation = false
                 }
-                phase = manager.phase
+                publish(manager.phase)
             } catch {
                 guard self.isCurrent(generation) else { return }
-                phase = .failed(.configuration)
+                publish(.failed(.configuration))
             }
         }
     }
@@ -124,10 +136,10 @@ public final class CloudSystemVPNController {
                     try await removeConfigurationWithRetry()
                     guard self.isCurrent(generation) else { return }
                     cleanupPending = false
-                    phase = manager.phase
+                    publish(manager.phase)
                 } catch {
                     guard self.isCurrent(generation) else { return }
-                    phase = .failed(.configuration)
+                    publish(.failed(.configuration))
                 }
             }
             await waitForPendingOperation()
@@ -144,10 +156,11 @@ public final class CloudSystemVPNController {
                     try await self.manager.refresh(scope: scope)
                 }
                 guard self.isCurrent(generation) else { return }
+                needsPlatformReconciliation = false
                 accept(manager.phase)
             } catch {
                 guard self.isCurrent(generation) else { return }
-                phase = .failed(.configuration)
+                publish(.failed(.configuration))
             }
         }
         await waitForPendingOperation()
@@ -156,7 +169,7 @@ public final class CloudSystemVPNController {
     /// The user turned the VPN on. iOS owns consent and the connection.
     public func enable() {
         guard manager.isAvailable else {
-            phase = .failed(.unavailable)
+            publish(.failed(.unavailable))
             return
         }
         guard let scope else {
@@ -164,25 +177,41 @@ public final class CloudSystemVPNController {
                 retryPendingCleanup()
                 return
             }
-            phase = .failed(.enrollment)
+            publish(.failed(.enrollment))
             return
         }
         guard !cleanupPending else {
-            phase = .failed(.configuration)
+            publish(.failed(.configuration))
             return
         }
         if operationGate.hasPendingOperation {
-            phase = .preparing
+            publish(.preparing)
             scheduleEnableRetry()
             return
         }
-        switch phase {
-        case .preparing, .connecting, .connected, .disconnecting: return
-        case .off, .failed: break
+        if !needsPlatformReconciliation {
+            switch phase {
+            case .preparing, .connecting, .connected, .disconnecting: return
+            case .off, .failed: break
+            }
         }
-        phase = .preparing
+        let shouldReconcile = needsPlatformReconciliation
+        publish(.preparing)
         enqueue { [self] generation in
             do {
+                if shouldReconcile {
+                    try await performBounded(reconcilePlatformOnTimeout: true) {
+                        try await self.manager.refresh(scope: scope)
+                    }
+                    guard self.isCurrent(generation), self.scope == scope else {
+                        throw CancellationError()
+                    }
+                    needsPlatformReconciliation = false
+                    if manager.phase.isRequestedOn {
+                        publish(manager.phase)
+                        return
+                    }
+                }
                 let keyPair = WireGuardKeyPair()
                 try await performBounded(reconcilePlatformOnTimeout: true) {
                     let identity: CloudDeviceIdentity
@@ -230,10 +259,10 @@ public final class CloudSystemVPNController {
                     try await self.manager.installAndStart(configuration: configuration.text, scope: scope)
                 }
                 guard self.isCurrent(generation) else { return }
-                phase = manager.phase == .off ? .connecting : manager.phase
+                publish(manager.phase == .off ? .connecting : manager.phase)
             } catch {
                 guard self.isCurrent(generation) else { return }
-                phase = .failed((error as? CloudSystemVPNError) ?? .configuration)
+                publish(.failed((error as? CloudSystemVPNError) ?? .configuration))
             }
         }
     }
@@ -245,17 +274,17 @@ public final class CloudSystemVPNController {
             retryPendingCleanup()
             return
         }
-        phase = .disconnecting
+        publish(.disconnecting)
         enqueue { [self] generation in
             do {
                 try await performBounded(reconcilePlatformOnTimeout: true) {
                     try await self.manager.stop(removeConfiguration: false)
                 }
                 guard self.isCurrent(generation) else { return }
-                phase = manager.phase
+                accept(manager.phase)
             } catch {
                 guard self.isCurrent(generation) else { return }
-                phase = .failed(.configuration)
+                publish(.failed(.configuration))
             }
         }
     }
@@ -279,7 +308,33 @@ public final class CloudSystemVPNController {
         // A declined consent prompt reports `.off` right after the failure;
         // keep the failure so its recovery actions stay visible.
         if case .failed = phase, status == .off { return }
+        publish(status)
+    }
+
+    private func publish(_ status: CloudSystemVPNPhase) {
+        transitionTask?.cancel()
+        transitionTask = nil
         phase = status
+        guard status == .connecting || status == .disconnecting else { return }
+        let expected = status
+        let timeout = operationTimeout
+        transitionTask = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(for: timeout)
+            } catch {
+                return
+            }
+            guard let self, self.phase == expected else { return }
+            let livePhase = self.manager.phase
+            switch (expected, livePhase) {
+            case (.connecting, .connected), (.disconnecting, .off):
+                self.publish(livePhase)
+            case (_, .failed(let error)):
+                self.publish(.failed(error))
+            default:
+                self.publish(.failed(.configuration))
+            }
+        }
     }
 
     /// The routes and interface addresses an enrollment would install must
@@ -316,18 +371,36 @@ public final class CloudSystemVPNController {
 
     private func retryPendingCleanup() {
         guard manager.isAvailable, scope == nil, cleanupPending else { return }
-        phase = .disconnecting
-        guard !operationGate.hasPendingOperation else { return }
+        publish(.disconnecting)
+        guard !operationGate.hasPendingOperation else {
+            scheduleCleanupRetry()
+            return
+        }
         enqueue { [self] generation in
             do {
                 try await removeConfigurationWithRetry()
                 guard self.isCurrent(generation) else { return }
                 cleanupPending = false
-                phase = manager.phase
+                accept(manager.phase)
             } catch {
                 guard self.isCurrent(generation) else { return }
-                phase = .failed(.configuration)
+                publish(.failed(.configuration))
             }
+        }
+    }
+
+    private func scheduleCleanupRetry() {
+        cleanupRetryRequested = true
+        guard cleanupRetryTask == nil else { return }
+        cleanupRetryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.operationGate.waitForIdle()
+            guard self.scope == nil,
+                  self.cleanupPending,
+                  self.cleanupRetryRequested else { return }
+            self.cleanupRetryTask = nil
+            self.cleanupRetryRequested = false
+            self.retryPendingCleanup()
         }
     }
 
@@ -344,11 +417,12 @@ public final class CloudSystemVPNController {
                 self.scheduleEnableRetry()
                 return
             }
-            guard !self.manager.phase.isRequestedOn else {
+            if !self.needsPlatformReconciliation,
+               self.manager.phase.isRequestedOn {
                 self.accept(self.manager.phase)
                 return
             }
-            self.phase = .off
+            self.publish(.off)
             self.enable()
         }
     }
@@ -367,13 +441,25 @@ public final class CloudSystemVPNController {
         do {
             return try await timeout.value(completion)
         } catch {
+            let timedOut = error is CloudSystemVPNTaskTimeout.Failure
+            if timedOut, reconcilePlatformOnTimeout || reconcileCleanupOnTimeout {
+                needsPlatformReconciliation = true
+            }
             if reconcilePlatformOnTimeout, error is CloudSystemVPNTaskTimeout.Failure {
                 watchPlatformCompletion(completion)
             }
             if reconcileCleanupOnTimeout, error is CloudSystemVPNTaskTimeout.Failure {
                 watchCleanupCompletion(completion)
             }
-            if !retainPendingOperationOnTimeout {
+            if timedOut {
+                let grace = operationTimeout + operationTimeout + operationTimeout
+                let abandoned = operation.abandonIfAcquired(after: grace) { [weak self] in
+                    self?.manager.cancelPendingOperation()
+                }
+                if !abandoned && !retainPendingOperationOnTimeout {
+                    operation.cancelIfPending()
+                }
+            } else if !retainPendingOperationOnTimeout {
                 operation.cancelIfPending()
             }
             throw error
@@ -388,6 +474,7 @@ public final class CloudSystemVPNController {
             guard let self else { return }
             await self.operationGate.waitForIdle()
             guard self.scope != nil,
+                  !self.needsPlatformReconciliation,
                   self.operation == nil,
                   !self.operationGate.hasPendingOperation else { return }
             self.accept(self.manager.phase)
@@ -407,12 +494,13 @@ public final class CloudSystemVPNController {
             case .success:
                 self.cleanupPending = false
                 if self.scope == nil {
-                    self.phase = self.manager.phase
+                    self.needsPlatformReconciliation = false
+                    self.publish(self.manager.phase)
                 } else {
                     await self.refresh()
                 }
             case .failure:
-                self.phase = .failed(.configuration)
+                self.publish(.failed(.configuration))
             }
         }
     }

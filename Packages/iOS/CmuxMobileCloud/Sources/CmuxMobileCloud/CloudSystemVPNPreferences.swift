@@ -96,6 +96,12 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
         }
     }
 
+    /// Requests cancellation of a platform operation that exceeded its
+    /// deadline.
+    public func cancelPendingOperation() {
+        manager?.connection.stopVPNTunnel()
+    }
+
     public func stop(removeConfiguration: Bool) async throws {
         if manager == nil {
             do {

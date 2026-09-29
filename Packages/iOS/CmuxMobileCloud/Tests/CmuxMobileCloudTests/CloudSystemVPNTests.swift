@@ -15,10 +15,15 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
     var installDelay: Duration?
     var stopFailuresRemaining = 0
     var stopAttempts: [Bool] = []
+    private var installDelayTask: Task<Void, Never>?
+    private var installWasCancelled = false
+    private(set) var cancelPendingOperationCount = 0
     private(set) var activeOperations = 0
     private(set) var maxConcurrentOperations = 0
     /// The phase iOS reports once a start is requested.
     var phaseAfterStart: CloudSystemVPNPhase = .connecting
+    /// The phase iOS reports after a stop request.
+    var phaseAfterStop: CloudSystemVPNPhase = .off
 
     func refresh(scope: String) async throws {
         beginOperation()
@@ -29,15 +34,31 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
     func installAndStart(configuration: String, scope: String) async throws {
         beginOperation()
         defer { endOperation() }
+        installWasCancelled = false
         if let installFailure { throw installFailure }
         if let installDelay {
-            await Task.detached {
-                try? await ContinuousClock().sleep(for: installDelay)
-            }.value
+            let delayTask = Task<Void, Never> {
+                do {
+                    try await ContinuousClock().sleep(for: installDelay)
+                } catch {
+                }
+            }
+            installDelayTask = delayTask
+            defer { installDelayTask = nil }
+            await delayTask.value
+            guard !installWasCancelled else { throw CancellationError() }
+            try Task.checkCancellation()
         }
         installed.append((configuration, scope))
         phase = phaseAfterStart
         onPhaseChange?(phase)
+    }
+
+    func cancelPendingOperation() {
+        cancelPendingOperationCount += 1
+        installWasCancelled = true
+        installDelayTask?.cancel()
+        phase = .off
     }
 
     func stop(removeConfiguration: Bool) async throws {
@@ -49,7 +70,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
             throw CloudSystemVPNError.configuration
         }
         stops.append(removeConfiguration)
-        phase = .off
+        phase = phaseAfterStop
     }
 
     private func beginOperation() {
@@ -197,6 +218,24 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.manager.installed.isEmpty)
     }
 
+    @Test func aTimedOutInstallCanBeReplacedAfterPlatformCancellation() async {
+        let rig = Rig(operationTimeout: .milliseconds(100))
+        rig.manager.installDelay = .milliseconds(500)
+        await signedIn(rig)
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+        #expect(rig.controller.phase == .failed(.configuration))
+
+        rig.controller.enable()
+        try? await Task.sleep(for: .milliseconds(500))
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.manager.cancelPendingOperationCount == 1)
+        #expect(rig.service.calls.enroll.count == 2)
+        #expect(rig.manager.maxConcurrentOperations == 1)
+    }
+
     @Test func aLateInstallReconcilesAndDoesNotEnrollAgain() async {
         let rig = Rig(operationTimeout: .milliseconds(100))
         rig.manager.installDelay = .milliseconds(250)
@@ -211,7 +250,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
 
         try? await Task.sleep(for: .milliseconds(300))
         #expect(rig.manager.installed.count == 1)
-        #expect(rig.controller.phase == .connecting)
+        #expect(rig.controller.phase == .failed(.configuration))
     }
 
     @Test func aLateEnrollmentContinuesIntoInstallAndDoesNotEnrollAgain() async {
@@ -228,7 +267,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
 
         try? await Task.sleep(for: .milliseconds(300))
         #expect(rig.manager.installed.count == 1)
-        #expect(rig.controller.phase == .connecting)
+        #expect(rig.controller.phase == .failed(.configuration))
     }
 
     @Test func aStartRequestStaysTransitioningUntilStatusArrives() async {
@@ -245,6 +284,35 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
 
         rig.manager.report(.connected)
         #expect(rig.controller.phase == .connected)
+    }
+
+    @Test func aStartThatNeverReportsAStableStatusFails() async {
+        let rig = Rig(operationTimeout: .milliseconds(50))
+        rig.manager.phaseAfterStart = .off
+        await signedIn(rig)
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+        #expect(rig.controller.phase == .connecting)
+
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(rig.controller.phase == .failed(.configuration))
+    }
+
+    @Test func aStopThatNeverReportsAStableStatusFails() async {
+        let rig = Rig(operationTimeout: .milliseconds(50))
+        await signedIn(rig)
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+        rig.manager.report(.connected)
+
+        rig.manager.phaseAfterStop = .disconnecting
+        rig.controller.disable()
+        await rig.controller.waitForPendingOperation()
+        #expect(rig.controller.phase == .disconnecting)
+
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(rig.controller.phase == .failed(.configuration))
     }
 
     @Test func aQueuedReplacementTimesOutAndCanBeRetried() async {
