@@ -42,7 +42,7 @@ public final class MainThreadWatchdog: Sendable {
     // concurrency-allow: only the watchdog thread waits on it; the main thread only signals.
     private let wake = DispatchSemaphore(value: 0)
     /// The stack sampled during the current stall, keyed by beat sequence.
-    private let pendingSample = Mutex<(beat: UInt64, frames: [HangFrame])?>(nil)
+    private let pendingSample = Mutex<(beat: UInt64, addresses: [UInt])?>(nil)
     private let observer = Mutex<ObserverBox?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
 
@@ -102,15 +102,15 @@ public final class MainThreadWatchdog: Sendable {
     }
 
     private func recordStall(start: UInt64, nanos: UInt64, beat: UInt64) {
-        let frames = pendingSample.withLock { sample -> [HangFrame] in
+        let addresses = pendingSample.withLock { sample -> [UInt] in
             defer { sample = nil }
             guard let sample, sample.beat == beat else { return [] }
-            return sample.frames
+            return sample.addresses
         }
-        let record = log.append(startUptimeNanos: start, duration: .nanoseconds(Int64(nanos)), frames: frames)
+        let record = log.append(startUptimeNanos: start, duration: .nanoseconds(Int64(nanos)), addresses: addresses)
         if configuration.logStalls {
-            let top = frames.prefix(12).map(\.description).joined(separator: " | ")
-            logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms: \(top, privacy: .public)")
+            // No symbolication here (main thread); `debug.hangs` resolves the stack.
+            logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
         }
     }
 
@@ -142,10 +142,9 @@ public final class MainThreadWatchdog: Sendable {
             if beat == beatSequence.load(ordering: .acquiring), !mainAsleep.load(ordering: .acquiring), beat != sampledBeat {
                 sampledBeat = beat
                 if let sampler {
-                    let frames = ThreadStackSampler.symbolicate(sampler.sample())
-                    if beat == beatSequence.load(ordering: .acquiring) {
-                        pendingSample.withLock { $0 = (beat, frames) }
-                    }
+                    // Raw addresses only: symbolicating here can outlast a short stall.
+                    let addresses = sampler.sample()
+                    pendingSample.withLock { $0 = (beat, addresses) }
                 }
             }
             // Check again one threshold later (or when the stall ends and the loop sleeps).

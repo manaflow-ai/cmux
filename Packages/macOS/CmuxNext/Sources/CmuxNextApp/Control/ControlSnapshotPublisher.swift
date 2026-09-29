@@ -30,7 +30,9 @@ final class ControlSnapshotPublisher {
     }
 
     func start() {
-        router.workQueue.setAfterFrame { [weak self] in self?.invalidate() }
+        // Read-your-writes for local state: a CLI mutation's effect on focus
+        // or selection is in the snapshot before the next request is read.
+        router.workQueue.setAfterFrame { [weak self] in self?.publishNow() }
         let center = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {

@@ -240,6 +240,20 @@ class Storm:
         return tabs
 
 
+def settle_tabs(profile, control, pane, quiet_s=1.0, limit_s=30.0):
+    """Waits until the pane's tab count stops changing for `quiet_s`."""
+    started = time.monotonic()
+    last, since = None, time.monotonic()
+    while time.monotonic() - started < limit_s:
+        count = len(profile.tabs_in(profile.topology(control), pane))
+        if count != last:
+            last, since = count, time.monotonic()
+        elif time.monotonic() - since >= quiet_s:
+            return count
+        time.sleep(0.1)
+    return last
+
+
 def summarize(samples):
     by_category = {}
     for category, method, latency, outcome in samples:
@@ -305,7 +319,13 @@ def main():
     stream_surface = int(profile.tab(topology, stream_tab)["surface"])
     daemon_path = daemon_socket(bundle, identity.get("tag") or args.tag)
     daemon = Client(daemon_path)
-    result(profile.run_action(control, "pane focus-left"))
+    # The new pane needs a layout pass before it has a left neighbor.
+    for attempt in range(40):
+        if ok(profile.run_action(control, "pane focus-left")):
+            break
+        time.sleep(0.05)
+    else:
+        raise SystemExit("bench: could not focus the left pane after the split")
 
     time.sleep(1.0)
     baseline_rss = rss_kb(pid)
@@ -329,15 +349,23 @@ def main():
     queue = result(control.call("debug.queue"))
     peak_rss = rss_kb(pid)
 
-    # Cleanup: close every tab the storm created, interrupt the stream,
-    # close the stream pane's terminal, then let the app settle.
+    # Cleanup: wait for the daemon to finish the storm's creates (action.run
+    # answers once the handler dispatched), close every tab the storm made,
+    # interrupt the stream and close its pane, then let the app settle.
     daemon.call("send", {"surface": stream_surface, "text": "\x03"}, cmd_key="cmd")
-    topology = profile.topology(control)
-    for tab_id in profile.tabs_in(topology, left_pane):
-        if tab_id not in keep_tabs:
+    settle_tabs(profile, control, left_pane)
+    for _ in range(3):
+        topology = profile.topology(control)
+        extra = [tab_id for tab_id in profile.tabs_in(topology, left_pane) if tab_id not in keep_tabs]
+        if not extra:
+            break
+        for tab_id in extra:
             profile.run_action(control, "tab close", target=f"tab:{tab_id}")
+        settle_tabs(profile, control, left_pane)
     profile.run_action(control, "tab close", target=f"tab:{stream_tab}")
     time.sleep(5.0)
+    topology = profile.topology(control)
+    leftover = len([t for t in profile.tabs_in(topology, left_pane) if t not in keep_tabs])
     after_rss = rss_kb(pid)
     after_hangs = result(control.call("debug.hangs"))
 
@@ -354,6 +382,8 @@ def main():
                for o, n in c["outcomes"].items() if o == "client_timeout" or o.startswith("connection:"))
     if lost:
         failures.append(f"{lost} requests got no answer (client timeout or dropped connection)")
+    if leftover:
+        failures.append(f"cleanup left {leftover} storm tabs open")
     if baseline_rss and after_rss > baseline_rss * 1.10:
         failures.append(f"RSS after {after_rss / 1024:.0f} MB > baseline {baseline_rss / 1024:.0f} MB + 10%")
 
@@ -362,7 +392,7 @@ def main():
         "pid": pid, "clients": args.clients, "requests": args.requests, "stream_bytes": args.stream_bytes,
         "storm_seconds": storm_seconds, "throughput_rps": args.requests / storm_seconds if storm_seconds else 0,
         "latency": report, "frames": frames, "hangs": hangs, "hangs_after_cleanup": after_hangs, "queue": queue,
-        "rss_kb": {"baseline": baseline_rss, "peak": peak_rss, "after": after_rss},
+        "rss_kb": {"baseline": baseline_rss, "peak": peak_rss, "after": after_rss}, "leftover_tabs": leftover,
         "criteria": {"stalls_over_50ms": hangs.get("count", 0), "p99_frame_ms": frames.get("p99_ms"),
                      "max_request_ms": max_wait_ms, "unanswered": lost,
                      "rss_after_vs_baseline": (after_rss / baseline_rss) if baseline_rss else None},
