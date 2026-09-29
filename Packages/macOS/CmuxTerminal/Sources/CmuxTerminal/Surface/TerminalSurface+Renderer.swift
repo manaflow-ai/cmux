@@ -403,8 +403,14 @@ extension TerminalSurface {
     func rendererFrameDidPresent(token: UInt64) {
         guard rendererPresentationState.inFlightToken == token,
               rendererPortalVisible,
-              rendererWindowVisible,
               rendererPresentationPhase != .released else { return }
+        guard rendererWindowVisible else {
+            rendererPresentationState.inFlightToken = nil
+            if renderHealth != .shellExited {
+                renderHealth = .notStarted
+            }
+            return
+        }
         rendererPresentationState.inFlightToken = nil
         rendererPresentationState.recoveryAttempted = false
         rendererPresentationState.didPresentFrame = true
