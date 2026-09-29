@@ -500,7 +500,7 @@ extension CMUXCLI {
             return
         }
         print(String(
-            format: String(localized: "cli.vm.push.secretDelivered", defaultValue: "OK %1$@ (%2$ld bytes, mode %3$@) delivered over the link"),
+            format: String(localized: "cli.vm.push.secretDelivered", defaultValue: "OK %1$@ (%2$ld bytes, mode %3$@) delivered over the link", bundle: .cmuxCLI),
             landedPath, bytes, landedMode
         ))
     }
@@ -1670,7 +1670,7 @@ extension CMUXCLI {
         }
         if selection.wouldProvision {
             print(String(
-                format: String(localized: "cli.vm.route.wouldProvision", defaultValue: "No pool machine is free for %@ \u{2014} `cmux vm run` would provision a fresh one (add --provision to create it now)."),
+                format: String(localized: "cli.vm.route.wouldProvision", defaultValue: "No pool machine is free for %@ \u{2014} `cmux vm run` would provision a fresh one (add --provision to create it now).", bundle: .cmuxCLI),
                 workDirectory
             ))
             return
@@ -1847,11 +1847,11 @@ extension CMUXCLI {
         if let surfaceId { payload["surface_id"] = surfaceId }
         if let syncedRemoteDir { payload["synced_to"] = syncedRemoteDir }
         let startedLine = String(
-            format: String(localized: "cli.vm.agent.started", defaultValue: "Started %1$@ on %2$@ \u{2014} terminal %3$@ in workspace %4$@ (detached: it keeps running if the pane closes)."),
+            format: String(localized: "cli.vm.agent.started", defaultValue: "Started %1$@ on %2$@ \u{2014} terminal %3$@ in workspace %4$@ (detached: it keeps running if the pane closes).", bundle: .cmuxCLI),
             agent, selection.id, terminalId, workspaceId
         )
         let reattachLine = String(
-            format: String(localized: "cli.vm.agent.reattach", defaultValue: "Reattach: cmux vm open %1$@/%2$@/%3$@"),
+            format: String(localized: "cli.vm.agent.reattach", defaultValue: "Reattach: cmux vm open %1$@/%2$@/%3$@", bundle: .cmuxCLI),
             selection.id, workspaceId, terminalId
         )
 
@@ -1877,7 +1877,7 @@ extension CMUXCLI {
             cliWriteStderr(startedLine + "\n")
         }
         cliWriteStderr(String(
-            format: String(localized: "cli.vm.agent.waiting", defaultValue: "Waiting for %1$@ to finish (Ctrl-C stops waiting; the agent keeps running — %2$@).\n"),
+            format: String(localized: "cli.vm.agent.waiting", defaultValue: "Waiting for %1$@ to finish (Ctrl-C stops waiting; the agent keeps running — %2$@).\n", bundle: .cmuxCLI),
             terminalId, reattach
         ))
         let waitStarted = Date()
@@ -1966,12 +1966,12 @@ extension CMUXCLI {
             text += (response["text"] as? String) ?? ""
             let next = (response["next_offset"] as? Int) ?? (response["next_offset"] as? String).flatMap(Int.init)
             guard let complete = response["complete"] as? Bool else {
-                throw CLIError(message: String(localized: "cli.vm.output.invalidPage", defaultValue: "The machine returned an invalid output page. Reconnect and retry."))
+                throw CLIError(message: String(localized: "cli.vm.output.invalidPage", defaultValue: "The machine returned an invalid output page. Reconnect and retry.", bundle: .cmuxCLI))
             }
             pages += 1
             if complete { return text }
             guard let next, next > after, pages < 4096 else {
-                throw CLIError(message: String(localized: "cli.vm.output.incomplete", defaultValue: "The machine's output could not be read completely. Reconnect and retry."))
+                throw CLIError(message: String(localized: "cli.vm.output.incomplete", defaultValue: "The machine's output could not be read completely. Reconnect and retry.", bundle: .cmuxCLI))
             }
             after = next
         }

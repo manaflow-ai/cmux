@@ -40,7 +40,7 @@ extension CMUXCLI {
         }
         guard let snapshots = response["snapshots"] as? [[String: Any]],
               snapshots.allSatisfy({ ($0["id"] as? String)?.isEmpty == false }) else {
-            throw CLIError(message: String(localized: "cli.vm.snapshot.invalidList", defaultValue: "The machine returned an invalid snapshot list. Reconnect and retry."))
+            throw CLIError(message: String(localized: "cli.vm.snapshot.invalidList", defaultValue: "The machine returned an invalid snapshot list. Reconnect and retry.", bundle: .cmuxCLI))
         }
         if jsonOutput {
             print(jsonString(response))

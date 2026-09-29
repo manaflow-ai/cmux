@@ -17,7 +17,7 @@ IMMUTABLE="$TMP_DIR/cmux-nightly-immutable.dmg"
 FAKE_BIN="$TMP_DIR/bin"
 LOG="$TMP_DIR/calls.log"
 HELPER_STATE="$TMP_DIR/helper-notarization.state"
-mkdir -p "$APP/Contents/MacOS" "$FAKE_BIN"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Library/cmux Computer Use.app/Contents" "$FAKE_BIN"
 printf 'signed-app-fixture\n' > "$APP/Contents/MacOS/cmux"
 printf 'submission_id=fixture-id\ncdhash=fixture-cdhash\n' > "$HELPER_STATE"
 
@@ -217,8 +217,13 @@ APPLE_APP_SPECIFIC_PASSWORD=fixture-password \
 APPLE_TEAM_ID=FIXTURETEAM \
 APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
 "$SCRIPT" "$RC_APP" "$TMP_DIR/cmux-rc-macos.dmg" "$TMP_DIR/cmux-rc-immutable.dmg"
+# The RC fixture, like a cmux-next bundle, has no nested Computer Use app, so
+# no helper notarization runs for it.
+if grep -q '^notarize-helper ' "$LOG"; then
+  echo "FAIL: packaging notarized a Computer Use helper the bundle does not carry" >&2
+  exit 1
+fi
 for expected in \
-  "notarize-helper $RC_APP $ROOT_DIR/cmux.rc.entitlements Developer ID Application: Fixture" \
   "metadata $RC_APP rc" \
   "metadata $TMP_DIR/cmux-rc-mount/cmux NIGHTLY.app rc"; do
   if ! grep -Fxq "$expected" "$LOG"; then
@@ -230,4 +235,4 @@ if CMUX_CHANNEL=beta run_helper 2>/dev/null; then
   echo "FAIL: unknown channel must be rejected" >&2
   exit 1
 fi
-echo "PASS: rc channel packaging selects rc entitlements and metadata checks"
+echo "PASS: rc channel packaging selects rc metadata checks and skips an absent Computer Use helper"

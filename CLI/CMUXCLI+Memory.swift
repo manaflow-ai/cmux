@@ -26,11 +26,11 @@ extension CMUXCLI {
     private func parseMemoryCommandOptions(_ args: [String]) throws -> MemoryCommandOptions {
         let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
         if rem0.contains("--workspace") {
-            throw CLIError(message: String(localized: "cli.memory.error.workspaceRequiresValue", defaultValue: "memory requires --workspace <id|ref|index>"))
+            throw CLIError(message: String(localized: "cli.memory.error.workspaceRequiresValue", defaultValue: "memory requires --workspace <id|ref|index>", bundle: .cmuxCLI))
         }
         let (groupsOpt, rem1) = parseOption(rem0, name: "--groups")
         if rem1.contains("--groups") {
-            throw CLIError(message: String(localized: "cli.memory.error.groupsRequiresValue", defaultValue: "memory requires --groups <count>"))
+            throw CLIError(message: String(localized: "cli.memory.error.groupsRequiresValue", defaultValue: "memory requires --groups <count>", bundle: .cmuxCLI))
         }
 
         var includeAll = false
@@ -50,13 +50,13 @@ extension CMUXCLI {
 
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
             throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.memory.error.unknownFlag", defaultValue: "memory: unknown flag '%@'. Known flags: --all --workspace <id|ref|index> --groups <count> --json"),
+                String(localized: "cli.memory.error.unknownFlag", defaultValue: "memory: unknown flag '%@'. Known flags: --all --workspace <id|ref|index> --groups <count> --json", bundle: .cmuxCLI),
                 unknown
             ))
         }
         if let extra = remaining.first {
             throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.memory.error.unexpectedArgument", defaultValue: "memory: unexpected argument '%@'"),
+                String(localized: "cli.memory.error.unexpectedArgument", defaultValue: "memory: unexpected argument '%@'", bundle: .cmuxCLI),
                 extra
             ))
         }
@@ -65,7 +65,7 @@ extension CMUXCLI {
         if let groupsOpt {
             guard let parsed = Int(groupsOpt), (1...100).contains(parsed) else {
                 throw CLIError(message: String.localizedStringWithFormat(
-                    String(localized: "cli.memory.error.invalidGroups", defaultValue: "memory: invalid --groups value '%@'. Use an integer from 1 to 100"),
+                    String(localized: "cli.memory.error.invalidGroups", defaultValue: "memory: invalid --groups value '%@'. Use an integer from 1 to 100", bundle: .cmuxCLI),
                     groupsOpt
                 ))
             }
@@ -106,7 +106,7 @@ extension CMUXCLI {
         do {
             return try client.sendV2(method: "system.memory", params: params)
         } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
-            throw CLIError(message: String(localized: "cli.memory.error.diagnosticsUnsupported", defaultValue: "cmux memory requires a running cmux build that supports memory diagnostics"))
+            throw CLIError(message: String(localized: "cli.memory.error.diagnosticsUnsupported", defaultValue: "cmux memory requires a running cmux build that supports memory diagnostics", bundle: .cmuxCLI))
         }
     }
 
@@ -115,7 +115,7 @@ extension CMUXCLI {
         idFormat: CLIIDFormat
     ) -> String {
         guard let diagnostic = payload["memory_diagnostic"] as? [String: Any] else {
-            return String(localized: "cli.memory.output.noDiagnostic", defaultValue: "No memory diagnostic available")
+            return String(localized: "cli.memory.output.noDiagnostic", defaultValue: "No memory diagnostic available", bundle: .cmuxCLI)
         }
 
         let app = diagnostic["app"] as? [String: Any] ?? [:]
@@ -133,33 +133,33 @@ extension CMUXCLI {
             lines.append(summary)
             lines.append("")
         }
-        lines.append(String(localized: "cli.memory.output.appHeader", defaultValue: "APP"))
+        lines.append(String(localized: "cli.memory.output.appHeader", defaultValue: "APP", bundle: .cmuxCLI))
         lines.append("  \(appName.isEmpty ? "cmux" : appName) pid=\(appPID)")
         lines.append(String.localizedStringWithFormat(
-            String(localized: "cli.memory.output.appFootprint", defaultValue: "  footprint %@"),
+            String(localized: "cli.memory.output.appFootprint", defaultValue: "  footprint %@", bundle: .cmuxCLI),
             formatBytes(appFootprint)
         ))
         lines.append(String.localizedStringWithFormat(
-            String(localized: "cli.memory.output.appRSS", defaultValue: "  rss       %@"),
+            String(localized: "cli.memory.output.appRSS", defaultValue: "  rss       %@", bundle: .cmuxCLI),
             formatBytes(appRSS)
         ))
         lines.append("")
-        lines.append(String(localized: "cli.memory.output.childrenHeader", defaultValue: "CHILD PROCESSES"))
+        lines.append(String(localized: "cli.memory.output.childrenHeader", defaultValue: "CHILD PROCESSES", bundle: .cmuxCLI))
         lines.append(String.localizedStringWithFormat(
-            String(localized: "cli.memory.output.recursiveRSS", defaultValue: "  recursive RSS %@ across %@"),
+            String(localized: "cli.memory.output.recursiveRSS", defaultValue: "  recursive RSS %@ across %@", bundle: .cmuxCLI),
             formatBytes(childRSS),
             memoryProcessCountText(childCount)
         ))
 
         let groups = children["groups"] as? [[String: Any]] ?? []
         guard !groups.isEmpty else {
-            lines.append(String(localized: "cli.memory.output.noChildGroups", defaultValue: "  no child process groups"))
+            lines.append(String(localized: "cli.memory.output.noChildGroups", defaultValue: "  no child process groups", bundle: .cmuxCLI))
             return lines.joined(separator: "\n")
         }
 
         lines.append("")
-        lines.append(String(localized: "cli.memory.output.topGroupsHeader", defaultValue: "TOP CHILD GROUPS"))
-        lines.append(String(localized: "cli.memory.output.topGroupsColumns", defaultValue: "      RSS  PROC  COMMAND                    ATTRIBUTION"))
+        lines.append(String(localized: "cli.memory.output.topGroupsHeader", defaultValue: "TOP CHILD GROUPS", bundle: .cmuxCLI))
+        lines.append(String(localized: "cli.memory.output.topGroupsColumns", defaultValue: "      RSS  PROC  COMMAND                    ATTRIBUTION", bundle: .cmuxCLI))
         for group in groups {
             let rss = padLeft(formatBytes(topInt64(group["rss_bytes"])), width: 9)
             let processCount = padLeft(String(topInt(group["process_count"]) ?? 0), width: 5)
@@ -174,10 +174,10 @@ extension CMUXCLI {
 
     private func memoryProcessCountText(_ count: Int) -> String {
         if count == 1 {
-            return String(localized: "cli.memory.output.processCount.one", defaultValue: "1 process")
+            return String(localized: "cli.memory.output.processCount.one", defaultValue: "1 process", bundle: .cmuxCLI)
         }
         return String.localizedStringWithFormat(
-            String(localized: "cli.memory.output.processCount.other", defaultValue: "%lld processes"),
+            String(localized: "cli.memory.output.processCount.other", defaultValue: "%lld processes", bundle: .cmuxCLI),
             count
         )
     }

@@ -97,13 +97,10 @@ jobs:
     # Import the Apple Developer ID intermediate chain into the build keychain
     # below so signing does not depend on mutable runner login-keychain state.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    # Notarization wait times vary on Apple's side. The standalone Computer Use
-    # helper starts as soon as the unsigned app exists and overlaps the remaining
-    # release preparation; the outer app and final DMG still serialize afterward.
-    # v0.64.22 took 40 minutes before the Cloud tunnel extension, its Go engine
-    # build and the universal diff sidecar joined this job, and the helper's
-    # Gatekeeper propagation wait alone can now take twenty minutes, so 60 left
-    # no headroom. Keep at least 25 percent above the measured duration.
+    # Notarization wait times vary on Apple's side; the app and the final DMG
+    # serialize. v0.64.22 took 40 minutes with the legacy app's extra helper
+    # builds and notarizations. Keep at least 25 percent above the measured
+    # duration.
     timeout-minutes: 90
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -259,15 +256,21 @@ jobs:
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
-      - name: Set up Go for the Cloud tunnel extension and SSH daemon
+      - name: Set up Go for the SSH daemon assets
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26.x'
           cache: false
 
+      # The Embed CEF phase fetches the pinned Chromium engine from the private
+      # manaflow-ai/cef release (scripts/cmux-next/cef-manifest.json). The
+      # artifact is arm64 only: x86_64 Macs run without the engine. With no
+      # readable token the app ships the browser as unavailable (warned below).
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
         run: |
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
@@ -275,6 +278,18 @@ jobs:
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO build
+
+      - name: Report the embedded Chromium engine
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          framework="$app/Contents/Frameworks/Chromium Embedded Framework.framework"
+          if [[ -d "$framework" ]]; then
+            echo "Chromium engine embedded: $(lipo -archs "$framework/Versions/A/Chromium Embedded Framework")"
+          else
+            echo "::warning title=No Chromium engine::The CEF artifact was not readable (secret CMUX_CEF_READ_TOKEN); this release ships the browser as unavailable."
+          fi
 
       - name: Build and embed verified SSH daemon assets
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -320,22 +335,6 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           security list-keychains -d user -s build.keychain
 
-      - name: Start Computer Use helper notarization
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        run: |
-          state="$RUNNER_TEMP/cmux-computer-use-notarization.state"
-          rm -f "$state"
-          ./scripts/ci/notarize-computer-use-helper.sh \
-            --start "$state" \
-            "build-universal/Build/Products/Release/cmux.app" \
-            cmux.release.entitlements \
-            "$APPLE_SIGNING_IDENTITY"
-
       - name: Download universal Ghostty CLI helper
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -354,26 +353,22 @@ jobs:
           ./scripts/install-prebuilt-ghostty-cli-helper.sh \
             ghostty-cli-helper/ghostty \
             build-universal/Build/Products/Release/cmux.app
-          # actions/checkout is depth 1 here, so a bare `git log -1 -- cmux-tui` would answer
-          # HEAD. A release bundles the exact client of the newest cmux-tui commit or fails.
-          cmux_tui_commit="$(./scripts/ci/resolve-cmux-tui-client-commit.sh)"
-          test -n "$cmux_tui_commit"
+          # A release bundles the universal client of the cmux-tui commit the app
+          # was built and tested against (scripts/cmux-next/cmux-tui.pin) or fails.
+          cmux_tui_commit="$(awk -F= '$1=="commit"{print $2}' scripts/cmux-next/cmux-tui.pin)"
+          [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]]
           ./scripts/install-cmux-tui-client.sh \
             build-universal/Build/Products/Release/cmux.app \
             --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
             --expected-commit "$cmux_tui_commit" \
             --require-capability wireguard-hub
+          ./scripts/cmux-next/write-cmux-tui-version.sh \
+            build-universal/Build/Products/Release/cmux.app "$cmux_tui_commit"
 
       - name: Verify binary architectures
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           set -euo pipefail
-          APP="build-universal/Build/Products/Release/cmux.app"
-          # The Release build's tunnel extension is com.cmuxterm.app.tunnel: the
-          # bundle identifier carries no team prefix (only NEMachServiceName and
-          # the profile's App ID do), exactly as nightly ships <bundle id>.tunnel.
-          # tests/test_ci_release_tunnel_identifiers.sh pins this to the project.
-          ./scripts/normalize-system-extension-bundle.sh "$APP" "com.cmuxterm.app.tunnel"
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
@@ -389,12 +384,9 @@ jobs:
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
-          TUNNEL_BINARY="$APP/Contents/Library/SystemExtensions/com.cmuxterm.app.tunnel.systemextension/Contents/MacOS/cmuxTunnel"
-          [ -x "$TUNNEL_BINARY" ] || { echo "Cloud tunnel extension binary not found at $TUNNEL_BINARY" >&2; exit 1; }
-          TUNNEL_ARCHS="$(lipo -archs "$TUNNEL_BINARY")"
-          echo "Tunnel extension architectures: $TUNNEL_ARCHS"
-          [[ "$TUNNEL_ARCHS" == *arm64* && "$TUNNEL_ARCHS" == *x86_64* ]]
-          ./scripts/verify-tunnel-extension-engine.sh "$TUNNEL_BINARY"
+          TUI_ARCHS="$(lipo -archs "build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-tui")"
+          echo "cmux-tui architectures: $TUI_ARCHS"
+          [[ "$TUI_ARCHS" == *arm64* && "$TUI_ARCHS" == *x86_64* ]]
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 
@@ -460,34 +452,9 @@ jobs:
           fi
           cp "$TMP_PROFILE" "$PROFILE_PATH"
 
-      - name: Embed Cloud tunnel extension provisioning profile
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        env:
-          APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64 }}
-        run: |
-          set -euo pipefail
-          ./scripts/ci/embed-tunnel-extension-profile.sh \
-            "build-universal/Build/Products/Release/cmux.app" \
-            "7WLXT3NR37.com.cmuxterm.app.tunnel" \
-            "${APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64:-}"
-
       - name: Strip release binaries
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: ./scripts/strip-release-bundle.sh "build-universal/Build/Products/Release/cmux.app"
-
-      - name: Verify Cloud tunnel engine before signing
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: |
-          set -euo pipefail
-          app="build-universal/Build/Products/Release/cmux.app"
-          sysext="$(find "$app/Contents/Library/SystemExtensions" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print -quit 2>/dev/null || true)"
-          if [[ -z "$sysext" ]]; then
-            echo "::error::Cloud tunnel system extension is missing"
-            exit 1
-          fi
-          executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$sysext/Contents/Info.plist")"
-          binary="$sysext/Contents/MacOS/$executable"
-          ./scripts/verify-tunnel-extension-engine.sh "$binary"
 
       - name: Codesign app
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -499,8 +466,7 @@ jobs:
             exit 1
           fi
           APP_PATH="build-universal/Build/Products/Release/cmux.app"
-          CMUX_SIGN_MODE=all-except-computer-use \
-            ./scripts/sign-cmux-bundle.sh \
+          ./scripts/sign-cmux-bundle.sh \
             "$APP_PATH" \
             cmux.release.entitlements \
             "$APPLE_SIGNING_IDENTITY"
@@ -552,11 +518,6 @@ jobs:
           APP_PATH="build-universal/Build/Products/Release/cmux.app"
           ZIP_SUBMIT="cmux-notary.zip"
           DMG_RELEASE="cmux-macos.dmg"
-          ./scripts/ci/notarize-computer-use-helper.sh \
-            --finish "$RUNNER_TEMP/cmux-computer-use-notarization.state" \
-            "$APP_PATH" \
-            cmux.release.entitlements \
-            "$APPLE_SIGNING_IDENTITY"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
           APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
           APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"

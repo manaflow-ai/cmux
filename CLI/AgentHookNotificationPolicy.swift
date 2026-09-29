@@ -127,10 +127,10 @@ enum AgentHookNotificationClassifier {
         let lower = "\(signal) \(message)".lowercased()
         if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
             let body = message.isEmpty
-                ? String(localized: "agent.generic.notification.body.approvalNeeded", defaultValue: "Approval needed")
+                ? String(localized: "agent.generic.notification.body.approvalNeeded", defaultValue: "Approval needed", bundle: .cmuxCLI)
                 : message
             return AgentHookNotificationSummary(
-                subtitle: String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission"),
+                subtitle: String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission", bundle: .cmuxCLI),
                 body: truncate(body, maxLength: 180),
                 status: .needsInput,
                 isFallback: isFallback,
@@ -140,12 +140,12 @@ enum AgentHookNotificationClassifier {
         if lower.contains("error") || lower.contains("failed") || lower.contains("failure") || lower.contains("exception") {
             let body = message.isEmpty
                 ? (neutralErrorBody ?? String.localizedStringWithFormat(
-                    String(localized: "agent.generic.notification.body.reportedError", defaultValue: "%@ reported an error"),
+                    String(localized: "agent.generic.notification.body.reportedError", defaultValue: "%@ reported an error", bundle: .cmuxCLI),
                     displayName
                 ))
                 : message
             return AgentHookNotificationSummary(
-                subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error"),
+                subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error", bundle: .cmuxCLI),
                 body: truncate(body, maxLength: 180),
                 status: .error,
                 isFallback: isFallback,
@@ -154,10 +154,10 @@ enum AgentHookNotificationClassifier {
         }
         if containsCompletionCue(lower) {
             let body = message.isEmpty
-                ? String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed")
+                ? String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed", bundle: .cmuxCLI)
                 : message
             return AgentHookNotificationSummary(
-                subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
+                subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed", bundle: .cmuxCLI),
                 body: truncate(body, maxLength: 180),
                 status: .idle,
                 isFallback: isFallback,
@@ -166,10 +166,10 @@ enum AgentHookNotificationClassifier {
         }
         if containsWaitingCue(lower) {
             let body = message.isEmpty
-                ? String(localized: "agent.generic.notification.body.waitingForInput", defaultValue: "Waiting for input")
+                ? String(localized: "agent.generic.notification.body.waitingForInput", defaultValue: "Waiting for input", bundle: .cmuxCLI)
                 : message
             return AgentHookNotificationSummary(
-                subtitle: String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting"),
+                subtitle: String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting", bundle: .cmuxCLI),
                 body: truncate(body, maxLength: 180),
                 status: .needsInput,
                 isFallback: isFallback,
@@ -178,7 +178,7 @@ enum AgentHookNotificationClassifier {
         }
         if !message.isEmpty {
             return AgentHookNotificationSummary(
-                subtitle: String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention"),
+                subtitle: String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention", bundle: .cmuxCLI),
                 body: truncate(message, maxLength: 180),
                 status: nil,
                 isFallback: isFallback,
@@ -191,7 +191,7 @@ enum AgentHookNotificationClassifier {
         // "%@ needs your attention" needs-input fallback is deliberately
         // gone (semantic journal events carry state now).
         return AgentHookNotificationSummary(
-            subtitle: String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention"),
+            subtitle: String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention", bundle: .cmuxCLI),
             body: "",
             status: nil,
             isFallback: true,

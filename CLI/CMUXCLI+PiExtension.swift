@@ -142,9 +142,9 @@ extension CMUXCLI {
                 newContent: Self.piExtensionSource,
                 fallbackContent: Self.piExtensionSource
             )
-            print(String(localized: "cli.hooks.pi.confirmProceed", defaultValue: "\nProceed? [y/N] "), terminator: "")
+            print(String(localized: "cli.hooks.pi.confirmProceed", defaultValue: "\nProceed? [y/N] ", bundle: .cmuxCLI), terminator: "")
             guard readLine()?.lowercased().hasPrefix("y") == true else {
-                print(String(localized: "cli.hooks.pi.aborted", defaultValue: "Aborted."))
+                print(String(localized: "cli.hooks.pi.aborted", defaultValue: "Aborted.", bundle: .cmuxCLI))
                 return
             }
         }

@@ -177,7 +177,7 @@ extension CMUXCLI {
         Example:
           cmux read-selection --surface surface:2
           cmux read-selection --surface surface:2 --json
-        """)
+        """, bundle: .cmuxCLI)
     }
 
     static var readScreenHelp: String {
@@ -198,7 +198,7 @@ extension CMUXCLI {
           cmux read-screen
           cmux read-screen --surface surface:2 --scrollback --lines 200
           cmux read-screen --surface surface:2 --selection
-        """)
+        """, bundle: .cmuxCLI)
     }
 
     static var readSelectionUsageLine: String {

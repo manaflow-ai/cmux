@@ -68,19 +68,19 @@ extension CMUXCLI {
     func classifyClaudeNotification(signal: String, message: String) -> (subtitle: String, body: String) {
         let lower = "\(signal) \(message)".lowercased()
         if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
-            let body = message.isEmpty ? String(localized: "agent.generic.notification.body.approvalNeeded", defaultValue: "Approval needed") : message
+            let body = message.isEmpty ? String(localized: "agent.generic.notification.body.approvalNeeded", defaultValue: "Approval needed", bundle: .cmuxCLI) : message
             return ("Permission", body)
         }
         if lower.contains("error") || lower.contains("failed") || lower.contains("exception") {
-            let body = message.isEmpty ? String(localized: "cli.claude-hook.notification.body.error", defaultValue: "Claude reported an error") : message
+            let body = message.isEmpty ? String(localized: "cli.claude-hook.notification.body.error", defaultValue: "Claude reported an error", bundle: .cmuxCLI) : message
             return ("Error", body)
         }
         if AgentHookNotificationClassifier.containsCompletionCue(lower) {
-            let body = message.isEmpty ? String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed") : message
+            let body = message.isEmpty ? String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed", bundle: .cmuxCLI) : message
             return ("Completed", body)
         }
         if AgentHookNotificationClassifier.containsWaitingCue(lower) {
-            let body = message.isEmpty ? String(localized: "agent.generic.notification.body.waitingForInput", defaultValue: "Waiting for input") : message
+            let body = message.isEmpty ? String(localized: "agent.generic.notification.body.waitingForInput", defaultValue: "Waiting for input", bundle: .cmuxCLI) : message
             return ("Waiting", body)
         }
         // Use the message directly when there is one. A payload with no
@@ -97,11 +97,11 @@ extension CMUXCLI {
     /// Classifier tokens are internal protocol values; only this boundary renders them.
     func localizedClaudeNotificationSubtitle(_ token: String) -> String {
         switch token {
-        case "Permission": String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission")
-        case "Waiting": String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting")
-        case "Error": String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error")
-        case "Completed": String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed")
-        case "Attention": String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention")
+        case "Permission": String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission", bundle: .cmuxCLI)
+        case "Waiting": String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting", bundle: .cmuxCLI)
+        case "Error": String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error", bundle: .cmuxCLI)
+        case "Completed": String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed", bundle: .cmuxCLI)
+        case "Attention": String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention", bundle: .cmuxCLI)
         default: token
         }
     }

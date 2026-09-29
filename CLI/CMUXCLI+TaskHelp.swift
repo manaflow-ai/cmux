@@ -33,15 +33,15 @@ extension CMUXCLI {
 
         var title: String {
             switch self {
-            case .start: return String(localized: "cli.help.topic.start", defaultValue: "Start & Resume")
-            case .agents: return String(localized: "cli.help.topic.agents", defaultValue: "Agents")
-            case .navigate: return String(localized: "cli.help.topic.navigate", defaultValue: "Navigate & Arrange")
-            case .inspect: return String(localized: "cli.help.topic.inspect", defaultValue: "Inspect")
-            case .customize: return String(localized: "cli.help.topic.customize", defaultValue: "Customize")
-            case .automation: return String(localized: "cli.help.topic.automation", defaultValue: "Automation")
-            case .browser: return String(localized: "cli.help.topic.browser", defaultValue: "Browser")
-            case .remote: return String(localized: "cli.help.topic.remote", defaultValue: "Remote")
-            case .diagnostics: return String(localized: "cli.help.topic.diagnostics", defaultValue: "Diagnostics / Advanced")
+            case .start: return String(localized: "cli.help.topic.start", defaultValue: "Start & Resume", bundle: .cmuxCLI)
+            case .agents: return String(localized: "cli.help.topic.agents", defaultValue: "Agents", bundle: .cmuxCLI)
+            case .navigate: return String(localized: "cli.help.topic.navigate", defaultValue: "Navigate & Arrange", bundle: .cmuxCLI)
+            case .inspect: return String(localized: "cli.help.topic.inspect", defaultValue: "Inspect", bundle: .cmuxCLI)
+            case .customize: return String(localized: "cli.help.topic.customize", defaultValue: "Customize", bundle: .cmuxCLI)
+            case .automation: return String(localized: "cli.help.topic.automation", defaultValue: "Automation", bundle: .cmuxCLI)
+            case .browser: return String(localized: "cli.help.topic.browser", defaultValue: "Browser", bundle: .cmuxCLI)
+            case .remote: return String(localized: "cli.help.topic.remote", defaultValue: "Remote", bundle: .cmuxCLI)
+            case .diagnostics: return String(localized: "cli.help.topic.diagnostics", defaultValue: "Diagnostics / Advanced", bundle: .cmuxCLI)
             }
         }
 
@@ -92,15 +92,15 @@ extension CMUXCLI {
     /// Text for `cmux help --help`.
     func helpCommandUsage() -> String {
         return """
-        \(String(localized: "cli.help.usage", defaultValue: "Usage: cmux help [topic]"))
+        \(String(localized: "cli.help.usage", defaultValue: "Usage: cmux help [topic]", bundle: .cmuxCLI))
 
-        \(String(localized: "cli.help.description", defaultValue: "Show top-level CLI usage, or one task-focused command group."))
+        \(String(localized: "cli.help.description", defaultValue: "Show top-level CLI usage, or one task-focused command group.", bundle: .cmuxCLI))
 
-        \(String(localized: "cli.help.topics", defaultValue: "Topics:"))
+        \(String(localized: "cli.help.topics", defaultValue: "Topics:", bundle: .cmuxCLI))
         \(Self.taskHelpTopicSummary)
 
-        \(String(localized: "cli.help.unknownTopic", defaultValue: "Unknown topics keep the top-level help behavior."))
-        \(String(localized: "cli.help.noSocket", defaultValue: "Also works without a running cmux app or socket."))
+        \(String(localized: "cli.help.unknownTopic", defaultValue: "Unknown topics keep the top-level help behavior.", bundle: .cmuxCLI))
+        \(String(localized: "cli.help.noSocket", defaultValue: "Also works without a running cmux app or socket.", bundle: .cmuxCLI))
         """
     }
 
@@ -114,7 +114,7 @@ extension CMUXCLI {
         \(topic.title):
         \(commands)
 
-        \(String(localized: "cli.help.topic.commandUsage", defaultValue: "Run `cmux <command> --help` for command-specific usage."))
+        \(String(localized: "cli.help.topic.commandUsage", defaultValue: "Run `cmux <command> --help` for command-specific usage.", bundle: .cmuxCLI))
         """
     }
 
@@ -167,9 +167,9 @@ extension CMUXCLI {
           Ghostty config lives at ~/.config/ghostty/config (terminal transparency, blur, font, theme, keybinds, etc.).
           `cmux reload-config` reloads BOTH Ghostty config and ~/.config/cmux/cmux.json, then refreshes terminals in place. No app restart needed.
 
-        \(String(localized: "cli.help.taskHelp.heading", defaultValue: "Task Help:"))
+        \(String(localized: "cli.help.taskHelp.heading", defaultValue: "Task Help:", bundle: .cmuxCLI))
           cmux help <\(Self.taskHelpTopicNames)>
-          \(String(localized: "cli.help.taskHelp.description", defaultValue: "Show one command group without connecting to the cmux socket."))
+          \(String(localized: "cli.help.taskHelp.description", defaultValue: "Show one command group without connecting to the cmux socket.", bundle: .cmuxCLI))
 
         Commands:
         \(commandGroups)
@@ -190,7 +190,7 @@ extension CMUXCLI {
         \(forkCommandUsageLine)
         restore-session [--from <channel|path> | --export <path> [--force]]
         session restore [--list] [--session <id>]...
-        \(String(localized: "cli.sessions.command", defaultValue: "sessions [list] [options]"))
+        \(String(localized: "cli.sessions.command", defaultValue: "sessions [list] [options]", bundle: .cmuxCLI))
         open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
         new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
         local-tmux <start|attach|list|status|detach|close|cleanup> [session] [options]
@@ -230,7 +230,7 @@ extension CMUXCLI {
         move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
         new-split <left|right|up|down> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--panel <id|ref|index>] [--window <id|ref|index>] [--command <text>] [--focus <true|false>]
         focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
-        new-pane [--type <terminal|browser|simulator>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--command <text>] [--focus <true|false>]
+        new-pane [--type <terminal|browser|simulator>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]", bundle: .cmuxCLI)) [--command <text>] [--focus <true|false>]
         new-surface [--type <terminal|browser|simulator|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--command <text>] [--focus <true|false>]
         close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
         move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
@@ -338,14 +338,14 @@ extension CMUXCLI {
         disable-browser | enable-browser | browser-status
         browser [--surface <id|ref|index> | <surface>] <subcommand> ...
         browser disable | enable | status
-        browser open [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)
-        browser open-split [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
+        browser open [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]", bundle: .cmuxCLI)) [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)
+        browser open-split [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]", bundle: .cmuxCLI))
         browser goto|navigate <url> [--snapshot-after]
         browser back|forward|reload [--snapshot-after]
         browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]
         browser devtools toggle|console [--surface <id>]
         browser focus-mode enter|exit|toggle [--surface <id>]
-        \(String(localized: "cli.browser.designMode.help", defaultValue: "browser design-mode enable|disable|toggle|status [--surface <id>]"))
+        \(String(localized: "cli.browser.designMode.help", defaultValue: "browser design-mode enable|disable|toggle|status [--surface <id>]", bundle: .cmuxCLI))
         browser zoom in|out|reset|<factor> [--surface <id>]   (factor sets an absolute zoom, e.g. 0.8 = 80%)
         browser history clear --force   (clears the default profile's history; mirrors the View menu)
         browser url|get-url
@@ -368,7 +368,7 @@ extension CMUXCLI {
         browser profiles <list|add|rename|clear|delete> [...]
         browser profiles clear <profile|--all> [--force]
         browser import [...]
-        \(String(localized: "cli.browser.cookies.usage", defaultValue: "browser cookies <get|set|clear> [set: --http-only] [...]"))
+        \(String(localized: "cli.browser.cookies.usage", defaultValue: "browser cookies <get|set|clear> [set: --http-only] [...]", bundle: .cmuxCLI))
         browser storage <local|session> <get|set|clear> [...]
         browser tab <new|list|switch|close|<index>> [...]
         browser console <list|clear>
@@ -407,10 +407,10 @@ extension CMUXCLI {
         ping
         iroh-diag
         version
-        \(String(localized: "sudo.cli.global_usage.run", defaultValue: "sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)"))
-        \(String(localized: "sudo.cli.global_usage.pending", defaultValue: "sudo pending"))
-        \(String(localized: "sudo.cli.global_usage.setup_touch_id", defaultValue: "sudo setup-touch-id"))
-        \(String(localized: "cli.socketControlStatus.command", defaultValue: "socket-status [--json]"))
+        \(String(localized: "sudo.cli.global_usage.run", defaultValue: "sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)", bundle: .cmuxCLI))
+        \(String(localized: "sudo.cli.global_usage.pending", defaultValue: "sudo pending", bundle: .cmuxCLI))
+        \(String(localized: "sudo.cli.global_usage.setup_touch_id", defaultValue: "sudo setup-touch-id", bundle: .cmuxCLI))
+        \(String(localized: "cli.socketControlStatus.command", defaultValue: "socket-status [--json]", bundle: .cmuxCLI))
         capabilities
         rpc <method> [json-params]
         debug-terminals

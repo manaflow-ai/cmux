@@ -57,7 +57,6 @@ fi
 SOCKET_TIMEOUT_SECONDS="${CMUX_CLI_SMOKE_SOCKET_TIMEOUT_SECONDS:-45}"
 WINDOW_TIMEOUT_SECONDS="${CMUX_CLI_SMOKE_WINDOW_TIMEOUT_SECONDS:-30}"
 REQUIRED_HELP_COMMANDS="${CMUX_CLI_SMOKE_REQUIRED_HELP_COMMANDS:-ping capabilities identify list-workspaces new-workspace close-workspace remote-daemon-status version}"
-DISABLE_ICON_PERSISTENCE_KEY="cmuxDisableBundleIconPersistence"
 
 # A short private socket path: sun_path is limited to 104 bytes, and a private
 # path cannot collide with a socket another cmux on the runner already owns.
@@ -77,7 +76,10 @@ cleanup() {
     done
     kill -9 "$APP_PID" 2>/dev/null || true
   fi
-  /usr/bin/defaults delete "$BUNDLE_ID" "$DISABLE_ICON_PERSISTENCE_KEY" >/dev/null 2>&1 || true
+  if [[ -n "$APP_PID" ]]; then
+    # The app leaves its cmux-tui daemon running by design; this run started it.
+    pkill -f "$APP_PATH/Contents/Resources/bin/cmux-tui" 2>/dev/null || true
+  fi
   if [[ $status -ne 0 ]]; then
     echo "error: CLI smoke failed during step: $STEP" >&2
     if [[ -s "$APP_LOG" ]]; then
@@ -167,16 +169,18 @@ DAEMON_JSON="$(cli --json remote-daemon-status)"
   || fail "remote-daemon-status reports no embedded SSH daemon manifest: $DAEMON_JSON"
 echo "ok: remote daemon manifest present ($(json_field 'd.get("release_tag")' <<<"$DAEMON_JSON"), $(json_field 'd.get("asset_name")' <<<"$DAEMON_JSON"))"
 
-# 2. Launch the signed app with the socket open to this script. Release builds
-# honor these overrides only with CMUX_ALLOW_SOCKET_OVERRIDE=1; allowAll lets a
-# process that cmux did not spawn talk to the socket.
+# 2. Launch the signed app with the socket open to this script. cmux-next
+# reads only its own CMUX_NEXT_* launch knobs (inherited CMUX_* variables never
+# choose its socket): CMUX_NEXT_SOCKET_PATH picks the private path, allowAll
+# lets a process the app did not spawn connect, and CMUX_NEXT_NO_ACTIVATE keeps
+# the window from taking focus.
 STEP="launch app"
-/usr/bin/defaults write "$BUNDLE_ID" "$DISABLE_ICON_PERSISTENCE_KEY" -bool YES
-CMUX_UI_TEST_MODE=1 \
-CMUX_ALLOW_SOCKET_OVERRIDE=1 \
-CMUX_SOCKET_PATH="$SOCKET_PATH" \
-CMUX_SOCKET_MODE=allowAll \
-  "$EXECUTABLE_PATH" -ApplePersistenceIgnoreState YES --cmux-disable-bundle-icon-persistence >"$APP_LOG" 2>&1 &
+env -u CMUX_WORKSPACE_ID -u CMUX_SURFACE_ID -u CMUX_TAB_ID -u CMUX_PANEL_ID \
+  -u CMUX_SOCKET_PATH -u CMUX_SOCKET_PASSWORD \
+  CMUX_NEXT_SOCKET_PATH="$SOCKET_PATH" \
+  CMUX_NEXT_SOCKET_MODE=allowAll \
+  CMUX_NEXT_NO_ACTIVATE=1 \
+  "$EXECUTABLE_PATH" -ApplePersistenceIgnoreState YES >"$APP_LOG" 2>&1 &
 APP_PID=$!
 echo "app pid $APP_PID, socket $SOCKET_PATH"
 

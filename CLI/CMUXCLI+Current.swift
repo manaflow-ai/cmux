@@ -19,7 +19,7 @@ struct CurrentCommand {
             Examples:
               cmux current
               cmux current --json --limit 50
-            """)
+            """, bundle: .cmuxCLI)
 
     struct Options {
         var limit: Int?
@@ -37,24 +37,24 @@ struct CurrentCommand {
                 result.jsonOutput = true
             } else if argument == "--limit" || argument.hasPrefix("--limit=") {
                 guard result.limit == nil else {
-                    throw CLIError(message: String(localized: "cli.current.error.duplicateLimit", defaultValue: "current: --limit may only be supplied once"))
+                    throw CLIError(message: String(localized: "cli.current.error.duplicateLimit", defaultValue: "current: --limit may only be supplied once", bundle: .cmuxCLI))
                 }
                 let raw: String
                 if argument == "--limit" {
                     index += 1
                     guard index < args.count else {
-                        throw CLIError(message: String(localized: "cli.current.error.limit", defaultValue: "current: --limit requires an integer from 1 to 200"))
+                        throw CLIError(message: String(localized: "cli.current.error.limit", defaultValue: "current: --limit requires an integer from 1 to 200", bundle: .cmuxCLI))
                     }
                     raw = args[index]
                 } else {
                     raw = String(argument.dropFirst("--limit=".count))
                 }
                 guard let limit = Int(raw), (1...200).contains(limit) else {
-                    throw CLIError(message: String(localized: "cli.current.error.limit", defaultValue: "current: --limit requires an integer from 1 to 200"))
+                    throw CLIError(message: String(localized: "cli.current.error.limit", defaultValue: "current: --limit requires an integer from 1 to 200", bundle: .cmuxCLI))
                 }
                 result.limit = limit
             } else {
-                throw CLIError(message: String.localizedStringWithFormat(String(localized: "cli.current.error.argument", defaultValue: "current: unexpected argument '%@'. Known flags: --limit <1...200> --json"), argument))
+                throw CLIError(message: String.localizedStringWithFormat(String(localized: "cli.current.error.argument", defaultValue: "current: unexpected argument '%@'. Known flags: --limit <1...200> --json", bundle: .cmuxCLI), argument))
             }
             index += 1
         }
@@ -63,11 +63,11 @@ struct CurrentCommand {
 
     func render(_ payload: [String: Any]) throws -> String {
         guard let items = payload["items"] as? [[String: Any]] else {
-            throw CLIError(message: String(localized: "cli.current.error.response", defaultValue: "current: invalid response (missing items)"))
+            throw CLIError(message: String(localized: "cli.current.error.response", defaultValue: "current: invalid response (missing items)", bundle: .cmuxCLI))
         }
         var lines: [String] = []
         if items.isEmpty {
-            lines.append(String(localized: "cli.current.empty", defaultValue: "No current work observed"))
+            lines.append(String(localized: "cli.current.empty", defaultValue: "No current work observed", bundle: .cmuxCLI))
         }
         for item in items {
             let label = display(item["label"] as? String ?? item["resource_ref"] as? String ?? "?")
@@ -78,41 +78,41 @@ struct CurrentCommand {
             lines.append("\(label)  [\(kind): \(machine)]")
             lines.append("  \(resource)")
             if let cwd = item["cwd"] as? String, !cwd.isEmpty {
-                lines.append("  " + String.localizedStringWithFormat(String(localized: "cli.current.cwd", defaultValue: "cwd: %@"), display(cwd)))
+                lines.append("  " + String.localizedStringWithFormat(String(localized: "cli.current.cwd", defaultValue: "cwd: %@", bundle: .cmuxCLI), display(cwd)))
             }
             let freshness = item["freshness"] as? [String: Any] ?? [:]
-            lines.append("  " + String.localizedStringWithFormat(String(localized: "cli.current.freshness", defaultValue: "freshness: %@"), display(freshness["state"] as? String ?? "unknown")))
+            lines.append("  " + String.localizedStringWithFormat(String(localized: "cli.current.freshness", defaultValue: "freshness: %@", bundle: .cmuxCLI), display(freshness["state"] as? String ?? "unknown")))
             let attention = item["attention"] as? [[String: Any]] ?? []
             if !attention.isEmpty {
                 let kinds = attention.compactMap { $0["kind"] as? String }.map(display)
-                lines.append("  " + String.localizedStringWithFormat(String(localized: "cli.current.attention", defaultValue: "attention: %@"), kinds.joined(separator: ", ")))
+                lines.append("  " + String.localizedStringWithFormat(String(localized: "cli.current.attention", defaultValue: "attention: %@", bundle: .cmuxCLI), kinds.joined(separator: ", ")))
             }
             let agents = item["agents"] as? [[String: Any]] ?? []
             let pullRequests = item["pull_requests"] as? [[String: Any]] ?? []
             let obligations = item["possible_human_obligations"] as? [[String: Any]] ?? []
             for agent in agents {
                 let fact = [agent["kind"] as? String, agent["state"] as? String].compactMap { $0 }.map(display).joined(separator: " · ")
-                lines.append("  " + String.localizedStringWithFormat(String(localized: "cli.current.agent", defaultValue: "agent: %@"), fact))
+                lines.append("  " + String.localizedStringWithFormat(String(localized: "cli.current.agent", defaultValue: "agent: %@", bundle: .cmuxCLI), fact))
             }
             for pullRequest in pullRequests {
                 let label = pullRequest["label"] as? String ?? (pullRequest["number"] as? NSNumber).map { "#" + $0.stringValue } ?? "?"
                 let fact = [label, pullRequest["status"] as? String].compactMap { $0 }.map(display).joined(separator: " · ")
-                lines.append("  " + String.localizedStringWithFormat(String(localized: "cli.current.pullRequest", defaultValue: "PR: %@"), fact))
+                lines.append("  " + String.localizedStringWithFormat(String(localized: "cli.current.pullRequest", defaultValue: "PR: %@", bundle: .cmuxCLI), fact))
             }
             for obligation in obligations {
                 let fact = display(obligation["kind"] as? String ?? "unknown")
-                lines.append("  " + String.localizedStringWithFormat(String(localized: "cli.current.obligation", defaultValue: "possible human obligation: %@"), fact))
+                lines.append("  " + String.localizedStringWithFormat(String(localized: "cli.current.obligation", defaultValue: "possible human obligation: %@", bundle: .cmuxCLI), fact))
             }
         }
         if payload["truncated"] as? Bool == true {
-            lines.append(String(localized: "cli.current.limited", defaultValue: "Limit reached; more work was observed. Use --limit (maximum 200)."))
+            lines.append(String(localized: "cli.current.limited", defaultValue: "Limit reached; more work was observed. Use --limit (maximum 200).", bundle: .cmuxCLI))
         }
         if let observedAt = payload["observed_at"] as? String {
-            lines.append(String.localizedStringWithFormat(String(localized: "cli.current.observed", defaultValue: "Observed: %@; cached owner facts, no refresh"), display(observedAt)))
+            lines.append(String.localizedStringWithFormat(String(localized: "cli.current.observed", defaultValue: "Observed: %@; cached owner facts, no refresh", bundle: .cmuxCLI), display(observedAt)))
         }
         if let availability = payload["owner_availability"] as? [String: String] {
             for owner in availability.keys.sorted() where availability[owner] != "available" {
-                lines.append(String.localizedStringWithFormat(String(localized: "cli.current.owner", defaultValue: "Owner %@: %@"), display(owner), display(availability[owner] ?? "unknown")))
+                lines.append(String.localizedStringWithFormat(String(localized: "cli.current.owner", defaultValue: "Owner %@: %@", bundle: .cmuxCLI), display(owner), display(availability[owner] ?? "unknown")))
             }
         }
         return lines.joined(separator: "\n")

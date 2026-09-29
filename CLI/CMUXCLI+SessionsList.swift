@@ -20,7 +20,7 @@ extension CMUXCLI {
             return
         } else if let subcommand, !subcommand.hasPrefix("-") {
             throw CLIError(message: String(
-                format: String(localized: "cli.sessions.error.unknownSubcommand", defaultValue: "Unknown sessions subcommand: %@. Usage: cmux sessions list [options]"),
+                format: String(localized: "cli.sessions.error.unknownSubcommand", defaultValue: "Unknown sessions subcommand: %@. Usage: cmux sessions list [options]", bundle: .cmuxCLI),
                 subcommand
             ))
         }
@@ -49,13 +49,13 @@ extension CMUXCLI {
         }
         if let unknown = remaining.first(where: { $0.hasPrefix("-") }) {
             throw CLIError(message: String(
-                format: String(localized: "cli.sessions.error.unknownFlag", defaultValue: "sessions list: unknown flag '%@'"),
+                format: String(localized: "cli.sessions.error.unknownFlag", defaultValue: "sessions list: unknown flag '%@'", bundle: .cmuxCLI),
                 unknown
             ))
         }
         if let extra = remaining.first {
             throw CLIError(message: String(
-                format: String(localized: "cli.sessions.error.unexpectedArgument", defaultValue: "sessions list: unexpected argument '%@'"),
+                format: String(localized: "cli.sessions.error.unexpectedArgument", defaultValue: "sessions list: unexpected argument '%@'", bundle: .cmuxCLI),
                 extra
             ))
         }
@@ -65,7 +65,7 @@ extension CMUXCLI {
             limit = Int.max
         } else if let limitRaw {
             guard let parsed = Int(limitRaw), parsed > 0 else {
-                throw CLIError(message: String(localized: "cli.sessions.error.invalidLimit", defaultValue: "sessions list: --limit must be a positive integer"))
+                throw CLIError(message: String(localized: "cli.sessions.error.invalidLimit", defaultValue: "sessions list: --limit must be a positive integer", bundle: .cmuxCLI))
             }
             limit = parsed
         } else {
@@ -93,7 +93,7 @@ extension CMUXCLI {
         if let agentRaw {
             let normalized = agentRaw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             guard !normalized.isEmpty else {
-                throw CLIError(message: String(localized: "cli.sessions.error.agentRequiresValue", defaultValue: "sessions list: --agent requires a value"))
+                throw CLIError(message: String(localized: "cli.sessions.error.agentRequiresValue", defaultValue: "sessions list: --agent requires a value", bundle: .cmuxCLI))
             }
             if normalized == "claude" || normalized == "claude-code" || normalized == "claude_code" {
                 selectedSpecs = agentSpecs.filter { $0.name == "claude" }
@@ -101,7 +101,7 @@ extension CMUXCLI {
                 selectedSpecs = agentSpecs.filter { $0.name == def.name }
             } else {
                 throw CLIError(message: String(
-                    format: String(localized: "cli.sessions.error.unknownAgent", defaultValue: "sessions list: unknown agent '%@'"),
+                    format: String(localized: "cli.sessions.error.unknownAgent", defaultValue: "sessions list: unknown agent '%@'", bundle: .cmuxCLI),
                     agentRaw
                 ))
             }
@@ -283,7 +283,7 @@ extension CMUXCLI {
         }
 
         if limitedEntries.isEmpty {
-            print(String(localized: "cli.sessions.output.noMatches", defaultValue: "No saved agent sessions matched."))
+            print(String(localized: "cli.sessions.output.noMatches", defaultValue: "No saved agent sessions matched.", bundle: .cmuxCLI))
             print("state_dir=\(stateDir)")
             return
         }
@@ -293,7 +293,7 @@ extension CMUXCLI {
         }
         if sortedEntries.count > limitedEntries.count {
             print(String(
-                format: String(localized: "cli.sessions.output.more", defaultValue: "... %lld more. Pass --all or --limit <n>."),
+                format: String(localized: "cli.sessions.output.more", defaultValue: "... %lld more. Pass --all or --limit <n>.", bundle: .cmuxCLI),
                 sortedEntries.count - limitedEntries.count
             ))
         }
@@ -328,7 +328,7 @@ extension CMUXCLI {
         Compatibility aliases:
           cmux sessions debug [options]
           cmux session-debug [options]
-        """)
+        """, bundle: .cmuxCLI)
     }
 
     private func sessionsListAgentSpecs() -> [SessionListAgentSpec] {

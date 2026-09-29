@@ -64,26 +64,26 @@ extension CMUXCLI {
         switch failure.reason {
         case .usageLimit:
             guard let resetsAt = failure.resetsAt else {
-                return String(localized: "agent.claude.stopFailure.status.usageLimit", defaultValue: "Usage limit")
+                return String(localized: "agent.claude.stopFailure.status.usageLimit", defaultValue: "Usage limit", bundle: .cmuxCLI)
             }
             return String.localizedStringWithFormat(
-                String(localized: "agent.claude.stopFailure.status.usageLimitResets", defaultValue: "Usage limit, resets %@"),
+                String(localized: "agent.claude.stopFailure.status.usageLimitResets", defaultValue: "Usage limit, resets %@", bundle: .cmuxCLI),
                 resetsAt
             )
         case .rateLimited:
-            return String(localized: "agent.claude.stopFailure.status.rateLimited", defaultValue: "Rate limited")
+            return String(localized: "agent.claude.stopFailure.status.rateLimited", defaultValue: "Rate limited", bundle: .cmuxCLI)
         case .connectionDropped:
-            return String(localized: "agent.claude.stopFailure.status.connectionDropped", defaultValue: "Connection dropped")
+            return String(localized: "agent.claude.stopFailure.status.connectionDropped", defaultValue: "Connection dropped", bundle: .cmuxCLI)
         case .overloaded:
-            return String(localized: "agent.claude.stopFailure.status.overloaded", defaultValue: "API overloaded")
+            return String(localized: "agent.claude.stopFailure.status.overloaded", defaultValue: "API overloaded", bundle: .cmuxCLI)
         case .authentication:
-            return String(localized: "agent.claude.stopFailure.status.authentication", defaultValue: "Auth error")
+            return String(localized: "agent.claude.stopFailure.status.authentication", defaultValue: "Auth error", bundle: .cmuxCLI)
         case .billing:
-            return String(localized: "agent.claude.stopFailure.status.billing", defaultValue: "Billing error")
+            return String(localized: "agent.claude.stopFailure.status.billing", defaultValue: "Billing error", bundle: .cmuxCLI)
         case .outputLimit:
-            return String(localized: "agent.claude.stopFailure.status.outputLimit", defaultValue: "Output limit")
+            return String(localized: "agent.claude.stopFailure.status.outputLimit", defaultValue: "Output limit", bundle: .cmuxCLI)
         case .apiError:
-            return String(localized: "agent.claude.stopFailure.status.apiError", defaultValue: "API error")
+            return String(localized: "agent.claude.stopFailure.status.apiError", defaultValue: "API error", bundle: .cmuxCLI)
         }
     }
 }

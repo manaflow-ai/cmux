@@ -33,7 +33,7 @@ extension CMUXCLI {
             let response = try client.sendV2(method: "workspace.ssh.open", params: params, responseTimeout: 200)
             if response["auth_required"] as? Bool == true {
                 guard !authenticated, let arguments = response["ssh_argv"] as? [String] else {
-                    throw CLIError(message: String(localized: "cli.ssh.authenticationFailed", defaultValue: "SSH authentication did not open the connection. Check your SSH credentials and retry."))
+                    throw CLIError(message: String(localized: "cli.ssh.authenticationFailed", defaultValue: "SSH authentication did not open the connection. Check your SSH credentials and retry.", bundle: .cmuxCLI))
                 }
                 try runInteractiveAuthSSH(sshArgv: arguments, destination: options.destination, passwordCredential: options.passwordCredential)
                 authenticated = true

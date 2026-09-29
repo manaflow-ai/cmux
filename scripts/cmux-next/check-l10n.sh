@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Fails when a cmux-next string table misses a supported language, has an
 # empty value, or a translation's printf placeholders or line breaks differ
-# from English. Tables: every CmuxNext package .xcstrings plus the app's
-# Resources/InfoPlist.xcstrings. States `translated` and `needs_review`
+# from English. Tables: every CmuxNext package .xcstrings, the app's
+# Resources/InfoPlist.xcstrings and the CLI table Resources/Localizable.xcstrings
+# (the only one with plural variations). States `translated` and `needs_review`
 # (machine translation awaiting human review) both count as present; the
 # review backlog is printed per language.
 # Usage: scripts/cmux-next/check-l10n.sh [repo-root]
@@ -33,6 +34,18 @@ def signature(value):
 root = pathlib.Path(sys.argv[1])
 tables = sorted((root / "Packages/macOS/CmuxNext/Sources").rglob("*.xcstrings"))
 tables.append(root / "Resources/InfoPlist.xcstrings")
+# The CLI string table: the bundled `cmux` reads it from the app's .lproj
+# folders (CLI/CLILocalizationBundle.swift).
+tables.append(root / "Resources/Localizable.xcstrings")
+def forms(localization):
+    """{"": unit} for a plain value, {category: unit} for plural variations, else None."""
+    if "stringUnit" in localization:
+        return {"": localization["stringUnit"]}
+    plural = localization.get("variations", {}).get("plural")
+    if isinstance(plural, dict) and plural:
+        return {category: form.get("stringUnit") for category, form in plural.items()}
+    return None
+
 errors, review, keys = [], collections.Counter(), 0
 for path in tables:
     rel = path.relative_to(root)
@@ -47,30 +60,36 @@ for path in tables:
     for key, entry in strings.items():
         keys += 1
         locs = entry.get("localizations", {})
-        units = {}
+        english_forms = forms(locs.get("en", {}))
+        # A plural key (only in the CLI table) keeps English's plural
+        # categories in every language; each form is checked like a value.
         for lang in LANGS:
-            unit = locs.get(lang, {}).get("stringUnit")
             if lang not in locs:
                 errors.append(f"{rel}:{key}: missing {lang}")
-            elif unit is None:
-                errors.append(f"{rel}:{key}:{lang}: expected a plain stringUnit")
-            elif not str(unit.get("value", "")).strip():
-                errors.append(f"{rel}:{key}:{lang}: empty value")
-            elif unit.get("state") not in STATES:
-                errors.append(f"{rel}:{key}:{lang}: state {unit.get('state')!r}")
-            else:
-                units[lang] = unit
-                if unit["state"] == "needs_review":
+                continue
+            lang_forms = forms(locs[lang])
+            if lang_forms is None or (english_forms and set(english_forms) - set(lang_forms)):
+                errors.append(f"{rel}:{key}:{lang}: expected a plain stringUnit or English's plural forms")
+                continue
+            for form, unit in lang_forms.items():
+                label = f"{rel}:{key}:{lang}" + (f":{form}" if form else "")
+                if unit is None or not str(unit.get("value", "")).strip():
+                    errors.append(f"{label}: empty value")
+                    continue
+                if unit.get("state") not in STATES:
+                    errors.append(f"{label}: state {unit.get('state')!r}")
+                    continue
+                if unit["state"] == "needs_review" and form in ("", "other"):
                     review[lang] += 1
-        english = units.get("en", {}).get("value")
-        if english is None:
-            continue
-        for lang, unit in units.items():
-            value = unit["value"]
-            if signature(value) != signature(english):
-                errors.append(f"{rel}:{key}:{lang}: placeholders {FORMAT.findall(value)} != {FORMAT.findall(english)}")
-            if value.count("\n") != english.count("\n"):
-                errors.append(f"{rel}:{key}:{lang}: line breaks differ from English")
+                english = (english_forms or {}).get(form, {}) or {}
+                english = english.get("value") if isinstance(english, dict) else None
+                if english is None or lang == "en":
+                    continue
+                value = unit["value"]
+                if signature(value) != signature(english):
+                    errors.append(f"{label}: placeholders {FORMAT.findall(value)} != {FORMAT.findall(english)}")
+                if value.count("\n") != english.count("\n"):
+                    errors.append(f"{label}: line breaks differ from English")
 
 for line in errors[:200]:
     print(line)

@@ -85,7 +85,7 @@ extension CMUXCLI {
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else if rows.isEmpty {
-            print(String(localized: "cli.localTmux.output.noSessions", defaultValue: "No local tmux sessions"))
+            print(String(localized: "cli.localTmux.output.noSessions", defaultValue: "No local tmux sessions", bundle: .cmuxCLI))
         } else {
             for row in rows {
                 let name = row["session_name"] as? String ?? "?"
@@ -93,14 +93,14 @@ extension CMUXCLI {
                 let clients = row["clients"] as? Int ?? 0
                 let id = row["id"] as? String
                 let rowText = String.localizedStringWithFormat(
-                    String(localized: "cli.localTmux.output.sessionRow", defaultValue: "%@ [%@] clients=%lld"),
+                    String(localized: "cli.localTmux.output.sessionRow", defaultValue: "%@ [%@] clients=%lld", bundle: .cmuxCLI),
                     name,
                     state,
                     clients
                 )
                 let idSuffix = id.map {
                     String.localizedStringWithFormat(
-                        String(localized: "cli.localTmux.output.idSuffix", defaultValue: " id=%@"),
+                        String(localized: "cli.localTmux.output.idSuffix", defaultValue: " id=%@", bundle: .cmuxCLI),
                         $0
                     )
                 } ?? ""
@@ -157,7 +157,7 @@ extension CMUXCLI {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
             print(String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.output.status", defaultValue: "%@ [%@] clients=%lld socket=%@"),
+                String(localized: "cli.localTmux.output.status", defaultValue: "%@ [%@] clients=%lld socket=%@", bundle: .cmuxCLI),
                 effectiveRecord.name,
                 localTmuxDisplayState(liveSession != nil ? "live" : "stale"),
                 clients.count,
@@ -216,15 +216,15 @@ extension CMUXCLI {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
             if stale.isEmpty {
-                print(String(localized: "cli.localTmux.output.noStale", defaultValue: "No stale local tmux sessions"))
+                print(String(localized: "cli.localTmux.output.noStale", defaultValue: "No stale local tmux sessions", bundle: .cmuxCLI))
             } else if prune {
                 print(String.localizedStringWithFormat(
-                    String(localized: "cli.localTmux.output.removedStale", defaultValue: "Removed %lld stale local tmux session(s)"),
+                    String(localized: "cli.localTmux.output.removedStale", defaultValue: "Removed %lld stale local tmux session(s)", bundle: .cmuxCLI),
                     removed.count
                 ))
             } else {
                 print(String.localizedStringWithFormat(
-                    String(localized: "cli.localTmux.output.foundStale", defaultValue: "Found %lld stale local tmux session(s); pass --prune to remove them"),
+                    String(localized: "cli.localTmux.output.foundStale", defaultValue: "Found %lld stale local tmux session(s); pass --prune to remove them", bundle: .cmuxCLI),
                     stale.count
                 ))
             }
@@ -301,7 +301,7 @@ extension CMUXCLI {
                 || result.stderr.localizedCaseInsensitiveContains("no server running")
                 || result.stderr.localizedCaseInsensitiveContains("session not found")
                 || result.stderr.localizedCaseInsensitiveContains("can't find session") else {
-                let message = String(localized: "cli.localTmux.error.closeFailed", defaultValue: "local-tmux close failed")
+                let message = String(localized: "cli.localTmux.error.closeFailed", defaultValue: "local-tmux close failed", bundle: .cmuxCLI)
                 throw CLIError(message: message)
             }
         }
@@ -316,7 +316,7 @@ extension CMUXCLI {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
             print(String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.output.closed", defaultValue: "OK closed session=%@"),
+                String(localized: "cli.localTmux.output.closed", defaultValue: "OK closed session=%@", bundle: .cmuxCLI),
                 record.name
             ))
         }
@@ -344,7 +344,7 @@ extension CMUXCLI {
         } else if let explicit = invocation.clientID {
             guard clients.contains(where: { $0.clientID == explicit }) else {
                 throw CLIError(message: String.localizedStringWithFormat(
-                    String(localized: "cli.localTmux.error.clientNotFound", defaultValue: "local-tmux client not found for session %@: %@"),
+                    String(localized: "cli.localTmux.error.clientNotFound", defaultValue: "local-tmux client not found for session %@: %@", bundle: .cmuxCLI),
                     session.record.name,
                     explicit
                 ))
@@ -354,11 +354,11 @@ extension CMUXCLI {
             guard clients.count == 1, let only = clients.first else {
                 if clients.isEmpty {
                     throw CLIError(message: String.localizedStringWithFormat(
-                        String(localized: "cli.localTmux.error.noClients", defaultValue: "local-tmux session has no attached clients: %@"),
+                        String(localized: "cli.localTmux.error.noClients", defaultValue: "local-tmux session has no attached clients: %@", bundle: .cmuxCLI),
                         session.record.name
                     ))
                 }
-                throw CLIError(message: String(localized: "cli.localTmux.error.multipleClients", defaultValue: "local-tmux session has multiple clients; pass --client <id> or --all to detach explicitly"))
+                throw CLIError(message: String(localized: "cli.localTmux.error.multipleClients", defaultValue: "local-tmux session has multiple clients; pass --client <id> or --all to detach explicitly", bundle: .cmuxCLI))
             }
             target = only.clientID
         }
@@ -381,12 +381,12 @@ extension CMUXCLI {
         } else {
             if invocation.all {
                 print(String.localizedStringWithFormat(
-                    String(localized: "cli.localTmux.output.detachedAll", defaultValue: "OK detached all clients from session=%@"),
+                    String(localized: "cli.localTmux.output.detachedAll", defaultValue: "OK detached all clients from session=%@", bundle: .cmuxCLI),
                     session.record.name
                 ))
             } else {
                 print(String.localizedStringWithFormat(
-                    String(localized: "cli.localTmux.output.detached", defaultValue: "OK detached session=%@ client=%@"),
+                    String(localized: "cli.localTmux.output.detached", defaultValue: "OK detached session=%@ client=%@", bundle: .cmuxCLI),
                     session.record.name,
                     target ?? localTmuxDisplayState("unknown")
                 ))
@@ -412,12 +412,12 @@ extension CMUXCLI {
             try process.run()
             process.waitUntilExit()
         } catch {
-            let message = String(localized: "cli.localTmux.error.interactiveStart", defaultValue: "local-tmux could not start an interactive client")
+            let message = String(localized: "cli.localTmux.error.interactiveStart", defaultValue: "local-tmux could not start an interactive client", bundle: .cmuxCLI)
             throw CLIError(message: message, exitCode: 127)
         }
         guard process.terminationStatus == 0 else {
             throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.error.interactiveExit", defaultValue: "local-tmux interactive client exited with status %d"),
+                String(localized: "cli.localTmux.error.interactiveExit", defaultValue: "local-tmux interactive client exited with status %d", bundle: .cmuxCLI),
                 process.terminationStatus
             ), exitCode: process.terminationStatus)
         }
@@ -441,7 +441,7 @@ extension CMUXCLI {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
             print(String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.output.record", defaultValue: "OK session=%@ id=%@ state=%@ socket=%@"),
+                String(localized: "cli.localTmux.output.record", defaultValue: "OK session=%@ id=%@ state=%@ socket=%@", bundle: .cmuxCLI),
                 record.name,
                 record.id.uuidString,
                 localTmuxDisplayState(state),
@@ -453,13 +453,13 @@ extension CMUXCLI {
     private func localTmuxDisplayState(_ state: String) -> String {
         switch state {
         case "live":
-            return String(localized: "cli.localTmux.state.live", defaultValue: "live")
+            return String(localized: "cli.localTmux.state.live", defaultValue: "live", bundle: .cmuxCLI)
         case "stale":
-            return String(localized: "cli.localTmux.state.stale", defaultValue: "stale")
+            return String(localized: "cli.localTmux.state.stale", defaultValue: "stale", bundle: .cmuxCLI)
         case "detached":
-            return String(localized: "cli.localTmux.state.detached", defaultValue: "detached")
+            return String(localized: "cli.localTmux.state.detached", defaultValue: "detached", bundle: .cmuxCLI)
         default:
-            return String(localized: "cli.localTmux.state.unknown", defaultValue: "unknown")
+            return String(localized: "cli.localTmux.state.unknown", defaultValue: "unknown", bundle: .cmuxCLI)
         }
     }
 }

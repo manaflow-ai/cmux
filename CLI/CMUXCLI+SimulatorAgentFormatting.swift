@@ -13,7 +13,7 @@ extension CMUXCLI {
         }
         switch output {
         case .completed:
-            print(String(localized: "cli.simulator.output.accepted", defaultValue: "Completed"))
+            print(String(localized: "cli.simulator.output.accepted", defaultValue: "Completed", bundle: .cmuxCLI))
         case .eventLog:
             for event in payload["events"] as? [[String: Any]] ?? [] {
                 let timestamp = simulatorTerminalText(event["timestamp"] as? String ?? "")

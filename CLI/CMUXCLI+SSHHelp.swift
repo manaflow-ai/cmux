@@ -23,7 +23,7 @@ extension CMUXCLI {
           cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
           cmux ssh dev@my-host --forward-agent
           cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
-        """)
+        """, bundle: .cmuxCLI)
         let moshHelp = String(
             localized: "cli.help.ssh.mosh",
             defaultValue: """
@@ -63,7 +63,7 @@ extension CMUXCLI {
 
         Example:
           cmux mosh dev@my-host
-        """)
+        """, bundle: .cmuxCLI)
     }
 
     static var moshTmuxCommandUsage: String {
@@ -85,6 +85,6 @@ extension CMUXCLI {
         Example:
           cmux mosh-tmux dev@my-host
           cmux mosh-tmux dev@my-host --session agent-main
-        """)
+        """, bundle: .cmuxCLI)
     }
 }
