@@ -101,7 +101,8 @@ public enum ContextMenuCatalog {
         + actions("newCloudWorkspace") + [.separator] + actions("toggleSidebar")
 
     static let terminalSelection: [ContextMenuEntry] =
-        actions("terminalCopy", "terminalPaste", "useSelectionForFind") + [.separator]
+        actions("terminalCopy", "terminalPaste", "terminal.selectAll", "useSelectionForFind") + [.separator]
+        + actions("splitRight", "splitDown", "splitLeft", "splitUp", "toggleSplitZoom") + [.separator]
         + actions("palette.forkAgentConversationRight", "palette.forkAgentConversationNewTab") + [.separator]
         + actions("clearScreenKeepScrollback", "resetTerminal")
 

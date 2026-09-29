@@ -7,7 +7,10 @@ extension ActionCatalog {
                 id: "newTab", title: String(localized: "action.newTab", defaultValue: "New Workspace", bundle: .module),
                 keywords: ["create", "add"], defaultShortcut: Shortcut("n", modifiers: [.command]),
                 category: .workspace, symbol: "plus.rectangle.on.rectangle",
-                surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.workspace], cliName: "workspace new",
+                surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                arguments: [CatalogArgument.nameString.optional, CatalogArgument.cwdString.optional, CatalogArgument.commandString.optional,
+                            CatalogArgument.envString.optional, CatalogArgument.focusBool.optional],
+                targets: [.workspace], cliName: "workspace new",
                 mainMenu: .file
             ),
             ActionDescriptor(

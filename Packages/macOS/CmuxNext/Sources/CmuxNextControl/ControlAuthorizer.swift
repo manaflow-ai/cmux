@@ -18,7 +18,7 @@ struct ControlAuthorizer: Sendable {
 
     /// The response line for one request line, and whether to keep the
     /// connection open.
-    mutating func respond(to rawLine: String, router: ControlRouter) async -> (String?, Bool) {
+    mutating func respond(to rawLine: String, router: ControlRouter, connection: ControlConnectionID = .inProcess) async -> (String?, Bool) {
         let line = Self.unwrapEnvelopes(rawLine.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !line.isEmpty else { return (nil, true) }
         guard isPeerAdmitted else { return (Self.accessDenied, false) }
@@ -44,7 +44,7 @@ struct ControlAuthorizer: Sendable {
         } else if isJSON, case .success(let request) = ControlRouter.decode(line), request.method == "auth.login" {
             return (ControlRouter.encode(id: request.id, result: .success(["authenticated": true])), true)
         }
-        return (await router.response(forLine: line), true)
+        return (await router.response(forLine: line, connection: connection), true)
     }
 
     var isPeerAdmitted: Bool {

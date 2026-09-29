@@ -21,7 +21,12 @@ final class AppServices {
     private(set) var dragSession: TabDragSession!
     private(set) var palette: PaletteController!
     private(set) var previews: TabPreviewSource!
+    /// App side of the cmux CLI compat layer (window/focus state, intents).
+    private(set) var compat: AppCompatFrontend!
+    let presentation = ContentPresentationScheduler()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
+    /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
+    private(set) var tabBarButtons: TabBarButtonsController!
     private let terminalDelegate = TerminalHostDelegate()
 
     init(environment: AppEnvironment) {
@@ -32,8 +37,12 @@ final class AppServices {
         windows = WindowManager(services: self)
         dragSession = TabDragSession(services: self)
         previews = TabPreviewSource(cache: cache)
+        compat = AppCompatFrontend(services: self)
+        let registry = registry
+        daemon.workTracker = { registry.track($0) }
         palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))
         terminalDelegate.services = self
+        tabBarButtons = TabBarButtonsController(context: AppActionContext(services: self))
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
@@ -75,23 +84,5 @@ final class AppServices {
             if let found = controller.content?.pane(for: pane.handle) { return found }
         }
         return nil
-    }
-}
-
-/// Handles terminal requests that need the app (links, close requests).
-final class TerminalHostDelegate: TerminalSessionDelegate {
-    weak var services: AppServices?
-
-    func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
-        guard let pane = services?.windows.active?.focusedPane, url.scheme == "http" || url.scheme == "https" else {
-            return NSWorkspace.shared.open(url)
-        }
-        pane.newBrowserTab(url: url)
-        return true
-    }
-
-    func terminalSession(_ session: TerminalSession, didPostNotification title: String, body: String) {
-        let text = body
-        services?.daemon.send("notify") { connection in _ = try await connection.notify(title: title, body: text) }
     }
 }

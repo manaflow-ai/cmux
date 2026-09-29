@@ -17,13 +17,14 @@ enum TabMoves {
         let current = pane.tabs.firstIndex { $0.surface == surface }
         let wire = TabMoveIndex.wireIndex(finalIndex: index, currentIndex: current)
         let echoes = services.daemon.supports(DaemonCapabilities.tabDrag)
-        Task {
+        services.registry.track(Task {
             let ok = await services.daemon.commit("move-tab", patch: .moveTab(surface: surface, toPane: target, index: index),
                                                    transaction: transaction, expectEcho: echoes) { connection -> Void in
                 _ = try await connection.moveTab(surface, to: target, index: wire, transaction: echoes ? transaction : nil)
             } != nil
             completion(ok)
-        }
+            return ok ? nil : "move-tab failed (see the app log)"
+        })
     }
 
     /// New pane on `edge` of `pane` holding the tab.
@@ -31,7 +32,7 @@ enum TabMoves {
                            transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = services.daemon.supports(DaemonCapabilities.tabDrag)
-        Task {
+        services.registry.track(Task {
             let ok = await services.daemon.commit("move-tab-to-split", patch: .custom { _ in }, transaction: transaction,
                                                    expectEcho: echoes) { connection -> Void in
                 do {
@@ -41,7 +42,8 @@ enum TabMoves {
                 }
             } != nil
             completion(ok)
-        }
+            return ok ? nil : "move-tab-to-split failed (see the app log)"
+        })
     }
 
     /// New niri column after `afterColumn` (nil = right of `anchor`'s column).
@@ -49,7 +51,7 @@ enum TabMoves {
                             transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = services.daemon.supports(DaemonCapabilities.tabDrag)
-        Task {
+        services.registry.track(Task {
             let ok = await services.daemon.commit("move-tab-to-column", patch: .custom { _ in }, transaction: transaction,
                                                    expectEcho: echoes) { connection -> Void in
                 do {
@@ -61,7 +63,8 @@ enum TabMoves {
                 }
             } != nil
             completion(ok)
-        }
+            return ok ? nil : "move-tab-to-column failed (see the app log)"
+        })
     }
 
     /// Moves the tab into a new workspace at root `index` (in `group` when
@@ -91,13 +94,14 @@ enum TabMoves {
                             transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let surface = tab.surface, handle = workspace.handle
         let echoes = services.daemon.supports(DaemonCapabilities.tabDrag)
-        Task {
+        services.registry.track(Task {
             let ok = await services.daemon.commit("move-tab-to-workspace", patch: .custom { _ in }, transaction: transaction,
                                                    expectEcho: echoes) { connection -> Void in
                 _ = try await connection.moveTab(surface, toWorkspace: handle, transaction: echoes ? transaction : nil)
             } != nil
             completion(ok)
-        }
+            return ok ? nil : "move-tab-to-workspace failed (see the app log)"
+        })
     }
 
     // MARK: Fallbacks (daemons without tab-drag-v1)

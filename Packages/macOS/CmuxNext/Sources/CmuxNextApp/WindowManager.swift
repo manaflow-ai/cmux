@@ -102,14 +102,8 @@ final class WindowManager {
 
     /// Creates a workspace with one terminal. Returns its id.
     func createWorkspace(cwd: String? = nil) async -> String? {
-        guard let connection = services.daemon.connection else { return nil }
         do {
-            let key = WorkspaceKey.generate()
-            return try await services.emptyWorkspaces.populating(key) {
-                let result = try await connection.createWorkspace(key: key)
-                _ = try await connection.createTerminal(in: result.key, cwd: cwd ?? NSHomeDirectory())
-                return result.key.rawValue
-            }
+            return try await createWorkspace(WorkspaceSpawn(cwd: cwd))
         } catch {
             services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
             return nil
@@ -168,6 +162,8 @@ final class WindowManager {
         saveTask?.cancel()
         await saveNow()
         isTerminating = true
+        // Close Chromium before exit without spinning the run loop (5a).
+        await services.cache.cef.shutdown()
     }
 
     private func currentRecords() -> [WindowRecord] {
