@@ -135,7 +135,6 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     addDevice: showAddDevice
                 )
             )
-            .equatable()
             .frame(
                 minHeight: horizontalSizeClass == .regular
                     ? WorkspaceRootToolbarSizing.controlHeight

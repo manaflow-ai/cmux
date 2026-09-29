@@ -12490,11 +12490,9 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             retry.tap()
             let finish = app.buttons["MobileWorkspaceListPreviewFinishRefresh"]
             XCTAssertTrue(finish.waitForExistence(timeout: 5))
-            let statusLine = app.descendants(matching: .any)[
-                "MobileWorkspaceConnectionStatusLine"
-            ]
-            XCTAssertTrue(statusLine.waitForExistence(timeout: 5))
-            XCTAssertEqual(statusLine.label, "Reconnecting…")
+            let picker = app.buttons["MobileWorkspaceMacPicker"]
+            XCTAssertTrue(picker.waitForExistence(timeout: 5))
+            XCTAssertEqual(picker.value as? String, "Reconnecting…")
             XCTAssertFalse(emptyState.exists)
             XCTAssertFalse(retry.exists)
             XCTAssertFalse(app.buttons["MobileWorkspaceEmptyRetryCancel"].exists)
