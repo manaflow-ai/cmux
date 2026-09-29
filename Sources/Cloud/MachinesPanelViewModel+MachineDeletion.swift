@@ -14,6 +14,31 @@ extension MachinesPanelViewModel {
         return machines.filter { !hidden.contains($0.id) }
     }
 
+    /// The plan's usage without machines being deleted, so the Cloud Machines
+    /// header count leaves with the row instead of at the next list read.
+    var visibleUsage: CloudMachinesUsage? {
+        Self.usage(plan?.usage, machines: machines, hiding: MachineDeleteCoordinator.shared.hiddenMachineIDs)
+    }
+
+    /// Takes hidden machines out of a usage counted from `machines`.
+    /// - Parameters:
+    ///   - usage: The plan's usage, counted at the last list read.
+    ///   - machines: The fleet list that read counted.
+    ///   - machineIDs: Provider machine identifiers to leave out.
+    /// - Returns: The usage without those machines, or nil before the plan loads.
+    static func usage(
+        _ usage: CloudMachinesUsage?, machines: [MachineSnapshot], hiding machineIDs: Set<String>
+    ) -> CloudMachinesUsage? {
+        guard let usage, !machineIDs.isEmpty else { return usage }
+        let hiddenCount = machines.count(where: { machineIDs.contains($0.id) })
+        guard hiddenCount > 0 else { return usage }
+        return CloudMachinesUsage(
+            activeCount: max(0, usage.activeCount - hiddenCount),
+            maxActiveVms: usage.maxActiveVms,
+            isPaidPlan: usage.isPaidPlan
+        )
+    }
+
     /// The catalog without machines being deleted, their resources and panes.
     var visibleCatalog: SurfaceCatalogSnapshot {
         catalogHidingDeletedMachines(catalog)

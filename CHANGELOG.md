@@ -72,6 +72,7 @@ All notable changes to cmux are documented here.
 - Close confirmation dialogs for tabs, panes and workspaces have a "Don’t ask again" checkbox that turns off the warning behind that dialog; "Close pinned workspace?" still always asks ([#15052](https://github.com/manaflow-ai/cmux/pull/15052))
 
 ### Changed
+- Dock is now enabled by default for new and existing users, and its former Beta Features toggle has been removed; hide or reorder it under Settings > Sidebar > Right Sidebar Tabs ([#15453](https://github.com/manaflow-ai/cmux/issues/15453))
 - Each Settings toggle and picker row shows one fixed subtitle instead of text that changes with the selected value, and localized Settings titles and Feed, Dock, and Cloud Machines labels use corrected wording ([#14883](https://github.com/manaflow-ai/cmux/pull/14883)) -- thanks @agoodkind!
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 - `cmux browser snapshot` names form fields by their `<label>` text, so plain HTML form inputs are no longer nameless ([#10231](https://github.com/manaflow-ai/cmux/pull/10231)) -- thanks @thingnoy!
