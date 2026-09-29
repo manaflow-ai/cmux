@@ -3726,10 +3726,7 @@ fn close_tabs_ends_one_hundred_terminals_in_one_commit() {
     // directory when it acknowledges it: about 400 fsyncs for 100 hosts.
     // That takes about 1 s on a Mac and several seconds on a CI Linux VM.
     let host_bound = if cfg!(target_os = "macos") { 3 } else { 10 };
-    assert!(
-        hosts_in < test_timeout(Duration::from_secs(host_bound)),
-        "hosts took {hosts_in:?}"
-    );
+    assert!(hosts_in < test_timeout(Duration::from_secs(host_bound)), "hosts took {hosts_in:?}");
 }
 
 /// `close-workspace` with `end_terminals` ends the workspace's terminals in
