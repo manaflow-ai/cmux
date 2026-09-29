@@ -155,6 +155,7 @@ def main() -> int:
     payload = {
         "session_id": f"sess-{uuid.uuid4().hex}",
         "hook_event_name": "Stop",
+        "stop_hook_active": True,
         "cwd": "/Users/lawrence/fun",
         "last_assistant_message": "2",
     }
@@ -261,6 +262,14 @@ def main() -> int:
         }
         if notifications[0] != expected:
             print(f"FAIL: incorrect semantic completion: {notifications[0]!r}")
+            return 1
+        if not any(
+            f"set_status claude Idle" in command
+            and f"--tab={workspace_id}" in command
+            and f"--panel={surface_id}" in command
+            for command in server.commands
+        ):
+            print(f"FAIL: final Stop with stop_hook_active=true did not settle Idle: {server.commands!r}")
             return 1
 
     print("PASS: Claude cron guard denies durable jobs and Stop notification uses final assistant text")
