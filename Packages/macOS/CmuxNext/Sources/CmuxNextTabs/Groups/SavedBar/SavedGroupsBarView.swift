@@ -4,8 +4,9 @@ import Observation
 import QuartzCore
 
 /// A compact row of saved group chips (Chrome's saved tab groups bar).
-/// One view; chips are CALayers. Click reopens a group; right-click asks
-/// `contextMenuProvider` with `.savedGroup(id)`.
+/// One view; chips are CALayers in one content layer that scrolls
+/// horizontally (trackpad or wheel) when the chips overflow. Click reopens a
+/// group; right-click asks `contextMenuProvider` with `.savedGroup(id)`.
 public final class SavedGroupsBarView: NSView {
     public static var preferredHeight: CGFloat { Metrics.tabHeight }
 
@@ -19,6 +20,13 @@ public final class SavedGroupsBarView: NSView {
     private var observation: Task<Void, Never>?
     private var tokenObservation: Task<Void, Never>?
     private var metrics = TabStripMetrics.standard
+    /// Holds the chips; its bounds origin is the scroll offset.
+    private let contentLayer = CALayer()
+    /// Width of all chips plus padding.
+    private(set) var contentWidth: CGFloat = 0
+    /// Horizontal scroll position, 0...maxScrollOffset.
+    private(set) var scrollOffset: CGFloat = 0
+    var maxScrollOffset: CGFloat { max(0, contentWidth - bounds.width) }
 
     public init(model: SavedGroupsBarModel) {
         self.model = model
@@ -26,6 +34,8 @@ public final class SavedGroupsBarView: NSView {
         wantsLayer = true
         layerContentsRedrawPolicy = .never
         layer?.masksToBounds = true
+        contentLayer.actions = ["bounds": NSNull(), "position": NSNull(), "sublayers": NSNull()]
+        layer?.addSublayer(contentLayer)
         setAccessibilityElement(true)
         setAccessibilityRole(.toolbar)
         setAccessibilityLabel(Strings.axSavedBar)
@@ -106,7 +116,7 @@ public final class SavedGroupsBarView: NSView {
         chip.accessibility.setAccessibilityRole(.button)
         let id = item.id
         chip.accessibility.onPress = { [weak self] in self?.model.send(.open(id)) }
-        layer?.addSublayer(chip.layer)
+        contentLayer.addSublayer(chip.layer)
         chips[id] = chip
         return chip
     }
@@ -122,14 +132,52 @@ public final class SavedGroupsBarView: NSView {
             chip.scale = scale
             let width = chip.slotWidth
             chip.frame = CGRect(x: x, y: 0, width: width, height: bounds.height)
-            chip.accessibility.setAccessibilityFrameInParentSpace(chip.frame)
             x += width + Metrics.space1
         }
+        contentWidth = order.isEmpty ? 0 : x - Metrics.space1 + metrics.stripHorizontalPadding
+        scrollOffset = min(max(0, scrollOffset), maxScrollOffset)
+        applyScroll()
         CATransaction.commit()
     }
 
+    /// Moves the content layer to `scrollOffset` and keeps accessibility
+    /// frames in view coordinates.
+    private func applyScroll() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        contentLayer.frame = bounds
+        contentLayer.bounds = CGRect(x: scrollOffset, y: 0, width: bounds.width, height: bounds.height)
+        CATransaction.commit()
+        for id in order {
+            guard let chip = chips[id] else { continue }
+            chip.accessibility.setAccessibilityFrameInParentSpace(chip.frame.offsetBy(dx: -scrollOffset, dy: 0))
+        }
+    }
+
+    /// Scrolls horizontally by `delta` points (positive reveals chips to the
+    /// right). Returns false when the bar does not overflow.
+    @discardableResult
+    func scroll(by delta: CGFloat) -> Bool {
+        guard maxScrollOffset > 0 else { return false }
+        let offset = min(max(0, scrollOffset + delta), maxScrollOffset)
+        guard offset != scrollOffset else { return true }
+        scrollOffset = offset
+        applyScroll()
+        return true
+    }
+
+    public override func scrollWheel(with event: NSEvent) {
+        // Trackpads scroll horizontally; a plain mouse wheel's vertical
+        // motion scrolls the bar too, like Chrome's tab strip.
+        var delta = abs(event.scrollingDeltaX) >= abs(event.scrollingDeltaY) ? event.scrollingDeltaX : event.scrollingDeltaY
+        if !event.hasPreciseScrollingDeltas { delta *= metrics.tabHeight / 2 }
+        guard delta != 0, scroll(by: -delta) else { return super.scrollWheel(with: event) }
+        if let window { setHovered(chip(at: convert(window.mouseLocationOutsideOfEventStream, from: nil))) }
+    }
+
     private func chip(at point: CGPoint) -> TabGroupID? {
-        order.first { id in chips[id].map { $0.frame.contains(point) } ?? false }
+        let content = CGPoint(x: point.x + scrollOffset, y: point.y)
+        return order.first { id in chips[id].map { $0.frame.contains(content) } ?? false }
     }
 
     private func setHovered(_ id: TabGroupID?) {
