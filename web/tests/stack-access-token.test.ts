@@ -113,6 +113,16 @@ describe("Stack access token local verification", () => {
     )).toBeNull();
   });
 
+  test("rejects an anonymous-user token even when signed by a published key", async () => {
+    // Stack issues anonymous sessions under a separate issuer.
+    // Local verification is the only auth for Iroh and relay-token routes, so
+    // it must never admit an anonymous principal.
+    const token = await sign(claims({ is_anonymous: true }), {
+      issuer: `${API}/api/v1/projects-anonymous-users/${PROJECT}`,
+    });
+    expect(await verifyStackAccessTokenLocally(token, verifier())).toBeNull();
+  });
+
   test("rejects a signature from a key Stack did not publish", async () => {
     expect(await verifyStackAccessTokenLocally(
       await sign(claims(), { key: otherKey }), verifier(),
