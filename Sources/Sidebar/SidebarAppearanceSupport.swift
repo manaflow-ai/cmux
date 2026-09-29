@@ -110,12 +110,11 @@ func sidebarActiveForegroundNSColor(
     )
 }
 
-@MainActor
 /// The appearance titlebar controls draw over: the terminal backdrop.
 @MainActor
 func titlebarControlAppearance() -> WindowAppearanceSnapshot {
     let app = GhosttyApp.shared
-    WindowAppearanceResolver(
+    return WindowAppearanceResolver(
         terminalAppearance: WindowTerminalAppearanceSnapshot(
             backgroundColor: app.defaultBackgroundColor,
             backgroundOpacity: app.defaultBackgroundOpacity,
