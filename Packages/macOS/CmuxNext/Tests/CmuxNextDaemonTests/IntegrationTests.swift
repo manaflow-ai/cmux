@@ -156,12 +156,10 @@ struct IntegrationTests {
                 }
             }
         } catch {
-            try? await connection.shutdownDaemon()
-            await connection.close()
+            await BranchDaemonHarness.shutDown(connection)
             throw error
         }
-        try await connection.shutdownDaemon()
-        await connection.close()
+        await BranchDaemonHarness.shutDown(connection)
     }
 
     /// A Finder launch hands the app launchd's minimal PATH. The launcher
@@ -215,12 +213,10 @@ struct IntegrationTests {
             #expect(seen != nil)
             #expect(missing.isEmpty, "missing from terminal PATH: \(missing)")
         } catch {
-            try? await connection.shutdownDaemon()
-            await connection.close()
+            await BranchDaemonHarness.shutDown(connection)
             throw error
         }
-        try await connection.shutdownDaemon()
-        await connection.close()
+        await BranchDaemonHarness.shutDown(connection)
     }
 
     private func waitUntil(_ what: String, timeout: Duration = .seconds(10), _ condition: @Sendable () async -> Bool) async throws {
