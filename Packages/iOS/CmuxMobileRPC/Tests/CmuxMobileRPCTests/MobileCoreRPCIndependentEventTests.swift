@@ -169,6 +169,8 @@ struct MobileCoreRPCIndependentEventTests {
     func anEventOnAnotherTerminalsLaneIsRefusedAndNeverReachesListeners() async throws {
         let route = try irohRoute(hexBytePair: "ac")
         let source = IndependentEventSource()
+        let surfaceA = UUID().uuidString
+        let surfaceB = UUID().uuidString
         let runtime = TestMobileSyncRuntime(
             transportFactory: FixedTransportFactory(transport: NeverConnectedTransport()),
             independentEventByteStreamProvider: { _ in await source.makeStream() }
@@ -190,18 +192,18 @@ struct MobileCoreRPCIndependentEventTests {
             ]))
         }
         // Terminal A's lane carries a frame naming B, then A's own frame.
-        var laneA = try event("terminal-b")
-        laneA.append(try event("terminal-a"))
-        await source.yield(MobileEventLaneScope().scoped(laneA, surfaceID: "terminal-a"))
+        var laneA = try event(surfaceB)
+        laneA.append(try event(surfaceA))
+        await source.yield(MobileEventLaneScope().scoped(laneA, surfaceID: surfaceA))
         // The shared lane is unscoped and delivers B's frame normally.
-        await source.yield(try event("terminal-b"))
+        await source.yield(try event(surfaceB))
 
         let first = try #require(await events.next()?.payloadJSON)
         let second = try #require(await events.next()?.payloadJSON)
         let surfaces = try [first, second].map {
             try #require(JSONSerialization.jsonObject(with: $0) as? [String: String])["surface_id"]
         }
-        #expect(surfaces == ["terminal-a", "terminal-b"])
+        #expect(surfaces == [surfaceA, surfaceB])
 
         await client.disconnect()
     }
@@ -469,25 +471,6 @@ private actor SuspendedIndependentEventSource {
 
 private enum IndependentEventTestError: Error {
     case closed
-}
-
-private actor IndependentEventSource {
-    private var continuation: AsyncThrowingStream<Data, any Error>.Continuation?
-
-    func makeStream() -> AsyncThrowingStream<Data, any Error> {
-        AsyncThrowingStream(bufferingPolicy: .bufferingNewest(8)) { continuation in
-            self.continuation = continuation
-        }
-    }
-
-    func yield(_ data: Data) {
-        continuation?.yield(data)
-    }
-
-    func finish(throwing error: any Error) {
-        continuation?.finish(throwing: error)
-        continuation = nil
-    }
 }
 
 private actor OneShotIndependentEventSource {

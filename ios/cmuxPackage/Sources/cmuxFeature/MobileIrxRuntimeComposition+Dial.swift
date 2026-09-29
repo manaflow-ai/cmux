@@ -26,8 +26,7 @@ extension MobileIrxRuntimeComposition {
     }
 
     func ensureSession(forPeer peerHex: String, trigger: String) async throws -> IrxClientSession {
-        try Task.checkCancellation()
-        guard await permitsConnection() else { throw CancellationError() }
+        try await assertConnectionReadiness()
         let ready = try await waitForRuntimeReadiness(for: peerHex)
         let scope = ready.scope
         let currentEpoch = ready.epoch
@@ -87,17 +86,22 @@ extension MobileIrxRuntimeComposition {
         return (scope, epoch)
     }
 
-    private func assertDialScope(_ scope: AuthenticatedTeamScope, epoch: UInt64) async throws {
+    private func assertConnectionReadiness() async throws {
         try Task.checkCancellation()
         guard await permitsConnection() else { throw CancellationError() }
-        try await assertScope(scope, epoch: epoch)
         try Task.checkCancellation()
-        guard await permitsConnection() else { throw CancellationError() }
+    }
+
+    private func assertDialScope(_ scope: AuthenticatedTeamScope, epoch capturedEpoch: UInt64) async throws {
+        try await assertConnectionReadiness()
+        try await assertScope(scope, epoch: capturedEpoch)
+        try await assertConnectionReadiness()
+        guard epoch == capturedEpoch, activeScope == scope else { throw CompositionError.scopeChanged }
     }
 
     func dialOnce(peerHex: String) async throws -> IrxClientSession {
-        try Task.checkCancellation()
-        guard await permitsConnection() else { throw CancellationError() }
+        let intent = dialIntentByPeer[peerHex] ?? .automatic
+        try await assertConnectionReadiness()
         guard let scope = activeScope else { throw CompositionError.notSignedIn }
         let currentEpoch = epoch
         guard let directory = await freshLiveDiscovery() else { throw CompositionError.peerNotDiscovered }
@@ -109,7 +113,6 @@ extension MobileIrxRuntimeComposition {
            cmxCanonicalDeviceID(expected) != cmxCanonicalDeviceID(record.descriptor.identity.deviceID) {
             throw CompositionError.peerNotDiscovered
         }
-        let intent = dialIntentByPeer[peerHex] ?? .automatic
         let selectedSupervisor: IrxEndpointSupervisor?
         switch intent {
         case .automatic: selectedSupervisor = endpointSupervisor
@@ -185,6 +188,7 @@ extension MobileIrxRuntimeComposition {
             // replacing. An older Mac opens only the shared lane.
             await connection.raiseRemoteStreamCredit(bi: 0, uni: 40)
             try await assertDialScope(scope, epoch: currentEpoch)
+            try Task.checkCancellation()
             activeDialIntentByPeer[peerHex] = intent
             admittedSessionCount += 1
             journal.record("v2-peer", "admitted", ["session": admit.session, "count": String(admittedSessionCount),

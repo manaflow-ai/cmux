@@ -46,10 +46,11 @@ struct VerifiedReplayTimeoutRecoveryTests {
         view.verifiedReplayFrozenPresentationLayer = frozenLayer
         view.verifiedReplayRenderSuppressed = true
 
+        let deadlineNow: CFTimeInterval = 100
         let result = await withCheckedContinuation { continuation in
             view.pendingVerifiedReplayPresentation = PendingVerifiedReplayPresentation(
                 id: 7,
-                startedAt: CACurrentMediaTime() - GhosttySurfaceView.outputApplyTimeout,
+                startedAt: deadlineNow - GhosttySurfaceView.outputApplyTimeout,
                 surface: surface,
                 generation: view.surfaceGeneration,
                 read: nil,
@@ -76,7 +77,7 @@ struct VerifiedReplayTimeoutRecoveryTests {
             // Install and expire in one actor turn. Yielding here lets the
             // display-link deadline pump legitimately recover it first.
             #expect(view.pendingVerifiedReplayPresentation != nil)
-            #expect(view.checkSurfaceOperationDeadlines(now: CACurrentMediaTime()))
+            #expect(view.checkSurfaceOperationDeadlines(now: deadlineNow))
         }
 
         #expect(result == nil)
