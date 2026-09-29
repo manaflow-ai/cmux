@@ -29,6 +29,17 @@ final class AppControl {
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
         ])
+        #if DEBUG
+        // Deliberately blocks the main thread (watchdog and bench self-test).
+        service.router.register([
+            .mainActor("debug.stall") { call in
+                let milliseconds = min(max(call.params["ms"]?.intValue ?? 100, 1), 1_000)
+                let end = ContinuousClock.now + .milliseconds(milliseconds)
+                while ContinuousClock.now < end {}
+                return .value(["stalled_ms": .number(Double(milliseconds))])
+            },
+        ])
+        #endif
         let publisher = ControlSnapshotPublisher(router: service.router, services: services, frames: frames)
         self.publisher = publisher
         publisher.start()

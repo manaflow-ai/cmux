@@ -29,6 +29,9 @@ final class TabContentCache {
 
     var liveTerminalCount: Int { terminals.count }
 
+    /// True when `key` has a live surface or page (showing it is cheap).
+    func hasContent(for key: String) -> Bool { terminals[key] != nil || browsers[key] != nil }
+
     // MARK: Terminals
 
     /// The surface for a daemon terminal tab, created (attached) on demand.

@@ -33,16 +33,22 @@ public final class MainThreadWatchdog: Sendable {
     public let configuration: Configuration
     public let log: HangLog
     private let thresholdNanos: UInt64
+    /// The stack is sampled this long into a stall (60% of the threshold),
+    /// so a stall that ends just past the threshold still has one; the
+    /// sample is dropped when the stall ends below the threshold.
+    private let sampleAfterNanos: UInt64
     // Heartbeat, written by the main-thread observer.
     private let beatNanos = Atomic<UInt64>(0)
     private let beatSequence = Atomic<UInt64>(0)
+    /// Main-thread CPU time at the last heartbeat (CLOCK_THREAD_CPUTIME_ID).
+    private let beatCPUNanos = Atomic<UInt64>(0)
     private let mainAsleep = Atomic<Bool>(true)
     private let watchdogParked = Atomic<Bool>(false)
     private let running = Atomic<Bool>(false)
     // concurrency-allow: only the watchdog thread waits on it; the main thread only signals.
     private let wake = DispatchSemaphore(value: 0)
     /// The stack sampled during the current stall, keyed by beat sequence.
-    private let pendingSample = Mutex<(beat: UInt64, frames: [HangFrame])?>(nil)
+    private let pendingSample = Mutex<(beat: UInt64, addresses: [UInt])?>(nil)
     private let observer = Mutex<ObserverBox?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
 
@@ -50,6 +56,7 @@ public final class MainThreadWatchdog: Sendable {
         self.configuration = configuration
         self.log = HangLog(capacity: configuration.capacity)
         self.thresholdNanos = UInt64(max(configuration.threshold.wholeMilliseconds, 1)) * 1_000_000
+        self.sampleAfterNanos = thresholdNanos * 3 / 5
     }
 
     public var isRunning: Bool { running.load(ordering: .relaxed) }
@@ -59,6 +66,7 @@ public final class MainThreadWatchdog: Sendable {
     public func start() {
         guard running.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
         beatNanos.store(Self.now(), ordering: .releasing)
+        beatCPUNanos.store(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), ordering: .releasing)
         mainAsleep.store(false, ordering: .releasing)
         let activities = CFRunLoopActivity.allActivities.rawValue
         let runLoopObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, activities, true, CFIndex.min) { [weak self] _, activity in
@@ -86,12 +94,15 @@ public final class MainThreadWatchdog: Sendable {
 
     private func heartbeat(_ activity: CFRunLoopActivity) {
         let now = Self.now()
+        let cpu = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
         let previous = beatNanos.load(ordering: .acquiring)
         let wasAsleep = mainAsleep.load(ordering: .acquiring)
         let beat = beatSequence.load(ordering: .acquiring)
         if !wasAsleep, now > previous, now - previous >= thresholdNanos {
-            recordStall(start: previous, nanos: now - previous, beat: beat)
+            let previousCPU = beatCPUNanos.load(ordering: .acquiring)
+            recordStall(start: previous, nanos: now - previous, cpuNanos: cpu > previousCPU ? cpu - previousCPU : 0, beat: beat)
         }
+        beatCPUNanos.store(cpu, ordering: .releasing)
         beatNanos.store(now, ordering: .releasing)
         beatSequence.store(beat &+ 1, ordering: .releasing)
         let asleep = activity == .beforeWaiting
@@ -101,16 +112,17 @@ public final class MainThreadWatchdog: Sendable {
         }
     }
 
-    private func recordStall(start: UInt64, nanos: UInt64, beat: UInt64) {
-        let frames = pendingSample.withLock { sample -> [HangFrame] in
+    private func recordStall(start: UInt64, nanos: UInt64, cpuNanos: UInt64, beat: UInt64) {
+        let addresses = pendingSample.withLock { sample -> [UInt] in
             defer { sample = nil }
             guard let sample, sample.beat == beat else { return [] }
-            return sample.frames
+            return sample.addresses
         }
-        let record = log.append(startUptimeNanos: start, duration: .nanoseconds(Int64(nanos)), frames: frames)
+        let record = log.append(startUptimeNanos: start, duration: .nanoseconds(Int64(nanos)),
+                                cpu: .nanoseconds(Int64(cpuNanos)), addresses: addresses)
         if configuration.logStalls {
-            let top = frames.prefix(12).map(\.description).joined(separator: " | ")
-            logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms: \(top, privacy: .public)")
+            // No symbolication here (main thread); `debug.hangs` resolves the stack.
+            logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
         }
     }
 
@@ -131,21 +143,20 @@ public final class MainThreadWatchdog: Sendable {
                 continue
             }
             let beat = beatSequence.load(ordering: .acquiring)
-            let due = beatNanos.load(ordering: .acquiring) &+ thresholdNanos
+            let due = beatNanos.load(ordering: .acquiring) &+ (beat == sampledBeat ? thresholdNanos : sampleAfterNanos)
             let now = Self.now()
             if now < due {
                 // concurrency-allow: dedicated watchdog thread; bounded wait until the next heartbeat check.
                 _ = wake.wait(timeout: .now() + .nanoseconds(Int(due - now)))
                 continue
             }
-            // The heartbeat is at least one threshold old: the main thread is stalled.
+            // The heartbeat is old enough that the main thread may be stalling.
             if beat == beatSequence.load(ordering: .acquiring), !mainAsleep.load(ordering: .acquiring), beat != sampledBeat {
                 sampledBeat = beat
                 if let sampler {
-                    let frames = ThreadStackSampler.symbolicate(sampler.sample())
-                    if beat == beatSequence.load(ordering: .acquiring) {
-                        pendingSample.withLock { $0 = (beat, frames) }
-                    }
+                    // Raw addresses only: symbolicating here can outlast a short stall.
+                    let addresses = sampler.sample()
+                    pendingSample.withLock { $0 = (beat, addresses) }
                 }
             }
             // Check again one threshold later (or when the stall ends and the loop sleeps).

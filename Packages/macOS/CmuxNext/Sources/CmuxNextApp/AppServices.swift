@@ -21,6 +21,7 @@ final class AppServices {
     private(set) var previews: TabPreviewSource!
     /// App side of the cmux CLI compat layer (window/focus state, intents).
     private(set) var compat: AppCompatFrontend!
+    let presentation = ContentPresentationScheduler()
     private let terminalDelegate = TerminalHostDelegate()
 
     init(environment: AppEnvironment) {

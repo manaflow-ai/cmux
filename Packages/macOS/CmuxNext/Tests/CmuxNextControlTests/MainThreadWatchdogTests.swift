@@ -28,7 +28,7 @@ import Testing
 
     @Test func hangLogIsBoundedDropOldest() {
         let log = HangLog(capacity: 3)
-        for index in 0..<5 { log.append(startUptimeNanos: UInt64(index), duration: .milliseconds(60 + index), frames: []) }
+        for index in 0..<5 { log.append(startUptimeNanos: UInt64(index), duration: .milliseconds(60 + index), addresses: []) }
         let records = log.records()
         #expect(records.map(\.startUptimeNanos) == [2, 3, 4])
         #expect(log.summary.count == 5)
