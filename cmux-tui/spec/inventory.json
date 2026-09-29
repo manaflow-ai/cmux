@@ -139,6 +139,7 @@
   },
   "commands": {
     "control": [
+      "ack-tab-notifications",
       "apply-layout",
       "clear-history",
       "clear-window-title",
@@ -164,6 +165,7 @@
       "journal-frontend-event",
       "list-agents",
       "list-clients",
+      "list-notifications",
       "list-terminals",
       "list-workspace-groups",
       "list-workspaces",

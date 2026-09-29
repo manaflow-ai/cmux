@@ -79,9 +79,9 @@ pub use mux::{
     Mux, MuxEvent, NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
     RunPlacement, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
-    SurfaceResizeReporter, TabDirectory, TabDragOutcome, TabDropEdge, TabPinChange,
-    TreeDecorations, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceGroupChange,
-    WorkspaceMutationResult, WorkspacePlacement, ZoomMode, ZoomState,
+    SurfaceResizeReporter, TabDirectory, TabDragOutcome, TabDropEdge, TabNotificationAck,
+    TabPinChange, TreeDecorations, TreeDelta, TreeDeltaKind, ViewportWidthError,
+    WorkspaceGroupChange, WorkspaceMutationResult, WorkspacePlacement, ZoomMode, ZoomState,
 };
 pub use mux::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};

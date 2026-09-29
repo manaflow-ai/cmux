@@ -148,6 +148,13 @@ moves the tab back without closing anything:
 {"id":16,"cmd":"undo-layout","pane":2}
 ```
 
+`notification-ack-v1` decouples notification acknowledgement from focus.
+`ack-tab-notifications {surface}` clears a tab's unread marker and records the
+acknowledgement durably, so it survives a daemon restart; frontends call it
+when the user has seen the tab instead of sending `select-tab`.
+`list-notifications` returns the retained ledger with `created_at_ms` and an
+`acknowledged` flag, and each workspace reports `unread_count`.
+
 ## Events
 
 `subscribe` starts event streaming:

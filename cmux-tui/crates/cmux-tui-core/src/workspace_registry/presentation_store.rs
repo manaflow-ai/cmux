@@ -53,6 +53,10 @@ pub(super) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
            tab_id TEXT PRIMARY KEY NOT NULL,
            pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))
          );
+         CREATE TABLE IF NOT EXISTS notification_acks (
+           notification_id TEXT PRIMARY KEY NOT NULL,
+           acked_at_ms INTEGER NOT NULL CHECK(acked_at_ms >= 0)
+         );
          CREATE TABLE IF NOT EXISTS frontend_browser_tabs (
            browser_id TEXT PRIMARY KEY NOT NULL,
            engine TEXT NOT NULL CHECK(engine IN ('webkit','cef')),
@@ -884,5 +888,62 @@ impl WorkspaceRegistry {
         self.connection
             .execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
         Ok(())
+    }
+
+    /// Notification ids acknowledged as read on the shared console. A
+    /// restart restores an unread marker only for unacknowledged ones.
+    pub(crate) fn acked_notification_ids(&self) -> anyhow::Result<HashSet<String>> {
+        let mut statement =
+            self.connection.prepare("SELECT notification_id FROM notification_acks")?;
+        let ids = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<HashSet<_>, _>>()?;
+        Ok(ids)
+    }
+
+    /// Durably acknowledge notifications, then drop acknowledgements of
+    /// notifications no longer retained by committed receipts. Returns how
+    /// many ids were newly acknowledged.
+    pub fn ack_notifications_durable(
+        &mut self,
+        notification_ids: &[String],
+        acked_at_ms: u64,
+        subjects: Vec<JournalSubject>,
+    ) -> anyhow::Result<usize> {
+        if notification_ids.is_empty() {
+            return Ok(0);
+        }
+        let tx = self.connection.transaction()?;
+        let mut added = 0;
+        for id in notification_ids {
+            anyhow::ensure!(
+                id.starts_with("notification_") && id.len() <= 64,
+                "bad request: invalid notification id {id}"
+            );
+            added += tx.execute(
+                "INSERT OR IGNORE INTO notification_acks(notification_id, acked_at_ms)
+                 VALUES(?1, ?2)",
+                params![id, i64::try_from(acked_at_ms)?],
+            )?;
+        }
+        tx.execute(
+            "DELETE FROM notification_acks WHERE notification_id NOT IN (
+               SELECT json_extract(outcome_json, '$.value.id')
+               FROM resource_effect_receipts
+               WHERE operation = 'notification.create' AND state = 'committed'
+                 AND json_extract(outcome_json, '$.value.id') IS NOT NULL
+             )",
+            [],
+        )?;
+        if added > 0 {
+            append_presentation_record(
+                &tx,
+                "notification.acknowledged",
+                subjects,
+                &json!({"notification_ids": notification_ids, "acked_at_ms": acked_at_ms}),
+            )?;
+        }
+        tx.commit()?;
+        Ok(added)
     }
 }

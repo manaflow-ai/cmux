@@ -806,6 +806,111 @@ impl Mux {
     }
 }
 
+/// Result of `ack-tab-notifications`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabNotificationAck {
+    /// Whether the tab had an unread marker that this call cleared.
+    pub cleared: bool,
+    /// Retained notifications of the tab's content now acknowledged.
+    pub acknowledged: Vec<NotificationPublicId>,
+}
+
+impl Mux {
+    /// Acknowledge a tab's notifications explicitly, independent of focus
+    /// or selection: clear the shared unread marker of the tab's content
+    /// (every view of one terminal shares it) and durably record the
+    /// acknowledgement, so a restart does not bring the marker back.
+    pub fn acknowledge_tab_notifications(
+        &self,
+        surface: SurfaceId,
+    ) -> anyhow::Result<TabNotificationAck> {
+        let (terminal, placements) = {
+            let state = self.state.lock().unwrap();
+            let runtime = state
+                .surfaces
+                .get(&surface)
+                .or_else(|| state.terminal_runtime_by_id(surface))
+                .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
+            let terminal = runtime.terminal_public_id().cloned();
+            let placements = match &terminal {
+                Some(terminal) => state
+                    .placements_of_content(&ContentPublicId::Terminal(terminal.clone()))
+                    .to_vec(),
+                None => vec![surface],
+            };
+            (terminal, placements)
+        };
+        let cleared = match &terminal {
+            Some(terminal) => {
+                self.terminal_notifications.lock().unwrap().remove(terminal).is_some()
+            }
+            None => self.placement_notifications.lock().unwrap().remove(&surface).is_some(),
+        };
+        let acknowledged = self.persist_notification_acks(terminal.as_ref(), surface)?;
+        if cleared {
+            for placement in placements {
+                self.emit_tab_changed(placement);
+            }
+        }
+        Ok(TabNotificationAck { cleared, acknowledged })
+    }
+
+    /// Durably acknowledge the retained notifications of one terminal, or
+    /// of one non-terminal placement.
+    pub(crate) fn persist_notification_acks(
+        &self,
+        terminal: Option<&TerminalPublicId>,
+        surface: SurfaceId,
+    ) -> anyhow::Result<Vec<NotificationPublicId>> {
+        let ids = self
+            .notification_ledger
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|entry| match terminal {
+                Some(terminal) => entry.terminal_id.as_ref() == Some(terminal),
+                None => entry.terminal_id.is_none() && entry.surface == Some(surface),
+            })
+            .map(|entry| entry.id.clone())
+            .collect::<Vec<_>>();
+        if ids.is_empty() {
+            return Ok(ids);
+        }
+        let strings = ids.iter().map(|id| id.as_str().to_string()).collect::<Vec<_>>();
+        let subjects = terminal
+            .map(|terminal| crate::JournalSubject {
+                kind: "terminal".into(),
+                id: terminal.as_str().to_string(),
+            })
+            .into_iter()
+            .collect();
+        self.workspace_registry.lock().unwrap().ack_notifications_durable(
+            &strings,
+            now_ms(),
+            subjects,
+        )?;
+        self.publish_journal_event();
+        Ok(ids)
+    }
+
+    /// Retained notifications, newest first, with whether each was
+    /// acknowledged.
+    pub fn notification_rows(
+        &self,
+        limit: usize,
+    ) -> anyhow::Result<Vec<(ResourceNotification, bool)>> {
+        let rows = self.resource_notifications(limit);
+        let acked = self.workspace_registry.lock().unwrap().acked_notification_ids()?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let acknowledged = acked.contains(row.id.as_str());
+                (row, acknowledged)
+            })
+            .collect())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1203,6 +1308,58 @@ mod tests {
         assert_eq!(tab["title"], "Next");
         assert_eq!(tab["browser_renderer"], "frontend");
         assert_eq!(tab["favicon_url"], "https://example.com/favicon.ico");
+    }
+
+    #[test]
+    fn cmux_next_tab_notification_ack_is_explicit_and_survives_restart() {
+        let session = PresentationTestSession::new("notification-ack");
+        let mux = session.open();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal = surface.terminal_public_id().cloned().expect("terminal tab");
+        let surface = surface.id;
+        mux.post_notification(
+            "build done".into(),
+            "".into(),
+            NotificationLevel::Info,
+            Some(surface),
+        )
+        .unwrap();
+        assert!(mux.terminal_notification(&terminal).is_some_and(|marker| marker.unread));
+        let decorations = mux.tree_decorations();
+        let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
+        assert_eq!(tree["workspaces"][0]["unread_count"], 1);
+
+        let ack = mux.acknowledge_tab_notifications(surface).unwrap();
+        assert!(ack.cleared);
+        assert_eq!(ack.acknowledged.len(), 1);
+        assert!(mux.terminal_notification(&terminal).is_none());
+        let rows = mux.notification_rows(10).unwrap();
+        assert!(rows.iter().all(|(_, acknowledged)| *acknowledged));
+        // A second acknowledgement is a no-op, not an error.
+        assert!(!mux.acknowledge_tab_notifications(surface).unwrap().cleared);
+        drop(mux);
+
+        let mux = session.open();
+        assert!(mux.terminal_notification(&terminal).is_none());
+        let surface = mux.resource_surface_for_terminal(&terminal).expect("terminal placement");
+        mux.post_notification(
+            "tests failed".into(),
+            "".into(),
+            NotificationLevel::Error,
+            Some(surface),
+        )
+        .unwrap();
+        drop(mux);
+
+        // An unacknowledged notification restores its marker.
+        let mux = session.open();
+        assert!(mux.terminal_notification(&terminal).is_some_and(|marker| marker.unread));
+        let surface = mux.resource_surface_for_terminal(&terminal).expect("terminal placement");
+        // The legacy clear (selecting the tab) is durable too.
+        assert!(mux.clear_surface_notification(surface));
+        drop(mux);
+        let mux = session.open();
+        assert!(mux.terminal_notification(&terminal).is_none());
     }
 
     #[test]

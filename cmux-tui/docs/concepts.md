@@ -20,6 +20,11 @@ The shared compatibility tree records default active workspace, screen, pane, an
 
 The compatibility tree's pane-focus metadata tracks recent activity. When closing its active pane or the last tab in it, mux chooses the most recently active remaining pane on that screen instead of always choosing a neighbor.
 
+Notifications mark the tab that raised them as unread. The marker belongs
+to the tab's content, so every view of one terminal shows it. Frontends clear
+it with an explicit acknowledgement when the user has seen the tab, not by
+moving focus, and the acknowledgement is durable across restarts.
+
 ## Frontend Projections
 
 The workspace tree is one durable shared backend projection. Frontends may also store opaque schema-versioned documents with `put-frontend-projection`: `personal` scope belongs to one stable user, profile, or device subject, while `shared` scope belongs to a collaboration view. Either document may place one terminal UUID several times and may deliberately save focus or viewport preferences. Unsaved focus, selection, scroll, crop, pan, hover, drag, and key-prefix state remain client-local. A projection owns presentation only; removing it never closes a terminal.

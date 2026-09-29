@@ -10,7 +10,9 @@ mod tab_drag;
 mod terminal_directory;
 
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
-pub use presentation::{TabDirectory, TabPinChange, TreeDecorations, WorkspaceGroupChange};
+pub use presentation::{
+    TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations, WorkspaceGroupChange,
+};
 pub(crate) use resource_content::ResourceEffectProjection;
 pub use tab_drag::{TabDragOutcome, TabDropEdge};
 
@@ -9982,12 +9984,18 @@ impl Mux {
             .or_else(|| state.terminal_runtime_by_id(surface))
             .and_then(|surface| surface.terminal_public_id().cloned());
         drop(state);
-        let cleared = match terminal_id {
+        let cleared = match &terminal_id {
             Some(terminal_id) => {
-                self.terminal_notifications.lock().unwrap().remove(&terminal_id).is_some()
+                self.terminal_notifications.lock().unwrap().remove(terminal_id).is_some()
             }
             None => self.placement_notifications.lock().unwrap().remove(&surface).is_some(),
         };
+        if cleared
+            && let Some(terminal_id) = &terminal_id
+            && self.persist_notification_acks(Some(terminal_id), surface).is_err()
+        {
+            self.report_internal_diagnostic("notification acknowledgement not persisted");
+        }
         if cleared {
             self.emit(MuxEvent::TreeChanged);
         }
@@ -10030,7 +10038,13 @@ impl Mux {
             .and_then(|surface| surface.terminal_public_id().cloned());
         drop(state);
         if let Some(terminal_id) = terminal_id {
-            let _ = self.terminal_notifications.lock().unwrap().remove(&terminal_id);
+            let removed =
+                self.terminal_notifications.lock().unwrap().remove(&terminal_id).is_some();
+            // Selecting a tab is a legacy acknowledgement; persist it like
+            // `ack-tab-notifications` so a restart keeps it read.
+            if removed && self.persist_notification_acks(Some(&terminal_id), surface).is_err() {
+                self.report_internal_diagnostic("notification acknowledgement not persisted");
+            }
         } else {
             let _ = self.placement_notifications.lock().unwrap().remove(&surface);
         }

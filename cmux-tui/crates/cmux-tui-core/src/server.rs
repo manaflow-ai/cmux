@@ -144,6 +144,10 @@ pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
 /// `move-tab-to-column`, `move-tab-to-new-workspace`, layout undo for
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
+/// Durable notification acknowledgement decoupled from focus:
+/// `ack-tab-notifications`, `list-notifications`, and the workspace
+/// `unread_count` rollup.
+pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -251,6 +255,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         TAB_DRAG_CAPABILITY,
+        NOTIFICATION_ACK_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1281,6 +1286,15 @@ enum Command {
         index: usize,
         #[serde(default)]
         transaction: Option<String>,
+    },
+    /// Acknowledge a tab's notifications without selecting or focusing it.
+    AckTabNotifications {
+        surface: SurfaceId,
+    },
+    /// Retained notifications, newest first.
+    ListNotifications {
+        #[serde(default)]
+        limit: Option<usize>,
     },
     /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
     SetTabPinned {
@@ -10242,6 +10256,7 @@ fn workspace_json(
         "color": presentation.and_then(|presentation| presentation.color.as_deref()),
         "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),
         "title": presentation.and_then(|presentation| presentation.title.as_deref()),
+        "unread_count": workspace_unread_count(state, workspace, notifications),
         "active": index == state.active_workspace,
         "screens": workspace.screens.iter().enumerate().map(|(screen_index, screen)| {
             screen_json(
@@ -10253,6 +10268,22 @@ fn workspace_json(
             )
         }).collect::<Vec<_>>(),
     })
+}
+
+/// Tabs in a workspace whose content has an unread notification marker.
+fn workspace_unread_count(
+    state: &State,
+    workspace: &Workspace,
+    notifications: &TreeDecorations,
+) -> usize {
+    workspace
+        .screens
+        .iter()
+        .flat_map(|screen| screen.root.pane_ids_vec())
+        .filter_map(|pane| state.panes.get(&pane))
+        .flat_map(|pane| pane.tabs.iter())
+        .filter(|surface| notifications.get(surface).is_some_and(|marker| marker.unread))
+        .count()
 }
 
 pub(crate) fn tree_entity_json(
@@ -12825,6 +12856,35 @@ fn handle_command_with_cancellation(
             let index = mux.pinned_tab_move_index(surface, pane, index);
             let (moved, undoable) = mux.move_tab_with_undo(surface, pane, index, transaction);
             Ok(json!({"moved": moved, "undoable": undoable}))
+        }
+        Command::AckTabNotifications { surface } => {
+            let ack = mux.acknowledge_tab_notifications(surface)?;
+            Ok(json!({
+                "surface": surface,
+                "cleared": ack.cleared,
+                "acknowledged": ack.acknowledged,
+            }))
+        }
+        Command::ListNotifications { limit } => {
+            let rows = mux.notification_rows(limit.unwrap_or(256).min(256))?;
+            Ok(json!({
+                "notifications": rows
+                    .iter()
+                    .map(|(row, acknowledged)| {
+                        json!({
+                            "id": row.id,
+                            "title": row.title,
+                            "subtitle": row.subtitle,
+                            "body": row.body,
+                            "level": row.level.as_str(),
+                            "terminal_id": row.terminal_id,
+                            "surface": row.surface,
+                            "created_at_ms": row.created_at_ms,
+                            "acknowledged": acknowledged,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            }))
         }
         Command::SetTabPinned { surface, pinned } => {
             get_surface(mux, surface)?;
