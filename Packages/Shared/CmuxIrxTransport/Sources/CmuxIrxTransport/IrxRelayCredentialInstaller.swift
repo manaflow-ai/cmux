@@ -76,10 +76,19 @@ actor IrxRelayCredentialInstaller {
         var failures = 0
         while !Task.isCancelled, !stopped, taskID == id {
             let observedRevision = revision
-            let unusable = desired.values.filter { !$0.isUsable(at: now()) }.count
-            let pending = desired.values.filter {
-                $0.isUsable(at: now()) && installed[$0.relayURL] != $0
-            }.sorted { $0.relayURL < $1.relayURL }
+            let observedAt = now()
+            var unusable = 0
+            var pending: [IrxRelayCredential] = []
+            for credential in desired.values {
+                guard credential.isUsable(at: observedAt) else {
+                    unusable += 1
+                    continue
+                }
+                if installed[credential.relayURL] != credential {
+                    pending.append(credential)
+                }
+            }
+            pending.sort { $0.relayURL < $1.relayURL }
             if unusable > 0 {
                 // Expired or not-yet-valid credentials silently shrink the
                 // fleet; make the drop visible next to the install outcomes.
