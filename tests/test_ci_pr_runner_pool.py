@@ -259,6 +259,26 @@ class FailSafe(unittest.TestCase):
         self.assert_default(choose(backlog(), default=""))
         self.assert_default(choose(backlog(), default=OLD))
 
+    def test_cloud_overflow_record_keeps_owned_picker_active(self):
+        record = json.dumps({"changed": {"MACOS_RUNNER_PR": {"before": SMALL, "after": MINI}}})
+        choice = owned_choice(fleet(busy=0), default=MINI, order=f"{MINI},{LARGE},{SMALL}",
+                              cloud_overflow=record)
+        self.assertEqual(choice.runner, MINI)
+        self.assertEqual(choice.retry_runner, "")
+
+    def test_cloud_overflow_record_never_selects_blacksmith(self):
+        record = json.dumps({"changed": {"MACOS_RUNNER_PR": {"before": SMALL, "after": MINI}}})
+        choice = owned_choice(fleet(busy=11), default=MINI, order=f"{MINI},{LARGE},{SMALL}",
+                              cloud_overflow=record, split="1")
+        self.assertTrue(not choice.runner or choice.runner.startswith("glaeda-"), choice)
+        self.assertTrue(not choice.retry_runner or choice.retry_runner.startswith("glaeda-"), choice)
+
+    def test_unrelated_or_malformed_cloud_record_does_not_enable_picker(self):
+        unrelated = json.dumps({"changed": {"LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404",
+                                                               "after": "ubuntu-24.04"}}})
+        self.assert_default(choose(backlog(), default=MINI, cloud_overflow=unrelated))
+        self.assert_default(choose(backlog(), default=MINI, cloud_overflow="{"))
+
     def test_kill_switch_and_invalid_settings(self):
         self.assert_default(choose(backlog(), overflow="0"))
         for bad in ({"order": "warp-macos-26-arm64-12x"}, {"order": f"{LARGE},{LARGE}"},
@@ -2374,6 +2394,7 @@ class Wiring(unittest.TestCase):
         self.assertIs(step["continue-on-error"], True)
         self.assertEqual(step["run"], "python3 scripts/ci/pr_runner_pool.py")
         self.assertEqual(step["env"]["DEFAULT_RUNNER"], "${{ vars.MACOS_RUNNER_PR }}")
+        self.assertEqual(step["env"]["CI_CLOUD_OVERFLOW_SAVED"], "${{ vars.CI_CLOUD_OVERFLOW_SAVED }}")
 
     def test_a_persistent_choice_publishes_the_rescue_marker(self):
         steps = self.workflow("ci.yml")["jobs"]["changes"]["steps"]

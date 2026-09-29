@@ -434,6 +434,16 @@ class Scope(unittest.TestCase):
             self.assertEqual((code, api.calls), (0, []), value)
             self.assertIn("must be 30 to 600", summary)
 
+    def test_cloud_overflow_pauses_rescue_without_api_requests(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run())
+        code, summary = run_main(api, clock, env_extra={
+            "CI_CLOUD_OVERFLOW_SAVED": json.dumps({"changed": {"MACOS_RUNNER_PR": {
+                "before": BLACKSMITH, "after": MINI}}})
+        })
+        self.assertEqual((code, api.calls), (0, []))
+        self.assertIn("pausing owned-pool rescue", summary)
+
     def test_budget_defaults_to_90(self):
         self.assertEqual(rescue.budget(""), 90)
         self.assertEqual(rescue.budget(" 120 "), 120)
@@ -1763,6 +1773,7 @@ class Workflow(unittest.TestCase):
         self.assertEqual(step["run"], "python3 scripts/ci/owned_pool_rescue.py")
         self.assertEqual(step["env"]["RESCUE_SECONDS"], "${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}")
         self.assertEqual(step["env"]["POOL_OWNED"], "${{ vars.CI_PR_POOL_OWNED }}")
+        self.assertEqual(step["env"]["CI_CLOUD_OVERFLOW_SAVED"], "${{ vars.CI_CLOUD_OVERFLOW_SAVED }}")
 
     def test_polls_from_a_github_hosted_runner(self):
         self.assertEqual(self.doc["jobs"]["rescue"]["runs-on"], "ubuntu-24.04")

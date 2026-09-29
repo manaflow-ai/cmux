@@ -12,6 +12,10 @@ markers and gives each a thread running follow(), the per-run watch described
 below. A dispatch with a run's id (WATCH_RUN_ID) watches that run alone,
 checked as a workflow_run event's run would be.
 
+While CI_CLOUD_OVERFLOW_SAVED is present, Blacksmith is known not to start
+jobs. The cloud switch keeps overflow on owned pools, so this watcher pauses
+instead of cancelling a run into a dead Blacksmith retry.
+
 The script waits for ci.yml's `changes` job, which runs the picker. When the
 picker chose a persistent pool, that job uploads a marker artifact
 (`macos-pool-persistent-<run id>-<attempt>-<jobs>p<placed>-<pool>`, the counts and pool
@@ -227,6 +231,7 @@ from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, parse_queue_ro
 import ui_tests_dispatch  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
+CLOUD_OVERFLOW_RECORD_VARIABLE = "CI_CLOUD_OVERFLOW_SAVED"
 E2E_WORKFLOW_PATH = ".github/workflows/test-e2e.yml"
 IOS_TEST_WORKFLOW_PATH = ".github/workflows/test-ios.yml"
 IOS_SCREENSHOTS_WORKFLOW_PATH = ".github/workflows/ios-screenshots.yml"
@@ -1091,6 +1096,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
 
     if (env.get("POOL_OWNED") or "").strip() != "1":
         return finish("owned pools are off (CI_PR_POOL_OWNED is not 1); nothing to watch")
+    if (env.get(CLOUD_OVERFLOW_RECORD_VARIABLE) or "").strip():
+        return finish("cloud overflow is off; pausing owned-pool rescue to avoid a Blacksmith retry")
     seconds = budget(env.get("RESCUE_SECONDS"))
     light_retry = (env.get("OWNED_LIGHT_RETRY") or "").strip() == "1"
     if seconds is None:
