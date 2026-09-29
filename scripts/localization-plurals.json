@@ -716,20 +716,26 @@
       1
     ]
   },
-  "teamMembers.link.uses": {
+  "settings.team.link.uses": {
     "source": "%d uses",
     "arguments": [
       1
     ]
   },
-  "teamMembers.seatSummary": {
-    "source": "%1$d of %2$d seats used",
+  "settings.team.link.usesOf": {
+    "source": "%1$d of %2$d uses",
     "arguments": [
       2
     ]
   },
-  "teamMembers.link.usesOf": {
-    "source": "%1$d of %2$d uses",
+  "settings.team.seatSummary": {
+    "source": "%1$@ · %2$d of %3$d seats used",
+    "arguments": [
+      3
+    ]
+  },
+  "settings.team.memberCount": {
+    "source": "%1$@ · %2$d members",
     "arguments": [
       2
     ]

@@ -814,7 +814,6 @@
 		09FBC463786149D49E73B297 /* CloudSurfaceDropGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A23E881DEAE40649BC8FFCF /* CloudSurfaceDropGateView.swift */; };
 		5CB4AC1D92064236B5C2DDF1 /* CloudSurfaceMoveOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF212BA811D54BB986A5E27F /* CloudSurfaceMoveOwnershipTests.swift */; };
 		6D2669CD5E4944C2B8C0F49C /* CloudSurfaceOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4DAE66C6AF74046B5545B47 /* CloudSurfaceOwnershipTests.swift */; };
-		7FC1AB372BEF122B83B87287 /* CloudTeamMembersWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EC1AB372BEF122B83B87287 /* CloudTeamMembersWindow.swift */; };
 		13019A000000000000000004 /* CloudTeamPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13019A000000000000000003 /* CloudTeamPicker.swift */; };
 		A14327000000000000000004 /* CloudTeamPickerHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14327000000000000000003 /* CloudTeamPickerHeader.swift */; };
 		A14327000000000000000006 /* CloudTeamPickerPlacementUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14327000000000000000005 /* CloudTeamPickerPlacementUITests.swift */; };
@@ -5032,7 +5031,6 @@
 		3A23E881DEAE40649BC8FFCF /* CloudSurfaceDropGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSurfaceDropGateView.swift; sourceTree = "<group>"; };
 		DF212BA811D54BB986A5E27F /* CloudSurfaceMoveOwnershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSurfaceMoveOwnershipTests.swift; sourceTree = "<group>"; };
 		D4DAE66C6AF74046B5545B47 /* CloudSurfaceOwnershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSurfaceOwnershipTests.swift; sourceTree = "<group>"; };
-		7EC1AB372BEF122B83B87287 /* CloudTeamMembersWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamMembersWindow.swift; sourceTree = "<group>"; };
 		13019A000000000000000003 /* CloudTeamPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPicker.swift; sourceTree = "<group>"; };
 		A14327000000000000000003 /* CloudTeamPickerHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPickerHeader.swift; sourceTree = "<group>"; };
 		A14327000000000000000005 /* CloudTeamPickerPlacementUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPickerPlacementUITests.swift; sourceTree = "<group>"; };
@@ -8933,7 +8931,6 @@
 				CA268D4CE6EFBDFFB69F9B7E /* CloudTeamPickerTeamRow.swift */,
 				13019A000000000000000003 /* CloudTeamPicker.swift */,
 				13019A000000000000000005 /* CloudTeamPickerRow.swift */,
-				7EC1AB372BEF122B83B87287 /* CloudTeamMembersWindow.swift */,
 				A14327000000000000000001 /* CloudTeamPickerPresentation.swift */,
 				13019C000000000000000001 /* CloudTeamScopeObserver.swift */,
 				874708E6D548C4AA3AA04E94 /* CloudTreeBuildInputs.swift */,
@@ -13650,7 +13647,6 @@
 				375E0D1FDA464DC4A05359E1 /* CloudSidebarRowSnapshot.swift in Sources */,
 				D318853B007D48AD9532F83F /* CloudSurfaceDropGate.swift in Sources */,
 				09FBC463786149D49E73B297 /* CloudSurfaceDropGateView.swift in Sources */,
-				7FC1AB372BEF122B83B87287 /* CloudTeamMembersWindow.swift in Sources */,
 				13019A000000000000000004 /* CloudTeamPicker.swift in Sources */,
 				A14327000000000000000004 /* CloudTeamPickerHeader.swift in Sources */,
 				A14327000000000000000002 /* CloudTeamPickerPresentation.swift in Sources */,

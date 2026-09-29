@@ -82,7 +82,7 @@ extension TerminalController {
             }
         case "auth.team.members":
             return try await v2AuthTeamRosterAsync(id: id, teamID: params["team_id"] as? String) { flow, teamID in
-                let detail: TeamRosterSocketPayload = try await flow.loadTeamDetail(teamID: teamID)
+                let detail: TeamRosterSocketPayload = try await flow.cloudTeamDetail(teamID: teamID)
                 return detail
             }
         case "auth.team.invite":
@@ -96,16 +96,16 @@ extension TerminalController {
             }
             let role = CloudTeamRole(rawValue: (params["role"] as? String ?? "member").lowercased()) ?? .member
             return try await v2AuthTeamRosterAsync(id: id, teamID: params["team_id"] as? String) { flow, teamID in
-                let result = try await flow.inviteTeamMembers(teamID: teamID, emails: emails, role: role)
-                let detail = try await flow.loadTeamDetail(teamID: teamID)
+                let result = try await flow.cloudInviteTeamMembers(teamID: teamID, emails: emails, role: role)
+                let detail = try await flow.cloudTeamDetail(teamID: teamID)
                 return TeamRosterSocketResult(invite: result, detail: detail)
             }
         case "auth.team.invite_link":
             let expires = params["expires_in_days"] as? Int
             let maxUses = params["max_uses"] as? Int
             return try await v2AuthTeamRosterAsync(id: id, teamID: params["team_id"] as? String) { flow, teamID in
-                let created = try await flow.createTeamInviteLink(teamID: teamID, expiresInDays: expires, maxUses: maxUses)
-                let detail = try await flow.loadTeamDetail(teamID: teamID)
+                let created = try await flow.cloudCreateTeamInviteLink(teamID: teamID, expiresInDays: expires, maxUses: maxUses)
+                let detail = try await flow.cloudTeamDetail(teamID: teamID)
                 return TeamRosterSocketResult(link: created, detail: detail)
             }
         case "auth.team.revoke_invite":
@@ -120,11 +120,11 @@ extension TerminalController {
             }
             return try await v2AuthTeamRosterAsync(id: id, teamID: params["team_id"] as? String) { flow, teamID in
                 if !invitationID.isEmpty {
-                    try await flow.revokeTeamInvitation(teamID: teamID, invitationID: invitationID)
+                    try await flow.cloudRevokeTeamInvitation(teamID: teamID, invitationID: invitationID)
                 } else {
-                    try await flow.revokeTeamInviteLink(teamID: teamID, linkID: linkID)
+                    try await flow.cloudRevokeTeamInviteLink(teamID: teamID, linkID: linkID)
                 }
-                let detail: TeamRosterSocketPayload = try await flow.loadTeamDetail(teamID: teamID)
+                let detail: TeamRosterSocketPayload = try await flow.cloudTeamDetail(teamID: teamID)
                 return detail
             }
         case "auth.team.remove_member":
@@ -137,9 +137,9 @@ extension TerminalController {
                 )
             }
             return try await v2AuthTeamRosterAsync(id: id, teamID: params["team_id"] as? String) { flow, teamID in
-                try await flow.removeTeamMember(teamID: teamID, userID: userID)
+                try await flow.cloudRemoveTeamMember(teamID: teamID, userID: userID)
                 // Leaving drops the caller's access, so a failed re-read is not an error.
-                let detail: TeamRosterSocketPayload? = try? await flow.loadTeamDetail(teamID: teamID)
+                let detail: TeamRosterSocketPayload? = try? await flow.cloudTeamDetail(teamID: teamID)
                 return detail
             }
         case "auth.team.open_members":

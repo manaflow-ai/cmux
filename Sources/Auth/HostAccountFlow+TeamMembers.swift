@@ -11,6 +11,8 @@ enum TeamMembersFlowError: Error, Equatable {
     case signedOut
 }
 
+// MARK: - Cloud client path (socket, CLI and Settings share it)
+
 extension HostAccountFlow {
     /// The team a members action applies to: an explicit id from the CLI or
     /// socket, otherwise the confirmed (not pending) active team.
@@ -22,14 +24,14 @@ extension HostAccountFlow {
     }
 
     /// Roster, pending invitations, links and seat usage for one team.
-    func loadTeamDetail(teamID: String? = nil) async throws -> CloudTeamDetail {
+    func cloudTeamDetail(teamID: String? = nil) async throws -> CloudTeamDetail {
         guard isAuthenticated else { throw TeamMembersFlowError.signedOut }
         let id = try teamIDForMembersAction(teamID)
         return try await TeamsClient.shared.detail(teamID: id)
     }
 
     /// Invite by email. The server sends the email and stores the role.
-    func inviteTeamMembers(
+    func cloudInviteTeamMembers(
         teamID: String? = nil,
         emails: [String],
         role: CloudTeamRole
@@ -40,7 +42,7 @@ extension HostAccountFlow {
     }
 
     /// A reusable member-only invite link. The URL is shown once.
-    func createTeamInviteLink(
+    func cloudCreateTeamInviteLink(
         teamID: String? = nil,
         expiresInDays: Int?,
         maxUses: Int?
@@ -50,13 +52,13 @@ extension HostAccountFlow {
         return try await TeamsClient.shared.createInviteLink(teamID: id, expiresInDays: expiresInDays, maxUses: maxUses)
     }
 
-    func revokeTeamInvitation(teamID: String? = nil, invitationID: String) async throws {
+    func cloudRevokeTeamInvitation(teamID: String? = nil, invitationID: String) async throws {
         guard isAuthenticated else { throw TeamMembersFlowError.signedOut }
         let id = try teamIDForMembersAction(teamID)
         try await TeamsClient.shared.revokeInvitation(teamID: id, invitationID: invitationID)
     }
 
-    func revokeTeamInviteLink(teamID: String? = nil, linkID: String) async throws {
+    func cloudRevokeTeamInviteLink(teamID: String? = nil, linkID: String) async throws {
         guard isAuthenticated else { throw TeamMembersFlowError.signedOut }
         let id = try teamIDForMembersAction(teamID)
         try await TeamsClient.shared.revokeInviteLink(teamID: id, linkID: linkID)
@@ -64,7 +66,7 @@ extension HostAccountFlow {
 
     /// Remove a member, or leave the team when `userID` is the caller. Leaving
     /// refreshes membership so the picker and Cloud scope drop the team.
-    func removeTeamMember(teamID: String? = nil, userID: String) async throws {
+    func cloudRemoveTeamMember(teamID: String? = nil, userID: String) async throws {
         guard isAuthenticated else { throw TeamMembersFlowError.signedOut }
         let id = try teamIDForMembersAction(teamID)
         try await TeamsClient.shared.removeMember(teamID: id, userID: userID)
@@ -73,26 +75,22 @@ extension HostAccountFlow {
         }
     }
 
-    func changeTeamMemberRole(teamID: String? = nil, userID: String, role: CloudTeamRole) async throws -> CloudTeamMember {
+    func cloudChangeTeamMemberRole(teamID: String? = nil, userID: String, role: CloudTeamRole) async throws -> CloudTeamMember {
         guard isAuthenticated else { throw TeamMembersFlowError.signedOut }
         let id = try teamIDForMembersAction(teamID)
         return try await TeamsClient.shared.changeMemberRole(teamID: id, userID: userID, role: role)
     }
 
-    /// ``AccountFlow`` hook used by the Settings Account card.
-    func openTeamMembers() {
-        showTeamMembers(focusInvite: false)
-    }
-
-    /// Opens (or fronts) the members-and-invites window for the active team.
-    /// Shared by the Cloud team picker, Settings, the palette and the socket.
+    /// Opens Settings › Account at the Team card. Shared by the Cloud team
+    /// picker, the Cloud header Invite button, the palette and the socket.
+    /// `focusInvite` expands the invite composer once the card is mounted.
     func showTeamMembers(focusInvite: Bool) {
         guard isAuthenticated, confirmedTeamID != nil else { return }
-        let controller = teamMembersWindowController ?? CloudTeamMembersWindowController(accountFlow: self) { [weak self] in
-            self?.teamMembersWindowController = nil
+        SettingsWindowPresenter.show(navigationTarget: .account)
+        SettingsNavigationRequest.post(.account, anchorID: AccountTeamCard.searchAnchorID, highlight: !focusInvite)
+        if focusInvite {
+            NotificationCenter.default.post(name: AccountTeamCard.focusInviteRequestName, object: nil)
         }
-        teamMembersWindowController = controller
-        controller.show(focusInvite: focusInvite)
     }
 
     /// One user-facing sentence per failure, shared by every entrypoint.
@@ -136,5 +134,88 @@ extension HostAccountFlow {
                 ? String(localized: "socket.authTeam.failed", defaultValue: "Could not update the team. Try again.")
                 : fallback
         }
+    }
+}
+
+// MARK: - Settings Team card (AccountTeamManagement)
+
+extension HostAccountFlow {
+    var supportsTeamManagement: Bool { CloudMachinesFeature.isEnabled && isAuthenticated }
+
+    func loadTeamDetail() async throws -> AccountTeamDetail {
+        Self.accountTeamDetail(try await cloudTeamDetail())
+    }
+
+    func inviteTeamMembers(emails: [String], role: AccountTeamRole) async throws -> AccountTeamInviteOutcome {
+        let result = try await cloudInviteTeamMembers(emails: emails, role: Self.cloudRole(role))
+        return AccountTeamInviteOutcome(
+            sentEmails: result.invitations.compactMap(\.email),
+            failedEmails: result.failed.map(\.email)
+        )
+    }
+
+    func createTeamInviteLink() async throws -> AccountTeamInviteLinkOutcome {
+        let created = try await cloudCreateTeamInviteLink(expiresInDays: 7, maxUses: nil)
+        return AccountTeamInviteLinkOutcome(url: created.url, expiresAt: created.link.expiresAt)
+    }
+
+    func revokeTeamInvitation(id: String) async throws {
+        try await cloudRevokeTeamInvitation(invitationID: id)
+    }
+
+    func revokeTeamInviteLink(id: String) async throws {
+        try await cloudRevokeTeamInviteLink(linkID: id)
+    }
+
+    func removeTeamMember(userID: String) async throws {
+        try await cloudRemoveTeamMember(userID: userID)
+    }
+
+    func changeTeamMemberRole(userID: String, role: AccountTeamRole) async throws {
+        _ = try await cloudChangeTeamMemberRole(userID: userID, role: Self.cloudRole(role))
+    }
+
+    func teamManagementMessage(for error: Error) -> String {
+        Self.teamMembersUserMessage(error)
+    }
+
+    private static func cloudRole(_ role: AccountTeamRole) -> CloudTeamRole {
+        role == .admin ? .admin : .member
+    }
+
+    private static func accountRole(_ role: CloudTeamRole) -> AccountTeamRole {
+        role == .admin ? .admin : .member
+    }
+
+    static func accountTeamDetail(_ detail: CloudTeamDetail) -> AccountTeamDetail {
+        AccountTeamDetail(
+            teamID: detail.team.id,
+            teamName: detail.team.displayName,
+            viewerUserID: detail.viewer.userId,
+            viewerRole: accountRole(detail.viewer.role),
+            canInvite: detail.canInvite,
+            canRemoveMembers: detail.viewer.role == .admin && detail.viewer.permissions.removeMembers,
+            members: detail.members.map { member in
+                AccountTeamMember(
+                    userID: member.userId,
+                    displayName: member.displayName,
+                    email: member.email,
+                    role: accountRole(member.role),
+                    isViewer: member.isViewer
+                )
+            },
+            invitations: detail.invitations.map { invitation in
+                AccountTeamInvitation(
+                    id: invitation.id,
+                    email: invitation.email,
+                    role: accountRole(invitation.role),
+                    expiresAt: invitation.expiresAt
+                )
+            },
+            links: detail.links.map { link in
+                AccountTeamInviteLink(id: link.id, expiresAt: link.expiresAt, maxUses: link.maxUses, useCount: link.useCount)
+            },
+            memberLimit: detail.billing.memberLimit
+        )
     }
 }

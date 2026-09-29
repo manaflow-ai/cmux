@@ -25,6 +25,15 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
                 }
                 Spacer(minLength: 0)
                 agentMenu()
+                if let accountFlow, accountFlow.confirmedTeamID != nil {
+                    MachinesChromeIconButton(
+                        symbolName: "person.badge.plus",
+                        accessibilityLabel: String(localized: "sidebar.account.invitePeople.short", defaultValue: "Invite People"),
+                        isBusy: false,
+                        action: { accountFlow.showTeamMembers(focusInvite: true) }
+                    )
+                    .accessibilityIdentifier("CloudTeamInviteButton")
+                }
                 MachinesChromeIconButton(
                     symbolName: "arrow.clockwise",
                     accessibilityLabel: String(localized: "machines.refresh", defaultValue: "Refresh Machines"),

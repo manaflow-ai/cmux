@@ -35,14 +35,16 @@ public struct AccountSection: View {
                        !(accountFlow?.availableTeams.isEmpty ?? true) {
                         Divider()
                         AccountTeamPicker(flow: accountFlow!)
-                        if accountFlow?.selectedTeamID != nil {
-                            Divider()
-                            AccountTeamMembersRow(flow: accountFlow!)
-                        }
                     }
                 }
             }
             .settingsSearchAnchors(["setting:account:account"])
+            if let accountFlow, accountFlow.supportsTeamManagement, accountFlow.selectedTeamID != nil {
+                SettingsCard {
+                    AccountTeamCard(flow: accountFlow)
+                }
+                .settingsSearchAnchors([AccountTeamCard.searchAnchorID])
+            }
             if accountFlow?.isProUpgradeAvailable ?? false {
                 SettingsCard {
                     ProUpgradeCard(flow: accountFlow)
