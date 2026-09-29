@@ -41,10 +41,10 @@ extension SidebarCompactStatusGlyph {
         let kind: Kind
         if input.agentEntries.contains(where: Self.reportsError) {
             kind = .error
-        } else if input.lifecycleStates.contains(.needsInput) {
-            kind = .needsInput
         } else if input.hasActiveAgent || input.lifecycleStates.contains(.running) || input.lifecycleStates.contains(.backgroundWorkPending) {
             kind = .running
+        } else if input.lifecycleStates.contains(.needsInput) {
+            kind = .needsInput
         } else if input.lifecycleStates.contains(.unknown) {
             kind = .pending
         // A stale pull request is data repeated refresh failures could not
