@@ -44,6 +44,7 @@ enum Strings {
     static var cloud: String { String(localized: "sidebar.footer.cloud", defaultValue: "Cloud", bundle: .module) }
     static var status: String { String(localized: "sidebar.footer.status", defaultValue: "Status", bundle: .module) }
     static var resize: String { String(localized: "sidebar.a11y.resize", defaultValue: "Resize sidebar", bundle: .module) }
+    static var clearSearch: String { String(localized: "sidebar.search.clear", defaultValue: "Clear Search", bundle: .module) }
 
     static func color(_ color: SidebarColor) -> String {
         switch color {

@@ -347,8 +347,8 @@ private func shape(_ sections: [SidebarSection], _ section: SectionID) -> String
         o.gapHeight = 40
         let displayed = SidebarLayout.make(sections: sections, options: o)
         let gapY = displayed.gapY!
-        for displayY in stride(from: gapY - 10, through: gapY + 45, by: 5) {
-            guard let by = DropResolver.baseY(forDisplayY: displayY, gapY: displayed.gapY, gapHeight: displayed.gapHeight) else { continue }
+        for displayY in stride(from: gapY - 10, through: gapY + displayed.gapShift + 6, by: 2) {
+            guard let by = DropResolver.baseY(forDisplayY: displayY, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { continue }
             let again = DropResolver.resolve(y: by, payload: .workspaces(ids.map(id)), base: baseLayout, sections: sections)
             // Just above the gap or just below it still names the same slot.
             #expect(again == target)

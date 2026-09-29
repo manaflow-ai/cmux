@@ -16,16 +16,9 @@ public nonisolated enum KeyboardReorder {
     public static func target(moving ids: [WorkspaceID], direction: Direction, in sections: [SidebarSection]) -> DropPosition? {
         let ordered = SidebarEdits.treeOrder(ids, in: sections)
         guard let first = ordered.first, let anchor = SidebarEdits.locate(first, in: sections) else { return nil }
-        let sectionID = sections[anchor.section].id
-
         // Nothing precedes the anchor in tree order, so its indices already
         // are "after removal" coordinates.
-        let current: DropPosition
-        if let child = anchor.child, case let .group(group) = sections[anchor.section].nodes[anchor.node] {
-            current = DropPosition(section: sectionID, group: group.id, index: child)
-        } else {
-            current = DropPosition(section: sectionID, index: anchor.node)
-        }
+        guard let current = SidebarEdits.position(of: first, in: sections) else { return nil }
 
         var remaining = sections
         _ = SidebarEdits.removeWorkspaces(Set(ordered), from: &remaining)

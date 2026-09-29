@@ -93,6 +93,17 @@ public nonisolated enum SidebarEdits {
         return nil
     }
 
+    /// The slot a workspace occupies now, in "after removal" coordinates
+    /// for a block whose first item (in tree order) is `id`.
+    public static func position(of id: WorkspaceID, in sections: [SidebarSection]) -> DropPosition? {
+        guard let loc = locate(id, in: sections) else { return nil }
+        let section = sections[loc.section]
+        if let child = loc.child, case let .group(group) = section.nodes[loc.node] {
+            return DropPosition(section: section.id, group: group.id, index: child)
+        }
+        return DropPosition(section: section.id, index: loc.node)
+    }
+
     /// The given ids in visual (tree) order, dropping unknown ids.
     public static func treeOrder(_ ids: some Collection<WorkspaceID>, in sections: [SidebarSection]) -> [WorkspaceID] {
         let wanted = Set(ids)

@@ -78,9 +78,13 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
 public nonisolated struct SidebarLayout: Hashable, Sendable {
     public var rows: [SidebarRow]
     public var totalHeight: CGFloat
-    /// Vertical extent of the open gap, if any.
+    /// Top of the open gap, if any.
     public var gapY: CGFloat?
+    /// Height of the visible gap placeholder.
     public var gapHeight: CGFloat
+    /// How far the gap pushes following rows down (height plus spacing).
+    /// Pass this to `DropResolver.baseY(forDisplayY:gapY:gapHeight:)`.
+    public var gapShift: CGFloat
 
     public func row(for key: SidebarRowKey) -> SidebarRow? { rows.first { $0.key == key } }
 
@@ -191,6 +195,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }
         y += m.bottomPadding
-        return SidebarLayout(rows: rows, totalHeight: y, gapY: gapY, gapHeight: gapY == nil ? 0 : o.gapHeight)
+        return SidebarLayout(
+            rows: rows, totalHeight: y, gapY: gapY,
+            gapHeight: gapY == nil ? 0 : o.gapHeight,
+            gapShift: gapY == nil ? 0 : o.gapHeight + m.rowSpacing
+        )
     }
 }
