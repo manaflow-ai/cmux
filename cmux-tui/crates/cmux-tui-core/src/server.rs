@@ -168,15 +168,21 @@ fn machine_listening_tcp_json() -> anyhow::Result<Value> {
     #[cfg(unix)]
     {
         const MAX_LISTING_BYTES: usize = 512 * 1024;
-        // Process ownership lets clients distinguish dynamic runtime management
-        // listeners from app ports. netstat's -p means protocol on BSD/macOS.
+        // The Cloud daemon runs as cmux while containerd runs as root. Use the
+        // guest's existing noninteractive sudo permission for this fixed read-only
+        // inventory when available; otherwise preserve the unprivileged inventory.
         #[cfg(target_os = "linux")]
-        let netstat_arguments: &[&str] = &["-ltnp"];
+        let candidates: &[(&str, &[&str])] = &[
+            ("sudo", &["-n", "ss", "-H", "-ltnp"]),
+            ("sudo", &["-n", "netstat", "-ltnp"]),
+            ("ss", &["-H", "-ltnp"]),
+            ("netstat", &["-ltnp"]),
+        ];
+        // netstat's -p means protocol on BSD/macOS.
         #[cfg(not(target_os = "linux"))]
-        let netstat_arguments: &[&str] = &["-ltn"];
-        let candidates: [(&str, &[&str]); 2] = [("ss", &["-H", "-ltnp"]), ("netstat", netstat_arguments)];
+        let candidates: &[(&str, &[&str])] = &[("ss", &["-H", "-ltnp"]), ("netstat", &["-ltn"])];
         let mut failures = Vec::new();
-        for (program, arguments) in candidates {
+        for &(program, arguments) in candidates {
             let output = match std::process::Command::new(program).args(arguments).output() {
                 Ok(output) => output,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
