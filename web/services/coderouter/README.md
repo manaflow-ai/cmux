@@ -48,13 +48,19 @@ PostHog events go to the main cmux project (`POSTHOG_PROJECT_KEY` / `POSTHOG_HOS
 
 Route outcomes, failures, tokens, models, providers, latency, and Cloud VM attribution are stored in ClickHouse `route_events` and `usage_events`. This avoids a second usage ledger in PostHog and keeps billing and product reporting on one authoritative dataset.
 
-Fault classification (`classifyCoderouterFault`) decides who is paged. `operator` (PlanetScale, KMS, config, an unhandled throw): `$exception` at `error` level. `upstream` (provider 5xx/429 that survived failover, transport timeouts) and `tenant` (no usable account): `warning`. `caller` (bad token, 4xx): trace only, no exception. Fingerprints are `coderouter:<outcome>:<stage>:<provider>` for route outcomes and `coderouter.<failure>:<provider>` for reported failures, so one condition is one PostHog issue.
+Fault classification (`classifyCoderouterFault`, `faultClassification.ts`) decides who is paged; the alert cron uses the same function. `operator` (PlanetScale, KMS, config, an unhandled throw): `$exception` at `error` level. `upstream` (provider 5xx/429 that survived failover, transport timeouts) and `tenant` (no usable account): `warning`. `caller` (bad token, 4xx): trace only, no exception. Fingerprints are `coderouter:<outcome>:<stage>:<provider>` for route outcomes and `coderouter.<failure>:<provider>` for reported failures, so one condition is one PostHog issue.
 
-Unhandled throws in a route are no longer swallowed as a bare 503: the wrapper reports `route_crash` with the real stack (PostHog `$exception`, Sentry), then answers with the surface's own 503 shape.
+Unhandled throws in a route are no longer swallowed as a bare 503: the wrapper reports `route_crash` with the real stack (PostHog `$exception`, Sentry), then answers with the surface's own 503 shape. It also writes the `route_events` row the proxy never reached (outcome `route_crash`, the returned status, duration, request id), unless the proxy already wrote one for that request. The write is deferred and best effort; a ledger failure never changes the response. Before 2026-09-25 crashes wrote no row, so the 2026-09-24 signed-VM-auth outage (20,776 crashes in ten hours) was invisible to the alert cron.
+
+A crash carries a safe structured cause (`errorCause.ts`), never the message: Drizzle's query error embeds SQL and bound parameters. PostHog gets `coderouter_error_class`, `coderouter_error_cause_class`, `coderouter_db_sqlstate` (for example `42883`, undefined operator), `coderouter_db_operation` (the statement keyword, for example `select`) and `coderouter_error_code` (a transport code such as `ECONNREFUSED`); the Axiom span gets the same as `cmux.coderouter.*`, and Sentry gets them as context. The fingerprint is `coderouter:route_crash:<route>:<provider>:<cause>`, with cause `pg_<SQLSTATE>`, the transport code, or the class, so one bug is one issue. The provider comes from the surface (`responses` is `codex`, `messages` is `claude`, `/v1/models` decides by `anthropic-version`, control-plane routes are `control_plane`).
+
+`failure_stage` on a crash is `auth` when the throw happened after credential verification started but before it produced an identity, else `handler`. Attribution (`team_id`, `stack_user_id`, `vm_id` on the row; `team_id`, the distinct id and `coderouter_vm_id` on PostHog) uses the verified identity when there is one. For a signed VM credential whose JWT signature, audience and lifetime verified, but whose database ownership check crashed, it uses the signed claims; `coderouter_identity_source` is then `signed_vm_claims` instead of `authenticated`. Those claims were signed by us, so they identify the machine even though the request was not authorized.
 
 Upstream model calls are bounded to headers (`upstreamFetch.ts`, `CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS`, default 10 minutes). A hung provider fails over to the next account like a connection error instead of holding the function for the full 30 minute `maxDuration`. The body stream is never bounded.
 
 Investigating one failure: take the `x-coderouter-request-id`, query ClickHouse `SELECT * FROM coderouter.route_events WHERE request_id = '<id>'`, then use Axiom for the route span and PostHog Error Tracking for the operational issue.
+
+Scoping a crash: `SELECT failure_stage, provider, count(), uniqExact(team_id), uniqExact(vm_id), min(event_time), max(event_time) FROM coderouter.route_events WHERE outcome = 'route_crash' AND event_time > now() - INTERVAL 1 DAY GROUP BY failure_stage, provider`. Many rows from one `vm_id` is one looping client; many teams and VMs is an outage.
 
 ## Health
 
@@ -67,7 +73,8 @@ Investigating one failure: take the `x-coderouter-request-id`, query ClickHouse 
 | key | condition | severity | env |
 | --- | --- | --- | --- |
 | `coderouter-health` | health is `degraded` or `down` | warning / critical | |
-| `coderouter-operator-failures` | `provider_unavailable` from our side (PlanetScale/KMS/config), ≥ 1 | critical | `CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M` |
+| `coderouter-route-crashes` | `route_crash` rows (unhandled throws), ≥ 3; the body gives counts by stage and provider and the number of affected teams, not their ids | critical | `CMUX_CODEROUTER_ALERT_ROUTE_CRASHES_5M` |
+| `coderouter-operator-failures` | `provider_unavailable` from our side (PlanetScale/KMS/config), or any other outcome `classifyCoderouterFault` files as `operator` (such as a 5xx `server_error`), excluding `route_crash`, ≥ 1 | critical | `CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M` |
 | `coderouter-upstream-failures` | provider 5xx/transport after failover, ≥ 5 | warning | `CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M` |
 | `coderouter-no-usable-account` | tenants with no healthy account, ≥ 10 (names the teams) | warning | `CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M` |
 | `coderouter-auth-rejected` | unauthorized requests ≥ 25 | warning | `CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M` |
@@ -102,9 +109,13 @@ another team or a private account. Requests already sent upstream may finish.
 
 New account API writes explicitly set private visibility and their importing user.
 The database default remains shared for compatibility with older servers during
-a rolling deployment; old writes must not create ownerless private accounts. Human route tokens and API
-keys can use that user's private accounts and the selected team's shared
-accounts. An organization VM never inherits its creator's private access.
+a rolling deployment; old writes must not create ownerless private accounts. Human route tokens can
+use that user's private accounts and the selected team's shared accounts. A
+`crk_` API key is a team credential: in an organization it uses only the team's
+shared accounts, never its creator's or another member's private account. A key
+in a personal scope keeps its owner's private accounts. Each key has its own
+sticky-session namespace. An organization VM never inherits its creator's
+private access.
 Private accounts in a personal scope (`team_id = created_by`) are available to
 that user's personal VMs. Importing privately into an organization, even a
 one-person organization, does not grant its VMs access until the account is

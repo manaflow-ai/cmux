@@ -130,7 +130,7 @@ struct CloudSurfaceDragFeedbackTests {
         router.clear()
     }
 
-    @Test("Cloud tree rows reject foreign surfaces with the same warning")
+    @Test("A foreign Cloud terminal warns over the pane and stays silent over the Cloud tree")
     func cloudTreeFeedback() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let app = try VaultPaneAppFixture()
@@ -141,23 +141,137 @@ struct CloudSurfaceDragFeedbackTests {
             let outline = try #require(fixture.coordinator.outlineView)
             let target = try #require(CloudTreeNodeBuilder.flattened(fixture.nodes()).first { $0.structureTag == "workspace" })
             let focusedPanelID = try #require(app.workspace.focusedPanelId)
+            let sourcePanel = try #require(app.workspace.panels[focusedPanelID])
+            sourcePanel.retainTransferredSurfaceMachine(.cloud("foreign-cloud"))
+            #expect(app.workspace.machineOwningSurface(focusedPanelID) == .cloud("foreign-cloud"))
             let tabID = try #require(app.workspace.surfaceIdFromPanelId(focusedPanelID))
             let pane = try #require(app.workspace.bonsplitController.allPaneIds.first)
             let registration = try #require(app.appDelegate.tabDragTransferRegistry.register(TabDragTransfer(
-                tab: Tab(id: tabID, title: "local", kind: "terminal"), sourcePaneId: pane
+                tab: Tab(id: tabID, title: "Cloud terminal", kind: "terminal"), sourcePaneId: pane
             )))
             let pasteboard = NSPasteboard(name: NSPasteboard.Name("cloud-tree-ownership-\(UUID())"))
             #expect(registration.write(to: pasteboard))
             defer { app.appDelegate.tabDragTransferRegistry.end(registration); pasteboard.clearContents() }
+            let destination = Workspace()
+            defer { destination.teardownAllPanels() }
+            destination.cloudVMBinding = WorkspaceCloudVMBinding(vmID: fixture.machine.rawValue, isBase: false)
+            let gate = CloudSurfaceDropGateView(frame: NSRect(x: 0, y: 0, width: 240, height: 480))
+            gate.workspace = destination
+            gate.isActive = true
+            let sourcePanels = Set(app.workspace.panels.keys)
+            let destinationPanels = Set(destination.panels.keys)
+            let destinationPanes = destination.bonsplitController.allPaneIds
+            let organization = fixture.catalog.sidebarOrganization.state
             let sender = CloudSidebarDraggingInfo(source: outline, pasteboard: pasteboard, location: .zero)
+            #expect(gate.draggingEntered(sender).isEmpty)
+            #expect(gate.feedback.rejection == .cloudMachineMismatch)
+            #expect(gate.feedback.badge.accessibilityLabel() == SurfaceTransferRejection.cloudMachineMismatch.message)
+            #expect(gate.feedback.badge.superview === gate)
+            gate.draggingExited(sender)
+            #expect(gate.feedback.badge.superview == nil)
             #expect(fixture.coordinator.outlineView(outline, validateDrop: sender, proposedItem: target,
                                                     proposedChildIndex: NSOutlineViewDropOnItemIndex).isEmpty)
-            #expect(outline.ownershipFeedback.rejection == .cloudMachineMismatch)
+            let host = try #require(fixture.window.contentView?.superview)
+            #expect(host.subviews.compactMap { $0 as? FileDropHintBadgeView }.isEmpty)
             #expect(!fixture.coordinator.outlineView(outline, acceptDrop: sender, item: target,
                                                      childIndex: NSOutlineViewDropOnItemIndex))
-            #expect(outline.ownershipFeedback.rejection == nil)
+            #expect(host.subviews.compactMap { $0 as? FileDropHintBadgeView }.isEmpty)
+            // A rebuilt outline and the old source's delayed completion must
+            // not introduce a second presenter or leave a badge on the window.
+            let replacement = CloudTreeContainerView(coordinator: fixture.coordinator)
+            let replacementOutline = try #require(fixture.coordinator.outlineView)
+            #expect(replacementOutline !== outline)
+            #expect(fixture.coordinator.outlineView(replacementOutline, validateDrop: sender, proposedItem: target,
+                                                    proposedChildIndex: NSOutlineViewDropOnItemIndex).isEmpty)
+            outline.draggingEnded(sender)
+            #expect(replacementOutline.subviews.compactMap { $0 as? FileDropHintBadgeView }.isEmpty)
+            #expect(host.subviews.compactMap { $0 as? FileDropHintBadgeView }.isEmpty)
+            #expect(gate.draggingEntered(sender).isEmpty)
+            #expect(gate.feedback.rejection == .cloudMachineMismatch)
+            #expect(!gate.performDragOperation(sender))
+            #expect(gate.feedback.badge.superview == nil)
+            #expect(Set(app.workspace.panels.keys) == sourcePanels)
+            #expect(Set(destination.panels.keys) == destinationPanels)
+            #expect(destination.bonsplitController.allPaneIds == destinationPanes)
+            #expect(fixture.catalog.sidebarOrganization.state == organization)
             #expect(fixture.provider.moved.isEmpty && fixture.provider.projected.isEmpty && fixture.provider.closedTabs.isEmpty)
+            #expect(app.appDelegate.tabDragTransferRegistry.resolve(from: pasteboard) != nil)
+            _ = replacement
         }
     }
 
+    @Test("Pane warnings stay outside the sidebar and onscreen beside short splits", arguments: [false, true])
+    func paneWarningPlacement(short: Bool) throws {
+        let fixture = try CloudSurfaceDragFixture(kind: .terminal)
+        defer { fixture.finish() }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let root = NSView(frame: window.contentLayoutRect)
+        window.contentView = root
+        defer { window.contentView = nil }
+        let frame = NSRect(x: 0, y: short ? 420 : 0, width: 240, height: short ? 80 : 500)
+        let gate = CloudSurfaceDropGateView(frame: frame, sourceResolver: fixture.resolver)
+        root.addSubview(gate)
+        gate.workspace = fixture.workspace
+        gate.isActive = true
+        let sender = CloudSidebarDraggingInfo(source: NSOutlineView(), pasteboard: fixture.pasteboard, location: .zero)
+        #expect(gate.draggingEntered(sender).isEmpty)
+        let host = try #require(gate.feedback.badge.superview)
+        #expect(host === window.contentView?.superview)
+        let paneBounds = host.convert(gate.bounds, from: gate)
+        #expect(gate.feedback.badge.frame.minX >= paneBounds.minX)
+        #expect(gate.feedback.badge.frame.maxX <= paneBounds.maxX)
+        #expect(host.bounds.contains(gate.feedback.badge.frame))
+        if !short { #expect(paneBounds.contains(gate.feedback.badge.frame)) }
+        gate.draggingExited(sender)
+        #expect(gate.feedback.badge.superview == nil)
+        #expect(gate.draggingEntered(sender).isEmpty)
+        window.contentView = nil
+        #expect(gate.feedback.badge.superview == nil)
+        #expect(gate.feedback.rejection == nil)
+    }
+
+    @Test("Every pane destination boundary clears its warning", arguments: [
+        "exit", "end", "conclude", "prepare", "drop", "inactive", "workspace", "hide", "detach", "empty", "sameVM", "nonTransfer"
+    ])
+    func paneWarningCleanup(boundary: String) throws {
+        let fixture = try CloudSurfaceDragFixture(kind: .terminal)
+        defer { fixture.finish() }
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 480))
+        let gate = CloudSurfaceDropGateView(frame: root.bounds, sourceResolver: fixture.resolver)
+        root.addSubview(gate)
+        gate.workspace = fixture.workspace
+        gate.isActive = true
+        let sender = CloudSidebarDraggingInfo(source: NSOutlineView(), pasteboard: fixture.pasteboard, location: .zero)
+        #expect(gate.draggingEntered(sender).isEmpty)
+        #expect(gate.feedback.rejection == .cloudMachineMismatch)
+        switch boundary {
+        case "exit": gate.draggingExited(sender)
+        case "end": gate.draggingEnded(sender)
+        case "conclude": gate.concludeDragOperation(sender)
+        case "prepare": #expect(!gate.prepareForDragOperation(sender))
+        case "drop": #expect(!gate.performDragOperation(sender))
+        case "inactive": gate.isActive = false
+        case "workspace": gate.workspace = nil
+        case "hide": gate.isHidden = true
+        case "detach": gate.removeFromSuperview()
+        case "empty":
+            gate.setFrameSize(.zero)
+            #expect(gate.draggingUpdated(sender).isEmpty)
+        case "sameVM":
+            fixture.workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "a", isBase: false)
+            #expect(gate.draggingUpdated(sender).isEmpty)
+            #expect(gate.rejection(for: fixture.pasteboard) == nil)
+            guard case .accepted = fixture.router().resolve(
+                pasteboard: fixture.pasteboard, context: fixture.context, proposedZone: .right
+            ) else { Issue.record("Same-VM drops must still reach the pane destination"); return }
+        case "nonTransfer":
+            fixture.pasteboard.clearContents()
+            #expect(gate.draggingUpdated(sender).isEmpty)
+        default: Issue.record("Unknown lifecycle boundary")
+        }
+        #expect(gate.feedback.rejection == nil)
+        #expect(gate.feedback.badge.isHidden)
+        #expect(gate.feedback.badge.superview == nil)
+    }
 }

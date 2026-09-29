@@ -21,6 +21,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     // intrinsic insets shift single digits off the circle's optical center.
     private let unreadBadgeView = SidebarRowUnreadBadgeView()
     private var unreadBadgeFont: NSFont = .systemFont(ofSize: 10, weight: .semibold)
+    /// Compact status mode: replaces the unread badge; see `model.statusGlyph`.
+    private let statusGlyphView = SidebarCompactStatusGlyphImageView()
     private let plusButton = SidebarHeaderGlyphButton()
     private let topDropIndicator = SidebarReorderIndicatorView()
     private let bottomDropIndicator = SidebarReorderIndicatorView()
@@ -28,6 +30,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     private var model: SidebarGroupHeaderRowModel?
     private var actions: SidebarGroupHeaderRowActions?
+    /// Mirrors the table controller's flag, as workspace row cells do, so a
+    /// cell configured while the sidebar is hidden does not restart the pulse.
+    private var isPresentationActive = true
     private var isPointerHovering = false
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
@@ -73,9 +78,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         addSubview(nameField)
 
         addSubview(unreadBadgeView)
+        addSubview(statusGlyphView)
 
         plusButton.onClick = { [weak self] in self?.actions?.onTapPlus() }
         plusButton.menuProvider = { [weak self] in self?.makePlusMenu() }
+        plusButton.concealImmediately()
         addSubview(plusButton)
 
         topDropIndicator.wantsLayer = true
@@ -94,14 +101,27 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         super.prepareForReuse()
         suspendPresentation()
         model = nil
+        isPointerHovering = false
+        plusButton.concealImmediately()
         hintPill.resetForReuse()
     }
 
+    func setPresentationActive(_ isActive: Bool) {
+        isPresentationActive = isActive
+        statusGlyphView.isPresentationActive = isActive
+    }
+
+    /// Stops the live presentation without forgetting what it should go back
+    /// to. Only the glyph view's flag is cleared, never this cell's: `configure`
+    /// reapplies the cell's stored `isPresentationActive` to the glyph view on
+    /// every reconfiguration, so clearing the stored one here would leave
+    /// nothing to restore it and a reused cell's pulse would never start again.
     func suspendPresentation() {
         actions = nil
         contextMenuDidOpen = nil
         contextMenuDidClose = nil
         contextMenuVisible = false
+        statusGlyphView.isPresentationActive = false
     }
 
     func configurePresentation(model: SidebarGroupHeaderRowModel) {
@@ -122,6 +142,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         contextMenuDidClose: @escaping () -> Void
     ) {
         let requiresFullApply = self.actions == nil
+        statusGlyphView.isPresentationActive = isPresentationActive
         let previous = self.model
         self.actions = actions
         self.contextMenuDidOpen = contextMenuDidOpen
@@ -185,7 +206,21 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             ? colorResolver.resolvedColor(.labelColor, for: colorScheme)
             : colorResolver.resolvedColor(.labelColor, for: colorScheme, opacity: 0.9)
 
-        let showsBadge = model.anchorUnreadCount > 0
+        // In compact status mode unread folds into the glyph (blue), so the
+        // count badge stays off even when no member state rolls up.
+        statusGlyphView.isHidden = model.statusGlyph == nil
+        if let glyph = model.statusGlyph {
+            statusGlyphView.configure(
+                glyph,
+                pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: percent),
+                color: glyph.color(
+                    isActive: false,
+                    selected: .labelColor,
+                    secondary: colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
+                )
+            )
+        }
+        let showsBadge = model.statusGlyph == nil && !model.compactsAgentStatus && model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
         if showsBadge {
             unreadBadgeFont = .systemFont(
@@ -194,7 +229,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
             unreadBadgeView.configure(
                 count: model.anchorUnreadCount,
-                fillColor: .controlAccentColor,
+                fillColor: cmuxNotificationBadgeNSColor(
+                    hex: model.notificationBadgeColorHex,
+                    fallback: model.accentColor.nsColor(for: colorScheme)
+                ),
                 textColor: .white,
                 font: unreadBadgeFont
             )
@@ -220,7 +258,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             : 4
         backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
 
-        let accent = cmuxAccentNSColor(for: colorScheme)
+        topDropIndicator.accentColor = model.accentColor
+        bottomDropIndicator.accentColor = model.accentColor
+        let accent = model.accentColor.nsColor(for: colorScheme)
         topDropIndicator.layer?.backgroundColor = accent.cgColor
         bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
@@ -244,7 +284,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
         let colorScheme: ColorScheme = model.map { $0.colorSchemeIsDark ? .dark : .light }
             ?? SidebarAppearanceColorResolver().currentColorScheme()
-        let accent = cmuxAccentNSColor(for: colorScheme)
+        let accent = (model?.accentColor ?? CmuxAccentColor()).nsColor(for: colorScheme)
         topDropIndicator.layer?.backgroundColor = accent.cgColor
         bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !top
@@ -415,6 +455,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
         }
 
+        if !statusGlyphView.isHidden {
+            let side = GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: model.globalFontMagnificationPercent)
+            badgeSize = NSSize(width: side, height: side)
+        }
+
         let nameAvailable = max(0, (plusButton.frame.minX - 4) - x
             - (badgeSize.width > 0 ? badgeSize.width + 6 : 0))
         let nameSize = nameField.attributedStringValue.size()
@@ -435,6 +480,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 height: badgeSize.height
             )
             unreadBadgeView.needsDisplay = true
+        }
+        if !statusGlyphView.isHidden {
+            statusGlyphView.frame = NSRect(
+                x: x + min(ceil(nameSize.width), nameAvailable) + 6,
+                y: midY - badgeSize.height / 2,
+                width: badgeSize.width,
+                height: badgeSize.height
+            )
         }
 
         let topOffset: CGFloat = model.isFirstRow ? 0 : -(model.rowSpacing / 2)
@@ -647,33 +700,22 @@ final class SidebarHeaderGlyphButton: NSButton {
         menuProvider?() ?? super.menu(for: event)
     }
 
-    /// Arc-style hover reveal: 120ms ease-out fade instead of a hard snap.
-    /// Hit-testing follows the target state immediately so a fading-out
-    /// button never swallows a click.
+    /// Starting state for hover-revealed buttons, and the reset on cell
+    /// reuse. NSButton is born visible, so without this every fresh or
+    /// recycled cell painted an X on its first unhovered configure, which
+    /// flashed the close buttons on all rows at once after a workspace close.
+    func concealImmediately() {
+        setRevealed(false)
+    }
+
+    /// Hover reveal lands in the same frame as the hover change. The row
+    /// swaps its trailing badge or spinner for this button synchronously, so
+    /// a fade here left the slot blank on hover-in and doubled up on
+    /// hover-out.
     func setRevealed(_ revealed: Bool) {
-        if revealed {
-            if isHidden {
-                alphaValue = 0
-                isHidden = false
-            }
-            isEnabled = true
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.12
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                animator().alphaValue = 1
-            }
-        } else {
-            guard !isHidden else { return }
-            isEnabled = false
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.12
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                animator().alphaValue = 0
-            }, completionHandler: { [weak self] in
-                guard let self, !self.isEnabled else { return }
-                self.isHidden = true
-            })
-        }
+        isEnabled = revealed
+        alphaValue = revealed ? 1 : 0
+        isHidden = !revealed
     }
 }
 
@@ -792,24 +834,18 @@ final class SidebarShortcutHintPillView: NSView {
         visibilityGeneration &+= 1
         let generation = visibilityGeneration
 
-        if reduceMotionProvider() {
+        // Hints appear at once (the modifier hold is already the wait) and
+        // only fade out.
+        if revealed || reduceMotionProvider() {
             applyImmediateVisibility(revealed)
             return
         }
 
-        if revealed {
-            if isHidden {
-                layer?.opacity = 0
-                isHidden = false
-            }
-            animateOpacity(to: 1, generation: generation)
-        } else {
-            guard !isHidden else {
-                layer?.opacity = 0
-                return
-            }
-            animateOpacity(to: 0, generation: generation, hidesWhenFinished: true)
+        guard !isHidden else {
+            layer?.opacity = 0
+            return
         }
+        fadeOut(generation: generation)
     }
 
     private func applyImmediateVisibility(_ revealed: Bool) {
@@ -821,32 +857,26 @@ final class SidebarShortcutHintPillView: NSView {
         isHidden = !revealed
     }
 
-    private func animateOpacity(
-        to value: Float,
-        generation: UInt64,
-        hidesWhenFinished: Bool = false
-    ) {
+    private func fadeOut(generation: UInt64) {
         guard let layer else { return }
         let currentOpacity = layer.presentation()?.opacity ?? layer.opacity
         let animation = CABasicAnimation(keyPath: "opacity")
         animation.fromValue = currentOpacity
-        animation.toValue = value
+        animation.toValue = 0
         animation.duration = ShortcutHintAnimation.visibilityDuration
         animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if hidesWhenFinished {
-            CATransaction.setCompletionBlock { [weak self] in
-                Task { @MainActor [weak self] in
-                    guard let self,
-                          self.visibilityGeneration == generation,
-                          !self.isRevealed else { return }
-                    self.isHidden = true
-                }
+        CATransaction.setCompletionBlock { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.visibilityGeneration == generation,
+                      !self.isRevealed else { return }
+                self.isHidden = true
             }
         }
-        layer.opacity = value
+        layer.opacity = 0
         layer.add(animation, forKey: Self.visibilityAnimationKey)
         CATransaction.commit()
     }

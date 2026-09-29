@@ -2,6 +2,8 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+For themes, fonts, transparency, and other appearance settings across Ghostty config and `cmux.json`, see [Customizing cmux's look](customizing-appearance.md).
+
 ## Automation socket trust boundary
 
 `cmuxOnly` allows the cmux CLI and programs started from cmux terminals. This
@@ -10,6 +12,30 @@ terminal is trusted even when it later starts another process or leaves the
 terminal's original process group. Use `password` or `cmuxOnly` when untrusted
 code may run inside a cmux terminal. `allowAll` also grants
 access to other local macOS users and is unsafe on a shared Mac.
+
+## Ghostty config live reload
+
+cmux reads terminal settings from the Ghostty config: `~/.config/ghostty/config` and
+`~/.config/ghostty/config.ghostty` (under `$XDG_CONFIG_HOME/ghostty/` when that is set),
+`~/Library/Application Support/com.mitchellh.ghostty/config.ghostty`
+(or its legacy `config`), and the cmux config under
+`~/Library/Application Support/com.cmuxterm.app/`. cmux watches these files, every file
+pulled in with `config-file`, and user theme files named by `theme` (an absolute path, or
+`$XDG_CONFIG_HOME/ghostty/themes/<name>`, which defaults to `~/.config/ghostty/themes/<name>`,
+for each side of a `light:…,dark:…` pair). Saving one of them reloads the
+configuration the same way as Reload Configuration (Cmd+Shift+,), about 300 ms after
+the last write. Atomic saves, Vim-style saves that move the old file aside, files
+created after launch, and newly added includes are all picked up. A save that leaves
+the contents unchanged, or a file cmux already reloaded itself (for example after
+`cmux themes set` or a `cmux themes` preview), does not trigger another reload. A save
+made while a reload is still applying reloads once more after it. Themes bundled with cmux or Ghostty.app
+are not watched.
+
+When Ghostty reports errors for the config (an unknown key, an invalid value, a missing
+theme), cmux shows a notice in the corner of the window listing the first three, with a
+button that opens the file at the offending line. The notice appears once per distinct set
+of errors: reloads that keep the same errors stay quiet, fixing them hides the notice, and
+reintroducing an error shows it again. `cmux config doctor` validates `cmux.json` only.
 
 ## `mobile.artifactFolderAccess`
 
@@ -42,7 +68,7 @@ Customize split-workspace pane boundaries controlled by cmux.
 - `paneBorderColor`: overrides the divider color between cmux panes in split workspaces.
 - `activePaneBorderColor`: draws a border around the focused cmux pane in split workspaces.
 
-Both settings accept 6-digit hex colors (`#RRGGBB`). Omit a key, or set it to `null`, to keep the built-in appearance. These settings apply to cmux's multi-surface pane layout, not Ghostty's internal splits; Ghostty settings such as `split-divider-color` still only affect splits inside one Ghostty instance.
+Both settings accept 6-digit hex colors (`#RRGGBB`). Omit a key, or set it to `null`, to use the default. These settings apply to cmux's multi-surface pane layout. When `paneBorderColor` is unset, the divider uses Ghostty's `split-divider-color` if one is configured.
 
 ## `app.windowTitleTemplate`
 
@@ -91,8 +117,9 @@ Default: `right`.
 
 Routine Agent Hibernation is opt-in. cmux hibernates idle background agent
 processes to free RAM and CPU, then resumes each one with its saved session
-when you visit its tab. Independently, aggregate memory pressure can offer the
-same lossless hibernation lifecycle even when routine hibernation is disabled.
+when you visit its tab. Independently, memory pressure (critical system pressure,
+or aggregate pressure below) can use the same lossless hibernation lifecycle even
+when routine hibernation is disabled.
 See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full eligibility
 rules, confirmation settle window, and resume behavior.
 
@@ -156,6 +183,61 @@ Shows a loading spinner on sidebar workspace rows that currently have running co
 - `notificationBadgePosition`: which side the unread notification badge sits on, `leading` or `trailing`. Default: `leading`.
 
 The spinner is compositor-driven (a Core Animation transform run by the render server), so it costs no per-frame CPU and pauses automatically while the window is occluded or Reduce Motion is on. Toggle it manually per workspace with `cmux workspace loading <on|off> [--id <name>]`; each `--id` is a separate loader and the command prints the workspace state as `before=ON;after=OFF`.
+
+## `sidebar.compactAgentStatus`
+
+Puts the workspace's own status on one line, like the Claude desktop session list: one small colored glyph, then the title. Agent hooks report each coding agent's state as a status entry (for example Claude Code's "Running" or "Needs input"), and by default every one gets its own row under the workspace title, next to the branch and directory line and the pull request rows. With `compactAgentStatus` on, those rows fold into the glyph, along with the notification preview, the unread count badge and the loading spinner, and a long title stops wrapping. Hover the glyph for the agent, pull request, branch, and directory details, plus the config profile an agent launched under when it isn't the default (`CLAUDE_CONFIG_DIR=~/.claude-outlook` shows as `outlook`).
+
+Lines you added yourself stay where they are: the workspace description, your own `cmux set-status` keys, logs, progress, ports, the checklist, and a remote workspace's connection row with its Reconnect button. So `cmux set-status` under your own key is still the way to keep a line of your own in compact mode.
+
+```json
+{
+  "sidebar": {
+    "compactAgentStatus": true
+  }
+}
+```
+
+The glyph shows the loudest state that applies:
+
+| State | Glyph |
+| --- | --- |
+| An agent reported an error | red warning triangle |
+| An agent needs input | amber dot |
+| An agent is running | pulsing gray dot, in place of the loading spinner |
+| An agent is starting (no state reported yet) | dashed ring |
+| Unread notifications | blue dot, in place of the unread count badge |
+| Open pull request | gray pull request glyph |
+| Merged pull request | purple merge glyph |
+| Closed pull request | gray pull request glyph with a minus badge |
+| Agent idle (done, seen) | gray checkmark |
+| Branch, no pull request | gray branch glyph |
+| Plain terminal | none; the title starts at the row's edge |
+
+cmux does not fetch a pull request's checks or mergeability, so an open pull request is gray whatever CI says. A pull request whose state repeated refresh failures could not confirm does not set the glyph at all.
+
+Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF Symbol](https://developer.apple.com/sf-symbols/) name. The states are `error`, `needsInput`, `running`, `starting`, `unseen`, `pullRequestOpen`, `pullRequestMerged`, `pullRequestClosed`, `idle`, `branch` and `terminal`. Colors stay the same; a configured symbol replaces the badge too, draws at full size, and a name that does not render falls back to the built-in symbol. The built-in pull request and merge glyphs are drawn by cmux, since the SF Symbols ones are too narrow at sidebar size; name them `cmux.pullrequest` and `cmux.merge` to use them for another state.
+
+```json
+{
+  "sidebar": {
+    "compactAgentStatus": true,
+    "compactStatusIcons": {
+      "terminal": "apple.terminal",
+      "needsInput": "hand.raised.fill",
+      "idle": "moon.zzz"
+    }
+  }
+}
+```
+
+- Default: `false`.
+- Only agent-owned status keys lose their rows (`claude_code`, `codex`, and the other built-in agent integrations). Status set with `cmux set-status` under any other key keeps its row.
+- The notification preview moves to the top of the tooltip too. Rows you added yourself (a workspace description, `cmux set-status` under other keys, logs, progress, ports) keep their lines.
+- Workspace group headers show a glyph, after the group name, for the workspaces without a row of their own: the anchor workspace while the group is expanded, and every member once it is collapsed. Only states that ask for attention appear there (error, needs input, running, unread), the loudest first; hover it to see which workspace each comes from. It replaces the header's unread count.
+- The pulse is a Core Animation opacity loop capped at 30 Hz. It stops while the window is hidden or occluded, and Reduce Motion keeps the dot still.
+- A pull request glyph shows whether the pull request is open, merged or closed, and nothing about its checks. cmux does not fetch CI status or mergeability for a pull request, so there is no passing, failing or conflict glyph: adding one would advertise a color no user could see. An open pull request shows gray, merged shows purple, and closed shows gray with a minus badge. See [#12807](https://github.com/manaflow-ai/cmux/issues/12807).
+- Pull request and branch details follow `sidebar.showPullRequests` and the git branch toggle: turn either off and the glyph ignores it. Toggle compact status from **Settings > Sidebar > Compact Agent Status**.
 
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 

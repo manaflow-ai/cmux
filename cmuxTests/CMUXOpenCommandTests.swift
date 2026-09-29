@@ -1769,6 +1769,110 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(try posixPermissions(at: snapshotFile), 0o600)
     }
 
+    func testAgentTurnDiffBaselineBoundsLargeUntrackedPathLists() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        let stateURL = rootURL.appendingPathComponent("state", isDirectory: true)
+        let artifactsURL = repoURL.appendingPathComponent("artifacts", isDirectory: true)
+        try FileManager.default.createDirectory(at: artifactsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stateURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "tracked\n".write(to: repoURL.appendingPathComponent("tracked.txt"), atomically: true, encoding: .utf8)
+        try runGit(["add", "tracked.txt"], in: repoURL)
+        try runGit(["commit", "-m", "initial"], in: repoURL)
+        for index in 0..<600 {
+            try "artifact \(index)\n".write(
+                to: artifactsURL.appendingPathComponent("artifact-\(index).txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let workspaceId = UUID().uuidString.lowercased()
+        let surfaceId = UUID().uuidString.lowercased()
+        let socketPath = makeSocketPath("hook-diff")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            if method == "surface.list" {
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": surfaceId,
+                                "ref": "surface:1",
+                                "index": 1,
+                                "focused": true
+                            ] as [String: Any]
+                        ]
+                    ]
+                )
+            }
+            return Self.v2Response(id: id, ok: true, result: [:])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["hooks", "codex", "prompt-submit", "--workspace", workspaceId, "--surface", surfaceId],
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
+                "PWD": repoURL.path
+            ],
+            currentDirectoryURL: repoURL,
+            stdinText: String(
+                data: try JSONSerialization.data(withJSONObject: [
+                    "session_id": "session-large-untracked",
+                    "cwd": repoURL.path,
+                    "hook_event_name": "UserPromptSubmit",
+                ], options: [.sortedKeys]),
+                encoding: .utf8
+            )
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let storeData = try Data(contentsOf: stateURL.appendingPathComponent("agent-turn-diff-baselines.json"))
+        let store = try JSONSerialization.jsonObject(with: storeData, options: []) as? [String: Any]
+        let records = try XCTUnwrap(store?["records"] as? [[String: Any]])
+        let record = try XCTUnwrap(records.first)
+        XCTAssertEqual(record["untrackedPaths"] as? [String], ["artifacts/"])
+        XCTAssertNil(record["untrackedPathsOmitted"])
+
+        try "new\n".write(to: repoURL.appendingPathComponent("new-turn-file.txt"), atomically: true, encoding: .utf8)
+        let lastTurn = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--last-turn"],
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId
+            ],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertTrue(lastTurn.patch.contains("new-turn-file.txt"), lastTurn.patch)
+        XCTAssertFalse(lastTurn.patch.contains("artifacts/artifact-"), lastTurn.patch)
+    }
+
     func testAgentTurnDiffBaselineUsesEmptyTreeForUnbornGitRepo() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory

@@ -634,14 +634,18 @@ class OwnedMarkerRunTests(unittest.TestCase):
     def test_ci_pull_requests_and_e2e_dispatches_may_hold_an_owned_pool(self):
         self.assertTrue(janitor.may_hold_owned_pool(self.run_of(), []))
         # Attempt 2 may take the light tier, only while CI_OWNED_LIGHT_RETRY is on.
-        self.assertTrue(janitor.may_hold_owned_pool(self.run_of(run_attempt=2), [], light_retry=True))
-        self.assertFalse(janitor.may_hold_owned_pool(self.run_of(run_attempt=2), []))
+        bot = {"login": "github-actions[bot]"}
+        self.assertTrue(janitor.may_hold_owned_pool(self.run_of(run_attempt=2, triggering_actor=bot), [],
+                                                    light_retry=True))
+        self.assertFalse(janitor.may_hold_owned_pool(self.run_of(run_attempt=2, triggering_actor=bot), []))
+        # A person's re-run follows a code failure and may pick the fleet again.
+        self.assertTrue(janitor.may_hold_owned_pool(self.run_of(run_attempt=3), []))
         self.assertTrue(janitor.may_hold_owned_pool(
             self.run_of(event="workflow_dispatch", path=".github/workflows/test-e2e.yml"), []))
         for why, run in {
             "ci.yml dispatch": self.run_of(event="workflow_dispatch"),
             "e2e as a pull request": self.run_of(path=".github/workflows/test-e2e.yml"),
-            "third attempt": self.run_of(run_attempt=3),
+            "the bot's third attempt": self.run_of(run_attempt=3, triggering_actor={"login": "github-actions[bot]"}),
             "fork": self.run_of(head_repository={"id": 2}),
             "other workflow": self.run_of(event="workflow_dispatch", path=".github/workflows/nightly.yml"),
         }.items():

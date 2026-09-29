@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+import git_fixture_env  # disables git auto maintenance
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -33,6 +33,7 @@ class InstallGitHooksTests(unittest.TestCase):
         self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
                         HOME=str(self.root))
+        git_fixture_env.without_auto_maintenance(self.env)
         self.repo.mkdir()
         self.git("init", "--quiet", "--initial-branch=main")
         self.copy_installer(self.repo)

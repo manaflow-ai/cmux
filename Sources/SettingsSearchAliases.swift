@@ -4,7 +4,7 @@ enum SettingsSearchAliasIndex {
     static func sectionAliases(for target: SettingsNavigationTarget) -> String {
         switch target {
         case .computers:
-            return localized("settings.computers.keywords", defaultValue: "computers devices mac tailscale pairing remote workspaces")
+            return localized("settings.devices.keywords", defaultValue: "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces")
         case .account:
             return localized("settings.search.alias.section.account", defaultValue: "auth authentication login logout sign in sign out email user profile team")
         case .app:
@@ -59,6 +59,7 @@ enum SettingsSearchAliasIndex {
     private static let settingAliases: [String: String] = [
         "account:account": localized("settings.search.alias.setting.account.account", defaultValue: "auth authentication login logout signin sign-in signout sign-out email user profile stack team"),
         "app:language": localized("settings.search.alias.setting.app.language", defaultValue: "app.language locale l10n localization translation japanese english ja en nihongo restart"),
+        "app:accent-color": localized("settings.search.alias.setting.app.accent-color", defaultValue: "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue"),
         "app:appearance": localized("settings.search.alias.setting.app.appearance", defaultValue: "app.appearance theme color scheme light mode dark mode system mode"),
         "app:app-icon": localized("settings.search.alias.setting.app.app-icon", defaultValue: "app.appIcon dock icon application icon app switcher alternate icon"),
         "app:default-terminal": localized("settings.search.alias.setting.app.default-terminal", defaultValue: "app.defaultTerminal default terminal ssh links command tool unix executable launch services handler"),
@@ -84,7 +85,7 @@ enum SettingsSearchAliasIndex {
         "app:file-editor-current-line-highlight": localized("settings.search.alias.setting.app.file-editor-current-line-highlight", defaultValue: "fileEditor.currentLineHighlight current line caret"),
         "app:file-editor-tab-width": localized("settings.search.alias.setting.app.file-editor-tab-width", defaultValue: "fileEditor.tabWidth tab width indent columns"),
         "app:imessage-mode": localized("settings.search.alias.setting.app.imessage-mode", defaultValue: "app.iMessageMode imessage message messages chat prompt prompts submitted message texting reorder move workspace top agent send"),
-        "app:reorder-notification": localized("settings.search.alias.setting.app.reorder-notification", defaultValue: "app.reorderOnNotification notification reorder move workspace top unread sort"),
+        "app:reorder-notification": localized("settings.search.alias.setting.app.reorder-notification", defaultValue: "app.reorderOnNotification notification reorder move workspace top unread sort agent activity agents prompt turn finished needs input"),
         "app:dock-badge": localized("settings.search.alias.setting.app.dock-badge", defaultValue: "notifications.dockBadge badge dock unread count icon notifications red bubble"),
         "app:menu-bar-only": localized("settings.search.alias.setting.app.menu-bar-only", defaultValue: "app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"),
         "app:show-menu-bar": localized("settings.search.alias.setting.app.show-menu-bar", defaultValue: "notifications.showInMenuBar menubar menu bar status item tray extra"),
@@ -101,6 +102,14 @@ enum SettingsSearchAliasIndex {
             "settings.search.alias.setting.app.warn-before-closing-tab-x-button",
             defaultValue: "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface"
         ),
+        "app:warn-before-closing-workspace": localized(
+            "settings.search.alias.setting.app.warn-before-closing-workspace",
+            defaultValue: "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent"
+        ),
+        "app:warn-before-closing-window": localized(
+            "settings.search.alias.setting.app.warn-before-closing-window",
+            defaultValue: "app.warnBeforeClosingWindow close window confirmation command-control-w cmd-ctrl-w running process"
+        ),
         "app:hide-tab-close-button": localized(
             "settings.search.alias.setting.app.hide-tab-close-button",
             defaultValue: "app.hideTabCloseButton hide close tab x button terminal surface"
@@ -115,7 +124,10 @@ enum SettingsSearchAliasIndex {
         "terminal:session-content-alignment": localized("settings.search.alias.setting.terminal.session-content-alignment", defaultValue: "terminal.sessionContentAlignment terminal agent chat left center right alignment position"),
         "terminal:copy-on-select": localized("settings.search.alias.setting.terminal.copy-on-select", defaultValue: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
         "terminal:text-editing-gestures": localized("settings.search.alias.setting.terminal.text-editing-gestures", defaultValue: "terminal.textEditingGestures text editing gestures option alt word line kill readline emacs keybindings command arrow delete"),
+        "terminal:confirm-unsafe-paste": localized("settings.search.alias.setting.terminal.confirm-unsafe-paste", defaultValue: "terminal.confirmUnsafePaste confirm unsafe paste protection warning multi-line newline clipboard sheet"),
         "terminal:reflow-hard-wrap-on-copy": localized("settings.search.alias.setting.terminal.reflow-hard-wrap-on-copy", defaultValue: "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"),
+        "terminal:password-input-indicator": localized("settings.search.alias.setting.terminal.password-input-indicator", defaultValue: "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"),
+        "terminal:password-input-dots": localized("settings.search.alias.setting.terminal.password-input-dots", defaultValue: "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"),
         "terminal:tab-bar-font-size": localized("settings.search.alias.setting.terminal.tab-bar-font-size", defaultValue: "surface-tab-bar-font-size tab bar font size text scale terminal browser pane tab title"),
         "terminal:resume-commands": localized("settings.search.alias.setting.terminal.resume-commands", defaultValue: "surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"),
         "textBox:show-textbox-new-terminals": localized("settings.search.alias.setting.textBox.show-textbox-new-terminals", defaultValue: "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta"),
@@ -148,6 +160,7 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:loading-spinner-position": localized("settings.search.alias.setting.app.loading-spinner-position", defaultValue: "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace"),
         "sidebarAppearance:notification-badge-position": localized("settings.search.alias.setting.app.notification-badge-position", defaultValue: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace"),
         "sidebarAppearance:show-metadata": localized("settings.search.alias.setting.app.show-metadata", defaultValue: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
+        "sidebarAppearance:compact-agent-status": localized("settings.search.alias.setting.app.compact-agent-status", defaultValue: "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"),
         "sidebarAppearance:right-max-width": localized("settings.search.alias.setting.sidebarAppearance.right-max-width", defaultValue: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
         "betaFeatures:feed": localized("settings.search.alias.setting.betaFeatures.feed", defaultValue: "feed right sidebar agent decisions permissions questions approval beta unstable"),
         "betaFeatures:dock": localized("settings.search.alias.setting.betaFeatures.dock", defaultValue: "dock right sidebar terminal controls tui beta unstable"),
@@ -164,6 +177,7 @@ enum SettingsSearchAliasIndex {
         "automation:socket-mode": localized("settings.search.alias.setting.automation.socket-mode", defaultValue: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
         "automation:socket-password": localized("settings.search.alias.setting.automation.socket-password", defaultValue: "automation.socketPassword auth token credential secret password access key"),
         "automation:claude-code": localized("settings.search.alias.setting.automation.claude-code", defaultValue: "automation.claudeCodeIntegration claude code hooks agent integration status notifications"),
+        "automation:pi": localized("settings.search.alias.setting.automation.pi", defaultValue: "automation.piIntegration pi hooks agent integration status notifications"),
         "automation:claude-path": localized("settings.search.alias.setting.automation.claude-path", defaultValue: "automation.claudeBinaryPath claude binary executable path cli command custom"),
         "automation:workspace-auto-naming": localized("settings.search.alias.setting.automation.workspace-auto-naming", defaultValue: "automation.workspaceAutoNaming automation.autoNamingAgent ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated name summarize summary summarizer conversation agent picker naming agent"),
         "automation:ripgrep-path": localized("settings.search.alias.setting.automation.ripgrep-path", defaultValue: "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"),
@@ -196,11 +210,13 @@ enum SettingsSearchAliasIndex {
         "browser:history": localized("settings.search.alias.setting.browser.history", defaultValue: "clear browser history visited pages suggestions omnibar"),
         "globalHotkey:enable-hotkey": localized("settings.search.alias.setting.globalHotkey.enable-hotkey", defaultValue: "global hotkey enable system wide show hide all windows"),
         "globalHotkey:shortcut": localized("settings.search.alias.setting.globalHotkey.shortcut", defaultValue: "global hotkey shortcut recorder key command option control"),
+        "keyboardShortcuts:base-keymap": localized("settings.search.alias.setting.keyboardShortcuts.base-keymap", defaultValue: "base keymap preset iterm iterm2 terminal app tmux prefix keybindings coming from another terminal"),
         "keyboardShortcuts:shortcut-chords": localized("settings.search.alias.setting.keyboardShortcuts.shortcut-chords", defaultValue: "tmux prefix ctrl-b control-b multi key sequence chord cmux json"),
         "keyboardShortcuts:reset-defaults": localized("settings.search.alias.setting.keyboardShortcuts.reset-defaults", defaultValue: "reset restore default defaults built in builtin shortcuts hotkeys keybindings commands"),
         "keyboardShortcuts:shortcuts": localized("settings.search.alias.setting.keyboardShortcuts.shortcuts", defaultValue: "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json"),
         "workspaceColors:indicator": localized("settings.search.alias.setting.workspaceColors.indicator", defaultValue: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
         "workspaceColors:selection": localized("settings.search.alias.setting.workspaceColors.selection", defaultValue: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
+        "workspaceColors:subtle-selection": localized("settings.search.alias.setting.workspaceColors.subtle-selection", defaultValue: "workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent"),
         "workspaceColors:badge": localized("settings.search.alias.setting.workspaceColors.badge", defaultValue: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
         "workspaceColors:palette": localized("settings.search.alias.setting.workspaceColors.palette", defaultValue: "workspaceColors.colors workspace palette named colors custom color reset built-in"),
         "settingsJSON:open-file": localized("settings.search.alias.setting.settingsJSON.open-file", defaultValue: "open config file json jsonc config editor ~/.config cmux preferences"),

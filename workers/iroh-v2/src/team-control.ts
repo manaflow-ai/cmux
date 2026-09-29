@@ -7,12 +7,11 @@ import type { ControlResponse } from "./contracts/responses";
 import { identityKey, issueTicket } from "./crypto";
 import { acknowledgeDelivery, DeliveryStateSchema, deliveryUsage, emptyDeliveryState, prepareDelivery } from "./delivery";
 import { environmentScope, runtime, type Environment } from "./environment";
-import { failureDiagnostics, OperationError, publicError } from "./errors";
+import { failureDiagnostics, OperationError, publicError, unwrap } from "./errors";
 import { AuthoritySchema, objectName, readInternalRequest } from "./routing";
 import { applyStorageMigrations } from "./storage/migrations";
 import { TeamStore } from "./storage/team-store";
 import type { UsageOperation } from "./storage/user-usage";
-import { unwrap } from "./user-usage-object";
 import { observe } from "./observability";
 import { DashboardControl } from "./dashboard-control";
 
@@ -25,7 +24,7 @@ const AttachmentSchema = z.strictObject({
   delivery: DeliveryStateSchema, outputRevision: revision, closed: z.boolean(),
 });
 type Attachment = z.infer<typeof AttachmentSchema>;
-const TEAM_SOCKET_LIMIT = 4096;
+export const TEAM_SOCKET_LIMIT = 4096;
 
 /** No presence timer, credential timer or cleanup alarm runs in this object. */
 export class TeamControl extends DurableObject<Environment> {
@@ -42,10 +41,19 @@ export class TeamControl extends DurableObject<Environment> {
       reserve: (session, key) => this.reserveSocket(session, key),
       enqueue: (ws, bytes, action) => this.enqueue(ws, bytes, action),
       changed: (result, teamId) => this.scheduleChanges(result, teamId), opening: this.opening,
+      limit: () => this.socketLimit(),
     });
     ctx.blockConcurrencyWhile(async () => { applyStorageMigrations(ctx.storage); });
     // Native WebSocket ping/pong is handled by Cloudflare without waking us.
   }
+
+  /**
+   * One cap for every socket this object holds, native and browser alike, so the
+   * two admission paths cannot drift apart. The runtime suite overrides it
+   * because 4096 live sockets are not reachable under Miniflare; nothing
+   * deployed subclasses this object, so production always reads the constant.
+   */
+  protected socketLimit(): number { return TEAM_SOCKET_LIMIT; }
 
   async fetch(request: Request): Promise<Response> {
     if (new URL(request.url).pathname === "/dashboard/socket") return this.dashboard.fetch(request);
@@ -65,14 +73,25 @@ export class TeamControl extends DurableObject<Environment> {
         observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200 });
         return this.json(result.response);
       }
+      // A socket that cannot be accepted must be refused before broker.open runs.
+      // open() verifies a caller-supplied signature, consumes the device proof,
+      // can record new authority and so bump the team revision, and that revision
+      // is then broadcast to every socket in this object and every dashboard
+      // socket. Checking admission afterwards turns each rejected attempt into
+      // work for all the clients already connected, which is the opposite of
+      // shedding load. Neither check reads anything open() produces.
+      if (incoming.path === "/socket") {
+        stage = "accept";
+        if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new OperationError("invalid_request", 400);
+        if (this.ctx.getWebSockets().length >= this.socketLimit()) throw new OperationError("rate_limited", 429, true, 5000);
+        stage = "open";
+      }
       const result = await broker.open(incoming.setup, incoming.authority, incoming.expiresAt, incoming.issueTicket);
       if (!result.session) throw new OperationError("internal_error", 500);
       this.scheduleChanges(result, incoming.authority.teamId);
       observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200 });
       if (incoming.path === "/session") return this.json(result.response);
       stage = "accept";
-      if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new OperationError("invalid_request", 400);
-      if (this.ctx.getWebSockets().length >= TEAM_SOCKET_LIMIT) throw new OperationError("rate_limited", 429, true, 5000);
       const session = result.session;
       const deviceKey = await identityKey(incoming.setup.device);
       this.opening.add(session.sessionId);
@@ -127,8 +146,14 @@ export class TeamControl extends DurableObject<Environment> {
             return; // No ack response and no idle traffic.
           }
           const result = await this.broker(attachment.session.identity.teamId).execute(attachment.session, input);
+          // Same rule as the accounting inside send: nothing is recorded for an
+          // effect that has not happened. Storing the advanced session first
+          // would leave us holding a session the client was never told about if
+          // the send's authority checks reject the frame, so the frame goes out
+          // first and the session is committed after. send still validates
+          // against the advanced session, which is passed in explicitly.
+          await this.send(ws, result.response, result.session ?? attachment.session);
           if (result.session && !this.load(ws).closed) this.save(ws, { ...this.load(ws), session: result.session });
-          await this.send(ws, result.response);
           this.scheduleChanges(result, attachment.session.identity.teamId);
           if (result.close) this.close(ws, "goodbye");
         } catch (error) {
@@ -252,27 +277,49 @@ export class TeamControl extends DurableObject<Environment> {
     unwrap(reserved);
   }
 
-  private async send(ws: WebSocket, response: ControlResponse): Promise<void> {
+  /**
+   * `session` overrides the attachment's copy for the authority checks below.
+   * The caller passes the session its operation just advanced, so the frame is
+   * validated against the session it was built under while the stored copy is
+   * only committed once the frame is actually out.
+   */
+  private async send(ws: WebSocket, response: ControlResponse, session?: Attachment["session"]): Promise<void> {
     const attachment = this.load(ws);
     if (attachment.closed) return;
+    const authority = session ?? attachment.session;
     const next = prepareDelivery(attachment.delivery, response);
     const outputRevision = attachment.outputRevision + 1;
-    await this.setOutput(attachment.session, outputRevision, next.bytes, next.messages);
-    if (this.load(ws).closed) return;
-    this.save(ws, { ...attachment, delivery: next.state, outputRevision });
-    // The budget RPC yields. Re-check authority before private data leaves us.
+    // Authority is checked with nothing awaited in between, so no event can land
+    // between the last check and the send, and private data cannot leave us
+    // under authority that was revoked while this reply was being built.
     if (response.schemaId === "session.ready.v1") {
-      const broker = this.broker(attachment.session.identity.teamId);
-      broker.validateSetup(attachment.session, response.challenge !== undefined);
-      if (attachment.session.expiresAt <= Math.floor(Date.now() / 1000)) throw new OperationError("ticket_expired", 401, true);
+      const broker = this.broker(authority.identity.teamId);
+      broker.validateSetup(authority, response.challenge !== undefined);
+      if (authority.expiresAt <= Math.floor(Date.now() / 1000)) throw new OperationError("ticket_expired", 401, true);
     }
     if (["directory.result.v1", "relay.result.v1", "ticket.result.v1", "device.registered.v1"].includes(response.schemaId)) {
-      const broker = this.broker(attachment.session.identity.teamId);
-      broker.requiredDevice(attachment.session);
-      if (attachment.session.expiresAt <= Math.floor(Date.now() / 1000)) throw new OperationError("ticket_expired", 401, true);
+      const broker = this.broker(authority.identity.teamId);
+      broker.requiredDevice(authority);
+      if (authority.expiresAt <= Math.floor(Date.now() / 1000)) throw new OperationError("ticket_expired", 401, true);
       if (response.schemaId === "directory.result.v1" && broker.dependencies.store.readRevision() !== response.directory.revision) throw new OperationError("resync_required", 409, true);
     }
     ws.send(next.text);
+    // The frame is out, so the accounting has to follow it. Committing first
+    // would spend a sequence number on a frame the client never sees, and at a
+    // checkpoint boundary would mint a receipt token it can never return.
+    //
+    // Once the bytes are on the wire they cannot be recalled, so a rejected
+    // charge is fatal for this connection: see the same guard in
+    // dashboard-control.ts for why leaving the socket open would let the
+    // caller's smaller error reply keep large frames uncharged.
+    try {
+      await this.setOutput(authority, outputRevision, next.bytes, next.messages);
+    } catch (error) {
+      this.close(ws, "slow_consumer");
+      throw error;
+    }
+    if (this.load(ws).closed) return;
+    this.save(ws, { ...attachment, delivery: next.state, outputRevision });
   }
 
   private scheduleChanges(result: BrokerResult, teamId: string) {

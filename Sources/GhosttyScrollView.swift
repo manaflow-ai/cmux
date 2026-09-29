@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 
 /// One user-prompt boundary anchored to Ghostty's current absolute row space.
@@ -41,8 +42,26 @@ private final class TerminalPromptScrollMarkerOverlayView: NSView {
 
     private var markers: [TerminalPromptScrollMarker] = []
     private var geometry: NotificationScrollRestoreGeometry?
+    private var observesAccentColor = false
 
     override var isOpaque: Bool { false }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil, !observesAccentColor else { return }
+        observesAccentColor = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(accentColorDidChange),
+            name: CmuxAccentColor.didChangeNotification,
+            object: nil
+        )
+    }
+
+    /// Markers draw with the resolved accent, so repaint when it changes.
+    @objc private func accentColorDidChange() {
+        needsDisplay = true
+    }
 
     func update(
         markers: [TerminalPromptScrollMarker],
@@ -56,7 +75,7 @@ private final class TerminalPromptScrollMarkerOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        NSColor.controlAccentColor.setFill()
+        (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).nsColor(for: effectiveAppearance).setFill()
         for entry in markerEntries() where entry.rect.intersects(dirtyRect) {
             NSBezierPath(
                 roundedRect: entry.rect,

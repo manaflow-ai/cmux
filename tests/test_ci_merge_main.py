@@ -263,7 +263,7 @@ class MergeTests(TempRepoCase):
         head = git(self.repo, "rev-parse", "HEAD")
         code, output = self.run_merge({green: "success"})
         self.assertEqual(code, 1)
-        self.assertIn("README: not a generated file", output)
+        self.assertIn("README: both sides changed it", output)
         self.assertIn(f"git merge {green}", output)
         self.assertEqual(git(self.repo, "rev-parse", "HEAD"), head)
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")

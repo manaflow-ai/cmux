@@ -65,7 +65,7 @@ struct TerminalSearchOverlayMouseReleaseTests {
             terminalView.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: downLocation, window: window))
             #expect(hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting())
 
-            surface.releaseSurfaceForTesting()
+            surface.releaseHostedSurfaceForTesting()
             #expect(surface.surface == nil)
 
             let overlayLocation = overlay.convert(NSPoint(x: overlay.bounds.midX, y: overlay.bounds.midY), to: nil)

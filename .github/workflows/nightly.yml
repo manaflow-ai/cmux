@@ -454,7 +454,12 @@ jobs:
 
   refresh-compilation-cache:
     needs: decide
-    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
+    # The schedule skips this Blacksmith warmer while owned pools serve pull
+    # requests (CI_PR_POOL_OWNED is 1). build-nightly-app saves the same key on
+    # every published main push, so the remaining Blacksmith readers (main's
+    # full-suite dispatch, nightly's Blacksmith fallback) restore at worst an
+    # older entry by prefix. A seed_only dispatch still warms it on demand.
+    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
@@ -613,13 +618,19 @@ jobs:
 
   refresh-test-compilation-cache:
     needs: decide
+    # The schedule skips this Blacksmith seeder while owned pools serve pull
+    # requests (CI_PR_POOL_OWNED is 1): admission then runs on owned minis that
+    # keep their own DerivedData, and seed-derived-data.yml still seeds the
+    # Blacksmith admission pools on main pushes that change app-host build
+    # inputs. Those incremental chains then get no six-hourly cold reset; a
+    # seed_only dispatch still writes one on demand.
     # Writes the cold DerivedData seed that ci-macos.yml compile admission
     # adopts, and the Debug compilation cache. Admission no longer restores
     # that cache (the app target missed on every file; see
     # tests/test_ci_test_compilation_cache_seed.sh), so it has no reader on
     # main today. Scheduled, not per push: a build per merge would take macOS
     # slots from the pull request queue.
-    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
+    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the admission job's runner and Xcode. The cache key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
     # Pull requests are what restore this seed, so track the runner the
@@ -628,7 +639,8 @@ jobs:
     # no pull-request queue (see seed-derived-data.yml). The macOS 15 pool,
     # which pr_runner_pool.py overflows pull requests to, gets its own cold
     # seed on its own Xcode too, so its per-push seed chain never carries
-    # stale intermediates for long either. Its keys carry that Xcode in the
+    # stale intermediates for long either (while this schedule runs; see the
+    # CI_PR_POOL_OWNED gate above). Its keys carry that Xcode in the
     # fingerprint, so the two never write each other's entries.
     strategy:
       fail-fast: false

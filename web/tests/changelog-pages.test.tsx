@@ -242,7 +242,11 @@ Release intro.
       for (const label of Object.values(labels)) {
         expect(label.trim().length).toBeGreaterThan(0);
       }
-      expect(t("tryIt").trim().length).toBeGreaterThan(0);
+      // Assert the raw message: a missing key makes the translator return the
+      // namespaced key itself, which is non-empty.
+      expect(typeof messages.docs.changelog.tryIt).toBe("string");
+      expect(messages.docs.changelog.tryIt.trim().length).toBeGreaterThan(0);
+      expect(t("tryIt")).toBe(messages.docs.changelog.tryIt);
       expect(t("versionTitle", { version: "1.2.3" })).toContain("1.2.3");
       expect(t("releaseNavLabel", { version: "1.2.3" })).toContain("1.2.3");
     }
@@ -358,6 +362,7 @@ describe("changelog patch notes cards", () => {
     expect(moving).toContain("autoPlay");
     expect(moving).toMatch(/<video[^>]*\sloop/);
     expect(moving).toContain("playsInline");
+    expect(moving).toMatch(/<video[^>]*\smuted/);
     expect(moving).not.toContain("controls");
     expect(moving).toContain("aspect-ratio:1600 / 900");
     expect(moving.indexOf("video/webm")).toBeLessThan(
@@ -374,7 +379,8 @@ describe("changelog patch notes cards", () => {
   });
 
   test("the latest documented release says how to try each feature", () => {
-    for (const feature of changelogMedia["0.64.25"].features ?? []) {
+    const [latest] = Object.values(changelogMedia);
+    for (const feature of latest.features ?? []) {
       expect(feature.tryIt?.trim().length ?? 0).toBeGreaterThan(0);
     }
   });

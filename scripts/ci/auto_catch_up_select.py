@@ -87,6 +87,9 @@ COMMENT_PAGE = 100
 # Middle comment pages read for one pull request, at most.
 MAX_MIDDLE_PAGES = 10
 SHA = re.compile(r"[0-9a-f]{40}")
+GRAPHQL_RETRY_ATTEMPTS = 3
+GRAPHQL_RETRY_DELAY_SECONDS = 2
+TRANSIENT_GRAPHQL_ERROR = re.compile(r"\bHTTP\s+(?:502|503|504)\b", re.IGNORECASE)
 
 PULL_REQUESTS_QUERY = """
 query($owner: String!, $name: String!, $base: String!, $first: Int!, $after: String) {
@@ -498,11 +501,18 @@ def select(graphql: GraphQL, repo: str, now: datetime, cap: int, green: str, led
 
 def gh_graphql(query: str, variables: dict) -> dict:
     body = json.dumps({"query": query, "variables": variables})
-    completed = subprocess.run(["gh", "api", "graphql", "--input", "-"], input=body,
-                               capture_output=True, text=True)
-    if completed.returncode != 0:
-        lines = (completed.stderr.strip() or completed.stdout.strip()).splitlines()
-        raise SelectionError(f"gh api graphql failed: {lines[0] if lines else 'no output'}")
+    completed = None
+    for attempt in range(GRAPHQL_RETRY_ATTEMPTS):
+        completed = subprocess.run(["gh", "api", "graphql", "--input", "-"], input=body,
+                                   capture_output=True, text=True)
+        if completed.returncode == 0:
+            break
+        detail = (completed.stderr.strip() or completed.stdout.strip())
+        if attempt + 1 == GRAPHQL_RETRY_ATTEMPTS or not TRANSIENT_GRAPHQL_ERROR.search(detail):
+            lines = detail.splitlines()
+            raise SelectionError(f"gh api graphql failed: {lines[0] if lines else 'no output'}")
+        time.sleep(GRAPHQL_RETRY_DELAY_SECONDS)
+    assert completed is not None
     try:
         response = json.loads(completed.stdout)
     except ValueError as error:

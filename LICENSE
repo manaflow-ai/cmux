@@ -6,6 +6,21 @@ Except where a file or accompanying notice states otherwise, material
 contributed under the cmux project license is licensed under the GNU General
 Public License v3.0 or later (GPL-3.0-or-later). See the full text below.
 
+The cmux server software is not licensed under the GPL. The following
+directories each contain their own LICENSE file with the Business Source
+License 1.1 (BUSL-1.1), which requires a commercial license from Manaflow for
+production use, including self-hosting:
+
+  web/
+  workers/ci-artifacts/
+  workers/iroh-v2/
+  workers/presence/
+  services/iroh-relay-minter/
+  cmux-tui/relays/cloudflare-do/
+
+The macOS app, iOS app, CLI, cmux-tui, and all other directories remain under
+the license that this file or their own notices state.
+
 Manaflow may separately offer commercial terms only for material for which it
 controls the necessary rights. Those terms do not relicense third-party
 material or outside contributions for which Manaflow lacks a separate grant.

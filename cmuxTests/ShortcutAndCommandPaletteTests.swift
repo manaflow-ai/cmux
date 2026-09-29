@@ -415,6 +415,25 @@ final class FullScreenShortcutTests: XCTestCase {
 }
 
 
+@MainActor final class CommandPaletteRowHighlightTests: XCTestCase {
+    func testSelectionWinsOverHover() {
+        XCTAssertEqual(CommandPaletteRowHighlight(isSelected: true, isHovered: true), .selected)
+        XCTAssertEqual(CommandPaletteRowHighlight(isSelected: true, isHovered: false), .selected)
+        XCTAssertEqual(CommandPaletteRowHighlight(isSelected: false, isHovered: true), .hovered)
+        XCTAssertEqual(CommandPaletteRowHighlight(isSelected: false, isHovered: false), .plain)
+    }
+
+    func testHoverIsClearlyQuieterThanSelection() {
+        let hovered = CommandPaletteRowHighlight.hovered.backgroundOpacity
+        let selected = CommandPaletteRowHighlight.selected.backgroundOpacity
+        XCTAssertGreaterThan(hovered, 0)
+        // Hover is a neutral primary tint and selection an accent tint; at half
+        // the selection opacity or more they read as the same strength in dark mode.
+        XCTAssertLessThan(hovered, selected / 2)
+        XCTAssertEqual(CommandPaletteRowHighlight.plain.backgroundOpacity, 0)
+    }
+}
+
 @MainActor final class CommandPaletteKeyboardNavigationTests: XCTestCase {
     func testArrowKeysMoveSelectionWithoutModifiers() {
         XCTAssertEqual(

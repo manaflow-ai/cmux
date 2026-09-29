@@ -12,8 +12,8 @@ name: PR catch-up
 # comment about the current head from guard_attribution.py marks a step "red
 # on main too") while missing the green commit. At most CMUX_AUTO_CATCH_UP_MAX
 # (default 15) per run, most recently pushed first. It comments only when it
-# pushed or when a person must act on that head (a conflict outside the
-# generated files, a refused push), once per head and without mentions; an
+# pushed or when a person must act on that head (a conflict it could not
+# resolve, a refused push), once per head and without mentions; an
 # up-to-date branch, an error, a head that moved or a refused merge stay
 # silent, and the selector's ledger artifact stops it from selecting one head
 # more than twice. The trigger is main's own push run, so there is no
@@ -55,7 +55,15 @@ name: PR catch-up
 #   pull request, fetches both parents itself, and pushes only a commit whose
 #   parents are the head and a base on the base branch and whose tree differs
 #   from git's own merge of those parents only in the generated files
-#   (catch_up_pr.py verify). Then it comments and removes the label.
+#   (catch_up_pr.py verify), or in source files it re-derives the same way
+#   the merge job resolved them. Then it comments and removes the label.
+#
+# The merge commit is authored by github-actions[bot], which cannot sign the
+# CLA. Before the branch moves, finish pushes the commit to a scratch ref
+# (refs/catch-up/pr-N, which starts no workflows) and puts a success status
+# with context CLA_MERGE_CONTEXT on it with the Actions token; cla.yml exempts
+# exactly those merge commits. Only a token with statuses write here can post
+# that status, so nothing in git metadata or in a fork can claim it.
 #
 # Pushes use the GLAEDA route App token (contents and workflows write), so the
 # new head starts CI like any push and a merge that brings in workflow changes
@@ -93,6 +101,11 @@ env:
   # The file behind the workflow_run trigger's display name
   # (tests/test_ci_workflow_run_sources.py).
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci-fast-guards.yml
+  # The commit status the finish job puts on each merge commit it verified.
+  # cla.yml exempts a merge commit whose newest status with this context is a
+  # success from github-actions[bot], so the catch-up merge (authored by that
+  # bot, which cannot sign) does not fail the CLA check. Keep the two in sync.
+  CLA_MERGE_CONTEXT: cmux/catch-up-merge
 
 jobs:
   gate:
@@ -386,8 +399,9 @@ jobs:
           submodules: false
           lfs: false
 
-      # Data only. The full history (without blobs, which the merge fetches
-      # on demand) supplies the base branch and the merge base.
+      # Data only. The full history supplies the base branch and merge base.
+      # Keep complete blobs here: a partial clone can fail later when git
+      # fetches a promised blob during the merge (actions/checkout#2306).
       - name: Check out the pull request head as data
         if: steps.pr.outputs.head_sha != ''
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -396,7 +410,6 @@ jobs:
           ref: ${{ steps.pr.outputs.head_sha }}
           path: candidate
           fetch-depth: 0
-          filter: blob:none
           persist-credentials: false
           submodules: false
           lfs: false
@@ -547,6 +560,8 @@ jobs:
       # The result comment, the label removal and the reaction.
       issues: write
       pull-requests: write
+      # The status that vouches for the verified merge (CLA_MERGE_CONTEXT).
+      statuses: write
     env:
       PR_NUMBER: ${{ matrix.pr }}
       AUTO: ${{ needs.select.result == 'success' }}
@@ -701,16 +716,35 @@ jobs:
           fi
           auth="$(printf 'x-access-token:%s' "$token" | base64 -w0)"
           echo "::add-mask::$auth"
+          # push ARGS...: git push with the chosen token, output to push.log.
+          push() {
+            GIT_CONFIG_COUNT=1 \
+              GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+              GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              git -C "$REPO" push --no-verify --porcelain "$@" > "$RUNNER_TEMP/push.log" 2>&1
+          }
+          # The merge commit is authored by github-actions[bot], which cannot
+          # sign the CLA. Vouch for it with a commit status in this repository
+          # (CLA_MERGE_CONTEXT) before the branch moves, so the CLA run the
+          # push starts already sees it. A status needs the commit here, so
+          # the commit goes to a scratch ref first; pushes outside refs/heads
+          # and refs/tags start no workflows.
+          scratch="refs/catch-up/pr-$PR_NUMBER"
+          vouched=false
+          if push --force "https://github.com/$GITHUB_REPOSITORY.git" "$MERGED_SHA:$scratch" &&
+             GH_TOKEN="$ACTIONS_TOKEN" gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$MERGED_SHA" \
+               -f state=success -f context="$CLA_MERGE_CONTEXT" -f target_url="$RUN_URL" \
+               -f description="Merge of the base branch verified by PR catch-up" > /dev/null; then
+            vouched=true
+          else
+            cat "$RUNNER_TEMP/push.log"
+            echo "::warning::Could not vouch for $MERGED_SHA; the CLA check will ask github-actions[bot] to sign."
+          fi
           # Compare-and-swap: the remote branch must still be the head that
           # was merged, and the new commit descends from it.
-          if GIT_CONFIG_COUNT=1 \
-             GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
-             GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-             git -C "$REPO" push --no-verify --porcelain \
-               --force-with-lease="refs/heads/$HEAD_REF:$HEAD_SHA" \
-               "https://github.com/$GITHUB_REPOSITORY.git" "$MERGED_SHA:refs/heads/$HEAD_REF" \
-               > "$RUNNER_TEMP/push.log" 2>&1; then
-            echo "Pushed $MERGED_SHA to $HEAD_REF ($outcome)."
+          if push --force-with-lease="refs/heads/$HEAD_REF:$HEAD_SHA" \
+               "https://github.com/$GITHUB_REPOSITORY.git" "$MERGED_SHA:refs/heads/$HEAD_REF"; then
+            echo "Pushed $MERGED_SHA to $HEAD_REF ($outcome, vouched=$vouched)."
           else
             cat "$RUNNER_TEMP/push.log"
             # git's own rejection reasons, then GitHub's refusal for a token
@@ -724,6 +758,8 @@ jobs:
               outcome=push-denied
             fi
           fi
+          # The status stays on the commit; the scratch ref is not needed.
+          push "https://github.com/$GITHUB_REPOSITORY.git" ":$scratch" || true
           echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
 
       # By hand, every request gets an answer. The automatic path answers
@@ -769,6 +805,21 @@ jobs:
           if [[ ! -s "$comment" ]]; then
             echo "Nothing to say on #$PR_NUMBER (${MERGE_STATUS:-no result}, ${PUSH_OUTCOME:-no push})."
             exit 0
+          fi
+          # Two green main runs can both select a head before either comments
+          # (2026-09-27, #14876: two identical comments 26 s apart). This job's
+          # per-PR concurrency group runs them one after another, so the
+          # second sees the first's marker here and stays quiet.
+          if [[ "$AUTO" == true ]]; then
+            marker="$(head -n 1 "$comment")"
+            # Read every page before matching: grep -q stopping early would
+            # SIGPIPE gh, and pipefail would read that as no marker.
+            bodies="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
+              --jq '.[] | select(.user.login == "github-actions[bot]") | .body')"
+            if grep -qxF -- "$marker" <<<"$bodies"; then
+              echo "#$PR_NUMBER already has the comment for this head."
+              exit 0
+            fi
           fi
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$comment"
 

@@ -430,6 +430,13 @@ final class CloudTuiManualMirrorSession {
         claimUnsupported = false
         sendClaimIfNeeded()
     }
+    /// Called for each explicit keystroke or paste in this pane. The pane the
+    /// user is typing in must be the authoritative geometry owner. An owner
+    /// already confirmed, or a server without claims, sends its keys alone.
+    func noteExplicitInput() {
+        guard (!geometryClaimed && !claimUnsupported) || geometryClaimBlockedByPeer else { return }
+        claimGeometry()
+    }
     /// Permanently tears down this view's attachment without closing the remote
     /// terminal. Closing the control socket is the cleanup fence for old
     /// servers; newer servers additionally retire the lease with the same close.

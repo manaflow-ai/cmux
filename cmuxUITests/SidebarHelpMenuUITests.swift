@@ -520,20 +520,25 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         let searchField = app.textFields["CommandPaletteSearchField"]
         searchField.typeText("check")
 
-        let row0 = app.descendants(matching: .any).matching(identifier: "CommandPaletteResultRow.0").firstMatch
-        let row1 = app.descendants(matching: .any).matching(identifier: "CommandPaletteResultRow.1").firstMatch
+        // Row identifiers are "CommandPaletteResultRow.<index>.<commandId>".
+        let row0 = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "CommandPaletteResultRow.0."))
+            .firstMatch
+        let row1 = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "CommandPaletteResultRow.1."))
+            .firstMatch
 
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 5.0) {
                 row0.exists &&
                     row1.exists &&
-                    (row0.value as? String) == "palette.checkForUpdates" &&
-                    (row1.value as? String) == "palette.attemptUpdate"
+                    row0.identifier == "CommandPaletteResultRow.0.palette.checkForUpdates" &&
+                    row1.identifier == "CommandPaletteResultRow.1.palette.attemptUpdate"
             },
-            "Expected the check query to rank Check for Updates before Attempt Update. row0=\(String(describing: row0.value)) row1=\(String(describing: row1.value))"
+            "Expected the check query to rank Check for Updates before Attempt Update. row0=\(row0.identifier) row1=\(row1.identifier)"
         )
-        XCTAssertEqual(row0.value as? String, "palette.checkForUpdates")
-        XCTAssertEqual(row1.value as? String, "palette.attemptUpdate")
+        XCTAssertEqual(row0.identifier, "CommandPaletteResultRow.0.palette.checkForUpdates")
+        XCTAssertEqual(row1.identifier, "CommandPaletteResultRow.1.palette.attemptUpdate")
     }
 
     func testCmdPSearchCanIncludeSurfacesFromOtherWorkspacesWhenEnabled() throws {

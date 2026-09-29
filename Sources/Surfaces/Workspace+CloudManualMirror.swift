@@ -207,6 +207,8 @@ extension Workspace {
     ) throws -> UUID {
         let previousPane = bonsplitController.focusedPaneId
         let previousTab = previousPane.flatMap { bonsplitController.selectedTab(inPane: $0)?.id }
+        // Bonsplit moves focus into the new pane, so capture the source terminal first.
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
         panels[panel.id] = panel
         panelTitles[panel.id] = Self.cloudManualMirrorTabTitle
         let tab = Bonsplit.Tab(
@@ -238,7 +240,7 @@ extension Workspace {
         rememberTerminalConfigInheritanceSource(panel)
         panel.surface.flushPendingManualSizeReportIfAttached()
         if focus {
-            focusPanel(panel.id)
+            focusNewSplitPanel(panel.id, previousHostedView: previousHostedView, reason: "workspace.cloudSplitReparent")
         } else if let previousPane {
             bonsplitController.focusPane(previousPane)
             if let previousTab { bonsplitController.selectTab(previousTab) }

@@ -87,6 +87,10 @@ public protocol NotificationDismissalHosting: AnyObject {
 
     /// Marks the workspace's (or surface's) notifications read.
     func storeMarkRead(workspaceId: UUID, surfaceId: UUID?)
+    /// Marks read only the notifications recorded against the workspace itself,
+    /// with no surface and no panel, leaving every surface-scoped notification
+    /// and every unread indicator as it is.
+    func storeMarkWorkspaceLevelNotificationsRead(workspaceId: UUID)
     /// Clears the workspace-level manual unread indicator; returns whether
     /// anything was cleared.
     @discardableResult

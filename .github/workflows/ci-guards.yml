@@ -67,6 +67,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
 
+      - name: Validate machine-failure detection for focused reruns
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_machine_failure.py
+
       - name: Validate the CI timing readout
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_timing_readout.py
@@ -78,6 +82,10 @@ jobs:
       - name: Validate guard failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
+
+      - name: Validate CI failure attribution
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_classify_failures.py
 
       - name: Validate the report-only reverse test impact selector
         if: ${{ matrix.group == 'ci' }}
@@ -203,6 +211,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_resources_plist_unique_keys.py
 
+      - name: Validate the release-media scenes and changelog patcher
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_release_media.py
+
       - name: Validate .xcstrings merge driver
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_merge_xcstrings.py
@@ -257,6 +269,10 @@ jobs:
           python3 tests/test_localization_catalog.py
           python3 tests/test_localize_changes.py
 
+      - name: Test the PR media uploader
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_pr_media.py
+
       - name: Validate cmux-cloud-vm skill covers the vm CLI
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_cloud_vm_skill_coverage.py
@@ -282,6 +298,10 @@ jobs:
       - name: Validate embedded cmux.json schema generation
         if: ${{ matrix.group == 'preflight' }}
         run: python3 scripts/generate-cmux-config-schema.py --check
+
+      - name: Validate embedded cmux.json schema round trip
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_config_schema_embed.py
 
       - name: Set up Bun for guard tests
         if: ${{ matrix.group == 'preflight' || matrix.group == 'release-ios' }}
@@ -328,6 +348,10 @@ jobs:
           if [[ "${{ matrix.group }}" == "release-tooling" ]]; then
             packages+=(bashlex==0.18)
           fi
+          # tests/test_ci_pr_media.py renders PR media with the pr-media.yml Pillow.
+          if [[ "${{ matrix.group }}" == "app-host-execution" ]]; then
+            packages+=(pillow==11.3.0)
+          fi
           "$RUNNER_TEMP/workflow-guard-venv/bin/python" -m pip install \
             --disable-pip-version-check \
             --no-input \
@@ -359,6 +383,10 @@ jobs:
       - name: Validate package test selection
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_select_package_tests.py
+
+      - name: Validate the package test lane's GhosttyKit revision on a fleet worktree
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_package_lane_ghostty_sha.py
 
       - name: Validate workflow_run triggers name workflows that exist
         if: ${{ matrix.group == 'ci' }}
@@ -440,6 +468,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_warm_distance.py
 
+      - name: Validate owned SwiftPM build directories
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_spm_scratch.py
+
       - name: Validate the owned idle catch-up build
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_catch_up.py
@@ -480,6 +512,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_triage_radar.py
 
+      - name: Validate triage severity and area rules
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_triage_rules.py
+
       - name: Validate cmux-tui focused filter routing
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_tui_focused_filter_guard.py
@@ -513,6 +549,10 @@ jobs:
       - name: Validate the R2 cache pruner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_r2_cache_prune.py
+
+      - name: Validate the PR media pruner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_prune_pr_media.py
 
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
@@ -580,6 +620,9 @@ jobs:
           python3 tests/test_run_e2e.py
           python3 tests/test_ci_e2e_compilation_cache.py
           python3 tests/test_ci_focused_test_selectors.py
+          python3 tests/test_ci_ui_tests_dispatch.py
+          python3 tests/test_ci_pr_media.py
+          python3 tests/test_ci_guard_tests_emit_no_workflow_commands.py
 
       - name: Validate manual macOS package cache recovery
         if: ${{ matrix.group == 'app-host-execution' }}
@@ -961,6 +1004,16 @@ jobs:
       - name: Validate bash shell integration job control
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_bash_integration_no_done_notifications.py
+
+      - name: Validate bash watcher retirement and shell PR refresh
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: |
+          if ! command -v zsh >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y zsh
+          fi
+          python3 tests/test_issue_15067_bash_watcher_churn.py
+          python3 tests/test_issue_1138_sidebar_pr_polling.py
 
       - name: Validate shell surface-scoped environment keys
         if: ${{ matrix.group == 'quality-determinism' }}

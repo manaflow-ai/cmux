@@ -1263,7 +1263,7 @@ final class WindowBrowserSlotView: NSView {
     }
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
-    private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
+    private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlayRoot>?
     private var designComposerHostingView: BrowserDesignModeComposerHostingView?
     private var designComposerPanelId: UUID?
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
@@ -1293,8 +1293,9 @@ final class WindowBrowserSlotView: NSView {
         paneDropTargetView.slotView = self
 
         dropZoneOverlayView.wantsLayer = true
-        dropZoneOverlayView.layer?.backgroundColor = cmuxAccentNSColor().withAlphaComponent(0.25).cgColor
-        dropZoneOverlayView.layer?.borderColor = cmuxAccentNSColor().cgColor
+        let dropZoneAccent = (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).themeNSColor
+        dropZoneOverlayView.layer?.backgroundColor = dropZoneAccent.withAlphaComponent(0.25).cgColor
+        dropZoneOverlayView.layer?.borderColor = dropZoneAccent.cgColor
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true
@@ -1462,6 +1463,7 @@ final class WindowBrowserSlotView: NSView {
             onClose: configuration.onClose,
             onFieldDidFocus: configuration.onFieldDidFocus
         )
+        .cmuxAccentColorEnvironment()
 
         if let overlay = searchOverlayHostingView {
             logSearchOverlayEvent("updateExisting", panelId: configuration.panelId)
@@ -1820,16 +1822,14 @@ final class WindowBrowserSlotView: NSView {
             return
         }
 
+        // Retargeting snaps to the new zone; sliding the frame lags the pointer.
+        applyDropZoneOverlayFrame(targetFrame)
         bringInteractionLayersToFrontIfNeeded()
+        guard dropZoneOverlayView.alphaValue < 1 else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.18
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            if needsFrameUpdate {
-                dropZoneOverlayView.animator().frame = targetFrame
-            }
-            if dropZoneOverlayView.alphaValue < 1 {
-                dropZoneOverlayView.animator().alphaValue = 1
-            }
+            dropZoneOverlayView.animator().alphaValue = 1
         }
     }
 

@@ -452,19 +452,22 @@ extension AgentResumeArgv {
     ///   - sessionId: The session identifier being resumed.
     ///   - executablePath: The captured executable path, when available.
     ///   - arguments: The captured argv, including `argv[0]`.
-    /// - Returns: `true` when ``launcherResolution(launcher:sessionId:executablePath:arguments:)``
+    ///   - environment: The captured launch environment, which carries Subrouter routing proof.
+    /// - Returns: `true` when ``launcherResolution(launcher:sessionId:executablePath:arguments:environment:)``
     ///   resolves the resume itself instead of passing through to the built-in agent argv.
     public func resumeRoutesThroughOwnedLauncher(
         launcher: String?,
         sessionId: String,
         executablePath: String?,
-        arguments: [String]
+        arguments: [String],
+        environment: [String: String]? = nil
     ) -> Bool {
         if case .resolved = launcherResolution(
             launcher: launcher,
             sessionId: sessionId,
             executablePath: executablePath,
-            arguments: arguments
+            arguments: arguments,
+            environment: environment
         ) {
             return true
         }

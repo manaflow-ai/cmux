@@ -21,6 +21,8 @@ SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-hermes-agent-wrapper"
 SOURCE_TUI_PYTHON_WRAPPER = ROOT / "Resources" / "bin" / "cmux-hermes-python-wrapper"
 SOURCE_TUI_SITECUSTOMIZE = ROOT / "Resources" / "bin" / "cmux-hermes-sitecustomize.py"
 SESSION_ID = "01JZ123456789ABCDEFGHJKMNP"
+# How long run_wrapper lets the wrapper run before it reports a hang.
+WRAPPER_HANG_GUARD_SECONDS = 5
 
 
 @dataclass
@@ -103,7 +105,8 @@ def run_wrapper(
     hooks_disabled: bool = False,
     installer_exit_code: int = 0,
     installer_blocks: bool = False,
-    installer_timeout_seconds: float = 1,
+    installer_timeout_seconds: float | None = None,
+    installer_start_delay_seconds: float = 0,
     cli_available: bool = True,
     active_profile: str | None = None,
     profile_names: tuple[str, ...] = (),
@@ -329,6 +332,11 @@ fi
                 bundled_cli,
                 """#!/usr/bin/env bash
 set -euo pipefail
+# Stand-in for a cold start on a loaded runner: nothing is recorded until the
+# installer process gets going.
+if [[ -n "${FAKE_INSTALLER_START_DELAY:-}" ]]; then
+  /bin/sleep "$FAKE_INSTALLER_START_DELAY"
+fi
 printf '\\036' >> "$FAKE_CMUX_CALLS_LOG"
 printf '%s\\0' "$@" >> "$FAKE_CMUX_CALLS_LOG"
 fake_cmux_payload_b64="$(/usr/bin/base64 | tr -d '\\n')"
@@ -383,7 +391,17 @@ exit 0
             env["FAKE_INSTALLER_GATE"] = str(installer_gate)
         else:
             env.pop("FAKE_INSTALLER_GATE", None)
+        # The wrapper kills its installer at this deadline and launches Hermes
+        # anyway. Only the deadline tests pass one; every other run gives the
+        # installer as long as the hang guard, so a check waits for the
+        # installer to finish instead of racing its start on a busy runner.
+        if installer_timeout_seconds is None:
+            installer_timeout_seconds = WRAPPER_HANG_GUARD_SECONDS
         env["CMUX_HERMES_AGENT_HOOK_INSTALL_TIMEOUT_SECONDS"] = str(installer_timeout_seconds)
+        if installer_start_delay_seconds:
+            env["FAKE_INSTALLER_START_DELAY"] = str(installer_start_delay_seconds)
+        else:
+            env.pop("FAKE_INSTALLER_START_DELAY", None)
         if tui_session_ids:
             env["FAKE_TUI_SESSION_IDS"] = ",".join(tui_session_ids)
         else:
@@ -421,7 +439,7 @@ exit 0
             text=True,
             start_new_session=True,
         )
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + WRAPPER_HANG_GUARD_SECONDS
         launch_observed = not installer_blocks
         if installer_blocks:
             while time.monotonic() < deadline:
@@ -502,8 +520,13 @@ def decoded_launch_argv(environment: dict[str, str]) -> list[str]:
     return [part.decode("utf-8") for part in raw.split(b"\0") if part]
 
 
-def assert_instrumented(argv: list[str], label: str, failures: list[str]) -> None:
-    result = run_wrapper(argv)
+def assert_instrumented(
+    argv: list[str],
+    label: str,
+    failures: list[str],
+    **run_options: object,
+) -> None:
+    result = run_wrapper(argv, **run_options)
     expected_call = [
         "--socket",
         result.socket_path,
@@ -550,6 +573,18 @@ def test_session_entrypoints(failures: list[str]) -> None:
     )
     for label, argv in entrypoints:
         assert_instrumented(argv, label, failures)
+
+
+def test_slow_starting_installer_is_still_observed(failures: list[str]) -> None:
+    # A busy CI runner can take over a second just to start the installer.
+    # Launch-path checks must see the installer's call however long it takes
+    # to start; only test_stalled_installer_is_bounded exercises the deadline.
+    assert_instrumented(
+        ["--continue"],
+        "slow installer start",
+        failures,
+        installer_start_delay_seconds=1.5,
+    )
 
 
 def test_tui_active_session_file_bridges_lifecycle(failures: list[str]) -> None:
@@ -966,6 +1001,7 @@ def main() -> int:
         failures.append(f"missing Hermes launch wrapper: {SOURCE_WRAPPER}")
     else:
         test_session_entrypoints(failures)
+        test_slow_starting_installer_is_still_observed(failures)
         test_tui_active_session_file_bridges_lifecycle(failures)
         test_tui_bridge_fails_closed_on_untrusted_session_files(failures)
         test_tui_gateway_registers_hooks_for_every_turn(failures)

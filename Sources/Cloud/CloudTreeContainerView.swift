@@ -33,6 +33,10 @@ final class CloudTreeContainerView: NSView {
 
         outlineView.dataSource = coordinator
         outlineView.delegate = coordinator
+        outlineView.disclosureScope.withPersistenceBatch = { [weak coordinator] action in
+            if let coordinator { coordinator.expansionStore.withBatch(action) }
+            else { action() }
+        }
         outlineView.target = coordinator
         outlineView.action = #selector(CloudTreeOutlineView.Coordinator.handleSingleClick(_:))
         outlineView.doubleAction = #selector(CloudTreeOutlineView.Coordinator.handleDoubleClick(_:))

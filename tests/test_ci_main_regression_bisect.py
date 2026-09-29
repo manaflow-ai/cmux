@@ -281,6 +281,9 @@ class ClassifyTests(unittest.TestCase):
         # test-e2e.yml's action fails both steps when a selector does not resolve.
         self.assertEqual(MODULE.classify(failed, steps(["Run selected tests", "Resolve selectors against the built tests"])), "absent")
         self.assertEqual(MODULE.classify({"status": "completed", "conclusion": "cancelled"}, steps([])), "error")
+        # The Mac failed the test step before any test started: not a reproduction.
+        machine = lambda: "Failed to initialize for UI testing: Timed out while enabling automation mode.\n"  # noqa: E731
+        self.assertEqual(MODULE.classify(failed, steps(["Run selected tests"]), machine), "error")
 
     def test_a_hung_gh_call_reads_as_a_pending_run(self):
         from unittest import mock
@@ -326,6 +329,20 @@ class MarkerTests(unittest.TestCase):
         self.assertTrue(MODULE.valid_data(parsed))
         self.assertEqual(parsed["tests"], [{"test": "S/x()", "suspects": [5], "how": "only pull request in the range"}])
         self.assertEqual(parsed["prs"], {C[0]: 5})
+
+    def test_a_new_crash_victim_is_queued_with_its_flag(self):
+        marker = attribution.data_marker(
+            run={"id": 7, "html_url": "https://run/7", "head_sha": HEAD},
+            previous={"head_sha": PREV, "html_url": "https://run/prev"},
+            failures={}, attributions={"S/x()": ([], "unattributed")}, prs=[], commits=[C[0]],
+            crashed=["S/x()"],
+        )
+        [parsed] = MODULE.hidden_json(marker, attribution.DATA_PREFIX)
+        self.assertTrue(MODULE.valid_data(parsed))
+        self.assertEqual(parsed["tests"], [{"test": "S/x()", "suspects": [], "how": "unattributed", "crash": True}])
+        state = MODULE.empty_state()
+        MODULE.new_items(state, {7: parsed}, MODULE.datetime(2026, 9, 27, tzinfo=MODULE.timezone.utc))
+        self.assertEqual([item["test"] for item in state["items"]], ["S/x()"])
 
     def test_unsafe_data_is_refused(self):
         self.assertTrue(MODULE.valid_data(data()))
@@ -462,4 +479,4 @@ class WorkflowTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(buffer=True)

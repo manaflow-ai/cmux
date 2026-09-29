@@ -333,6 +333,16 @@ struct MobileIrohReleaseGateRunnerTests {
             ],
             cachesDirectory: cache
         ) == nil)
+
+        let rolloverSoak = try #require(MobileIrohReleaseGateRunner.Configuration(
+            environment: [
+                "CMUX_IROH_RELEASE_GATE_MODE": "relayOnly",
+                "CMUX_IROH_RELEASE_GATE_SCENARIO": "relay_rollover",
+                "CMUX_IROH_SOAK_PROFILE": "stress",
+            ],
+            cachesDirectory: cache
+        ))
+        #expect(rolloverSoak.soakProfile == .stress)
     }
 
     @Test(arguments: [

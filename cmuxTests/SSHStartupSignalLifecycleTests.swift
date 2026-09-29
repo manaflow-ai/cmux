@@ -1740,6 +1740,15 @@ final class StreamingChildProcess: @unchecked Sendable {
         if process.isRunning {
             process.terminate()
         }
+        // The tree cleanup above can time out, and the root may ignore SIGTERM;
+        // escalate so teardown cannot block forever in waitUntilExit.
+        let exitDeadline = Date.now.addingTimeInterval(2)
+        while process.isRunning, Date.now < exitDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        if process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+        }
         process.waitUntilExit()
         _ = drainGroup.wait(timeout: .now() + 2)
     }

@@ -40,6 +40,38 @@ XCODEBUILD_LOG = """\
 """
 
 
+# The shard 7 log of main run 36307768440, cut down: the app host aborted under
+# RecoverableMainWindowLifecycleTests, xcodebuild restarted it, and the
+# accounting recorded the test in flight as a new failure.
+VICTIM = "RecoverableMainWindowLifecycleTests/closingRecoveredWindowUsesNormalCloseFinalization()"
+CRASH_LOG = """\
+2026-09-27T09:06:35.6623060Z     /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/xcodebuild -xctestrun /x/cmux-unit.xctestrun
+2026-09-27T09:07:36.2652870Z \u25c7 Test "Closing a recovered window uses normal close finalization" started.
+2026-09-27T09:07:36.2653460Z objc[73048]: Cannot form weak reference to instance (0x76e0e4f00) of class NSKVONotifying_NSWindow. It is possible that this object was over-released, or is in the process of deallocation.
+2026-09-27T09:07:36.2653820Z 
+2026-09-27T09:07:36.2653890Z *** Signal 6: Backtracing from 0x18cadab10... done ***
+2026-09-27T09:07:36.2654010Z 
+2026-09-27T09:07:36.2654080Z *** Program crashed: Aborted at 0x000000018cadab10 ***
+2026-09-27T09:07:36.2654420Z Thread 0 crashed:
+2026-09-27T09:07:41.2857780Z Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches.
+2026-09-27T09:07:56.4282040Z Failing tests:
+2026-09-27T09:07:56.4282280Z \tRecoverableMainWindowLifecycleTests.closingRecoveredWindowUsesNormalCloseFinalization()
+2026-09-27T09:07:56.4282510Z 
+2026-09-27T09:07:56.4282550Z ** TEST EXECUTE FAILED **
+2026-09-27T09:08:01.5247210Z incomplete app-host run: app host restarted after test execution
+2026-09-27T09:08:01.5247600Z RATCHET_NEW_FAILURE RecoverableMainWindowLifecycleTests/closingRecoveredWindowUsesNormalCloseFinalization()
+2026-09-27T09:08:01.5247950Z recorded verdicts: 1 new, 0 known-main; typed test cases: 845
+2026-09-27T09:08:12.2949580Z     /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/xcodebuild -xctestrun /x/cmux-unit.xctestrun
+2026-09-27T09:08:30.0000000Z Failing tests:
+2026-09-27T09:08:30.0000000Z \tOtherTests.plainFailure()
+2026-09-27T09:08:30.0000000Z 
+2026-09-27T09:08:31.0000000Z RATCHET_NEW_FAILURE OtherTests/plainFailure()
+2026-09-27T09:08:31.0000000Z recorded verdicts: 1 new, 0 known-main; typed test cases: 12
+2026-09-27T09:08:54.2024000Z   name: cmux-app-host-diagnostics-shard-7-run-1
+"""
+CRASH_SIGNATURE = "Cannot form weak reference to instance (0x*) of class NSKVONotifying_NSWindow"
+
+
 def run(**overrides):
     base = {
         "id": 2, "event": "workflow_dispatch", "head_branch": "main", "path": ".github/workflows/ci.yml",
@@ -59,10 +91,11 @@ def pr_node(number, merge_sha, state="MERGED", base="main", labels=()):
     }
 
 
-def pr(number, edited=(), reached=(), unverified=False):
+def pr(number, edited=(), reached=(), unverified=False, ranked=True):
     return MODULE.PullRequest(
         number=number, title=f"PR {number}", url=f"u/{number}", merge_sha=f"m{number}",
         edited_suites=set(edited), reached_suites=set(reached), unverified=unverified,
+        paths=["Sources/App.swift"] if ranked else [], ranked=ranked,
     )
 
 
@@ -108,6 +141,112 @@ class ExtractionTests(unittest.TestCase):
         self.assertFalse(MODULE.app_host_ran(shards[:-1] + [{**shards[-1], "conclusion": "cancelled"}]))
         # A compile break skips every shard, which says nothing about tests.
         self.assertFalse(MODULE.app_host_ran([{"name": "macos / macOS compile admission", "conclusion": "failure"}]))
+
+
+class CrashTests(unittest.TestCase):
+    def test_a_restarted_batch_names_the_test_the_app_died_under_and_the_crash(self):
+        crash = MODULE.host_crash(CRASH_LOG, (), "7", "https://job/7")
+        self.assertEqual(crash.tests, [VICTIM])  # the next batch's plain failure is not the crash's
+        self.assertEqual(crash.signatures, [CRASH_SIGNATURE])
+        self.assertEqual(crash.artifact, "cmux-app-host-diagnostics-shard-7-run-1")
+        self.assertEqual(MODULE.log_failures(CRASH_LOG), {VICTIM, "OtherTests/plainFailure()"})
+        self.assertIsNone(MODULE.host_crash(LOG))
+        self.assertEqual(MODULE.host_crash(CRASH_LOG, {VICTIM}).tests, [])
+
+    def test_the_signature_falls_back_to_the_crash_reason_then_to_the_last_message(self):
+        header_only = CRASH_LOG.replace("objc[73048]:", "note:")
+        self.assertEqual(MODULE.host_crash(header_only).signatures, ["crashed: Aborted"])
+        # No backtracer header: the message before the restart names the crash.
+        no_header = "\n".join(
+            line for line in CRASH_LOG.splitlines() if "Program crashed" not in line
+        ).replace("objc[73048]: Cannot form", "cmux/App.swift:12: Fatal error: Cannot form")
+        self.assertEqual(
+            MODULE.host_crash(no_header).signatures,
+            ["Fatal error: Cannot form weak reference to instance (0x*) of class NSKVONotifying_NSWindow"],
+        )
+        silent = "\n".join(line for line in header_only.splitlines() if "Program crashed" not in line)
+        self.assertEqual(MODULE.host_crash(silent).signatures, [])
+        # A restart-budget abort with no accounting afterwards still counts as a restart.
+        aborted = "Aborted by the app-host restart budget: xcodebuild restarted the app host 3 times\n"
+        self.assertEqual(MODULE.host_crash(aborted).tests, [])
+
+    def test_a_crash_is_recurring_only_when_an_earlier_run_showed_every_signature(self):
+        same = MODULE.HostCrash("3", signatures=[CRASH_SIGNATURE])
+        other = MODULE.HostCrash("3", signatures=["Fatal error: something else"])
+        unknown = MODULE.HostCrash("3")
+        crash = MODULE.HostCrash("7", signatures=[CRASH_SIGNATURE])
+        earlier_run = run(id=1)
+        self.assertIsNone(MODULE.prior_crash(crash, []))
+        self.assertIsNone(MODULE.prior_crash(crash, [(earlier_run, other)]))
+        self.assertEqual(MODULE.prior_crash(crash, [(earlier_run, other), (earlier_run, same)]), (earlier_run, same))
+        # No signature on either side cannot be compared, so it is new.
+        self.assertIsNone(MODULE.prior_crash(crash, [(earlier_run, unknown)]))
+        self.assertIsNone(MODULE.prior_crash(unknown, [(earlier_run, same)]))
+        # A shard that also crashed a new way is not excused by the known one.
+        both = MODULE.HostCrash("7", signatures=[CRASH_SIGNATURE, "Fatal error: something new"])
+        self.assertIsNone(MODULE.prior_crash(both, [(earlier_run, same)]))
+        self.assertEqual(MODULE.prior_crash(both, [(earlier_run, same), (earlier_run, MODULE.HostCrash(
+            "1", signatures=["Fatal error: something new"]))]), (earlier_run, same))
+
+    def test_only_the_test_in_flight_is_the_crash_victim(self):
+        # The accounting lists every failure of a restarted batch; a plain
+        # assertion failure printed its own failed line and stays a regression.
+        log = CRASH_LOG.replace(
+            "2026-09-27T09:07:36.2652870Z",
+            "2026-09-27T09:07:30.0000000Z \u25c7 Test plainFailure() started.\n"
+            "2026-09-27T09:07:30.1000000Z \u2718 Test plainFailure() failed after 0.1 seconds with 1 issue.\n"
+            "2026-09-27T09:07:36.2652870Z", 1,
+        ).replace(
+            "\tRecoverableMainWindowLifecycleTests.closingRecoveredWindowUsesNormalCloseFinalization()\n",
+            "\tRecoverableMainWindowLifecycleTests.closingRecoveredWindowUsesNormalCloseFinalization()\n"
+            "2026-09-27T09:07:56.4282300Z \tRecoverableMainWindowLifecycleTests.plainFailure()\n", 1,
+        ).replace(
+            "recorded verdicts: 1 new, 0 known-main; typed test cases: 845",
+            "RATCHET_NEW_FAILURE RecoverableMainWindowLifecycleTests/plainFailure()\n"
+            "recorded verdicts: 2 new, 0 known-main; typed test cases: 845", 1,
+        )
+        crash = MODULE.host_crash(log, (), "7", "https://job/7")
+        self.assertEqual(crash.tests, [VICTIM])
+        plain = "RecoverableMainWindowLifecycleTests/plainFailure()"
+        failures = {VICTIM: ["https://job/7"], plain: ["https://job/7"]}
+        finding = MODULE.CrashFinding(crash, (run(id=1), MODULE.HostCrash("2", signatures=[CRASH_SIGNATURE])))
+        regressions, attributed, crashed = MODULE.split_crashes(failures, [finding])
+        self.assertEqual((list(regressions), list(attributed), crashed), ([plain], [plain], {}))
+        suite = pr(9, edited={"RecoverableMainWindowLifecycleTests"})
+        attributions = {plain: MODULE.suspects_for(plain, [suite])}
+        self.assertEqual([p.number for p, _, _, _ in MODULE.comment_plan(attributed, attributions)], [9])
+        text = MODULE.issue_section(
+            repo=REPO, run=run(), previous=run(id=1, head_sha=PREV), failures=regressions,
+            attributions=attributions, prs=[suite], direct=[], commits=[], crashes=[finding],
+        )
+        marker = [line for line in text.splitlines() if line.startswith(MODULE.DATA_PREFIX)][0]
+        data = json.loads(marker[len(MODULE.DATA_PREFIX):-3])
+        self.assertEqual(data["tests"], [{"test": plain, "suspects": [9], "how": "only pull request in the range; edits the suite"}])
+
+    def test_a_display_name_maps_to_its_function_through_the_sources(self):
+        source = (
+            '@Suite struct RecoverableMainWindowLifecycleTests {\n'
+            '    @Test("Closing a recovered window uses normal close finalization")\n'
+            '    @MainActor\n    func closingRecoveredWindowUsesNormalCloseFinalization() async {}\n'
+            '    @Test("Shared") func a() {}\n}\n'
+        )
+        names = MODULE.swift_test_names([source, '@Test("Shared") func b() {}'])
+        self.assertEqual(names, {"Closing a recovered window uses normal close finalization": "closingRecoveredWindowUsesNormalCloseFinalization"})
+        # Two unexplained failures and one restart: the log cannot say which
+        # one the app died under without the display-name map, so neither is.
+        two = CRASH_LOG.replace(
+            "RATCHET_NEW_FAILURE RecoverableMainWindowLifecycleTests/closingRecoveredWindowUsesNormalCloseFinalization()",
+            "RATCHET_NEW_FAILURE RecoverableMainWindowLifecycleTests/closingRecoveredWindowUsesNormalCloseFinalization()\n"
+            "RATCHET_NEW_FAILURE RecoverableMainWindowLifecycleTests/silentFailure()", 1,
+        )
+        self.assertEqual(MODULE.host_crash(two).tests, [])
+        self.assertEqual(MODULE.host_crash(two, display_names=names).tests, [VICTIM])
+        # An XCTest in flight is named by the live log itself.
+        xctest = two.replace(
+            '\u25c7 Test "Closing a recovered window uses normal close finalization" started.',
+            "Test Case '-[cmuxTests.RecoverableMainWindowLifecycleTests silentFailure]' started.",
+        )
+        self.assertEqual(MODULE.host_crash(xctest).tests, ["RecoverableMainWindowLifecycleTests/silentFailure()"])
 
 
 class BaselineTests(unittest.TestCase):
@@ -176,9 +315,56 @@ class MergedPullRequestTests(unittest.TestCase):
 
 
 class RankingTests(unittest.TestCase):
-    def test_one_pull_request_is_the_suspect(self):
-        only = pr(1)
-        self.assertEqual(MODULE.suspects_for("Suite/test()", [only]), ([only], "only pull request in the range"))
+    def test_the_only_pull_request_must_reach_the_suite(self):
+        only = pr(1, reached={"Suite"})
+        self.assertEqual(
+            MODULE.suspects_for("Suite/test()", [only]),
+            ([only], "only pull request in the range; changes code the suite names"),
+        )
+        self.assertEqual(MODULE.suspects_for("Other/test()", [only]), ([], "the only pull request in the range does not reach this suite"))
+        outside = pr(2)
+        outside.paths, outside.ranked = ["docs/a.md", "web/tests/x.test.ts"], True
+        self.assertEqual(
+            MODULE.suspects_for("Suite/test()", [outside])[1],
+            "the only pull request in the range changes nothing the app host loads",
+        )
+        # A test-only diff is loaded by the app host, so that reason would be wrong.
+        outside.paths = ["cmuxTests/OtherTests.swift"]
+        self.assertEqual(MODULE.suspects_for("Suite/test()", [outside])[1], "the only pull request in the range does not reach this suite")
+        self.assertEqual(
+            MODULE.suspects_for("Suite/test()", [pr(3, ranked=False)])[1],
+            "the only pull request in the range could not be diffed",
+        )
+
+    def test_a_changed_localized_string_reaches_a_suite_that_spells_it(self):
+        old = json.dumps({"strings": {
+            "agent.codex": {"localizations": {"en": {"stringUnit": {"value": "Codex"}}, "de": {"stringUnit": {"value": "Kodex"}}}},
+            "settings.open": {"localizations": {"en": {"stringUnit": {"value": "Open Settings Window"}}}},
+            "same": {"localizations": {"en": {"stringUnit": {"value": "Unchanged text here"}}}},
+        }})
+        new = json.dumps({"strings": {
+            "agent.codex": {"localizations": {"en": {"stringUnit": {"value": "Codex"}}, "de": {"stringUnit": {"value": "Codex"}}}},
+            "settings.open": {"localizations": {"en": {"stringUnit": {"value": "Open the Settings Window"}}}},
+            "same": {"localizations": {"en": {"stringUnit": {"value": "Unchanged text here"}}}},
+        }})
+        literals = MODULE.xcstrings_literals(old, new)
+        self.assertEqual(literals, {
+            "agent.codex", "Kodex", "settings.open", "Open Settings Window", "Open the Settings Window",
+        })
+        import reverse_test_impact
+        files = {
+            "Sources/App.swift": "struct App {}\n",
+            "cmuxTests/SettingsTests.swift": (
+                "import XCTest\n\nfinal class SettingsTests: XCTestCase {\n"
+                "    func testTitle() {\n        XCTAssertEqual(title, \"Open the Settings Window\")\n    }\n}\n"
+            ),
+            "cmuxTests/AgentTests.swift": (
+                "import XCTest\n\nfinal class AgentTests: XCTestCase {\n"
+                "    func testName() {\n        XCTAssertEqual(name, \"Codex\")\n    }\n}\n"
+            ),
+        }
+        # "Kodex" is too short to search, as select() treats a changed Swift literal.
+        self.assertEqual(reverse_test_impact.literal_suites(files, literals), {"SettingsTests"})
 
     def test_a_direct_push_in_the_range_needs_the_pull_request_to_reach_the_suite(self):
         self.assertEqual(MODULE.suspects_for("Suite/test()", [pr(1)], ["abc"])[0], [])
@@ -234,6 +420,95 @@ class RankingTests(unittest.TestCase):
     def test_no_signal_blames_nobody(self):
         self.assertEqual(MODULE.suspects_for("Suite/t()", [pr(1), pr(2)])[0], [])
         self.assertEqual(MODULE.suspects_for("Suite/t()", [])[0], [])
+
+
+class CrashReportTests(unittest.TestCase):
+    """Main run 36307768440: #14922, the only pull request in the range, changed
+    localized values and web tests; the app host crashed under an unrelated
+    test, as it had in every full-suite run since 02:04Z."""
+
+    def setUp(self):
+        self.previous = run(id=1, head_sha=PREV, html_url="https://github.com/x/runs/1")
+        self.lone = pr(14922)
+        self.lone.paths = ["Resources/Localizable.xcstrings", "web/tests/changelog-pages.test.tsx"]
+        self.lone.ranked = True
+        self.crash = MODULE.host_crash(CRASH_LOG, (), "7", "https://job/7")
+        self.failures = {VICTIM: ["https://job/7"], "OtherTests/plainFailure()": ["https://job/7"]}
+
+    def test_a_recurring_crash_is_reported_once_and_pings_nobody(self):
+        earlier = MODULE.HostCrash("2", "https://job/old", signatures=[CRASH_SIGNATURE], tests=["Elsewhere/test()"])
+        finding = MODULE.CrashFinding(self.crash, MODULE.prior_crash(self.crash, [(self.previous, earlier)]))
+        regressions, attributed, crashed = MODULE.split_crashes(self.failures, [finding])
+        self.assertEqual(list(regressions), ["OtherTests/plainFailure()"])
+        self.assertEqual(list(attributed), ["OtherTests/plainFailure()"])
+        self.assertEqual(crashed, {})
+        attributions = {test: MODULE.suspects_for(test, [self.lone]) for test in attributed}
+        self.assertEqual(attributions["OtherTests/plainFailure()"][0], [])
+        self.assertEqual(MODULE.comment_plan(attributed, attributions), [])
+        text = MODULE.issue_section(
+            repo=REPO, run=run(), previous=self.previous, failures=regressions, attributions=attributions,
+            prs=[self.lone], direct=[], commits=[], crashes=[finding],
+        )
+        self.assertIn(f"- `{CRASH_SIGNATURE}` in [shard 7](https://job/7), while running `{VICTIM}`. Not new:", text)
+        self.assertIn(f"at `{PREV[:10]}` had the same crash (shard 2)", text)
+        self.assertNotIn(f"`{VICTIM}` |", text)
+        self.assertIn("`OtherTests/plainFailure()` | unattributed (the only pull request in the range does not reach this suite)", text)
+        marker = [line for line in text.splitlines() if line.startswith(MODULE.DATA_PREFIX)][0]
+        data = json.loads(marker[len(MODULE.DATA_PREFIX):-3])
+        self.assertEqual([entry["test"] for entry in data["tests"]], ["OtherTests/plainFailure()"])
+        self.assertNotIn("—", text)
+
+    def test_only_the_crash_left_says_so(self):
+        finding = MODULE.CrashFinding(self.crash, (self.previous, MODULE.HostCrash("2", signatures=[CRASH_SIGNATURE])))
+        regressions, attributed, _ = MODULE.split_crashes({VICTIM: ["https://job/7"]}, [finding])
+        text = MODULE.issue_section(
+            repo=REPO, run=run(), previous=self.previous, failures=regressions, attributions={},
+            prs=[], direct=[], crashes=[finding],
+        )
+        self.assertIn("had the same crash (shard 2)", text)
+        self.assertIn("No other app-host test fails here", text)
+        self.assertNotIn("Pull requests merged", text)
+
+    def test_a_new_crash_pings_only_a_pull_request_that_reaches_the_suite(self):
+        finding = MODULE.CrashFinding(self.crash, None)
+        _, attributed, crashed = MODULE.split_crashes({VICTIM: ["https://job/7"]}, [finding])
+        self.assertEqual(list(crashed), [VICTIM])
+        attributions = {VICTIM: MODULE.suspects_for(VICTIM, [self.lone])}
+        self.assertEqual(MODULE.comment_plan(attributed, attributions), [])
+        text = MODULE.issue_section(
+            repo=REPO, run=run(), previous=self.previous, failures={}, attributions=attributions,
+            prs=[self.lone], direct=[], crashes=[finding],
+        )
+        self.assertIn(f"New since the baseline: `{VICTIM}` unattributed (the only pull request in the range does not reach this suite)", text)
+        reaches = pr(7, edited={"RecoverableMainWindowLifecycleTests"})
+        attributions = {VICTIM: MODULE.suspects_for(VICTIM, [reaches])}
+        plan = MODULE.comment_plan(attributed, attributions)
+        self.assertEqual([p.number for p, _, _, _ in plan], [7])
+        _, tests, how, others = plan[0]
+        body = MODULE.pr_comment(
+            repo=REPO, pr=reaches, tests=tests, how=how, run=run(), previous=self.previous,
+            failures=attributed, others=others, crashed=crashed,
+        )
+        self.assertIn("newly fail or crash the app host", body)
+        text = MODULE.issue_section(
+            repo=REPO, run=run(), previous=self.previous, failures={}, attributions=attributions,
+            prs=[reaches], direct=[], commits=[], crashes=[finding], crashed=list(crashed),
+        )
+        marker = [line for line in text.splitlines() if line.startswith(MODULE.DATA_PREFIX)][0]
+        data = json.loads(marker[len(MODULE.DATA_PREFIX):-3])
+        self.assertEqual([(entry["test"], entry.get("crash")) for entry in data["tests"]], [(VICTIM, True)])
+        self.assertIn(
+            f"- `{VICTIM}` (the app host crashed while running it: `{CRASH_SIGNATURE}`; "
+            "only pull request in the range; edits the suite)", body,
+        )
+
+    def test_a_crash_without_a_message_points_at_the_diagnostics_artifact(self):
+        silent = MODULE.HostCrash("4", "https://job/4", tests=["A/a()"], artifact="cmux-app-host-diagnostics-shard-4-run-1")
+        lines = MODULE.crash_lines(run(), [MODULE.CrashFinding(silent, None)], {})
+        self.assertIn(
+            "no crash message in the log; the backtrace is in the `cmux-app-host-diagnostics-shard-4-run-1` "
+            "artifact of [this run](https://github.com/x/runs/2#artifacts)", lines[1],
+        )
 
 
 class ReportTests(unittest.TestCase):

@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import CmuxFoundation
 
 /// Type of panel content
 public enum PanelType: String, Codable, CaseIterable, Sendable {
@@ -121,12 +122,12 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
 
 /// The built-in attention color used when no configured override is valid.
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
-    case notificationBlue
+    case cmuxAccent
 
-    var strokeColor: NSColor {
+    func strokeColor(accent: CmuxAccentColor) -> NSColor {
         switch self {
-        case .notificationBlue:
-            return .systemBlue
+        case .cmuxAccent:
+            return accent.dynamicNSColor
         }
     }
 }
@@ -163,13 +164,13 @@ struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
 
 enum WorkspaceAttentionCoordinator {
     static let notificationRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
+        accent: .cmuxAccent,
         glowOpacity: 0.35,
         glowRadius: 3
     )
 
     static let flashRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
+        accent: .cmuxAccent,
         glowOpacity: 0.6,
         glowRadius: 6
     )
@@ -210,7 +211,7 @@ enum FocusFlashCurve: Equatable {
 enum PanelOverlayRingMetrics {
     static let inset: CGFloat = 2
     static let cornerRadius: CGFloat = 6
-    static let lineWidth: CGFloat = 2.5
+    static let lineWidth: CGFloat = .paneIndicatorStrokeWidth
 
     static func pathRect(in bounds: CGRect) -> CGRect {
         bounds.insetBy(dx: inset, dy: inset)

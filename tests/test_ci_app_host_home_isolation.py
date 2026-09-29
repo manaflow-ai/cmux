@@ -688,6 +688,20 @@ def main() -> int:
     ):
         if bun_setup_gate_ok(rejected):
             raise SystemExit(f"FAIL: Bun setup gate guard must reject {rejected}")
+    # It resolves `node` as well, so node detection and its setup-node
+    # fallback must also survive an earlier failure.
+    for node_step_name in (
+        "Ensure node for app-host wrapper regressions",
+        "Install node (runner image has none)",
+    ):
+        node_condition = require_step("app-host-unit-tests", node_step_name).get("if")
+        if not bun_setup_gate_ok(node_condition):
+            raise SystemExit(f"FAIL: {node_step_name} must run after an earlier failure")
+    install_condition = require_step(
+        "app-host-unit-tests", "Install node (runner image has none)"
+    ).get("if")
+    if "steps.detect-node.outputs.found == 'false'" not in install_condition:
+        raise SystemExit("FAIL: setup-node must only run when node detection found none")
 
     # Once preparation starts, the console-user cleanup must still run even if
     # preparation fails or is cancelled, and its failures must remain visible.

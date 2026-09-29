@@ -28,4 +28,53 @@ struct LivenessTestRuntime: MobileSyncRuntime {
     var supportsServerPushEvents: Bool = true
     var livenessProbeTimeoutNanoseconds: UInt64 = 200_000_000
     var reconnectAttemptDeadlineNanoseconds: UInt64 = 30 * 1_000_000_000
+    /// Virtual reconnect-deadline clock; `nil` uses real time.
+    var reconnectDeadlineGate: ReconnectDeadlineGate?
+
+    func sleepUntilReconnectAttemptDeadline(nanoseconds: UInt64) async throws {
+        if let reconnectDeadlineGate {
+            try await reconnectDeadlineGate.sleep()
+        } else {
+            try await RPCTaskTimeout.continuousClockSleep(nanoseconds: nanoseconds)
+        }
+    }
+}
+
+/// Virtual clock for reconnect-attempt deadlines: each deadline stays pending
+/// until the test expires it, and a deadline whose attempt settles first is
+/// cancelled and dropped. Tests order deadline expiry against real events
+/// instead of against wall-clock time.
+final class ReconnectDeadlineGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending: [UUID: CheckedContinuation<Void, any Error>] = [:]
+
+    var pendingCount: Int { lock.withLock { pending.count } }
+
+    func sleep() async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let alreadyCancelled = lock.withLock { () -> Bool in
+                    if Task.isCancelled { return true }
+                    pending[id] = continuation
+                    return false
+                }
+                if alreadyCancelled {
+                    continuation.resume(throwing: CancellationError())
+                }
+            }
+        } onCancel: {
+            let continuation = lock.withLock { pending.removeValue(forKey: id) }
+            continuation?.resume(throwing: CancellationError())
+        }
+    }
+
+    /// Expires every deadline currently pending.
+    func expirePending() {
+        let expired = lock.withLock { () -> [CheckedContinuation<Void, any Error>] in
+            defer { pending.removeAll() }
+            return Array(pending.values)
+        }
+        for continuation in expired { continuation.resume() }
+    }
 }

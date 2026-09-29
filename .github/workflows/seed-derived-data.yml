@@ -9,8 +9,10 @@ name: Seed DerivedData
 # Each seed builds incrementally from the newest earlier seed, so a merge costs
 # the Mac time of its own diff: 30-130 s for one to five app files, measured in
 # #13131, against about 950 s cold. nightly.yml `refresh-test-compilation-cache`
-# still writes a cold seed every six hours, so a chain of incremental seeds
-# never carries stale intermediates for long.
+# writes a cold seed every six hours while CI_PR_POOL_OWNED is not 1, so a chain
+# of incremental seeds never carries stale intermediates for long. While owned
+# pools serve pull requests that schedule is off and the Blacksmith chains get
+# no periodic cold reset; a seed_only dispatch of nightly.yml writes one.
 #
 # Separate from ci.yml on purpose: nothing waits on it. A pull request whose
 # base has no seed yet adopts the newest one, and a miss is today's cold build.

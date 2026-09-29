@@ -11,9 +11,9 @@ struct CloudTreeDevicesEmptyView: View {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
     @State private var hoveredAction: String?
 
+    /// One row height per inline row, plus the 2 pt inset above and below.
     static func rowHeight(for section: CloudTreeDevicesSection, style: CloudTreeStyle) -> CGFloat {
-        let rows = (section.count == 0 ? 1 : 0) + (section.discoveryEnabled ? 0 : 1) + (section.incomingAccessEnabled ? 0 : 1)
-        return CGFloat(rows) * style.rowHeight + hintHeight(style: style) + 8
+        CGFloat(section.inlineRowCount) * style.rowHeight + 4
     }
 
     var body: some View {
@@ -46,15 +46,6 @@ struct CloudTreeDevicesEmptyView: View {
                     actions.setDeviceIncomingAccess(true)
                 }
             }
-            Text(menuHint)
-                .cmuxFont(size: style.detailSize, design: style.fontDesign)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .padding(.leading, scaled(textInset))
-                .padding(.trailing, scaled(style.rowGrid.trailingPadding))
-                .frame(height: scaled(Self.hintHeight(style: style)))
-                .padding(.top, scaled(4))
-                .help(menuHint)
         }
         .lineLimit(1)
         .padding(.vertical, scaled(2))
@@ -95,14 +86,6 @@ struct CloudTreeDevicesEmptyView: View {
 
     private var textInset: CGFloat {
         contentInset + (style.iconSlot > 0 ? style.iconSlot + style.iconGap : 0)
-    }
-
-    private var menuHint: String {
-        String(localized: "devices.options.hint", defaultValue: "Change these options in the ⋯ menu next to My Devices.")
-    }
-
-    private static func hintHeight(style: CloudTreeStyle) -> CGFloat {
-        2 * (style.detailSize + 3)
     }
 
     private func scaled(_ value: CGFloat) -> CGFloat {

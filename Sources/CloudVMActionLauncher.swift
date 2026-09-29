@@ -314,6 +314,10 @@ final class CloudVMActionLauncher {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+        // The app launches these for a person's click, so the CLI's opens take focus the
+        // way an interactive run does (its piped stdio would otherwise read as a
+        // script). A background launch passes `--focus false`, which still wins.
+        environment["CMUX_FOCUS_NEW"] = "1"
         for (key, value) in environmentOverrides {
             environment[key] = value
         }

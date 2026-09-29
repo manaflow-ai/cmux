@@ -5,7 +5,8 @@ import {
   selectAccountForRequest,
   selectAccountForSession,
 } from "./repository";
-import { freshCredential } from "./refresh";
+import { freshCredential, stickyRefreshPatience } from "./refresh";
+import type { StickyRefreshPatience } from "./refreshSignal";
 import { fetchProviderRead } from "./providerFetch";
 import { RESPONSES_PROVIDERS, type CodeRouterCredential } from "./types";
 import { captureCoderouterEvent } from "./analytics";
@@ -65,6 +66,8 @@ type CodexResponsesDependencies = {
     signal?: AbortSignal,
     failureCode?: string,
   ) => Promise<void>;
+  /** Defaults to the lease layer's refresh-completion wait. */
+  readonly refreshPatience?: StickyRefreshPatience;
 };
 
 /** Runtime seams used by tests to exercise request-wide timeout behavior. */
@@ -93,8 +96,6 @@ function sessionKeyFromRequest(request: Request): string | null {
   return raw;
 }
 
-const STICKY_REFRESH_RETRIES = 4;
-const STICKY_REFRESH_RETRY_DELAY_MS = 500;
 /**
  * Capacity errors can arrive inside a successful streaming response. Keep the
  * pre-output probe small and bounded: provider error events are headers-sized,
@@ -110,53 +111,22 @@ const PREOUTPUT_PROBE_IDLE_MS = 500;
  * A sticky session that hits a refresh already in flight should wait for the
  * winner's fresh credential rather than move to another account: a move
  * discards the session's prompt cache and re-bills its whole prefix, while
- * the in-flight refresh completes within seconds. Non-sticky requests keep
- * the fail-fast behavior.
+ * the in-flight refresh completes within seconds. The wait ends on the lease
+ * layer's refresh-completion signal and is bounded by
+ * `STICKY_REFRESH_PATIENCE_MS`. Non-sticky requests keep the fail-fast
+ * behavior.
  */
 async function credentialWithStickyPatience(
-  dependencies: Pick<CodexResponsesDependencies, "credential">,
+  dependencies: Pick<CodexResponsesDependencies, "credential" | "refreshPatience">,
   input: { teamId: string; accountId: string; expectedRevision: number; signal?: AbortSignal },
   sticky: boolean,
 ): Promise<Awaited<ReturnType<CodexResponsesDependencies["credential"]>>> {
-  for (let attempt = 0; ; attempt++) {
-    throwIfAborted(input.signal);
-    try {
-      return await dependencies.credential(input);
-    } catch (error) {
-      const busy = error && typeof error === "object" && "_tag" in error &&
-        (error as { _tag: string })._tag === "CodeRouterRefreshBusy";
-      if (!busy || !sticky || attempt >= STICKY_REFRESH_RETRIES) throw error;
-      await waitForRetry(input.signal);
-    }
-  }
-}
-
-async function waitForRetry(signal: AbortSignal | undefined): Promise<void> {
-  if (!signal) {
-    await new Promise((resolve) => setTimeout(resolve, STICKY_REFRESH_RETRY_DELAY_MS));
-    return;
-  }
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", abort);
-      resolve();
-    }, STICKY_REFRESH_RETRY_DELAY_MS);
-    const abort = () => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", abort);
-      reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
-    };
-    if (signal.aborted) {
-      abort();
-      return;
-    }
-    signal.addEventListener("abort", abort, { once: true });
-  });
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (!signal?.aborted) return;
-  throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+  if (!sticky) return await dependencies.credential(input);
+  const patience = dependencies.refreshPatience ?? stickyRefreshPatience;
+  return await patience(
+    { accountId: input.accountId, signal: input.signal },
+    () => dependencies.credential(input),
+  );
 }
 
 export function createCodexResponsesProxy(
@@ -346,13 +316,13 @@ async function proxyCodexRequestWith(
     }
     const upstreamStartedAt = performance.now();
     try {
-      upstream = await sendResponses(
+      upstream = replaceUpstreamResponse(upstream, await sendResponses(
         request.clone(),
         forwardedHeaders,
         credential,
         runtime.fetch,
         headersTimeoutMs,
-      );
+      ));
       recordCoderouterSpan({
         name: "upstream_attempt",
         startedAt: upstreamStartedAt,
@@ -408,17 +378,17 @@ async function proxyCodexRequestWith(
           );
           if (retryHeadersTimeoutMs === null) {
             failureStage = "upstream_transport";
-            upstream = null;
+            upstream = discardUpstreamResponse(upstream);
             break;
           }
           const retryStartedAt = performance.now();
-          upstream = await sendResponses(
+          upstream = replaceUpstreamResponse(upstream, await sendResponses(
             request.clone(),
             forwardedHeaders,
             refreshed,
             runtime.fetch,
             retryHeadersTimeoutMs,
-          );
+          ));
           recordCoderouterSpan({
             name: "upstream_attempt",
             startedAt: retryStartedAt,
@@ -440,7 +410,7 @@ async function proxyCodexRequestWith(
           request_id: requestId,
         });
         if (error instanceof CoderouterOperationDeadlineError) {
-          upstream = null;
+          upstream = discardUpstreamResponse(upstream);
           break;
         }
         continue;
@@ -1152,6 +1122,20 @@ type ResponsesCredential = Extract<
 
 function servesResponses(credential: CodeRouterCredential): credential is ResponsesCredential {
   return (RESPONSES_PROVIDERS as readonly string[]).includes(credential.provider);
+}
+
+// Keep the last rejection available until another attempt supplies a response.
+// Once replaced or dropped, its body must release its connection even if it
+// never ends. Cleanup must not delay the selected response or turn success
+// into an error.
+function replaceUpstreamResponse(previous: Response | null, replacement: Response): Response {
+  if (previous && previous !== replacement) discardUpstreamResponse(previous);
+  return replacement;
+}
+
+function discardUpstreamResponse(response: Response | null): null {
+  void response?.body?.cancel().catch(() => undefined);
+  return null;
 }
 
 /**

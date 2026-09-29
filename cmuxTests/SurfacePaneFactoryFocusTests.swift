@@ -257,6 +257,10 @@ import SwiftUI
             window.displayIfNeeded()
             try await Task.sleep(for: .milliseconds(10))
         }
+        try #require(
+            source.hostedView.bounds.width >= 300,
+            "The source pane must be wide enough for the card before presenting it"
+        )
         let request = store.beginRequest()
         harness.workspace.presentCloudPaneCreationFailure(
             machine: .cloud("overlay-test"),
@@ -610,6 +614,31 @@ import SwiftUI
         #expect(created.panelID != before)
         #expect(workspace.focusedPanelId == created.panelID)
         #expect(workspace.paneId(forPanelId: created.panelID) != paneID)
+    }
+
+    /// A focused Cloud split hands focus over like a local Cmd+D. SwiftUI reparents
+    /// the source terminal into the new split; unless that reparent is suppressed,
+    /// the source takes focus back and the new pane shows a hollow cursor.
+    @Test func focusedCloudSplitKeepsTheSourceFromTakingFocusBack() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let source = try #require(workspace.focusedPanelId.flatMap { workspace.terminalPanel(for: $0) })
+        let panel = try #require(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
+
+        _ = try workspace.insertCloudManualMirrorPanel(
+            panel,
+            at: .split(workspaceID: workspace.id, paneID: paneID.id.uuidString, direction: .right),
+            focus: true,
+            isLoading: false
+        )
+
+        #expect(workspace.focusedPanelId == panel.id)
+        #expect(workspace.paneId(forPanelId: panel.id) != paneID)
+#if DEBUG
+        #expect(source.hostedView.debugIsSuppressingReparentFocusForTesting())
+#endif
     }
 
     /// A projected browser (VM desktop or port preview) goes through the same create

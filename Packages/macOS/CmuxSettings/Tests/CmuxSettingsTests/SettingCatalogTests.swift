@@ -23,6 +23,10 @@ struct SettingCatalogTests {
                 "automation.claudeCodeIntegration",
                 "integrations.claudeCode.hooksEnabled",
             ],
+            "piHooksEnabled": [
+                "automation.piIntegration",
+                "integrations.pi.hooksEnabled",
+            ],
             "codexHooksEnabled": [
                 "automation.codexIntegration",
                 "integrations.codex.hooksEnabled",
@@ -125,6 +129,10 @@ struct SettingCatalogTests {
 
     @Test func hardWrapReflowOnCopyDefaultsOff() {
         #expect(!SettingCatalog().terminal.reflowHardWrapOnCopy.defaultValue)
+    }
+
+    @Test func unsafePasteConfirmationDefaultsOff() {
+        #expect(!SettingCatalog().terminal.confirmUnsafePaste.defaultValue)
     }
 
     @Test func keyIdsMatchTheirSectionPrefix() {

@@ -10,6 +10,9 @@ import Foundation
 @MainActor
 protocol PaneDropContainer: AnyObject {
     var surfaceOwnershipPolicy: SurfaceOwnershipPolicy { get }
+    /// Whether this container accepts pane-transfer payloads (surfaces, Vault
+    /// sessions, Cloud rows, sidebar tools). File drops are routed separately.
+    var acceptsPaneTransfers: Bool { get }
     func surfaceDropRejection(
         _ transfer: PaneDragTransfer,
         source: PaneTransferSourceResolver.Source
@@ -83,6 +86,7 @@ protocol PaneDropContainer: AnyObject {
 
 extension PaneDropContainer {
     var surfaceOwnershipPolicy: SurfaceOwnershipPolicy { .init(cloudMachine: nil) }
+    var acceptsPaneTransfers: Bool { true }
     func surfaceDropRejection(
         _ transfer: PaneDragTransfer,
         source: PaneTransferSourceResolver.Source
@@ -112,7 +116,8 @@ extension PaneDropContainer {
             tabId: id, sourcePaneId: request.sourcePaneId.id,
             sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
         )
-        guard surfaceDropRejection(transfer, source: source) == nil else { return false }
+        guard acceptsPaneTransfers,
+              surfaceDropRejection(transfer, source: source) == nil else { return false }
 
         let handled: Bool
         switch source {
@@ -146,7 +151,8 @@ extension PaneDropContainer {
         _ transfer: PaneDragTransfer,
         source: PaneTransferSourceResolver.Source
     ) -> Bool {
-        guard surfaceDropRejection(transfer, source: source) == nil else { return false }
+        guard acceptsPaneTransfers,
+              surfaceDropRejection(transfer, source: source) == nil else { return false }
         switch source {
         case .vaultSession, .filePreview, .surfaceResources:
             return true
@@ -424,8 +430,85 @@ extension DockSplitStore: PaneDropContainer {
     }
 }
 
+/// A remote tmux window renders its panes from its own nested Bonsplit tree,
+/// so their drop contexts carry pane ids the workspace tree has never seen.
+/// The mirror owns those panes: dropped files are delivered to the pane's
+/// terminal (which uploads them to the remote host), while pane transfers and
+/// open-as-split drops are declined because tmux owns the layout.
+extension RemoteTmuxWindowMirror: PaneDropContainer {
+    var acceptsPaneTransfers: Bool { false }
+
+    /// Whether `paneId` is this mirror's pane rendering `panelId`.
+    func ownsPaneDropTarget(panelId: UUID, paneId: PaneID) -> Bool {
+        selectedPanelForPaneDrop(in: paneId)?.panelId == panelId
+    }
+
+    /// Returns the mirrored tmux pane's panel rendered in `paneId`.
+    func selectedPanelForPaneDrop(
+        in paneId: PaneID
+    ) -> (panelId: UUID, panel: any Panel)? {
+        guard let tmuxPaneId = paneIdByBonsplitPane[paneId],
+              let panel = self.panel(forPane: tmuxPaneId) else {
+            return nil
+        }
+        return (panel.id, panel)
+    }
+
+    func canPerformPortalSurfaceDrop(_ transfer: PaneDragTransfer) -> Bool { false }
+
+    func portalPaneDropZone(
+        tabId _: UUID,
+        sourcePaneId _: UUID,
+        targetPane _: PaneID,
+        proposedZone: DropZone
+    ) -> DropZone {
+        proposedZone
+    }
+
+    func performPortalSurfaceDrop(
+        tabId _: UUID,
+        sourcePaneId _: UUID,
+        targetPane _: PaneID,
+        zone _: DropZone
+    ) -> Bool {
+        false
+    }
+
+    func performPortalVaultSessionDrop(
+        entry _: SessionEntry,
+        destination _: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        false
+    }
+
+    func handleExternalFileDrop(
+        _: BonsplitController.ExternalFileDropRequest
+    ) -> Bool {
+        false
+    }
+
+    /// Applies the same focus transaction as clicking the mirrored pane.
+    func focusPanelAfterSuccessfulPaneDrop(
+        panelId: UUID,
+        focusIntent: PanelFocusIntent,
+        window _: NSWindow?
+    ) {
+        guard let tmuxPaneId = paneIDsInOrder.first(where: { self.panel(forPane: $0)?.id == panelId }),
+              let panel = self.panel(forPane: tmuxPaneId) else {
+            return
+        }
+        if let workspace = AppDelegate.shared?.workspaceFor(tabId: panel.workspaceId),
+           let containerPane = workspace.paneId(forPanelId: self.panelId) {
+            workspace.focusRemoteTmuxContainerPaneIfNeeded(containerPane)
+        }
+        setActivePane(tmuxPaneId, fromTmux: false)
+        _ = panel.restoreFocusIntent(focusIntent)
+    }
+}
+
 extension AppDelegate {
-    /// Resolves the workspace or Dock that authoritatively owns a drop target.
+    /// Resolves the workspace, Dock, or remote tmux window that authoritatively
+    /// owns a drop target.
     func paneDropContainer(
         for context: PaneDropContext
     ) -> (any PaneDropContainer)? {
@@ -434,11 +517,15 @@ extension AppDelegate {
            dock.bonsplitController.paneId(containing: surfaceId) == context.paneId {
             return dock
         }
-        guard let workspace = workspaceFor(tabId: context.workspaceId),
-              let surfaceId = workspace.surfaceIdFromPanelId(context.panelId),
-              workspace.bonsplitController.paneId(containing: surfaceId) == context.paneId else {
+        guard let workspace = workspaceFor(tabId: context.workspaceId) else {
             return nil
         }
-        return workspace
+        if let surfaceId = workspace.surfaceIdFromPanelId(context.panelId),
+           workspace.bonsplitController.paneId(containing: surfaceId) == context.paneId {
+            return workspace
+        }
+        return workspace.remoteTmuxWindowMirrors.values.first {
+            $0.ownsPaneDropTarget(panelId: context.panelId, paneId: context.paneId)
+        }
     }
 }

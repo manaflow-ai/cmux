@@ -85,7 +85,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         currentHost.removeFromSuperview()
         window.contentView = nil
         window.close()
-        panel.surface.teardownSurface()
+        panel.surface.teardownHostedSurfaceForTesting()
     }
 
     @Test func immediateStateUpdateAllowedWhenDesiredStateIsHidden() {
@@ -287,7 +287,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             coordinator.portalReconciliationScheduler.cancel()
             TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
             window.close()
-            panel.surface.teardownSurface()
+            panel.surface.teardownHostedSurfaceForTesting()
         }
 
         window.orderFront(nil)
@@ -361,8 +361,8 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             TerminalWindowPortalRegistry.detach(hostedView: firstPanel.hostedView)
             TerminalWindowPortalRegistry.detach(hostedView: secondPanel.hostedView)
             window.close()
-            firstPanel.surface.teardownSurface()
-            secondPanel.surface.teardownSurface()
+            firstPanel.surface.teardownHostedSurfaceForTesting()
+            secondPanel.surface.teardownHostedSurfaceForTesting()
         }
 
         window.orderFront(nil)
@@ -424,7 +424,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         defer {
             TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
             window.close()
-            panel.surface.teardownSurface()
+            panel.surface.teardownHostedSurfaceForTesting()
         }
 
         window.orderFront(nil)

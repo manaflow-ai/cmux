@@ -58,13 +58,15 @@ public final class TerminalPredictionOverlayView: NSView {
 
     public override func draw(_ dirtyRect: NSRect) {
         guard let style, let layout else { return }
-        let attributes: [NSAttributedString.Key: Any] = [
+        let confirmedAttributes: [NSAttributedString.Key: Any] = [
             .font: style.font,
             .foregroundColor: style.foreground,
-            // Underlining unconfirmed text is the convention mosh established,
-            // and it is the only cue that separates a guess from the truth.
-            .underlineStyle: NSUnderlineStyle.single.rawValue,
         ]
+        // Underlining unconfirmed text is the convention mosh established, and
+        // it is the only cue that separates a guess from the truth. A confirmed
+        // glyph held until its frame presents is the truth, so it is plain.
+        var speculativeAttributes = confirmedAttributes
+        speculativeAttributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
 
         // Laid out by offset, not by position in the list: a keystroke typed
         // before the run armed is not drawn but still owns its cell.
@@ -79,6 +81,7 @@ public final class TerminalPredictionOverlayView: NSView {
             style.background.setFill()
             cell.fill()
 
+            let attributes = glyph.standing == .speculative ? speculativeAttributes : confirmedAttributes
             let text = String(glyph.character) as NSString
             let size = text.size(withAttributes: attributes)
             text.draw(

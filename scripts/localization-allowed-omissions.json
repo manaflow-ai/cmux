@@ -1008,7 +1008,8 @@
       "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hans": "Dock is the cmux right-sidebar feature name, not the macOS Dock; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "dock.source.title": {
@@ -1020,7 +1021,8 @@
       "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hans": "Dock is the cmux right-sidebar feature name, not the macOS Dock; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "emptyPanel.action.browser": {
@@ -1556,7 +1558,8 @@
       "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hans": "Dock is the cmux right-sidebar feature name, not the macOS Dock; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "menu.help.notifications": {
@@ -1859,13 +1862,18 @@
       "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hans": "Dock is the cmux right-sidebar feature name, not the macOS Dock; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "rightSidebar.mode.feed": {
     "source": "Feed",
     "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ar": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "es": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "zh-Hant": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "zh-Hans": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "rightSidebar.mode.machines": {
@@ -2024,7 +2032,8 @@
       "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
       "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "zh-Hans": "Dock is the cmux right-sidebar feature name, not the macOS Dock; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "settings.betaFeatures.extensions": {
@@ -2036,7 +2045,11 @@
   "settings.betaFeatures.feed": {
     "source": "Feed",
     "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "ar": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "es": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "zh-Hant": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958.",
+      "zh-Hans": "Feed is the cmux right-sidebar feature name; this market keeps the English product name, as reviewed in #12958."
     }
   },
   "settings.betaFeatures.workspaceTodosChecklistStyle.inline": {
@@ -2166,6 +2179,18 @@
       "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
       "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
       "ja": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.computers.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "settings.computers.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
   "settings.config.source.cmux": {
@@ -2381,6 +2406,14 @@
     "class": "technical",
     "source": "cmux.json"
   },
+  "globalSearch.kind.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
   "settings.section.terminal": {
     "source": "Terminal",
     "identityLocales": {
@@ -2431,6 +2464,16 @@
     "class": "technical",
     "source": "pt"
   },
+  "settings.terminal.ghostty.scrollbackLimit.unit": {
+    "class": "technical",
+    "source": "MB"
+  },
+  "settings.terminal.ghostty.cursorStyle.block": {
+    "source": "Block",
+    "identityLocales": {
+      "de": "Block is the German word for a block cursor shape and has the same spelling as English."
+    }
+  },
   "settings.terminal.tabBarFontSize.points": {
     "class": "format",
     "source": "%@ pt"
@@ -2459,6 +2502,18 @@
     "identityLocales": {
       "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
+  },
+  "shortcut.keymap.preset.iterm2": {
+    "class": "brand",
+    "source": "iTerm2"
+  },
+  "shortcut.keymap.preset.terminal": {
+    "class": "brand",
+    "source": "Terminal.app"
+  },
+  "shortcut.keymap.summary.change": {
+    "class": "format",
+    "source": "%1$@: %2$@ → %3$@"
   },
   "shortcut.recorder.pendingChord": {
     "class": "format",
@@ -3394,5 +3449,14 @@
     "source": "cmux layout delete <name>",
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "sidebar.agentStatus.glyph.tooltip": {
+    "source": "%1$@: %2$@",
+    "identityLocales": {
+      "ar": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "de": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "es": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
+    }
   }
 }

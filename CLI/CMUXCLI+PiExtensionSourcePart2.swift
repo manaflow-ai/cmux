@@ -299,6 +299,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   const dispatcher = new PiCmuxCommandDispatcher();
   const sessionStates = new Map<string, SessionState>();
   const lifecycleTasks = createPiLifecycleQueue();
+  let restorePiUIDialogHooks: (() => void) | undefined;
 
   const enqueueLifecycleTask = (
     sessionId: string,
@@ -314,10 +315,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       state.pendingCompletion = undefined;
       state.feedDeliveryFailed = false;
       state.stopped = false;
+      state.toolCommands.clear();
     }
+    restorePiUIDialogHooks?.();
+    restorePiUIDialogHooks = installPiUIDialogHooks(
+      dispatcher,
+      sessionStates,
+      ctx,
+      enqueueLifecycleTask,
+    );
     if (!sessionId) return;
     enqueueLifecycleTask(sessionId, context, async () => {
       await sendHook(dispatcher, "session-start", context);
+      await publishPiWorkspaceMetadata(dispatcher, context, sessionId);
     });
   });
 
@@ -362,11 +372,32 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   };
 
   pi.on("tool_execution_start", (event, ctx) => {
+    const context = snapshotContext(ctx);
+    const sessionId = context.sessionId;
+    const toolCallId = firstString(objectValue(event, ["toolCallId", "tool_call_id", "id"]));
+    const command = piToolCommand(event);
+    if (sessionId && toolCallId && command) {
+      stateFor(sessionStates, sessionId).toolCommands.set(toolCallId, command);
+    }
     enqueueFeed(isSubagentTool(event) ? "SubagentStart" : "PreToolUse", event, ctx);
   });
 
   pi.on("tool_execution_end", (event, ctx) => {
     enqueueFeed(isSubagentTool(event) ? "SubagentStop" : "PostToolUse", event, ctx);
+    const context = snapshotContext(ctx);
+    const sessionId = context.sessionId;
+    const toolCallId = firstString(objectValue(event, ["toolCallId", "tool_call_id", "id"]));
+    const state = sessionId ? stateFor(sessionStates, sessionId) : undefined;
+    const command = piToolCommand(event)
+      || (toolCallId ? state?.toolCommands.get(toolCallId) : undefined);
+    if (toolCallId) state?.toolCommands.delete(toolCallId);
+    if (sessionId && command && piGitMetadataCommand(command)) {
+      const action = piPullRequestAction(command);
+      enqueueLifecycleTask(sessionId, context, async () => {
+        await publishPiWorkspaceMetadata(dispatcher, context, sessionId);
+        if (action) await publishPiPullRequestHint(dispatcher, context, sessionId, action);
+      });
+    }
   });
 
   pi.on("session_before_compact", (event, ctx) => {
@@ -386,7 +417,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     // Preserve the latest low-level result until Pi confirms no automatic work remains.
     state.pendingCompletion = {
       lastAssistantMessage: assistantCompletion.lastAssistantMessage || state.pendingCompletion?.lastAssistantMessage,
-      notificationType: firstString(objectValue(event, ["stopReason", "reason", "terminationReason"])) || "completed",
+      notificationType: piQuestionLike(assistantCompletion.lastAssistantMessage) ? "question" : (firstString(objectValue(event, ["stopReason", "reason", "terminationReason"])) || "completed"),
       turnId: currentTurnId(sessionStates, sessionId, event),
       suppressNotification: assistantCompletion.suppressNotification,
     };
@@ -418,7 +449,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   pi.on("session_shutdown", async (event, ctx) => {
     const context = snapshotContext(ctx);
     const sessionId = context.sessionId;
-    if (!sessionId) return;
+    if (!sessionId) {
+      restorePiUIDialogHooks?.();
+      restorePiUIDialogHooks = undefined;
+      return;
+    }
     const state = stateFor(sessionStates, sessionId);
     let stopPayload: HookExtra | undefined;
     if (!state.stopped) {
@@ -440,6 +475,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         releaseSessionRuntime(dispatcher, sessionStates, sessionId);
       }
     });
+    restorePiUIDialogHooks?.();
+    restorePiUIDialogHooks = undefined;
   });
 }
 """#

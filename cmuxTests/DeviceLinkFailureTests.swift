@@ -17,6 +17,39 @@ import Testing
 struct DeviceLinkFailureTests {
     private let host = "Austin\u{2019}s MacBook Pro"
 
+    @Test("Confirmed Mac opt-out gives discoverability guidance and waits for a directory update")
+    func undiscoverablePeerIsNotAnIdentityOrNetworkFailure() throws {
+        let local = V2Identity(appNamespace: "cmux", buildTag: "nightly", deviceID: "viewer",
+            environment: "test", projectID: "project", teamID: "team", userID: "owner")
+        let remote = V2Identity(appNamespace: "cmux", buildTag: "nightly", deviceID: "host",
+            environment: "test", projectID: "project", teamID: "team", userID: "owner")
+        func record(_ identity: V2Identity, endpoint: String) -> V2DeviceRecord {
+            V2DeviceRecord(descriptor: V2DeviceDescriptor(endpointID: endpoint, identity: identity, identityGeneration: 0,
+                metadata: V2DeviceMetadata(appVersion: "1", capabilities: [], displayName: "Mac",
+                    pairingEnabled: true, platform: .mac, relayURLs: [])),
+                deviceRecordID: identity.deviceID, revision: 1, revoked: false)
+        }
+        var cache = V2CachedState(identity: local)
+        cache.device = record(local, endpoint: "local-key")
+        cache.directory = V2Directory(devices: [record(remote, endpoint: "remote-key")], issuedAt: 1000,
+            permissionExpiresAt: 1060, relayURLs: [], revision: 1, teamID: "team")
+        do {
+            _ = try IrxMacPeerAuthorization(deviceID: remote.deviceID, tag: remote.buildTag, endpointID: "remote-key")
+                .resolve(cache: cache, localIdentity: local, now: Date(timeIntervalSince1970: 1001))
+            Issue.record("A Mac without hosting opt-in must not be authorized")
+        } catch {
+            let failure = DeviceLinkFailure.classify(error, hostName: host)
+            #expect(failure.code == "peer-not-discoverable")
+            #expect(failure.kind == .hostDenied)
+            #expect(!failure.isRetryable)
+            #expect(failure.message != DeviceLinkError.identityMismatch.localizedDescription)
+            var policy = DeviceLinkReconnectPolicy()
+            _ = policy.apply(.directory(dialable: true), now: .distantPast)
+            #expect(policy.apply(.connectFailed(failure)) == .blocked(failure))
+            #expect(policy.apply(.directoryRevisionAdvanced) == .connecting(attempt: 1))
+        }
+    }
+
     @Test("A host admission refusal names the Mac, keeps its code, and does not retry")
     func hostAdmissionRefusal() {
         let failure = DeviceLinkFailure.classify(IrxAdmissionDenied(code: .invalidGrant), hostName: host)

@@ -12,6 +12,12 @@ Three entrypoints, all landing on the same server:
 
 One page = one session: `/` is the composer, `/s/<id>` a chat. When `CMUX_AGENT_CHAT_TOKEN` or `--token` is configured, every HTTP route, static asset, API route, and WebSocket upgrade except `/healthz` must be under `/<token>/...`; missing or wrong tokens return 404. There is deliberately no in-page session list or header; each chat is its own cmux workspace tab (page title = first prompt), so cmux's sidebar is the session list.
 
+## Terminal chat view
+
+`/terminal/<surface-id>` shows a Claude Code or Codex session that is already running in a cmux terminal as a chat, without starting another agent. The sidecar looks the surface up in the hook session stores (`~/.cmuxterm/claude-hook-sessions.json`, `~/.cmuxterm/codex-hook-sessions.json`), tails the agent's own transcript (Claude `projects/<slug>/<session>.jsonl`, Codex `sessions/YYYY/MM/DD/rollout-*-<session>.jsonl`), and normalizes it into `AgentEvent`s with `adapters/transcript.ts`, so the regular chat renderer draws it. The page lives at `/s/t-<agent session id>`, which re-resolves after a sidecar restart; a view with no open page stops tailing after five minutes.
+
+The terminal stays the source of truth. The composer types the prompt into the terminal's agent with `mobile.chat.send` (bracketed paste and submit, the delivery the iOS chat uses), and Stop or Esc sends `mobile.chat.interrupt`; both go over the cmux control socket through `cmux rpc` (`cmux-rpc.ts`, using the `CMUX_BUNDLED_CLI_PATH` and `CMUX_SOCKET_PATH` the app passes to the sidecar). The prompt shows immediately and is replaced by the transcript's own copy when it lands. Permission prompts, questions, and pickers stay in the terminal: when the hook store says the agent needs input, the view shows the request with an "Answer in terminal" button that focuses the terminal pane. Open the view with "Open terminal as chat" in the command palette (Agent Chat UI flag) or `cmux-chat --terminal --surface <surface-id>` from a shell.
+
 ## Model catalog
 
 The sidecar fetches the model catalog from `https://cmux.dev/api/agent-models` (`CMUX_AGENT_MODELS_URL` overrides it for development), revalidates it with ETags after a one-hour TTL, and caches the last-good response at `~/.cache/cmux-agent-chat/models.json` for offline startup. Refreshes happen in the background; changed catalogs are pushed to open pages so model pickers update without reloading.

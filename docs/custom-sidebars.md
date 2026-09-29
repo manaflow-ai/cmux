@@ -141,6 +141,12 @@ Rules of the runtime:
   `.hoverBackground` (host-side hover wash, no JS round trip)
   `.cornerRadius` (continuous/squircle curvature) `.borderColor`
   `.borderWidth` `.opacity` `.frame({width,height,minWidth,maxWidth,...})`
+  (or `.frame(() => ({...}))` to bind every key live; the keys come from
+  the first evaluation, so return every key you need from the start)
+  `.layoutPriority(n)` (who keeps width in an `HStack`; truncating text
+  defaults to 1, so give a button or badge beside it 2) `.fixedSize()` (keep
+  a view at its natural size; `.fixedSize("horizontal")` or `"vertical"` for
+  one axis)
   `.fill` `.stroke` `.strokeWidth` `.size` `.rotation(degrees)` (spins the
   content in place inside its layout box, spring-animated - e.g. a group
   chevron that turns instead of swapping glyphs) `.fade(width)` (constant
@@ -417,7 +423,7 @@ A button or `.onTapGesture` body calls `cmux("<method>", param: value)`. On tap
 it runs that cmux command through the same dispatcher as the `cmux` CLI:
 
     Button(action: { cmux("workspace.select", workspace_id: w.id) }) { ... }
-    ...onTapGesture { cmux("surface.focus", surface_id: t.id) }
+    ...onTapGesture { cmux("surface.focus", surface_id: t.surfaceId) }
 
 Use real method and parameter names. Common ones: `workspace.select`
 (`workspace_id`), `surface.focus` (`surface_id`), `workspace.reorder`

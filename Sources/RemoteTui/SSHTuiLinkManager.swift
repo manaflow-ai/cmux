@@ -6,21 +6,25 @@ import CmuxCore
 /// Owns one SSH carrier and shares it between native projections and control requests.
 actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     nonisolated let operations: CloudOperationRecorder? = nil
-    private let connection: SSHTuiConnection
+    private var connection: SSHTuiConnection
     private let clientURL: URL
     private let paths: CloudTuiClientPaths
     private let isEnabled: @Sendable () -> Bool
+    /// Read at each carrier start, so an Integrations toggle applies on the next connect.
+    private let agentHookProviders: @Sendable () -> [String]
     private var current: CloudMachineLink?
     private var connecting: Task<CloudMachineLink.Connected, Error>?
     private var checking: Task<Void, Error>?
     private var browser: CloudBrowserProxyProcess?
     private var browserStarting: Task<CloudBrowserProxyEndpoint, Error>?
 
-    init(connection: SSHTuiConnection, clientURL: URL, paths: CloudTuiClientPaths, isEnabled: @escaping @Sendable () -> Bool) {
+    init(connection: SSHTuiConnection, clientURL: URL, paths: CloudTuiClientPaths, isEnabled: @escaping @Sendable () -> Bool,
+         agentHookProviders: @escaping @Sendable () -> [String] = { [] }) {
         self.connection = connection
         self.clientURL = clientURL
         self.paths = paths
         self.isEnabled = isEnabled
+        self.agentHookProviders = agentHookProviders
     }
 
     func connected(machineID: String) async throws -> CloudMachineLink.Connected {
@@ -59,10 +63,12 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         if let connecting { return try await connecting.value }
         let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
         current = link
-        let attempt = Task {
+        var carrier = connection
+        carrier.agentHookProviders = agentHookProviders()
+        let attempt = Task { [carrier] in
             try await link.connect(route: "ssh://" + connection.configuration.destination,
                                    session: connection.session, carrier: true,
-                                   timeout: deadline - ContinuousClock.now, ssh: connection)
+                                   timeout: deadline - ContinuousClock.now, ssh: carrier)
         }
         connecting = attempt
         defer { if connecting == attempt { connecting = nil } }
@@ -75,6 +81,32 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
             if current === link { current = nil }
             throw error
         }
+    }
+
+    /// The OpenSSH options the next carrier dials with.
+    var carrierSSHOptions: [String] { connection.configuration.sshOptions }
+
+    /// Applies an explicit open's SSH options to this machine's next carrier.
+    ///
+    /// Machine identity ignores control options on purpose: restores drop them,
+    /// and a restored workspace must find the machine it was bound to. So
+    /// `--ssh-option ControlPath=none`, meant to leave a stale shared master,
+    /// reaches the manager an earlier open created, whose options would
+    /// otherwise win. A carrier that is not connected takes the new options;
+    /// a connected one keeps running so its terminals do not drop. Restores
+    /// never call this, because their options have already lost their controls.
+    /// The whole connection is replaced, so the open's agent socket and command
+    /// also apply to the next carrier. A carrier still connecting keeps the
+    /// options it started with.
+    func adopt(_ replacement: SSHTuiConnection) async {
+        guard replacement.id == connection.id,
+              replacement.configuration.sshOptions != connection.configuration.sshOptions,
+              connecting == nil else { return }
+        let observed = current
+        if let observed, await observed.isConnected { return }
+        // The check above suspends; a carrier started meanwhile keeps its options.
+        guard current === observed, connecting == nil else { return }
+        connection = replacement
     }
 
     func link(machineID: String) -> CloudMachineLink? {

@@ -347,7 +347,7 @@ private struct SidebarFooterIconButtonStyleBody: View {
             .onHover { hovering in
                 isHovered = hovering
             }
-            .animation(.easeOut(duration: 0.12), value: isHovered)
+            .chromeRevealAnimation(isVisible: isHovered, fadeOut: .easeOut(duration: 0.12))
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }
@@ -378,6 +378,7 @@ struct SidebarDevFooter: View {
 #endif
 
 struct SidebarEmptyArea: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @EnvironmentObject var tabManager: TabManager
     let rowSpacing: CGFloat
     @Binding var selection: SidebarSelection
@@ -406,7 +407,7 @@ struct SidebarEmptyArea: View {
             .overlay(alignment: .top) {
                 if topDropIndicatorVisible {
                     Rectangle()
-                        .fill(cmuxAccentColor())
+                        .fill(cmuxAccent.color)
                         .frame(height: 2)
                         .padding(.horizontal, 8)
                         .offset(y: -(rowSpacing / 2))
@@ -483,6 +484,7 @@ private extension View {
 }
 
 struct ExtensionSidebarBrowserStackEmptyArea: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let rowSpacing: CGFloat
     let orderedRows: [ExtensionSidebarBrowserStackDropRow]
     let dragAutoScrollController: SidebarDragAutoScrollController
@@ -506,7 +508,7 @@ struct ExtensionSidebarBrowserStackEmptyArea: View {
             .overlay(alignment: .top) {
                 if shouldShowTopDropIndicator {
                     Rectangle()
-                        .fill(cmuxAccentColor())
+                        .fill(cmuxAccent.color)
                         .frame(height: 2)
                         .padding(.horizontal, 8)
                         .offset(y: -(rowSpacing / 2))

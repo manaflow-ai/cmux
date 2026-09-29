@@ -171,29 +171,6 @@ public enum SSHPTYAttachExitCode: Int32, Sendable {
         currentRetry >= 0 && limit > 0 && currentRetry + 1 < limit
     }
 
-    /// Builds the shared persistent-attach retry loop.
-    ///
-    /// This compatibility entry point delegates to
-    /// ``SSHPTYAttachRetryScriptBuilder`` so older package clients keep their
-    /// source compatibility without retaining a second retry implementation.
-    ///
-    /// - Parameters:
-    ///   - command: Shell command that performs one attach attempt.
-    ///   - reauthenticates: Whether foreground authentication is available.
-    /// - Returns: Shell lines implementing the shared retry state machine.
-    @available(
-        *,
-        deprecated,
-        message: "Use SSHPTYAttachRetryScriptBuilder.lines(command:reauthenticates:initialAuthentication:) with initialAuthentication: false"
-    )
-    public static func retryLoopLines(command: String, reauthenticates: Bool) -> [String] {
-        SSHPTYAttachRetryScriptBuilder().lines(
-            command: command,
-            reauthenticates: reauthenticates,
-            initialAuthentication: false
-        )
-    }
-
     /// Builds a bounded no-progress sub-loop for a wrapper that already owns
     /// general reconnect and foreground-authentication policy.
     ///

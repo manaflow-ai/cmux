@@ -58,6 +58,7 @@ extension CmuxTuiSurfaceProvider {
         }
     }
     func syncNotifications(from state: CloudVMState) {
+        syncAgentHooks(from: state)
         updateGuestURLMembership()
         guestURLService?.recoverOnLinkProgress()
         guard let notificationSync else { return }
@@ -66,6 +67,42 @@ extension CmuxTuiSurfaceProvider {
         #if DEBUG
         cmuxDebugLog("cloud.notifications.sync machine=\(machineID) revision=\((state.cursor?.revision).map(String.init) ?? "nil") rows=\(rows.count) unreadTerminals=\(notificationSync.unreadTerminalIDs.count) pending=\(notificationSync.state.pendingAcks.count)")
         #endif
+    }
+    // MARK: Agent hooks
+    /// Replays the session identity of Claude agents in `cmux ssh` panes into
+    /// the local hook queue, so the Mac's hook pipeline knows the remote
+    /// agent's session. Runs with every accepted state and every catalog
+    /// change, so a session whose pane was not open yet is caught up when it
+    /// opens. Sidebar status comes from the roster projection, and visible
+    /// notifications from the daemon's durable rows (`syncNotifications`).
+    func syncAgentHooks(from state: CloudVMState) {
+        guard machine.isSSH else { return }
+        let machine = self.machine
+        let catalog = self.catalog
+        func panel(for terminalID: String) -> SurfaceProjection? {
+            catalog.projections(of: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)).first
+        }
+        let routable = Set(state.agents.map(\.terminalID).filter { panel(for: $0) != nil })
+        let events = agentHookMirror.reconcile(agents: state.agents, routableTerminalIDs: routable)
+        guard !events.isEmpty else { return }
+        let controller = TerminalController.shared
+        for event in events {
+            // A session end for a terminal whose pane already closed has no
+            // local state left to clear.
+            guard let projection = panel(for: event.terminalID) else { continue }
+            let queued = controller.enqueueMirroredAgentHook(
+                agent: event.agent,
+                subcommand: event.subcommand,
+                payload: event.payload,
+                workspaceID: projection.workspaceID,
+                surfaceID: projection.panelID
+            )
+            #if DEBUG
+            cmuxDebugLog("cloud.agentHook.mirror machine=\(machineID) terminal=\(event.terminalID) subcommand=\(event.subcommand) queued=\(queued)")
+            #else
+            _ = queued
+            #endif
+        }
     }
     /// Placement from the catalog as it is right now; see
     /// `CloudNotificationPlacementResolver`.

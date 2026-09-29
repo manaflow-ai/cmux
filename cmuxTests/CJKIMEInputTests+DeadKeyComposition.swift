@@ -38,6 +38,7 @@ extension DeadKeyCompositionRegressionTests {
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
             cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            surface.releaseHostedSurfaceForTesting()
             window.orderOut(nil)
         }
 

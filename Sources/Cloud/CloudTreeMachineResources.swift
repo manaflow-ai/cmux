@@ -25,12 +25,15 @@ extension CloudTreeNode.Kind {
 
 /// Builds the final Resources section for one Cloud machine.
 struct CloudTreeMachineResourceNodeBuilder {
+    var section: (MachineSnapshot, Date) -> CloudTreeMachineResourceSection = {
+        CloudTreeMachineResourceSection(machine: $0, now: $1)
+    }
     func groupNode(
         machine: SurfaceMachineID,
         snapshot: MachineSnapshot,
         now: Date
     ) -> CloudTreeNode {
-        let section = CloudTreeMachineResourceSection(machine: snapshot, now: now)
+        let section = section(snapshot, now)
         return CloudTreeNode(
             id: groupID(machine: machine),
             kind: .resourcesPool(machine: machine, count: section.rows.count),

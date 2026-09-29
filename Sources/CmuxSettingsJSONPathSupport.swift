@@ -39,6 +39,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showProgressKey = sidebar.showProgress.userDefaultsKey
     static let showAgentActivityKey = sidebar.showAgentActivity.userDefaultsKey
     static let showCustomMetadataKey = sidebar.showCustomMetadata.userDefaultsKey
+    static let compactAgentStatusKey = sidebar.compactAgentStatus.userDefaultsKey
 
     static let showBranchDirectory = sidebar.showBranchDirectory.defaultValue
     static let showPullRequests = sidebar.showPullRequests.defaultValue
@@ -49,6 +50,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showProgress = sidebar.showProgress.defaultValue
     static let showAgentActivity = sidebar.showAgentActivity.defaultValue
     static let showCustomMetadata = sidebar.showCustomMetadata.defaultValue
+    static let compactAgentStatus = sidebar.compactAgentStatus.defaultValue
 }
 
 enum SidebarWorkspaceTitleWrapSettings {
@@ -190,6 +192,14 @@ enum AppSettingsFileMapping {
             defaultsKey: app.warnBeforeClosingTabXButton.userDefaultsKey
         ),
         .init(
+            jsonKey: "warnBeforeClosingWorkspace",
+            defaultsKey: app.warnBeforeClosingWorkspace.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "warnBeforeClosingWindow",
+            defaultsKey: app.warnBeforeClosingWindow.userDefaultsKey
+        ),
+        .init(
             jsonKey: "hideTabCloseButton",
             defaultsKey: app.hideTabCloseButton.userDefaultsKey
         ),
@@ -218,8 +228,16 @@ enum NotificationSettingsFileMapping {
         .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationPaneRingSettings.enabledKey),
         .init(jsonKey: "paneFlash", defaultsKey: NotificationPaneFlashSettings.enabledKey),
         .init(
+            jsonKey: "soundWhenFocused",
+            defaultsKey: notifications.soundWhenFocused.userDefaultsKey
+        ),
+        .init(
             jsonKey: "suppressOnlyFocusedSurface",
             defaultsKey: notifications.suppressOnlyFocusedSurface.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "suppressWhenAppFocused",
+            defaultsKey: notifications.suppressWhenAppFocused.userDefaultsKey
         ),
         .init(
             jsonKey: "agentPermissionPrompt",
@@ -262,6 +280,21 @@ enum TerminalSettingsFileMapping {
             jsonKey: "reflowHardWrapOnCopy",
             defaultsKey: terminal.reflowHardWrapOnCopy.userDefaultsKey,
             invalidPath: terminal.reflowHardWrapOnCopy.id
+        ),
+        .init(
+            jsonKey: "confirmUnsafePaste",
+            defaultsKey: terminal.confirmUnsafePaste.userDefaultsKey,
+            invalidPath: terminal.confirmUnsafePaste.id
+        ),
+        .init(
+            jsonKey: "showPasswordInputIndicator",
+            defaultsKey: terminal.showPasswordInputIndicator.userDefaultsKey,
+            invalidPath: terminal.showPasswordInputIndicator.id
+        ),
+        .init(
+            jsonKey: "showPasswordInputDots",
+            defaultsKey: terminal.showPasswordInputDots.userDefaultsKey,
+            invalidPath: terminal.showPasswordInputDots.id
         ),
         .init(
             jsonKey: "autoResumeAgentSessions",
@@ -348,6 +381,10 @@ enum SidebarSettingsFileMapping {
             jsonKey: "showCustomMetadata",
             defaultsKey: SidebarWorkspaceDetailDefaults.showCustomMetadataKey
         ),
+        .init(
+            jsonKey: "compactAgentStatus",
+            defaultsKey: SidebarWorkspaceDetailDefaults.compactAgentStatusKey
+        ),
     ]
 
     static func branchLayoutStoredValue(_ rawValue: String) -> Bool? {
@@ -367,6 +404,7 @@ enum AutomationSettingsFileMapping {
 
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(jsonKey: "claudeCodeIntegration", defaultsKey: automation.claudeCodeIntegration.userDefaultsKey),
+        .init(jsonKey: "piIntegration", defaultsKey: automation.piIntegration.userDefaultsKey),
         .init(
             jsonKey: "suppressSubagentNotifications",
             defaultsKey: automation.suppressSubagentNotifications.userDefaultsKey

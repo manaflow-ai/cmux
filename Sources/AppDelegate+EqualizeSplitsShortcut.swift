@@ -35,6 +35,39 @@ extension AppDelegate {
 #endif
     }
 
+    /// New Pane (Auto Layout), cmux-tui's Alt-n: adds a terminal pane and
+    /// retiles the workspace in Zellij's default layout. Canvas workspaces
+    /// have no tiling, so they open the pane to the right. Shortcut and
+    /// command palette both call this method.
+    @discardableResult
+    func performAutoLayoutPaneShortcut(preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow)
+        let routedManager = synchronizeActiveMainWindowContext(preferredWindow: targetWindow) ?? tabManager
+        let workspace = terminalContext.flatMap { context in
+            context.tabManager.tabs.first { $0.id == context.workspaceId }
+        } ?? routedManager?.selectedWorkspace
+        let didCreate: Bool
+        if let workspace, workspace.layoutMode == .canvas {
+            didCreate = workspace.openNewCanvasPane(
+                type: .terminal,
+                focus: true,
+                direction: SplitDirection.right.canvasDirection
+            ) != nil
+        } else if let terminalContext {
+            didCreate = terminalContext.tabManager.createAutoLayoutPaneOutcome(
+                tabId: terminalContext.workspaceId,
+                surfaceId: terminalContext.panelId
+            ).isAccepted
+        } else {
+            didCreate = routedManager?.createAutoLayoutPaneOutcome().isAccepted ?? false
+        }
+#if DEBUG
+        cmuxDebugLog("shortcut.action name=newPaneAutoLayout result=\(didCreate ? 1 : 0)")
+#endif
+        return didCreate
+    }
+
     /// Runs one pane-resize step against the focused split tree. Menu actions,
     /// command-palette commands, and key events all call this method so the
     /// focused Dock and main workspace share the same mutation path.
@@ -84,6 +117,22 @@ extension AppDelegate {
     }
 
     func handlePaneSizingShortcut(event: NSEvent, equalize: Bool) -> Bool {
+        if matchConfiguredShortcut(event: event, action: .newPaneAutoLayout) {
+            // A focused Dock has no auto layout; it gets its ordinary split right.
+            if routeSplitToFocusedDock(
+                kind: .terminal,
+                direction: .right,
+                action: .newPaneAutoLayout,
+                preferredWindow: event.window
+            ) {
+                return true
+            }
+            if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .right) {
+                return true
+            }
+            _ = performAutoLayoutPaneShortcut(preferredWindow: event.window ?? shortcutRoutingActiveWindow)
+            return true
+        }
         if equalize {
             if performFocusedDockShortcut(
                 .equalizeSplits,

@@ -86,12 +86,12 @@ extension Workspace {
                 agentPIDIdentitiesForPanel[key] = agentPIDProcessIdentitiesByKey[key]
             }
             let statusKey = agentStatusKey(forAgentPIDKey: key)
-            if let statusEntry = statusEntries[statusKey] {
+            if let statusEntry = agentStatusEntry(key: statusKey, panelId: panelId) ?? statusEntries[statusKey] {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
         }
         for (statusKey, lifecycle) in lifecycleStates where lifecycle == .needsInput {
-            if let statusEntry = statusEntries[statusKey] {
+            if let statusEntry = agentStatusEntry(key: statusKey, panelId: panelId) ?? statusEntries[statusKey] {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
         }
@@ -340,7 +340,7 @@ extension Workspace {
         }
         if let statusKeyToClear,
            !hasAgentRuntime(forStatusKey: statusKeyToClear),
-           statusEntries.removeValue(forKey: statusKeyToClear) != nil {
+           removeStatusEntry(forKey: statusKeyToClear) {
             didChange = true
         }
         if didChange, refreshPorts {
@@ -402,7 +402,7 @@ extension Workspace {
         for (statusKey, capturedStatusEntry) in runtimeState.statusEntries
             where !hasAgentRuntime(forStatusKey: statusKey)
                 && statusEntries[statusKey] == capturedStatusEntry {
-            statusEntries.removeValue(forKey: statusKey)
+            removeStatusEntry(forKey: statusKey)
             didChange = true
         }
         if didChange {
@@ -414,7 +414,7 @@ extension Workspace {
     func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
         guard let runtimeState else { return }
         for (statusKey, statusEntry) in runtimeState.statusEntries {
-            statusEntries[statusKey] = statusEntry
+            setStatusEntry(statusEntry, key: statusKey, panelId: runtimeState.panelId)
         }
         var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
@@ -435,6 +435,37 @@ extension Workspace {
         }
     }
 
+    /// Records the end of the recoverable agent sessions this panel carries,
+    /// so crash recovery never reopens a terminal the user closed. Runs before
+    /// the panel's bindings and restore state are discarded. Skipped while the
+    /// app quits: those sessions end with the app, and startup restore owns them.
+    func journalClosedAgentSessions(panelId: UUID) {
+        guard AppDelegate.shared?.isTerminatingApp != true else { return }
+        let recoverable = Set(AgentSessionRecovery.recoverableKinds.map(\.rawValue))
+        var sessions: [(kind: String, sessionID: String)] = []
+        if let binding = surfaceResumeBindingsByPanelId[panelId],
+           binding.isAgentHookBinding,
+           let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           recoverable.contains(kind),
+           let sessionID = binding.checkpointId {
+            sessions.append((kind, sessionID))
+        }
+        let restoredAgents = [
+            restoredAgentSnapshotsByPanelId[panelId],
+            deferredAgentResumeRestoresByPanelId[panelId]?.restorableAgent,
+        ]
+        for agent in restoredAgents.compactMap({ $0 }) where recoverable.contains(agent.kind.rawValue) {
+            sessions.append((agent.kind.rawValue, agent.sessionId))
+        }
+        guard !sessions.isEmpty else { return }
+        // A session another panel still carries (a restore that lost to a live
+        // owner, or a stale snapshot resumed elsewhere) did not end here.
+        let carriedElsewhere = AppDelegate.shared?.openAgentSessionIdsForRecovery(excludingPanelId: panelId) ?? []
+        sessions.removeAll { carriedElsewhere.contains($0.sessionID) }
+        guard !sessions.isEmpty else { return }
+        agentSessionCloseJournal.recordClosed(sessions: sessions, workspaceID: id, surfaceID: panelId)
+    }
+
     /// Discard every Workspace-owned contribution for a surface whose tab,
     /// pane, or workspace has already been accepted for closure.
     @discardableResult
@@ -453,6 +484,9 @@ extension Workspace {
         preservesTerminalForTransfer: Bool = false,
         preservesRemoteTerminalTracking: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
+        if closePanel, !preservesTerminalForTransfer {
+            journalClosedAgentSessions(panelId: panelId)
+        }
         clearCloudMaterializationFailure(surfaceID: panelId)
         cancelReservedCloudTerminalPane(panelID: panelId)
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
@@ -541,6 +575,7 @@ extension Workspace {
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
+        agentStatusEntriesByPanelId.removeValue(forKey: panelId)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)

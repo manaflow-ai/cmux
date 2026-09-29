@@ -412,6 +412,55 @@ export async function resolveVmProvisioningAccountScope(
   return scope;
 }
 
+export type VmTeamReverification =
+  | { readonly ok: true; readonly user: AuthedUser }
+  | { readonly ok: false; readonly response: Response };
+
+/**
+ * Re-authenticate the session against a team the caller named for billing.
+ *
+ * `withAuthedVmApiRoute` verifies with the header/query team only, and Stack
+ * returns just the selected team unless a team was requested at verify time.
+ * So a team that arrives in the JSON body is absent from `user.teams`, and
+ * entitlements would refuse a genuine member with `vm_billing_team_not_found`.
+ *
+ * Every route that accepts a body-supplied billing team must call this before
+ * resolving entitlements, and must pass the same team on to the scope resolver:
+ * this helper only widens the team list, it decides nothing. Membership is
+ * decided downstream in `resolveBillingContext`, which searches the refreshed
+ * user's teams and refuses a non-member with `vm_billing_team_not_found`.
+ *
+ * The guard is a cost guard, not a security guard. A team already in the cached
+ * membership needs no second verify; only a team outside it pays for one. That
+ * second verify takes the same `completeTeamList` path as the first (one
+ * `listTeams` call for these callers), so no route here inherits the team
+ * picker's full pagination over every Stack team.
+ *
+ * `measure` exists for callers that record this second verify in their own
+ * timing breakdown.
+ */
+export async function reverifyVmRequestForTeam(input: {
+  readonly request: Request;
+  readonly user: AuthedUser;
+  readonly requestedBillingTeamId: string | null | undefined;
+  readonly authErrorLabel: string;
+  readonly measure?: (run: () => Promise<AuthedUser | null>) => Promise<AuthedUser | null>;
+}): Promise<VmTeamReverification> {
+  const { requestedBillingTeamId } = input;
+  if (!requestedBillingTeamId || input.user.teamIds.includes(requestedBillingTeamId)) {
+    return { ok: true, user: input.user };
+  }
+  const run = () => verifyRequest(input.request, { requestedTeamId: requestedBillingTeamId });
+  let refreshedUser: AuthedUser | null;
+  try {
+    refreshedUser = input.measure ? await input.measure(run) : await run();
+  } catch (error) {
+    return { ok: false, response: authProviderErrorResponse(error, input.authErrorLabel) };
+  }
+  if (!refreshedUser) return { ok: false, response: unauthorized() };
+  return { ok: true, user: refreshedUser };
+}
+
 export function resolveVmRouteAccountScope(
   user: AuthedUser,
   request: Request,

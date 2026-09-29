@@ -99,6 +99,8 @@ Inside a machine:
 
 Use `Cmd+Shift+U` to jump to the latest unread notification. Use `Ctrl+Cmd+U` to mark the current item as oldest unread and jump to the next latest unread. Both shortcuts are configurable in Settings > Keyboard Shortcuts and in `~/.config/cmux/cmux.json`.
 
+Focusing a pane marks that pane's notifications read. A notification posted without a surface belongs to the workspace instead of to a pane (cmux's own memory-pressure warning is one), so switching to the workspace marks the workspace's own notifications read. The other panes in that workspace keep their notifications and any manual or restored unread markers. "Mark Workspace as Read" in the workspace context menu still clears everything in the workspace at once.
+
 ## Suppress only the focused surface
 
 By default cmux withdraws a delivered banner when its workspace becomes visible/active, which can retract a banner for a non-focused surface (e.g. a second agent in the same visible workspace) before you notice it. Set the opt-in flag below to `true` so the auto-withdraw fires **only** for the exact focused surface — matching the delivery gate. A banner for a non-focused surface then stays up until you focus that surface (or click/dismiss it). Workspace-visible-but-not-focused surfaces and surfaces in non-visible workspaces keep their banners; explicit "mark workspace read" and clicking/typing still clear notifications as before.
@@ -109,6 +111,20 @@ By default cmux withdraws a delivered banner when its workspace becomes visible/
     // Default: false (legacy workspace-visibility withdraw).
     // Set to true to auto-withdraw only the exact focused surface.
     "suppressOnlyFocusedSurface": true
+  }
+}
+```
+
+## Suppress banners while cmux is focused
+
+By default cmux skips the desktop banner only when the notification is for the pane you are looking at. A notification for another workspace or pane still shows a banner even while cmux is the active app. Set the opt-in flag below to `true` to skip the desktop banner for every notification while cmux is the active app. Notifications that arrive after you switch to another app show banners again. Notifications still land in the sidebar with their unread state, the notification sound and custom command still run, and phone forwarding keeps its usual focused-pane rule, since cmux can be frontmost while you are away from the Mac.
+
+```jsonc
+{
+  "notifications": {
+    // Default: false (only the focused pane skips its banner).
+    // Set to true to skip banners for every notification while cmux is focused.
+    "suppressWhenAppFocused": true
   }
 }
 ```

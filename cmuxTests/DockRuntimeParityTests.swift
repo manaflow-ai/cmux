@@ -793,7 +793,7 @@ struct DockRuntimeParityTests {
                 workspaceId: windowID,
                 runtimeSpawnPolicy: .pacedSessionRestore
             )
-            defer { terminal.surface.releaseSurfaceForTesting() }
+            defer { terminal.surface.releaseHostedSurfaceForTesting() }
             try dock.seedRuntimeParityPanel(terminal)
 
             let scrollPosition = TerminalNotificationScrollPosition(

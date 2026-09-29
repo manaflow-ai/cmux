@@ -83,6 +83,12 @@ final class CloudRestoreReplayFixture {
 
     func focus() { session.claimGeometry() }
 
+    /// One explicit keystroke, through the hook and router a real key uses.
+    func type(_ text: String) {
+        session.noteExplicitInput()
+        session.inputRouter.send(.bytes(Data(text.utf8)))
+    }
+
     func seedLocalOutput(_ bytes: Data, marker: String) async throws {
         surface.processRemoteOutput(bytes)
         try await waitUntil { self.surface.readText(region: .screen)?.contains(marker) == true }

@@ -20,6 +20,8 @@ on:
       - tests/test_app_host_products_archive.sh
       - tests/test_ci_selective_layer_wiring.py
       - scripts/ci/restore-app-host-test-product.sh
+      - scripts/ci/relocate_package_framework_rpaths.py
+      - tests/test_relocate_package_framework_rpaths.py
       - tests/test_node_product_cache.py
       - tests/test_lan_product_source.py
       - scripts/ci/verify-r2-canary.py
@@ -47,6 +49,8 @@ on:
       - tests/test_app_host_products_archive.sh
       - tests/test_ci_selective_layer_wiring.py
       - scripts/ci/restore-app-host-test-product.sh
+      - scripts/ci/relocate_package_framework_rpaths.py
+      - tests/test_relocate_package_framework_rpaths.py
       - tests/test_node_product_cache.py
       - tests/test_lan_product_source.py
       - scripts/ci/verify-r2-canary.py
@@ -110,6 +114,7 @@ jobs:
           python3 tests/test_ci_r2_canary.py
           python3 tests/test_app_host_layer_transport.py
           python3 tests/test_app_host_layered_products.py
+          python3 tests/test_relocate_package_framework_rpaths.py
           bash tests/test_app_host_products_archive.sh
           python3 tests/test_ci_selective_layer_wiring.py
           python3 tests/test_ci_parallel_artifact_transport.py

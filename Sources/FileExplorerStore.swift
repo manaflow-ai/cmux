@@ -416,7 +416,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         connection: SSHFileExplorerConnection,
         to localURL: URL
     ) async throws {
-        let escapedPath = Self.shellSingleQuote(path)
+        let escapedPath = Self.remoteShellPathWord(path)
         let outputURL = localURL
         let commandProcess = SSHDownloadCommandProcess(
             connection: connection,
@@ -658,8 +658,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         connection: SSHFileExplorerConnection,
         showHidden: Bool
     ) async throws -> [FileExplorerEntry] {
-        // Escape single quotes in path for shell safety
-        let escapedPath = shellSingleQuote(path)
+        let escapedPath = remoteShellPathWord(path)
         let lsFlags = showHidden ? "-1paFA" : "-1paF"
         let output = try await runSSHCommand(
             connection: connection,
@@ -684,6 +683,26 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             let fullPath = normalizedPath + cleanName
             return FileExplorerEntry(name: cleanName, path: fullPath, isDirectory: isDir)
         }
+    }
+
+    /// Shell word that expands to `path` on the remote host, byte for byte.
+    ///
+    /// `Process` passes arguments through `fileSystemRepresentation`, which
+    /// decomposes them to NFD. Remote Linux filesystems usually store names in
+    /// NFC and treat the two forms as different files, so a non-ASCII path must
+    /// not appear literally in the ssh command. Such paths travel base64-encoded
+    /// and are decoded by the remote shell.
+    static func remoteShellPathWord(_ path: String) -> String {
+        guard !path.unicodeScalars.allSatisfy(\.isASCII) else {
+            return shellSingleQuote(path)
+        }
+        let encoded = shellSingleQuote(Data(path.utf8).base64EncodedString())
+        // GNU coreutils and macOS accept --decode, BusyBox (Alpine) only -d;
+        // -D is the older macOS short flag.
+        let decode = ["--decode", "-d", "-D"]
+            .map { "printf '%s' \(encoded) | base64 \($0) 2>/dev/null" }
+            .joined(separator: " || ")
+        return "\"$(\(decode))\""
     }
 
     private static func shellSingleQuote(_ value: String) -> String {

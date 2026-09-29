@@ -687,6 +687,10 @@ function rowFromDb(row: typeof coderouterClaudeAccounts.$inferSelect): ClaudeAcc
   };
 }
 
+/** The Postgres account store. Exported so database tests can drive the real
+ * store with test encryption keys. */
+export const claudeAccountStore: ClaudeAccountStore = drizzleStore;
+
 const defaultService = createClaudeUpstreamService({ store: drizzleStore });
 
 export const listClaudeAccounts = defaultService.list;

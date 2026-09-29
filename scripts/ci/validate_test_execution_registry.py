@@ -48,9 +48,11 @@ ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "tests" / "test-execution.toml"
 WORKFLOWS = ROOT / ".github" / "workflows"
 CI_GUARDS = WORKFLOWS / "ci-guards.yml"
-RUNNER_RE = re.compile(r"scripts/ci/run_python_test_lane\.py\s+--lane\s+([A-Za-z0-9_.-]+)")
+# One invocation may run several lanes (`--lane a --lane b`), in any flag order.
+RUNNER_RE = re.compile(r"scripts/ci/run_python_test_lane\.py(?P<args>[^\n]*)")
+RUNNER_LANE_RE = re.compile(r"--lane[=\s]+([A-Za-z0-9_.-]+)")
 TEST_PATH_RE = re.compile(r"^tests/test_[A-Za-z0-9_.-]+\.py$")
-ALLOWED_FIELDS = {"path", "lane", "requirements", "reason"}
+ALLOWED_FIELDS = {"path", "lane", "requirements", "reason", "serial"}
 INVENTORY_LANES = {"legacy", "manual"}
 SUPPORTED_REQUIREMENTS = {"cmux-cli", "fish"}
 # A workflow that names a test file in a `run:` step executes it directly,
@@ -71,7 +73,8 @@ def runner_lanes_from_workflow_text(text: str) -> set[str]:
     lanes: set[str] = set()
     for line in text.splitlines():
         executable = line.split("#", 1)[0]
-        lanes.update(RUNNER_RE.findall(executable))
+        for match in RUNNER_RE.finditer(executable):
+            lanes.update(RUNNER_LANE_RE.findall(match.group("args")))
     return lanes
 
 
@@ -345,6 +348,8 @@ def validate(
             if unknown_requirements:
                 errors.append(f"{path}: unsupported requirements: {', '.join(unknown_requirements)}")
 
+        if "serial" in entry and not isinstance(entry["serial"], bool):
+            errors.append(f"{path}: serial must be true or false")
         if lane == "manual" and not isinstance(entry.get("reason"), str):
             errors.append(f"{path}: manual tests require a reason")
         if lane != "manual" and "reason" in entry:

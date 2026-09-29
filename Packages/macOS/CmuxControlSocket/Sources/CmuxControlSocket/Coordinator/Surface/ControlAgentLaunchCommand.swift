@@ -18,6 +18,8 @@ public struct ControlAgentLaunchCommand: Sendable, Equatable {
     public let capturedAt: Double?
     /// The subsystem that captured the launch.
     public let source: String?
+    /// The outer launcher argv that started the agent, when one was captured.
+    public let launcherPrefix: [String]?
 
     /// Creates a structured launch capture for socket transport.
     ///
@@ -31,6 +33,7 @@ public struct ControlAgentLaunchCommand: Sendable, Equatable {
     ///   - verificationHome: The launch home used only for provider-state verification.
     ///   - capturedAt: The capture time as a Unix timestamp.
     ///   - source: The subsystem that captured the launch.
+    ///   - launcherPrefix: The outer launcher argv, when one was captured.
     public init(
         launcher: String?,
         externalLauncher: String? = nil,
@@ -40,7 +43,8 @@ public struct ControlAgentLaunchCommand: Sendable, Equatable {
         environment: [String: String]?,
         verificationHome: String? = nil,
         capturedAt: Double?,
-        source: String?
+        source: String?,
+        launcherPrefix: [String]? = nil
     ) {
         self.launcher = launcher
         self.externalLauncher = externalLauncher
@@ -51,5 +55,6 @@ public struct ControlAgentLaunchCommand: Sendable, Equatable {
         self.verificationHome = verificationHome
         self.capturedAt = capturedAt
         self.source = source
+        self.launcherPrefix = launcherPrefix
     }
 }
