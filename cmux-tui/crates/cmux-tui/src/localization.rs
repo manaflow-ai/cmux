@@ -494,6 +494,7 @@ pub(crate) struct RemoteClientMessages {
     pub forward_port_required: &'static str,
     pub rpc_request_invalid: &'static str,
     pub rpc_input_invalid: &'static str,
+    pub rpc_stream_with_request: &'static str,
     rpc_stdin_too_large: &'static str,
     pub rpc_stdin_invalid_utf8: &'static str,
     pub known_forget_arity: &'static str,
@@ -1591,8 +1592,14 @@ OPTIONS:
 Reads one WorkspaceRequest JSON object per stdin line and writes one response
 per line. --request JSON sends one request and exits.
 
+--stream keeps one channel open for native hosts. It prints {"ready":true},
+then reads {"id":ID,"request":WORKSPACE_REQUEST} or {"id":ID,"cancel":true}
+lines, runs requests concurrently, and writes {"id":ID,"result":RESPONSE} or
+{"id":ID,"error":RPC_ERROR} per request. RPC errors do not close the channel.
+
 OPTIONS:
   --request WORKSPACE_REQUEST_JSON
+  --stream
   All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
   `cmux remote connect` are also accepted.
 "#,
@@ -1666,6 +1673,7 @@ OPTIONS:
         forward_port_required: "forward needs --port",
         rpc_request_invalid: "--request is not a WorkspaceRequest JSON object",
         rpc_input_invalid: "invalid WorkspaceRequest",
+        rpc_stream_with_request: "--stream and --request cannot be combined",
         rpc_stdin_too_large: "RPC stdin line exceeds {maximum} bytes",
         rpc_stdin_invalid_utf8: "RPC stdin line is not valid UTF-8",
         known_forget_arity: "known-daemons forget expects exactly one fingerprint",
@@ -2289,8 +2297,15 @@ ID とセッション:
 標準入力の各行から WorkspaceRequest JSON を 1 件読み、応答を 1 行出力します。
 --request JSON は 1 件を送信して終了します。
 
+--stream はネイティブホスト向けに 1 本のチャネルを維持します。最初に
+{"ready":true} を出力し、{"id":ID,"request":WORKSPACE_REQUEST} または
+{"id":ID,"cancel":true} の行を読み、要求を並行実行して要求ごとに
+{"id":ID,"result":応答} または {"id":ID,"error":RPC_ERROR} を出力します。
+RPC エラーでチャネルは閉じません。
+
 オプション:
   --request WORKSPACE_REQUEST_JSON
+  --stream
   `cmux remote connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
   全オプションも使用できます。
 "#,
@@ -2363,6 +2378,7 @@ ID とセッション:
         forward_port_required: "forward には --port が必要です",
         rpc_request_invalid: "--request は WorkspaceRequest JSON オブジェクトではありません",
         rpc_input_invalid: "WorkspaceRequest が無効です",
+        rpc_stream_with_request: "--stream と --request は同時に指定できません",
         rpc_stdin_too_large: "RPC 標準入力の 1 行が {maximum} バイトの上限を超えています",
         rpc_stdin_invalid_utf8: "RPC 標準入力の行は有効な UTF-8 ではありません",
         known_forget_arity: "known-daemons forget にはフィンガープリントを 1 つ指定してください",
