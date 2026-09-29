@@ -13,7 +13,7 @@ final class WorkspaceRowView: SidebarRowView {
 
     private var hasSubtitle = false
     private var grouped = false
-    private var groupColor: SidebarColor?
+    private var groupColor: GroupColor?
     /// Selected but not active (the active row sits on the shared pill).
     var isSecondarySelected = false { didSet { if isSecondarySelected != oldValue { needsDisplay = true } } }
     /// A tab dragged from a pane would move into this workspace.
@@ -41,7 +41,7 @@ final class WorkspaceRowView: SidebarRowView {
     private struct Content: Hashable {
         var ws: SidebarWorkspace
         var group: GroupID?
-        var groupColor: SidebarColor?
+        var groupColor: GroupColor?
         var compact: Bool
         var fontSize: CGFloat
         var iconSize: CGFloat

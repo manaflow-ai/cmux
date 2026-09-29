@@ -11,7 +11,7 @@ final class GroupHeaderRowView: SidebarRowView {
     private let badge = UnreadBadgeView()
     private let pin = NSImageView()
     private var pinned = false
-    private var color: SidebarColor = .grey
+    private var color: GroupColor = .grey
     private var collapsed = false
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
 

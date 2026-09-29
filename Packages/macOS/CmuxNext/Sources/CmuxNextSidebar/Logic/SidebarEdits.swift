@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 import Foundation
 
 /// Pure tree edits behind every structural intent. `SidebarModel.apply(_:)`
@@ -161,7 +162,7 @@ public nonisolated enum SidebarEdits {
     static func createGroup(
         _ id: GroupID,
         name: String,
-        color: SidebarColor,
+        color: GroupColor,
         workspaces ids: [WorkspaceID],
         in sections: inout [SidebarSection]
     ) -> Bool {
