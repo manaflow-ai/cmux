@@ -489228,55 +489228,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No reachable ports"
+            "value": "No ports yet"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "到達可能なポートはありません"
+            "value": "まだポートはありません"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keine erreichbaren Ports"
+            "value": "Noch keine Ports"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun port accessible"
+            "value": "Pas encore de ports"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا توجد منافذ يمكن الوصول إليها"
+            "value": "لا توجد منافذ بعد"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay puertos accesibles"
+            "value": "Aún no hay puertos"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無可連線的連接埠"
+            "value": "尚無連接埠"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无可访问的端口"
+            "value": "暂无端口"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결 가능한 포트가 없습니다."
+            "value": "아직 포트가 없습니다"
           }
         }
       }
@@ -567285,121 +567285,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No application service is listening. Start an HTTP service on the machine, then refresh. cmux’s in-app forwarding does not need Cloud VPN."
+            "value": "Start a web server on this machine, then refresh."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kein Anwendungsdienst lauscht. Starten Sie einen HTTP-Dienst auf der Maschine und aktualisieren Sie. Die Weiterleitung in cmux benötigt kein Cloud-VPN."
+            "value": "Starte einen Webserver auf diesem Rechner und aktualisiere dann die Liste."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun service applicatif n’écoute. Démarrez un service HTTP sur la machine, puis actualisez. Le transfert intégré à cmux ne nécessite pas de VPN Cloud."
+            "value": "Démarrez un serveur web sur cette machine, puis actualisez."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا توجد خدمة تطبيق تستمع. شغّل خدمة HTTP على الجهاز ثم حدّث. لا تحتاج إعادة التوجيه داخل cmux إلى Cloud VPN."
+            "value": "شغّل خادم ويب على هذا الجهاز، ثم حدّث القائمة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay ningún servicio de aplicación en escucha. Inicia un servicio HTTP en la máquina y actualiza. El reenvío integrado de cmux no necesita Cloud VPN."
+            "value": "Inicia un servidor web en esta máquina y luego actualiza."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有應用程式服務正在監聽。請在機器上啟動 HTTP 服務後重新整理。cmux 的應用程式內轉送不需要 Cloud VPN。"
+            "value": "在這台機器上啟動網頁伺服器，然後重新整理。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有应用服务正在监听。请在机器上启动 HTTP 服务后刷新。cmux 的应用内转发无需 Cloud VPN。"
+            "value": "在此机器上启动网页服务器，然后刷新。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "수신 대기 중인 앱 서비스가 없습니다. 머신에서 HTTP 서비스를 시작한 후 새로 고치세요. cmux 앱 내 전달에는 Cloud VPN이 필요하지 않습니다."
+            "value": "이 머신에서 웹 서버를 시작한 다음 새로 고치세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "待ち受け中のアプリサービスはありません。マシンで HTTP サービスを起動してから更新してください。cmux のアプリ内転送に Cloud VPN は不要です。"
+            "value": "このマシンで Web サーバーを起動してから、更新してください。"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nijedan aplikacijski servis ne sluša. Pokrenite HTTP servis na mašini, zatim osvježite. Prosljeđivanje unutar cmux-a ne treba Cloud VPN."
+            "state": "needs_review",
+            "value": "Pokrenite web server na ovoj mašini, zatim osvježite."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ingen programtjeneste lytter. Start en HTTP-tjeneste på maskinen, og opdater derefter. Videresendelse i cmux kræver ikke Cloud VPN."
+            "state": "needs_review",
+            "value": "Start en webserver på denne maskine, og opdater derefter."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nessun servizio applicativo è in ascolto. Avvia un servizio HTTP sulla macchina, quindi aggiorna. L’inoltro all’interno di cmux non richiede la VPN Cloud."
+            "state": "needs_review",
+            "value": "Avvia un server web su questa macchina, poi aggiorna."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "គ្មានសេវាកម្មកម្មវិធីណាកំពុងស្តាប់ទេ។ ចាប់ផ្តើមសេវាកម្ម HTTP នៅលើម៉ាស៊ីន រួចផ្ទុកឡើងវិញ។ ការបញ្ជូនបន្តនៅក្នុង cmux មិនត្រូវការ Cloud VPN ទេ។"
+            "state": "needs_review",
+            "value": "ចាប់ផ្តើមម៉ាស៊ីនមេបណ្តាញនៅលើម៉ាស៊ីននេះ រួចផ្ទុកឡើងវិញ។"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ingen programtjeneste lytter. Start en HTTP-tjeneste på maskinen, og oppdater deretter. Videresending i cmux trenger ikke Cloud VPN."
+            "state": "needs_review",
+            "value": "Start en webserver på denne maskinen, og oppdater deretter."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Żadna usługa aplikacji nie nasłuchuje. Uruchom usługę HTTP na maszynie, a następnie odśwież. Przekierowywanie w cmux nie wymaga Cloud VPN."
+            "state": "needs_review",
+            "value": "Uruchom serwer WWW na tej maszynie, a następnie odśwież."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nenhum serviço de aplicativo está em escuta. Inicie um serviço HTTP na máquina e atualize. O encaminhamento dentro do cmux não precisa do Cloud VPN."
+            "state": "needs_review",
+            "value": "Inicie um servidor web nesta máquina e atualize."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ни одна служба приложения не прослушивает порты. Запустите HTTP-службу на машине, затем обновите. Перенаправлению внутри cmux Cloud VPN не нужен."
+            "state": "needs_review",
+            "value": "Запустите веб-сервер на этой машине, затем обновите список."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ไม่มีบริการแอปพลิเคชันที่กำลังรับฟัง เริ่มบริการ HTTP บนเครื่อง แล้วรีเฟรช การส่งต่อภายใน cmux ไม่ต้องใช้ Cloud VPN"
+            "state": "needs_review",
+            "value": "เริ่มเว็บเซิร์ฟเวอร์บนเครื่องนี้ แล้วรีเฟรช"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dinleyen bir uygulama hizmeti yok. Makinede bir HTTP hizmeti başlatın, ardından yenileyin. cmux içi yönlendirme Cloud VPN gerektirmez."
+            "state": "needs_review",
+            "value": "Bu makinede bir web sunucusu başlatın, ardından yenileyin."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Жодна служба застосунку не прослуховує. Запустіть HTTP-службу на машині, потім оновіть. Перенаправлення всередині cmux не потребує Cloud VPN."
+            "state": "needs_review",
+            "value": "Запустіть вебсервер на цій машині, а потім оновіть список."
           }
         }
       }

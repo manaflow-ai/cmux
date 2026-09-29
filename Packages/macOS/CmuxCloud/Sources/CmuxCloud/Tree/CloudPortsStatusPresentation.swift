@@ -41,7 +41,7 @@ public struct CloudPortsStatusPresentation: Equatable, Sendable {
         case .loopbackOnly:
             return String(localized: "cloudTree.ports.loopback.title", defaultValue: "Loopback services available")
         case .empty(.noListeningService):
-            return String(localized: "cloudTree.ports.empty", defaultValue: "No reachable ports")
+            return String(localized: "cloudTree.ports.empty", defaultValue: "No ports yet")
         case .empty(.otherInterfaceOnly):
             return String(localized: "cloudTree.ports.binding.title", defaultValue: "Services use another interface")
         case .unavailable(.privateAddress):
@@ -76,7 +76,7 @@ public struct CloudPortsStatusPresentation: Equatable, Sendable {
         case .loopbackOnly:
             return String(localized: "cloudTree.ports.loopback.detail", defaultValue: "These services open in cmux without Cloud VPN. They listen on the machine’s loopback address, so other apps cannot reach them through its private IP, even with VPN connected.")
         case .empty(.noListeningService):
-            return String(localized: "cloudTree.ports.empty.noService", defaultValue: "No application service is listening. Start an HTTP service on the machine, then refresh. cmux’s in-app forwarding does not need Cloud VPN.")
+            return String(localized: "cloudTree.ports.empty.noService", defaultValue: "Start a web server on this machine, then refresh.")
         case .empty(.otherInterfaceOnly):
             return String(localized: "cloudTree.ports.binding.detail", defaultValue: "cmux’s browser route connects to 127.0.0.1 on the machine. Bind the service to 127.0.0.1 or 0.0.0.0, then refresh. Turning on Cloud VPN does not change this route.")
         case .unavailable(.privateAddress):

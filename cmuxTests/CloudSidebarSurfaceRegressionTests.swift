@@ -199,7 +199,7 @@ struct CloudSidebarSurfaceRegressionTests {
         let cases: [(CloudPortDiscoveryState, CloudPortsStatusAction, String)] = [
             (.notRequested, .refresh, "not checked"),
             (.loading, .none, "Discovering ports"),
-            (.empty(.noListeningService), .refresh, "service is listening"),
+            (.empty(.noListeningService), .refresh, "web server"),
             (.empty(.otherInterfaceOnly), .refresh, "interface"),
             (.loopbackOnly, .none, "loopback"),
             (.unavailable(.privateAddress), .refresh, "private address"),
@@ -217,7 +217,7 @@ struct CloudSidebarSurfaceRegressionTests {
             let presentation = CloudPortsStatusPresentation.make(info: info)
             #expect(presentation.action == action)
             #expect(presentation.title.lowercased().contains(phrase.lowercased()) || presentation.message.lowercased().contains(phrase.lowercased()))
-            if state != .loading && state != .unsupported {
+            if state != .loading && state != .unsupported && state != .empty(.noListeningService) {
                 #expect(presentation.message.contains("Cloud VPN"), "cmux forwarding truth must remain visible")
             }
         }
