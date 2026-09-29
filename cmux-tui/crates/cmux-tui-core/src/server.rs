@@ -153,6 +153,9 @@ pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
 pub const TAB_GROUPS_CAPABILITY: &str = "tab-groups-v1";
 /// Saved (pinned) tab groups that outlive their placements.
 pub const SAVED_TAB_GROUPS_CAPABILITY: &str = "saved-tab-groups-v1";
+/// Per-terminal `env` on `new-tab`, `split`, and `create-terminal`, and
+/// `cwd` on `split`.
+pub const TERMINAL_ENV_CAPABILITY: &str = "terminal-env-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -263,6 +266,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         NOTIFICATION_ACK_CAPABILITY,
         TAB_GROUPS_CAPABILITY,
         SAVED_TAB_GROUPS_CAPABILITY,
+        TERMINAL_ENV_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1006,6 +1010,9 @@ enum Command {
         pane: Option<PaneId>,
         #[serde(default)]
         cwd: Option<String>,
+        /// Extra environment for the new terminal's child only.
+        #[serde(default)]
+        env: Option<BTreeMap<String, String>>,
         /// Expected content size in cells (spawn-at-size avoids shell
         /// redraw artifacts).
         #[serde(default)]
@@ -1192,6 +1199,9 @@ enum Command {
         /// mutation id makes a lost-response retry exactly once.
         #[serde(default)]
         terminal_id: Option<String>,
+        /// Extra environment for the new terminal's child only.
+        #[serde(default)]
+        env: Option<BTreeMap<String, String>>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -1228,6 +1238,11 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(default)]
+        cwd: Option<String>,
+        /// Extra environment for the new terminal's child only.
+        #[serde(default)]
+        env: Option<BTreeMap<String, String>>,
     },
     SetRatio {
         pane: PaneId,
@@ -12497,8 +12512,14 @@ fn handle_command_with_cancellation(
                 "idle_close_seconds": idle_close_seconds,
             }))
         }
-        Command::NewTab { pane, cwd, cols, rows } => {
-            let surface = mux.new_tab(pane, cwd, optional_surface_size(cols, rows))?;
+        Command::NewTab { pane, cwd, env, cols, rows } => {
+            let env = env.as_ref().map(crate::mux::validate_terminal_env).transpose()?;
+            let surface = mux.new_tab_with_env(
+                pane,
+                cwd,
+                env.unwrap_or_default(),
+                optional_surface_size(cols, rows),
+            )?;
             let terminal_identity = surface.terminal_host_identity();
             Ok(json!({
                 "surface": surface.id,
@@ -12774,8 +12795,14 @@ fn handle_command_with_cancellation(
             cols,
             rows,
             terminal_id,
+            env,
             mutation,
         } => {
+            let env = env
+                .as_ref()
+                .map(crate::mux::validate_terminal_env)
+                .transpose()?
+                .unwrap_or_default();
             if argv.is_some() && command.is_some() {
                 anyhow::bail!("argv and command are mutually exclusive");
             }
@@ -12790,7 +12817,9 @@ fn handle_command_with_cancellation(
             let size = paired_surface_size("create-terminal", cols, rows)?;
             let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
             let (registry_id, generation) = mux.registry_identity();
-            if terminal_id.is_some() || mutation.mutation_id.is_some() {
+            // A per-terminal environment rides the receipted path, which is
+            // the only one that carries a spawn reservation.
+            if terminal_id.is_some() || mutation.mutation_id.is_some() || !env.is_empty() {
                 let workspace_mutation = workspace_mutation(&mutation)?;
                 let result = mux.create_raw_terminal_in_workspace_with_mutation(
                     workspace,
@@ -12802,6 +12831,7 @@ fn handle_command_with_cancellation(
                     mutation.expected_generation.as_deref(),
                     mutation.expected_revision,
                     &workspace_mutation,
+                    env,
                 )?;
                 let projection_fingerprint = json!({
                     "terminal_id":result.terminal_id,
@@ -12876,9 +12906,16 @@ fn handle_command_with_cancellation(
             )?;
             Ok(json!({ "surface": surface.id }))
         }
-        Command::Split { pane, dir, cols, rows } => {
+        Command::Split { pane, dir, cols, rows, cwd, env } => {
             let dir = parse_split_dir(&dir)?;
-            let surface = mux.split(pane, dir, optional_surface_size(cols, rows))?;
+            let env = env.as_ref().map(crate::mux::validate_terminal_env).transpose()?;
+            let surface = mux.split_with(
+                pane,
+                dir,
+                cwd,
+                env.unwrap_or_default(),
+                optional_surface_size(cols, rows),
+            )?;
             Ok(json!({ "surface": surface.id }))
         }
         Command::SetRatio { pane, dir, ratio } => {
@@ -20903,6 +20940,7 @@ mod tests {
                     cols,
                     rows,
                     terminal_id: None,
+                    env: None,
                     mutation: MutationRequest::default(),
                 },
                 &test_writer(),
@@ -20930,6 +20968,7 @@ mod tests {
             cols: Some(80),
             rows: Some(24),
             terminal_id: Some("00000000000040008000000000000001".to_string()),
+            env: None,
             mutation: MutationRequest {
                 origin: Some("raw-projection-test".to_string()),
                 mutation_id: Some("raw-terminal-create-once".to_string()),
@@ -22070,6 +22109,43 @@ mod tests {
             run_json_command(&mux, json!({"cmd":"ungroup-tab-group","group":group})).unwrap();
         assert_eq!(ungrouped["surfaces"], json!([first, second]));
         assert!(run_json_command(&mux, json!({"cmd":"close-tab-group","group":group})).is_err());
+    }
+
+    #[test]
+    fn cmux_next_terminal_creation_accepts_a_per_terminal_env() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&TERMINAL_ENV_CAPABILITY));
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let created = run_json_command(
+            &mux,
+            json!({
+                "cmd":"new-tab",
+                "pane":pane,
+                "cwd":"/tmp",
+                "env":{"PATH":"/opt/homebrew/bin:/usr/bin","LANG":"en_US.UTF-8"},
+            }),
+        )
+        .unwrap();
+        assert!(created["surface"].as_u64().is_some());
+        let split = run_json_command(
+            &mux,
+            json!({"cmd":"split","pane":pane,"dir":"right","env":{"EDITOR":"vim"}}),
+        )
+        .unwrap();
+        assert!(split["surface"].as_u64().is_some());
+        for bad in [json!({"":"x"}), json!({"A=B":"x"}), json!({"A":"x\u{0}y"})] {
+            assert!(
+                run_json_command(&mux, json!({"cmd":"new-tab","pane":pane,"env":bad})).is_err()
+            );
+        }
+        let pairs = crate::mux::validate_terminal_env(
+            &[("B".to_string(), "2".to_string()), ("A".to_string(), "1".to_string())]
+                .into_iter()
+                .collect(),
+        )
+        .unwrap();
+        assert_eq!(pairs, vec![("A".into(), "1".into()), ("B".into(), "2".into())]);
     }
 
     #[cfg(unix)]

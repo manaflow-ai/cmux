@@ -1624,6 +1624,51 @@ struct TerminalReservationRequest {
     expected_generation: Option<String>,
     expected_revision: Option<u64>,
     on_exit: TerminalOnExit,
+    /// Extra environment for this terminal's child only (such as the
+    /// frontend user's login-shell environment), applied at spawn. Like
+    /// argv and cwd it is kept with the creation receipt in the local state
+    /// directory so a recovered creation spawns identically.
+    env: Vec<(String, String)>,
+}
+
+/// Longest accepted per-terminal environment: entries and total bytes.
+const MAX_TERMINAL_ENV_ENTRIES: usize = 1024;
+const MAX_TERMINAL_ENV_BYTES: usize = 256 * 1024;
+
+/// Validate a per-terminal environment and return it as ordered pairs.
+pub(crate) fn validate_terminal_env(
+    env: &std::collections::BTreeMap<String, String>,
+) -> anyhow::Result<Vec<(String, String)>> {
+    anyhow::ensure!(
+        env.len() <= MAX_TERMINAL_ENV_ENTRIES,
+        "bad request: env has more than {MAX_TERMINAL_ENV_ENTRIES} entries"
+    );
+    let mut bytes = 0usize;
+    for (key, value) in env {
+        anyhow::ensure!(
+            !key.is_empty() && !key.contains('=') && !key.contains('\0') && !value.contains('\0'),
+            "bad request: env names must be nonempty without '=' or NUL, and values without NUL"
+        );
+        bytes = bytes.saturating_add(key.len()).saturating_add(value.len());
+    }
+    anyhow::ensure!(
+        bytes <= MAX_TERMINAL_ENV_BYTES,
+        "bad request: env exceeds {MAX_TERMINAL_ENV_BYTES} bytes"
+    );
+    Ok(env.iter().map(|(key, value)| (key.clone(), value.clone())).collect())
+}
+
+/// Environment pairs stored in a creation's `env` field.
+fn terminal_env_field(fields: &Value) -> Vec<(String, String)> {
+    fields
+        .get("env")
+        .and_then(Value::as_object)
+        .map(|env| {
+            env.iter()
+                .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_string())))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4540,6 +4585,17 @@ impl Mux {
             "name".into(),
             if name.is_empty() { Value::Null } else { Value::String(name) },
         )])
+    }
+
+    fn insert_terminal_env(fields: &mut Map<String, Value>, env: Vec<(String, String)>) {
+        if !env.is_empty() {
+            fields.insert(
+                "env".into(),
+                Value::Object(
+                    env.into_iter().map(|(key, value)| (key, Value::String(value))).collect(),
+                ),
+            );
+        }
     }
 
     fn insert_cell_size(fields: &mut Map<String, Value>, size: Option<(u16, u16)>) {
@@ -7836,6 +7892,9 @@ impl Mux {
         }
         if command.is_some() {
             opts.command = command;
+        }
+        if let Some(reservation) = &reservation {
+            opts.extra_env.extend(reservation.env.iter().cloned());
         }
         // Spawn at the latest client-owned size: starting at the default
         // 80x24 and resizing a frame later makes shells emit artifacts
@@ -13313,6 +13372,17 @@ impl Mux {
         cwd: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_tab_with_env(pane, cwd, Vec::new(), size)
+    }
+
+    /// `new_tab` with extra environment for the new terminal's child only.
+    pub fn new_tab_with_env(
+        self: &Arc<Self>,
+        pane: Option<PaneId>,
+        cwd: Option<String>,
+        env: Vec<(String, String)>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
@@ -13341,6 +13411,7 @@ impl Mux {
         let mut fields = Map::new();
         Self::insert_optional_string(&mut fields, "cwd", cwd);
         Self::insert_cell_size(&mut fields, size);
+        Self::insert_terminal_env(&mut fields, env);
         let commit = self.commit_ordinary_topology_operation(
             ResourceOperation::TabCreateTerminal,
             selectors,
@@ -13449,10 +13520,11 @@ impl Mux {
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
+        env: Vec<(String, String)>,
     ) -> anyhow::Result<TerminalPlacementResult> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_execution = self.resource_creation_execution.lock().unwrap();
-        self.create_terminal_in_workspace_with_mutation(
+        self.create_terminal_in_workspace_with_mutation_env(
             workspace,
             argv,
             cwd,
@@ -13463,6 +13535,7 @@ impl Mux {
             expected_revision,
             mutation,
             None,
+            env,
         )
     }
 
@@ -13479,6 +13552,36 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         on_exit: Option<TerminalOnExit>,
+    ) -> anyhow::Result<TerminalPlacementResult> {
+        self.create_terminal_in_workspace_with_mutation_env(
+            workspace,
+            argv,
+            cwd,
+            name,
+            size,
+            requested_terminal_id,
+            expected_generation,
+            expected_revision,
+            mutation,
+            on_exit,
+            Vec::new(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_terminal_in_workspace_with_mutation_env(
+        self: &Arc<Self>,
+        workspace: WorkspaceId,
+        argv: Option<Vec<String>>,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+        requested_terminal_id: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        on_exit: Option<TerminalOnExit>,
+        env: Vec<(String, String)>,
     ) -> anyhow::Result<TerminalPlacementResult> {
         let workspace_key = self
             .state
@@ -13518,6 +13621,7 @@ impl Mux {
             expected_generation: expected_generation.map(str::to_string),
             expected_revision,
             on_exit: on_exit.unwrap_or_default(),
+            env,
         };
         let (placement, surface, created_path) = self.create_terminal_in_workspace_impl(
             workspace,
@@ -14390,6 +14494,19 @@ impl Mux {
         dir: SplitDir,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.split_with(target, dir, None, Vec::new(), size)
+    }
+
+    /// `split` with an optional directory and extra environment for the new
+    /// terminal's child only.
+    pub fn split_with(
+        self: &Arc<Self>,
+        target: PaneId,
+        dir: SplitDir,
+        cwd: Option<String>,
+        env: Vec<(String, String)>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
@@ -14399,7 +14516,9 @@ impl Mux {
             SplitDir::Down => "down",
         };
         let mut fields = Map::from_iter([("direction".into(), Value::String(direction.into()))]);
+        Self::insert_optional_string(&mut fields, "cwd", cwd);
         Self::insert_cell_size(&mut fields, size);
+        Self::insert_terminal_env(&mut fields, env);
         let commit = self.commit_ordinary_topology_operation(
             ResourceOperation::PaneSplit,
             selectors,
@@ -16757,6 +16876,7 @@ impl Mux {
                     expected_generation: None,
                     expected_revision: None,
                     on_exit: TerminalOnExit::Close,
+                    env: Vec::new(),
                 };
                 let surface = self.spawn_surface_in_workspace_reserved(
                     workspace_key,
@@ -22155,6 +22275,7 @@ mod tests {
             expected_generation: None,
             expected_revision: None,
             on_exit: TerminalOnExit::Close,
+            env: Vec::new(),
         };
         let result = mux.spawn_surface_in_workspace_reserved(
             &workspace.key,

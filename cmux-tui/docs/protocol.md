@@ -175,6 +175,15 @@ running terminals and starts the rest in their saved directories.
 {"id":18,"cmd":"move-tab-group-to-split","group":"tgrp_0d4c...","pane":2,"edge":"right"}
 ```
 
+`terminal-env-v1` lets `new-tab`, `split`, and `create-terminal` carry an
+`env` object for the new terminal's child only, so a frontend can pass the
+user's login-shell environment to a daemon that started with a minimal
+launchd environment:
+
+```json
+{"id":19,"cmd":"new-tab","pane":2,"cwd":"/Users/me/src","env":{"PATH":"/opt/homebrew/bin:/usr/bin:/bin"}}
+```
+
 ## Events
 
 `subscribe` starts event streaming:

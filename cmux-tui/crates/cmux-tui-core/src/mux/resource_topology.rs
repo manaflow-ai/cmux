@@ -4617,6 +4617,7 @@ impl Mux {
             expected_generation: None,
             expected_revision: None,
             on_exit: on_exit.unwrap_or_default(),
+            env: terminal_env_field(&intent["fields"]),
         })
     }
 
