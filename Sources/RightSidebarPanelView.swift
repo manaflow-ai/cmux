@@ -187,6 +187,7 @@ struct RightSidebarPanelView: View {
             }
             .frame(width: 0, height: 0)
         )
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebar")
         .onAppear {
             startShortcutHintMonitorsIfNeeded()

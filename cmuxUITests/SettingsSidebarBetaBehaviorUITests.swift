@@ -126,8 +126,9 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
         defer { closeSettings(app, window) }
 
         navigate(window, to: "Beta Features")
+        let dockToggle = window.descendants(matching: .any)["SettingsBetaDockToggle"].firstMatch
         XCTAssertFalse(
-            window.switches["SettingsBetaDockToggle"].waitForExistence(timeout: 2),
+            dockToggle.waitForExistence(timeout: 2),
             "Dock must not appear as a beta toggle"
         )
     }
