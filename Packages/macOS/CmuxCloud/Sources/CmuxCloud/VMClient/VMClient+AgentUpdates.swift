@@ -2,7 +2,7 @@ import Foundation
 
 extension VMClient {
     /// Sets whether the machine keeps its image's coding agents or updates them
-    /// to npm's latest on attach. A running machine hears it right away; the
+    /// along each agent's GitHub releases on attach. A running machine hears it right away; the
     /// server answers with the stored setting.
     public func setAgentUpdates(id: String, setting: CloudAgentUpdates) async throws -> CloudAgentUpdates {
         try await withOperation(.agentUpdates, foreground: true) {

@@ -215,12 +215,13 @@ final class NewMachineModel {
     /// Remembers the last submitted "Keep coding agents up to date" choice.
     nonisolated static let keepsAgentsUpdatedDefaultsKey = "cloud.newMachine.keepsAgentsUpdated"
 
-    /// Shown under the toggle when the chosen network policy blocks the npm
-    /// registry the updates download from. Only once the policy is editable,
-    /// since until then the machine gets full internet.
+    /// Shown under the toggle when the chosen network policy blocks a host
+    /// the updates reach (the catalog's `agentUpdateDomains`). Only once the
+    /// policy is editable, since until then the machine gets full internet.
     var agentUpdatesNetworkNote: String? {
-        guard supportsAgentUpdates, keepsAgentsUpdated, networkAvailability == .available else { return nil }
-        return CloudAgentUpdates.latest.networkNote(for: network.policy)
+        guard supportsAgentUpdates, keepsAgentsUpdated, networkAvailability == .available,
+              let catalog = network.catalog else { return nil }
+        return CloudAgentUpdates.latest.networkNote(for: network.policy, catalog: catalog)
     }
 
     private let submit: Submit

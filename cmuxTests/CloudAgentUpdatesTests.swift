@@ -34,16 +34,37 @@ struct CloudAgentUpdatesTests {
         #expect(MachineSnapshotBuilder.snapshot(from: summary).agentUpdates == .latest)
     }
 
-    @Test func npmReachabilityFollowsTheNetworkPolicy() {
-        #expect(CloudNetworkPolicy(mode: .full).allowsNpmRegistry)
-        #expect(!CloudNetworkPolicy(mode: .none).allowsNpmRegistry)
-        #expect(!CloudNetworkPolicy(mode: .allowlist, presets: ["github"]).allowsNpmRegistry)
-        #expect(CloudNetworkPolicy(mode: .allowlist, presets: ["npm"]).allowsNpmRegistry)
-        #expect(CloudNetworkPolicy(mode: .allowlist, domains: ["registry.npmjs.org"]).allowsNpmRegistry)
-
-        #expect(CloudAgentUpdates.latest.networkNote(for: CloudNetworkPolicy(mode: .none)) == CloudAgentUpdates.npmBlockedNote)
-        #expect(CloudAgentUpdates.latest.networkNote(for: CloudNetworkPolicy(mode: .full)) == nil)
-        #expect(CloudAgentUpdates.image.networkNote(for: CloudNetworkPolicy(mode: .none)) == nil)
+    @Test func updateHostReachabilityFollowsTheNetworkPolicyAndCatalog() throws {
+        let github = ["api.github.com", "github.com", "release-assets.githubusercontent.com"]
+        let current = CloudNetworkPresetCatalog(
+            presets: [CloudNetworkPreset(id: "npm", label: "npm", domains: ["registry.npmjs.org"])],
+            requiredDomains: ["files.cmux.com"] + github,
+            agentUpdateDomains: github
+        )
+        // Today's server: every update host is always allowed, so no policy blocks updates.
+        for policy in [CloudNetworkPolicy(mode: .none), CloudNetworkPolicy(mode: .allowlist), CloudNetworkPolicy(mode: .full)] {
+            #expect(CloudAgentUpdates.latest.networkNote(for: policy, catalog: current) == nil)
+        }
+        // A catalog whose update hosts are not always allowed: the note names exactly the blocked ones.
+        let restricted = CloudNetworkPresetCatalog(
+            presets: [CloudNetworkPreset(id: "github", label: "GitHub", domains: ["api.github.com"])],
+            requiredDomains: ["github.com", "release-assets.githubusercontent.com"],
+            agentUpdateDomains: github
+        )
+        #expect(CloudAgentUpdates.latest.networkNote(for: CloudNetworkPolicy(mode: .none), catalog: restricted)
+            == CloudAgentUpdates.blockedNote(domains: ["api.github.com"]))
+        #expect(CloudAgentUpdates.latest.networkNote(for: CloudNetworkPolicy(mode: .allowlist, presets: ["github"]), catalog: restricted) == nil)
+        #expect(CloudAgentUpdates.latest.networkNote(for: CloudNetworkPolicy(mode: .allowlist, domains: ["api.github.com"]), catalog: restricted) == nil)
+        #expect(CloudAgentUpdates.image.networkNote(for: CloudNetworkPolicy(mode: .none), catalog: restricted) == nil)
+        // An older server sends no agentUpdateDomains: its updates went through npm.
+        let legacy = try JSONDecoder().decode(
+            CloudNetworkPresetCatalog.self,
+            from: Data(#"{"presets":[{"id":"npm","label":"npm","domains":["registry.npmjs.org"]}],"requiredDomains":["files.cmux.com"]}"#.utf8)
+        )
+        #expect(legacy.agentUpdateDomains == ["registry.npmjs.org"])
+        #expect(CloudAgentUpdates.latest.networkNote(for: CloudNetworkPolicy(mode: .none), catalog: legacy)
+            == CloudAgentUpdates.blockedNote(domains: ["registry.npmjs.org"]))
+        #expect(CloudAgentUpdates.latest.networkNote(for: CloudNetworkPolicy(mode: .allowlist, presets: ["npm"]), catalog: legacy) == nil)
     }
 
     @Test func operationKindNamesTheChange() {
@@ -66,9 +87,10 @@ struct CloudAgentUpdatesTests {
 @MainActor
 struct NewMachineAgentUpdatesTests {
     private static let catalog = CloudNetworkPresetCatalog(
-        presets: [CloudNetworkPreset(id: "npm", label: "npm", domains: ["registry.npmjs.org"])],
-        requiredDomains: ["files.cmux.com"],
-        defaultPolicy: .default
+        presets: [CloudNetworkPreset(id: "github", label: "GitHub", domains: ["api.github.com"])],
+        requiredDomains: ["files.cmux.com", "github.com", "release-assets.githubusercontent.com"],
+        defaultPolicy: .default,
+        agentUpdateDomains: ["api.github.com", "github.com", "release-assets.githubusercontent.com"]
     )
 
     private static func defaults() -> UserDefaults {
@@ -95,17 +117,18 @@ struct NewMachineAgentUpdatesTests {
         #expect(!NewMachineModel(mode: .newMachine, plan: nil, defaults: defaults, submit: { _ in true }).keepsAgentsUpdated)
     }
 
-    @Test func networkNoteAppearsOnlyWhenThePolicyBlocksNpm() {
+    @Test func networkNoteAppearsOnlyWhenThePolicyBlocksAnUpdateHost() {
         let model = NewMachineModel(mode: .newMachine, plan: nil, defaults: Self.defaults(), submit: { _ in true })
         model.keepsAgentsUpdated = true
         model.network.mode = .none
         // Until the catalog loads the machine gets full internet, so nothing to warn about.
         #expect(model.agentUpdatesNetworkNote == nil)
         model.applyNetworkCatalog(Self.catalog)
-        #expect(model.agentUpdatesNetworkNote == CloudAgentUpdates.npmBlockedNote)
+        let blocked = CloudAgentUpdates.blockedNote(domains: ["api.github.com"])
+        #expect(model.agentUpdatesNetworkNote == blocked)
         model.network.mode = .allowlist
-        #expect(model.agentUpdatesNetworkNote == CloudAgentUpdates.npmBlockedNote)
-        model.network.setPreset("npm", enabled: true)
+        #expect(model.agentUpdatesNetworkNote == blocked)
+        model.network.setPreset("github", enabled: true)
         #expect(model.agentUpdatesNetworkNote == nil)
         model.keepsAgentsUpdated = false
         model.network.mode = .none

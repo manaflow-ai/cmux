@@ -90,13 +90,17 @@ export const NETWORK_POLICY_PRESETS: readonly NetworkPolicyPreset[] = [
 ];
 
 /**
- * Hosts cmux needs in every mode: guest CLI and cmux-tui daemon downloads.
- * The CodeRouter and reflection aliases are separate edge rules the model
- * plane owns; they stay reachable through the edge grant the driver adds.
+ * Hosts cmux needs in every mode: guest CLI and cmux-tui daemon downloads,
+ * and the coding-agent installs and updates (GUEST_AGENT_UPDATE_DOMAINS: the
+ * GitHub releases API for versions, dates and asset digests, then the release
+ * asset). api.github.com adds no outbound channel github.com does not already
+ * open. The CodeRouter and reflection aliases are separate edge rules the
+ * model plane owns; they stay reachable through the edge grant the driver adds.
  */
 export const CMUX_REQUIRED_DOMAINS: readonly string[] = [
   "files.cmux.com",
   "github.com",
+  "api.github.com",
   "objects.githubusercontent.com",
   "release-assets.githubusercontent.com",
 ];

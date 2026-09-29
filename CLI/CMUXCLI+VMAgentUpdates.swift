@@ -6,7 +6,7 @@ extension CMUXCLI {
     static var vmAgentUpdatesUsage: String {
         String(
             localized: "cli.vm.agentUpdates.usage",
-            defaultValue: "Usage:\n  cmux vm agent-updates <id>                 Show the machine's setting.\n  cmux vm agent-updates <id> <latest|image>  Change it.\n\nlatest updates Claude Code, Codex, OpenCode, and Pi to the newest npm\nrelease when you connect, at most once a day. image keeps the versions the\nmachine's image baked (the default). Updates need registry.npmjs.org: with\nnetwork mode none, or an allowlist without the npm preset, they fail. Add\n--json for the structured result.\nA new release installs only after it has been public for 3 days."
+            defaultValue: "Usage:\n  cmux vm agent-updates <id>                 Show the machine's setting.\n  cmux vm agent-updates <id> <latest|image>  Change it.\n\nlatest updates Claude Code, Codex, OpenCode, Pi, and agent-browser to each\ntool's newest GitHub release when you connect, at most once a day, checked\nagainst its sha256 digest. image keeps the versions the machine's image\nbaked (the default). Updates reach only GitHub, which every network mode\nallows. Add --json for the structured result.\nA new release installs only after it has been public for 3 days."
         )
     }
 
@@ -23,26 +23,6 @@ extension CMUXCLI {
             throw CLIError(message: String(format: format, command))
         }
         return setting
-    }
-
-    /// The note `vm new` prints when `latest` meets a network policy that
-    /// blocks the npm registry. Mirrors `CloudNetworkPolicy.allowsNpmRegistry`
-    /// on the raw JSON the CLI holds (the CLI does not link CmuxCloud).
-    static func vmAgentUpdatesNetworkNote(setting: String, policy: [String: Any]?) -> String? {
-        guard setting == "latest", let policy, let mode = policy["mode"] as? String else { return nil }
-        let presets = policy["presets"] as? [String] ?? []
-        let domains = policy["domains"] as? [String] ?? []
-        let blocked: Bool
-        switch mode {
-        case "none": blocked = true
-        case "allowlist": blocked = !presets.contains("npm") && !domains.contains("registry.npmjs.org")
-        default: blocked = false
-        }
-        guard blocked else { return nil }
-        return String(
-            localized: "cloud.agentUpdates.npmBlocked",
-            defaultValue: "Updates need npm registry access. Add the npm preset or they will fail."
-        )
     }
 
     /// Reads go to `vm.agent_updates_get`; a value goes to `vm.agent_updates_set`,
