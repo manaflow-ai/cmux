@@ -138,7 +138,7 @@ struct MachinesChromeIconButton: View {
         .buttonStyle(.plain)
         .foregroundColor(isHovered ? .primary : .secondary)
         .background(
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
+            RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                 .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
         )
         .onHover { isHovered = $0 }
