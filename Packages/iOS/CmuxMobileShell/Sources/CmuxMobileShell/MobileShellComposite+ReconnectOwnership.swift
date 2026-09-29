@@ -15,10 +15,11 @@ extension MobileShellComposite {
     }
 
     func suspendStoredMacReconnect() {
-        if storedMacReconnectAttempt != nil, pendingInactiveRecoveryTrigger == nil {
+        if storedMacReconnectAttempt != nil || forcedStoredMacRetry != nil, pendingInactiveRecoveryTrigger == nil {
             pendingInactiveRecoveryTrigger = .foreground
         }
         storedMacReconnectAttempt?.retire(with: .failed(.cancelled))
+        cancelForcedStoredMacRetry(preserveIntent: true)
         zeroTouchDialRace?.close()
     }
 
@@ -35,6 +36,7 @@ extension MobileShellComposite {
     func invalidateStoredMacReconnectAttempt() {
         storedMacReconnectAttempt?.retire(with: .superseded)
         storedMacReconnectGeneration &+= 1
+        cancelForcedStoredMacRetry(preserveIntent: false)
         abandonedReconnectRecoveryGeneration = nil
         zeroTouchDialRace?.close()
         zeroTouchDialRace = nil
@@ -58,16 +60,36 @@ extension MobileShellComposite {
         let stackUserID = lastReconnectStackUserID
         let accountID = stackUserID ?? identityProvider?.currentUserID
         let retryGeneration = storedMacReconnectGeneration
+        let retryID = UUID()
         isReconnectingStoredMac = true
-        Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            guard retryGeneration == self.storedMacReconnectGeneration,
+            defer {
+                if self.forcedStoredMacRetry?.id == retryID {
+                    self.forcedStoredMacRetry = nil
+                    if self.storedMacReconnectAttempt == nil { self.isReconnectingStoredMac = false }
+                }
+            }
+            guard !Task.isCancelled, retryGeneration == self.storedMacReconnectGeneration,
                   self.isSignedIn,
                   self.identityProvider?.currentUserID == accountID else { return }
             _ = await self.performStoredMacRetry(
                 stackUserID: stackUserID,
                 force: true
             )
+        }
+        forcedStoredMacRetry = (id: retryID, task: task)
+    }
+
+    /// A suspended explicit retry keeps its intent; account/route invalidation
+    /// revokes it. Cancelling the launcher also reaches its active deadline owner.
+    private func cancelForcedStoredMacRetry(preserveIntent: Bool) {
+        guard let retry = forcedStoredMacRetry else { return }
+        forcedStoredMacRetry = nil
+        retry.task.cancel()
+        if preserveIntent, isSignedIn {
+            pendingForcedStoredMacReconnect = true
+            if storedMacReconnectAttempt == nil { isReconnectingStoredMac = false }
         }
     }
 

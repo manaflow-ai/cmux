@@ -97,7 +97,8 @@ extension MobileShellComposite {
         // advance the generation, and cancel the dial already in flight.
         // Automatic wake-ups are satisfied by the active restore. Manual retry
         // and connection-method changes remain explicit replacements.
-        if (isReconnectingStoredMac || storedMacReconnectAttempt?.generation == storedMacReconnectGeneration),
+        if (isReconnectingStoredMac || forcedStoredMacRetry != nil
+            || storedMacReconnectAttempt?.generation == storedMacReconnectGeneration),
            !connectionRecoveryOwner.isActive {
             switch trigger {
             case .manual, .connectionMethodChanged:

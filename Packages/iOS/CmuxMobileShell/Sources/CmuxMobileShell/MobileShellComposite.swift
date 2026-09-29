@@ -1406,6 +1406,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var abandonedReconnectRecoveryGeneration: Int?
     var connectionReadinessTask: Task<Void, Never>?
     var storedMacReconnectAttempt: StoredMacReconnectAttempt?
+    var forcedStoredMacRetry: (id: UUID, task: Task<Void, Never>)?
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
@@ -2166,6 +2167,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // suspended past the store that owned it.
         exactlyOnceSenderStorage?.abandon { _ in true }
         connectionReadinessTask?.cancel()
+        forcedStoredMacRetry?.task.cancel()
         storedMacReconnectAttempt?.retire(with: .failed(.cancelled))
         connectionRecoveryOwner.cancel()
         connectionRecoveryAttemptDeadlineTask?.cancel()
