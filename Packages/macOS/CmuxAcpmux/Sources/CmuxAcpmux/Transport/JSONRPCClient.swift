@@ -9,30 +9,30 @@ public actor JSONRPCClient {
     /// Server notifications in arrival order.
     public nonisolated let notifications: AsyncStream<JSONRPCNotification>
     private let notificationContinuation: AsyncStream<JSONRPCNotification>.Continuation
-    private let writer: @Sendable (Data) throws -> Void
-    private let closer: @Sendable () -> Void
+    private let outbox: AsyncStream<Data>.Continuation
+    private let closer: @Sendable () async -> Void
     private var pending: [Int: CheckedContinuation<JSONValue, any Error>] = [:]
     private var nextID = 1
     private var framer = LineFramer()
     private var isClosed = false
     private var readTask: Task<Void, Never>?
+    private var writeTask: Task<Void, Never>?
 
     /// Creates a client over an already-connected byte stream.
     /// - Parameters:
     ///   - inbound: Raw bytes from the peer.
-    ///   - write: Writes one encoded frame to the peer.
+    ///   - write: Writes one encoded frame to the peer. Frames are written one at a time, in order.
     ///   - close: Closes the underlying connection.
     public init(
         inbound: AsyncStream<Data>,
-        write: @escaping @Sendable (Data) throws -> Void,
-        close: @escaping @Sendable () -> Void
+        write: @escaping @Sendable (Data) async throws -> Void,
+        close: @escaping @Sendable () async -> Void
     ) {
-        var continuation: AsyncStream<JSONRPCNotification>.Continuation!
-        notifications = AsyncStream(bufferingPolicy: .unbounded) { continuation = $0 }
-        notificationContinuation = continuation
-        writer = write
+        (notifications, notificationContinuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
+        let (frames, outbox) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
+        self.outbox = outbox
         closer = close
-        Task { await self.startReading(inbound) }
+        Task { await self.start(inbound: inbound, frames: frames, write: write) }
     }
 
     /// Creates a client connected to a Unix socket.
@@ -41,12 +41,27 @@ public actor JSONRPCClient {
         let connection = try UnixSocketConnection(path: socketPath)
         self.init(
             inbound: connection.chunks,
-            write: { try connection.write($0) },
-            close: { connection.close() }
+            write: { try await connection.write($0) },
+            close: { await connection.close() }
         )
     }
 
-    private func startReading(_ inbound: AsyncStream<Data>) {
+    private func start(
+        inbound: AsyncStream<Data>,
+        frames: AsyncStream<Data>,
+        write: @escaping @Sendable (Data) async throws -> Void
+    ) {
+        // One writer drains the outbox so frames keep their order and never race close().
+        writeTask = Task { [weak self] in
+            for await frame in frames {
+                do {
+                    try await write(frame)
+                } catch {
+                    await self?.finish()
+                    return
+                }
+            }
+        }
         readTask = Task { [weak self] in
             for await chunk in inbound {
                 guard let self else { return }
@@ -90,7 +105,9 @@ public actor JSONRPCClient {
             continuation.resume(throwing: JSONRPCClientError.disconnected)
         }
         notificationContinuation.finish()
-        closer()
+        outbox.finish()
+        let closer = closer
+        Task { await closer() }
     }
 
     /// Whether the connection has ended.
@@ -109,12 +126,7 @@ public actor JSONRPCClient {
         let payload = try JSONEncoder().encode(JSONRPCOutboundRequest(id: id, method: method, params: params))
         return try await withCheckedThrowingContinuation { continuation in
             pending[id] = continuation
-            do {
-                try writer(LineFramer.frame(payload))
-            } catch {
-                pending.removeValue(forKey: id)
-                continuation.resume(throwing: JSONRPCClientError.disconnected)
-            }
+            outbox.yield(LineFramer.frame(payload))
         }
     }
 
@@ -134,16 +146,13 @@ public actor JSONRPCClient {
     public func notify<Params: Encodable & Sendable>(_ method: String, params: Params) throws {
         guard !isClosed else { throw JSONRPCClientError.disconnected }
         let payload = try JSONEncoder().encode(JSONRPCOutboundNotification(method: method, params: params))
-        do {
-            try writer(LineFramer.frame(payload))
-        } catch {
-            throw JSONRPCClientError.disconnected
-        }
+        outbox.yield(LineFramer.frame(payload))
     }
 
     /// Closes the connection and fails pending requests.
     public func close() {
         readTask?.cancel()
+        writeTask?.cancel()
         finish()
     }
 }

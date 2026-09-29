@@ -24,6 +24,10 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     private var needsFlush = false
     private var isAdjustingScroll = false
     private var lastLayoutWidth: CGFloat = 0
+    /// Rows measured exactly during the current height pass; other rows return estimates.
+    private var measureWindow: Range<Int> = 0..<0
+    /// Rows whose height is an estimate at the current width, refined a batch per frame.
+    private var estimatedRows = IndexSet()
     private(set) var isPinnedToBottom = true
     private(set) var unreadCount = 0
 
@@ -80,12 +84,58 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         let width = tableView.bounds.width
         if abs(width - lastLayoutWidth) > 0.5 {
             lastLayoutWidth = width
-            engine.retainOnly(width: width)
-            let wasPinned = isPinnedToBottom
-            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rows.count))
-            reconfigureVisibleRows()
-            if wasPinned { scrollToBottom(animated: false) }
+            relayoutForWidthChange()
         }
+    }
+
+    /// A width change measures only the rows on screen (plus a margin) now. Every other row
+    /// gets a scaled estimate and is measured in small batches on later frames, so a live
+    /// resize of a 5,000-row transcript costs a screenful of text layout per frame.
+    private func relayoutForWidthChange() {
+        let wasPinned = isPinnedToBottom
+        let anchor = wasPinned ? nil : captureAnchor()
+        let visible = tableView.rows(in: scrollView.contentView.bounds)
+        let lower = max(0, visible.location - 20)
+        let upper = min(rows.count, visible.location + visible.length + 20)
+        measureWindow = lower..<max(lower, upper)
+        estimatedRows = IndexSet()
+        isAdjustingScroll = true
+        tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rows.count))
+        isAdjustingScroll = false
+        measureWindow = 0..<0
+        reconfigureVisibleRows()
+        if wasPinned {
+            scrollToBottom(animated: false)
+        } else if let anchor {
+            restore(anchor)
+        }
+        if !estimatedRows.isEmpty { setNeedsFlush() }
+    }
+
+    /// Measures up to `limit` estimated rows and corrects their heights, keeping the
+    /// viewport anchored.
+    private func refineEstimatedRows(limit: Int) {
+        guard !estimatedRows.isEmpty else { return }
+        var batch = IndexSet()
+        for index in estimatedRows.prefix(limit) where index < rows.count { batch.insert(index) }
+        estimatedRows.subtract(IndexSet(estimatedRows.prefix(limit)))
+        measureWindow = 0..<rows.count
+        let anchor = isPinnedToBottom ? nil : captureAnchor()
+        isAdjustingScroll = true
+        tableView.noteHeightOfRows(withIndexesChanged: batch)
+        isAdjustingScroll = false
+        measureWindow = 0..<0
+        if isPinnedToBottom {
+            scrollToBottom(animated: false)
+        } else if let anchor {
+            restore(anchor)
+        }
+        if estimatedRows.isEmpty, !inLiveResize { engine.retainOnly(width: tableView.bounds.width) }
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        if estimatedRows.isEmpty { engine.retainOnly(width: tableView.bounds.width) }
     }
 
     override func viewDidMoveToWindow() {
@@ -116,7 +166,11 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
             needsFlush = false
             flush()
         }
-        if !needsFlush { link.isPaused = true }
+        if !estimatedRows.isEmpty {
+            // Refine offscreen estimates a batch per frame, smaller while the user drags.
+            refineEstimatedRows(limit: inLiveResize ? 20 : 120)
+        }
+        if !needsFlush && estimatedRows.isEmpty { link.isPaused = true }
     }
 
     /// Applies the model's current rows now.
@@ -131,6 +185,10 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         let appendedAtEnd = !diff.inserted.isEmpty && diff.inserted.upperBound == newRows.count && diff.removed.count <= 1
         rows = newRows
         positions = newPositions
+        // Row indexes shift with inserts and removals, so an unfinished refinement restarts
+        // after this update with a fresh estimate pass.
+        let restartEstimates = !estimatedRows.isEmpty
+        estimatedRows = IndexSet()
         isAdjustingScroll = true
         defer { isAdjustingScroll = false }
 
@@ -138,7 +196,12 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
             tableView.reloadData()
         } else {
             tableView.beginUpdates()
-            if !diff.removed.isEmpty { tableView.removeRows(at: IndexSet(integersIn: diff.removed), withAnimation: []) }
+            if !diff.removed.isEmpty {
+                // A dropped row (an abandoned partial message, a finished typing indicator)
+                // fades and collapses instead of vanishing.
+                let removedRealContent = !reduceMotion && diff.removed.count <= 3
+                tableView.removeRows(at: IndexSet(integersIn: diff.removed), withAnimation: removedRealContent ? [.effectFade, .slideUp] : [])
+            }
             if !diff.inserted.isEmpty { tableView.insertRows(at: IndexSet(integersIn: diff.inserted), withAnimation: []) }
             tableView.endUpdates()
             if !diff.updated.isEmpty {
@@ -152,6 +215,12 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
             }
         }
 
+        if restartEstimates {
+            let visible = tableView.rows(in: scrollView.contentView.bounds)
+            measureWindow = max(0, visible.location - 20)..<min(rows.count, max(0, visible.location + visible.length + 20))
+            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rows.count))
+            measureWindow = 0..<0
+        }
         if isPinnedToBottom {
             scrollToBottom(animated: !isInitial && !reduceMotion && appendedAtEnd)
         } else if let anchor {
@@ -272,6 +341,16 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard row < rows.count else { return 1 }
+        if !measureWindow.isEmpty, !measureWindow.contains(row),
+           let estimate = engine.height(
+               for: rows[row],
+               position: row < positions.count ? positions[row] : .standalone,
+               width: tableView.bounds.width,
+               expanded: expandedRowIDs.contains(rows[row].id)
+           ) {
+            if !estimate.exact { estimatedRows.insert(row) }
+            return estimate.height
+        }
         return layout(for: row).height
     }
 

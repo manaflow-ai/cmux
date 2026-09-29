@@ -45,20 +45,19 @@ public struct AcpmuxDaemonLauncher: Sendable {
         if !fileManager.fileExists(atPath: logPath) {
             fileManager.createFile(atPath: logPath, contents: nil)
         }
-        let pid = try spawn(
+        try spawnDetached(
             executable: executable,
             arguments: ["daemon", "run"] + environment.daemonArguments,
             environment: environment.childEnvironment(base: baseEnvironment),
             logPath: logPath
         )
-        let signals = Self.readinessSignals(logPath: logPath, pid: pid)
+        let signals = Self.logChanges(logPath: logPath)
         let timeout = readinessTimeout
         return try await withThrowingTaskGroup(of: Connection?.self) { group in
             group.addTask {
                 if let connection = connect() { return connection }
-                for await signal in signals {
+                for await _ in signals {
                     if let connection = connect() { return connection }
-                    if signal == .processExited { throw AcpmuxDaemonError.daemonExited(logPath: logPath) }
                 }
                 throw AcpmuxDaemonError.daemonExited(logPath: logPath)
             }
@@ -75,43 +74,34 @@ public struct AcpmuxDaemonLauncher: Sendable {
         }
     }
 
-    private enum ReadinessSignal: Sendable { case logChanged, processExited }
-
-    /// Log writes and child exit as one stream. Dispatch sources are the only event API
-    /// for vnode and process events; they only forward into the stream.
-    private static func readinessSignals(logPath: String, pid: pid_t) -> AsyncStream<ReadinessSignal> {
+    /// Daemon log writes as a stream. A vnode `DispatchSource` is the only event API for
+    /// file changes; it only forwards into the stream.
+    private static func logChanges(logPath: String) -> AsyncStream<Void> {
         AsyncStream { continuation in
             let fd = open(logPath, O_EVTONLY)
-            let queue = DispatchQueue(label: "com.cmuxterm.acpmux.daemon-readiness")
-            var fileSource: (any DispatchSourceFileSystemObject)?
-            if fd >= 0 {
-                let source = DispatchSource.makeFileSystemObjectSource(
-                    fileDescriptor: fd,
-                    eventMask: [.write, .extend],
-                    queue: queue
-                )
-                source.setEventHandler { continuation.yield(.logChanged) }
-                source.setCancelHandler { close(fd) }
-                source.resume()
-                fileSource = source
-            }
-            let processSource = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
-            processSource.setEventHandler {
-                var status: Int32 = 0
-                waitpid(pid, &status, WNOHANG)
-                continuation.yield(.processExited)
+            guard fd >= 0 else {
                 continuation.finish()
+                return
             }
-            processSource.resume()
-            let ownedFileSource = fileSource
-            continuation.onTermination = { _ in
-                ownedFileSource?.cancel()
-                processSource.cancel()
-            }
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: [.write, .extend, .delete],
+                queue: DispatchQueue(label: "com.cmuxterm.acpmux.daemon-readiness")
+            )
+            source.setEventHandler { continuation.yield() }
+            source.setCancelHandler { close(fd) }
+            source.resume()
+            continuation.onTermination = { _ in source.cancel() }
         }
     }
 
-    private func spawn(executable: String, arguments: [String], environment: [String: String], logPath: String) throws -> pid_t {
+    /// Starts the daemon as an orphan owned by launchd.
+    ///
+    /// `/bin/sh` starts the daemon in the background and exits at once; the launcher reaps
+    /// the shell, and launchd adopts and later reaps the daemon. cmux therefore never holds
+    /// a child that can become a zombie, and the daemon outlives cmux. `setsid` puts both
+    /// in a new session, away from the app's process group.
+    private func spawnDetached(executable: String, arguments: [String], environment: [String: String], logPath: String) throws {
         var fileActions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&fileActions)
         defer { posix_spawn_file_actions_destroy(&fileActions) }
@@ -122,19 +112,21 @@ public struct AcpmuxDaemonLauncher: Sendable {
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
-        // New session so the daemon outlives cmux and ignores the app's process group signals.
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT))
 
-        let argv = ([executable] + arguments).map { strdup($0) } + [nil]
+        // `"$@" &` runs the daemon with the shell's descriptors; the shell then exits.
+        let shellArguments = ["/bin/sh", "-c", "\"$@\" &", "acpmux-launch", executable] + arguments
+        let argv = shellArguments.map { strdup($0) } + [nil]
         let envp = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
         defer {
             argv.forEach { free($0) }
             envp.forEach { free($0) }
         }
-        var pid: pid_t = 0
-        let result = posix_spawn(&pid, executable, &fileActions, &attributes, argv, envp)
+        var shellPID: pid_t = 0
+        let result = posix_spawn(&shellPID, "/bin/sh", &fileActions, &attributes, argv, envp)
         guard result == 0 else { throw AcpmuxDaemonError.spawnFailed(result) }
-        return pid
+        var status: Int32 = 0
+        while waitpid(shellPID, &status, 0) < 0, errno == EINTR {}
     }
 }
 

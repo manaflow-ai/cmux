@@ -137,9 +137,9 @@ struct TranscriptReducerTests {
         #expect(paged.firstSeq == 1)
     }
 
-    @Test func newMessageIdStartsNewBubbleAfterAgentRetry() {
-        // Captured shape from a codex turn that retried: the partial message and the
-        // resent message carry different messageIds and must not concatenate.
+    @Test func redeliveredMessageReplacesAbandonedPartial() {
+        // Captured shape from a codex turn whose stream dropped: the partial message and
+        // the resent message carry different messageIds. Only the full answer remains.
         func chunk(_ seq: Int, _ text: String, _ messageID: String) -> AcpmuxEventRecord {
             AcpmuxEventRecord(
                 sessionId: "s", seq: seq, at: Int64(seq), dir: "in", kind: "agent_message_chunk",
@@ -160,9 +160,28 @@ struct TranscriptReducerTests {
         ])
         #expect(summaries(reducer.rows) == [
             "user:ls",
-            "assistant:The directory contains a…",
             "assistant:The directory contains one file.…",
         ])
+    }
+
+    @Test func distinctConsecutiveMessagesStaySeparate() {
+        func chunk(_ seq: Int, _ text: String, _ messageID: String) -> AcpmuxEventRecord {
+            AcpmuxEventRecord(
+                sessionId: "s", seq: seq, at: Int64(seq), dir: "in", kind: "agent_message_chunk",
+                msg: .object(["jsonrpc": .string("2.0"), "method": .string("session/update"), "params": .object(["update": .object([
+                    "sessionUpdate": .string("agent_message_chunk"),
+                    "content": .object(["type": .string("text"), "text": .string(text)]),
+                    "messageId": .string(messageID),
+                ])])])
+            )
+        }
+        var reducer = TranscriptReducer()
+        reducer.apply([
+            AcpmuxEventRecord(sessionId: "s", seq: 1, at: 1, dir: "mux", kind: "user_message", msg: .object(["text": .string("go")])),
+            chunk(2, "Checking now.", "m1"),
+            chunk(3, "Done: all good.", "m2"),
+        ])
+        #expect(summaries(reducer.rows) == ["user:go", "assistant:Checking now.…", "assistant:Done: all good.…"])
     }
 
     @Test func queueTracksQueuedAndDequeuedPrompts() {

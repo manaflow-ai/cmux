@@ -279,7 +279,14 @@ public struct TranscriptReducer: Sendable {
                 updateRow(last.id) { $0 = .assistant(text: existing + text, isStreaming: true) }
                 return
             }
-            // A new messageId starts a new bubble; agents that retry resend the whole message.
+            // A new messageId starts a new bubble. When it directly follows an unfinished
+            // message and restarts the same text, the agent is redelivering after a dropped
+            // stream (Codex does this): the abandoned partial row goes away.
+            if let last = rows.last, case .assistant(let existing, true) = last.content, isLastRowInCurrentTurn,
+               messageID != nil, messageIDByRow[last.id] != nil,
+               Self.isRedelivery(of: existing, restartingWith: text) {
+                removeRow(last.id)
+            }
             let rowID = "msg-\(record.seq)"
             if let messageID { messageIDByRow[rowID] = messageID }
             appendStreaming(TranscriptRow(id: rowID, at: record.at, content: .assistant(text: text, isStreaming: turn != nil)))
@@ -454,6 +461,22 @@ public struct TranscriptReducer: Sendable {
     private func continuesMessage(rowID: String, messageID: String?) -> Bool {
         guard let messageID, let current = messageIDByRow[rowID] else { return true }
         return current == messageID
+    }
+
+    /// Whether a new message that begins with `start` restarts `abandoned`.
+    static func isRedelivery(of abandoned: String, restartingWith start: String) -> Bool {
+        let head = start.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !head.isEmpty else { return false }
+        return abandoned.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(head)
+    }
+
+    private mutating func removeRow(_ rowID: String) {
+        guard let index = indexByID[rowID] else { return }
+        rows.remove(at: index)
+        indexByID[rowID] = nil
+        messageIDByRow[rowID] = nil
+        turn?.streamingRowIDs.removeAll { $0 == rowID }
+        reindex(from: index)
     }
 
     // MARK: - Typing indicator and local echoes

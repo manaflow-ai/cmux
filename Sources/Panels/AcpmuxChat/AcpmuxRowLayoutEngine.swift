@@ -16,6 +16,8 @@ final class AcpmuxRowLayoutEngine {
     private(set) var renderer: AcpmuxChatTextRenderer
     private let measurer = AcpmuxTextMeasurer()
     private var cache: [Key: AcpmuxRowLayout] = [:]
+    /// The most recent measurement of each row at any width, for cheap estimates during resize.
+    private var lastMeasured: [String: (version: Int, width: CGFloat, height: CGFloat)] = [:]
     private let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .none
@@ -51,7 +53,19 @@ final class AcpmuxRowLayoutEngine {
         if let cached = cache[key] { return cached }
         let computed = compute(row, position: position, width: max(width, 120), expanded: expanded)
         cache[key] = computed
+        lastMeasured[row.id] = (row.version, width, computed.height)
         return computed
+    }
+
+    /// The height at `width` without measuring: the exact cached height when there is one,
+    /// otherwise an estimate scaled from the row's last measurement (text reflows roughly in
+    /// inverse proportion to width). Returns `nil` when the row was never measured.
+    func height(for row: TranscriptRow, position: AcpmuxRowGroupPosition, width: CGFloat, expanded: Bool) -> (height: CGFloat, exact: Bool)? {
+        let key = Key(id: row.id, version: row.version, width: Int(width.rounded()), position: position, expanded: expanded)
+        if let cached = cache[key] { return (cached.height, true) }
+        guard let last = lastMeasured[row.id], last.version == row.version, width > 0 else { return nil }
+        let scale = min(3, max(0.5, last.width / width))
+        return (max(24, (last.height * scale).rounded()), false)
     }
 
     private func compute(_ row: TranscriptRow, position: AcpmuxRowGroupPosition, width: CGFloat, expanded: Bool) -> AcpmuxRowLayout {
@@ -110,7 +124,19 @@ final class AcpmuxRowLayoutEngine {
     ) -> AcpmuxRowLayout {
         let horizontal = Self.bubbleHorizontalPadding
         let vertical = Self.bubbleVerticalPadding
-        let textSize = measurer.size(of: text, width: max(40, maxBubble - 2 * horizontal))
+        let maxText = max(40, maxBubble - 2 * horizontal)
+        var textSize = measurer.size(of: text, width: maxText)
+        // Shrink-wrap to the widest line, then confirm nothing rewraps at that width
+        // (code blocks and indents need their insets on top of the used width).
+        let wrapWidth = min(maxText, textSize.width + 1)
+        if wrapWidth < maxText {
+            let rewrapped = measurer.size(of: text, width: wrapWidth)
+            if rewrapped.height > textSize.height {
+                textSize = CGSize(width: maxText, height: textSize.height)
+            } else {
+                textSize = CGSize(width: wrapWidth, height: rewrapped.height)
+            }
+        }
         let bubbleWidth = min(maxBubble, textSize.width + 2 * horizontal)
         let bubbleHeight = textSize.height + 2 * vertical
         let top: CGFloat = position.isFirst ? 10 : 2

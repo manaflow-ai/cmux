@@ -2495,6 +2495,7 @@
 		D77690000000000000000007 /* NotificationsPopoverResizeHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000008 /* NotificationsPopoverResizeHandle.swift */; };
 		D77690000000000000000009 /* NotificationsPopoverResizeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000A /* NotificationsPopoverResizeView.swift */; };
 		2C9949001245BCD676E5ACA6 /* NotificationSuppressWhenAppFocusedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D45948E0E0E282796BE8936 /* NotificationSuppressWhenAppFocusedTests.swift */; };
+		A213FEDDFAE4D64B5D0B9C19 /* NSAttributedStringKey+AcpmuxCodeBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD9A3AEB72A14E2A2FC43179 /* NSAttributedStringKey+AcpmuxCodeBlock.swift */; };
 		CF5D844BBCB1482280ABA319 /* NSImageView+SidebarWorkspaceAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21111C055F1D46288E928B8C /* NSImageView+SidebarWorkspaceAccessory.swift */; };
 		F12748000000000000000005 /* NSTextView+FilePreviewLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12748000000000000000006 /* NSTextView+FilePreviewLayout.swift */; };
 		C01E00080000000000000001 /* NSTextView+FilePreviewTabWidth.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01E00080000000000000002 /* NSTextView+FilePreviewTabWidth.swift */; };
@@ -6633,6 +6634,7 @@
 		D77690000000000000000008 /* NotificationsPopoverResizeHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverResizeHandle.swift; sourceTree = "<group>"; };
 		D7769000000000000000000A /* NotificationsPopoverResizeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverResizeView.swift; sourceTree = "<group>"; };
 		5D45948E0E0E282796BE8936 /* NotificationSuppressWhenAppFocusedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationSuppressWhenAppFocusedTests.swift"; sourceTree = "<group>"; };
+		DD9A3AEB72A14E2A2FC43179 /* NSAttributedStringKey+AcpmuxCodeBlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/AcpmuxChat/NSAttributedStringKey+AcpmuxCodeBlock.swift"; sourceTree = "<group>"; };
 		21111C055F1D46288E928B8C /* NSImageView+SidebarWorkspaceAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSImageView+SidebarWorkspaceAccessory.swift"; sourceTree = "<group>"; };
 		F12748000000000000000006 /* NSTextView+FilePreviewLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/NSTextView+FilePreviewLayout.swift"; sourceTree = "<group>"; };
 		C01E00080000000000000002 /* NSTextView+FilePreviewTabWidth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/NSTextView+FilePreviewTabWidth.swift"; sourceTree = "<group>"; };
@@ -11207,6 +11209,7 @@
 				7187A2142284FA4EB5F51152 /* AcpmuxTypingIndicatorCellView.swift */,
 				4845BF2DCEA4B76EC0EBC410 /* BrowserWindowSlotView+PaneDropOverlay.swift */,
 				E7E4D51BF3365A4CB3A658E4 /* GhosttySurfaceScrollView+PaneDropOverlay.swift */,
+				DD9A3AEB72A14E2A2FC43179 /* NSAttributedStringKey+AcpmuxCodeBlock.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14712,6 +14715,7 @@
 				D7769000000000000000000F /* NotificationsPopoverMetrics.swift in Sources */,
 				D77690000000000000000007 /* NotificationsPopoverResizeHandle.swift in Sources */,
 				D77690000000000000000009 /* NotificationsPopoverResizeView.swift in Sources */,
+				A213FEDDFAE4D64B5D0B9C19 /* NSAttributedStringKey+AcpmuxCodeBlock.swift in Sources */,
 				CF5D844BBCB1482280ABA319 /* NSImageView+SidebarWorkspaceAccessory.swift in Sources */,
 				F12748000000000000000005 /* NSTextView+FilePreviewLayout.swift in Sources */,
 				C01E00080000000000000001 /* NSTextView+FilePreviewTabWidth.swift in Sources */,

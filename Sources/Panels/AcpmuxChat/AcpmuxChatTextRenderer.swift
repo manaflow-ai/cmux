@@ -75,20 +75,32 @@ struct AcpmuxChatTextRenderer {
     }
 
     private func codeBlock(_ source: String, spacingAfter: CGFloat) -> NSAttributedString {
-        let block = NSTextBlock()
-        block.backgroundColor = theme.codeBackground
-        block.setWidth(8, type: .absoluteValueType, for: .padding)
-        block.setWidth(4, type: .absoluteValueType, for: .margin, edge: .minY)
-        block.setWidth(spacingAfter, type: .absoluteValueType, for: .margin, edge: .maxY)
-        let style = NSMutableParagraphStyle()
-        style.textBlocks = [block]
-        style.lineBreakMode = .byCharWrapping
-        return NSAttributedString(string: source.isEmpty ? " " : source, attributes: [
-            .font: theme.codeFont,
-            .foregroundColor: theme.foreground,
-            .paragraphStyle: style,
-        ])
+        // Each line is its own paragraph with a uniform inset; the box behind the block is
+        // drawn by `AcpmuxTranscriptTextView` from the `.acpmuxCodeBlock` attribute, so
+        // measurement and drawing agree and every line gets the same indent.
+        let lines = (source.isEmpty ? " " : source).components(separatedBy: "\n")
+        let output = NSMutableAttributedString()
+        for (index, line) in lines.enumerated() {
+            let style = NSMutableParagraphStyle()
+            style.firstLineHeadIndent = Self.codeInset
+            style.headIndent = Self.codeInset
+            style.tailIndent = -Self.codeInset
+            style.lineBreakMode = .byCharWrapping
+            style.paragraphSpacingBefore = index == 0 ? Self.codeInset + 2 : 0
+            style.paragraphSpacing = index == lines.count - 1 ? Self.codeInset + spacingAfter : 0
+            let text = index == lines.count - 1 ? line : line + "\n"
+            output.append(NSAttributedString(string: text.isEmpty ? " " : text, attributes: [
+                .font: theme.codeFont,
+                .foregroundColor: theme.foreground,
+                .paragraphStyle: style,
+                .acpmuxCodeBlock: theme.codeBackground,
+            ]))
+        }
+        return output
     }
+
+    /// Padding inside a code block box.
+    static let codeInset: CGFloat = 8
 
     private func inline(_ source: String, font: NSFont, color: NSColor, paragraph: NSParagraphStyle) -> NSAttributedString {
         let base: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color, .paragraphStyle: paragraph]

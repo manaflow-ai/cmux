@@ -1,18 +1,21 @@
 import Darwin
 import Foundation
 
-/// A connected Unix domain stream socket that surfaces inbound bytes as an `AsyncStream`.
+/// A connected Unix domain stream socket.
 ///
-/// Reads use a `DispatchSource` read source because Darwin has no async-native socket
-/// read; the source only forwards bytes into the stream and holds no other state.
-/// Writes are blocking `write(2)` calls made from the owning actor.
-public final class UnixSocketConnection: Sendable {
+/// Reads and writes use separate descriptors (`dup(2)` of the connected socket) so each
+/// side owns its own lifetime: the read descriptor belongs to a `DispatchSource` read
+/// source and closes in its cancel handler, as Dispatch requires; the write descriptor
+/// belongs to this actor, which serializes writes with ``close()``. A write can therefore
+/// never reach a descriptor number that was closed and reused.
+public actor UnixSocketConnection {
     /// Bytes read from the socket. Finishes on EOF, error, or ``close()``.
-    public let chunks: AsyncStream<Data>
-    private let fd: Int32
-    // DispatchSourceRead is thread-safe for cancel(); the source is created once in init
-    // and never reassigned, so sharing the reference across isolation domains is safe.
-    nonisolated(unsafe) private let source: any DispatchSourceRead
+    public nonisolated let chunks: AsyncStream<Data>
+    private let writeFD: Int32
+    private var isClosed = false
+    // Dispatch has no async-native socket read. The source only forwards bytes into the
+    // stream. `DispatchSourceRead.cancel()` is thread-safe and the reference never changes.
+    private nonisolated(unsafe) let source: any DispatchSourceRead
 
     /// Connects to the socket at `path`.
     /// - Throws: ``UnixSocketError`` when the socket cannot be created or connected.
@@ -25,8 +28,7 @@ public final class UnixSocketConnection: Sendable {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let pathBytes = Array(path.utf8)
-        let capacity = MemoryLayout.size(ofValue: address.sun_path)
-        guard pathBytes.count < capacity else {
+        guard pathBytes.count < MemoryLayout.size(ofValue: address.sun_path) else {
             Darwin.close(fd)
             throw UnixSocketError.pathTooLong(path)
         }
@@ -43,18 +45,24 @@ public final class UnixSocketConnection: Sendable {
             Darwin.close(fd)
             throw UnixSocketError.connect(code)
         }
-        self.fd = fd
+        let writeFD = dup(fd)
+        guard writeFD >= 0 else {
+            let code = errno
+            Darwin.close(fd)
+            throw UnixSocketError.socket(code)
+        }
+        self.writeFD = writeFD
 
-        var continuation: AsyncStream<Data>.Continuation!
-        chunks = AsyncStream(bufferingPolicy: .unbounded) { continuation = $0 }
-        let yield = continuation!
+        let (chunks, yield) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
+        self.chunks = chunks
+        let readFD = fd
         let source = DispatchSource.makeReadSource(
-            fileDescriptor: fd,
+            fileDescriptor: readFD,
             queue: DispatchQueue(label: "com.cmuxterm.acpmux.socket-read")
         )
         source.setEventHandler { [source] in
             var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-            let count = buffer.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
+            let count = buffer.withUnsafeMutableBytes { Darwin.read(readFD, $0.baseAddress, $0.count) }
             if count > 0 {
                 yield.yield(Data(buffer[0..<count]))
             } else if count == 0 || (errno != EAGAIN && errno != EINTR) {
@@ -63,16 +71,17 @@ public final class UnixSocketConnection: Sendable {
         }
         source.setCancelHandler {
             yield.finish()
-            Darwin.close(fd)
+            Darwin.close(readFD)
         }
         self.source = source
-        yield.onTermination = { [source] _ in source.cancel() }
         source.resume()
     }
 
     /// Writes all bytes, retrying partial writes.
-    /// - Throws: ``UnixSocketError/write(_:)`` when the peer is gone.
+    /// - Throws: ``UnixSocketError/closed`` after ``close()``, ``UnixSocketError/write(_:)`` when the peer is gone.
     public func write(_ data: Data) throws {
+        guard !isClosed else { throw UnixSocketError.closed }
+        let fd = writeFD
         try data.withUnsafeBytes { raw in
             var offset = 0
             while offset < raw.count {
@@ -86,19 +95,27 @@ public final class UnixSocketConnection: Sendable {
         }
     }
 
-    /// Closes the socket and finishes ``chunks``.
+    /// Shuts the socket down, finishes ``chunks``, and releases both descriptors.
     public func close() {
+        guard !isClosed else { return }
+        isClosed = true
+        // Shutdown wakes the read source with EOF; its cancel handler closes the read side.
+        shutdown(writeFD, SHUT_RDWR)
         source.cancel()
+        Darwin.close(writeFD)
     }
 
     deinit {
-        source.cancel()
+        if !isClosed {
+            source.cancel()
+            Darwin.close(writeFD)
+        }
     }
 }
 
 /// Errors raised by ``UnixSocketConnection``.
 public enum UnixSocketError: Error, Sendable, Equatable {
-    /// `socket(2)` failed with the given errno.
+    /// `socket(2)` or `dup(2)` failed with the given errno.
     case socket(Int32)
     /// The path does not fit in `sockaddr_un`.
     case pathTooLong(String)
@@ -106,4 +123,6 @@ public enum UnixSocketError: Error, Sendable, Equatable {
     case connect(Int32)
     /// `write(2)` failed with the given errno.
     case write(Int32)
+    /// The connection was closed locally.
+    case closed
 }
