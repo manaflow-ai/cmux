@@ -2734,6 +2734,12 @@ struct ComputerUseUXTests {
         let cursorEvents = AsyncStream<String>.makeStream()
         var cursorEventIterator = cursorEvents.stream.makeAsyncIterator()
         defer { cursorEvents.continuation.finish() }
+        let cursorReassertions = AsyncStream<
+            (driverSessionID: String, targetWindowID: UInt32?)
+        >.makeStream()
+        var cursorReassertionIterator =
+            cursorReassertions.stream.makeAsyncIterator()
+        defer { cursorReassertions.continuation.finish() }
         var activatedProcessIdentifiers: [pid_t] = []
         var focusedTerminalSessions: [(workspaceID: UUID, surfaceID: UUID)] = []
         var cursorVisibilityChanges: [
@@ -2768,6 +2774,11 @@ struct ComputerUseUXTests {
                     visible
                 ))
                 cursorEvents.continuation.yield(driverSessionID)
+            },
+            onCursorReassert: { driverSessionID, _, targetWindowID, _ in
+                cursorReassertions.continuation.yield(
+                    (driverSessionID, targetWindowID)
+                )
             },
             frontmostApplicationProcessIdentifier: { nil },
             activate: { application in
@@ -2843,6 +2854,10 @@ struct ComputerUseUXTests {
             object: nil
         )
         #expect(await cursorEventIterator.next() == backgroundDriverSessionID)
+        // The activity still pins the helper cursor to its target window.
+        let reassertion = await cursorReassertionIterator.next()
+        #expect(reassertion?.driverSessionID == backgroundDriverSessionID)
+        #expect(reassertion?.targetWindowID == 8)
         await AppKitTestEventPump().drain()
         #expect(activatedProcessIdentifiers.isEmpty)
         // Later agent actions keep the target behind cmux without selecting
