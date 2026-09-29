@@ -1,4 +1,6 @@
 import Foundation
+import CMUXMobileCore
+import GhosttyKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -37,23 +39,35 @@ struct MobileTerminalReplayHibernationTests {
 
     @Test func replayHydratesTheRuntimeBeforeReturningItsCurrentState() async throws {
         try await withAppContext { workspace in
-            let (panelId, _) = try hibernateFocusedAgent(in: workspace)
+            let panel = try #require(workspace.focusedTerminalPanel)
+            try #require(!panel.surface.hasLiveSurface)
+            try #require(panel.surface.uiWindow == nil)
+            let marker = "REMOTE_HIDDEN_REPLAY_READY"
+            panel.surface.onRuntimeReady = { [weak panel] in
+                guard let runtime = panel?.surface.surface else { return }
+                marker.withCString {
+                    ghostty_surface_process_output(runtime, $0, UInt(marker.utf8.count))
+                }
+            }
+            defer { panel.surface.onRuntimeReady = nil }
 
-            let result = TerminalController.shared.v2MobileTerminalReplay(params: [
-                "workspace_id": workspace.id.uuidString,
-                "surface_id": panelId.uuidString,
-            ])
-            guard case let .ok(payload) = result else {
+            let result = await TerminalController.shared.mobileHostHandleRPC(MobileHostRPCRequest(
+                id: "hidden-terminal-replay",
+                method: "mobile.terminal.replay",
+                params: ["workspace_id": workspace.id.uuidString, "surface_id": panel.id.uuidString],
+                auth: nil
+            ))
+            guard case let .ok(rawPayload) = result else {
                 Issue.record("Expected replay success, got \(result)")
                 return
             }
-
-            #expect(
-                payload["render_grid"] != nil ||
-                    payload["snapshot_data_b64"] != nil ||
-                    payload["data_b64"] != nil,
-                "A successful remote replay must carry terminal state, not an empty attach"
+            let payload = try #require(rawPayload as? [String: Any])
+            let frame = try MobileTerminalRenderGridFrame.decodeJSONObject(
+                #require(payload["render_grid"], "A cold replay must wait for the runtime's screen")
             )
+            #expect(frame.plainRows().joined(separator: "\n").contains(marker))
+            #expect(!panel.surface.isRendererPortalVisible)
+            #expect(panel.surface.uiWindow == nil, "Remote attach must not reveal the source terminal")
         }
     }
 
