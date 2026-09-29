@@ -1000,6 +1000,9 @@ public final class CmuxWebView: CmuxUndoableWebView {
     // only ever pair with a link captured by this exact click.
     public override func rightMouseDown(with event: NSEvent) {
         contextMenuCapturedLink = nil
+        // A physical right click always gets its menu, even if an automated
+        // right click earlier left a suppression pending (page prevented it).
+        automationContextMenuSuppressionCount = 0
         super.rightMouseDown(with: event)
     }
 
@@ -2232,6 +2235,12 @@ public final class CmuxWebView: CmuxUndoableWebView {
 
     public override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
+        if consumeAutomationContextMenuSuppression() {
+            // An automated right click fires the page's contextmenu event but
+            // must not open cmux's native menu: with no items AppKit shows nothing.
+            menu.removeAllItems()
+            return
+        }
         lastContextMenuPoint = convert(event.locationInWindow, from: nil)
         lastContextMenuOpenUptime = ProcessInfo.processInfo.systemUptime
         lastContextMenuOpenEventTimestamp = event.timestamp

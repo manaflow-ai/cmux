@@ -40,6 +40,11 @@ public final class BrowserNativeInputDeliveryOwner {
         return body()
     }
 
+    /// Key codes of modifiers currently held by automation.
+    public var heldModifierKeyCodes: [UInt16] {
+        Array(heldModifierKeys.keys)
+    }
+
     public func setModifier(_ modifier: BrowserKeyboardNativeModifiers, for keyCode: UInt16) {
         heldModifierKeys[keyCode] = modifier
     }
@@ -213,6 +218,14 @@ extension WKWebView {
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
         return owner
+    }
+
+    func replayBrowserNativeModifier(
+        _ key: BrowserKeyboardNativeKey,
+        keyDown: Bool
+    ) -> BrowserKeyboardReplayResult {
+        guard let modifierKey = key.modifierKey else { return .unsupported }
+        return replayBrowserModifier(key, modifierKey: modifierKey, action: keyDown ? .keyDown : .keyUp)
     }
 
     private func replayBrowserModifier(
