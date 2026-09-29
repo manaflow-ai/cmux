@@ -34,17 +34,18 @@ public final class CloudSystemVPNController {
     private let credentials: @Sendable () async -> CloudAPITokenSource.TokenPair?
     private let pendingRevocationStore: any CloudSystemVPNPendingRevocationStoring
     private var scope: String?
+    private var scopeTeamID: String?
     private var hasLoadedScope = false
     private var cleanupPending = false
     private var browserTunnel: (
         scope: String,
         deviceFingerprint: String,
-        credentials: CloudAPITokenSource.TokenPair?
+        credentials: CloudAPITokenSource.TokenContext?
     )?
     private var pendingBrowserTunnelRevocations: [(
         scope: String,
         deviceFingerprint: String,
-        credentials: CloudAPITokenSource.TokenPair?
+        credentials: CloudAPITokenSource.TokenContext?
     )] = []
     private var needsPlatformReconciliation = false
     private var generation: UInt64 = 0
@@ -70,6 +71,9 @@ public final class CloudSystemVPNController {
     ///     enrolled before an account switch can be revoked with its owner.
     ///   - pendingRevocationStore: Durable fingerprints for server revocations
     ///     that must be retried after a controller or session is recreated.
+    ///
+    /// The team ID is supplied to ``setScope(_:teamID:)`` and is captured
+    /// with the token pair for every explicit revocation.
     public init(
         service: any CloudVMServing,
         identityStore: any CloudDeviceIdentityStoring,
@@ -111,7 +115,7 @@ public final class CloudSystemVPNController {
     ///
     /// A VPN saved under another scope is removed before anything else, so
     /// one account's routes never survive into another's session.
-    public func setScope(_ newScope: String?) {
+    public func setScope(_ newScope: String?, teamID: String? = nil) {
         if hasLoadedScope, scope == newScope, cleanupPending, operation != nil {
             return
         }
@@ -128,6 +132,7 @@ public final class CloudSystemVPNController {
             rememberPendingBrowserTunnelRevocation(browserTunnel)
         }
         scope = newScope
+        scopeTeamID = newScope == nil ? nil : teamID
         let removesExistingConfiguration =
             previousScope != nil || newScope == nil || cleanupPending
         cleanupPending = removesExistingConfiguration
@@ -278,7 +283,14 @@ public final class CloudSystemVPNController {
                     reconcilePlatformOnTimeout: true,
                     onTimeout: { attempt.invalidate() }
                 ) {
-                    let credentials = await self.credentials()
+                    let tokenPair = await self.credentials()
+                    let credentials = tokenPair.map { pair in
+                        CloudAPITokenSource.TokenContext(
+                            accessToken: pair.accessToken,
+                            refreshToken: pair.refreshToken,
+                            teamID: self.scopeTeamID
+                        )
+                    }
                     let identity: CloudDeviceIdentity
                     do {
                         identity = try await self.identityResolver.resolve()
@@ -342,7 +354,7 @@ public final class CloudSystemVPNController {
         enrollment: CloudTunnelEnrollment,
         privateKey: String,
         scope: String,
-        credentials: CloudAPITokenSource.TokenPair?
+        credentials: CloudAPITokenSource.TokenContext?
     ) async throws {
         do {
             guard permitsOnlyPrivateRoutes(enrollment) else {
@@ -397,6 +409,7 @@ public final class CloudSystemVPNController {
         let identityResolver = self.identityResolver
         let attempts = cleanupRetryCount
         let creationScope = scope
+        let creationTeamID = scopeTeamID
         return { accessToken, refreshToken in
             await controller.waitForPendingOperationAndGate()
             var enrolled = await controller.browserTunnelsForTeardown()
@@ -420,7 +433,11 @@ public final class CloudSystemVPNController {
             for tunnel in enrolled {
                 await controller.revokeForServerTeardown(
                     tunnel,
-                    fallbackCredentials: (accessToken: accessToken, refreshToken: refreshToken),
+                    fallbackCredentials: CloudAPITokenSource.TokenContext(
+                        accessToken: accessToken,
+                        refreshToken: refreshToken,
+                        teamID: creationTeamID
+                    ),
                     attempts: attempts
                 )
             }
@@ -554,7 +571,7 @@ public final class CloudSystemVPNController {
         _ tunnel: (
             scope: String,
             deviceFingerprint: String,
-            credentials: CloudAPITokenSource.TokenPair?
+            credentials: CloudAPITokenSource.TokenContext?
         )
     ) {
         if let index = pendingBrowserTunnelRevocations.firstIndex(where: {
@@ -580,7 +597,7 @@ public final class CloudSystemVPNController {
         _ tunnel: (
             scope: String,
             deviceFingerprint: String,
-            credentials: CloudAPITokenSource.TokenPair?
+            credentials: CloudAPITokenSource.TokenContext?
         )
     ) {
         guard let index = pendingBrowserTunnelRevocations.firstIndex(where: {
@@ -598,7 +615,7 @@ public final class CloudSystemVPNController {
         _ tunnel: (
             scope: String,
             deviceFingerprint: String,
-            credentials: CloudAPITokenSource.TokenPair?
+            credentials: CloudAPITokenSource.TokenContext?
         )
     ) {
         pendingBrowserTunnelRevocations.removeAll {
@@ -628,7 +645,7 @@ public final class CloudSystemVPNController {
         _ tunnel: (
             scope: String,
             deviceFingerprint: String,
-            credentials: CloudAPITokenSource.TokenPair?
+            credentials: CloudAPITokenSource.TokenContext?
         )
     ) async {
         var fingerprints = await pendingRevocationStore.load(scope: tunnel.scope)
@@ -646,7 +663,7 @@ public final class CloudSystemVPNController {
         _ tunnel: (
             scope: String,
             deviceFingerprint: String,
-            credentials: CloudAPITokenSource.TokenPair?
+            credentials: CloudAPITokenSource.TokenContext?
         )
     ) async {
         rememberPendingBrowserTunnelRevocation(tunnel)
@@ -657,7 +674,7 @@ public final class CloudSystemVPNController {
         _ tunnel: (
             scope: String,
             deviceFingerprint: String,
-            credentials: CloudAPITokenSource.TokenPair?
+            credentials: CloudAPITokenSource.TokenContext?
         )
     ) async {
         var fingerprints = await pendingRevocationStore.load(scope: tunnel.scope)
@@ -668,7 +685,7 @@ public final class CloudSystemVPNController {
     private func browserTunnelsForTeardown() -> [(
         scope: String,
         deviceFingerprint: String,
-        credentials: CloudAPITokenSource.TokenPair?
+        credentials: CloudAPITokenSource.TokenContext?
     )] {
         var tunnels = pendingBrowserTunnelRevocations
         if let browserTunnel,
@@ -715,9 +732,9 @@ public final class CloudSystemVPNController {
         _ tunnel: (
             scope: String,
             deviceFingerprint: String,
-            credentials: CloudAPITokenSource.TokenPair?
+            credentials: CloudAPITokenSource.TokenContext?
         ),
-        fallbackCredentials: CloudAPITokenSource.TokenPair,
+        fallbackCredentials: CloudAPITokenSource.TokenContext,
         attempts: Int
     ) async {
         let credentials = tunnel.credentials ?? fallbackCredentials
@@ -753,7 +770,7 @@ public final class CloudSystemVPNController {
     private func revokeEnrollmentIfOwned(
         _ enrollment: CloudTunnelEnrollment,
         scope: String,
-        credentials: CloudAPITokenSource.TokenPair?
+        credentials: CloudAPITokenSource.TokenContext?
     ) async {
         guard enrollment.created || enrollment.rotated else { return }
         let tunnel = (
@@ -785,7 +802,7 @@ public final class CloudSystemVPNController {
     private func revokeBrowserTunnel(_ tunnel: (
         scope: String,
         deviceFingerprint: String,
-        credentials: CloudAPITokenSource.TokenPair?
+        credentials: CloudAPITokenSource.TokenContext?
     )) async throws {
         try await revocationWorker.revoke(
             deviceFingerprint: tunnel.deviceFingerprint,

@@ -12,7 +12,7 @@ struct CloudSystemVPNRevocationWorker: Sendable {
 
     func revoke(
         deviceFingerprint: String,
-        credentials: CloudAPITokenSource.TokenPair?
+        credentials: CloudAPITokenSource.TokenContext?
     ) async throws {
         let request = Task.detached(priority: .utility) {
             if let credentials {
@@ -20,7 +20,8 @@ struct CloudSystemVPNRevocationWorker: Sendable {
                     deviceFingerprint: deviceFingerprint,
                     tunnelPurpose: .browser,
                     accessToken: credentials.accessToken,
-                    refreshToken: credentials.refreshToken
+                    refreshToken: credentials.refreshToken,
+                    teamID: credentials.teamID
                 )
             } else {
                 try await service.revokeTunnel(

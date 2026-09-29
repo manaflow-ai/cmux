@@ -9,6 +9,19 @@ public struct CloudAPITokenSource: Sendable {
     /// A matching access and refresh token captured from one auth session.
     public typealias TokenPair = (accessToken: String, refreshToken: String)
 
+    /// Credentials and team routing captured from one auth session.
+    public struct TokenContext: Sendable, Equatable {
+        public let accessToken: String
+        public let refreshToken: String
+        public let teamID: String?
+
+        public init(accessToken: String, refreshToken: String, teamID: String? = nil) {
+            self.accessToken = accessToken
+            self.refreshToken = refreshToken
+            self.teamID = teamID
+        }
+    }
+
     /// The current access token, or nil without a session.
     public var accessToken: @Sendable () async -> String?
     /// The current refresh token, or nil without a session.

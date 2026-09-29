@@ -24,6 +24,15 @@ public protocol CloudVMServing: Sendable {
         accessToken: String,
         refreshToken: String
     ) async throws
+    /// Remove one device role using captured tokens and the team that owned
+    /// those tokens.
+    func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String,
+        teamID: String?
+    ) async throws
     /// Open a `cmux-remote` attach for `machineID`.
     func openAttach(machineID: String, deviceFingerprint: String) async throws -> CloudAttachEndpoint
     /// Approve a first-contact invitation. Returns whether the daemon has
@@ -40,6 +49,21 @@ public protocol CloudVMServing: Sendable {
 public extension CloudVMServing {
     func listMachineCatalog() async throws -> CloudMachineCatalog {
         CloudMachineCatalog(machines: try await listMachines(), availableKinds: nil)
+    }
+
+    func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String,
+        teamID: String?
+    ) async throws {
+        try await revokeTunnel(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
     }
 }
 

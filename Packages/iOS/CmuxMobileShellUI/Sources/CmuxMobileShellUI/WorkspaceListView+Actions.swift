@@ -21,13 +21,14 @@ extension WorkspaceListView {
                 createWorkspaceOnComputerTarget(target)
             }
         let createWorkspaceAction: () -> Void = {
-            let connectedTargets = computerTargets.filter(\.isConnected)
-            if connectedTargets.count == 1,
-               let target = connectedTargets.first,
+            if let scopedExternalHostID, let createWorkspaceOnCloudMachine {
+                createWorkspaceOnCloudMachine(scopedExternalHostID)
+            } else if let target = WorkspaceListNewWorkspaceRouting.soleConnectedTarget(
+                scopedExternalHostID: scopedExternalHostID,
+                targets: computerTargets
+            ),
                let createOnComputer {
                 createOnComputer(target)
-            } else if let scopedExternalHostID, let createWorkspaceOnCloudMachine {
-                createWorkspaceOnCloudMachine(scopedExternalHostID)
             } else {
                 createWorkspace()
             }

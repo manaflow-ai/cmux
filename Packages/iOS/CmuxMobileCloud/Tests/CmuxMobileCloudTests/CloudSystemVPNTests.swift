@@ -662,11 +662,12 @@ import Testing
         let rig = Rig(credentials: {
             (accessToken: "old-access", refreshToken: "old-refresh")
         })
-        await signedIn(rig, scope: "user-1/team-1")
+        rig.controller.setScope("user-1/team-1", teamID: "team-1")
+        await rig.controller.waitForPendingOperation()
         rig.controller.enable()
         await rig.controller.waitForPendingOperation()
 
-        rig.controller.setScope("user-2/team-9")
+        rig.controller.setScope("user-2/team-9", teamID: "team-9")
         await rig.controller.waitForPendingOperation()
 
         #expect(rig.service.calls.revoke.count == 1)
@@ -675,6 +676,7 @@ import Testing
         #expect(rig.service.calls.revokeCredentials.count == 1)
         #expect(rig.service.calls.revokeCredentials.first?.accessToken == "old-access")
         #expect(rig.service.calls.revokeCredentials.first?.refreshToken == "old-refresh")
+        #expect(rig.service.calls.revokeCredentials.first?.teamID == "team-1")
     }
 
     @Test func switchingAccountsPersistsTheOldBrowserPeerBeforeRevocation() async {

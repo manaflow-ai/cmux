@@ -445,7 +445,10 @@ public struct CMUXMobileRootScene: View {
                 guard !auth.coordinator.isRestoringSession else { return }
                 guard scope != nil, auth.coordinator.isAuthenticated else { return }
                 cloudSessionController?.refreshMachines()
-                cloudSystemVPNController?.setScope(scope)
+                cloudSystemVPNController?.setScope(
+                    scope,
+                    teamID: auth.coordinator.resolvedTeamID
+                )
             }
             .onChange(of: auth.coordinator.isAuthenticated) { _, authenticated in
                 guard !authenticated, !auth.coordinator.isRestoringSession else { return }
@@ -466,7 +469,10 @@ public struct CMUXMobileRootScene: View {
                     return
                 }
                 cloudSessionController?.refreshMachines()
-                cloudSystemVPNController?.setScope(cloudAccountScope)
+                cloudSystemVPNController?.setScope(
+                    cloudAccountScope,
+                    teamID: auth.coordinator.resolvedTeamID
+                )
             }
             .onChange(of: cloudShellLeaseWanted, initial: true) { _, wanted in
                 // Cloud terminals open from the Workspaces tab, where no Cloud

@@ -37,4 +37,21 @@ import Testing
         #expect(!value.isEnabled)
         #expect(value.singleConnectedTarget == nil)
     }
+
+    @Test func scopedCloudCreationDoesNotAutoSelectAConnectedMac() {
+        let mac = WorkspaceListNewWorkspaceMenuValue.ComputerTarget(
+            id: "mac-1",
+            kind: .mac(macDeviceID: "mac-1", instanceTag: nil),
+            name: "Mac",
+            isConnected: true,
+            systemImage: "desktopcomputer"
+        )
+
+        #expect(
+            WorkspaceListNewWorkspaceRouting.soleConnectedTarget(
+                scopedExternalHostID: "cloud-1",
+                targets: [mac]
+            ) == nil
+        )
+    }
 }

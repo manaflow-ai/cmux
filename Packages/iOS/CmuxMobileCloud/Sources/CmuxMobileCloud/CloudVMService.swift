@@ -84,7 +84,8 @@ public actor CloudVMService: CloudVMServing {
             deviceFingerprint: deviceFingerprint,
             tunnelPurpose: tunnelPurpose,
             accessToken: access,
-            refreshToken: refresh
+            refreshToken: refresh,
+            teamID: await tokens.teamID()
         )
     }
 
@@ -95,12 +96,30 @@ public actor CloudVMService: CloudVMServing {
         accessToken: String,
         refreshToken: String
     ) async throws {
-        _ = try await send(requests.revokeTunnel(
+        try await revokeTunnel(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            teamID: await tokens.teamID()
+        )
+    }
+
+    /// Revokes one role with tokens and the team captured before sign-out.
+    public func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String,
+        teamID: String?
+    ) async throws {
+        let request = try requests.revokeTunnel(
             deviceFingerprint: deviceFingerprint,
             tunnelPurpose: tunnelPurpose,
             accessToken: accessToken,
             refreshToken: refreshToken
-        ))
+        )
+        _ = try await send(request, teamRouting: .explicit(teamID))
     }
 
     public func openAttach(machineID: String, deviceFingerprint: String) async throws -> CloudAttachEndpoint {
@@ -163,9 +182,24 @@ public actor CloudVMService: CloudVMServing {
         _ = try await send(requests.deleteMachine(id: id, accessToken: access, refreshToken: refresh))
     }
 
-    private func send(_ request: URLRequest) async throws -> Data {
+    private enum TeamRouting {
+        case current
+        case explicit(String?)
+    }
+
+    private func send(
+        _ request: URLRequest,
+        teamRouting: TeamRouting = .current
+    ) async throws -> Data {
         var request = request
-        if let teamID = await tokens.teamID(), !teamID.isEmpty {
+        let teamID: String?
+        switch teamRouting {
+        case .current:
+            teamID = await tokens.teamID()
+        case .explicit(let capturedTeamID):
+            teamID = capturedTeamID
+        }
+        if let teamID, !teamID.isEmpty {
             request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
         let (data, response) = try await session.data(for: request)

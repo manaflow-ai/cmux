@@ -74,6 +74,29 @@ struct CloudVMServiceTests {
         #expect(request.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "captured-refresh")
     }
 
+    @Test func revokeWithCapturedTokensUsesTheirTeamContext() async throws {
+        TeamHeaderURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TeamHeaderURLProtocol.self]
+        let service = CloudVMService(
+            baseURL: "https://cmux.example",
+            tokens: .fixed(accessToken: "current-access", refreshToken: "current-refresh", teamID: "new-team"),
+            deviceID: { "saved-phone-id" },
+            sessionConfiguration: configuration
+        )
+
+        try await service.revokeTunnel(
+            deviceFingerprint: "role-fingerprint",
+            tunnelPurpose: .browser,
+            accessToken: "captured-access",
+            refreshToken: "captured-refresh",
+            teamID: "old-team"
+        )
+
+        let request = try #require(TeamHeaderURLProtocol.capturedRequest())
+        #expect(request.value(forHTTPHeaderField: "X-Cmux-Team-Id") == "old-team")
+    }
+
     @Test func lockedDeviceIdentityDoesNotSendEnrollment() async {
         TeamHeaderURLProtocol.reset()
         let configuration = URLSessionConfiguration.ephemeral

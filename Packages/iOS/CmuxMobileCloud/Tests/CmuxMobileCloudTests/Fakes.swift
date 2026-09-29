@@ -9,7 +9,7 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
         var create: [(options: CloudMachineCreateOptions, idempotencyKey: String)] = []
         var enroll: [(publicKey: String, fingerprint: String, purpose: CloudTunnelPurpose, deviceName: String?)] = []
         var revoke: [(fingerprint: String, purpose: CloudTunnelPurpose)] = []
-        var revokeCredentials: [(accessToken: String, refreshToken: String)] = []
+        var revokeCredentials: [(accessToken: String, refreshToken: String, teamID: String?)] = []
         var attach: [(machineID: String, fingerprint: String)] = []
         var approve: [(machineID: String, invitationId: String)] = []
         var pause: [String] = []
@@ -70,6 +70,16 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     }
 
     func revokeTunnel(deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose) async throws {
+        try await performRevocation(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose
+        )
+    }
+
+    private func performRevocation(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose
+    ) async throws {
         lock.withLock { $0.revoke.append((deviceFingerprint, tunnelPurpose)) }
         let shouldHold = revocationGate.withLock { remaining -> Bool in
             guard remaining > 0 else { return false }
@@ -90,10 +100,29 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
         accessToken: String,
         refreshToken: String
     ) async throws {
+        try await revokeTunnel(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            teamID: nil
+        )
+    }
+
+    func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String,
+        teamID: String?
+    ) async throws {
         lock.withLock {
-            $0.revokeCredentials.append((accessToken, refreshToken))
+            $0.revokeCredentials.append((accessToken, refreshToken, teamID))
         }
-        try await revokeTunnel(deviceFingerprint: deviceFingerprint, tunnelPurpose: tunnelPurpose)
+        try await performRevocation(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose
+        )
     }
 
     func waitForRevocation() async {
