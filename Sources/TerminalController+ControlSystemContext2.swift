@@ -35,7 +35,7 @@ extension TerminalController {
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
-        force: Bool,
+        force: Bool = false,
         moveParams: [String: JSONValue]
     ) -> ControlTabActionResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
