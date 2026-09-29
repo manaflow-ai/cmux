@@ -194,8 +194,8 @@ const createCMUXFeed = async (ctx) => {
       if (await callClientMethod(ctx?.permission, "rules", { sessionID: sessionId, permissions })) return true;
     } catch (_) {}
     if (
-      await tryRawClientRequest("post", {
-        url: "/api/session/{sessionID}/permission",
+      await tryRawClientRequest("patch", {
+        url: "/api/session/{sessionID}",
         path: { sessionID: sessionId },
         body: { permissions },
       })
@@ -375,10 +375,17 @@ const createCMUXFeed = async (ctx) => {
     const values = Array.isArray(selections) ? selections : [];
     form.fields.forEach((field, index) => {
       const key = field.key || field.id || field.name || `field${index}`;
-      const fieldValue = values[index] ?? values[0];
-      answer[key] = field.multiple === true || field.multiSelect === true || field.type === "array"
-        ? (Array.isArray(fieldValue) ? fieldValue : fieldValue == null ? [] : [String(fieldValue)])
-        : fieldValue == null ? "" : String(fieldValue);
+      const multiSelect = field.multiple === true || field.multiSelect === true || field.type === "array" || field.type === "multiselect";
+      const fieldValue = multiSelect && form.fields.length === 1 ? values : (values[index] ?? values[0]);
+      if (multiSelect) {
+        answer[key] = Array.isArray(fieldValue) ? fieldValue.map(String) : fieldValue == null ? [] : [String(fieldValue)];
+      } else if (field.type === "number" || field.type === "integer") {
+        answer[key] = fieldValue == null || fieldValue === "" ? 0 : Number(fieldValue);
+      } else if (field.type === "boolean") {
+        answer[key] = fieldValue === true || fieldValue === "true" || fieldValue === "Yes";
+      } else {
+        answer[key] = fieldValue == null ? "" : String(fieldValue);
+      }
     });
     return answer;
   };
