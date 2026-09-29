@@ -8,6 +8,8 @@ extension GhosttySurfaceView {
     /// Read once so the disabled per-frame cost is a single boolean check.
     private static let debugScrollScriptEnabled =
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_SCRIPT"] == "1"
+    private static let debugScrollScriptSyntheticActive =
+        ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_SCRIPT_SYNTHETIC_ACTIVE"] == "1"
 
     /// One-shot scripted scroll phases: (name, frame count, per-frame deltaY;
     /// nil = idle hold). Drives the real gesture accumulation path so headless
@@ -34,6 +36,9 @@ extension GhosttySurfaceView {
         for phase in Self.debugScrollScriptPhases {
             if frame < phaseStart + phase.frames {
                 if frame == phaseStart {
+                    if Self.debugScrollScriptSyntheticActive {
+                        debugScrollInteractionActive = phase.name != "wait"
+                    }
                     MobileDebugLog.anchormux("scroll_script phase=\(phase.name) frame=\(frame)")
                 }
                 if let deltaY = phase.deltaY {
@@ -47,6 +52,7 @@ extension GhosttySurfaceView {
             phaseStart += phase.frames
         }
         MobileDebugLog.anchormux("scroll_script phase=bottom frame=\(frame)")
+        debugScrollInteractionActive = false
         enqueueScrollToBottom()
         debugScrollScriptDone = true
     }
