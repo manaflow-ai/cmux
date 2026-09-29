@@ -10,7 +10,7 @@
 # Downloads are cached per commit under CMUX_TUI_CLIENT_CACHE.
 #
 #   scripts/install-cmux-tui-client.sh <app-path> [--manifest-url <url>] [--cache-dir <dir>]
-#     [--expected-commit <sha>] [--require-capability <name>]...
+#     [--expected-commit <sha>] [--require-capability <name>]... [--require-acpmux]
 #     [--arch <native|arm64|x86_64|universal>]
 #     [--attest-signer-workflow <owner/repo/.github/workflows/name.yml>] [--allow-unattested]
 #
@@ -24,8 +24,14 @@
 # machine without an authenticated gh; CI never passes it. A CMUX_TUI_CLIENT_LOCAL
 # binary is not downloaded and is not subject to it.
 #
+# The same manifest also carries the acpmux daemon (cmux-tui-acpmux-<target>), which the
+# native agent chat pane talks to; it is installed as Contents/Resources/bin/acpmux with
+# the same architecture selection. Manifests published before acpmux joined the
+# workspace lack it: that is a warning, or an error with --require-acpmux.
+#
 # Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, CMUX_TUI_CLIENT_LOCAL points at
-# a prebuilt binary to install instead of downloading (offline/dev builds).
+# a prebuilt binary to install instead of downloading (offline/dev builds), and
+# CMUX_ACPMUX_LOCAL does the same for acpmux.
 # --arch selects downloaded slices only; the local override is copied unchanged
 # and still checked with remote-probe and any required capabilities.
 set -euo pipefail
@@ -39,6 +45,7 @@ EXPECTED_COMMIT=""
 ARCH="universal"
 ATTEST_SIGNER_WORKFLOW="manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml"
 ALLOW_UNATTESTED=0
+REQUIRE_ACPMUX=0
 REQUIRED_CAPABILITIES=()
 while (( $# )); do
   case "$1" in
@@ -48,6 +55,7 @@ while (( $# )); do
     --expected-commit) shift; EXPECTED_COMMIT="${1:?--expected-commit needs a value}" ;;
     --attest-signer-workflow) shift; ATTEST_SIGNER_WORKFLOW="${1:?--attest-signer-workflow needs a value}" ;;
     --allow-unattested) ALLOW_UNATTESTED=1 ;;
+    --require-acpmux) REQUIRE_ACPMUX=1 ;;
     --require-capability) shift; REQUIRED_CAPABILITIES+=("${1:?--require-capability needs a value}") ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "unknown option: $1" >&2; usage >&2; exit 64 ;;
@@ -124,11 +132,43 @@ PY
   done
 }
 
+ACPMUX_DEST="$DEST_DIR/acpmux"
+
+verify_acpmux() {
+  local version
+  version="$("$ACPMUX_DEST" --version 2>/dev/null || true)"
+  [[ "$version" == acpmux\ * ]] || {
+    echo "error: installed binary does not identify as acpmux: $version" >&2
+    exit 1
+  }
+}
+
+# Returns 1 when acpmux is not available and not required, so callers can skip it.
+install_local_acpmux() {
+  if [[ -n "${CMUX_ACPMUX_LOCAL:-}" ]]; then
+    [[ -f "$CMUX_ACPMUX_LOCAL" ]] || { echo "error: CMUX_ACPMUX_LOCAL not found: $CMUX_ACPMUX_LOCAL" >&2; exit 1; }
+    install -m 755 "$CMUX_ACPMUX_LOCAL" "$ACPMUX_DEST"
+    verify_acpmux
+    echo "Installed local acpmux at $ACPMUX_DEST"
+    return 0
+  fi
+  return 1
+}
+
+missing_acpmux() {
+  if (( REQUIRE_ACPMUX )); then
+    echo "error: $1" >&2
+    exit 1
+  fi
+  echo "warning: $1; the agent chat pane falls back to acpmux on PATH" >&2
+}
+
 if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   [[ -f "$CMUX_TUI_CLIENT_LOCAL" ]] || { echo "error: CMUX_TUI_CLIENT_LOCAL not found: $CMUX_TUI_CLIENT_LOCAL" >&2; exit 1; }
   install -m 755 "$CMUX_TUI_CLIENT_LOCAL" "$DEST"
   verify_probe
   echo "Installed local cmux-tui client at $DEST"
+  install_local_acpmux || missing_acpmux "CMUX_TUI_CLIENT_LOCAL is set without CMUX_ACPMUX_LOCAL; acpmux was not installed"
   exit 0
 fi
 
@@ -209,3 +249,34 @@ for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl aarch64-apple
 done
 install -m 644 "$MANIFEST" "$SSH_ARTIFACT_DIR/manifest.json"
 echo "Installed $ARCH cmux-tui client (commit ${COMMIT:0:10}) at $DEST"
+
+manifest_has() {
+  python3 -c 'import json,sys; sys.exit(0 if sys.argv[2] in json.load(open(sys.argv[1]))["binaries"] else 1)' "$MANIFEST" "$1"
+}
+
+if ! install_local_acpmux; then
+  if ! manifest_has cmux-tui-acpmux-aarch64-apple-darwin || ! manifest_has cmux-tui-acpmux-x86_64-apple-darwin; then
+    missing_acpmux "cmux-tui manifest (commit ${COMMIT:0:10}) has no acpmux binaries"
+  else
+    case "$ARCH" in
+      arm64) ACPMUX="$(fetch_slice cmux-tui-acpmux-aarch64-apple-darwin)" ;;
+      x86_64) ACPMUX="$(fetch_slice cmux-tui-acpmux-x86_64-apple-darwin)" ;;
+      universal)
+        ACPMUX_ARM="$(fetch_slice cmux-tui-acpmux-aarch64-apple-darwin)"
+        ACPMUX_X64="$(fetch_slice cmux-tui-acpmux-x86_64-apple-darwin)"
+        ACPMUX="$BUILD_DIR/acpmux-universal"
+        if [[ ! -f "$ACPMUX" ]]; then
+          lipo -create "$ACPMUX_ARM" "$ACPMUX_X64" -output "$ACPMUX.tmp"
+          mv -f "$ACPMUX.tmp" "$ACPMUX"
+        fi
+        ;;
+    esac
+    # Remove first: overwriting a signed Mach-O in place keeps the kernel's
+    # cached code signature for the old inode and the new binary dies with SIGKILL.
+    rm -f "$ACPMUX_DEST"
+    install -m 755 "$ACPMUX" "$ACPMUX_DEST"
+    for arch in "${VERIFY_ARCHS[@]}"; do lipo "$ACPMUX_DEST" -verify_arch "$arch"; done
+    verify_acpmux
+    echo "Installed $ARCH acpmux (commit ${COMMIT:0:10}) at $ACPMUX_DEST"
+  fi
+fi

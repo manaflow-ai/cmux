@@ -295,3 +295,86 @@ if FAKE_HOST_ARCH=unsupported install_remote "$TEST_DIR/UnknownNative.app" --arc
 fi
 [[ ! -s "$EVENTS" ]]
 echo "PASS: unsupported native host fails before network access"
+
+# --- acpmux daemon (native agent chat pane) -----------------------------------
+ACPMUX="$TEST_DIR/acpmux"
+cat > "$ACPMUX" <<'SH'
+#!/bin/sh
+[ "$1" = --version ] || exit 64
+printf '%s\n' 'acpmux 0.1.0 (test)'
+SH
+chmod +x "$ACPMUX"
+cp "$ACPMUX" "$SERVE/cmux-tui-acpmux-aarch64-apple-darwin"
+cp "$ACPMUX" "$SERVE/cmux-tui-acpmux-x86_64-apple-darwin"
+printf '\n# Intel fixture\n' >> "$SERVE/cmux-tui-acpmux-x86_64-apple-darwin"
+ACPMUX_ARM_SHA="$(slice_sha "$SERVE/cmux-tui-acpmux-aarch64-apple-darwin")"
+ACPMUX_X64_SHA="$(slice_sha "$SERVE/cmux-tui-acpmux-x86_64-apple-darwin")"
+write_manifest() { # <with-acpmux: 0|1>
+  local acpmux_entries=""
+  if [ "$1" = 1 ]; then
+    acpmux_entries=",\"cmux-tui-acpmux-aarch64-apple-darwin\":\"$ACPMUX_ARM_SHA\",\"cmux-tui-acpmux-x86_64-apple-darwin\":\"$ACPMUX_X64_SHA\""
+  fi
+  cat > "$SERVE/manifest.json" <<JSON
+{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA"$acpmux_entries}}
+JSON
+}
+
+# A manifest published before acpmux joined the workspace still installs the
+# client; acpmux is skipped with a warning unless the caller requires it.
+write_manifest 0
+OLD_APP="$TEST_DIR/NoAcpmux.app"
+install_remote "$OLD_APP" --arch arm64 > "$TEST_DIR/no-acpmux.log" 2>&1
+[ -x "$OLD_APP/Contents/Resources/bin/cmux-tui" ]
+[ ! -e "$OLD_APP/Contents/Resources/bin/acpmux" ]
+grep -q 'warning: cmux-tui manifest (commit aaaaaaaaaa) has no acpmux binaries' "$TEST_DIR/no-acpmux.log"
+if install_remote "$TEST_DIR/NoAcpmuxRequired.app" --arch arm64 --require-acpmux > "$TEST_DIR/no-acpmux-required.log" 2>&1; then
+  echo "FAIL: --require-acpmux installed from a manifest without acpmux" >&2
+  exit 1
+fi
+grep -q 'error: cmux-tui manifest (commit aaaaaaaaaa) has no acpmux binaries' "$TEST_DIR/no-acpmux-required.log"
+echo "PASS: a manifest without acpmux warns, and fails with --require-acpmux"
+
+write_manifest 1
+for arch in arm64 x86_64; do
+  if [[ "$arch" == arm64 ]]; then slice=aarch64; else slice=x86_64; fi
+  acpmux_app="$TEST_DIR/Acpmux-$arch.app"
+  install_remote "$acpmux_app" --arch "$arch" --require-acpmux > "$TEST_DIR/acpmux-$arch.log" 2>&1
+  cmp "$SERVE/cmux-tui-acpmux-$slice-apple-darwin" "$acpmux_app/Contents/Resources/bin/acpmux"
+  grep -q "curl .*cmux-tui-acpmux-$slice-apple-darwin\$" "$EVENTS"
+  grep -q "^lipo .*/bin/acpmux -verify_arch $arch\$" "$EVENTS"
+done
+UNIVERSAL_ACPMUX_APP="$TEST_DIR/AcpmuxUniversal.app"
+install_remote "$UNIVERSAL_ACPMUX_APP" --require-acpmux > "$TEST_DIR/acpmux-universal.log" 2>&1
+grep -q '^lipo -create .*cmux-tui-acpmux-aarch64-apple-darwin .*cmux-tui-acpmux-x86_64-apple-darwin' "$EVENTS"
+cmp "$SERVE/cmux-tui-acpmux-aarch64-apple-darwin" "$UNIVERSAL_ACPMUX_APP/Contents/Resources/bin/acpmux"
+echo "PASS: acpmux installs from the attested manifest for each architecture"
+
+# Corrupting the published slice must fail its manifest digest.
+printf 'tampered\n' >> "$SERVE/cmux-tui-acpmux-aarch64-apple-darwin"
+if install_remote "$TEST_DIR/AcpmuxTampered.app" --arch arm64 > "$TEST_DIR/acpmux-tampered.log" 2>&1; then
+  echo "FAIL: installed an acpmux slice whose digest does not match the manifest" >&2
+  exit 1
+fi
+grep -q 'sha256 mismatch for cmux-tui-acpmux-aarch64-apple-darwin' "$TEST_DIR/acpmux-tampered.log"
+echo "PASS: acpmux slices are digest-checked"
+
+LOCAL_APP="$TEST_DIR/LocalAcpmux.app"
+mkdir -p "$LOCAL_APP/Contents"
+CMUX_TUI_CLIENT_LOCAL="$CLIENT" CMUX_ACPMUX_LOCAL="$ACPMUX" /bin/bash \
+  "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$LOCAL_APP" --require-acpmux > /dev/null
+cmp "$ACPMUX" "$LOCAL_APP/Contents/Resources/bin/acpmux"
+mkdir -p "$TEST_DIR/LocalNoAcpmux.app/Contents"
+if CMUX_TUI_CLIENT_LOCAL="$CLIENT" /bin/bash \
+  "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$TEST_DIR/LocalNoAcpmux.app" --require-acpmux > "$TEST_DIR/local-no-acpmux.log" 2>&1; then
+  echo "FAIL: --require-acpmux accepted a local client without CMUX_ACPMUX_LOCAL" >&2
+  exit 1
+fi
+grep -q 'error: CMUX_TUI_CLIENT_LOCAL is set without CMUX_ACPMUX_LOCAL' "$TEST_DIR/local-no-acpmux.log"
+mkdir -p "$TEST_DIR/LocalWrong.app/Contents"
+if CMUX_TUI_CLIENT_LOCAL="$CLIENT" CMUX_ACPMUX_LOCAL="$CLIENT" /bin/bash \
+  "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$TEST_DIR/LocalWrong.app" > "$TEST_DIR/local-wrong.log" 2>&1; then
+  echo "FAIL: installed a CMUX_ACPMUX_LOCAL binary that is not acpmux" >&2
+  exit 1
+fi
+grep -q 'does not identify as acpmux' "$TEST_DIR/local-wrong.log"
+echo "PASS: local acpmux override is identity-checked"
