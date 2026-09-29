@@ -17,6 +17,7 @@ extension CloudTreeNodeBuilder {
         source: CloudTreeMachineSource = .cloud,
         devicesSection: CloudTreeDevicesSection = .init(),
         canCreateCloudMachine: Bool = false,
+        cloudMachinesUsage: CloudMachinesUsage? = nil,
         now: Date = .now,
         resourceNodeBuilder: CloudTreeMachineResourceNodeBuilder = .init()
     ) -> [CloudTreeNode] {
@@ -116,7 +117,7 @@ extension CloudTreeNodeBuilder {
                 : nodes
             nodes = [CloudTreeNode(
                 id: "cloud-machines-section",
-                kind: .cloudMachinesSection(canCreateMachine: canCreateCloudMachine),
+                kind: .cloudMachinesSection(canCreateMachine: canCreateCloudMachine, usage: cloudMachinesUsage),
                 children: cloudChildren
             )]
         }
