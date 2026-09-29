@@ -133,11 +133,10 @@ struct SidebarCompactAgentStatusTests {
     }
 
     @Test
-    func needsInputIsAYellowDotAboveRunningAndPullRequests() {
+    func needsInputIsAYellowDotAbovePullRequestsWhenNoActiveWork() {
         let glyph = Glyph.resolve(.init(
             agentEntries: [Self.entry("claude_code", "Needs input", icon: "bell.fill")],
-            lifecycleStates: [.running, .needsInput],
-            hasActiveAgent: true,
+            lifecycleStates: [.needsInput],
             pullRequests: [Self.openPR],
             branch: "main"
         ))

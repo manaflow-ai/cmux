@@ -6720,11 +6720,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
-        let keysNeedingInput = sidebarStatusKeysNeedingInput()
         return sidebarStatusEntriesVisibleForDisplay().sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
-            let lhsNeedsInput = keysNeedingInput.contains(lhs.key)
-            if lhsNeedsInput != keysNeedingInput.contains(rhs.key) { return lhsNeedsInput }
+            let lhsUrgency = sidebarStatusUrgencyRank(forKey: lhs.key)
+            let rhsUrgency = sidebarStatusUrgencyRank(forKey: rhs.key)
+            if lhsUrgency != rhsUrgency { return lhsUrgency > rhsUrgency }
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
             return lhs.key < rhs.key
         }
