@@ -27,8 +27,10 @@ public struct CloudTerminalSizingRelay: Sendable {
 
     /// Where a `detached` event must go.
     public enum DetachRoute: Hashable, Sendable {
-        /// This Mac's own attachment was detached.
-        case mirror(TerminalDetachReason)
+        /// This Mac's own attachment was detached. `phoneClientIDs` lists the
+        /// phones that lost their path to the terminal with it and must get
+        /// the same detach; empty when the Mac reconnects automatically.
+        case mirror(TerminalDetachReason, phoneClientIDs: [String])
         /// A phone behind this Mac was detached; the Mac keeps its attachment.
         case phone(clientID: String, reason: TerminalDetachReason)
     }
@@ -165,7 +167,17 @@ public struct CloudTerminalSizingRelay: Sendable {
     ///   - view: the relay sub-view the event names, if any.
     /// - Returns: the route, or `nil` for an unknown sub-view.
     public mutating func routeDetached(reason: TerminalDetachReason, view: String?) -> DetachRoute? {
-        guard let view else { return .mirror(reason) }
+        guard let view else {
+            // A network drop reconnects this Mac and its phones stay relayed.
+            // Any other detach leaves them with no path to the terminal: they
+            // get the same detach and their sub-views are forgotten, so a
+            // phone that reattaches after this Mac is relayed anew.
+            guard !reason.reconnectsAutomatically else { return .mirror(reason, phoneClientIDs: []) }
+            let phones = views.values.map(\.clientID).sorted()
+            views.removeAll()
+            reportSentAt.removeAll()
+            return .mirror(reason, phoneClientIDs: phones)
+        }
         guard let removed = views.removeValue(forKey: view) else { return nil }
         return .phone(clientID: removed.clientID, reason: reason)
     }

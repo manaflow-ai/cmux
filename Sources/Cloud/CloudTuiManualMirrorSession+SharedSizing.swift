@@ -91,8 +91,9 @@ extension CloudTuiManualMirrorSession: CloudSizingPhoneRelaying, TerminalSharing
 
     /// Routes a `detached` event. A phone's detach goes to that phone only and
     /// keeps this Mac attached. This Mac's own `disconnected-by` (or
-    /// host-shutdown / superseded) stops automatic reconnection and shows the
-    /// detached card; a network detach reconnects as before.
+    /// host-shutdown / superseded) stops automatic reconnection, shows the
+    /// detached card and forwards the same detach to every phone viewing the
+    /// terminal through this Mac; a network detach reconnects as before.
     func handleSharingDetached(reason: TerminalDetachReason, view: String?) {
         switch sizingRelay.routeDetached(reason: reason, view: view) {
         case nil:
@@ -104,14 +105,20 @@ extension CloudTuiManualMirrorSession: CloudSizingPhoneRelaying, TerminalSharing
                 clientID: clientID,
                 detachment: TerminalSharingDetachment(reason: reason, at: Date())
             )
-        case let .mirror(reason):
+        case let .mirror(reason, phoneClientIDs):
             guard !reason.reconnectsAutomatically else {
                 disconnectForSharing(reconnect: true)
                 return
             }
-            sharingDetachment = TerminalSharingDetachment(reason: reason, at: Date())
+            let detachment = TerminalSharingDetachment(reason: reason, at: Date())
+            sharingDetachment = detachment
             disconnectForSharing(reconnect: false)
             publishSharingSnapshot()
+            if let surfaceID = sharingSurfaceID, !phoneClientIDs.isEmpty {
+                TerminalController.shared.cloudPhonesDetached(
+                    surfaceID: surfaceID, clientIDs: phoneClientIDs, detachment: detachment
+                )
+            }
         }
     }
 

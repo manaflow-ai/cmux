@@ -467,11 +467,23 @@ extension TerminalController {
 
     /// The Cloud host detached one phone behind this Mac.
     func cloudPhoneDetached(surfaceID: UUID, clientID: String, detachment: TerminalSharingDetachment) {
+        cloudPhonesDetached(surfaceID: surfaceID, clientIDs: [clientID], detachment: detachment)
+    }
+
+    /// The Cloud host detached phones behind this Mac, one phone's view or
+    /// this Mac's own attachment (the phones lose their path with it). Each
+    /// gets `mobile.terminal.detached` and its report is dropped; every phone
+    /// is marked first so clearing one report never re-relays another.
+    func cloudPhonesDetached(surfaceID: UUID, clientIDs: [String], detachment: TerminalSharingDetachment) {
         if !detachment.reason.reconnectsAutomatically {
-            cloudDetachedPhonesBySurfaceID[surfaceID, default: [:]][clientID] = detachment
+            for clientID in clientIDs {
+                cloudDetachedPhonesBySurfaceID[surfaceID, default: [:]][clientID] = detachment
+            }
         }
-        emitMobileDetached(surfaceID: surfaceID, clientID: clientID, detachment: detachment)
-        _ = clearMobileViewportReport(surfaceID: surfaceID, clientID: clientID, reason: "cloud.participant.detached")
+        for clientID in clientIDs {
+            emitMobileDetached(surfaceID: surfaceID, clientID: clientID, detachment: detachment)
+            _ = clearMobileViewportReport(surfaceID: surfaceID, clientID: clientID, reason: "cloud.participant.detached")
+        }
     }
 
     // MARK: - Mobile RPC

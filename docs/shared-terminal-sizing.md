@@ -115,6 +115,10 @@ actor's `user_id`, `display_name` and `device_name`.
   shows the same state in the pane.
 - A relay that receives `disconnected-by` for one of its leaves forwards it to that
   leaf only and keeps its own attachment.
+- A relay that is itself detached for any reason but `network` forwards the same
+  `reason`, `by` and `at` to every leaf behind it, since they lost their path to
+  the terminal, and drops their sub-views. After the relay reattaches, each leaf
+  reattaches normally.
 
 The Mac socket `terminal.size_state` (and `cmux surface size`) adds
 `detachment {reason, by, at}` while this Mac view is detached, else `null`; the
@@ -169,7 +173,12 @@ after the host's latest size state includes the phone's confirmed viewport
 and no viewport report of its own is pending, so it never draws bounds for a
 grid it is about to change.
 
-The cmux-tui frontend joins as `device_kind: "tui"` named after its host. Its
+The cmux-tui frontend joins as `device_kind: "tui"` named after its host
+(`cmux-tui` when the host name is unknown). It takes the size state from the
+`attach-surface` answer, so it never waits for the first change event. Focus
+and input on its pane are activity only; against a `shared-sizing-v1` daemon it
+never sends the legacy `set-client-sizing`, so a counts choice made on another
+device stays. Its
 pane's bottom border carries the chip text, ` 118×38 · Lawrence's Mac `
 (plus `· 12 cols hidden` when the TUI is narrower), under the same rule: only
 while someone else is attached or the TUI's viewport differs from the grid.
@@ -209,7 +218,9 @@ viewport (at most 3 s), the replay answers `viewport_transition` and the phone
 retries, so its first frame is already at the host's new grid. The Mac forwards
 `size-state` as
 `mobile.terminal.size_state` (participant ids are the host's ids), and maps a
-`detached` for that lease to `mobile.terminal.detached`.
+`detached` for that lease to `mobile.terminal.detached`. A non-network `detached`
+for the Mac's own attachment goes to every phone viewing the terminal through
+this Mac as `mobile.terminal.detached` with the same `reason`, `by` and `at`.
 
 ## cmux-tui wire parameters
 
