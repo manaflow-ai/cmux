@@ -13335,9 +13335,9 @@ fn handle_command_with_cancellation(
                 let closed = mux.close_tab_group(&group)?;
                 return Ok(json!({ "group": group, "closed": closed }));
             }
-            let outcome = mux.close_container_ending_terminals(crate::BatchCloseTarget::TabGroup(
-                group.clone(),
-            ))?;
+            let outcome = mux.close_container_ending_terminals(
+                crate::BatchCloseTarget::TabGroup(group.clone()),
+            )?;
             Ok(json!({
                 "group": group,
                 "closed": outcome.closed(),

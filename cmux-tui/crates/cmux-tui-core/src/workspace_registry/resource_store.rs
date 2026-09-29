@@ -2950,7 +2950,10 @@ pub(super) fn prune_unchanged_resource_changes(
     Ok(ResourcePatch { changes })
 }
 
-fn content_tab_panes(transaction: &Transaction<'_>, content_id: &str) -> anyhow::Result<Vec<String>> {
+fn content_tab_panes(
+    transaction: &Transaction<'_>,
+    content_id: &str,
+) -> anyhow::Result<Vec<String>> {
     let mut statement = transaction.prepare(
         "SELECT pane_id FROM resource_tabs
          WHERE content_id = ?1 AND deleted_revision IS NULL",
@@ -3027,7 +3030,8 @@ fn resource_change_is_stored(
                         && position == i64::try_from(screen.position).ok()
                         && name == screen.name
                         && active.as_deref() == Some(screen.active_pane.as_str())
-                        && zoomed.as_deref() == screen.zoomed_pane.as_ref().map(PanePublicId::as_str)
+                        && zoomed.as_deref()
+                            == screen.zoomed_pane.as_ref().map(PanePublicId::as_str)
                         && auto == desired_auto
                         && layout == canonical_json(&serde_json::to_value(&screen.layout)?)?
                         && viewport == canonical_json(&serde_json::to_value(&screen.viewport)?)?
@@ -3102,7 +3106,9 @@ fn resource_change_is_stored(
                 )
                 .optional()?;
             match stored {
-                Some((host, lifecycle)) if host == terminal.terminal_id && lifecycle == "active" => {
+                Some((host, lifecycle))
+                    if host == terminal.terminal_id && lifecycle == "active" =>
+                {
                     read_terminal(transaction, &terminal.terminal_id)?.as_ref() == Some(terminal)
                 }
                 _ => false,
@@ -3185,7 +3191,9 @@ fn stored_child_order(
     );
     let mut statement = transaction.prepare(&query)?;
     Ok(statement
-        .query_map([parent_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)))?
+        .query_map([parent_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+        })?
         .collect::<Result<Vec<_>, _>>()?)
 }
 

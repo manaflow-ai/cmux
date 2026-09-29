@@ -42,7 +42,6 @@ mod terminal_keep_store;
 mod topology_close_store;
 
 pub(crate) use effect_store::ResourceWorkspaceClose;
-pub(crate) use topology_close_store::TopologyCloseCommit;
 pub use effect_store::{
     ResourceCreationPreparation, ResourceCreationRecovery, ResourceEffectOutcome,
     ResourceEffectPreparation,
@@ -104,6 +103,7 @@ use session_journal::{
     migrate_resource_events_to_session_journal,
 };
 pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
+pub(crate) use topology_close_store::TopologyCloseCommit;
 
 // Schema 9 shipped independently on the journal and multiview development
 // branches. Schema 10 shipped the journal extensions. Version 11 is the first

@@ -59,12 +59,7 @@ pub(crate) struct BatchCloseOutcome {
 
 impl BatchCloseOutcome {
     pub(crate) fn closed(&self) -> Vec<SurfaceId> {
-        self.result["closed"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_u64)
-            .collect()
+        self.result["closed"].as_array().into_iter().flatten().filter_map(Value::as_u64).collect()
     }
 
     pub(crate) fn terminals(&self) -> Vec<EndedTerminal> {
@@ -118,9 +113,9 @@ impl Mux {
         }
         let workspace = self.with_state(|state| match &request.target {
             BatchCloseTarget::Tabs(_) | BatchCloseTarget::TabGroup(_) => None,
-            BatchCloseTarget::Pane(pane) => state
-                .screen_of(*pane)
-                .map(|(workspace, _)| state.workspaces[workspace].id),
+            BatchCloseTarget::Pane(pane) => {
+                state.screen_of(*pane).map(|(workspace, _)| state.workspaces[workspace].id)
+            }
             BatchCloseTarget::Screen(screen) => state
                 .workspaces
                 .iter()
@@ -132,7 +127,9 @@ impl Mux {
         });
         if matches!(
             request.target,
-            BatchCloseTarget::Pane(_) | BatchCloseTarget::Screen(_) | BatchCloseTarget::Workspace(_)
+            BatchCloseTarget::Pane(_)
+                | BatchCloseTarget::Screen(_)
+                | BatchCloseTarget::Workspace(_)
         ) && workspace.is_none()
         {
             anyhow::bail!("close target disappeared");
@@ -267,11 +264,8 @@ impl Mux {
         state: &State,
     ) -> anyhow::Result<ResourceClosePlan> {
         let mut unique = HashSet::with_capacity(surfaces.len());
-        let surfaces = surfaces
-            .iter()
-            .copied()
-            .filter(|surface| unique.insert(*surface))
-            .collect::<Vec<_>>();
+        let surfaces =
+            surfaces.iter().copied().filter(|surface| unique.insert(*surface)).collect::<Vec<_>>();
         anyhow::ensure!(!surfaces.is_empty(), "close-tabs needs at least one surface");
         for surface in &surfaces {
             anyhow::ensure!(
@@ -478,13 +472,14 @@ impl Mux {
         })?;
         let revision = match outcome.workspace_revision {
             Some(revision) => revision,
-            None => self
-                .workspace_registry
-                .lock()
-                .unwrap()
-                .replay(mutation, &fingerprint)?
-                .context("replayed workspace close has no workspace receipt")?
-                .revision,
+            None => {
+                self.workspace_registry
+                    .lock()
+                    .unwrap()
+                    .replay(mutation, &fingerprint)?
+                    .context("replayed workspace close has no workspace receipt")?
+                    .revision
+            }
         };
         let result = WorkspaceMutationResult {
             workspace: outcome.result["workspace"].as_u64().or(Some(resolved)),
@@ -704,9 +699,8 @@ mod tests {
         let workspace_before = mux.with_state(|state| state.workspace_revision);
         let mutation = WorkspaceMutation::new("close-ws-batch", "batch-close-test").unwrap();
 
-        let (result, outcome) = mux
-            .close_workspace_ending_terminals(None, Some(&key), None, None, &mutation)
-            .unwrap();
+        let (result, outcome) =
+            mux.close_workspace_ending_terminals(None, Some(&key), None, None, &mutation).unwrap();
 
         assert_eq!(resource_revision(&mux), resource_before + 1);
         assert_eq!(result.revision, workspace_before + 1);
@@ -719,9 +713,8 @@ mod tests {
         assert!(mux.with_state(|state| state.workspaces.iter().all(|w| w.key != key)));
         assert_store_matches_full_projection(&mux);
 
-        let (replayed, _) = mux
-            .close_workspace_ending_terminals(None, Some(&key), None, None, &mutation)
-            .unwrap();
+        let (replayed, _) =
+            mux.close_workspace_ending_terminals(None, Some(&key), None, None, &mutation).unwrap();
         assert!(replayed.replayed);
         assert_eq!(replayed.revision, result.revision);
         assert_eq!(resource_revision(&mux), resource_before + 1, "a replay writes nothing");
@@ -736,8 +729,7 @@ mod tests {
         mux.set_terminal_keep(&terminal(2).0, true).unwrap();
         let pane = mux.with_state(|state| state.pane_of(surface).unwrap());
 
-        let outcome =
-            mux.close_container_ending_terminals(BatchCloseTarget::Pane(pane)).unwrap();
+        let outcome = mux.close_container_ending_terminals(BatchCloseTarget::Pane(pane)).unwrap();
 
         assert_eq!(outcome.closed().len(), 2);
         assert_eq!(outcome.terminals().len(), 1);
@@ -778,8 +770,7 @@ mod tests {
                 w.screens.first().map(|screen| state.panes[&screen.active_pane].tabs[0])
             })
         });
-        mux.close_tabs(vec![surface.unwrap()], true, &WorkspaceMutation::local("mixed"))
-            .unwrap();
+        mux.close_tabs(vec![surface.unwrap()], true, &WorkspaceMutation::local("mixed")).unwrap();
         assert_store_matches_full_projection(&mux);
         mux.close_workspace_ending_terminals(
             None,
