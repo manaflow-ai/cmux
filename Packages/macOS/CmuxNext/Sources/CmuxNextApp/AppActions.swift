@@ -27,6 +27,11 @@ enum AppActions {
         ColumnHandlers.bind(into: registry, context: context)
         ScreenHandlers.bind(into: registry, context: context)
         TerminalHandlers.bind(into: registry, context: context)
+        BrowserHandlers.bind(into: registry, context: context)
+        OpenInHandlers.bind(into: registry, context: context)
+        NotificationHandlers.bind(into: registry, context: context)
+        AgentHandlers.bind(into: registry, context: context)
+        CloudHandlers.bind(into: registry, context: context)
         context.observeRefusals()
     }
 

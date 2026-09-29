@@ -37,6 +37,9 @@ public final class RegistryControlBridge: ControlActionExecutor {
             _ = registry.descriptors
             _ = registry.actions
             _ = registry.shortcutOverrides
+            // Reasons read observable app state (daemon capabilities), so a
+            // change there republishes `unavailable_reason` too.
+            for action in registry.actions { _ = action.unavailableReason?() }
         } onChange: { [weak self] in
             // onChange runs before the new value is stored; publish after.
             Task { @MainActor in
@@ -71,8 +74,10 @@ public final class RegistryControlBridge: ControlActionExecutor {
         let id = registry.canonicalID(for: ActionID(rawValue: request.actionID))
         guard registry.descriptor(for: id) != nil || registry.isBound(id) else { return .unknownAction }
         guard let action = registry.action(for: id) else { return .notBound }
-        guard registry.isAvailable(id) else { return .unavailable }
+        // Reported before the context check, so a context-gated action that
+        // cannot exist yet says why instead of "not available here".
         if let reason = registry.unavailableReason(for: id) { return .refused(reason) }
+        guard registry.isAvailable(id) else { return .unavailable }
         guard action.isEnabled() else { return .disabled }
         let invocation = ActionInvocation(
             target: request.target.flatMap(Self.actionTarget),
@@ -119,7 +124,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
     static func info(for entry: ActionEntry, in registry: ActionRegistry) -> ControlActionInfo {
         let descriptor = entry.descriptor
         let shortcut = registry.effectiveShortcut(for: descriptor.id)
-        return ControlActionInfo(
+        var info = ControlActionInfo(
             id: descriptor.id.rawValue,
             title: descriptor.title,
             category: descriptor.category.rawValue,
@@ -139,6 +144,9 @@ public final class RegistryControlBridge: ControlActionExecutor {
             isDebugOnly: descriptor.isDebugOnly,
             mainMenu: descriptor.mainMenu?.rawValue
         )
+        // Snapshot for `action.list`; `action.run` re-reads it live.
+        info.unavailableReason = registry.unavailableReason(for: descriptor.id)
+        return info
     }
 
     static func argumentInfo(_ argument: ActionArgument) -> ControlArgumentInfo {
