@@ -216,10 +216,8 @@ struct MachinesPanelView: View {
             accountFlow: accountFlow,
             presentation: teamPickerPresentation,
             chromeBackgroundColor: chromeBackgroundColor,
-            isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
-            onRefresh: refreshMachines,
             onNewMachine: requestNewMachine,
-            agentMenu: { cloudAgentMenu },
+            overflowMenu: { cloudOverflowMenu },
             status: { cloudStatus }
         )
     }
@@ -351,19 +349,36 @@ struct MachinesPanelView: View {
     /// Cloud-agent launcher: each agent entry opens a local terminal running
     /// that agent preloaded with the cmux Cloud skill; Copy Cloud Prompt puts
     /// the same kickoff prompt on the clipboard for any other terminal.
-    private var cloudAgentMenu: some View {
-        Menu {
-            ForEach(CloudAgentSkillLauncher.CodingAgent.allCases, id: \.rawValue) { agent in
-                Button(agent.displayName) {
-                    launchCloudAgent(agent)
+    /// The `⋯` menu: manual refresh (until the list is pushed live) and the
+    /// Cloud Agent launchers. Rare actions live here so the header keeps two
+    /// visible buttons, Invite and New Machine.
+    private var cloudOverflowMenu: some View {
+        let isRefreshing = viewModel.isLoading || devicesModel.isRefreshing
+        return Menu {
+            Button {
+                refreshMachines()
+            } label: {
+                Label(
+                    isRefreshing
+                        ? String(localized: "machines.refreshing", defaultValue: "Refreshing…")
+                        : String(localized: "machines.refresh", defaultValue: "Refresh Machines"),
+                    systemImage: "arrow.clockwise"
+                )
+            }
+            .disabled(isRefreshing)
+            Divider()
+            Section(String(localized: "machines.agent.section", defaultValue: "Cloud Agent")) {
+                ForEach(CloudAgentSkillLauncher.CodingAgent.allCases, id: \.rawValue) { agent in
+                    Button(agent.displayName) {
+                        launchCloudAgent(agent)
+                    }
+                }
+                Button(String(localized: "machines.agent.copyPrompt", defaultValue: "Copy Cloud Prompt")) {
+                    runCloudAgentAction { try CloudAgentSkillLauncher.copyPrompt() }
                 }
             }
-            Divider()
-            Button(String(localized: "machines.agent.copyPrompt", defaultValue: "Copy Cloud Prompt")) {
-                runCloudAgentAction { try CloudAgentSkillLauncher.copyPrompt() }
-            }
         } label: {
-            Image(systemName: "sparkles")
+            Image(systemName: "ellipsis")
                 .font(.system(size: 11, weight: .medium))
                 .frame(width: 22, height: 20)
                 .contentShape(Rectangle())
@@ -372,9 +387,9 @@ struct MachinesPanelView: View {
         .menuIndicator(.hidden)
         .frame(width: 22, height: 20)
         .foregroundColor(.secondary)
-        .help(String(localized: "machines.agent.menuLabel", defaultValue: "Open Cloud Agent"))
-        .accessibilityLabel(String(localized: "machines.agent.menuLabel", defaultValue: "Open Cloud Agent"))
-        .accessibilityIdentifier("CloudMachinesAgentMenu")
+        .help(String(localized: "machines.overflow.menuLabel", defaultValue: "More Cloud actions"))
+        .accessibilityLabel(String(localized: "machines.overflow.menuLabel", defaultValue: "More Cloud actions"))
+        .accessibilityIdentifier("CloudMachinesOverflowMenu")
     }
 
     private func runCloudAgentAction(_ action: () throws -> Void) {

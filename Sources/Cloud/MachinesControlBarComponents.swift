@@ -108,3 +108,36 @@ struct MachinesChromeIconButton: View {
         .systemSymbol(name: symbolName, accessibilityDescription: nil)
     }
 }
+
+/// A short labeled chrome button for the one action the header must sell
+/// (Invite). Same height and tint rules as ``MachinesChromeIconButton``.
+struct MachinesChromeLabelButton: View {
+    let symbolName: String
+    let title: String
+    let accessibilityLabel: String
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: symbolName)
+                    .font(.system(size: 10, weight: .semibold))
+                Text(title)
+                    .cmuxFont(size: 11, weight: .medium)
+            }
+            .foregroundColor(isHovered ? Color(nsColor: .labelColor) : Color(nsColor: .secondaryLabelColor))
+            .padding(.horizontal, 7)
+            .frame(height: 20)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(isHovered ? 0.10 : 0.06))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .safeHelp(accessibilityLabel)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
