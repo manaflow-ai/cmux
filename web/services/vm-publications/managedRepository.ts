@@ -5,6 +5,7 @@ import { assertAccountDeletionUserMutationAllowed } from "../account/deletionLoc
 import { allocateVmSlug } from "../vms/vmNaming";
 import { managedPublicationHostname, organizationSlugCandidate, validOrganizationSlug } from "./managedHostnames";
 import { PublicationConflictError, PublicationNotFoundError, type CloudVmPublicationTarget } from "./repository";
+import { publishVmRowsById } from "../vms/presencePublisher";
 
 type Tx = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
@@ -80,12 +81,24 @@ async function ensureVmSlug(tx: Tx, vm: typeof cloudVms.$inferSelect, scopeId: s
       ));
     return !!row;
   });
-  await tx.update(cloudVms).set({ slug }).where(eq(cloudVms.id, vm.id));
+  // Bump the row clock: the slug is list-visible and the presence Worker
+  // orders publications by `updated_at`.
+  await tx.update(cloudVms).set({ slug, updatedAt: new Date() }).where(eq(cloudVms.id, vm.id));
   return slug;
 }
 
 /** VM authorization and hostname reservation commit together. No managed domain row. */
 export async function reserveManagedPublication(input: ManagedPublicationInput): Promise<CloudVmPublicationTarget> {
+  const { slugAssigned, ...target } = await reserveManagedPublicationTx(input);
+  // A first publication assigns the machine's slug: tell the machines list
+  // once the row is committed (best-effort, after the response).
+  if (slugAssigned) publishVmRowsById([target.vm.id]);
+  return target;
+}
+
+async function reserveManagedPublicationTx(
+  input: ManagedPublicationInput,
+): Promise<CloudVmPublicationTarget & { readonly slugAssigned: boolean }> {
   return cloudDb().transaction(async (tx) => {
     await assertAccountDeletionUserMutationAllowed(tx, input.ownerUserId);
     const { vm, scopeId } = await requireManagedVm(tx, input);
@@ -94,6 +107,7 @@ export async function reserveManagedPublication(input: ManagedPublicationInput):
     }
     const orgSlug = await reserveOrganization(tx, input, scopeId);
     const vmSlug = await ensureVmSlug(tx, vm, scopeId);
+    const slugAssigned = vm.slug !== vmSlug;
     const hostname = managedPublicationHostname(vmSlug, orgSlug, input.port, input.generatedDomain);
     const [existing] = await tx.select().from(cloudVmPublications).where(and(
       eq(cloudVmPublications.hostname, hostname), isNull(cloudVmPublications.disabledAt),
@@ -101,7 +115,7 @@ export async function reserveManagedPublication(input: ManagedPublicationInput):
     if (existing) {
       if (existing.vmId !== vm.id || existing.port !== input.port) throw new PublicationConflictError({ reason: "hostname_taken" });
       if (existing.state === "disabling") throw new PublicationConflictError({ reason: "publication_not_active" });
-      return { publication: existing, vm: { ...vm, slug: vmSlug }, domain: null };
+      return { publication: existing, vm: { ...vm, slug: vmSlug }, domain: null, slugAssigned };
     }
     const [publication] = await tx.insert(cloudVmPublications).values({
       ownerUserId: input.ownerUserId, vmId: vm.id, hostname, domainId: null,
@@ -109,6 +123,6 @@ export async function reserveManagedPublication(input: ManagedPublicationInput):
       teamId: input.teamId, createdAt: input.now, updatedAt: input.now,
     }).onConflictDoNothing().returning();
     if (!publication) throw new PublicationConflictError({ reason: "hostname_taken" });
-    return { publication, vm: { ...vm, slug: vmSlug }, domain: null };
+    return { publication, vm: { ...vm, slug: vmSlug }, domain: null, slugAssigned };
   });
 }

@@ -70,6 +70,12 @@ import {
 } from "../../../services/vms/errors";
 import type { ProviderId } from "../../../services/vms/drivers";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
+import {
+  publishVmOps,
+  publishVmRowsById,
+  vmSyncTeamId,
+  type VmSyncOp,
+} from "../../../services/vms/presencePublisher";
 import { createHostedSubrouterClient } from "../../../services/subrouter/hostedClient";
 import {
   createLegacySubrouterRetirementClient,
@@ -1449,7 +1455,7 @@ function isStripeAlreadyInDeletionTargetState(error: unknown, messagePatterns: r
 
 async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readonly string[]): Promise<void> {
   const db = cloudDb();
-  await db.transaction(async (tx) => {
+  const vmSync = await db.transaction(async (tx) => {
     const now = new Date();
     const deletionTeamIds = uniqueNonEmptyStrings([userId, ...accountTeamIds]);
     for (const teamId of deletionTeamIds) {
@@ -1458,6 +1464,8 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
     const userVmRows = await tx
       .select({
         id: cloudVms.id,
+        userId: cloudVms.userId,
+        ownerTeamId: cloudVms.ownerTeamId,
         billingTeamId: cloudVms.billingTeamId,
         providerVmId: cloudVms.providerVmId,
         status: cloudVms.status,
@@ -1630,7 +1638,27 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
     await tx.delete(vaultCliAuthRequests).where(
       eq(vaultCliAuthRequests.userId, userId),
     );
+    return {
+      // Hard-deleted personal rows: tombstone them in the machines list at the
+      // deletion clock (the rows are gone, so there is nothing to re-read).
+      deletes: personalVmRows.flatMap((vm) => vm.providerVmId
+        ? [{ teamId: vmSyncTeamId(vm), op: { kind: "delete", id: vm.providerVmId, sourceUpdatedAtMs: now.getTime() } satisfies VmSyncOp }]
+        : []),
+      // Shared-team rows keep living with a rewritten creator: re-read and republish.
+      rewrittenIds: sharedTeamVmRows.map((vm) => vm.id),
+    };
   });
+  publishAccountDeletionVmSync(vmSync);
+}
+
+function publishAccountDeletionVmSync(vmSync: {
+  readonly deletes: readonly { readonly teamId: string; readonly op: VmSyncOp }[];
+  readonly rewrittenIds: readonly string[];
+}): void {
+  const byTeam = new Map<string, VmSyncOp[]>();
+  for (const { teamId, op } of vmSync.deletes) byTeam.set(teamId, [...(byTeam.get(teamId) ?? []), op]);
+  for (const [teamId, ops] of byTeam) publishVmOps(teamId, ops);
+  publishVmRowsById(vmSync.rewrittenIds);
 }
 
 function assertNoActivePhonePushDeliveryLease(
