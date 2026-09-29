@@ -134,7 +134,9 @@
     "backToBlog": "블로그로 돌아가기",
     "readTheDocs": "문서 읽기",
     "viewChangelog": "변경 로그 보기",
-    "otherPlatforms": "다른 플랫폼"
+    "otherPlatforms": "다른 플랫폼",
+    "copyCode": "코드 복사",
+    "copied": "복사됨"
   },
   "nav": {
     "docs": "문서",
@@ -2317,6 +2319,27 @@
       "fixTransferDisabled": "관리 정책이 파일 전송을 끄고 있습니다. 관리자에게 문의하세요.",
       "supportTitle": "도움 받기",
       "supportDesc": "생성에 실패하면 알림의 Copy Error를 사용하고, 추적 ID가 있으면 함께 포함해 지원팀에 문의하세요."
+    },
+    "ui": {
+      "onThisPage": "이 페이지 내용",
+      "copyPage": "페이지 복사",
+      "copyPageDesc": "LLM용 Markdown으로 복사",
+      "copied": "복사됨",
+      "pageActions": "더 많은 페이지 작업",
+      "openInChatGPT": "ChatGPT에서 열기",
+      "openInClaude": "Claude에서 열기",
+      "openInDesc": "이 페이지에 대해 질문하기",
+      "askPrompt": "{url} 문서를 읽고 내용에 대한 질문에 답해 주세요.",
+      "previous": "이전",
+      "next": "다음",
+      "helpful": "이 페이지가 도움이 되었나요?",
+      "yes": "예",
+      "no": "아니요",
+      "thanks": "의견을 보내 주셔서 감사합니다.",
+      "raiseIssue": "이슈 등록",
+      "openNavigation": "탐색 열기",
+      "closeNavigation": "탐색 닫기",
+      "searchShortcut": "문서 검색 (⌘K)"
     }
   },
   "legal": {

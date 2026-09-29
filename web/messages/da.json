@@ -134,7 +134,9 @@
     "backToBlog": "Tilbage til blog",
     "readTheDocs": "Læs dokumentationen",
     "viewChangelog": "Se ændringslog",
-    "otherPlatforms": "Andre platforme"
+    "otherPlatforms": "Andre platforme",
+    "copyCode": "Kopiér kode",
+    "copied": "Kopieret"
   },
   "nav": {
     "docs": "Dokumentation",
@@ -2317,6 +2319,27 @@
       "fixTransferDisabled": "En administreret politik slår filoverførsel fra. Spørg din administrator.",
       "supportTitle": "Få hjælp",
       "supportDesc": "Hvis en oprettelse mislykkes, skal du bruge Copy Error i notifikationen og medtage fejlen, sammen med trace-ID'et hvis der er et, når du kontakter support."
+    },
+    "ui": {
+      "onThisPage": "På denne side",
+      "copyPage": "Kopiér side",
+      "copyPageDesc": "Kopiér siden som Markdown til LLM'er",
+      "copied": "Kopieret",
+      "pageActions": "Flere sidehandlinger",
+      "openInChatGPT": "Åbn i ChatGPT",
+      "openInClaude": "Åbn i Claude",
+      "openInDesc": "Stil spørgsmål om denne side",
+      "askPrompt": "Læs {url}, så jeg kan stille spørgsmål om den.",
+      "previous": "Forrige",
+      "next": "Næste",
+      "helpful": "Var denne side nyttig?",
+      "yes": "Ja",
+      "no": "Nej",
+      "thanks": "Tak for din feedback.",
+      "raiseIssue": "Opret issue",
+      "openNavigation": "Åbn navigation",
+      "closeNavigation": "Luk navigation",
+      "searchShortcut": "Søg i dokumentationen (⌘K)"
     }
   },
   "legal": {

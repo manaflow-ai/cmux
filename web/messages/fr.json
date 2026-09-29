@@ -134,7 +134,9 @@
     "backToBlog": "Retour au blog",
     "readTheDocs": "Lire la documentation",
     "viewChangelog": "Voir le changelog",
-    "otherPlatforms": "Autres plateformes"
+    "otherPlatforms": "Autres plateformes",
+    "copyCode": "Copier le code",
+    "copied": "Copié"
   },
   "nav": {
     "docs": "Docs",
@@ -2322,6 +2324,27 @@
       "fixTransferDisabled": "Une stratégie gérée désactive le transfert de fichiers. Contactez votre administrateur.",
       "supportTitle": "Obtenir de l'aide",
       "supportDesc": "Si une création échoue, utilisez Copy Error dans la notification et joignez l'erreur, avec l'identifiant de trace s'il y en a un, lorsque vous contactez l'assistance."
+    },
+    "ui": {
+      "onThisPage": "Sur cette page",
+      "copyPage": "Copier la page",
+      "copyPageDesc": "Copier la page en Markdown pour les LLM",
+      "copied": "Copié",
+      "pageActions": "Autres actions de la page",
+      "openInChatGPT": "Ouvrir dans ChatGPT",
+      "openInClaude": "Ouvrir dans Claude",
+      "openInDesc": "Poser des questions sur cette page",
+      "askPrompt": "Lis {url} pour que je puisse poser des questions dessus.",
+      "previous": "Précédent",
+      "next": "Suivant",
+      "helpful": "Cette page vous a-t-elle été utile ?",
+      "yes": "Oui",
+      "no": "Non",
+      "thanks": "Merci pour votre retour.",
+      "raiseIssue": "Signaler un problème",
+      "openNavigation": "Ouvrir la navigation",
+      "closeNavigation": "Fermer la navigation",
+      "searchShortcut": "Rechercher dans la documentation (⌘K)"
     }
   },
   "legal": {

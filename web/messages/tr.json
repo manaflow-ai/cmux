@@ -134,7 +134,9 @@
     "backToBlog": "Bloga dön",
     "readTheDocs": "Belgeleri Oku",
     "viewChangelog": "Değişiklik Günlüğünü Görüntüle",
-    "otherPlatforms": "Diğer platformlar"
+    "otherPlatforms": "Diğer platformlar",
+    "copyCode": "Kodu kopyala",
+    "copied": "Kopyalandı"
   },
   "nav": {
     "docs": "Belgeler",
@@ -2318,6 +2320,27 @@
       "fixTransferDisabled": "Yönetilen bir ilke dosya aktarımını kapatıyor. Yöneticinize başvurun.",
       "supportTitle": "Yardım alın",
       "supportDesc": "Bir oluşturma işlemi başarısız olursa bildirimdeki Copy Error'ı kullanın ve destekle iletişime geçtiğinizde hatayı, varsa izleme kimliğiyle birlikte ekleyin."
+    },
+    "ui": {
+      "onThisPage": "Bu sayfada",
+      "copyPage": "Sayfayı kopyala",
+      "copyPageDesc": "Sayfayı LLM'ler için Markdown olarak kopyala",
+      "copied": "Kopyalandı",
+      "pageActions": "Diğer sayfa işlemleri",
+      "openInChatGPT": "ChatGPT'de aç",
+      "openInClaude": "Claude'da aç",
+      "openInDesc": "Bu sayfa hakkında soru sor",
+      "askPrompt": "{url} adresini oku ki onun hakkında soru sorabileyim.",
+      "previous": "Önceki",
+      "next": "Sonraki",
+      "helpful": "Bu sayfa yardımcı oldu mu?",
+      "yes": "Evet",
+      "no": "Hayır",
+      "thanks": "Geri bildiriminiz için teşekkürler.",
+      "raiseIssue": "Sorun bildir",
+      "openNavigation": "Gezinmeyi aç",
+      "closeNavigation": "Gezinmeyi kapat",
+      "searchShortcut": "Belgelerde ara (⌘K)"
     }
   },
   "legal": {

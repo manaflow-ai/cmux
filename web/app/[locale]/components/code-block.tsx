@@ -1,4 +1,17 @@
 import { codeToHtml } from "shiki";
+import { CodeCopyButton } from "./code-copy-button";
+
+const frameClass =
+  "not-prose group relative mb-5 overflow-hidden rounded-2xl border border-border bg-code-bg";
+
+function CodeHeader({ label }: { label: string }) {
+  return (
+    <div className="flex h-10 items-center justify-between border-b border-border pl-4 pr-1.5">
+      <span className="truncate font-mono text-[12px] text-muted">{label}</span>
+      <CodeCopyButton />
+    </div>
+  );
+}
 
 export async function CodeBlock({
   children,
@@ -14,9 +27,14 @@ export async function CodeBlock({
   "use cache";
 
   const plainLineHeightClass =
-    variant === "ascii" ? "leading-[1.15]" : "leading-[1.45]";
+    variant === "ascii" ? "leading-[1.15]" : "leading-[1.6]";
   const shikiLineHeightClass =
-    variant === "ascii" ? "[&_pre]:leading-[1.15]" : "[&_pre]:leading-[1.45]";
+    variant === "ascii" ? "[&_pre]:leading-[1.15]" : "[&_pre]:leading-[1.6]";
+  const headerLabel = title ?? (variant === "ascii" ? undefined : lang);
+  // Without a header the copy button floats over the code and appears on hover.
+  const floatingCopy = headerLabel ? null : (
+    <CodeCopyButton className="absolute right-2 top-2 bg-code-bg opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
+  );
 
   if (lang && variant !== "ascii") {
     const html = await codeToHtml(children, {
@@ -26,35 +44,24 @@ export async function CodeBlock({
     });
 
     return (
-      <div className="not-prose mb-4">
-        {title && (
-          <div className="text-[11px] font-mono text-muted px-4 py-1.5 bg-code-bg border border-border border-b-0 rounded-t-lg">
-            {title}
-          </div>
-        )}
+      <div className={frameClass} data-code-block>
+        {headerLabel && <CodeHeader label={headerLabel} />}
         <div
-          className={`[&_pre]:m-0 [&_pre]:bg-code-bg [&_pre]:border [&_pre]:border-border [&_pre]:px-4 [&_pre]:py-3 [&_pre]:overflow-x-auto [&_pre]:text-[13px] ${shikiLineHeightClass} [&_pre]:font-mono ${
-            title
-              ? "[&_pre]:rounded-b-lg [&_pre]:border-t-0"
-              : "[&_pre]:rounded-lg"
-          } [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-[1em]`}
+          className={`[&_pre]:m-0 [&_pre]:bg-transparent [&_pre]:px-4 [&_pre]:py-3.5 [&_pre]:overflow-x-auto [&_pre]:text-[13px] ${shikiLineHeightClass} [&_pre]:font-mono [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-[1em]`}
           dangerouslySetInnerHTML={{ __html: html }}
         />
+        {floatingCopy}
       </div>
     );
   }
 
   return (
-    <div className="not-prose mb-4">
-      {title && (
-        <div className="text-[11px] font-mono text-muted px-4 py-1.5 bg-code-bg border border-border border-b-0 rounded-t-lg">
-          {title}
-        </div>
-      )}
+    <div className={frameClass} data-code-block>
+      {headerLabel && <CodeHeader label={headerLabel} />}
       <pre
-        className={`bg-code-bg border border-border px-4 py-3 overflow-x-auto text-[13px] ${plainLineHeightClass} ${
-          variant === "ascii" ? "" : "font-mono "
-        }${title ? "rounded-b-lg" : "rounded-lg"}`}
+        className={`m-0 px-4 py-3.5 overflow-x-auto text-[13px] ${plainLineHeightClass} ${
+          variant === "ascii" ? "" : "font-mono"
+        }`}
         style={
           variant === "ascii"
             ? {
@@ -68,6 +75,7 @@ export async function CodeBlock({
           {children}
         </code>
       </pre>
+      {floatingCopy}
     </div>
   );
 }

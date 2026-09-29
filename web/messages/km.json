@@ -134,7 +134,9 @@
     "backToBlog": "ត្រឡប់ទៅប្លក់",
     "readTheDocs": "អានឯកសារ",
     "viewChangelog": "មើលកំណត់ត្រាផ្លាស់ប្ដូរ",
-    "otherPlatforms": "វេទិកាផ្សេងទៀត"
+    "otherPlatforms": "វេទិកាផ្សេងទៀត",
+    "copyCode": "ចម្លងកូដ",
+    "copied": "បានចម្លង"
   },
   "nav": {
     "docs": "ឯកសារ",
@@ -2318,6 +2320,27 @@
       "fixTransferDisabled": "គោលការណ៍ដែលបានគ្រប់គ្រងបិទការផ្ទេរឯកសារ។ សូមសួរអ្នកគ្រប់គ្រងរបស់អ្នក។",
       "supportTitle": "ទទួលជំនួយ",
       "supportDesc": "ប្រសិនបើការបង្កើតបរាជ័យ សូមប្រើ Copy Error នៅក្នុងការជូនដំណឹង ហើយភ្ជាប់វាមកជាមួយ trace ID ប្រសិនបើមាន នៅពេលទាក់ទងផ្នែកជំនួយ។"
+    },
+    "ui": {
+      "onThisPage": "នៅលើទំព័រនេះ",
+      "copyPage": "ចម្លងទំព័រ",
+      "copyPageDesc": "ចម្លងទំព័រជា Markdown សម្រាប់ LLM",
+      "copied": "បានចម្លង",
+      "pageActions": "សកម្មភាពទំព័របន្ថែម",
+      "openInChatGPT": "បើកក្នុង ChatGPT",
+      "openInClaude": "បើកក្នុង Claude",
+      "openInDesc": "សួរសំណួរអំពីទំព័រនេះ",
+      "askPrompt": "សូមអាន {url} ដើម្បីឱ្យខ្ញុំអាចសួរសំណួរអំពីវាបាន។",
+      "previous": "មុន",
+      "next": "បន្ទាប់",
+      "helpful": "តើទំព័រនេះមានប្រយោជន៍ទេ?",
+      "yes": "បាទ/ចាស",
+      "no": "ទេ",
+      "thanks": "សូមអរគុណសម្រាប់មតិរបស់អ្នក។",
+      "raiseIssue": "រាយការណ៍បញ្ហា",
+      "openNavigation": "បើកការរុករក",
+      "closeNavigation": "បិទការរុករក",
+      "searchShortcut": "ស្វែងរកឯកសារ (⌘K)"
     }
   },
   "legal": {

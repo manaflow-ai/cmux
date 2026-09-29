@@ -39,7 +39,7 @@ export default async function DocsLayout({
   return (
     <NextIntlClientProvider messages={messages}>
       <div className="min-h-screen">
-        <SiteHeader section="docs" />
+        <SiteHeader section="docs" wide />
         <DocsNav channel={channel}>
           {children}
         </DocsNav>

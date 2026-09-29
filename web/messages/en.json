@@ -336,7 +336,9 @@
     "backToBlog": "Back to blog",
     "readTheDocs": "Read the Docs",
     "viewChangelog": "View Changelog",
-    "otherPlatforms": "Other platforms"
+    "otherPlatforms": "Other platforms",
+    "copyCode": "Copy code",
+    "copied": "Copied"
   },
   "dashboard": {
     "nav": {
@@ -3848,6 +3850,27 @@
       "fixTransferDisabled": "A managed policy turns off file transfer. Ask your administrator.",
       "supportTitle": "Get help",
       "supportDesc": "If a create fails, use Copy Error in the notification and include it, with the trace ID if there is one, when you contact support."
+    },
+    "ui": {
+      "onThisPage": "On this page",
+      "copyPage": "Copy page",
+      "copyPageDesc": "Copy page as Markdown for LLMs",
+      "copied": "Copied",
+      "pageActions": "More page actions",
+      "openInChatGPT": "Open in ChatGPT",
+      "openInClaude": "Open in Claude",
+      "openInDesc": "Ask questions about this page",
+      "askPrompt": "Read {url} so I can ask questions about it.",
+      "previous": "Previous",
+      "next": "Next",
+      "helpful": "Was this page helpful?",
+      "yes": "Yes",
+      "no": "No",
+      "thanks": "Thanks for your feedback.",
+      "raiseIssue": "Raise issue",
+      "openNavigation": "Open navigation",
+      "closeNavigation": "Close navigation",
+      "searchShortcut": "Search docs (⌘K)"
     }
   },
   "deeplink": {

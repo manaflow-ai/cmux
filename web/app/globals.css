@@ -12,6 +12,7 @@
   --cmux-product-blue: #0088ff;
   --cmux-product-blue-on-background: #0073d9;
   --cmux-product-blue-on-foreground: #0088ff;
+  --docs-primary: #0073d9;
 }
 
 .dark {
@@ -24,6 +25,7 @@
   --cmux-product-blue: #0091ff;
   --cmux-product-blue-on-background: #0091ff;
   --cmux-product-blue-on-foreground: #006dc1;
+  --docs-primary: #3ba2ff;
 }
 
 @theme inline {
@@ -33,6 +35,7 @@
   --color-border: var(--border);
   --color-link-underline: var(--link-underline);
   --color-code-bg: var(--code-bg);
+  --color-docs-primary: var(--docs-primary);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -117,25 +120,37 @@ body {
 /* Docs prose styles — in @layer base so Tailwind utilities can override */
 @layer base {
   .docs-content h1 {
-    font-size: 1.5rem;
+    font-size: 1.875rem;
+    line-height: 2.25rem;
     font-weight: 700;
     letter-spacing: -0.025em;
-    padding-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+  }
+
+  /* The paragraph right after the title is the page description, shown
+     larger like a subtitle. */
+  .docs-content > h1 + p {
+    font-size: 1.125rem;
+    line-height: 1.75rem;
+    padding-bottom: 0.5rem;
   }
 
   .docs-content h2 {
-    font-size: 1.25rem;
+    font-size: 1.5rem;
+    line-height: 2rem;
     font-weight: 600;
     padding-top: 2.5rem;
     padding-bottom: 0.75rem;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.02em;
   }
 
   .docs-content h3 {
-    font-size: 1rem;
+    font-size: 1.25rem;
+    line-height: 1.75rem;
     font-weight: 600;
-    padding-top: 1.75rem;
+    padding-top: 2rem;
     padding-bottom: 0.5rem;
+    letter-spacing: -0.01em;
   }
 
   .docs-content h4 {
@@ -157,20 +172,24 @@ body {
   }
 
   .docs-content .docs-heading-anchor {
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
     color: var(--muted);
-    display: inline-block;
-    font-family: var(--font-geist-mono);
-    font-weight: 500;
+    display: inline-flex;
+    height: 1.5rem;
+    justify-content: center;
     /* Net inline advance must be 0 so heading text aligns with body text:
-       margin-left + width + margin-right = -1.2 + 1 + 0.2 = 0. The "#" still
+       margin-left + width + margin-right = -2 + 1.5 + 0.5 = 0. The link icon
        sits in the left gutter, revealed on hover. */
-    margin-left: -1.2rem;
-    margin-right: 0.2rem;
+    margin-left: -2rem;
+    margin-right: 0.5rem;
     opacity: 0;
     text-decoration: none;
-    transition: opacity 120ms ease, color 120ms ease;
+    transition: opacity 120ms ease, color 120ms ease, border-color 120ms ease;
     user-select: none;
-    width: 1rem;
+    vertical-align: 0.15em;
+    width: 1.5rem;
   }
 
   .docs-content .docs-heading:hover > .docs-heading-anchor,
@@ -179,6 +198,7 @@ body {
   }
 
   .docs-content .docs-heading-anchor:hover {
+    border-color: var(--muted);
     color: var(--foreground);
   }
 
@@ -189,8 +209,8 @@ body {
   }
 
   .docs-content > p {
-    line-height: 1.7;
-    padding-bottom: 1rem;
+    line-height: 1.75;
+    padding-bottom: 1.25rem;
     color: var(--muted);
   }
 
@@ -218,8 +238,10 @@ body {
     font-family: var(--font-geist-mono);
     font-size: 0.8125em;
     background: var(--code-bg);
-    padding: 0.125rem 0.375rem;
-    border-radius: 0.25rem;
+    border: 1px solid var(--border);
+    padding: 0.0625rem 0.375rem;
+    border-radius: 0.375rem;
+    color: var(--foreground);
     overflow-wrap: anywhere;
   }
 
@@ -249,6 +271,8 @@ body {
 
   .docs-content pre code {
     background: none;
+    border: 0;
+    color: inherit;
     padding: 0;
     font-size: 1em;
     font-family: inherit;
@@ -279,22 +303,31 @@ body {
 @layer base {
   .docs-content table {
     width: 100%;
-    border-collapse: collapse;
-    padding-bottom: 1.5rem;
+    border-collapse: separate;
+    border-spacing: 0;
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    margin-bottom: 1.5rem;
+    overflow: hidden;
     font-size: 0.875rem;
   }
 
   .docs-content th {
     text-align: left;
     font-weight: 600;
-    padding: 0.5rem 0.75rem;
+    padding: 0.625rem 0.875rem;
+    background: var(--code-bg);
     border-bottom: 1px solid var(--border);
   }
 
   .docs-content td {
-    padding: 0.5rem 0.75rem;
+    padding: 0.625rem 0.875rem;
     border-bottom: 1px solid var(--border);
     color: var(--muted);
+  }
+
+  .docs-content tr:last-child > td {
+    border-bottom: 0;
   }
 
   /* `anywhere` lowers a cell's min-content width to one glyph, so the
@@ -326,15 +359,16 @@ body {
 
   .docs-content a:not([class]) {
     color: var(--foreground);
+    font-weight: 500;
     text-decoration: underline;
     text-decoration-skip-ink: none;
     text-underline-offset: 3px;
     text-decoration-thickness: 1px;
-    text-decoration-color: var(--link-underline);
+    text-decoration-color: var(--docs-primary);
   }
 
   .docs-content a:not([class]):hover {
-    text-decoration-color: var(--foreground);
+    text-decoration-thickness: 2px;
   }
 }
 

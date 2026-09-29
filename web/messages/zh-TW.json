@@ -134,7 +134,9 @@
     "backToBlog": "返回部落格",
     "readTheDocs": "閱讀文件",
     "viewChangelog": "查看更新日誌",
-    "otherPlatforms": "其他平台"
+    "otherPlatforms": "其他平台",
+    "copyCode": "複製程式碼",
+    "copied": "已複製"
   },
   "nav": {
     "docs": "文件",
@@ -2319,6 +2321,27 @@
       "fixTransferDisabled": "受管理的原則已關閉檔案傳輸。請聯絡你的管理員。",
       "supportTitle": "取得協助",
       "supportDesc": "如果建立失敗，請使用通知中的 Copy Error，並在聯絡支援時附上錯誤訊息以及追蹤 ID（如有）。"
+    },
+    "ui": {
+      "onThisPage": "本頁內容",
+      "copyPage": "複製頁面",
+      "copyPageDesc": "以 Markdown 格式複製，供 LLM 使用",
+      "copied": "已複製",
+      "pageActions": "更多頁面操作",
+      "openInChatGPT": "在 ChatGPT 中開啟",
+      "openInClaude": "在 Claude 中開啟",
+      "openInDesc": "就本頁提問",
+      "askPrompt": "請閱讀 {url}，以便我就其內容提問。",
+      "previous": "上一頁",
+      "next": "下一頁",
+      "helpful": "這個頁面對你有幫助嗎？",
+      "yes": "是",
+      "no": "否",
+      "thanks": "感謝你的回饋。",
+      "raiseIssue": "提交 Issue",
+      "openNavigation": "開啟導覽",
+      "closeNavigation": "關閉導覽",
+      "searchShortcut": "搜尋文件 (⌘K)"
     }
   },
   "legal": {

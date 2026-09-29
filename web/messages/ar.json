@@ -134,7 +134,9 @@
     "backToBlog": "العودة إلى المدونة",
     "readTheDocs": "اقرأ الوثائق",
     "viewChangelog": "عرض سجل التغييرات",
-    "otherPlatforms": "منصات أخرى"
+    "otherPlatforms": "منصات أخرى",
+    "copyCode": "نسخ الشيفرة",
+    "copied": "تم النسخ"
   },
   "nav": {
     "docs": "الوثائق",
@@ -2317,6 +2319,27 @@
       "fixTransferDisabled": "تعطّل سياسة مُدارة نقل الملفات. اسأل المسؤول.",
       "supportTitle": "الحصول على المساعدة",
       "supportDesc": "إذا فشل الإنشاء، استخدم Copy Error في الإشعار وأرفق الخطأ، مع معرّف التتبع إن وُجد، عند التواصل مع الدعم."
+    },
+    "ui": {
+      "onThisPage": "في هذه الصفحة",
+      "copyPage": "نسخ الصفحة",
+      "copyPageDesc": "نسخ الصفحة بتنسيق Markdown لنماذج اللغة",
+      "copied": "تم النسخ",
+      "pageActions": "المزيد من إجراءات الصفحة",
+      "openInChatGPT": "فتح في ChatGPT",
+      "openInClaude": "فتح في Claude",
+      "openInDesc": "اطرح أسئلة حول هذه الصفحة",
+      "askPrompt": "اقرأ {url} حتى أتمكن من طرح أسئلة حوله.",
+      "previous": "السابق",
+      "next": "التالي",
+      "helpful": "هل كانت هذه الصفحة مفيدة؟",
+      "yes": "نعم",
+      "no": "لا",
+      "thanks": "شكرًا لملاحظاتك.",
+      "raiseIssue": "الإبلاغ عن مشكلة",
+      "openNavigation": "فتح التنقل",
+      "closeNavigation": "إغلاق التنقل",
+      "searchShortcut": "البحث في الوثائق (⌘K)"
     }
   },
   "legal": {

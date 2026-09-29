@@ -134,7 +134,9 @@
     "backToBlog": "Nazad na blog",
     "readTheDocs": "Pročitaj dokumentaciju",
     "viewChangelog": "Pogledaj zapisnik promjena",
-    "otherPlatforms": "Druge platforme"
+    "otherPlatforms": "Druge platforme",
+    "copyCode": "Kopiraj kod",
+    "copied": "Kopirano"
   },
   "nav": {
     "docs": "Dokumentacija",
@@ -2320,6 +2322,27 @@
       "fixTransferDisabled": "Upravljana politika isključuje prijenos datoteka. Obratite se administratoru.",
       "supportTitle": "Pomoć",
       "supportDesc": "Ako kreiranje ne uspije, koristite Copy Error u notifikaciji i priložite grešku, s trace ID-jem ako postoji, kada kontaktirate podršku."
+    },
+    "ui": {
+      "onThisPage": "Na ovoj stranici",
+      "copyPage": "Kopiraj stranicu",
+      "copyPageDesc": "Kopiraj stranicu kao Markdown za LLM",
+      "copied": "Kopirano",
+      "pageActions": "Više radnji za stranicu",
+      "openInChatGPT": "Otvori u ChatGPT-u",
+      "openInClaude": "Otvori u Claudeu",
+      "openInDesc": "Postavi pitanja o ovoj stranici",
+      "askPrompt": "Pročitaj {url} kako bih mogao postavljati pitanja o njoj.",
+      "previous": "Prethodno",
+      "next": "Sljedeće",
+      "helpful": "Je li vam ova stranica bila korisna?",
+      "yes": "Da",
+      "no": "Ne",
+      "thanks": "Hvala na povratnoj informaciji.",
+      "raiseIssue": "Prijavi problem",
+      "openNavigation": "Otvori navigaciju",
+      "closeNavigation": "Zatvori navigaciju",
+      "searchShortcut": "Pretraži dokumentaciju (⌘K)"
     }
   },
   "legal": {
