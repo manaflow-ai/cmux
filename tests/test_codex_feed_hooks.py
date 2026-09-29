@@ -79,6 +79,7 @@ class FakeCmuxSocket:
         decision: dict | None,
         surfaces: list[dict] | None = None,
         drop_first_surface_list: bool = False,
+        empty_surface_list_count: int = 0,
         feed_response_gate: threading.Event | None = None,
         feed_response_ok: bool = True,
         include_feed_item_id: bool = True,
@@ -93,6 +94,7 @@ class FakeCmuxSocket:
         self.decision = decision
         self.surfaces = surfaces if surfaces is not None else [{"id": FAKE_SURFACE_ID}]
         self.drop_first_surface_list = drop_first_surface_list
+        self.empty_surface_list_count = empty_surface_list_count
         self.feed_response_gate = feed_response_gate
         self.feed_response_ok = feed_response_ok
         self.include_feed_item_id = include_feed_item_id
@@ -103,6 +105,7 @@ class FakeCmuxSocket:
         self.single_batch_item_id = single_batch_item_id
         self.method_delays = method_delays or {}
         self._dropped_surface_list = False
+        self._empty_surface_lists_seen = 0
         self.frames: list[dict] = []
         self.frames_with_connection: list[tuple[int, dict]] = []
         self._next_connection_id = 0
@@ -223,6 +226,9 @@ class FakeCmuxSocket:
                             if self.surfaces_by_workspace is not None
                             else self.surfaces
                         )
+                        if self._empty_surface_lists_seen < self.empty_surface_list_count:
+                            self._empty_surface_lists_seen += 1
+                            surfaces = []
                         result = {"surfaces": surfaces}
                     elif (
                         frame.get("method") == "agent.resolve_delivery_target"
@@ -587,6 +593,41 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
         raw_commands = [frame.get("raw", "") for frame in fake.frames]
         if not any(command.startswith("set_status codex ") for command in raw_commands):
             raise AssertionError(f"monitor exited before publishing transcript failure: {fake.frames!r}")
+
+
+def test_codex_monitor_survives_transient_owner_absence_while_pending(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-owner-grace.sock"
+    transcript_path = root / "codex-session-owner-grace.jsonl"
+    turn_id = f"codex-monitor-owner-grace-turn-{os.getpid()}"
+    transcript_path.write_text(
+        json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": turn_id}}) + "\n",
+        encoding="utf-8",
+    )
+    session_id = f"codex-monitor-owner-grace-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    def complete_transcript() -> None:
+        time.sleep(0.3)
+        with transcript_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"type": "event_msg", "payload": {"type": "turn_complete", "turn_id": turn_id, "last_agent_message": "Done"}}) + "\n")
+
+    with FakeCmuxSocket(socket_path, None, empty_surface_list_count=1) as fake:
+        threading.Thread(target=complete_transcript, daemon=True).start()
+        result = subprocess.run(
+            [
+                cli_path, "--socket", str(socket_path), "hooks", "codex", "monitor",
+                "--workspace", FAKE_WORKSPACE_ID, "--session", session_id,
+                "--turn", turn_id, "--transcript", str(transcript_path),
+            ],
+            capture_output=True, text=True, check=False, env=env, timeout=5,
+        )
+        if result.returncode != 0:
+            raise AssertionError(f"owner grace monitor failed: {result.stdout}\n{result.stderr}")
+        raw_commands = [frame.get("raw", "") for frame in fake.frames]
+        if not any(command.startswith("set_status codex Idle ") for command in raw_commands):
+            raise AssertionError(f"monitor exited during transient owner absence: {raw_commands!r}")
 
 
 def test_codex_monitor_rehomes_replayed_stop_after_surface_move(cli_path: str, root: Path) -> None:
@@ -4105,6 +4146,7 @@ def main() -> int:
             test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
+            test_codex_monitor_survives_transient_owner_absence_while_pending(cli_path, root)
             test_codex_monitor_rehomes_replayed_stop_after_surface_move(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
