@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '252966630de426c49feb36ad1c035f9489871b52e59dc659d4fd93a49d20e675'
+IR_SHA256 = '006ce9e0317fb3ac4fa67c61bbf854d85fb74ae2c6ad91a7d7cb2e47eac8610e'
 
 
 @dataclass(frozen=True)
@@ -458,6 +458,7 @@ COMMANDS = {
             'env': CommandFieldMetadata(12, 'terminal-env-v1'),
             'expected_generation': CommandFieldMetadata(None, None),
             'expected_revision': CommandFieldMetadata(None, None),
+            'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'key': CommandFieldMetadata(None, None),
             'mutation_id': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
@@ -1016,8 +1017,12 @@ COMMANDS = {
         None,
         {
             'cols': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'env': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
     'new-pane-right': CommandMetadata(
@@ -1029,8 +1034,12 @@ COMMANDS = {
         None,
         {
             'cols': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'env': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'width': CommandFieldMetadata(None, None),
         },
     ),
@@ -1058,8 +1067,10 @@ COMMANDS = {
             'cols': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(None, None),
             'env': CommandFieldMetadata(12, 'terminal-env-v1'),
+            'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
     'new-workspace': CommandMetadata(
@@ -1626,6 +1637,19 @@ COMMANDS = {
             'terminal_id': CommandFieldMetadata(None, None),
         },
     ),
+    'set-terminal-keep': CommandMetadata(
+        'set-terminal-keep',
+        'control',
+        12,
+        'terminal-reap-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'keep': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-viewport-pane-width': CommandMetadata(
         'set-viewport-pane-width',
         'control',
@@ -1677,6 +1701,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'end_terminals': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'force': CommandFieldMetadata(10, 'daemon-handoff-force-v1'),
             'generation': CommandFieldMetadata(None, None),
             'pid': CommandFieldMetadata(None, None),
@@ -1707,8 +1732,10 @@ COMMANDS = {
             'cwd': CommandFieldMetadata(12, 'terminal-env-v1'),
             'dir': CommandFieldMetadata(None, None),
             'env': CommandFieldMetadata(12, 'terminal-env-v1'),
+            'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
     'subscribe': CommandMetadata(
@@ -1959,6 +1986,7 @@ EVENTS = {
     'tab-changed': EventMetadata('tab-changed', 12, 'tab-metadata-v1', ('subscribe-deltas',), 'emitted'),
     'tab-closed': EventMetadata('tab-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'tab-renamed': EventMetadata('tab-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
+    'terminal-reaped': EventMetadata('terminal-reaped', 12, 'terminal-reap-v1', ('subscribe',), 'emitted'),
     'terminal-registry-changed': EventMetadata('terminal-registry-changed', 9, None, ('subscribe',), 'emitted'),
     'title-changed': EventMetadata('title-changed', 5, None, ('subscribe',), 'emitted'),
     'tree-changed': EventMetadata('tree-changed', 5, None, ('subscribe',), 'emitted'),

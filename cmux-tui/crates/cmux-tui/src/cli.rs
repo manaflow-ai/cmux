@@ -688,9 +688,11 @@ USAGE
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> viewport scroll --delta-rows <n>
   cmux terminal <selector> move|project|attach|close [OPTIONS]
+  cmux terminal <term_id> keep on|off
 
 screen wait prints its result either way and exits 1 when the timeout
-passes without a match.
+passes without a match. keep on stops the owner from ending the terminal
+when it has no tab; keep off lets it end after the reap grace period.
 ";
 
 const BROWSER_HELP: &str = "\
@@ -852,7 +854,20 @@ mod tests {
         };
         assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
         assert!(global.session.is_none());
-        assert!(matches!(plan.action, lifecycle::ServerAction::Stop { force: true }));
+        assert!(matches!(
+            plan.action,
+            lifecycle::ServerAction::Stop { force: true, end_terminals: false }
+        ));
+
+        let ParsedCommand::Command { plan: CommandPlan::Server(plan), .. } =
+            parse(&strings(&["server", "stop", "--end-terminals"])).unwrap()
+        else {
+            panic!("server stop --end-terminals must produce a server plan");
+        };
+        assert!(matches!(
+            plan.action,
+            lifecycle::ServerAction::Stop { force: false, end_terminals: true }
+        ));
 
         let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
             parse(&strings(&[

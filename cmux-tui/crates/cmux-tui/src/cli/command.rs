@@ -191,7 +191,10 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stats"] => super::lifecycle::ServerAction::Stats,
         ["ensure"] => super::lifecycle::ServerAction::Ensure,
-        ["stop"] => super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
+        ["stop"] => super::lifecycle::ServerAction::Stop {
+            force: flags.boolean("force"),
+            end_terminals: flags.boolean("end-terminals"),
+        },
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
         ["start"] => {
             return Err(UsageError::new(
@@ -281,6 +284,7 @@ const BOOLEAN_FLAGS: &[&str] = &[
     "up",
     "down",
     "force",
+    "end-terminals",
     "confirm-close",
     "complete",
     "clear-name",
@@ -489,7 +493,10 @@ fn parse_session(
                 }
             };
             Ok(CommandPlan::Server(super::lifecycle::ServerPlan {
-                action: super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
+                action: super::lifecycle::ServerAction::Stop {
+                    force: flags.boolean("force"),
+                    end_terminals: flags.boolean("end-terminals"),
+                },
                 session,
             }))
         }
@@ -1176,6 +1183,28 @@ fn parse_terminal(
         [selector, "close"] => {
             selectors.insert("terminal", "term", selector)?;
             request(ResourceOperation::TerminalClose, selectors, flags, Map::new())
+        }
+        [selector, "keep", state] => {
+            // `set-terminal-keep` resolves only exact terminal identities, so
+            // the relative selectors other terminal verbs accept are refused.
+            if !matches!(Selector::parse(selector), Ok(Selector::Id(_))) {
+                return Err(UsageError::new("terminal keep needs a term_ terminal ID"));
+            }
+            validate_prefixed_id("terminal", "term", selector)?;
+            let keep = match *state {
+                "on" => true,
+                "off" => false,
+                _ => return Err(UsageError::new("terminal keep must be on or off")),
+            };
+            Ok(CommandPlan::RawCommand(super::raw::RawCommandPlan {
+                request: json!({
+                    "id": 1,
+                    "cmd": "set-terminal-keep",
+                    "terminal_id": selector,
+                    "keep": keep,
+                }),
+                stream: false,
+            }))
         }
         _ => usage("terminal action"),
     }
@@ -3382,6 +3411,20 @@ mod tests {
         assert_eq!(add["index"], 0);
         assert!(parse(&strings(&["tab", "group", "tgrp_1", "explode"])).is_err());
         assert!(parse(&strings(&["tab", "group", "create"])).is_err());
+    }
+
+    #[test]
+    fn terminal_keep_maps_to_the_private_set_terminal_keep_command() {
+        const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
+        let on = raw_request(&["terminal", TERMINAL, "keep", "on"]);
+        assert_eq!(on["cmd"], "set-terminal-keep");
+        assert_eq!(on["terminal_id"], TERMINAL);
+        assert_eq!(on["keep"], true);
+        let off = raw_request(&["terminal", TERMINAL, "keep", "off"]);
+        assert_eq!(off["keep"], false);
+        assert!(parse(&strings(&["terminal", "current", "keep", "on"])).is_err());
+        assert!(parse(&strings(&["terminal", TERMINAL, "keep", "maybe"])).is_err());
+        assert!(parse(&strings(&["terminal", "term_xyz", "keep", "on"])).is_err());
     }
 
     fn strings(values: &[&str]) -> Vec<String> {

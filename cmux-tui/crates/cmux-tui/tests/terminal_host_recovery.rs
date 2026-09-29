@@ -50,6 +50,7 @@ struct RecoveryHarness {
     adoption_insert_failures: Option<u64>,
     template_completion_failures: Option<u64>,
     adopt_template_terminal: bool,
+    extra_args: Vec<String>,
 }
 
 impl RecoveryHarness {
@@ -68,8 +69,16 @@ impl RecoveryHarness {
             adoption_insert_failures: None,
             template_completion_failures: None,
             adopt_template_terminal: false,
+            extra_args: Vec::new(),
             dir,
         };
+        harness.restart();
+        harness
+    }
+
+    fn start_with_args(name: &str, args: &[&str]) -> Self {
+        let mut harness = Self::start_unstarted(name);
+        harness.extra_args = args.iter().map(|arg| (*arg).to_string()).collect();
         harness.restart();
         harness
     }
@@ -128,6 +137,7 @@ impl RecoveryHarness {
             adoption_insert_failures: None,
             template_completion_failures: None,
             adopt_template_terminal: false,
+            extra_args: Vec::new(),
             dir,
         }
     }
@@ -146,6 +156,7 @@ impl RecoveryHarness {
             .arg(&self.socket)
             .arg("--state")
             .arg(&self.state)
+            .args(&self.extra_args)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         if let Some(delay_ms) = self.host_ready_delay_ms {
@@ -3550,6 +3561,257 @@ fn rapid_public_create_close_acknowledges_every_exit_sidecar() {
             }),
             Some(&format!("rapid-close-{index}")),
         );
+    }
+    wait_for_no_host_records(&harness.host_root());
+}
+
+fn run_cat_workspace(socket: &Path, id: usize, name: &str) -> (String, String) {
+    let created = request(
+        socket,
+        serde_json::json!({
+            "id": id,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+            "name": name,
+        }),
+    );
+    (
+        created["terminal_id"].as_str().unwrap().to_string(),
+        created["terminal_incarnation"].as_str().unwrap().to_string(),
+    )
+}
+
+fn tree_terminal_ids(socket: &Path) -> std::collections::HashSet<String> {
+    let tree = request(socket, serde_json::json!({"id": 9_000, "cmd": "list-workspaces"}));
+    tree["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+        .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+        .filter_map(|tab| tab["terminal_id"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// A close commits and updates the tree before its host exits, and many
+/// closes end their hosts in parallel instead of one after another.
+#[test]
+fn closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host() {
+    const COUNT: usize = 100;
+    let harness = RecoveryHarness::start("close-one-hundred");
+    let terminals: Vec<(String, String)> = (0..COUNT)
+        .map(|index| run_cat_workspace(&harness.socket, index + 1, &format!("close-{index}")))
+        .collect();
+    wait_for_host_records(&harness.host_root(), COUNT);
+
+    let stream = transport::connect(&harness.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    let started = Instant::now();
+    for (index, (terminal_id, incarnation)) in terminals.iter().enumerate() {
+        stream_request(
+            &mut writer,
+            &mut reader,
+            serde_json::json!({
+                "id": 1_000 + index,
+                "cmd": "close-terminal",
+                "terminal_id": terminal_id,
+                "terminal_incarnation": incarnation,
+            }),
+        );
+    }
+    let closed_in = started.elapsed();
+    let remaining = tree_terminal_ids(&harness.socket);
+    let tree_in = started.elapsed();
+    assert!(
+        terminals.iter().all(|(terminal_id, _)| !remaining.contains(terminal_id)),
+        "closed terminals remained in the tree"
+    );
+    let host_deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while !load_terminal_host_records(&harness.host_root()).unwrap().is_empty()
+        || !load_terminal_host_exit_records(&harness.host_root()).unwrap().is_empty()
+    {
+        assert!(Instant::now() < host_deadline, "closed terminal hosts did not exit");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let hosts_in = started.elapsed();
+    eprintln!(
+        "closed {COUNT} terminals: replies {closed_in:?}, tree {tree_in:?}, hosts {hosts_in:?}"
+    );
+    // Each reply waits only for its durable commit (one fsync plus a full
+    // resource projection), never for a host exit.
+    assert!(closed_in < test_timeout(Duration::from_secs(15)), "closes took {closed_in:?}");
+    // Hosts were signaled as each close committed and end in parallel.
+    let hosts_after_last_reply = hosts_in.saturating_sub(closed_in);
+    assert!(
+        hosts_after_last_reply < test_timeout(Duration::from_secs(3)),
+        "host exits trailed the last close by {hosts_after_last_reply:?}"
+    );
+}
+
+/// The owner ends a terminal once it has no tab for the reap grace period,
+/// unless it is kept; `keep` on the creating command and `set-terminal-keep`
+/// both mark it.
+#[test]
+fn unplaced_terminal_host_is_reaped_unless_kept() {
+    let harness =
+        RecoveryHarness::start_with_args("reap-unplaced", &["--terminal-reap-grace-seconds", "0"]);
+    let identify = request(&harness.socket, serde_json::json!({"id": 1, "cmd": "identify"}));
+    assert!(
+        identify["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|capability| capability == "terminal-reap-v1")
+    );
+    let (anchor, _) = run_cat_workspace(&harness.socket, 2, "anchor");
+    let (doomed, _) = run_cat_workspace(&harness.socket, 3, "doomed");
+    let (kept, _) = run_cat_workspace(&harness.socket, 4, "kept");
+    let marked = request(
+        &harness.socket,
+        serde_json::json!({"id": 5, "cmd": "set-terminal-keep", "terminal_id": kept, "keep": true}),
+    );
+    assert_eq!(marked["terminal_id"], kept.as_str());
+    assert_eq!(marked["keep"], true);
+    wait_for_host_records(&harness.host_root(), 3);
+
+    let tree = request(&harness.socket, serde_json::json!({"id": 6, "cmd": "list-workspaces"}));
+    for name in ["doomed", "kept"] {
+        let key = tree["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|workspace| workspace["name"] == name)
+            .and_then(|workspace| workspace["key"].as_str())
+            .unwrap()
+            .to_string();
+        request(
+            &harness.socket,
+            serde_json::json!({"id": 7, "cmd": "close-workspace", "key": key}),
+        );
+    }
+    wait_for_terminal_lifecycle(&harness.socket, &doomed, "tombstoned");
+    wait_for_host_records(&harness.host_root(), 2);
+    assert_eq!(
+        request(
+            &harness.socket,
+            serde_json::json!({"id": 8, "cmd": "resolve-terminal", "terminal_id": kept}),
+        )["lifecycle"],
+        "running"
+    );
+    assert_eq!(
+        request(
+            &harness.socket,
+            serde_json::json!({"id": 9, "cmd": "resolve-terminal", "terminal_id": anchor}),
+        )["lifecycle"],
+        "running"
+    );
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 10, "cmd": "set-terminal-keep", "terminal_id": kept, "keep": false}),
+    );
+    wait_for_terminal_lifecycle(&harness.socket, &kept, "tombstoned");
+    wait_for_host_records(&harness.host_root(), 1);
+}
+
+/// Every placement command starts its terminal with a caller-chosen id
+/// already in the child's environment (`terminal-placement-env-v1`).
+#[test]
+fn placement_commands_start_terminals_with_the_caller_id_in_env() {
+    let harness = RecoveryHarness::start("placement-env");
+    let (anchor, _) = run_cat_workspace(&harness.socket, 1, "anchor");
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "resolve-terminal", "terminal_id": anchor}),
+    );
+    let surface = resolved["surface"].as_u64().unwrap();
+    let tree = request(&harness.socket, serde_json::json!({"id": 3, "cmd": "list-workspaces"}));
+    let pane = tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+        .find(|pane| {
+            pane["tabs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|tab| tab["surface"].as_u64() == Some(surface))
+        })
+        .and_then(|pane| pane["id"].as_u64())
+        .expect("anchor pane");
+    let commands = [
+        ("new-tab", serde_json::json!({})),
+        ("split", serde_json::json!({"dir": "down"})),
+        ("new-pane", serde_json::json!({})),
+        ("new-pane-right", serde_json::json!({"width": 0.5})),
+    ];
+    for (index, (command, extra)) in commands.into_iter().enumerate() {
+        let terminal_id = format!("{:012x}4000{:04x}{:012x}", 0x7e57, 0x8000, 0x200 + index);
+        let mut value = serde_json::json!({
+            "id": 10 + index,
+            "cmd": command,
+            "pane": pane,
+            "cols": 80,
+            "rows": 24,
+            "cwd": harness.dir,
+            "env": {"CMUX_SURFACE_ID": terminal_id},
+            "terminal_id": terminal_id,
+        });
+        for (key, field) in extra.as_object().unwrap() {
+            value[key] = field.clone();
+        }
+        let created = request(&harness.socket, value);
+        assert_eq!(created["terminal_id"], terminal_id.as_str(), "{command}: {created}");
+        let surface = created["surface"].as_u64().unwrap();
+        request(
+            &harness.socket,
+            serde_json::json!({
+                "id": 20 + index,
+                "cmd": "send",
+                "surface": surface,
+                "text": "printf 'id=%s cwd=%s\\n' \"$CMUX_SURFACE_ID\" \"$PWD\"\n",
+            }),
+        );
+        let marker = format!("id={terminal_id} cwd=");
+        let screen = wait_for_screen(&harness.socket, surface, &marker);
+        assert!(screen.contains(&marker), "{command}: {screen}");
+    }
+}
+
+/// `shutdown-daemon` with `end_terminals` ends every host before the daemon
+/// exits, so test teardown leaves no terminal host behind.
+#[test]
+fn shutdown_daemon_with_end_terminals_leaves_no_terminal_host() {
+    let mut harness = RecoveryHarness::start("shutdown-end-terminals");
+    let (_, _) = run_cat_workspace(&harness.socket, 1, "one");
+    let (detached, _) = run_cat_workspace(&harness.socket, 2, "two");
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 3, "cmd": "set-terminal-keep", "terminal_id": detached, "keep": true}),
+    );
+    wait_for_host_records(&harness.host_root(), 2);
+    let identify = request(&harness.socket, serde_json::json!({"id": 4, "cmd": "identify"}));
+    let accepted = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 5,
+            "cmd": "shutdown-daemon",
+            "pid": identify["pid"],
+            "generation": identify["generation"],
+            "end_terminals": true,
+        }),
+    );
+    assert_eq!(accepted["accepted"], true);
+    assert_eq!(accepted["ended_terminals"], 2);
+    let mut daemon = harness.child.take().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while daemon.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "daemon did not exit after shutdown");
+        std::thread::sleep(Duration::from_millis(10));
     }
     wait_for_no_host_records(&harness.host_root());
 }

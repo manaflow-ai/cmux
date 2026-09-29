@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 252966630de426c49feb36ad1c035f9489871b52e59dc659d4fd93a49d20e675.
+// cmux-tui mux protocol 12, IR 006ce9e0317fb3ac4fa67c61bbf854d85fb74ae2c6ad91a7d7cb2e47eac8610e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -464,6 +464,8 @@ pub struct CreateTerminalRequest {
     pub expected_generation: Optional<String>,
     #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
     pub expected_revision: Optional<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub key: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -997,9 +999,17 @@ pub type NewFrontendBrowserTabResult = T::JsonValue;
 pub struct NewPaneRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cwd: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub env: Optional<BTreeMap<String, String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep: Option<bool>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1010,9 +1020,17 @@ pub type NewPaneResult = T::SurfaceResult;
 pub struct NewPaneRightRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cwd: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub env: Optional<BTreeMap<String, String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep: Option<bool>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub width: Optional<f32>,
 }
@@ -1043,10 +1061,14 @@ pub struct NewTabRequest {
     pub cwd: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub env: Optional<BTreeMap<String, String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1565,6 +1587,16 @@ pub struct SetTerminalIdlePolicyRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetTerminalKeepRequest {
+    pub keep: bool,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetViewportPaneWidthRequest {
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1614,6 +1646,8 @@ pub type SetWorkspaceMetadataResult = T::JsonValue;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShutdownDaemonRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub end_terminals: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub force: Option<bool>,
     pub generation: String,
     pub pid: u32,
@@ -1638,9 +1672,13 @@ pub struct SplitRequest {
     pub dir: T::SplitDirection,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub env: Optional<BTreeMap<String, String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep: Option<bool>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -2009,6 +2047,10 @@ impl CmuxClient {
             self.require_protocol_field("create-terminal", 12)?;
             self.require_capability_field("create-terminal", "terminal-env-v1")?;
         }
+        if request.keep.is_some() {
+            self.require_protocol_field("create-terminal", 12)?;
+            self.require_capability_field("create-terminal", "terminal-reap-v1")?;
+        }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("create-terminal", 9)?;
         }
@@ -2212,10 +2254,42 @@ impl CmuxClient {
     }
 
     pub fn new_pane(&mut self, request: NewPaneRequest) -> Result<NewPaneResult> {
+        if !request.cwd.is_missing() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "terminal-placement-env-v1")?;
+        }
+        if !request.env.is_missing() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "terminal-placement-env-v1")?;
+        }
+        if request.keep.is_some() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "terminal-reap-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "terminal-placement-env-v1")?;
+        }
         self.execute(&NEW_PANE_METADATA, &request)
     }
 
     pub fn new_pane_right(&mut self, request: NewPaneRightRequest) -> Result<NewPaneRightResult> {
+        if !request.cwd.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "terminal-placement-env-v1")?;
+        }
+        if !request.env.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "terminal-placement-env-v1")?;
+        }
+        if request.keep.is_some() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "terminal-reap-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "terminal-placement-env-v1")?;
+        }
         self.execute(&NEW_PANE_RIGHT_METADATA, &request)
     }
 
@@ -2227,6 +2301,14 @@ impl CmuxClient {
         if !request.env.is_missing() {
             self.require_protocol_field("new-tab", 12)?;
             self.require_capability_field("new-tab", "terminal-env-v1")?;
+        }
+        if request.keep.is_some() {
+            self.require_protocol_field("new-tab", 12)?;
+            self.require_capability_field("new-tab", "terminal-reap-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("new-tab", 12)?;
+            self.require_capability_field("new-tab", "terminal-placement-env-v1")?;
         }
         self.execute(&NEW_TAB_METADATA, &request)
     }
@@ -2450,6 +2532,10 @@ impl CmuxClient {
         self.execute(&SET_TERMINAL_IDLE_POLICY_METADATA, &request)
     }
 
+    pub fn set_terminal_keep(&mut self, request: SetTerminalKeepRequest) -> Result<T::SetTerminalKeepResult> {
+        self.execute(&SET_TERMINAL_KEEP_METADATA, &request)
+    }
+
     pub fn set_viewport_pane_width(&mut self, request: SetViewportPaneWidthRequest) -> Result<SetViewportPaneWidthResult> {
         if !request.transaction.is_missing() {
             self.require_protocol_field("set-viewport-pane-width", 9)?;
@@ -2467,6 +2553,10 @@ impl CmuxClient {
     }
 
     pub fn shutdown_daemon(&mut self, request: ShutdownDaemonRequest) -> Result<T::ShutdownDaemonResult> {
+        if request.end_terminals.is_some() {
+            self.require_protocol_field("shutdown-daemon", 12)?;
+            self.require_capability_field("shutdown-daemon", "terminal-reap-v1")?;
+        }
         if request.force.is_some() {
             self.require_protocol_field("shutdown-daemon", 10)?;
             self.require_capability_field("shutdown-daemon", "daemon-handoff-force-v1")?;
@@ -2486,6 +2576,14 @@ impl CmuxClient {
         if !request.env.is_missing() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-env-v1")?;
+        }
+        if request.keep.is_some() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "terminal-reap-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "terminal-placement-env-v1")?;
         }
         self.execute(&SPLIT_METADATA, &request)
     }

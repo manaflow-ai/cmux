@@ -23,6 +23,8 @@ struct MuxEventSubscriber {
 enum MuxEventFilter {
     All,
     ConfigReload,
+    /// Events that can change which terminals have zero placements.
+    TerminalTopology,
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -71,6 +73,10 @@ impl MuxEventBroadcaster {
 
     pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::ConfigReload)
+    }
+
+    pub(crate) fn subscribe_terminal_topology(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::TerminalTopology)
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -137,6 +143,14 @@ impl MuxEventFilter {
         match self {
             Self::All => true,
             Self::ConfigReload => matches!(event, MuxEvent::ConfigReloadRequested),
+            Self::TerminalTopology => matches!(
+                event,
+                MuxEvent::TreeChanged
+                    | MuxEvent::TreeDelta(_)
+                    | MuxEvent::TerminalRegistryChanged { .. }
+                    | MuxEvent::SurfaceExited(_)
+                    | MuxEvent::Empty
+            ),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -180,6 +194,7 @@ impl SurfaceSessionScope {
             | MuxEvent::WindowTitleRequested(_)
             | MuxEvent::FrontendProjectionChanged { .. }
             | MuxEvent::TerminalRegistryChanged { .. }
+            | MuxEvent::TerminalReaped { .. }
             | MuxEvent::PairingRequested(_)
             | MuxEvent::PairingResolved { .. }
             | MuxEvent::MachineUsageChanged(_)
@@ -362,6 +377,12 @@ impl MuxEventMailboxState {
 impl MuxEventReceiver {
     pub fn close(&self) {
         self.mailbox.close();
+    }
+
+    /// Wake this receiver alone with a `TreeChanged` token. Owner-internal
+    /// consumers use it for state changes that no broadcast event carries.
+    pub(crate) fn wake(&self) {
+        self.mailbox.push(MuxEvent::TreeChanged);
     }
 
     pub fn overflowed(&self) -> bool {

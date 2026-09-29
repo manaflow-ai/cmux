@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 252966630de426c49feb36ad1c035f9489871b52e59dc659d4fd93a49d20e675. */
+/* cmux-tui mux protocol 12, IR 006ce9e0317fb3ac4fa67c61bbf854d85fb74ae2c6ad91a7d7cb2e47eac8610e. */
 
 
 import type * as T from "./types.js";
@@ -318,6 +318,7 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "env"?: (Record<string, string>) | null;
   "expected_generation"?: (string) | null;
   "expected_revision"?: (bigint) | null;
+  "keep"?: boolean;
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "name"?: (string) | null;
@@ -691,8 +692,12 @@ export type NewFrontendBrowserTabResult = T.JsonValue;
 export interface NewPaneRequest extends CmuxRequestBase {
   cmd: "new-pane";
   "cols"?: (number) | null;
+  "cwd"?: (string) | null;
+  "env"?: (Record<string, string>) | null;
+  "keep"?: boolean;
   "pane": T.Id;
   "rows"?: (number) | null;
+  "terminal_id"?: (string) | null;
 }
 export type NewPaneResult = T.SurfaceResult;
 
@@ -700,8 +705,12 @@ export type NewPaneResult = T.SurfaceResult;
 export interface NewPaneRightRequest extends CmuxRequestBase {
   cmd: "new-pane-right";
   "cols"?: (number) | null;
+  "cwd"?: (string) | null;
+  "env"?: (Record<string, string>) | null;
+  "keep"?: boolean;
   "pane": T.Id;
   "rows"?: (number) | null;
+  "terminal_id"?: (string) | null;
   "width"?: (number) | null;
 }
 export type NewPaneRightResult = T.SurfaceResult;
@@ -721,8 +730,10 @@ export interface NewTabRequest extends CmuxRequestBase {
   "cols"?: (number) | null;
   "cwd"?: (string) | null;
   "env"?: (Record<string, string>) | null;
+  "keep"?: boolean;
   "pane"?: (T.Id) | null;
   "rows"?: (number) | null;
+  "terminal_id"?: (string) | null;
 }
 export type NewTabResult = T.SurfaceResult;
 
@@ -1112,6 +1123,14 @@ export interface SetTerminalIdlePolicyRequest extends CmuxRequestBase {
   "terminal_id"?: (string) | null;
 }
 
+/** Protocol v12; authority: control. */
+export interface SetTerminalKeepRequest extends CmuxRequestBase {
+  cmd: "set-terminal-keep";
+  "keep": boolean;
+  "surface"?: (T.Id) | null;
+  "terminal_id"?: (string) | null;
+}
+
 /** Protocol v9; authority: control. */
 export interface SetViewportPaneWidthRequest extends CmuxRequestBase {
   cmd: "set-viewport-pane-width";
@@ -1146,6 +1165,7 @@ export type SetWorkspaceMetadataResult = T.JsonValue;
 /** Protocol v9; authority: local-admin. */
 export interface ShutdownDaemonRequest extends CmuxRequestBase {
   cmd: "shutdown-daemon";
+  "end_terminals"?: boolean;
   "force"?: boolean;
   "generation": string;
   "pid": number;
@@ -1166,8 +1186,10 @@ export interface SplitRequest extends CmuxRequestBase {
   "cwd"?: (string) | null;
   "dir": T.SplitDirection;
   "env"?: (Record<string, string>) | null;
+  "keep"?: boolean;
   "pane": T.Id;
   "rows"?: (number) | null;
+  "terminal_id"?: (string) | null;
 }
 export type SplitResult = T.SurfaceResult;
 
@@ -1428,6 +1450,7 @@ export type CmuxRequest =
   | SetSplitRatioRequest
   | SetTabPinnedRequest
   | SetTerminalIdlePolicyRequest
+  | SetTerminalKeepRequest
   | SetViewportPaneWidthRequest
   | SetWindowTitleRequest
   | SetWorkspaceMetadataRequest
@@ -2420,6 +2443,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "terminal-idle-close-v1";
+    stream: null;
+  };
+  "set-terminal-keep": {
+    request: SetTerminalKeepRequest;
+    result: T.SetTerminalKeepResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-reap-v1";
     stream: null;
   };
   "set-viewport-pane-width": {

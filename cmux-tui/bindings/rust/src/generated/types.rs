@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 252966630de426c49feb36ad1c035f9489871b52e59dc659d4fd93a49d20e675.
+// cmux-tui mux protocol 12, IR 006ce9e0317fb3ac4fa67c61bbf854d85fb74ae2c6ad91a7d7cb2e47eac8610e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1032,8 +1032,17 @@ pub struct SetTerminalIdlePolicyResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetTerminalKeepResult {
+    pub keep: bool,
+    pub terminal_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShutdownDaemonResult {
     pub accepted: bool,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub ended_terminals: Optional<u64>,
     pub generation: String,
     pub pid: u32,
 }
