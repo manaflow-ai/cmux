@@ -1295,6 +1295,7 @@
 		468140000000000000000003 /* CmuxNotificationHookFileFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468140000000000000000004 /* CmuxNotificationHookFileFingerprint.swift */; };
 		468150000000000000000001 /* CmuxNotificationHookFileSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468150000000000000000002 /* CmuxNotificationHookFileSnapshot.swift */; };
 		468140000000000000000007 /* CmuxNotificationHookParsedConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468140000000000000000008 /* CmuxNotificationHookParsedConfig.swift */; };
+		D2D89F6AD8F91412F1F6E350 /* CmuxNotificationRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A289811A50BAD02AA59E61 /* CmuxNotificationRequest.swift */; };
 		E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000D2 /* CmuxNotifications */; };
 		C85390050000000000000001 /* CMUXOpenCommandLocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85390050000000000000002 /* CMUXOpenCommandLocationTests.swift */; };
 		C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */; };
@@ -2405,6 +2406,7 @@
 		C0DEFEE40000000000000001 /* NotificationFeedHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEE40000000000000002 /* NotificationFeedHistoryStore.swift */; };
 		C0DEFEE50000000000000001 /* NotificationFeedHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEE50000000000000002 /* NotificationFeedHistoryTests.swift */; };
 		C0DEFEF80000000000000001 /* NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF80000000000000002 /* NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift */; };
+		64A75756195B8E48A43172D3 /* NotificationLifetimeContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C138B5BF82380B55CE342EFB /* NotificationLifetimeContractTests.swift */; };
 		B7F00006 /* NotificationMuteMenuOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F00005 /* NotificationMuteMenuOption.swift */; };
 		D7769000000000000000000B /* NotificationPopoverHoverTrackingRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000C /* NotificationPopoverHoverTrackingRepresentable.swift */; };
 		D7769000000000000000000D /* NotificationPopoverHoverTrackingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000E /* NotificationPopoverHoverTrackingView.swift */; };
@@ -5439,6 +5441,7 @@
 		468140000000000000000004 /* CmuxNotificationHookFileFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationHookFileFingerprint.swift; sourceTree = "<group>"; };
 		468150000000000000000002 /* CmuxNotificationHookFileSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationHookFileSnapshot.swift; sourceTree = "<group>"; };
 		468140000000000000000008 /* CmuxNotificationHookParsedConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationHookParsedConfig.swift; sourceTree = "<group>"; };
+		04A289811A50BAD02AA59E61 /* CmuxNotificationRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationRequest.swift; sourceTree = "<group>"; };
 		C85390050000000000000002 /* CMUXOpenCommandLocationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenCommandLocationTests.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenCommandTests.swift; sourceTree = "<group>"; };
 		C1175700000000000000001F /* CMUXOpenHTMLFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenHTMLFocusTests.swift; sourceTree = "<group>"; };
@@ -6482,6 +6485,7 @@
 		C0DEFEE40000000000000002 /* NotificationFeedHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryStore.swift; sourceTree = "<group>"; };
 		C0DEFEE50000000000000002 /* NotificationFeedHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryTests.swift; sourceTree = "<group>"; };
 		C0DEFEF80000000000000002 /* NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift; sourceTree = "<group>"; };
+		C138B5BF82380B55CE342EFB /* NotificationLifetimeContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationLifetimeContractTests.swift"; sourceTree = "<group>"; };
 		B7F00005 /* NotificationMuteMenuOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationMuteMenuOption.swift; sourceTree = "<group>"; };
 		D7769000000000000000000C /* NotificationPopoverHoverTrackingRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverHoverTrackingRepresentable.swift; sourceTree = "<group>"; };
 		D7769000000000000000000E /* NotificationPopoverHoverTrackingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverHoverTrackingView.swift; sourceTree = "<group>"; };
@@ -11035,6 +11039,7 @@
 				3840C3CAEE266F282EE96A37 /* SidebarReorderInteractionState.swift */,
 				01AFEB5B2588D6391DC94892 /* WorkspaceActivityReorderController.swift */,
 				FFFCEC5E783F29C91BC6A8EE /* Workspace+SplitSpace.swift */,
+				04A289811A50BAD02AA59E61 /* CmuxNotificationRequest.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -12438,6 +12443,7 @@
 				31BFCF49D4B667B5C2A0BE3C /* TerminalSSHSessionDetectorProcessSnapshotTests.swift */,
 				C51DB22258B5393E2AB9104C /* ClaudeHookSessionLivenessTests.swift */,
 				A43345B5B3C60929B9F661CB /* ExitingProcessCensusReader.swift */,
+				C138B5BF82380B55CE342EFB /* NotificationLifetimeContractTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -13768,6 +13774,7 @@
 				468140000000000000000003 /* CmuxNotificationHookFileFingerprint.swift in Sources */,
 				468150000000000000000001 /* CmuxNotificationHookFileSnapshot.swift in Sources */,
 				468140000000000000000007 /* CmuxNotificationHookParsedConfig.swift in Sources */,
+				D2D89F6AD8F91412F1F6E350 /* CmuxNotificationRequest.swift in Sources */,
 				A9F200000000000000000005 /* CmuxRuntimeDebugCapture.swift in Sources */,
 				A9F200000000000000000006 /* CmuxRuntimeDebugCaptureConfiguration.swift in Sources */,
 				A9F20000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift in Sources */,
@@ -16705,6 +16712,7 @@
 				734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */,
 				D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */,
 				C0DEFEE50000000000000001 /* NotificationFeedHistoryTests.swift in Sources */,
+				64A75756195B8E48A43172D3 /* NotificationLifetimeContractTests.swift in Sources */,
 				C7A507000000000000005794 /* NotificationRowSnapshotBoundaryTests.swift in Sources */,
 				D79010000000000000000003 /* NotificationScrollRecordingSurfaceView.swift in Sources */,
 				C7A507000000000000005796 /* NotificationScrollRestoreLifecycleTests.swift in Sources */,
