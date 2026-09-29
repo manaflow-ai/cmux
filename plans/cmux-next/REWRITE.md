@@ -17,6 +17,7 @@ Living document. Branch `feat-cmux-next`, worktree `worktrees/feat-cmux-next`.
 ## Visual rules
 
 - No blue accent anywhere. Subtle grays for selection, focus, hover.
+- Sidebar is fully custom (user 2026-09-28): no NSOutlineView/NSTableView/NSSplitViewController sidebar/SwiftUI List; own layer-backed rows, animations, selection, resize.
 - Liquid Glass (`NSGlassEffectView`, `.glassEffect`) where it reads clean: palette, sidebar, tab strip, popovers. Not on terminal content.
 
 ## Architecture decisions
