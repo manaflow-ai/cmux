@@ -91,11 +91,17 @@ public final class VoiceSessionController {
     #if DEBUG
     /// Live pipeline counters surfaced in the sheet's debug footer so a
     /// device with no log channel can still show which link is dead:
-    /// mic chunks sent, server events seen, transcript and audio arrivals.
+    /// captured audio, queue delivery, wire sends, server events, and
+    /// transcript/audio arrivals.
+    public private(set) var debugAudioChunksCaptured = 0
+    public private(set) var debugAudioChunksEnqueued = 0
     public private(set) var debugAudioChunksSent = 0
+    public private(set) var debugAudioSendErrors = 0
+    public private(set) var debugAudioPeak = 0
     public private(set) var debugOutputAudioChunks = 0
     public private(set) var debugInputTranscriptChars = 0
     public private(set) var debugLastEventType = "-"
+    public private(set) var debugLastAudioFailure = "-"
     #endif
 
     public var microphoneMuted = false {
@@ -307,13 +313,68 @@ public final class VoiceSessionController {
         let queue = sendQueue
         audio.start(
             onCapturedAudio: { [weak self] chunk in
-                queue?.yield { client in
-                    try await client.send(.inputAudioAppend(chunk))
+                #if DEBUG
+                let peak = chunk.withUnsafeBytes { rawBuffer -> Int32 in
+                    var peak: Int32 = 0
+                    guard rawBuffer.count >= 2 else { return peak }
+                    for offset in stride(from: 0, to: rawBuffer.count - 1, by: 2) {
+                        let sample = Int16(
+                            bitPattern: UInt16(rawBuffer[offset])
+                                | (UInt16(rawBuffer[offset + 1]) << 8)
+                        )
+                        peak = max(peak, abs(Int32(sample)))
+                    }
+                    return peak
+                }
+                Task { @MainActor [weak self] in
+                    self?.debugAudioChunksCaptured += 1
+                    self?.debugAudioPeak = max(self?.debugAudioPeak ?? 0, Int(peak))
+                }
+                #endif
+                guard let queue else {
+                    #if DEBUG
+                    Task { @MainActor [weak self] in
+                        self?.debugAudioSendErrors += 1
+                        self?.debugLastAudioFailure = "no_queue"
+                    }
+                    #endif
+                    return
+                }
+                let result = queue.yield { [weak self] client in
+                    do {
+                        try await client.send(.inputAudioAppend(chunk))
+                        #if DEBUG
+                        Task { @MainActor [weak self] in
+                            self?.debugAudioChunksSent += 1
+                        }
+                        #endif
+                    } catch {
+                        #if DEBUG
+                        Task { @MainActor [weak self] in
+                            self?.debugAudioSendErrors += 1
+                            self?.debugLastAudioFailure = "send"
+                        }
+                        #endif
+                        throw error
+                    }
                 }
                 #if DEBUG
-                // Counter only; the ordered send happened above.
+                let didEnqueue: Bool
+                switch result {
+                case .enqueued:
+                    didEnqueue = true
+                case .dropped, .terminated:
+                    didEnqueue = false
+                @unknown default:
+                    didEnqueue = false
+                }
                 Task { @MainActor [weak self] in
-                    self?.debugAudioChunksSent += 1
+                    if didEnqueue {
+                        self?.debugAudioChunksEnqueued += 1
+                    } else {
+                        self?.debugAudioSendErrors += 1
+                        self?.debugLastAudioFailure = "queue"
+                    }
                 }
                 #endif
             },

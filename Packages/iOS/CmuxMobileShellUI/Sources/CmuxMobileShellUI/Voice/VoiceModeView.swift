@@ -95,13 +95,22 @@ private struct VoiceModeContentView: View {
             }
             controls
             #if DEBUG
-            // Pipeline truth for devices with no log channel: mic chunks
-            // sent, server events seen, transcript/audio arrivals. Dev
-            // builds only; the user reads this back when voice misbehaves.
-            Text("dbg mic:\(controller.debugAudioChunksSent) in:\(controller.debugInputTranscriptChars) out:\(controller.debugOutputAudioChunks) last:\(controller.debugLastEventType)")
+            // Pipeline truth for devices with no log channel. Dev builds
+            // expose capture, queue, wire, and server boundaries.
+            Text(
+                "dbg cap:\(controller.debugAudioChunksCaptured) "
+                    + "q:\(controller.debugAudioChunksEnqueued) "
+                    + "ok:\(controller.debugAudioChunksSent) "
+                    + "err:\(controller.debugAudioSendErrors) "
+                    + "pk:\(controller.debugAudioPeak)\n"
+                    + "in:\(controller.debugInputTranscriptChars) "
+                    + "out:\(controller.debugOutputAudioChunks) "
+                    + "last:\(controller.debugLastEventType) "
+                    + "fail:\(controller.debugLastAudioFailure)"
+            )
                 .font(.caption2.monospaced())
                 .foregroundStyle(.tertiary)
-                .lineLimit(1)
+                .lineLimit(2)
                 .accessibilityIdentifier("MobileVoiceDebugFooter")
             #endif
         }
