@@ -133,13 +133,66 @@ extension WorkspaceListView {
         return id
     }
 
+    /// Computers offered by `+` while All Computers is visible. Paired Macs
+    /// and Cloud machines share the same target value so the menu can ask for
+    /// a destination without knowing how that computer is reached.
+    var newWorkspaceComputerTargets: [WorkspaceListNewWorkspaceMenuValue.ComputerTarget] {
+        guard store != nil else { return [] }
+        switch visibleMacSelection {
+        case .machine:
+            return []
+        case .all, .automatic:
+            break
+        }
+
+        var targets: [WorkspaceListNewWorkspaceMenuValue.ComputerTarget] = []
+        let buildScope = MobileIOSBuildScope.current()
+        for mac in displayPairedMacsForPicker where macCanReceiveNewWorkspace(mac) {
+            targets.append(
+                WorkspaceListNewWorkspaceMenuValue.ComputerTarget(
+                    id: mac.id,
+                    kind: .mac(macDeviceID: mac.macDeviceID, instanceTag: mac.instanceTag),
+                    name: buildScope?.computerDisplayName(mac.resolvedName) ?? mac.resolvedName,
+                    isConnected: true,
+                    systemImage: "desktopcomputer"
+                )
+            )
+        }
+        for summary in store?.externalHostSummaries ?? [] where !summary.isHidden {
+            targets.append(
+                WorkspaceListNewWorkspaceMenuValue.ComputerTarget(
+                    id: summary.hostID,
+                    kind: .cloud(hostID: summary.hostID),
+                    name: summary.displayName ?? summary.hostID,
+                    isConnected: summary.status == .connected,
+                    systemImage: "cloud"
+                )
+            )
+        }
+        return targets
+    }
+
+    private func macCanReceiveNewWorkspace(_ mac: MobilePairedMac) -> Bool {
+        guard let store else { return false }
+        let isForeground =
+            store.connectionState == .connected
+            && store.connectedMacDeviceID == mac.macDeviceID
+            && MobilePairedMac.pairingID(
+                macDeviceID: store.connectedMacDeviceID ?? "",
+                instanceTag: store.connectedMacInstanceTag
+            ) == mac.id
+        return isForeground || store.macConnectionStatuses[mac.id] == .connected
+    }
+
     /// Whether the list's plus control renders at all: it creates on the
     /// scoped computer when that is allowed, and otherwise still opens the
     /// menu of Cloud machines. Hiding it entirely on a phone with no Mac
     /// connected would leave a Cloud-only account no way to create from the
     /// list.
     var showsNewWorkspaceControl: Bool {
-        if canCreateWorkspaceForMacSelection { return true }
+        if canCreateWorkspaceForMacSelection || !newWorkspaceComputerTargets.isEmpty {
+            return true
+        }
         guard createWorkspaceOnCloudMachine != nil, scopedExternalHostID == nil else { return false }
         return store?.externalHostSummaries.contains { !$0.isHidden } == true
     }
