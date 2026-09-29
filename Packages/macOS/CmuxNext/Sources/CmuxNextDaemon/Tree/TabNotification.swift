@@ -9,7 +9,8 @@ public struct TabNotification: Sendable, Hashable, Decodable {
     public var notification: NotificationID
     public var unread: Bool
     public var level: NotificationLevel?
-    /// TODO(feat-cmux-next-daemon): proposed `created_at_ms`.
+    /// Not serialized on `Tab.notification` by current daemons; the
+    /// `list-notifications` ledger carries `created_at_ms`.
     public var createdAtMs: UInt64?
 
     public init(notification: NotificationID, unread: Bool, level: NotificationLevel? = nil, createdAtMs: UInt64? = nil) {

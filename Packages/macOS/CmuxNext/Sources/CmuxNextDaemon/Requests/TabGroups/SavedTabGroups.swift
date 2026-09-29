@@ -1,38 +1,27 @@
 import Foundation
 
-// Saved tab groups (Chrome "save group"). TODO(feat-cmux-next-daemon):
-// proposed commands under `tab-groups-v1`; wire names are guesses.
+// Saved tab groups (`saved-tab-groups-v1`, Chrome "save group"). Saving
+// links the live group to a session-wide record through
+// `TabGroupSnapshot.savedID`; renames, recolors, and membership changes of
+// the live group update the record.
 
-/// Saves an open group as a session-wide record.
+/// Every saved record.
+public struct ListSavedTabGroupsRequest: DaemonRequest {
+    public struct Response: Decodable, Sendable, Equatable {
+        public var savedGroups: [SavedTabGroupSnapshot]
+        enum CodingKeys: String, CodingKey { case savedGroups = "saved_groups" }
+    }
+    public static let command = "list-saved-tab-groups"
+    public init() {}
+}
+
+/// Saves a live group. Result: `{group, saved}` (the record id).
 public struct SaveTabGroupRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
-        public var saved: SavedTabGroupSnapshot
+        public var group: TabGroupID
+        public var saved: SavedTabGroupID
     }
     public static let command = "save-tab-group"
     public var group: TabGroupID
     public init(group: TabGroupID) { self.group = group }
-}
-
-/// Opens (restores) a saved group into a pane.
-public struct OpenSavedTabGroupRequest: DaemonRequest {
-    public typealias Response = TabGroupResult
-    public static let command = "open-saved-tab-group"
-    public var saved: SavedTabGroupID
-    public var pane: PaneID?
-    public var index: Int?
-    public var transaction: ClientTransactionID?
-    public init(saved: SavedTabGroupID, pane: PaneID? = nil, index: Int? = nil, transaction: ClientTransactionID? = nil) {
-        self.saved = saved
-        self.pane = pane
-        self.index = index
-        self.transaction = transaction
-    }
-}
-
-/// Deletes the saved record; an open copy of the group stays open.
-public struct UnsaveTabGroupRequest: DaemonRequest {
-    public typealias Response = EmptyResponse
-    public static let command = "unsave-tab-group"
-    public var saved: SavedTabGroupID
-    public init(saved: SavedTabGroupID) { self.saved = saved }
 }

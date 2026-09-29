@@ -72,7 +72,7 @@ public struct DaemonLauncher: Sendable {
         let session = try sessionName(tag: tag)
         let stateDirectory = tag.map { tagStateDirectory(tag: $0) }
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory)
-        let cache = LoginEnvironmentCache()
+        let cache = LoginEnvironmentCache.shared
         var overrides: [String: String] = [:]
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         let fixedOverrides = overrides
@@ -192,6 +192,8 @@ public struct DaemonLauncher: Sendable {
 
 /// Captures the login env once per app launch; concurrent callers share it.
 actor LoginEnvironmentCache {
+    static let shared = LoginEnvironmentCache()
+
     private var task: Task<[String: String]?, Never>?
 
     func value() async -> [String: String]? {

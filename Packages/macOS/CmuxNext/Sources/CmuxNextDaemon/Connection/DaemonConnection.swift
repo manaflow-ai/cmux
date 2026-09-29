@@ -28,19 +28,24 @@ public actor DaemonConnection {
         public var treeEvents: TreeEventMode
         /// Reconnect delays; the last one repeats.
         public var backoff: [Duration]
+        /// Per-terminal `env` the convenience spawn calls send when the daemon
+        /// supports `terminal-env-v1` and the caller passed none. Nil sends none.
+        public var terminalEnvironment: (@Sendable () async -> [String: String])?
 
         public init(
             clientName: String = "cmux-next",
             requiredCapabilities: [String] = DaemonCapabilities.required,
             advertisedCapabilities: [String] = DaemonCapabilities.advertised,
             treeEvents: TreeEventMode = .deltas,
-            backoff: [Duration] = [.milliseconds(50), .milliseconds(250), .seconds(1), .seconds(2)]
+            backoff: [Duration] = [.milliseconds(50), .milliseconds(250), .seconds(1), .seconds(2)],
+            terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.shared()
         ) {
             self.clientName = clientName
             self.requiredCapabilities = requiredCapabilities
             self.advertisedCapabilities = advertisedCapabilities
             self.treeEvents = treeEvents
             self.backoff = backoff
+            self.terminalEnvironment = terminalEnvironment
         }
     }
 
@@ -55,7 +60,7 @@ public actor DaemonConnection {
     public nonisolated let events: AsyncThrowingStream<DaemonEventEnvelope, any Error>
     private nonisolated let continuation: AsyncThrowingStream<DaemonEventEnvelope, any Error>.Continuation
 
-    private let configuration: Configuration
+    let configuration: Configuration
     private let endpointProvider: EndpointProvider
     private let clock: any Clock<Duration>
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
@@ -120,7 +125,13 @@ public actor DaemonConnection {
         let response = try await transport.request(cmd: ListWorkspacesRequest.command) { id in
             try WireCoding.encodeRequest(ListWorkspacesRequest(), id: id)
         }
-        let tree = try WireCoding.decodeResponse(DaemonTree.self, from: response.line)
+        var tree = try WireCoding.decodeResponse(DaemonTree.self, from: response.line)
+        if identity?.supports(DaemonCapabilities.savedTabGroups) == true, tree.savedTabGroups.isEmpty {
+            // Saved groups are not part of `list-workspaces`. Their changes
+            // emit `tree-changed`, which triggers this snapshot again.
+            tree.savedTabGroups = try await Self.perform(ListSavedTabGroupsRequest(), on: transport).savedGroups
+            tree.linkSavedTabGroups()
+        }
         return (tree, DaemonEventEnvelope.sequence(serial: serial, index: response.eventBarrier))
     }
 

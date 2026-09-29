@@ -32,7 +32,8 @@ public struct DaemonNotification: Sendable, Hashable, Decodable {
     public var body: String
     public var level: NotificationLevel
     public var surface: SurfaceID?
-    /// TODO(feat-cmux-next-daemon): proposed vNext extension.
+    /// Not serialized on the `notification` event by current daemons; the
+    /// `list-notifications` ledger carries `created_at_ms`.
     public var createdAtMs: UInt64?
 
     enum CodingKeys: String, CodingKey {

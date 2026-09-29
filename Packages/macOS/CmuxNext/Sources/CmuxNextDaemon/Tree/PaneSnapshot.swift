@@ -9,7 +9,7 @@ public struct PaneSnapshot: Sendable, Hashable, Decodable {
     public var activeTab: Int
     public var focusedAt: UInt64
     public var tabs: [TabSnapshot]
-    /// Chrome-style groups in this strip. TODO(feat-cmux-next-daemon): `tab_groups`.
+    /// Chrome-style groups in this strip, in strip order (`tab-groups-v1`).
     public var tabGroups: [TabGroupSnapshot]
     /// Serialized only when the tree references a pane missing from state.
     public var dead: Bool

@@ -1,73 +1,65 @@
 import Foundation
 
-// Chrome-style tab groups (plans/cmux-next/REWRITE.md "Groups").
-// TODO(feat-cmux-next-daemon): proposed commands, capability `tab-groups-v1`;
-// wire names follow the tab-drag-v1 conventions (`transaction` echo,
-// `move-*-to-split/column/new-workspace`) and are guesses until that branch
-// serves them. Current daemons reject them with "unknown variant", which the
-// convenience API maps to `DaemonError.missingCapabilities`.
+// Chrome-style tab groups (`tab-groups-v1`, cmux-tui/spec/commands.md
+// `create-tab-group` ... `close-tab-group`). Tabs are named by numeric
+// surface id (the daemon also accepts `tab_...` ids). Group membership
+// commands take an optional client `transaction` echoed in each member's
+// `tab-changed`; `update-tab-group`, `ungroup-tab-group`, and
+// `close-tab-group` take none.
 
-/// Result of a tab-group command: the group after the change plus any
-/// placement the command created.
+/// Result of a tab-group command. Commands that return a group
+/// (`create/update/add/move/reopen`) fill `group`, `pane`, `workspace`, and
+/// `surfaces`. `ungroup-tab-group` and `close-tab-group` return the group id
+/// only (`groupID`), plus `surfaces` or `closed`. `remove-tabs-from-tab-group`
+/// returns `surfaces` and `groups`.
 public struct TabGroupResult: Decodable, Sendable, Equatable {
+    /// The group after the change; nil when the command returns only an id
+    /// or the group disappeared.
     public var group: TabGroupSnapshot?
+    /// The group the command acted on, whichever form the response used.
+    public var groupID: TabGroupID?
     public var pane: PaneID?
-    public var screen: ScreenID?
     public var workspace: WorkspaceHandle?
-    public var key: WorkspaceKey?
-    public var changed: Bool?
-    public var undoable: Bool?
-}
+    /// Members after the change (`ungroup`: the former members).
+    public var surfaces: [SurfaceID]
+    /// `close-tab-group`: the closed placements.
+    public var closed: [SurfaceID]
+    /// `remove-tabs-from-tab-group`: the groups the tabs left.
+    public var groups: [TabGroupID]
 
-/// Groups `tabs` (all in `pane`) under a new group.
-public struct CreateTabGroupRequest: DaemonRequest {
-    public typealias Response = TabGroupResult
-    public static let command = "create-tab-group"
-    public var pane: PaneID
-    public var tabs: [SurfaceID]
-    /// Caller-chosen id makes a retry idempotent.
-    public var group: TabGroupID?
-    public var name: String?
-    public var color: String?
-    public var transaction: ClientTransactionID?
+    @available(*, deprecated, message: "Not in the tab-groups-v1 result; always nil")
+    public var screen: ScreenID? { nil }
+    @available(*, deprecated, message: "Not in the tab-groups-v1 result; always nil")
+    public var key: WorkspaceKey? { nil }
+    @available(*, deprecated, message: "Not in the tab-groups-v1 result; always nil")
+    public var changed: Bool? { nil }
+    @available(*, deprecated, message: "Not in the tab-groups-v1 result; always nil")
+    public var undoable: Bool? { nil }
 
-    public init(pane: PaneID, tabs: [SurfaceID], group: TabGroupID? = nil, name: String? = nil, color: String? = nil,
-                transaction: ClientTransactionID? = nil) {
-        self.pane = pane
-        self.tabs = tabs
-        self.group = group
-        self.name = name
-        self.color = color
-        self.transaction = transaction
+    enum CodingKeys: String, CodingKey { case group, pane, workspace, surfaces, closed, groups }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let id = try? c.decode(TabGroupID.self, forKey: .group) {
+            group = nil
+            groupID = id
+        } else {
+            group = try c.decodeIfPresent(TabGroupSnapshot.self, forKey: .group)
+            groupID = group?.id
+        }
+        pane = try c.decodeIfPresent(PaneID.self, forKey: .pane)
+        workspace = try c.decodeIfPresent(WorkspaceHandle.self, forKey: .workspace)
+        surfaces = try c.decodeIfPresent([SurfaceID].self, forKey: .surfaces) ?? []
+        closed = try c.decodeIfPresent([SurfaceID].self, forKey: .closed) ?? []
+        groups = try c.decodeIfPresent([TabGroupID].self, forKey: .groups) ?? []
     }
 }
 
-/// Rename, recolor (null clears), or collapse/expand.
-public struct UpdateTabGroupRequest: DaemonRequest {
-    public typealias Response = TabGroupResult
-    public static let command = "update-tab-group"
-    public var group: TabGroupID
-    public var name: String?
-    public var color: FieldUpdate<String>
-    public var collapsed: Bool?
-    public var transaction: ClientTransactionID?
-
-    public init(group: TabGroupID, name: String? = nil, color: FieldUpdate<String> = .unchanged, collapsed: Bool? = nil,
-                transaction: ClientTransactionID? = nil) {
-        self.group = group
-        self.name = name
-        self.color = color
-        self.collapsed = collapsed
-        self.transaction = transaction
+/// Every live group with its pane, in the `Pane.tab_groups` shape.
+public struct ListTabGroupsRequest: DaemonRequest {
+    public struct Response: Decodable, Sendable, Equatable {
+        public var groups: [TabGroupSnapshot]
     }
-
-    enum CodingKeys: String, CodingKey { case group, name, color, collapsed, transaction }
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(group, forKey: .group)
-        try c.encodeIfPresent(name, forKey: .name)
-        try c.encode(color, forKey: .color)
-        try c.encodeIfPresent(collapsed, forKey: .collapsed)
-        try c.encodeIfPresent(transaction, forKey: .transaction)
-    }
+    public static let command = "list-tab-groups"
+    public init() {}
 }
