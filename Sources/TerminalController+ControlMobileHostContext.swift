@@ -77,6 +77,20 @@ extension TerminalController: ControlMobileHostContext {
         )
     }
 
+    nonisolated func controlMobileChatSend(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        let params = foundationParams(params)
+        return bridgeMobileResult(await v2MobileChatSend(params: params))
+    }
+
+    nonisolated func controlMobileChatInterrupt(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        let params = foundationParams(params)
+        return bridgeMobileResult(await v2MobileChatInterrupt(params: params))
+    }
+
     func controlMobileChatSessionsDump() -> ControlCallResult {
         bridgeMobileResult(v2ChatSessionsDump())
     }

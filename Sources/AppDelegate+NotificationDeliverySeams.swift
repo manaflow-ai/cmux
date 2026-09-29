@@ -23,6 +23,10 @@ final class NotificationDeliverySeamAdapter: NotificationFeedReplying, Notificat
         owner?.notificationDeliveryPermissionCapabilities(requestId: requestId)
     }
 
+    func openWorkstream(workstreamId: String) {
+        owner?.notificationDeliveryOpenFeedWorkstream(workstreamId: workstreamId)
+    }
+
     func activateApplication() {
         owner?.notificationDeliveryActivateApplication()
     }
@@ -118,6 +122,14 @@ extension AppDelegate {
 
     func notificationDeliveryActivateApplication() {
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Focuses the workspace and surface running the agent behind a Feed
+    /// notification, using the same resolver as the Feed card's jump.
+    func notificationDeliveryOpenFeedWorkstream(workstreamId: String) {
+        Task { @MainActor in
+            _ = await FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
+        }
     }
 
     func notificationDeliverySendTerminalReply(

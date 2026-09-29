@@ -76,6 +76,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
+        // Agent session recovery reads the journal (SQLite), the hook stores
+        // and transcripts; only the open-session scan and workspace creation
+        // hop to the main actor.
+        "session.agent_recovery.list",
+        "session.agent_recovery.restore",
         "auth.status",
         "auth.sign_in_url",
         "auth.begin_sign_in",
@@ -107,9 +112,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
-        // Provider discovery may read configuration or run `opencode models`;
-        // it must never hold the main actor while waiting for process I/O.
-        "mobile.task.models.list",
+        // Provider discovery reads config or runs `opencode models`; chat
+        // send/interrupt await terminal input. Neither may hold the main actor.
+        "mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt",
         // Prompt submission suspends between paste and Enter while agent
         // editors commit the paste. The socket worker awaits the final result.
         "mobile.terminal.paste",

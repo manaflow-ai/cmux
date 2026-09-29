@@ -130,6 +130,8 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertEqual(jobs["cli-product-tests"]["permissions"], jobs["app-host-unit-tests"]["permissions"])
         # The two routes differ only by the job's owned_jobs key (#14318) and
         # the shards' pr_shard_runner branch (pr_runner_pool.spread_shards).
+        # Both take pr_gui_runner: both hold the mini's gui token
+        # (pr_runner_pool.gui_token_job()).
         shard_route = step_block(job_block("app-host-unit-tests"), "Verify GitHub-hosted route")
         self.assertIn("inputs.pr_shard_runner || ", shard_route)
         self.assertEqual(
@@ -456,4 +458,4 @@ class IOSProductTransportTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    unittest.main(verbosity=2, buffer=True)

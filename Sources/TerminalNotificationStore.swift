@@ -1521,9 +1521,17 @@ final class TerminalNotificationStore: ObservableObject {
             restoreCooldownReservation(cooldownReservation)
             return false
         }
-        let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
-            tabId: request.tabId,
-            surfaceId: request.surfaceId
+        let focusState = notificationFocusState(tabId: request.tabId, surfaceId: request.surfaceId)
+        let shouldSuppressExternalDelivery = Self.shouldSuppressExternalDelivery(
+            focusState,
+            suppressWhenAppFocused: Self.isSuppressWhenAppFocusedEnabled()
+        )
+        let isFocusedSurfaceArrival = focusState.isFocusedSurfaceArrival
+        // Only the exact focused pane holds the workspace in place;
+        // `suppressWhenAppFocused` withholds the banner without changing
+        // sidebar ordering, matching Feed's delivery decision.
+        let effects = effects.keepingFocusedWorkspaceInPlace(
+            isFocusedPane: isFocusedSurfaceArrival
         )
         let notification = TerminalNotification(
             id: notificationID,
@@ -1548,6 +1556,7 @@ final class TerminalNotificationStore: ObservableObject {
         if effects.record {
             recordNotification(
                 notification,
+                isFocusedSurfaceArrival: isFocusedSurfaceArrival,
                 shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
                 effects: effects,
                 now: now,
@@ -1561,9 +1570,7 @@ final class TerminalNotificationStore: ObservableObject {
             "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
         )
 #endif
-        effects.applySidebarOrdering(defaults: .standard) {
-            reorderSidebars(for: notification)
-        }
+        applySidebarOrdering(for: notification, effects: effects)
         if hasAnyNotificationEffect(effects) {
             commitCooldownReservation(cooldownReservation, at: now)
         } else {
@@ -1571,6 +1578,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         deliverNotificationSideEffects(
             notification,
+            isFocusedSurfaceArrival: isFocusedSurfaceArrival,
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
             effects: effects
         )
@@ -1578,6 +1586,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
     private func recordNotification(
         _ notification: TerminalNotification,
+        isFocusedSurfaceArrival: Bool,
         shouldSuppressExternalDelivery: Bool,
         effects: TerminalNotificationPolicyEffects,
         now: Date,
@@ -1603,13 +1612,11 @@ final class TerminalNotificationStore: ObservableObject {
             focusedReadIndicatorByTabId.removeValue(forKey: notification.tabId)
         }
 
-        if shouldSuppressExternalDelivery, effects.markUnread {
+        if isFocusedSurfaceArrival, effects.markUnread {
             setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
 
-        effects.applySidebarOrdering(defaults: .standard) {
-            reorderSidebars(for: notification)
-        }
+        applySidebarOrdering(for: notification, effects: effects)
 
         updated.insert(notification, at: 0)
         mutateWorkspaceManualUnread(false, forTabId: notification.tabId)
@@ -1650,20 +1657,27 @@ final class TerminalNotificationStore: ObservableObject {
         }
         deliverNotificationSideEffects(
             notification,
+            isFocusedSurfaceArrival: isFocusedSurfaceArrival,
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
             effects: effects
         )
     }
 
-    private func shouldSuppressExternalDelivery(tabId: UUID, surfaceId: UUID?) -> Bool {
-        let focusState = notificationFocusState(tabId: tabId, surfaceId: surfaceId)
-        return focusState.isAppFocused
-            && focusState.isActiveTab
-            && focusState.isFocusedSurface
+    /// A banner scheduled while its pane was in the background can reach
+    /// `willPresent` after the user focused that pane. It then presents without
+    /// sound, like a notification that arrives while the pane is focused.
+    func keepsPresentedNotificationQuiet(userInfo: [AnyHashable: Any]) -> Bool {
+        guard !NotificationSoundSettings.soundWhenFocused(),
+              let tabId = (userInfo["tabId"] as? String).flatMap(UUID.init(uuidString:)) else {
+            return false
+        }
+        let surfaceId = (userInfo["surfaceId"] as? String).flatMap(UUID.init(uuidString:))
+        return notificationFocusState(tabId: tabId, surfaceId: surfaceId).isFocusedSurfaceArrival
     }
 
     private func deliverNotificationSideEffects(
         _ notification: TerminalNotification,
+        isFocusedSurfaceArrival: Bool,
         shouldSuppressExternalDelivery: Bool,
         effects: TerminalNotificationPolicyEffects
     ) {
@@ -1674,7 +1688,18 @@ final class TerminalNotificationStore: ObservableObject {
 #endif
         if effects.desktop || effects.sound || effects.command {
             if shouldSuppressExternalDelivery {
-                suppressedNotificationFeedbackHandler(self, notification, effects)
+                // Only the pane the user is looking at goes quiet;
+                // `suppressWhenAppFocused` withholds just the banner for
+                // other panes, matching Feed's delivery decision.
+                suppressedNotificationFeedbackHandler(
+                    self,
+                    notification,
+                    isFocusedSurfaceArrival
+                        ? effects.keepingFocusedPaneQuiet(
+                            soundWhenFocused: NotificationSoundSettings.soundWhenFocused()
+                        )
+                        : effects
+                )
             } else {
                 notificationDeliveryHandler(self, notification, effects)
             }
@@ -1684,7 +1709,10 @@ final class TerminalNotificationStore: ObservableObject {
             tabId: notification.tabId,
             surfaceId: notification.surfaceId
         )
-        let shouldAttemptPhone = !shouldSuppressExternalDelivery
+        // `suppressWhenAppFocused` only withholds the desktop banner: the Mac
+        // may be frontmost with nobody at it, so phone forwarding keeps the
+        // exact focused-surface gate.
+        let shouldAttemptPhone = !isFocusedSurfaceArrival
             && Self.shouldAttemptPhoneForward(
                 effects: effects,
                 phoneForwardingEnabled: PhonePushClient.shared

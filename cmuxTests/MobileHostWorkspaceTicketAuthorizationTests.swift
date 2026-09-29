@@ -362,30 +362,43 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
     #if DEBUG
     @Test func omittedTargetRPCPreservesLegacyAttachURL() async throws {
-        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
-        TerminalController.shared.setActiveTabManager(manager)
-        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let manager = TabManager()
+            TerminalController.shared.setActiveTabManager(manager)
+            defer { TerminalController.shared.setActiveTabManager(previousManager) }
 
-        let service = MobileHostService.shared
-        MobileHostPublicStatusCache.update(routes: [try loopbackRoute()])
-        defer { MobileHostPublicStatusCache.removeAll() }
-        let workspace = try #require(manager.selectedWorkspace)
+            let service = MobileHostService.shared
+            let previousRoutes = MobileHostPublicStatusCache.snapshot()
+            let previousDeviceID = MobileHostPublicStatusCache.currentV2DeviceID()
+            defer {
+                MobileHostPublicStatusCache.removeAll()
+                MobileHostPublicStatusCache.updateV2DeviceID(previousDeviceID)
+                MobileHostPublicStatusCache.update(routes: previousRoutes.filter { $0.kind != .iroh })
+                if let route = previousRoutes.first(where: { $0.kind == .iroh }),
+                   case let .peer(identity, pathHints) = route.endpoint {
+                    MobileHostPublicStatusCache.update(irohIdentity: identity, pathHints: pathHints)
+                }
+            }
+            MobileHostPublicStatusCache.removeAll()
+            MobileHostPublicStatusCache.update(routes: [try loopbackRoute()])
+            let workspace = try #require(manager.selectedWorkspace)
 
-        let response = await TerminalController.shared.mobileHostHandleRPC(
-            MobileHostRPCRequest(
-                id: "legacy-attach-ticket",
-                method: "mobile.attach_ticket.create",
-                params: ["workspace_id": workspace.id.uuidString],
-                auth: nil
+            let response = await TerminalController.shared.mobileHostHandleRPC(
+                MobileHostRPCRequest(
+                    id: "legacy-attach-ticket",
+                    method: "mobile.attach_ticket.create",
+                    params: ["workspace_id": workspace.id.uuidString],
+                    auth: nil
+                )
             )
-        )
 
-        guard case let .ok(rawPayload) = response,
-              let payload = rawPayload as? [String: Any] else {
-            return #expect(Bool(false), "Expected attach ticket payload")
+            guard case let .ok(rawPayload) = response,
+                  let payload = rawPayload as? [String: Any] else {
+                return #expect(Bool(false), "Expected attach ticket payload")
+            }
+            #expect(payload["attach_url"] as? String != nil)
         }
-        #expect(payload["attach_url"] as? String != nil)
     }
     #endif
 

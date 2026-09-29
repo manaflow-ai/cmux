@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Optional
 
 
+TOML_BOOLEANS = {"true": True, "false": False}
+
+
 def load_registry(path: Path) -> list[dict[str, object]]:
     return parse_registry(path.read_text(encoding="utf-8"), str(path))
 
@@ -35,8 +38,10 @@ def parse_registry(text: str, label: str) -> list[dict[str, object]]:
         if not separator:
             raise ValueError(f"{path}:{line_number}: expected key = value")
         key = key.strip()
+        raw_value = raw_value.strip()
         try:
-            value = ast.literal_eval(raw_value.strip())
+            # TOML spells booleans in lowercase; Python literals do not.
+            value = TOML_BOOLEANS[raw_value] if raw_value in TOML_BOOLEANS else ast.literal_eval(raw_value)
         except (SyntaxError, ValueError) as error:
             raise ValueError(f"{path}:{line_number}: invalid literal: {error}") from error
 

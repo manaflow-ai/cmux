@@ -410,6 +410,8 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "No focused surface", data: nil)
         case .createFailed:
             return .err(code: "internal_error", message: "Failed to create split", data: nil)
+        case .noSpace:
+            return noSpaceForNewPaneResult
         case .mirrorUnsupportedOptions(let unsupported):
             return mirrorUnsupportedOptionsResult(unsupported)
         case .routedToRemote(let windowID, let workspaceID, let typeRawValue):

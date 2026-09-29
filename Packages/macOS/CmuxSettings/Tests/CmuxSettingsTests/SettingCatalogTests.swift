@@ -23,6 +23,14 @@ struct SettingCatalogTests {
                 "automation.claudeCodeIntegration",
                 "integrations.claudeCode.hooksEnabled",
             ],
+            "piHooksEnabled": [
+                "automation.piIntegration",
+                "integrations.pi.hooksEnabled",
+            ],
+            "codexHooksEnabled": [
+                "automation.codexIntegration",
+                "integrations.codex.hooksEnabled",
+            ],
             "cursorHooksEnabled": [
                 "automation.cursorIntegration",
                 "integrations.cursor.hooksEnabled",
@@ -94,6 +102,7 @@ struct SettingCatalogTests {
         #expect(ids.contains("activePaneBorderColor"))
         #expect(ids.contains("mobile.iOSPairingHost.enabled"))
         #expect(ids.contains("mobile.artifactFolderAccess"))
+        #expect(ids.contains("mobile.browserTunnel.allowOtherHosts"))
         #expect(ids.contains("automation.socketControlMode"))
         #expect(ids.contains("automation.socketPassword"))
     }
@@ -117,6 +126,14 @@ struct SettingCatalogTests {
 
     @Test func runawayMemoryGuardrailDefaultsOffForUntouchedConfigs() {
         #expect(!SettingCatalog().terminal.runawayMemoryGuardrailEnabled.defaultValue)
+    }
+
+    @Test func hardWrapReflowOnCopyDefaultsOff() {
+        #expect(!SettingCatalog().terminal.reflowHardWrapOnCopy.defaultValue)
+    }
+
+    @Test func unsafePasteConfirmationDefaultsOff() {
+        #expect(!SettingCatalog().terminal.confirmUnsafePaste.defaultValue)
     }
 
     @Test func keyIdsMatchTheirSectionPrefix() {

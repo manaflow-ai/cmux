@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|relay-expiry|direct-only|private-path> --tag <tag>
-       [--staging-base-url <url>] [--presence-base-url <url>]
+       [--staging-base-url <url>] [--v2-base-url <url>] [--presence-base-url <url>]
        [--skip-build] [--keep-simulator] [--simulator-id <dedicated-monitor-udid>]
        [--report-output <path>] [--print-plan]
        [--soak-profile <basic|stress>]
@@ -27,7 +27,12 @@ EOF
 
 MODE=""
 TAG=""
+# The web API and legacy compatibility broker remain on their existing staging
+# origin. The v2 control plane is verified separately through the canonical
+# Cloudflare Worker. A caller can override either origin for an isolated test.
 STAGING_BASE_URL="${CMUX_IROH_RELEASE_GATE_BASE_URL:-https://cmux-staging.vercel.app}"
+V2_BASE_URL="${CMUX_IROH_RELEASE_GATE_V2_BASE_URL:-https://cmux-v2-staging.debussy.workers.dev}"
+V2_ENVIRONMENT="staging"
 PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
 SKIP_BUILD=0
 KEEP_SIMULATOR=0
@@ -36,6 +41,7 @@ REPORT_OUTPUT=""
 PRODUCTION=0
 STACK_ENV_FILE=""
 BASE_URL_WAS_EXPLICIT=0
+V2_BASE_URL_WAS_EXPLICIT=0
 PRINT_PLAN=0
 SOAK_PROFILE=""
 REPORT_TIMEOUT=480
@@ -46,6 +52,7 @@ while [[ $# -gt 0 ]]; do
     --mode) MODE="${2:-}"; shift 2 ;;
     --tag) TAG="${2:-}"; shift 2 ;;
     --staging-base-url) STAGING_BASE_URL="${2:-}"; BASE_URL_WAS_EXPLICIT=1; shift 2 ;;
+    --v2-base-url) V2_BASE_URL="${2:-}"; V2_BASE_URL_WAS_EXPLICIT=1; shift 2 ;;
     --presence-base-url) PRESENCE_BASE_URL="${2:-}"; shift 2 ;;
     --production) PRODUCTION=1; shift ;;
     --stack-env-file) STACK_ENV_FILE="${2:-}"; shift 2 ;;
@@ -67,6 +74,10 @@ if [[ "$PRODUCTION" -eq 1 && "$BASE_URL_WAS_EXPLICIT" -eq 1 ]]; then
   echo "error: --production cannot be combined with --staging-base-url" >&2
   exit 2
 fi
+if [[ "$PRODUCTION" -eq 1 && "$V2_BASE_URL_WAS_EXPLICIT" -eq 1 ]]; then
+  echo "error: --production cannot be combined with --v2-base-url" >&2
+  exit 2
+fi
 if [[ "$PRODUCTION" -eq 1 && -n "$PRESENCE_BASE_URL" ]]; then
   echo "error: --production cannot be combined with --presence-base-url" >&2
   exit 2
@@ -81,6 +92,8 @@ if [[ "$PRODUCTION" -eq 1 && "$SKIP_BUILD" -eq 1 ]]; then
 fi
 if [[ "$PRODUCTION" -eq 1 ]]; then
   STAGING_BASE_URL="https://cmux.com"
+  V2_BASE_URL="https://cmux-v2.debussy.workers.dev"
+  V2_ENVIRONMENT="production"
   # Production clients resolve presence.cmux.dev from their auth channel.
   # Never inherit a development worker override from the caller's shell.
   PRESENCE_BASE_URL=""
@@ -100,11 +113,23 @@ if [[ -n "$SOAK_PROFILE" ]]; then
     echo "error: soak requires automatic or relay-only mode" >&2; exit 2;
   }
   case "$SOAK_PROFILE" in
-    basic) REPORT_TIMEOUT=840 ;;
-    stress) REPORT_TIMEOUT=3840 ;;
+    # The app deadline is the workload duration plus the rollover probe and
+    # its bounded readiness/teardown allowance. The waiter starts after the
+    # prewarm launch below, so this margin only covers report delivery.
+    basic) REPORT_TIMEOUT=1170 ;;
+    stress)
+      # Relay-only stress adds the 330-second rollover probe after the
+      # one-hour workload. Leave enough time for that probe, teardown, and
+      # report delivery.
+      REPORT_TIMEOUT="$([[ "$MODE" == relay-only ]] && printf 4170 || printf 3870)"
+      ;;
     *) echo "error: invalid soak profile" >&2; exit 2 ;;
   esac
-  GATE_SCENARIO=standard
+  # Keep relay-only stress runs on relay_rollover. The soak workload proves
+  # sustained use, then the runner performs the explicit rollover probe.
+  if [[ "$MODE" == automatic ]]; then
+    GATE_SCENARIO=standard
+  fi
 fi
 
 if [[ -n "$PROVIDED_SIMULATOR_ID" ]]; then
@@ -122,6 +147,10 @@ if [[ "$GATE_PLAN" != "host-private-path-transport" ]]; then
   case "$STAGING_BASE_URL" in
     https://*) ;;
     *) echo "error: --staging-base-url must use https" >&2; exit 2 ;;
+  esac
+  case "$V2_BASE_URL" in
+    https://*) ;;
+    *) echo "error: --v2-base-url must use https" >&2; exit 2 ;;
   esac
   case "$PRESENCE_BASE_URL" in
     ""|https://*) ;;
@@ -330,6 +359,28 @@ cleanup() {
     rm -f "$UI_CAPTURE_DIR/terminal.png"
     rmdir "$UI_CAPTURE_DIR" >/dev/null 2>&1 || true
   fi
+  # Preserve diagnostics when the app never emits a report. The normal
+  # success path captures these below after the report arrives, but an early
+  # readiness failure used to delete the only useful endpoint evidence during
+  # cleanup. Outputs are redacted and best-effort, so this cannot change the
+  # transport verdict or block teardown.
+  if [[ "$exit_code" -ne 0 && -n "$REPORT_OUTPUT" ]]; then
+    mkdir -p "$(dirname "$REPORT_OUTPUT")"
+    failure_prefix="${REPORT_OUTPUT%.json}"
+    if [[ -n "$SIMULATOR_ID" ]]; then
+      xcrun simctl io "$SIMULATOR_ID" screenshot "${failure_prefix}-ios-failure.png" >/dev/null 2>&1 || true
+      xcrun simctl spawn "$SIMULATOR_ID" log show --style compact --last 10m \
+        --predicate 'subsystem == "dev.cmux.ios"' 2>/dev/null \
+        | sed -E 's/[[:alnum:]._%+-]+@[[:alnum:].-]+\.[[:alpha:]]+/<redacted-email>/g; s/[A-Za-z0-9_-]{24,}/<redacted-token>/g' \
+        > "${failure_prefix}-ios-failure.log" || true
+    fi
+    if [[ -n "$TAG" ]]; then
+      if ! CMUX_TAG="$TAG" "$SCRIPT_DIR/cmux-debug-cli.sh" iroh-diag \
+        > "${failure_prefix}-mac-failure.cmuxdiag" 2>/dev/null; then
+        rm -f "${failure_prefix}-mac-failure.cmuxdiag"
+      fi
+    fi
+  fi
   # The helper commits protected recovery state immediately after Stack creates
   # the user. Retry cleanup whenever that state exists, including a partial
   # create whose session-token step failed.
@@ -528,6 +579,8 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_V2_ENVIRONMENT="$V2_ENVIRONMENT" \
+      CMUX_IROH_V2_BASE_URL="$V2_BASE_URL" \
       ./scripts/reload.sh \
         --tag "$TAG" \
         --prod-auth \
@@ -537,18 +590,24 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_V2_ENVIRONMENT="$V2_ENVIRONMENT" \
+      CMUX_IROH_V2_BASE_URL="$V2_BASE_URL" \
       ./ios/scripts/reload.sh "${IROH_RELEASE_GATE_IOS_RELOAD_ARGS[@]}"
   else
     run_build_with_heartbeat Mac env \
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_V2_ENVIRONMENT="$V2_ENVIRONMENT" \
+      CMUX_IROH_V2_BASE_URL="$V2_BASE_URL" \
       ./scripts/reload.sh --tag "$TAG"
     run_build_with_heartbeat iOS env \
       CMUX_XCODEBUILD_JOBS="${CMUX_IROH_RELEASE_GATE_XCODEBUILD_JOBS:-2}" \
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_V2_ENVIRONMENT="$V2_ENVIRONMENT" \
+      CMUX_IROH_V2_BASE_URL="$V2_BASE_URL" \
       ./ios/scripts/reload.sh "${IROH_RELEASE_GATE_IOS_RELOAD_ARGS[@]}"
   fi
 else
@@ -567,6 +626,8 @@ rm -f "$DATA_CONTAINER/Library/Caches/$REPORT_FILENAME" \
   --mac-app "$MAC_APP" \
   --ios-app "$IOS_APP" \
   --backend-base-url "$STAGING_BASE_URL" \
+  --v2-base-url "$V2_BASE_URL" \
+  --v2-environment "$V2_ENVIRONMENT" \
   --presence-base-url "$PRESENCE_BASE_URL"
 
 if [[ "$PRODUCTION" -eq 1 ]]; then
@@ -630,6 +691,11 @@ fi
 # Both endpoints read the mode before constructing their Iroh endpoint. Write
 # after installation so a fresh simulator app container cannot replace it.
 defaults write "$MAC_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MODE"
+# Pin the Worker scope in both UserDefaults stores as well as the build
+# metadata. This prevents a retained dev app from reusing a prior environment
+# override when a production or staging gate is launched with a new tag.
+defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT -string "$V2_ENVIRONMENT"
+defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL -string "$V2_BASE_URL"
 # The current Iroh implementation owns a separate endpoint configuration.
 # Constrain both generations so a same-host direct route cannot satisfy a
 # check advertised as exercising the relay fleet.
@@ -647,6 +713,10 @@ else
 fi
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MODE"
+xcrun simctl spawn "$SIMULATOR_ID" defaults write \
+  "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT -string "$V2_ENVIRONMENT"
+xcrun simctl spawn "$SIMULATOR_ID" defaults write \
+  "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL -string "$V2_BASE_URL"
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_FORCE_RELAY -string "$FORCE_RELAY"
 
@@ -716,43 +786,79 @@ CMUX_ATTACH_ALLOW_RELAUNCH=1 \
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" physical_device ${MAC_AUTH_ARGS[@]+"${MAC_AUTH_ARGS[@]}"}
 
-# Wait for the app's atomic report-write signal. Python owns the simulator
-# notifyutil child so its timeout is bounded without polling the filesystem.
-SIMULATOR_ID="$SIMULATOR_ID" \
-REPORT_READY_NOTIFICATION="$REPORT_READY_NOTIFICATION" \
-REPORT_TIMEOUT="$REPORT_TIMEOUT" \
-/usr/bin/python3 <<'PY' &
-import os
-import subprocess
-
-try:
-    subprocess.run(
-        [
-            "xcrun", "simctl", "spawn", os.environ["SIMULATOR_ID"],
-            "notifyutil", "-1", os.environ["REPORT_READY_NOTIFICATION"],
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        timeout=int(os.environ["REPORT_TIMEOUT"]),
-    )
-except subprocess.TimeoutExpired:
-    raise SystemExit("Iroh release gate report signal timed out")
-PY
-REPORT_WAITER_PID=$!
-
 MOBILE_LAUNCH_ARGS=(
   --tag "$TAG"
   --simulator-id "$SIMULATOR_ID"
   --auth-profile agent
   --ensure-mac
   --detach
-  --iroh-release-gate "$RAW_MODE"
 )
 if [[ "$PRODUCTION" -eq 1 ]]; then
   MOBILE_LAUNCH_ARGS+=(--credentials-file "$PROD_CREDENTIALS_FILE")
 elif [[ -n "$DOGFOOD_CREDENTIALS_FILE" ]]; then
   MOBILE_LAUNCH_ARGS+=(--credentials-file "$DOGFOOD_CREDENTIALS_FILE")
 fi
+
+# Establish Stack and v2 state once before the measured launch. The first
+# launch is intentionally a real enrollment; the release-gate launch below
+# reuses that state and measures the cached-credential path.
+if [[ -n "$SOAK_PROFILE" ]]; then
+  echo "==> prewarming cached Stack and v2 state before the measured launch"
+  CMUX_DEV_AUTH_REPLACE_SESSION=1 \
+    ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}"
+  # The first launch verified sign-in and pairing. The measured launch must
+  # restore those saved values through the same startup path as a user launch.
+  # --ensure-mac would otherwise inject a new URL and bypass that path entirely.
+  MOBILE_LAUNCH_ARGS+=(--restore-pairing)
+fi
+
+# Wait for the app's atomic report-write signal. Start this after prewarm so
+# its deadline measures the release-gate run itself, rather than an unrelated
+# enrollment or build delay. Python owns the simulator notifyutil child so its
+# timeout is bounded without polling the filesystem.
+SIMULATOR_ID="$SIMULATOR_ID" \
+REPORT_READY_NOTIFICATION="$REPORT_READY_NOTIFICATION" \
+REPORT_TIMEOUT="$REPORT_TIMEOUT" \
+/usr/bin/python3 <<'PY' &
+import os
+import signal
+import subprocess
+import time
+
+command = [
+    "xcrun", "simctl", "spawn", os.environ["SIMULATOR_ID"],
+    "notifyutil", "-1", os.environ["REPORT_READY_NOTIFICATION"],
+]
+process = subprocess.Popen(
+    command,
+    start_new_session=True,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+)
+try:
+    process.wait(timeout=int(os.environ["REPORT_TIMEOUT"]))
+except subprocess.TimeoutExpired:
+    # notifyutil is an iOS Simulator child. Own its process group so a stalled
+    # notification cannot keep the release-gate job alive after its deadline.
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+    raise SystemExit("Iroh release gate report signal timed out")
+if process.returncode != 0:
+    raise SystemExit(f"Iroh release gate report waiter exited with {process.returncode}")
+PY
+REPORT_WAITER_PID=$!
+
+MOBILE_LAUNCH_ARGS+=(--iroh-release-gate "$RAW_MODE")
 # Capture the simulator's composited terminal pixels at the presentation
 # boundary. UIKit drawHierarchy omits the renderer's IOSurface. The app waits
 # for this acknowledgement before navigating back; capture time is excluded
@@ -846,15 +952,68 @@ PY_CAPTURE
   }
 fi
 
+# The simulator launch is detached, but the launcher also performs setup and
+# attach work before it returns. Own that process group as well as notifyutil;
+# otherwise a stalled launcher can keep the job alive after the report deadline.
+run_release_gate_launch() {
+  local log_path="$1"
+  shift
+/usr/bin/python3 - "$log_path" "$((REPORT_TIMEOUT + 30))" "$@" <<'PY_LAUNCH'
+import os
+import signal
+import subprocess
+import sys
+
+log_path, timeout_seconds, *command = sys.argv[1:]
+with open(log_path, "wb") as output:
+    process = subprocess.Popen(
+        command,
+        stdout=output,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    try:
+        return_code = process.wait(timeout=int(timeout_seconds))
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+        raise SystemExit("Iroh release gate launcher timed out")
+
+if return_code < 0:
+    raise SystemExit(128 - return_code)
+raise SystemExit(return_code)
+PY_LAUNCH
+}
+
+GATE_LAUNCH_LOG="$(mktemp "${TMPDIR:-/tmp}/cmux-iroh-launch-${TAG}.XXXXXX")"
+launch_status=0
+CMUX_DEV_AUTH_REPLACE_SESSION="$([[ -n "$SOAK_PROFILE" ]] && printf 0 || printf 1)" \
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 CMUX_ATTACH_READY_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_ATTACH_READY_TIMEOUT_SECONDS:-90}" \
 CMUX_IROH_RELEASE_GATE_SCENARIO="$GATE_SCENARIO" \
 CMUX_IROH_SOAK_PROFILE="$SOAK_PROFILE" \
+CMUX_IROH_V2_VERIFY_RENEW_INTERVAL_SECONDS="$([[ "$GATE_SCENARIO" == "relay_rollover" ]] && printf 180 || printf '')" \
 CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="$([[ "$GATE_SCENARIO" == "relay_expiry" ]] && printf 1 || printf 0)" \
-./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}" \
-  2>&1 | sed -E \
-    -e 's/^(==> dev sign-in account:).*/\1 [redacted]/' \
-    -e 's/(signed in as )[^,)]+/\1[redacted]/'
+run_release_gate_launch "$GATE_LAUNCH_LOG" ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}" || launch_status=$?
+sed -E \
+  -e 's/^(==> dev sign-in account:).*/\1 [redacted]/' \
+  -e 's/(signed in as )[^,)]+/\1[redacted]/' \
+  "$GATE_LAUNCH_LOG"
+rm -f "$GATE_LAUNCH_LOG"
+if (( launch_status )); then
+  echo "error: Iroh release gate launcher failed with status $launch_status" >&2
+  exit "$launch_status"
+fi
 
 DATA_CONTAINER="$(xcrun simctl get_app_container "$SIMULATOR_ID" "$IOS_BUNDLE_ID" data)"
 REPORT_PATH="$DATA_CONTAINER/Library/Caches/$REPORT_FILENAME"
@@ -936,6 +1095,7 @@ allowed_keys = {
     "selectedPath",
     "failure",
     "uiLatencies",
+    "startupPath",
     "lastDiagnosticEventCode",
     "lastDiagnosticFailureKind",
     "soak",
@@ -963,25 +1123,34 @@ if soak_profile:
     allowed_paths["relayOnly"].add("relay")
     soak = report.get("soak") or {}
     duration, cycles = (600, 50) if soak_profile == "basic" else (3600, 300)
-    if soak.get("profile") != soak_profile or soak.get("planVersion") != 1:
+    if soak.get("profile") != soak_profile or soak.get("planVersion") != 2:
         problems.append("soak profile or plan version mismatch")
     if soak.get("requestedDurationSeconds") != duration or soak.get("elapsedSeconds", 0) < duration:
         problems.append("soak did not complete its full observation window")
     if soak.get("completedCycles", 0) < cycles or soak.get("currentOperation") != "complete":
         problems.append("soak workload incomplete")
+    if report.get("startupPath") != "stored_pairing":
+        problems.append("soak did not use the saved-pairing startup path")
     required_operations = ["host_status", "rpc_inventory", "terminal_round_trip", "workspace_rename_restore",
                            "independent_events", "notification_reconcile", "chat_sessions", "artifact_scan"]
     if soak_profile == "stress":
         required_operations += ["workspace_navigation", "workspace_refresh", "notification_refresh",
                                 "unicode_output_burst", "workspace_create", "workspace_switch", "workspace_close",
-                                "terminal_after_restore", "forced_reconnect", "terminal_after_reconnect"]
+                                "terminal_after_restore", "terminal_after_refresh"]
+    if soak.get("recoverableFailures") != {}:
+        problems.append("soak reported terminal failures or missing recovery evidence")
     counts = soak.get("operationCounts", {})
     for operation in required_operations:
         minimum = cycles if operation in required_operations[:8] else cycles // 4
-        if operation in ("forced_reconnect", "terminal_after_reconnect"):
-            minimum = cycles // 120
         if counts.get(operation, 0) < minimum:
             problems.append("insufficient operation coverage: " + operation)
+    # The release gate must enforce the product launch budget, rather than
+    # merely recording a slow measurement and still calling the run passed.
+    launch_latency = (report.get("uiLatencies") or {}).get(
+        "app_launch_request_to_workspace_rows_visible"
+    )
+    if not isinstance(launch_latency, (int, float)) or launch_latency >= 3.5:
+        problems.append("workspace list exceeded the 3.5 second launch budget")
 unexpected_keys = set(report) - allowed_keys
 if unexpected_keys:
     problems.append("report contained unexpected fields")

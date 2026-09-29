@@ -1,11 +1,13 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod idle_close;
 mod public_projections;
 mod resource_content;
 mod resource_topology;
 mod terminal_directory;
 
+pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub(crate) use resource_content::ResourceEffectProjection;
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
@@ -1423,6 +1425,25 @@ impl HookFence {
     }
 }
 
+/// Longest hook session id published for resume. Claude session ids are
+/// UUIDs; longer values are dropped rather than truncated into a wrong id.
+const MAX_PUBLISHED_AGENT_SESSION_ID_BYTES: usize = 256;
+
+/// The hook session id a client may use to resume the agent, or `None` for
+/// the local generation token that session-less adapters receive and for ids
+/// that are too long or contain anything beyond `[A-Za-z0-9._:-]`. Hook
+/// payloads can come from remote hosts, and clients pass the id to a resume
+/// command.
+fn published_agent_session_id(terminal_id: &TerminalPublicId, session_id: &str) -> Option<String> {
+    let portable = !session_id.is_empty()
+        && session_id.len() <= MAX_PUBLISHED_AGENT_SESSION_ID_BYTES
+        && session_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'));
+    (portable && !session_id.starts_with(&format!("legacy:{terminal_id}:")))
+        .then(|| session_id.to_owned())
+}
+
 /// Session-less adapters get a local generation token. The journal sequence
 /// is durable and strictly increasing, so a new legacy lifecycle cannot reuse
 /// the previous fence identity after restart.
@@ -1486,6 +1507,10 @@ struct TerminalAgentRecord {
     source: AgentSource,
     session: Option<String>,
     agent: Option<String>,
+    /// The agent's own session id from its hook stream (Claude's
+    /// `session_id`), published as `extra.agent_session_id` so clients can
+    /// resume it. Absent for agents without a native hook session.
+    agent_session_id: Option<String>,
     updated_at_ms: u64,
 }
 
@@ -1841,8 +1866,16 @@ struct ClientSizingState {
     next_size_order: u64,
     policies: HashMap<SurfaceId, SurfaceClientSizing>,
     terminal_authorities: HashMap<SurfaceId, TerminalGeometryAuthority>,
+    /// Per terminal runtime, the owners that a later claim displaced, most
+    /// recent last. When the current owner releases or disconnects, the most
+    /// recent displaced owner that still reports a viewport takes geometry
+    /// back, so a laptop regains its size when a phone stops viewing.
+    displaced_terminal_authorities: HashMap<SurfaceId, Vec<TerminalGeometryAuthority>>,
     terminal_runtime_by_placement: HashMap<SurfaceId, SurfaceId>,
 }
+
+/// Bound on remembered displaced owners per terminal runtime.
+const DISPLACED_TERMINAL_AUTHORITY_CAPACITY: usize = 8;
 
 impl ClientSizingState {
     fn next_size_order(&mut self) -> u64 {
@@ -1896,6 +1929,68 @@ impl ClientSizingState {
         self.terminal_authorities
             .get(&runtime)
             .is_some_and(|authority| authority.placement == surface && authority.client == client)
+    }
+
+    /// Installs `authority` as the runtime's owner and remembers the owner it
+    /// displaced. Returns the previous owner.
+    fn install_terminal_authority(
+        &mut self,
+        runtime: SurfaceId,
+        authority: TerminalGeometryAuthority,
+    ) -> Option<TerminalGeometryAuthority> {
+        let previous = self.terminal_authorities.insert(runtime, authority);
+        let displaced = self.displaced_terminal_authorities.entry(runtime).or_default();
+        displaced.retain(|entry| *entry != authority && Some(*entry) != previous);
+        if let Some(previous) = previous.filter(|previous| *previous != authority) {
+            displaced.push(previous);
+            if displaced.len() > DISPLACED_TERMINAL_AUTHORITY_CAPACITY {
+                displaced.remove(0);
+            }
+        }
+        if displaced.is_empty() {
+            self.displaced_terminal_authorities.remove(&runtime);
+        }
+        previous
+    }
+
+    /// After the runtime lost its owner, hands geometry back to the most
+    /// recently displaced owner that still has a viewport report for a
+    /// placement of this runtime. Returns that owner and its reported size.
+    fn restore_displaced_terminal_authority(
+        &mut self,
+        runtime: SurfaceId,
+    ) -> Option<(TerminalGeometryAuthority, (u16, u16))> {
+        if self.terminal_authorities.contains_key(&runtime) {
+            return None;
+        }
+        let mut displaced = self.displaced_terminal_authorities.remove(&runtime)?;
+        while let Some(candidate) = displaced.pop() {
+            let placement_is_live =
+                self.terminal_runtime_by_placement.get(&candidate.placement) == Some(&runtime);
+            let size = self
+                .surfaces
+                .get(&candidate.placement)
+                .and_then(|viewers| viewers.get(&candidate.client))
+                .copied();
+            if let (true, Some(size)) = (placement_is_live, size) {
+                self.terminal_authorities.insert(runtime, candidate);
+                if !displaced.is_empty() {
+                    self.displaced_terminal_authorities.insert(runtime, displaced);
+                }
+                return Some((candidate, size));
+            }
+        }
+        None
+    }
+
+    fn forget_displaced_terminal_authorities(
+        &mut self,
+        mut forget: impl FnMut(&TerminalGeometryAuthority) -> bool,
+    ) {
+        self.displaced_terminal_authorities.retain(|_, displaced| {
+            displaced.retain(|entry| !forget(entry));
+            !displaced.is_empty()
+        });
     }
 
     fn report_participates(&self, surface: SurfaceId, client: u64) -> bool {
@@ -2473,6 +2568,7 @@ pub struct Mux {
     server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    idle_close: Mutex<idle_close::IdleCloseTracker>,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
@@ -2881,6 +2977,7 @@ impl Mux {
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
+            idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(
@@ -3714,9 +3811,12 @@ impl Mux {
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
-        if is_template_terminal(&terminal) {
-            // Cloud snapshot template: its builder's placement was wiped with
-            // the builder's registry, so it always gets a new one here.
+        if is_template_terminal(&terminal) && !has_restored_placements {
+            // Cloud snapshot template, first adoption: its builder's placement
+            // was wiped with the builder's registry, so it gets a new one here.
+            // The template marker stays on the durable row, so a later daemon
+            // start (crash, in-place upgrade) finds the placement this one
+            // committed and restores it below instead of placing it twice.
             self.place_adopted_terminal_in_new_screen(
                 &mut state,
                 &terminal.workspace_key,
@@ -8666,12 +8766,14 @@ impl Mux {
         sizing.report_order.remove(&(id, client));
         if let Some(runtime) = terminal_runtime {
             let released = sizing.owns_terminal_geometry(runtime, id, client);
+            let mut restored = None;
             if released {
                 sizing.terminal_authorities.remove(&runtime);
+                restored = self.restore_displaced_terminal_geometry(&mut sizing, runtime);
             }
             drop(sizing);
             if released {
-                self.emit_client_sizing_changes([client]);
+                self.emit_client_sizing_changes(std::iter::once(client).chain(restored));
             }
             return;
         }
@@ -8736,7 +8838,19 @@ impl Mux {
             affected.insert(*surface);
             false
         });
+        let released_runtimes = sizing
+            .terminal_authorities
+            .iter()
+            .filter(|(_, authority)| authority.client == client)
+            .map(|(runtime, _)| *runtime)
+            .collect::<Vec<_>>();
         sizing.terminal_authorities.retain(|_, authority| authority.client != client);
+        sizing.forget_displaced_terminal_authorities(|authority| authority.client == client);
+        let mut restored_geometry_clients = Vec::new();
+        for runtime in released_runtimes {
+            restored_geometry_clients
+                .extend(self.restore_displaced_terminal_geometry(&mut sizing, runtime));
+        }
         let mut restored_surfaces = HashSet::new();
         for (surface, policy) in &mut sizing.policies {
             let changed = if policy.exclusive_client == Some(client) {
@@ -8770,6 +8884,7 @@ impl Mux {
                 changed_clients.extend(reporters.keys().copied());
             }
         }
+        changed_clients.extend(restored_geometry_clients);
         changed_clients.remove(&client);
         self.apply_effective_client_sizes(&sizing, affected, &attached_clients);
         drop(sizing);
@@ -8796,7 +8911,7 @@ impl Mux {
         let mut sizing = self.client_sizing.lock().unwrap();
         let authority = TerminalGeometryAuthority { placement: surface, client };
         sizing.terminal_runtime_by_placement.insert(surface, runtime);
-        let previous = sizing.terminal_authorities.insert(runtime, authority);
+        let previous = sizing.install_terminal_authority(runtime, authority);
         let changed = previous != Some(authority);
         let claimed_size =
             sizing.surfaces.get(&surface).and_then(|viewers| viewers.get(&client)).copied();
@@ -8827,6 +8942,8 @@ impl Mux {
             return None;
         }
         let released = sizing.terminal_authorities.remove(&runtime);
+        // An explicit release freezes the grid; no displaced owner returns.
+        sizing.displaced_terminal_authorities.remove(&runtime);
         drop(sizing);
         if let Some(released) = released {
             self.emit_client_sizing_changes([released.client]);
@@ -8834,6 +8951,19 @@ impl Mux {
         } else {
             Some(false)
         }
+    }
+
+    /// Re-elects the most recently displaced owner of `runtime` (see
+    /// `ClientSizingState::restore_displaced_terminal_authority`) and resizes
+    /// the terminal to its viewport. Returns the restored client.
+    fn restore_displaced_terminal_geometry(
+        &self,
+        sizing: &mut ClientSizingState,
+        runtime: SurfaceId,
+    ) -> Option<u64> {
+        let (authority, (cols, rows)) = sizing.restore_displaced_terminal_authority(runtime)?;
+        let _ = self.resize_surface(authority.placement, cols, rows);
+        Some(authority.client)
     }
 
     fn emit_client_sizing_changes(&self, clients: impl IntoIterator<Item = u64>) {
@@ -8868,8 +8998,9 @@ impl Mux {
             let owns = sizing.owns_terminal_geometry(runtime, surface, client);
             if owns {
                 sizing.terminal_authorities.remove(&runtime);
+                let restored = self.restore_displaced_terminal_geometry(&mut sizing, runtime);
                 drop(sizing);
-                self.emit_client_sizing_changes([client]);
+                self.emit_client_sizing_changes(std::iter::once(client).chain(restored));
             }
             return Some(owns);
         }
@@ -10454,6 +10585,9 @@ impl Mux {
         result.map(|(commit, _)| commit)
     }
 
+    /// Commit one agent report as the terminal's durable projection and
+    /// publish its upsert or delete. Hook reports carry the agent's native
+    /// session id into `extra.agent_session_id`.
     #[allow(clippy::too_many_arguments)]
     fn commit_agent_report(
         &self,
@@ -10590,6 +10724,21 @@ impl Mux {
             }) || durable_stronger.is_some());
         let agent_adapter = agent_adapter
             .or_else(|| records.get(&terminal_id).and_then(|record| record.agent.clone()));
+        // Only hook-owned records carry the native session id: the journal
+        // or restart state for this report, else the live fence it continues.
+        let hook_session_id = if source == AgentSource::Hook {
+            effective_hook_state.map(|state| state.agent_session_id.clone()).or_else(|| {
+                sequence_guard
+                    .as_ref()
+                    .and_then(|guard| guard.get(&terminal_id))
+                    .filter(|fence| !fence.ended)
+                    .map(|fence| fence.session_id.clone())
+            })
+        } else {
+            None
+        };
+        let agent_session_id = hook_session_id
+            .and_then(|session_id| published_agent_session_id(&terminal_id, &session_id));
         let record = match records.get(&terminal_id) {
             Some(existing) if socket_report_ignored => existing.clone(),
             None if socket_report_ignored => match durable_stronger {
@@ -10604,6 +10753,7 @@ impl Mux {
                     },
                     session: existing.source_session,
                     agent: existing.agent,
+                    agent_session_id: existing.agent_session_id,
                     updated_at_ms: existing.updated_at_ms,
                 },
                 None => TerminalAgentRecord {
@@ -10611,6 +10761,7 @@ impl Mux {
                     source,
                     session: source_session,
                     agent: agent_adapter,
+                    agent_session_id,
                     updated_at_ms: now,
                 },
             },
@@ -10619,6 +10770,7 @@ impl Mux {
                 source,
                 session: source_session,
                 agent: agent_adapter,
+                agent_session_id,
                 updated_at_ms: now,
             },
         };
@@ -10632,6 +10784,10 @@ impl Mux {
         let agent_id =
             AgentPublicId::parse(format!("agent_{payload}")).map_err(anyhow::Error::new)?;
         let session_id = registry.session_id().clone();
+        let extra = crate::workspace_registry::agent_projection_extra(
+            record.agent.as_deref(),
+            record.agent_session_id.as_deref(),
+        );
         let value = serde_json::json!({
             "id":agent_id,
             "session_id":session_id,
@@ -10640,7 +10796,7 @@ impl Mux {
             "source":record.source.as_str(),
             "updated_at_ms":record.updated_at_ms.to_string(),
             "source_session":persisted_source_session.as_deref().or(record.session.as_deref()),
-            "extra":{"agent":record.agent},
+            "extra":extra,
         });
         let mut public_value = value.clone();
         public_value["source_session"] = serde_json::json!(record.session.as_deref());
@@ -10736,8 +10892,10 @@ impl Mux {
         sizing.policies.remove(&surface);
         sizing.terminal_runtime_by_placement.remove(&surface);
         sizing.terminal_authorities.retain(|_, authority| authority.placement != surface);
+        sizing.forget_displaced_terminal_authorities(|authority| authority.placement == surface);
         drop(sizing);
         self.placement_notifications.lock().unwrap().remove(&surface);
+        self.control_clients.forget_surface_attach_epoch(surface);
     }
 
     fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
@@ -15316,6 +15474,16 @@ impl Mux {
         } else {
             None
         };
+        let mut terminal_snapshot = terminal_snapshot;
+        if detach_projection.is_some() {
+            // The same revision deletes every view of this terminal, so the
+            // exited row must carry the detached tab edge. A full snapshot at
+            // this revision derives `tab_id: null, tab_ids: []` from topology;
+            // a delta that disagrees leaves clients with a graph that no
+            // snapshot at the same cursor can confirm.
+            terminal_snapshot["tab_id"] = Value::Null;
+            terminal_snapshot["tab_ids"] = serde_json::json!([]);
+        }
         let topology =
             detach_projection.as_ref().map(|projection| (&projection.patch, &projection.changes));
         let (_, terminal_revision, resource_revision, replayed) = registry.commit_terminal_exit(
@@ -23465,6 +23633,30 @@ mod tests {
         let batches = mux.resource_events_after(before_revision).unwrap().batches;
         assert_eq!(batches.len(), 1, "exit lifecycle and topology split across revisions");
         let changes = batches[0].changes.as_array().unwrap();
+        let exited_row = changes
+            .iter()
+            .find(|change| {
+                change["kind"] == "upsert"
+                    && change["resource"] == "terminal"
+                    && change["id"] == terminal_id.as_str()
+            })
+            .expect("atomic exit publishes the exited terminal row")["value"]
+            .clone();
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let snapshot_row = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .expect("the exited terminal stays in the snapshot")
+            .clone();
+        for key in ["tab_id", "tab_ids"] {
+            assert_eq!(
+                exited_row[key], snapshot_row[key],
+                "the exit delta and the snapshot at its revision disagree on {key}"
+            );
+        }
+        assert_eq!(exited_row["tab_ids"], serde_json::json!([]));
         for tab_id in tab_ids {
             assert!(
                 changes.iter().any(|change| {
@@ -24089,6 +24281,233 @@ mod tests {
             mux.agent_hook_fences.lock().unwrap().get(&terminal_id).map(|fence| fence.sequence),
             Some(1)
         );
+    }
+
+    /// Agent changes published after `revision`, in commit order.
+    fn agent_changes_after(mux: &Mux, revision: u64) -> Vec<Value> {
+        mux.resource_events_after(revision)
+            .unwrap()
+            .batches
+            .into_iter()
+            .flat_map(|batch| batch.changes.as_array().cloned().unwrap_or_default())
+            .filter(|change| change["resource"] == "agent")
+            .collect()
+    }
+
+    /// A Claude hook journal event for `terminal_id` with the given native
+    /// payload.
+    fn claude_hook(
+        terminal_id: &TerminalPublicId,
+        event: &str,
+        native: Value,
+    ) -> crate::JournalIngress {
+        crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            native,
+        )
+        .unwrap()
+    }
+
+    /// The published session id tracks the hook session through start, turn,
+    /// a retained socket report, end (delete), and a new session.
+    #[test]
+    fn agent_session_id_follows_the_hook_session_on_the_agent_roster() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let append = |event: &str, key: &str, native: Value| {
+            mux.append_journal_ingress(&claude_hook(&terminal_id, event, native), "test", key)
+                .unwrap();
+        };
+        let snapshot_agents =
+            || crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"].clone();
+
+        let revision = mux.with_state(|state| state.resource_revision);
+        append("SessionStart", "hook-1", serde_json::json!({"session_id":"claude-session-1"}));
+        let agents = snapshot_agents();
+        assert_eq!(agents.as_array().unwrap().len(), 1);
+        assert_eq!(agents[0]["extra"]["agent"], "claude");
+        assert_eq!(agents[0]["extra"]["agent_session_id"], "claude-session-1");
+        let changes = agent_changes_after(&mux, revision);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0]["kind"], "upsert");
+        assert_eq!(changes[0]["value"]["extra"]["agent_session_id"], "claude-session-1");
+
+        // A later turn in the same session keeps the id.
+        let revision = mux.with_state(|state| state.resource_revision);
+        append("UserPromptSubmit", "hook-2", serde_json::json!({"session_id":"claude-session-1"}));
+        let changes = agent_changes_after(&mux, revision);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0]["value"]["state"], "working");
+        assert_eq!(changes[0]["value"]["extra"]["agent_session_id"], "claude-session-1");
+
+        // A socket report retained by the hook-owned record keeps the id.
+        mux.report_agent(surface.id, AgentState::Idle, AgentSource::Socket, None).unwrap();
+        assert_eq!(snapshot_agents()[0]["extra"]["agent_session_id"], "claude-session-1");
+
+        // SessionEnd still deletes the agent.
+        let revision = mux.with_state(|state| state.resource_revision);
+        append("SessionEnd", "hook-3", serde_json::json!({"session_id":"claude-session-1"}));
+        let changes = agent_changes_after(&mux, revision);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0]["kind"], "delete");
+        assert_eq!(snapshot_agents(), serde_json::json!([]));
+
+        // A new session on the terminal (`/clear`, resume) publishes its id.
+        let revision = mux.with_state(|state| state.resource_revision);
+        append("SessionStart", "hook-4", serde_json::json!({"session_id":"claude-session-2"}));
+        let changes = agent_changes_after(&mux, revision);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0]["kind"], "upsert");
+        assert_eq!(changes[0]["value"]["extra"]["agent_session_id"], "claude-session-2");
+        assert_eq!(snapshot_agents()[0]["extra"]["agent_session_id"], "claude-session-2");
+    }
+
+    /// Detected, socket, and session-less hook agents publish no session id.
+    #[test]
+    fn agent_session_id_is_absent_without_a_hook_session() {
+        let mux = test_mux();
+        let snapshot_agent = |terminal_id: &TerminalPublicId| {
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|agent| agent["terminal_id"] == terminal_id.as_str())
+                .cloned()
+                .unwrap()
+        };
+
+        for source in [AgentSource::Detected, AgentSource::Socket] {
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = surface.terminal_public_id().cloned().unwrap();
+            let revision = mux.with_state(|state| state.resource_revision);
+            mux.report_agent(surface.id, AgentState::Working, source, Some("pid:1".into()))
+                .unwrap();
+            let changes = agent_changes_after(&mux, revision);
+            assert_eq!(changes[0]["kind"], "upsert");
+            assert_eq!(changes[0]["value"]["extra"].get("agent_session_id"), None);
+            assert_eq!(snapshot_agent(&terminal_id)["extra"].get("agent_session_id"), None);
+        }
+
+        // A session-less hook gets a local generation token, which is not a
+        // resumable agent session id.
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let revision = mux.with_state(|state| state.resource_revision);
+        mux.append_journal_ingress(
+            &claude_hook(&terminal_id, "SessionStart", serde_json::json!({})),
+            "test",
+            "legacy-hook-1",
+        )
+        .unwrap();
+        let changes = agent_changes_after(&mux, revision);
+        assert_eq!(changes[0]["value"]["source"], "hook");
+        assert_eq!(changes[0]["value"]["extra"].get("agent_session_id"), None);
+        assert_eq!(snapshot_agent(&terminal_id)["extra"].get("agent_session_id"), None);
+
+        // Ids that are too long or not portable are withheld, but the hook
+        // still drives the agent state.
+        let oversized = "a".repeat(257);
+        let unportable = ["x; rm -rf ~", "$(id)", "a b", oversized.as_str()];
+        for (index, session_id) in unportable.iter().enumerate() {
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = surface.terminal_public_id().cloned().unwrap();
+            let revision = mux.with_state(|state| state.resource_revision);
+            mux.append_journal_ingress(
+                &claude_hook(
+                    &terminal_id,
+                    "SessionStart",
+                    serde_json::json!({"session_id": session_id}),
+                ),
+                "test",
+                &format!("unportable-hook-{index}"),
+            )
+            .unwrap();
+            let changes = agent_changes_after(&mux, revision);
+            assert_eq!(changes[0]["kind"], "upsert", "{session_id}");
+            assert_eq!(changes[0]["value"]["source"], "hook", "{session_id}");
+            assert_eq!(changes[0]["value"]["extra"].get("agent_session_id"), None, "{session_id}");
+        }
+        assert_eq!(
+            published_agent_session_id(&terminal_id, &"a".repeat(256)),
+            Some("a".repeat(256))
+        );
+        assert_eq!(
+            published_agent_session_id(&terminal_id, "0f8c2a4e-1b3d-4c5e-9f7a-2b4c6d8e0a1b"),
+            Some("0f8c2a4e-1b3d-4c5e-9f7a-2b4c6d8e0a1b".into())
+        );
+    }
+
+    /// The session id persists with the projection across a registry reopen.
+    #[test]
+    fn agent_session_id_survives_restart() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-agent-session-id-{}", WorkspacePublicId::random().unwrap()));
+        let session = "agent-session-id";
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let mux = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let created = public_request(
+            &mux,
+            "agent-session-create",
+            "workspace.create",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("agent-session-create"),
+        );
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        mux.append_journal_ingress(
+            &claude_hook(
+                &terminal_id,
+                "SessionStart",
+                serde_json::json!({"session_id":"claude-durable"}),
+            ),
+            "test",
+            "durable-hook-1",
+        )
+        .unwrap();
+        let before = crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"].clone();
+        assert_eq!(before[0]["extra"]["agent_session_id"], "claude-durable");
+        mux.shutdown();
+        drop(mux);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let after =
+            crate::resource_api::public_session_snapshot(&reopened).unwrap()["agents"].clone();
+        assert_eq!(after, before);
+        let listed = public_request(
+            &reopened,
+            "agents",
+            "agent.list",
+            serde_json::json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert_eq!(listed["result"], before);
+
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -974,9 +974,19 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
 
         let artifactRegistry = MobileHostIrohArtifactTransferRegistry()
         let eventWriter = MobileHostIrxEventWriter(connection: irx, journal: journal)
+        let controlTransport = IrxControlByteTransport(
+            connection: irx, control: control, closeCode: .hostShutdown)
+        // The browser tunnel serves phones only, and each open re-checks the
+        // same live authorization that keeps this session admitted.
+        let tunnelHost: IrxTunnelHost? = isMac ? nil : MobileHostBrowserTunnel.makeHost(
+            isAuthorized: { stillAuthorized(peer.endpointIDHex) },
+            journal: journal
+        )
         let laneLoop = Task {
             await Self.runLaneLoop(
                 irx, admittedPeer: admittedPeer, artifactRegistry: artifactRegistry,
+                controlTransport: controlTransport,
+                tunnelHost: tunnelHost,
                 journal: journal,
                 onInteractiveSurface: { surfaceID in
                     // Fire-and-forget: input delivery never waits on the
@@ -984,8 +994,6 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     Task { await eventWriter.noteInteractiveSurface(surfaceID.uuidString) }
                 })
         }
-        let controlTransport = IrxControlByteTransport(
-            connection: irx, control: control, closeCode: .hostShutdown)
         let peerRequestHandler: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)?
         if isMac {
             let layouts = deviceWorkspaceLayouts
@@ -1023,6 +1031,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             ]
         )
         laneLoop.cancel()
+        await tunnelHost?.stop()
         await eventWriter.close()
         await irx.close(code: .hostShutdown, origin: .local)
         await registry.remove(deviceID: peer.bindingID, sessionID: sessionID)
@@ -1034,6 +1043,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         _ irx: IrxConnection,
         admittedPeer: CmxIrohAdmittedPeer,
         artifactRegistry: MobileHostIrohArtifactTransferRegistry,
+        controlTransport: IrxControlByteTransport,
+        tunnelHost: IrxTunnelHost?,
         journal: IrxJournal,
         onInteractiveSurface: @escaping MobileHostIrxTerminalLaneServer.InteractiveSurfaceObserver
     ) async {
@@ -1124,6 +1135,22 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                         await stream.receiveStream.stop(errorCode: 2)
                     }
                 }
+            case .controlRepair:
+                // The phone replaces a silent control stream without closing
+                // the connection its terminal lanes share. Off the accept
+                // loop: the acknowledgement write must not delay other lanes.
+                Task {
+                    let replaced = await controlTransport.acceptControlLaneReplacement(lane)
+                    journal.record(
+                        "host-lanes", replaced ? "control-replaced" : "control-replace-refused")
+                }
+            case .tcpConnect, .listeningPorts:
+                guard let tunnelHost else {
+                    await lane.writer.reset(errorCode: 2)
+                    await lane.reader.stop(errorCode: 2)
+                    continue
+                }
+                await tunnelHost.accept(lane)
             case .control, .events:
                 // control arrives only pre-admission; events is server-opened.
                 await lane.writer.reset(errorCode: 2)
@@ -1149,5 +1176,36 @@ private actor MobileHostIrxTerminalLaneQuota {
 
     func release() {
         activeCount = max(0, activeCount - 1)
+    }
+}
+
+/// Mac side of the phone's "On iPhone" browser for paired Macs: the phone's
+/// native browser reaches this Mac's loopback (and, when the user opts in,
+/// other hosts) through `tcpConnect` lanes on the admitted irx connection.
+/// Destination rules live in `IrxTunnelDestinationPolicy`; limits and
+/// lifecycle in `IrxTunnelHost`.
+enum MobileHostBrowserTunnel {
+    /// An administrator who disables the embedded browser also disables the
+    /// phone browser tunnel.
+    nonisolated static var isAvailable: Bool {
+        !BrowserAvailabilitySettings.isManagedByPolicy
+    }
+
+    /// The current destination policy (`mobile.browserTunnel.allowOtherHosts`).
+    nonisolated static func policy(defaults: UserDefaults = .standard) -> IrxTunnelDestinationPolicy {
+        IrxTunnelDestinationPolicy(
+            allowsNonLoopbackHosts: SettingCatalog().mobile.browserTunnelAllowOtherHosts.value(in: defaults)
+        )
+    }
+
+    nonisolated static func makeHost(
+        isAuthorized: @escaping @Sendable () -> Bool,
+        journal: IrxJournal
+    ) -> IrxTunnelHost {
+        IrxTunnelHost(
+            policy: { policy() },
+            isAuthorized: { isAvailable && isAuthorized() },
+            journal: journal
+        )
     }
 }

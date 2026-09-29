@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import argparse
 import os
+import plistlib
+import shlex
 import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -232,6 +235,19 @@ class PullRequestProductTests(unittest.TestCase):
         self.assertEqual(planned["source_sha"], self.merge)
         self.assertEqual(planned["changed_tests"], "cmuxTests/BTests.swift")
 
+    def test_a_source_run_that_adopted_its_product_names_where_to_look(self) -> None:
+        # test-e2e.yml builds that adopted a product upload none of their own.
+        def api(path: str) -> dict:
+            if path.endswith("/artifacts?per_page=100"):
+                return {"artifacts": []}
+            return {**self.pull_request_run(), "path": ".github/workflows/test-e2e.yml",
+                    "event": "workflow_dispatch", "head_sha": self.head,
+                    "display_title": f"cmuxUITests/A on glaeda-std-xcode-26.6 @ {self.head} [x]"}
+
+        with self.assertRaises(SystemExit) as raised:
+            self.plan(self.head, "5", api)
+        self.assertIn("uploads none of its own", str(raised.exception))
+
     def test_automatic_plan_passes_over_a_merge_with_base_app_changes(self) -> None:
         # The newer pull_request run for this head built a merge that also
         # carries the base's app change; the older push run built the head.
@@ -440,6 +456,68 @@ class DetachTests(unittest.TestCase):
             self.assertIn("-framework Pkg_1_PackageProduct", xcconfig)
             self.assertIn(f'"{host / "MacOS" / "Host App.debug.dylib"}"', xcconfig)
 
+    def test_detach_imports_only_matching_resolved_binary_framework_slices(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rerun products ") as directory:
+            root = Path(directory)
+            debug = root / "Build" / "Products" / "Debug"
+            (debug / "PackageFrameworks" / "Pkg_1_PackageProduct.framework").mkdir(parents=True)
+            host = debug / "Host App.app" / "Contents"
+            (host / "PlugIns" / "cmuxTests.xctest").mkdir(parents=True)
+            # Runtime copies can survive while Xcode removes importable build products.
+            for name in ("Sparkle", "Iroh", "Existing"):
+                (host / "Frameworks" / f"{name}.framework").mkdir(parents=True)
+            # A usable archived module wins; a resolved but unused variant must not leak in.
+            (debug / "Existing.framework" / "Modules").mkdir(parents=True)
+            (debug / "Existing.framework" / "Modules" / "module.modulemap").write_text("framework module Existing {}")
+            artifacts = root / "resolved artifacts"
+            expected = []
+            excluded = []
+            for name in ("Sparkle", "Iroh", "UnusedVariant", "Existing"):
+                xcframework = artifacts / name / f"{name}.xcframework"
+                libraries = []
+                for identifier, platform, architectures, variant in (
+                    ("macos-universal", "macos", ["arm64", "x86_64"], None),
+                    ("macos-intel", "macos", ["x86_64"], None),
+                    ("ios-arm64", "ios", ["arm64"], None),
+                    ("ios-catalyst", "ios", ["arm64"], "maccatalyst"),
+                ):
+                    framework = xcframework / identifier / f"{name}.framework"
+                    (framework / "Modules").mkdir(parents=True)
+                    (framework / "Modules" / "module.modulemap").write_text(f"framework module {name} {{}}")
+                    library = dict(LibraryIdentifier=identifier, LibraryPath=f"{name}.framework",
+                                   SupportedPlatform=platform, SupportedArchitectures=architectures)
+                    if variant:
+                        library["SupportedPlatformVariant"] = variant
+                    libraries.append(library)
+                    (expected if identifier == "macos-universal" and name in ("Sparkle", "Iroh") else excluded).append(framework.parent)
+                (xcframework / "Info.plist").write_bytes(plistlib.dumps(dict(AvailableLibraries=libraries)))
+            project = root / "project.pbxproj"
+            project.write_text(PROJECT)
+            config = root / "detached.xcconfig"
+            args = argparse.Namespace(
+                project=str(project), derived_data=str(root), xcconfig=str(config), target="cmuxTests",
+                package_root=[], xcframework_root=[str(artifacts)], arch="arm64",
+            )
+            with unittest.mock.patch("sys.stdout"):
+                rerun.detach(args)
+            settings = dict(line.split(" = ", 1) for line in config.read_text().splitlines())
+            search_paths = shlex.split(settings["FRAMEWORK_SEARCH_PATHS"])
+            for directory in expected:
+                self.assertIn(str(directory), search_paths)
+            for directory in excluded:
+                self.assertNotIn(str(directory), search_paths)
+            self.assertNotIn(str(host / "Frameworks"), search_paths)
+            # An embedded name alone cannot choose between multiple compatible targets.
+            alternate = artifacts / "alternate" / "Sparkle.xcframework"
+            (alternate / "macos" / "Sparkle.framework").mkdir(parents=True)
+            (alternate / "Info.plist").write_bytes(plistlib.dumps(dict(AvailableLibraries=[dict(
+                LibraryIdentifier="macos", LibraryPath="Sparkle.framework",
+                SupportedPlatform="macos", SupportedArchitectures=["arm64"],
+            )])))
+            project.write_text(PROJECT)
+            with unittest.mock.patch("sys.stdout"), self.assertRaisesRegex(ValueError, "ambiguous.*Sparkle"):
+                rerun.detach(args)
+
     def test_umbrella_header_wins_over_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             include = Path(directory)
@@ -537,6 +615,58 @@ class SourcePruningTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_test_and_log_steps_run_without_sudo_and_collect_job_captures(self) -> None:
+        workflow = WORKFLOW.read_text()
+        names = ["Run selected tests", "Run the same tests against the CI-built bundle", "Collect logs"]
+        with tempfile.TemporaryDirectory(prefix="rerun job ") as directory:
+            root = Path(directory)
+            temporary = root / "runner-temp"
+            temporary.mkdir()
+            binaries = root / "bin"
+            binaries.mkdir()
+            scripts = root / "scripts" / "ci"
+            scripts.mkdir(parents=True)
+            commands = {
+                binaries / "sudo": '#!/bin/bash\necho "$*" >> "$RUNNER_TEMP/sudo-attempts"\nexit 91\n',
+                binaries / "sw_vers": "#!/bin/bash\nexit 0\n",
+                binaries / "ditto": '#!/bin/bash\nexec cp -R "$1" "$2"\n',
+                scripts / "run-in-console-session.sh": (
+                    '#!/bin/bash\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/launched"\n'
+                    'echo captured > "$RUNNER_TEMP/cmux-app-host-console-capture-${CMUX_TAG:-rebuilt}.log"\n'
+                ),
+            }
+            for path, content in commands.items():
+                path.write_text(content)
+                path.chmod(0o755)
+            captures = ["cmux-app-host-xcodebuild-selected.log", "cmux-app-host-xcodebuild-selected.meta"]
+            for name in captures:
+                (temporary / name).write_text(name)
+            (temporary / "unrelated.log").write_text("unrelated")
+            (temporary / "prebuilt-cmuxTests.xctest").mkdir()
+            (temporary / "cmux-app-host-xcresults").mkdir()
+            (temporary / "cmux-app-host-xcresults" / "receipt").write_text("result")
+            derived = root / "derived"
+            (derived / "Build/Products/Debug/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest").mkdir(parents=True)
+            env = {**os.environ, "PATH": f"{binaries}:{os.environ['PATH']}", "HOME": str(root),
+                   "RUNNER_TEMP": str(temporary), "CMUX_DERIVED_DATA_PATH": str(derived),
+                   "CMUX_APP_HOST_XCTESTRUN": str(root / "test.xctestrun"),
+                   "SELECTORS": "cmuxTests/ExampleTests", "TEST_ITERATIONS": "1"}
+            for name in names:
+                step = workflow.split(f"      - name: {name}\n", 1)[1].split("\n      - name:", 1)[0]
+                command = textwrap.dedent(step.split("        run: |\n", 1)[1])
+                result = subprocess.run(["bash", "-c", command], cwd=root, env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, f"{name}: {result.stderr}")
+            self.assertFalse((temporary / "sudo-attempts").exists())
+            self.assertEqual(len((temporary / "launched").read_text().splitlines()), 2)
+            out = temporary / "rerun-out"
+            for name in captures + ["cmux-app-host-console-capture-rebuilt.log"]:
+                self.assertEqual((out / name).read_text(), (temporary / name).read_text())
+                self.assertTrue((out / "rebuilt" / name).is_file())
+            self.assertTrue((out / "cmux-app-host-console-capture-baseline.log").is_file())
+            self.assertEqual((out / "cmux-app-host-xcresults" / "receipt").read_text(), "result")
+            self.assertFalse((out / "unrelated.log").exists())
+            self.assertEqual((temporary / "unrelated.log").read_text(), "unrelated")
+
     def test_runs_on_a_fork_without_repository_variables(self) -> None:
         labels = re.findall(r"runs-on: (.*)", WORKFLOW.read_text())
         self.assertEqual(len(labels), 2)

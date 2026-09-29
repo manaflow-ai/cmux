@@ -297,6 +297,9 @@ class GeneratedClientMixin:
     def set_split_ratio(self, split: Id, ratio: float, *, transaction: Union[int, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-split-ratio', SetSplitRatioRequest(split=split, ratio=ratio, transaction=transaction))
 
+    def set_terminal_idle_policy(self, surface: Union[Id, None, MissingType] = MISSING, *, terminal_id: Union[str, None, MissingType] = MISSING, idle_close_seconds: Union[int, None, MissingType] = MISSING) -> SetTerminalIdlePolicyResult:
+        return self._invoke_command('set-terminal-idle-policy', SetTerminalIdlePolicyRequest(surface=surface, terminal_id=terminal_id, idle_close_seconds=idle_close_seconds))
+
     def set_viewport_pane_width(self, pane: Id, width: float, *, transaction: Union[int, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-viewport-pane-width', SetViewportPaneWidthRequest(pane=pane, width=width, transaction=transaction))
 
@@ -444,6 +447,7 @@ GeneratedClientMixin.set_client_sizing.__cmux_command__ = COMMANDS['set-client-s
 GeneratedClientMixin.set_default_colors.__cmux_command__ = COMMANDS['set-default-colors']
 GeneratedClientMixin.set_ratio.__cmux_command__ = COMMANDS['set-ratio']
 GeneratedClientMixin.set_split_ratio.__cmux_command__ = COMMANDS['set-split-ratio']
+GeneratedClientMixin.set_terminal_idle_policy.__cmux_command__ = COMMANDS['set-terminal-idle-policy']
 GeneratedClientMixin.set_viewport_pane_width.__cmux_command__ = COMMANDS['set-viewport-pane-width']
 GeneratedClientMixin.set_window_title.__cmux_command__ = COMMANDS['set-window-title']
 GeneratedClientMixin.shutdown_daemon.__cmux_command__ = COMMANDS['shutdown-daemon']

@@ -192,10 +192,16 @@ class TerminalController {
     private nonisolated let socketConnectionsTask: Task<Void, Never>
     /// Bounded async connection admission. The pool owns task lifetimes; an
     /// admitted connection owns its descriptor until its async handler exits.
-    private nonisolated let socketClientWorkerPool = ControlClientWorkerPool(
-        maximumConcurrentJobs: 32,
-        maximumPendingJobs: 64
+    nonisolated let socketClientWorkerPool = ControlClientWorkerPool(
+        maximumConcurrentJobs: TerminalController.socketClientMaximumConcurrentJobs,
+        maximumPendingJobs: TerminalController.socketClientMaximumPendingJobs,
+        maximumPendingAgeNanoseconds: TerminalController.socketPendingConnectionMaximumAgeNanoseconds
     )
+    /// Answers connections the pool cannot serve with a real `overloaded`
+    /// error instead of a closed descriptor (#13369).
+    nonisolated let socketOverloadResponder = TerminalController.makeSocketOverloadResponder()
+    /// Deduplicates the once-per-episode Sentry captures for socket-lane stalls.
+    nonisolated let socketLaneHealth = SocketLaneHealth()
     /// Latest main-actor-published read results. Socket workers consult this
     /// mirror synchronously before falling back to a live command path.
     nonisolated let socketReadSnapshotStore = ControlReadSnapshotStore()
@@ -295,6 +301,48 @@ class TerminalController {
             localized: "socket.terminal.surfaceUnavailable",
             defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
         )
+    }
+    /// The command that shows, and so wakes, a hibernated terminal.
+    nonisolated static func terminalWakeCommand(workspaceID: UUID, surfaceID: UUID) -> String {
+        "cmux focus-panel --workspace \(workspaceID.uuidString) --panel \(surfaceID.uuidString)"
+    }
+
+    /// Explains why a terminal has no running runtime and how to get one.
+    nonisolated static func terminalNotRunningMessage(
+        reason: TerminalSurfaceRuntimeUnavailableReason,
+        wakeCommand: String?
+    ) -> String {
+        switch reason {
+        case .hibernated:
+            if let wakeCommand {
+                return String.localizedStringWithFormat(
+                    String(
+                        localized: "socket.terminal.notRunning.hibernated",
+                        defaultValue: "The terminal is hibernated: cmux suspended its idle agent to save memory. Wake it by showing it (this brings its window to the front), then retry: %@"
+                    ),
+                    wakeCommand
+                )
+            }
+            return String(
+                localized: "socket.terminal.notRunning.hibernatedNoCommand",
+                defaultValue: "The terminal is hibernated: cmux suspended its idle agent to save memory. Show the terminal in cmux to wake it, then retry."
+            )
+        case .awaitingRestore:
+            return String(
+                localized: "socket.terminal.notRunning.awaitingRestore",
+                defaultValue: "cmux is still restoring the terminal after it reopened and is checking which agent session to resume. Retry in a few seconds."
+            )
+        case .starting:
+            return String(
+                localized: "socket.terminal.notRunning.starting",
+                defaultValue: "The terminal has not started yet. Retry in a few seconds."
+            )
+        case .closing:
+            return String(
+                localized: "socket.terminal.notRunning.closing",
+                defaultValue: "The terminal is closing and cannot be read."
+            )
+        }
     }
     private nonisolated static var terminalProcessExitedSocketError: String {
         "ERROR: \(terminalProcessExitedMessage)"
@@ -453,8 +501,34 @@ class TerminalController {
     /// Bridges the package server's event closures back to the controller.
     /// Assigned exactly once during `init`, before the listener can start, and
     /// read-only afterward; the controller is an app-lifetime singleton.
-    private final class ServerEventTarget: @unchecked Sendable {
+    final class ServerEventTarget: @unchecked Sendable {
         weak var controller: TerminalController?
+    }
+
+    /// Queues a session hook the app observed for a remote agent (the cmux-tui agent
+    /// roster of a `cmux ssh` machine) through the same relay-backed delivery
+    /// lane as `agent.hook.enqueue`, routed to the local pane showing it.
+    /// - Returns: `false` when the socket is not listening, the event is
+    ///   invalid for queued delivery, or the queue is full.
+    nonisolated func enqueueMirroredAgentHook(
+        agent: String,
+        subcommand: String,
+        payload: String,
+        workspaceID: UUID,
+        surfaceID: UUID
+    ) -> Bool {
+        guard let socketPath = currentSocketPathForRemoteRestore(),
+              let event = AgentHookDeliveryEvent.mirrored(
+                  agent: agent,
+                  subcommand: subcommand,
+                  payload: payload,
+                  workspaceID: workspaceID,
+                  surfaceID: surfaceID,
+                  deliverySocketPath: socketPath
+              ) else {
+            return false
+        }
+        return agentHookDeliveryQueue.enqueue(event)
     }
 
     private init(
@@ -462,7 +536,7 @@ class TerminalController {
         transport: SocketTransport = SocketTransport(),
         listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
         socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter = .init(
-            maximumConcurrentClaims: 32
+            maximumConcurrentClaims: TerminalController.socketClientPreauthorizationMaximumClaims
         ),
         mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota = .init(),
         mobileTaskModelDiscovery: MobileTaskModelDiscovery = .live(
@@ -994,56 +1068,6 @@ class TerminalController {
         transport.isProcessDescendant(pid, of: myPid)
     }
 
-    /// Builds the package server's host-callback seam. `target` is filled in
-    /// at the end of `init`; no listener event can fire before `start`.
-    private nonisolated static func makeSocketServerEvents(
-        target: ServerEventTarget,
-        markerStore: SocketPathMarkerStore,
-        failureCaptureGate: SocketListenerFailureCaptureGate
-    ) -> SocketControlServerEvents {
-        SocketControlServerEvents(
-            breadcrumb: { message, data in
-                sentryBreadcrumb(message, category: "socket", data: data)
-            },
-            failure: { message, stage, errnoCode, data in
-                sentryBreadcrumb(message, category: "socket", data: data)
-                guard failureCaptureGate.shouldCapture(
-                    message: message,
-                    stage: stage,
-                    path: data["path"] as? String ?? "",
-                    errnoCode: errnoCode
-                ) else {
-                    return
-                }
-                sentryCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
-            },
-            listenerDidStart: { path, _ in
-                // @MainActor closure, invoked synchronously inside start().
-                failureCaptureGate.listenerDidStart()
-                target.controller?.socketListenerDidStart(path: path)
-            },
-            recordLastSocketPath: { path in
-                markerStore.record(path)
-            },
-            cleanupDiscoveryState: { path in
-                target.controller?.cleanupStoppedSocketState(path)
-            },
-            pathMissingDetected: { path, generation in
-                Task { @MainActor in
-                    target.controller?.restartSocketListenerIfPathMissing(path: path, generation: generation)
-                }
-            },
-            rearmRequested: { generation, errnoCode, consecutiveFailures, delayMs in
-                target.controller?.scheduleListenerRearm(
-                    generation: generation,
-                    errnoCode: errnoCode,
-                    consecutiveFailures: consecutiveFailures,
-                    delayMs: delayMs
-                )
-            }
-        )
-    }
-
     /// Inject the auth graph. Call once at the composition root, before the
     /// socket listener accepts auth commands.
     @MainActor
@@ -1105,7 +1129,7 @@ class TerminalController {
     /// Invoked synchronously inside the server's `start()` on the main
     /// actor, at the exact lifecycle point the legacy implementation posted
     /// `.socketListenerDidStart`.
-    private func socketListenerDidStart(path: String) {
+    func socketListenerDidStart(path: String) {
         NotificationCenter.default.post(
             name: .socketListenerDidStart,
             object: self,
@@ -1145,7 +1169,7 @@ class TerminalController {
         AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs.first { $0.id == workspaceId }
     }
 
-    private func restartSocketListenerIfPathMissing(path: String, generation: UInt64) {
+    func restartSocketListenerIfPathMissing(path: String, generation: UInt64) {
         let restartMode = socketServer.accessMode
         guard socketServer.shouldRestartForMissingPath(path: path, generation: generation) else { return }
 
@@ -1283,7 +1307,7 @@ class TerminalController {
                     await self.v2SurfaceReadSelection(params: parsedRequest.params)
                 }
             }
-            if ["mobile.task.models.list", "mobile.terminal.paste", "terminal.paste"].contains(request.method) {
+            if ["mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt", "mobile.terminal.paste", "terminal.paste"].contains(request.method) {
                 return v2AsyncResultCall(
                     id: request.id,
                     timeoutSeconds: 7
@@ -1544,6 +1568,10 @@ class TerminalController {
     }
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
         switch request.method {
+        case "session.agent_recovery.list":
+            return v2Result(id: request.id, v2AgentRecoveryList(params: request.params))
+        case "session.agent_recovery.restore":
+            return v2Result(id: request.id, v2AgentRecoveryRestore(params: request.params))
         case "auth.status":
             let semaphore = DispatchSemaphore(value: 0)
             Task { @MainActor [weak self] in
@@ -1604,14 +1632,23 @@ class TerminalController {
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "agent.hook.enqueue":
+            // Relay provenance survives only after the ingress gate authorized
+            // the owner workspace and surface selectors.
+            let enqueueParams: [String: Any]?
+            if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil {
+                enqueueParams = RemoteRelayAgentHookAdmission().queueParameters(from: request.params)
+            } else {
+                enqueueParams = request.params
+            }
             let hookParams: [String: Any]
-            if request.params["relay_backed"] as? Bool == true,
-               request.params["caller_tty"] != nil {
+            if let enqueueParams,
+               enqueueParams["relay_backed"] as? Bool == true,
+               enqueueParams["caller_tty"] != nil {
                 hookParams = v2MainSync {
-                    self.agentHookParametersResolvingRelayTTY(request.params)
+                    self.agentHookParametersResolvingRelayTTY(enqueueParams)
                 }
             } else {
-                hookParams = request.params
+                hookParams = enqueueParams ?? [:]
             }
             guard let localSocketPath = currentSocketPathForRemoteRestore(),
                   let event = AgentHookDeliveryEvent(
@@ -1756,20 +1793,24 @@ class TerminalController {
             return v2Ok(id: request.id, result: v2CapabilitiesWithBrowserDesignMode(params: request.params))
         case "system.top":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
-                let response = await self.v2SystemTopAsync(ControlRequest(
-                    id: nil, method: "system.top", params: request.params.compactMapValues { JSONValue(foundationObject: $0) }
-                ))
-                guard let typed = Self.controlCallResult(fromEncodedResponse: response) else {
-                    return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
-                }
-                switch typed {
-                case .ok(let value): return .ok(value.foundationObject)
-                case .err(let code, let message, let data): return .err(code: code, message: message, data: data?.foundationObject)
+                await self.socketLegacyMainHopBridge {
+                    let response = try await self.v2SystemTopAsync(ControlRequest(
+                        id: nil, method: "system.top", params: request.params.compactMapValues { JSONValue(foundationObject: $0) }
+                    ))
+                    guard let typed = Self.controlCallResult(fromEncodedResponse: response) else {
+                        return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
+                    }
+                    switch typed {
+                    case .ok(let value): return .ok(value.foundationObject)
+                    case .err(let code, let message, let data): return .err(code: code, message: message, data: data?.foundationObject)
+                    }
                 }
             }
         case "system.memory":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
-                await self.v2SystemMemory(params: request.params)
+                await self.socketLegacyMainHopBridge {
+                    try await self.v2SystemMemory(params: request.params)
+                }
             }
         case "vault.sessions":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
@@ -2050,9 +2091,10 @@ class TerminalController {
             false
         }
         guard initialReadLimits == nil || claimedPreauthorizationSlot else {
-            close(clientSocket)
+            rejectSocketClient(clientSocket, reason: .preauthorizationSaturated)
             return
         }
+        let overloadResponder = socketOverloadResponder
         let submission = await socketClientWorkerPool.submit { [weak self] in
             guard let self else {
                 close(clientSocket)
@@ -2069,13 +2111,14 @@ class TerminalController {
                 initialReadLimits: initialReadLimits,
                 holdsPreauthorizationSlot: claimedPreauthorizationSlot
             )
-        } onDrop: {
+        } onDrop: { dropReason in
             if claimedPreauthorizationSlot {
                 Task { await preauthorizationLimiter.release() }
             }
-            close(clientSocket)
+            overloadResponder.reject(socket: clientSocket, reason: Self.socketOverloadReason(for: dropReason))
         }
-        guard submission != .rejected else { return }
+        guard submission == .rejected else { return socketLaneHealth.recordPoolAdmission() }
+        await reportSocketPoolSaturation()
     }
 
     /// Owns the accepted socket until the command loop and source teardown finish.
@@ -2686,6 +2729,9 @@ class TerminalController {
         case "close_window":
             return closeWindow(args)
 
+        case "resize_window":
+            return resizeWindow(args)
+
         case "move_workspace_to_window":
             return moveWorkspaceToWindow(args)
 
@@ -3035,8 +3081,9 @@ class TerminalController {
         case "surface.sync_codex_native_title":
             return v2Result(id: id, self.v2SurfaceSyncCodexNativeTitle(params: params))
 
-        // Settings/session/feedback: session.restore_previous, settings.open, and
-        // feedback.open handled by ControlCommandCoordinator.
+        // Settings/session/feedback: session.restore_previous, session.import,
+        // session.export, settings.open, and feedback.open handled by
+        // ControlCommandCoordinator.
 
         // Feed (workstream): feed.jump/feed.list handled by ControlCommandCoordinator.
         case "sidebar.custom.open":
@@ -3659,6 +3706,10 @@ class TerminalController {
                 if let teamID = coordinator.resolvedTeamID {
                     status["selected_team_id"] = teamID
                 }
+                // A signed-in session without a team scope keeps the pairing
+                // host and Cloud down; report it so the state is diagnosable.
+                status["team_scope_ready"] = coordinator.authenticatedTeamScope != nil
+                status["team_scope_recovering"] = coordinator.hasPendingTeamScopeRecovery
                 if !coordinator.availableTeams.isEmpty {
                     status["teams"] = coordinator.availableTeams.map { team -> [String: Any] in
                         var dict: [String: Any] = [
@@ -3832,6 +3883,9 @@ class TerminalController {
             }
             if let combinedError = error as? CloudEnvDelivery.OperationAndCleanupError {
                 return v2Error(id: id, code: "vm_env_delivery_failed", message: combinedError.localizedDescription)
+            }
+            if let failure = error as? SSHTuiOpenFailure {
+                return v2Error(id: id, code: "ssh_failed", message: failure.reason)
             }
             if let catalogError = error as? SurfaceCatalogError {
                 switch catalogError {
@@ -5590,8 +5644,12 @@ class TerminalController {
         guard surface.liveSurfaceForGhosttyAccess(reason: "socket.readTerminalText.start") == nil else {
             return false
         }
-        // Hibernated agents and restores awaiting admission cannot start now;
-        // report them right away instead of waiting out the deadline.
+        // A restore awaiting admission starts by itself once cmux knows which
+        // agent session to resume, so wait for it. Hibernated and closing
+        // terminals never start without outside action; report them now.
+        if surface.runtimeUnavailableReason == .awaitingRestore {
+            return Date() < deadline
+        }
         guard surface.canCreateRuntimeSurface else { return false }
         // A read waits on the result, so it is input demand like socket
         // send_text, not restore-paced background priming.
@@ -5615,6 +5673,32 @@ class TerminalController {
             guard isStarting(outcome) else { return outcome }
             Thread.sleep(forTimeInterval: 0.05)
         }
+    }
+
+    /// The `surface.read_text` reply for a resolved terminal with no live
+    /// runtime surface to read from. `data.reason` names the cause, and
+    /// `data.wake_command` is present when a command can make it readable.
+    nonisolated static func readTextTerminalNotRunningResult(
+        workspaceID: UUID?,
+        surfaceID: UUID?,
+        reason: TerminalSurfaceRuntimeUnavailableReason
+    ) -> V2CallResult {
+        let wakeCommand: String? = if reason == .hibernated,
+            let workspaceID,
+            let surfaceID {
+            terminalWakeCommand(workspaceID: workspaceID, surfaceID: surfaceID)
+        } else {
+            nil
+        }
+        var data: [String: Any] = ["reason": reason.rawValue]
+        if let workspaceID { data["workspace_id"] = workspaceID.uuidString }
+        if let surfaceID { data["surface_id"] = surfaceID.uuidString }
+        if let wakeCommand { data["wake_command"] = wakeCommand }
+        return .err(
+            code: "surface_unavailable",
+            message: terminalNotRunningMessage(reason: reason, wakeCommand: wakeCommand),
+            data: data
+        )
     }
 
     /// `surface.read_text` worker body (issue #5757). The former
@@ -5791,7 +5875,14 @@ class TerminalController {
                 terminalSurface: terminalSurface,
                 includeScrollback: includeScrollback
             ) else {
-                return .finished(.err(code: "internal_error", message: "Failed to read terminal text", data: nil))
+                // No live runtime: the terminal is hibernated, awaiting
+                // restore admission, or did not start before the deadline.
+                // That is surface state, not a server failure.
+                return .finished(Self.readTextTerminalNotRunningResult(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceId,
+                    reason: terminalSurface.runtimeUnavailableReason
+                ))
             }
             // `terminalTextPayload`'s only failure predicate is snapshot shape
             // (O(1)), so reject here and mint refs only when a success reply is
@@ -5828,7 +5919,11 @@ class TerminalController {
             return result
         case .surfaceStarting:
             // v2MainSyncAwaitingSurfaceStart never returns this case.
-            return .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
+            return Self.readTextTerminalNotRunningResult(
+                workspaceID: nil,
+                surfaceID: nil,
+                reason: .starting
+            )
         case let .captured(capture):
             // The full-scrollback formatting stays off the main actor.
             switch Self.terminalTextPayload(
@@ -11657,7 +11752,11 @@ class TerminalController {
                 return .surfaceStarting
             }
             guard target.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
-                return .finished("ERROR: Terminal surface not found")
+                let reason = target.surface.runtimeUnavailableReason
+                let wakeCommand = reason == .hibernated
+                    ? Self.terminalWakeCommand(workspaceID: tab.id, surfaceID: target.surfaceID)
+                    : nil
+                return .finished("ERROR: \(Self.terminalNotRunningMessage(reason: reason, wakeCommand: wakeCommand))")
             }
             guard let snapshot = self.readTerminalTextRawSnapshot(
                 terminalSurface: target.surface,
@@ -11674,7 +11773,7 @@ class TerminalController {
             return reply
         case .surfaceStarting:
             // v2MainSyncAwaitingSurfaceStart never returns this case.
-            return "ERROR: Terminal surface not found"
+            return "ERROR: \(Self.terminalNotRunningMessage(reason: .starting, wakeCommand: nil))"
         case .captured(let captured):
             snapshot = captured
         }
@@ -12591,6 +12690,44 @@ class TerminalController {
         return "OK \(windowId.uuidString)"
     }
 
+    /// `resize_window <window_id> <width|-> <height|->` — `-` keeps that dimension.
+    /// Both `-` is a frame read: nothing changes and the current size comes back.
+    /// Reports the window FRAME size (title bar included), matching what
+    /// `resizeMainWindow` sets and returns.
+    private func resizeWindow(_ args: String) -> String {
+        let parts = args.split(separator: " ").map(String.init)
+        // Exactly three: the grammar has no optional tail, and silently ignoring extra
+        // tokens turns a malformed command into a successful resize.
+        guard parts.count == 3 else { return "ERROR: Usage resize_window <window_id> <width|-> <height|->" }
+        guard let windowId = UUID(uuidString: parts[0]) else { return "ERROR: Invalid window id" }
+
+        // A dimension must survive the CGFloat math and the Int in the reply:
+        // Int(Double.nan) traps at runtime, so nothing non-finite may pass, and
+        // zero or negative sizes are refusals AppKit would express as clamping.
+        func parseDimension(_ raw: String, name: String) -> (value: Double?, error: String?) {
+            if raw == "-" { return (nil, nil) }
+            guard let value = Double(raw), value.isFinite, value > 0, value <= 100_000 else {
+                return (nil, "ERROR: Invalid \(name)")
+            }
+            return (value, nil)
+        }
+        let width = parseDimension(parts[1], name: "width")
+        if let error = width.error { return error }
+        let height = parseDimension(parts[2], name: "height")
+        if let error = height.error { return error }
+
+        // NSWindow frames are main-thread only; parsing above stays off main.
+        let size = v2MainSync {
+            AppDelegate.shared?.resizeMainWindow(
+                windowId: windowId,
+                width: width.value.map { CGFloat($0) },
+                height: height.value.map { CGFloat($0) }
+            )
+        }
+        guard let size = size ?? nil else { return "ERROR: Window not found" }
+        return "OK \(Int(size.width)) \(Int(size.height))"
+    }
+
     private func closeWindow(_ arg: String) -> String {
         let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
@@ -12744,6 +12881,8 @@ class TerminalController {
                 result = "OK \(panel.id.uuidString)"
             case .routedToRemote:
                 result = "OK routed-to-remote-tmux"
+            case .noSpace:
+                result = "ERROR: No space for new pane"
             case .failed:
                 break
             }
@@ -15268,6 +15407,10 @@ class TerminalController {
         if hasViewportReportFields, v2String(params, "client_id") == nil || v2Int(params, "viewport_columns") == nil || v2Int(params, "viewport_rows") == nil {
             return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
         }
+        // A hibernated agent has no runtime, so this replay would be empty and
+        // no output would follow: the viewer would stay blank. Once resumed,
+        // the runtime's output streams to the viewer like any live terminal.
+        terminalTarget.resumeAgentHibernationForRemoteAttach()
         let expectedViewport = applyMobileViewportReport(
             params: params,
             terminalTarget: terminalTarget,
