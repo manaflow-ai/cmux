@@ -43,7 +43,6 @@ enum CompatJSON {
             "current_directory": focus.surface?.tab.cwd.map(JSON.string) ?? .null,
             "custom_color": workspace.color.map(JSON.string) ?? .null,
             "unread_count": JSON(workspace.unreadCount),
-            "group_id": workspace.group.map(JSON.string) ?? .null,
         ]
     }
 
@@ -91,6 +90,13 @@ enum CompatJSON {
         out["surface_type"] = surface.map { .string($0.typeName) } ?? .null
         out["is_browser_surface"] = .bool(surface?.isBrowser == true)
         return .object(out)
+    }
+
+    /// `window_id`/`window_ref` for an App window model id (a window the
+    /// published snapshot may not list yet).
+    static func windowIDs(modelID: String, refs: CompatRefRegistry) -> [String: JSON] {
+        let uuid = CompatUUID.canonical(modelID) ?? CompatUUID.hashed("window:" + modelID)
+        return ["window_id": .string(uuid), "window_ref": .string(refs.ref(.window, uuid))]
     }
 
     static func iso8601(ms: UInt64) -> String {

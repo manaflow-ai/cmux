@@ -20,6 +20,9 @@ final class AppCompatFrontend: CompatFrontend {
     unowned let services: AppServices
     private nonisolated let connectionBox = Mutex<DaemonConnection?>(nil)
     private var connectionObservation: Task<Void, Never>?
+    /// Runs after every intent: the App publishes the control snapshot so
+    /// the next CLI read sees the change.
+    var afterIntent: (() -> Void)?
 
     init(services: AppServices) {
         self.services = services
@@ -39,6 +42,7 @@ final class AppCompatFrontend: CompatFrontend {
     }
 
     func perform(_ intent: CompatFrontendIntent) throws -> CmuxNextSettings.JSONValue {
+        defer { afterIntent?() }
         switch intent {
         case .showWorkspace(let workspaceID, let windowID):
             try show(workspaceID: workspaceID, windowID: windowID)

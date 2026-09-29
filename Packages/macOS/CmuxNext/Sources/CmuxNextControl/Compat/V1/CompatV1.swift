@@ -67,9 +67,8 @@ enum CompatV1 {
 
     static func newWindow(_ line: CompatV1Line, _ service: CompatService) async throws -> String {
         let result = try await service.perform(.newWindow(workspaceID: nil))
-        let world = try await service.world()
-        let window = result["window_id"]?.stringValue.flatMap { id in world.windows.first { $0.modelID == id } }
-        return "OK \(window?.uuid ?? "")"
+        let id = result["window_id"]?.stringValue ?? ""
+        return "OK \(CompatJSON.windowIDs(modelID: id, refs: service.refs)["window_id"]?.stringValue ?? "")"
     }
 
     static func windowIntent(_ line: CompatV1Line, _ service: CompatService,

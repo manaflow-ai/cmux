@@ -117,9 +117,8 @@ enum CompatSystemMethods {
         let world = try await call.world()
         let workspace = try? call.target(world).workspace()
         let result = try await call.perform(.newWindow(workspaceID: workspace?.modelID))
-        let after = try await call.world()
-        let window = result["window_id"]?.stringValue.flatMap { id in after.windows.first { $0.modelID == id } }
-        return .object(CompatJSON.ids(window: window, include: ["window"]))
+        guard let id = result["window_id"]?.stringValue else { throw ControlError(code: "app_error", message: "the app opened no window") }
+        return .object(CompatJSON.windowIDs(modelID: id, refs: call.service.refs))
     }
 
     static func windowIntent(_ call: CompatCall, _ make: (CompatWorld.Window) -> CompatFrontendIntent) async throws -> JSON {
