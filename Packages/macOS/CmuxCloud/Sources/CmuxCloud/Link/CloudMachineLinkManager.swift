@@ -192,7 +192,7 @@ public actor CloudMachineLinkManager {
                 "outcome": "started"
             ]
         )
-        if let failure = lastFailure[machineID], failure.terminal || Self.backoffRejects(failedAt: failure.at, now: Date(), backoff: retryBackoff) {
+        if let failure = lastFailure[machineID], (Self.isBackgroundUpkeep && failure.terminal) || Self.backoffRejects(failedAt: failure.at, now: Date(), backoff: retryBackoff) {
             if !failure.terminal { recordPreflightFailure(machineID: machineID, reason: "retry_backoff", correlationID: correlationID) }
             throw ManagerError.retryLater(failure.error)
         }
