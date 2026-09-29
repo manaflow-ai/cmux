@@ -96,7 +96,7 @@ extension HostAccountFlow {
     }
 
     /// One user-facing sentence per failure, shared by every entrypoint.
-    static func teamMembersUserMessage(_ error: Error) -> String {
+    nonisolated static func teamMembersUserMessage(_ error: Error) -> String {
         switch error {
         case TeamMembersFlowError.noTeam:
             return String(localized: "teamMembers.error.noTeam", defaultValue: "Select a team first.")
@@ -115,7 +115,7 @@ extension HostAccountFlow {
         }
     }
 
-    private static func teamAPIMessage(code: String, fallback: String) -> String {
+    private nonisolated static func teamAPIMessage(code: String, fallback: String) -> String {
         switch code {
         case "seat_limit":
             return String(localized: "teamMembers.error.seatLimit", defaultValue: "This plan includes 3 members. Remove someone or upgrade to Team to invite more.")
