@@ -102,6 +102,7 @@ extension CEFRuntime {
             continuation.resume(throwing: BrowserTabError.closed)
         }
         shutdownSequence?.browserClosed(remaining: tabsByBrowser.count)
+        shutdownProgressed()
         pump?.schedule(after: 0)
     }
 
@@ -115,6 +116,7 @@ extension CEFRuntime {
             tabsByBrowser[browser]?.refreshExtensionActions()
         case .windowDestroyed:
             shutdownSequence?.windowDestroyed(remaining: value)
+            shutdownProgressed()
         case .activated, .moved, .unknown:
             break
         }
@@ -134,34 +136,53 @@ extension CEFRuntime {
 
     // MARK: Quit
 
-    /// Closes every browser, waits for the Chromium windows to be destroyed,
-    /// then calls CefShutdown. Runs from `willTerminate`; it pumps the run
-    /// loop itself with a bounded deadline because the app is about to exit.
-    func shutdownBlocking(timeout: TimeInterval) {
+    /// Closes every browser, waits (without blocking the main thread) until
+    /// the Chromium windows are destroyed or `timeout` passes, then calls
+    /// CefShutdown. The App awaits this from `applicationShouldTerminate`
+    /// (terminate-later), so the run loop keeps pumping CEF meanwhile.
+    func shutdown(timeout: Duration) async {
         guard state == .ready, let shim else { return }
         var sequence = CEFShutdownSequence(liveBrowsers: tabsByBrowser.count, windows: Int(shim.windowCount()))
         sequence.begin()
         shutdownSequence = sequence
         shim.closeAll()
-        let deadline = Date().addingTimeInterval(timeout)
-        while shutdownSequence?.phase != .readyToShutdown, Date() < deadline {
-            pump?.pumpNow()
-            // Waits for the next CEF task or timer, not a fixed sleep.
-            CFRunLoopRunInMode(.defaultMode, CEFPumpPolicy.maxDelay, true)
-            if shim.windowCount() == 0, tabsByBrowser.isEmpty {
-                shutdownSequence?.windowDestroyed(remaining: 0)
+        pump?.pumpNow()
+        shutdownProgressed()
+        if shutdownSequence?.phase != .readyToShutdown {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                shutdownWaiter = continuation
+                shutdownTimeout = Task { @MainActor [weak self] in
+                    do { try await Task.sleep(for: timeout) } catch { return }
+                    self?.resumeShutdownWaiter()
+                }
             }
         }
-        if shutdownSequence?.phase != .readyToShutdown {
+        shutdownTimeout?.cancel()
+        shutdownTimeout = nil
+        pump?.stop()
+        guard shutdownSequence?.phase == .readyToShutdown else {
             logger.error("CEF shutdown timed out; exiting without CefShutdown")
-            pump?.stop()
             state = .shutDown
             return
         }
-        pump?.stop()
         shim.shutdown()
         state = .shutDown
         logger.notice("CEF shutdown complete")
+    }
+
+    /// Called after every close/destroy event during shutdown.
+    func shutdownProgressed() {
+        guard shutdownSequence != nil else { return }
+        if let shim, shim.windowCount() == 0, tabsByBrowser.isEmpty {
+            shutdownSequence?.windowDestroyed(remaining: 0)
+        }
+        if shutdownSequence?.phase == .readyToShutdown { resumeShutdownWaiter() }
+    }
+
+    private func resumeShutdownWaiter() {
+        let waiter = shutdownWaiter
+        shutdownWaiter = nil
+        waiter?.resume()
     }
 }
 

@@ -100,7 +100,8 @@ public actor TerminalAttachment: TerminalByteChannel {
             expectedTerminalID: useIdentity ? target.terminalResourceID : nil,
             size: size
         )
-        let response = try await DaemonConnection.perform(request, on: transport)
+        // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
+        let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
         lease = response.lease
         lastReported = size
         if claimGeometry {

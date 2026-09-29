@@ -59,6 +59,7 @@ final class PaneController {
 
     func teardown() {
         observation?.cancel()
+        services.presentation.cancel(self)
         if let currentTabKey { services.cache.setVisible(currentTabKey, false) }
         currentTabKey = nil
         view.show(nil)
@@ -117,8 +118,13 @@ final class PaneController {
         let selected = state.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex)
         let selectedID = selected.map { StripTabID($0) }
         if stripModel.selectedID != selectedID { stripModel.selectedID = selectedID }
-        showSelected()
-        if focusNew { focusContent() }
+        if focusNew {
+            showSelected()
+            focusContent()
+        } else {
+            // Model-driven: show on the next frame, coalescing transient selections.
+            services.presentation.setNeedsShowSelected(self)
+        }
     }
 
     /// Re-pushes daemon truth after a rejection.
@@ -166,6 +172,12 @@ final class PaneController {
     }
 
     var currentContent: TabContent? { currentTabKey.flatMap(content(for:)) }
+
+    /// True when showing the selection needs no new surface or page.
+    var selectedContentIsAlive: Bool {
+        guard let key = stripModel.selectedID?.rawValue else { return true }
+        return key == currentTabKey || services.cache.hasContent(for: key)
+    }
 
     /// The layout reported this pane on or off screen.
     func setVisible(_ visible: Bool) {

@@ -168,6 +168,8 @@ final class WindowManager {
         saveTask?.cancel()
         await saveNow()
         isTerminating = true
+        // Close Chromium before exit without spinning the run loop (5a).
+        await services.cache.cef.shutdown()
     }
 
     private func currentRecords() -> [WindowRecord] {

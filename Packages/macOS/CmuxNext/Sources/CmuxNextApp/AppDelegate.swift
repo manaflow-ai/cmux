@@ -8,10 +8,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let environment = AppEnvironment.current()
     private var services: AppServices!
     private var settings: SettingsController?
-    private var control: ControlService?
+    private let control = AppControl()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        control.startWatchdog()
         let services = AppServices(environment: environment)
         self.services = services
         AppActions.bind(services)
@@ -35,8 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             await settings.waitForLoad(atLeast: 1)
             do {
-                control = try ControlService.start(registry: registry, settings: settings, launch: environment.launch)
-                logger.info("control socket \(self.control?.socketPath ?? "", privacy: .public)")
+                try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
+                logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
             } catch {
                 logger.error("control socket failed: \(String(describing: error), privacy: .public)")
             }
@@ -53,7 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        control?.stop()
+        control.stop()
         settings?.stop()
         services?.daemon.shutdownConnection()
     }

@@ -2,6 +2,27 @@ import Darwin
 public import Foundation
 import Synchronization
 
+/// Holds one request's deadline task so the request cancels it on return.
+final class DeadlineTimer: Sendable {
+    private let task = Mutex<Task<Void, Never>?>(nil)
+    private let cancelled = Mutex(false)
+
+    func start(_ body: @escaping @Sendable () async -> Void) {
+        let started = Task { await body() }
+        let isCancelled = cancelled.withLock { $0 }
+        if isCancelled {
+            started.cancel()
+        } else {
+            task.withLock { $0 = started }
+        }
+    }
+
+    func cancel() {
+        cancelled.withLock { $0 = true }
+        task.withLock { $0?.cancel() }
+    }
+}
+
 /// Why a transport stopped.
 public enum TransportCloseReason: Sendable, Equatable {
     /// `close()` was called locally.
@@ -31,10 +52,13 @@ final class LineTransport: Sendable {
     private enum Waiter {
         case continuation(cmd: String, CheckedContinuation<Response, any Error>)
         case discard(cmd: String, onError: (@Sendable (DaemonError) -> Void)?)
+        /// Its deadline passed; the late reply is dropped. The id stays in
+        /// `order` so an id-less error still maps to the right request.
+        case expired(cmd: String)
 
         var cmd: String {
             switch self {
-            case .continuation(let cmd, _), .discard(let cmd, _): cmd
+            case .continuation(let cmd, _), .discard(let cmd, _), .expired(let cmd): cmd
             }
         }
     }
@@ -66,6 +90,8 @@ final class LineTransport: Sendable {
 
     private let state = Mutex(State())
     private let socket: Mutex<Socket>
+    /// Nonblocking, ordered writes (never parks the calling actor's thread).
+    private let writer: SocketWriter
     let path: String
 
     init(path: String) throws(DaemonError) {
@@ -98,9 +124,11 @@ final class LineTransport: Sendable {
             throw .connectFailed(path: path, errno: code)
         }
         socket = Mutex(Socket(fd: fd))
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
     }
 
     deinit {
+        writer.close()
         socket.withLock { socket in
             if socket.fd >= 0 {
                 Darwin.close(socket.fd)
@@ -124,26 +152,47 @@ final class LineTransport: Sendable {
 
     /// Sends one command and returns the raw `ok:true` response line.
     /// `body` receives the allocated id and returns the encoded JSON object
-    /// without the trailing newline.
-    func request(cmd: String, _ body: (UInt64) throws -> Data) async throws -> Response {
-        try await withCheckedThrowingContinuation { continuation in
-            submit(.continuation(cmd: cmd, continuation), body)
+    /// without the trailing newline. With a `timeout`, a reply that has not
+    /// arrived in time fails the request with `DaemonError.timedOut`; the
+    /// late reply is dropped when it comes (architecture.md 5a).
+    func request(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
+        let timer = DeadlineTimer()
+        defer { timer.cancel() }
+        return try await withCheckedThrowingContinuation { continuation in
+            guard case .success(let id) = submit(.continuation(cmd: cmd, continuation), body), let timeout else { return }
+            timer.start { [weak self] in
+                do { try await Task.sleep(for: timeout) } catch { return }
+                self?.expire(id: id, after: timeout)
+            }
         }
+    }
+
+    /// Fails a still-pending request with `timedOut`.
+    private func expire(id: UInt64, after timeout: Duration) {
+        let continuation: (String, CheckedContinuation<Response, any Error>)? = state.withLock { state in
+            guard case .continuation(let cmd, let continuation)? = state.pending[id] else { return nil }
+            state.pending[id] = .expired(cmd: cmd)
+            return (cmd, continuation)
+        }
+        guard let (cmd, continuation) = continuation else { return }
+        continuation.resume(throwing: DaemonError.timedOut("\(cmd) (no reply within \(timeout))"))
     }
 
     /// Sends one command without waiting. The response is consumed and
     /// dropped; `onError` sees an `ok:false` answer. Writes reach the socket
     /// in call order.
     func sendNoReply(cmd: String, onError: (@Sendable (DaemonError) -> Void)? = nil, _ body: (UInt64) throws -> Data) throws {
-        if let error = submit(.discard(cmd: cmd, onError: onError), body) { throw error }
+        if case .failure(let error) = submit(.discard(cmd: cmd, onError: onError), body) { throw error }
     }
 
     /// Allocates the id, registers the waiter, and writes, all under the
     /// socket lock so `state.order` equals wire order. On failure before
     /// registration the waiter is resumed here; after it, `failAll` owns it.
+    /// Returns the request id once the waiter is registered.
     @discardableResult
-    private func submit(_ waiter: Waiter, _ body: (UInt64) throws -> Data) -> (any Error)? {
+    private func submit(_ waiter: Waiter, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
         var writeFailure: String?
+        var submittedID: UInt64 = 0
         let early: (any Error)? = socket.withLock { socket -> (any Error)? in
             let id: UInt64
             switch state.withLock({ state -> Result<UInt64, DaemonError> in
@@ -160,18 +209,21 @@ final class LineTransport: Sendable {
                 state.pending[id] = waiter
                 state.order.append(id)
             }
-            writeFailure = Self.write(payload, fd: socket.fd)
+            submittedID = id
+            var line = payload
+            line.append(0x0A)
+            writeFailure = socket.fd >= 0 ? writer.write(line) : "socket closed"
             return nil
         }
         if let early {
             if case .continuation(_, let continuation) = waiter { continuation.resume(throwing: early) }
-            return early
+            return .failure(early)
         }
         if let writeFailure {
             failAll(.lost(writeFailure))
-            return DaemonError.connectionClosed(reason: writeFailure)
+            return .failure(DaemonError.connectionClosed(reason: writeFailure))
         }
-        return nil
+        return .success(submittedID)
     }
 
     /// Closes the socket; pending requests fail with `.connectionClosed`.
@@ -192,27 +244,6 @@ final class LineTransport: Sendable {
         }
     }
 
-    /// Returns an error description on failure. Caller holds the socket lock.
-    private static func write(_ payload: Data, fd: Int32) -> String? {
-        guard fd >= 0 else { return "socket closed" }
-        var bytes = payload
-        bytes.append(0x0A)
-        return bytes.withUnsafeBytes { raw -> String? in
-            guard var pointer = raw.baseAddress else { return nil }
-            var remaining = raw.count
-            while remaining > 0 {
-                let written = Darwin.write(fd, pointer, remaining)
-                if written < 0 {
-                    if errno == EINTR { continue }
-                    return "write: \(String(cString: strerror(errno)))"
-                }
-                remaining -= written
-                pointer = pointer.advanced(by: written)
-            }
-            return nil
-        }
-    }
-
     private func failAll(_ reason: TransportCloseReason) {
         let waiters: [Waiter] = state.withLock { state in
             if state.closed == nil { state.closed = reason }
@@ -225,7 +256,7 @@ final class LineTransport: Sendable {
         for waiter in waiters {
             switch waiter {
             case .continuation(_, let continuation): continuation.resume(throwing: error)
-            case .discard: break
+            case .discard, .expired: break
             }
         }
     }
@@ -274,6 +305,7 @@ final class LineTransport: Sendable {
             return state.sawShutdown ? .daemonShutdown : .lost(closeDetail)
         }
         failAll(reason)
+        writer.close()
         socket.withLock { socket in
             if socket.fd >= 0 {
                 Darwin.close(socket.fd)
@@ -312,6 +344,7 @@ final class LineTransport: Sendable {
         switch waiter {
         case .continuation(_, let continuation): continuation.resume(throwing: error)
         case .discard(_, let onError): onError?(error)
+        case .expired: break
         }
     }
 }
