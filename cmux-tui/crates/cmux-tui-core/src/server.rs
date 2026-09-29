@@ -75,8 +75,8 @@ use crate::{
     DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, JournalSubject,
     LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
     Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
-    ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification,
-    SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
+    ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceRenderFrame,
+    TerminalColors, TreeDecorations, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
     WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
@@ -125,6 +125,10 @@ pub const MACHINE_LISTENING_TCP_CAPABILITY: &str = "machine-listening-tcp-v1";
 /// Advertises `set-terminal-idle-policy` and the owner-side reaper that
 /// closes a terminal once it has had no attached view for its policy.
 pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
+/// Durable sidebar workspace groups: the `*-workspace-group` commands,
+/// `move-workspace-to-group`, a `groups` array in `list-workspaces`, and a
+/// `group` field on every workspace.
+pub const WORKSPACE_GROUPS_CAPABILITY: &str = "workspace-groups-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -227,6 +231,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         MACHINE_LISTENING_TCP_CAPABILITY,
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
+        WORKSPACE_GROUPS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1242,6 +1247,54 @@ enum Command {
         #[serde(flatten)]
         mutation: MutationRequest,
     },
+    /// List sidebar workspace groups in order.
+    ListWorkspaceGroups,
+    /// Create a sidebar workspace group. A caller-chosen `group` id makes a
+    /// retry idempotent.
+    CreateWorkspaceGroup {
+        name: String,
+        #[serde(default)]
+        group: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        collapsed: bool,
+        #[serde(default)]
+        index: Option<usize>,
+    },
+    /// Rename, recolor, or collapse a group. An absent field is unchanged;
+    /// `color: null` clears the color.
+    UpdateWorkspaceGroup {
+        group: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        color: Option<Option<String>>,
+        #[serde(default)]
+        collapsed: Option<bool>,
+    },
+    /// Delete a group; its workspaces become ungrouped in place.
+    DeleteWorkspaceGroup {
+        group: String,
+    },
+    /// Move a group to an insertion index among groups.
+    MoveWorkspaceGroup {
+        group: String,
+        index: usize,
+    },
+    /// Put a workspace in a group (`group: null` ungroups it), optionally at
+    /// a final index among that section's members.
+    MoveWorkspaceToGroup {
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        key: Option<String>,
+        group: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
+    },
     SetDefaultColors {
         #[serde(default)]
         fg: Option<String>,
@@ -1494,6 +1547,40 @@ impl Command {
                 | Self::ScrollSurface { .. }
         )
     }
+}
+
+/// Deserialize a field whose absence and `null` mean different things:
+/// absent is `None` (via `#[serde(default)]`), `null` is `Some(None)`.
+fn present_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+fn workspace_group_json(
+    group: &crate::workspace_registry::WorkspaceGroupRecord,
+    index: usize,
+) -> Value {
+    json!({
+        "id": group.id,
+        "name": group.name,
+        "color": group.color,
+        "collapsed": group.collapsed,
+        "index": index,
+    })
+}
+
+fn workspace_groups_json(presentation: &crate::workspace_registry::PresentationSnapshot) -> Value {
+    json!(
+        presentation
+            .groups
+            .iter()
+            .enumerate()
+            .map(|(index, group)| workspace_group_json(group, index))
+            .collect::<Vec<_>>()
+    )
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -9830,7 +9917,7 @@ fn pane_json(
     state: &State,
     id: PaneId,
     short_ids: &HashMap<u64, String>,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
 ) -> Value {
     let Some(pane) = state.panes.get(&id) else {
         return json!({ "id": id, "dead": true });
@@ -9899,7 +9986,7 @@ fn screen_json(
     screen: &Screen,
     active: bool,
     short_ids: &HashMap<u64, String>,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
 ) -> Value {
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
@@ -9944,14 +10031,12 @@ fn screen_json(
     value
 }
 
-fn workspaces_json(
-    state: &State,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
-) -> Value {
+pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) -> Value {
     let short_ids = tree_short_ids(state);
     json!({
         "workspace_revision": state.workspace_revision,
         "pane_revision": state.pane_revision,
+        "groups": workspace_groups_json(&notifications.presentation),
         "workspaces": state.workspaces.iter().enumerate().map(|(index, workspace)| {
             workspace_json(state, workspace, index, &short_ids, notifications)
         }).collect::<Vec<_>>(),
@@ -9979,14 +10064,16 @@ fn workspace_json(
     workspace: &Workspace,
     index: usize,
     short_ids: &HashMap<u64, String>,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
 ) -> Value {
+    let presentation = notifications.presentation.workspace(&workspace.key);
     json!({
         "id": workspace.id,
         "resource_id": workspace.public_id,
         "key": workspace.key,
         "short_id": short_ids.get(&workspace.id).cloned().unwrap_or_default(),
         "name": workspace.name,
+        "group": presentation.and_then(|presentation| presentation.group.as_deref()),
         "active": index == state.active_workspace,
         "screens": workspace.screens.iter().enumerate().map(|(screen_index, screen)| {
             screen_json(
@@ -10002,7 +10089,7 @@ fn workspace_json(
 
 pub(crate) fn tree_entity_json(
     state: &State,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
     kind: TreeDeltaKind,
     id: u64,
 ) -> Option<Value> {
@@ -11604,7 +11691,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::ListWorkspaces => {
-            let notifications = mux.surface_notifications();
+            let notifications = mux.tree_decorations();
             let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
             let (registry_id, generation) = mux.registry_identity();
             workspaces["registry_id"] = json!(registry_id);
@@ -12486,6 +12573,58 @@ fn handle_command_with_cancellation(
                 "workspace": result.workspace,
                 "key": result.key,
                 "index": result.index,
+                "workspace_revision": result.revision,
+                "changed": result.changed,
+                "replayed": result.replayed,
+                "registry_id": registry_id,
+                "generation": generation,
+            }))
+        }
+        Command::ListWorkspaceGroups => {
+            Ok(json!({ "groups": workspace_groups_json(&mux.presentation_snapshot()) }))
+        }
+        Command::CreateWorkspaceGroup { name, group, color, collapsed, index } => {
+            let change = mux.create_workspace_group(group, name, color, collapsed, index)?;
+            Ok(json!({
+                "group": workspace_group_json(&change.group, change.index),
+                "changed": change.changed,
+            }))
+        }
+        Command::UpdateWorkspaceGroup { group, name, color, collapsed } => {
+            let change = mux.update_workspace_group(&group, name, color, collapsed)?;
+            Ok(json!({
+                "group": workspace_group_json(&change.group, change.index),
+                "changed": change.changed,
+            }))
+        }
+        Command::DeleteWorkspaceGroup { group } => {
+            let ungrouped = mux.delete_workspace_group(&group)?;
+            Ok(json!({ "group": group, "ungrouped_keys": ungrouped }))
+        }
+        Command::MoveWorkspaceGroup { group, index } => {
+            let change = mux.move_workspace_group(&group, index)?;
+            Ok(json!({
+                "group": workspace_group_json(&change.group, change.index),
+                "changed": change.changed,
+            }))
+        }
+        Command::MoveWorkspaceToGroup { workspace, key, group, index, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let result = mux.move_workspace_to_group(
+                workspace,
+                key.as_deref(),
+                group.clone(),
+                index,
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "workspace": result.workspace,
+                "key": result.key,
+                "index": result.index,
+                "group": group,
                 "workspace_revision": result.revision,
                 "changed": result.changed,
                 "replayed": result.replayed,
@@ -20924,6 +21063,83 @@ mod tests {
             mux.close_terminal(TERMINAL, INCARNATION).unwrap();
             assert!(mux.surface(surface).is_none());
         }
+    }
+
+    fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
+        let command: Command = serde_json::from_value(request)?;
+        handle_command(mux, 0, command, &test_writer())
+    }
+
+    #[test]
+    fn cmux_next_workspace_group_commands_round_trip_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&WORKSPACE_GROUPS_CAPABILITY));
+        let first = mux.create_empty_workspace(None, None, None).unwrap();
+        let second = mux.create_empty_workspace(None, None, None).unwrap();
+        let created = run_json_command(
+            &mux,
+            json!({"cmd":"create-workspace-group","name":"Agents","color":"slate-2"}),
+        )
+        .unwrap();
+        let group = created["group"]["id"].as_str().unwrap().to_string();
+        assert!(group.starts_with("grp_"));
+        assert_eq!(created["group"]["index"], 0);
+        assert_eq!(created["changed"], true);
+        let moved = run_json_command(
+            &mux,
+            json!({
+                "cmd":"move-workspace-to-group",
+                "key": second.key,
+                "group": group,
+                "index": 0,
+                "origin":"wire-test",
+                "mutation_id":"group-1",
+            }),
+        )
+        .unwrap();
+        assert_eq!(moved["group"], json!(group));
+        assert_eq!(moved["replayed"], false);
+        // Absent color leaves it unchanged; collapsed flips.
+        let updated = run_json_command(
+            &mux,
+            json!({"cmd":"update-workspace-group","group":group,"collapsed":true}),
+        )
+        .unwrap();
+        assert_eq!(updated["group"]["color"], "slate-2");
+        assert_eq!(updated["group"]["collapsed"], true);
+        // `color: null` clears it.
+        let cleared = run_json_command(
+            &mux,
+            json!({"cmd":"update-workspace-group","group":group,"color":null}),
+        )
+        .unwrap();
+        assert!(cleared["group"]["color"].is_null());
+        assert!(
+            run_json_command(
+                &mux,
+                json!({"cmd":"create-workspace-group","name":"Bad","color":"not a color"}),
+            )
+            .is_err()
+        );
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        assert_eq!(tree["groups"][0]["id"], json!(group));
+        assert_eq!(tree["groups"][0]["collapsed"], true);
+        let by_key = |key: &str| {
+            tree["workspaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|workspace| workspace["key"] == json!(key))
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(by_key(&second.key)["group"], json!(group));
+        assert!(by_key(&first.key)["group"].is_null());
+        let listed = run_json_command(&mux, json!({"cmd":"list-workspace-groups"})).unwrap();
+        assert_eq!(listed["groups"].as_array().unwrap().len(), 1);
+        let deleted =
+            run_json_command(&mux, json!({"cmd":"delete-workspace-group","group":group})).unwrap();
+        assert_eq!(deleted["ungrouped_keys"], json!([second.key]));
     }
 
     #[cfg(unix)]

@@ -40,14 +40,19 @@ Common CLI exit codes for every mapping are `0` success, `1` command error, `2` 
 `Tree`:
 
 ```text
-object{workspace_revision?:uint64,pane_revision?:uint64,workspaces:array<Workspace>}
+object{workspace_revision?:uint64,pane_revision?:uint64,groups?:array<WorkspaceGroup>,workspaces:array<Workspace>}
 ```
 
 `Workspace`:
 
 ```text
-object{id:Id,key?:string,name:string,active:boolean,screens:array<Screen>}
+object{id:Id,key?:string,name:string,group?:string|null,active:boolean,screens:array<Screen>}
 ```
+
+Servers advertising `workspace-groups-v1` add the ordered `Tree.groups` array
+(the `list-workspace-groups` result) and `Workspace.group`, the id of the
+workspace's group or null. Groups partition the workspace order: a sidebar
+section lists the workspaces of one group in `workspaces` order.
 
 `workspace_revision` and `Workspace.key` are present on servers advertising
 `workspace-registry-v1`. They are omitted by older servers, so clients must
@@ -227,7 +232,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`.
 
 Errors:
 
@@ -3132,6 +3137,143 @@ Example:
 ```json
 {"id":27,"cmd":"move-workspace","workspace":4,"index":0}
 {"id":27,"ok":true,"data":{"workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","workspace_revision":4}}
+```
+
+### list-workspace-groups
+
+| Field | Value |
+| --- | --- |
+| name | `list-workspace-groups` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-groups-v1` |
+
+Returns the durable sidebar groups in order. `list-workspaces` carries the
+same array as its top-level `groups` field.
+
+Result:
+
+```text
+object{groups:[WorkspaceGroup]}
+WorkspaceGroup = object{id:string, name:string, color:string|null, collapsed:bool, index:usize}
+```
+
+### create-workspace-group
+
+| Field | Value |
+| --- | --- |
+| name | `create-workspace-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-groups-v1` |
+
+Creates a sidebar group. Groups are shared durable state in the session
+registry, so every frontend sees them and they survive daemon restarts. A
+caller-chosen `group` id makes a retry idempotent: the same id and name return
+the stored group with `changed:false`; the same id with another name fails.
+Emits `tree-changed`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `name` | string | required | 1-256 characters, no control characters |
+| `group` | string | default generated `grp_<32 hex>` | 1-64 ASCII letters, digits, `_`, `-`, `.`, `:` |
+| `color` | string | default null | Palette token `[a-z][a-z0-9-]{0,31}` or `#RRGGBB[AA]` |
+| `collapsed` | bool | default false | Shared collapsed state |
+| `index` | usize | default last | Insertion index among groups |
+
+Result:
+
+```text
+object{group:WorkspaceGroup, changed:bool}
+```
+
+### update-workspace-group
+
+| Field | Value |
+| --- | --- |
+| name | `update-workspace-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-groups-v1` |
+
+Renames, recolors, or collapses a group. An absent field is unchanged, and
+`color:null` clears the color. Emits `tree-changed` when something changed.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `group` | string | required | Existing group id |
+| `name` | string | optional | As in `create-workspace-group` |
+| `color` | string or null | optional | As in `create-workspace-group`; null clears |
+| `collapsed` | bool | optional | |
+
+Result: `object{group:WorkspaceGroup, changed:bool}`.
+
+### delete-workspace-group
+
+| Field | Value |
+| --- | --- |
+| name | `delete-workspace-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-groups-v1` |
+
+Deletes a group. Its workspaces keep their place in the workspace order and
+become ungrouped. Emits `tree-changed`.
+
+Params: `group` (string, required).
+
+Result: `object{group:string, ungrouped_keys:[string]}`.
+
+### move-workspace-group
+
+| Field | Value |
+| --- | --- |
+| name | `move-workspace-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-groups-v1` |
+
+Moves a group to zero-based insertion `index` among groups, with the same
+insertion-point rule as `move-workspace`. Emits `tree-changed` when the order
+changed.
+
+Params: `group` (string, required), `index` (usize, required).
+
+Result: `object{group:WorkspaceGroup, changed:bool}`.
+
+### move-workspace-to-group
+
+| Field | Value |
+| --- | --- |
+| name | `move-workspace-to-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-groups-v1` |
+
+Puts a workspace in a group, or ungroups it with `group:null`, and optionally
+reorders it inside that section. Groups partition the one durable workspace
+order: a section's order is the workspace order filtered by group. `index` is
+the workspace's final zero-based position among the destination section's
+other members (clamped to the end); an absent `index` keeps the workspace's
+position. An empty destination keeps the position too.
+
+The move commits one workspace-registry revision and emits `workspace-moved`
+with the full workspace entity, so it takes the durable mutation envelope:
+`origin`/`mutation_id` retries replay the original result and
+`expected_revision` guards against stale clients.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace` | `Id` | one of id/key | Workspace to move |
+| `key` | string | one of id/key | Workspace key |
+| `group` | string or null | required | Existing group id, or null for ungrouped |
+| `index` | usize | optional | Final index among the section's members |
+| mutation fields | see common envelope | optional | Exactly-once retry and CAS |
+
+Result:
+
+```text
+object{workspace:Id,key:string,index:usize,group:string|null,workspace_revision:uint64,changed:bool,replayed:bool,registry_id:string,generation:string}
 ```
 
 ### scroll-surface

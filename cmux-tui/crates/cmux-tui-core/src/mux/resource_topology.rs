@@ -289,7 +289,7 @@ impl Mux {
             Self::validate_workspace_name(name)?;
         }
         // Read before the state lock: `surface_notifications` locks state.
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.state.lock().unwrap();
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
@@ -2778,7 +2778,7 @@ impl Mux {
     ) -> anyhow::Result<Option<TerminalCloseResult>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(terminal) =
             registry.replay_terminal_close(mutation, terminal_id, expected_incarnation)?
@@ -3168,7 +3168,7 @@ impl Mux {
     ) -> anyhow::Result<CommittedResourceClose> {
         let lifecycle = workspace.map(|workspace| self.workspace_lifecycle(workspace));
         let workspace_lifecycle = lifecycle.as_ref().map(|lifecycle| lifecycle.lock().unwrap());
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.state.lock().unwrap();
         let slots = resolve_slots(&state)?;
@@ -3277,7 +3277,7 @@ impl Mux {
         slots: EffectSlots,
         registry: &WorkspaceRegistry,
         state: &State,
-        notifications: &HashMap<SurfaceId, SurfaceNotification>,
+        notifications: &TreeDecorations,
     ) -> anyhow::Result<ResourceClosePlan> {
         let selection_before = active_tree_selection(state);
         let mut projected = state.clone();
@@ -4651,7 +4651,7 @@ impl Mux {
             surface.set_name(Some(name));
         }
         let active_at = self.next_active_at();
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let attached = {
             let mut state = self.state.lock().unwrap();
             let delta = match state.panes.get_mut(&target) {
@@ -4838,7 +4838,7 @@ impl Mux {
         let split_id = split_direction.map(|_| self.next_id());
         let base_column_id = viewport_width.map(|_| self.next_id());
         let active_at = self.next_active_at();
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let attached = (|| -> anyhow::Result<(TreeDelta, ScreenId, CreatedTerminalEffect)> {
             let mut state = self.state.lock().unwrap();
             let Some((workspace, screen_index)) = state.screen_of(target) else {

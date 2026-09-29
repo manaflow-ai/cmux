@@ -24,6 +24,16 @@ The compatibility tree's pane-focus metadata tracks recent activity. When closin
 
 The workspace tree is one durable shared backend projection. Frontends may also store opaque schema-versioned documents with `put-frontend-projection`: `personal` scope belongs to one stable user, profile, or device subject, while `shared` scope belongs to a collaboration view. Either document may place one terminal UUID several times and may deliberately save focus or viewport preferences. Unsaved focus, selection, scroll, crop, pan, hover, drag, and key-prefix state remain client-local. A projection owns presentation only; removing it never closes a terminal.
 
+## Workspace Groups
+
+The sidebar can group workspaces into ordered, named sections. Groups are
+shared durable state in the session registry, like workspace names and order,
+so every frontend shows the same groups after a restart. A group's collapsed
+flag is shared too. Groups partition the one workspace order instead of
+keeping their own member lists: a section shows its workspaces in workspace
+order, and moving a workspace inside a section reorders the workspace list
+around the other members. Deleting a group ungroups its workspaces in place.
+
 ## Tabs and Names
 
 A terminal resource wraps one child process connected to one pseudo-terminal, its ordered input and output, retained history, canonical grid, and graphics state. A PTY tab is a named view placement of that resource. A browser tab wraps one local Chrome/Chromium target and cannot have a second placement.

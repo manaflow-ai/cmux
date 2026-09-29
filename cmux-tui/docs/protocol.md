@@ -90,6 +90,20 @@ the source workspace is removed first.
 {"id":11,"cmd":"move-workspace","workspace":3,"index":0}
 ```
 
+`workspace-groups-v1` adds durable sidebar groups. `list-workspaces` gains an
+ordered top-level `groups` array (`{id,name,color,collapsed,index}`) and a
+`group` field on each workspace. `create-workspace-group`,
+`update-workspace-group`, `delete-workspace-group`, and `move-workspace-group`
+edit groups and emit `tree-changed`. `move-workspace-to-group` sets membership
+and an optional final index inside the section in one workspace-registry
+revision, so it takes the durable mutation envelope and emits
+`workspace-moved`:
+
+```json
+{"id":13,"cmd":"create-workspace-group","group":"agents","name":"Agents","color":"gray"}
+{"id":14,"cmd":"move-workspace-to-group","key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","group":"agents","index":0,"origin":"mac-1","mutation_id":"m-41"}
+```
+
 Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
 
 ```json

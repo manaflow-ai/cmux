@@ -2,12 +2,14 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 mod idle_close;
+mod presentation;
 mod public_projections;
 mod resource_content;
 mod resource_topology;
 mod terminal_directory;
 
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
+pub use presentation::{TreeDecorations, WorkspaceGroupChange};
 pub(crate) use resource_content::ResourceEffectProjection;
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
@@ -2527,6 +2529,9 @@ pub struct Mux {
     /// and only for ids the committed receipts no longer retain, so a failed
     /// create cannot orphan marks the next restart would rebuild.
     notification_read_prunes: Mutex<Vec<NotificationPublicId>>,
+    /// Shared presentation metadata (workspace groups and workspace
+    /// presentation fields), replaced after each registry commit.
+    presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
@@ -2819,6 +2824,7 @@ impl Mux {
             notification_reads,
         } = restore_public_projections(&state, registry.public_projections()?)?;
         let agent_roster = restore_agent_roster(&registry)?;
+        let presentation = registry.presentation_snapshot()?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
         let machine_public_id = registry.machine_id().clone();
@@ -2941,6 +2947,7 @@ impl Mux {
             notification_ledger: Mutex::new(notification_ledger),
             notification_reads: Mutex::new(notification_reads),
             notification_read_prunes: Mutex::new(Vec::new()),
+            presentation: Mutex::new(Arc::new(presentation)),
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
@@ -9915,6 +9922,13 @@ impl Mux {
 
     pub fn surface_notifications(&self) -> HashMap<SurfaceId, SurfaceNotification> {
         let state = self.state.lock().unwrap();
+        self.surface_notifications_in_state(&state)
+    }
+
+    fn surface_notifications_in_state(
+        &self,
+        state: &State,
+    ) -> HashMap<SurfaceId, SurfaceNotification> {
         let placement_notifications = self.placement_notifications.lock().unwrap();
         let terminal_notifications = self.terminal_notifications.lock().unwrap();
         let mut result = HashMap::new();
@@ -12884,7 +12898,7 @@ impl Mux {
         Self::validate_workspace_key(&key)?;
         let requested_name = name.clone();
         let ws_id = self.next_id();
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         let fingerprint = serde_json::json!({
             "op": "create-workspace",
@@ -13580,7 +13594,7 @@ impl Mux {
             drop(workspace_lifecycle);
             return Ok((placement, surface, created_path));
         }
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let active_at = self.next_active_at();
         let mut rollback_removed = Vec::new();
         let attached = {
@@ -13862,7 +13876,7 @@ impl Mux {
             let (pane_id, pane) = self.make_pane(surface.id)?;
             let screen_id = self.next_id();
             let ws_id = self.next_id();
-            let notifications = self.surface_notifications();
+            let notifications = self.tree_decorations();
             if let Some(workspace_id) = empty_workspace {
                 let delta = {
                     let mut state = self.state.lock().unwrap();
@@ -14009,7 +14023,7 @@ impl Mux {
         let surface =
             self.spawn_browser_surface_with_resource_identity(url, size, None, resource_identity)?;
         let active_at = self.next_active_at();
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let attached = {
             let mut state = self.state.lock().unwrap();
             match state.panes.get_mut(&target) {
@@ -14074,7 +14088,7 @@ impl Mux {
             resource_identity,
         )?;
         let pending_surface = self.pending_workspace_surface(surface.id);
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let active_at = self.next_active_at();
         let (delta, selection_resync) = {
             let mut state = self.state.lock().unwrap();
@@ -14238,7 +14252,7 @@ impl Mux {
         surface: &Arc<Surface>,
         active_at: u64,
     ) -> BrowserSurfaceAttach {
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let attached = {
             let mut state = self.state.lock().unwrap();
             match state.panes.get_mut(&pane_id) {
@@ -14406,7 +14420,7 @@ impl Mux {
     }
 
     fn remove_surface_after_registry(&self, target: SurfaceId) -> bool {
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let remove = || {
             let mut state = self.state.lock().unwrap();
             let selection_before = active_tree_selection(&state);
@@ -14467,7 +14481,7 @@ impl Mux {
     /// lock. Tabs are detached view items; terminal content remains in the
     /// catalog until an explicit terminal close.
     fn close_tree_target(&self, target: TreeCloseTarget) -> anyhow::Result<bool> {
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let result = loop {
             let Some(workspace) =
                 self.with_state(|state| Self::workspace_for_tree_target_in_state(state, target))
@@ -14825,7 +14839,7 @@ impl Mux {
         resolved_target: WorkspaceId,
         project_resource: bool,
     ) -> anyhow::Result<WorkspaceMutationResult> {
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, fingerprint)? {
             let result = workspace_mutation_result(&commit)?;
@@ -15064,7 +15078,7 @@ impl Mux {
             "key": requested_key,
             "name": name,
         });
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
@@ -15160,7 +15174,7 @@ impl Mux {
         {
             return false;
         }
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let delta = {
             let state = self.state.lock().unwrap();
             if !state.surfaces.contains_key(&target) {
@@ -15208,7 +15222,7 @@ impl Mux {
         {
             return false;
         }
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let renamed = {
             let state = self.state.lock().unwrap();
             let Some(wi) = state
@@ -16321,7 +16335,7 @@ impl Mux {
 
         let lifecycle = self.workspace_lifecycle(workspace);
         let _workspace_lifecycle = lifecycle.lock().unwrap();
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let registry = self.workspace_registry.lock().unwrap();
         let (removed, deltas, selection_resync, revision) = {
             let mut state = self.state.lock().unwrap();
@@ -16534,7 +16548,7 @@ impl Mux {
         }
         let active_pane = root.first_visible_pane();
         let screen_id = self.next_id();
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let delta = {
             let mut state = self.state.lock().unwrap();
             let Some(workspace_index) = state.workspace_index(target_workspace) else {
@@ -17138,7 +17152,7 @@ impl Mux {
             "key": requested_key,
             "index": index,
         });
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
@@ -18779,7 +18793,7 @@ fn workspace_mutation_result(commit: &RegistryCommit) -> anyhow::Result<Workspac
 
 fn close_surface_delta(
     state: &State,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
     surface: SurfaceId,
 ) -> Option<TreeDelta> {
     let pane_id = state.pane_of(surface)?;
@@ -18811,7 +18825,7 @@ fn close_surface_delta(
 
 fn close_pane_delta(
     state: &State,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
     pane: PaneId,
 ) -> Option<TreeDelta> {
     let (wi, si) = state.screen_of(pane)?;
@@ -18838,7 +18852,7 @@ fn close_pane_delta(
 
 fn close_screen_delta(
     state: &State,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
     screen: ScreenId,
 ) -> Option<TreeDelta> {
     let (wi, si) = state.workspaces.iter().enumerate().find_map(|(wi, workspace)| {
@@ -18861,7 +18875,7 @@ fn close_screen_delta(
 
 fn close_workspace_delta(
     state: &State,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
     workspace: WorkspaceId,
 ) -> Option<TreeDelta> {
     let index = state.workspace_index(workspace)?;
