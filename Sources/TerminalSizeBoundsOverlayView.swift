@@ -1,4 +1,6 @@
 import AppKit
+import Bonsplit
+import CmuxAppKitSupportUI
 import CmuxTerminal
 import CmuxTerminalSharing
 import CmuxTerminalSizing
@@ -6,8 +8,35 @@ import GhosttyKit
 import QuartzCore
 import SwiftUI
 
+/// The one grey the shared-terminal sizing UI draws in: the workspace's
+/// split divider / tab-bar separator / pane border color
+/// (``BonsplitConfiguration/Appearance/separatorColor``). Borders and rings use
+/// it as is; fills derive from it with opacity.
+@MainActor
+enum TerminalSizingChromeColor {
+    /// The separator color of the workspace showing `surfaceID`.
+    static func separator(surfaceID: UUID) -> NSColor {
+        separator(workspace: AppDelegate.shared?.workspaceContainingPanel(panelId: surfaceID)?.workspace)
+    }
+
+    /// The separator color of `workspace`, else the default chrome separator
+    /// for the current terminal background.
+    static func separator(workspace: Workspace?) -> NSColor {
+        if let workspace {
+            return workspace.bonsplitController.configuration.appearance.separatorColor
+        }
+        return WindowChromeColorResolver().separatorColor(forChromeBackground: GhosttyBackgroundTheme.currentColor())
+    }
+
+    /// `color` with its alpha scaled by `factor`.
+    static func faded(_ color: NSColor, by factor: CGFloat) -> NSColor {
+        color.withAlphaComponent(color.alphaComponent * factor)
+    }
+}
+
 /// Draws a shared terminal's grid bounds over a pane (local and Cloud alike)
-/// when this view's grid differs: a 1 pt neutral border, a faint hatch
+/// when this view's grid differs: a 1 pt border in the separator grey
+/// (``TerminalSizingChromeColor``), a faint hatch
 /// outside the grid, a 16 pt fade on a cut edge, and one small chip
 /// (`118×38 · Lawrence's Mac`) that opens the size panel at the tab. A
 /// `disconnected-by` detach of this Mac shows a card with Reattach.
@@ -16,7 +45,6 @@ import SwiftUI
 /// through to the terminal. A size change animates the border to the new grid.
 @MainActor
 final class TerminalSizeBoundsOverlayView: NSView {
-    private static let borderAlpha: CGFloat = 0.5
     private static let cropFadeDepth: CGFloat = 16
 
     private(set) var snapshot: TerminalSharingSnapshot?
@@ -118,7 +146,8 @@ final class TerminalSizeBoundsOverlayView: NSView {
             return
         }
         let display = TerminalSharingDisplay(snapshot: snapshot)
-        updateBorder(geometry: geometry, color: .secondaryLabelColor)
+        updateBorder(geometry: geometry, color: separatorColor)
+        chip.separatorColor = separatorColor
         chip.text = display.presentation.chipText(hiddenColumns: geometry.hiddenColumns)
         chip.frame = chipFrame(size: chip.fittingSize, gridRect: geometry.gridRect)
         chip.isHidden = false
@@ -134,7 +163,7 @@ final class TerminalSizeBoundsOverlayView: NSView {
         let previous = borderLayer.presentation()?.path ?? borderLayer.path
         let wasHidden = borderLayer.isHidden
         borderLayer.isHidden = false
-        borderLayer.strokeColor = color.withAlphaComponent(Self.borderAlpha).cgColor
+        borderLayer.strokeColor = color.cgColor
         borderLayer.path = path
         if animateNextBorderChange, !wasHidden, let previous, previous != path {
             let animation = CABasicAnimation(keyPath: "path")
@@ -179,6 +208,11 @@ final class TerminalSizeBoundsOverlayView: NSView {
 
     // MARK: Drawing
 
+    /// The workspace's split divider / tab-bar separator grey.
+    private var separatorColor: NSColor {
+        TerminalSizingChromeColor.separator(workspace: terminalSurface?.owningWorkspace())
+    }
+
     private func currentGeometry(for snapshot: TerminalSharingSnapshot) -> TerminalSizeBoundsGeometry? {
         guard let surface = terminalSurface?.liveSurfaceForGhosttyAccess(reason: "terminalSizeBoundsOverlay") else {
             return nil
@@ -217,7 +251,7 @@ final class TerminalSizeBoundsOverlayView: NSView {
             x += spacing
         }
         hatch.lineWidth = 0.5
-        NSColor.secondaryLabelColor.withAlphaComponent(0.07).setStroke()
+        TerminalSizingChromeColor.faded(separatorColor, by: 0.35).setStroke()
         hatch.stroke()
         NSGraphicsContext.restoreGraphicsState()
     }
@@ -227,8 +261,8 @@ final class TerminalSizeBoundsOverlayView: NSView {
         let fadeRect = edge == .maxX
             ? NSRect(x: gridRect.maxX - depth, y: gridRect.minY, width: depth, height: gridRect.height)
             : NSRect(x: gridRect.minX, y: gridRect.maxY - depth, width: gridRect.width, height: depth)
-        let fade = NSColor.secondaryLabelColor
-        let gradient = NSGradient(starting: fade.withAlphaComponent(0), ending: fade.withAlphaComponent(0.18))
+        let fade = separatorColor
+        let gradient = NSGradient(starting: fade.withAlphaComponent(0), ending: fade)
         // This view is flipped, so a 90° gradient runs top to bottom.
         gradient?.draw(in: fadeRect, angle: edge == .maxX ? 0 : 90)
     }
@@ -243,6 +277,10 @@ final class TerminalSizeBoundsChipView: NSView {
     private static let verticalPadding: CGFloat = 3
 
     var onPress: (() -> Void)?
+    /// The separator grey; the chip's outline draws in it and its tint derives from it.
+    var separatorColor: NSColor = .separatorColor {
+        didSet { if separatorColor != oldValue { needsDisplay = true } }
+    }
     var text: String = "" {
         didSet {
             guard text != oldValue else { return }
@@ -268,9 +306,14 @@ final class TerminalSizeBoundsChipView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4)
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 4, yRadius: 4)
         NSColor.windowBackgroundColor.withAlphaComponent(0.72).setFill()
         path.fill()
+        TerminalSizingChromeColor.faded(separatorColor, by: 0.5).setFill()
+        path.fill()
+        separatorColor.setStroke()
+        path.lineWidth = 1
+        path.stroke()
         let textRect = bounds.insetBy(dx: Self.horizontalPadding, dy: Self.verticalPadding)
         (text as NSString).draw(
             with: textRect,

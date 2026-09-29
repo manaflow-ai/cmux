@@ -122,7 +122,7 @@ Disconnecting is not unpairing. Pairing revoke stays in pairing settings.
 
 Every viewer whose viewport differs from the grid draws, from the size state:
 
-- a 1 pt neutral grey border around the grid (secondary label color at 50%);
+- a 1 pt border around the grid in the separator grey (below);
 - a faint hatch outside the grid, so empty space never reads as blank output;
 - one small chip outside the grid's bottom-right corner,
   `118×38 · Maya's Mac` (plus `· 12 cols hidden` when the viewer is smaller),
@@ -130,8 +130,13 @@ Every viewer whose viewport differs from the grid draws, from the size state:
 - when the viewer is smaller, a short fade on the cut edge;
 - on each change, the border animates to the new grid. There is no HUD.
 
-The sizing UI uses neutral greys only. There are no per-participant colors;
-the owner is marked by a thin neutral ring on its avatar.
+The sizing UI uses one grey, the one every other border in the app uses. On
+the Mac that is the workspace's split divider / tab-bar separator color
+(`BonsplitConfiguration.Appearance.separatorColor`, from `pane-border-color`,
+Ghostty `split-divider-color`, or the chrome background). The grid border, the
+chip outline and the owner ring draw in it; the hatch, cut-edge fade, chip tint
+and avatar fills derive from it with opacity. There are no per-participant
+colors; the owner is marked by a thin ring on its avatar.
 
 On the Mac, the tab shows only while someone else is attached, and never
 shows this view itself. It draws one grey initials circle per other person

@@ -11,13 +11,21 @@ struct TerminalSizePanelView: View {
 
     let store: TerminalSharingStore
     let surfaceID: UUID
+    /// The workspace's split divider / tab-bar separator grey.
+    let separatorColor: Color
     @State var confirmingDisconnectOthers: Bool
     @State private var fixedColumns = ""
     @State private var fixedRows = ""
 
-    init(store: TerminalSharingStore, surfaceID: UUID, confirmDisconnectOthers: Bool = false) {
+    init(
+        store: TerminalSharingStore,
+        surfaceID: UUID,
+        separatorColor: Color,
+        confirmDisconnectOthers: Bool = false
+    ) {
         self.store = store
         self.surfaceID = surfaceID
+        self.separatorColor = separatorColor
         _confirmingDisconnectOthers = State(initialValue: confirmDisconnectOthers)
     }
 
@@ -140,6 +148,7 @@ struct TerminalSizePanelView: View {
                     isOwner: row.id == presentation.ownerID,
                     statusLabel: TerminalSharingDisplay.rowStatusLabel(presentation.rowStatus(for: row)),
                     showsDragHandle: isPriority,
+                    separatorColor: separatorColor,
                     onCountsChange: { setCounts($0, participantID: row.id) },
                     onDisconnect: isSelf ? nil : {
                         _ = store.disconnect(participantID: row.id, surfaceID: surfaceID)

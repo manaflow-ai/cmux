@@ -2,7 +2,7 @@ import CmuxTerminalSharing
 import CmuxTerminalSizing
 import SwiftUI
 
-/// One participant row of the size panel: neutral avatar, name, `sets size`
+/// One participant row of the size panel: an avatar in the separator grey, name, `sets size`
 /// for the owner or `not counted` for an ignored row, and on hover a "…" menu
 /// with Counts toward size and Disconnect.
 /// In priority mode a leading drag handle shows the row can be reordered.
@@ -13,6 +13,9 @@ struct TerminalSizeParticipantRow: View {
     let isOwner: Bool
     let statusLabel: String?
     let showsDragHandle: Bool
+    /// The split divider / tab-bar separator grey; the owner ring draws in it
+    /// and the avatar fill derives from it.
+    let separatorColor: Color
     let onCountsChange: (Bool) -> Void
     let onDisconnect: (() -> Void)?
 
@@ -49,7 +52,7 @@ struct TerminalSizeParticipantRow: View {
 
     private var avatar: some View {
         Circle()
-            .fill(Color(nsColor: .quaternaryLabelColor))
+            .fill(separatorColor.opacity(0.6))
             .frame(width: 18, height: 18)
             .overlay(
                 Text(verbatim: initials)
@@ -60,7 +63,7 @@ struct TerminalSizeParticipantRow: View {
                 if isOwner {
                     Circle()
                         .inset(by: -1.5)
-                        .stroke(Color(nsColor: .labelColor).opacity(0.5), lineWidth: 1)
+                        .stroke(separatorColor, lineWidth: 1)
                 }
             }
             .opacity(row.counts ? 1 : 0.55)
