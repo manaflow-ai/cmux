@@ -6139,7 +6139,10 @@
     "emailUnavailable": "email unavailable",
     "organization": "Organization",
     "personalAccount": "personal account",
-    "switchAccountButton": "Use a different account"
+    "switchAccountButton": "Use a different account",
+    "signedOutTitle": "Sign in to authorize coderouter",
+    "signedOutBody": "A command line application is waiting for you to sign in. Sign in with your cmux account to finish connecting this terminal. If you did not start this request, close this page.",
+    "signInButton": "Sign in"
   },
   "MobileRelease106": {
     "title": "What's New in 1.0.6",
