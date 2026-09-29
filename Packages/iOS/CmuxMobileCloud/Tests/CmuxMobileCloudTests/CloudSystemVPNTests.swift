@@ -273,8 +273,11 @@ import Testing
 
         rig.controller.enable()
         await rig.controller.waitForPendingOperation()
+        await rig.manager.waitForCancellation()
         rig.controller.enable()
-        try? await ContinuousClock().sleep(for: .milliseconds(100))
+        for _ in 0..<10 {
+            await Task.yield()
+        }
 
         #expect(rig.service.calls.enroll.count == 1)
         #expect(rig.manager.maxConcurrentOperations == 1)
