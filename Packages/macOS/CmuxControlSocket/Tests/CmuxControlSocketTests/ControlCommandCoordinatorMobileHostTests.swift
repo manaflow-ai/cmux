@@ -35,8 +35,8 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
         record("terminal.input", params)
     }
 
-    func controlMobileTerminalReplay(params: [String: JSONValue]) async -> ControlCallResult {
-        record("terminal.replay", params)
+    nonisolated func controlMobileTerminalReplay(params: [String: JSONValue]) async -> ControlCallResult {
+        await MainActor.run { record("terminal.replay", params) }
     }
 
     func controlMobileTerminalViewport(params: [String: JSONValue]) -> ControlCallResult {

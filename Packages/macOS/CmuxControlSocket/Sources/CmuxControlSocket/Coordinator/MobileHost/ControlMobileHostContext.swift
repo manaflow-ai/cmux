@@ -86,7 +86,7 @@ public protocol ControlMobileHostContext: AnyObject {
     ///
     /// - Parameter params: The decoded request params.
     /// - Returns: The fully-built command result.
-    func controlMobileTerminalReplay(params: [String: JSONValue]) async -> ControlCallResult
+    nonisolated func controlMobileTerminalReplay(params: [String: JSONValue]) async -> ControlCallResult
 
     /// `mobile.terminal.viewport` / `terminal.viewport` — record or clear a
     /// device's reported grid, recompute the shared minimum, cap the surface,
