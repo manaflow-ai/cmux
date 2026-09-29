@@ -7,6 +7,9 @@ public import Foundation
 /// extension list. The app accepts those messages only from the main frame of
 /// the `cmux://extensions` origin, which web content cannot forge, and every
 /// action that installs or removes code still asks for native confirmation.
+// lint:allow namespace-type: stateless Chrome-format rules (parsing, validation,
+// generated source); callers pass their own FileManager/URLSession, so there is
+// no dependency to inject into an instance.
 public enum ChromeExtensionsManagerPage {
     public static let scheme = "cmux"
     public static let host = "extensions"

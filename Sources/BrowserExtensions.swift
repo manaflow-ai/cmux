@@ -729,6 +729,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
     }
 
     private var extensionPageWindows: [(extensionID: String, profileKey: String?, window: NSWindow, url: URL)] = []
+    private var extensionPageCloseObservers: [ObjectIdentifier: NSObjectProtocol] = [:]
 
     /// Same scheme, host, and path; the query and fragment may differ.
     nonisolated static func samePage(_ lhs: URL, _ rhs: URL) -> Bool {
@@ -780,11 +781,18 @@ final class BrowserExtensions: NSObject, ObservableObject {
         window.contentView = webView
         window.center()
         extensionPageWindows.append((context.uniqueIdentifier, profileKey, window, url))
-        var observer: NSObjectProtocol?
-        observer = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self, weak window] _ in
+        let key = ObjectIdentifier(window)
+        extensionPageCloseObservers[key] = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
             MainActor.assumeIsolated {
-                self?.extensionPageWindows.removeAll { $0.window === window }
-                if let observer { NotificationCenter.default.removeObserver(observer) }
+                guard let self else { return }
+                self.extensionPageWindows.removeAll { $0.window === window }
+                if let token = self.extensionPageCloseObservers.removeValue(forKey: key) {
+                    NotificationCenter.default.removeObserver(token)
+                }
             }
         }
         webView.load(URLRequest(url: url))

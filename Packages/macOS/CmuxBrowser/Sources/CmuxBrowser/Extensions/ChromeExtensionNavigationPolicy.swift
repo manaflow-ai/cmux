@@ -6,6 +6,9 @@ public import Foundation
 /// Extension navigation never takes cmux's trusted internal-load path, and
 /// schemes that execute script or read local state (`javascript:`, `file:`,
 /// `data:`, `blob:`, `cmux:`) are refused outright, as Chrome refuses them.
+// lint:allow namespace-type: stateless Chrome-format rules (parsing, validation,
+// generated source); callers pass their own FileManager/URLSession, so there is
+// no dependency to inject into an instance.
 public enum ChromeExtensionNavigationPolicy {
     public static let extensionScheme = "chrome-extension"
 

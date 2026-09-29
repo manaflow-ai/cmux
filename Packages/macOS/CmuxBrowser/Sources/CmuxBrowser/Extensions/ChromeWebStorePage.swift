@@ -18,6 +18,9 @@ public import Foundation
 /// the web view's own URL (never from the message), requires the message to
 /// come from the main frame of a store page, and shows a confirmation dialog
 /// before anything is downloaded.
+// lint:allow namespace-type: stateless Chrome-format rules (parsing, validation,
+// generated source); callers pass their own FileManager/URLSession, so there is
+// no dependency to inject into an instance.
 public enum ChromeWebStorePage {
     /// Script message handler name, registered in the isolated world only.
     public static let messageHandlerName = "cmuxChromeWebStore"

@@ -14,6 +14,9 @@ import Security
 /// signature covers the signed header and the zip payload. A payload that was
 /// altered in transit, or one signed by any other key, is refused before
 /// anything touches disk.
+// lint:allow namespace-type: stateless Chrome-format rules (parsing, validation,
+// generated source); callers pass their own FileManager/URLSession, so there is
+// no dependency to inject into an instance.
 public enum ChromeExtensionPackage {
     public enum Failure: Error, Equatable, Sendable {
         case notAnExtensionID

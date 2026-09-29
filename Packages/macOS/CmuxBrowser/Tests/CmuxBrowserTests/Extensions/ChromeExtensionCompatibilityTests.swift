@@ -193,6 +193,20 @@ import Testing
         #expect(context.evaluateScript("Document.prototype.createElement === original && !globalThis.__cmuxContentCompat")?.toBool() == true)
     }
 
+    @Test func ignoresLegacyStateThatPointsOutsideTheFolder() throws {
+        let root = try makeExtension(background: ["service_worker": ChromeExtensionCompatibility.workerWrapperFile])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let state = #"{"serviceWorker":"../../outside.js","isModule":false}"#
+        try Data(state.utf8).write(to: root.appendingPathComponent(ChromeExtensionCompatibility.stateFile))
+        try Data("// wrapper".utf8).write(to: root.appendingPathComponent(ChromeExtensionCompatibility.workerWrapperFile))
+
+        try ChromeExtensionCompatibility.install(into: root)
+
+        let manifest = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("manifest.json"))) as? [String: Any])
+        let background = try #require(manifest["background"] as? [String: Any])
+        #expect(background["service_worker"] as? String == ChromeExtensionCompatibility.workerWrapperFile)
+    }
+
     @Test func preambleReportsChromeIdentity() {
         #expect(ChromeExtensionCompatibility.chromeUserAgent.contains(" Chrome/\(ChromeExtensionPackage.reportedChromeVersion) "))
         #expect(ChromeExtensionCompatibility.preambleSource.contains("ExecutionWorld"))

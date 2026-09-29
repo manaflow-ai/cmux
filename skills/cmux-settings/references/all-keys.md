@@ -204,6 +204,7 @@ Embedded browser settings from Settings > Browser.
 | `browser.hiddenWebViewDiscardDelaySeconds` | number | `300` | Seconds a browser tab must stay hidden before cmux frees its page memory. |
 | `browser.askWhereToSaveDownloads` | boolean | `false` | Show a save panel for browser downloads instead of saving directly to Downloads. |
 | `browser.urlAllowlist` | array<string> | `["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]` | Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies. |
+| `browser.toolbarItems` | array<string> | `["designMode", "profile", "theme", "extensions", "devTools"]` | Browser toolbar buttons, left to right: `designMode`, `profile`, `theme`, `extensions`, `devTools`, or `extension:<id>` for a pinned extension. More Actions always stays last. |
 
 ## markdown
 

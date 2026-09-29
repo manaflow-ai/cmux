@@ -25,6 +25,9 @@ public import Foundation
 ///
 /// It adds no capability: no native bridge, no new API, nothing visible to
 /// websites, and the HTTP user agent is unchanged.
+// lint:allow namespace-type: stateless Chrome-format rules (parsing, validation,
+// generated source); callers pass their own FileManager/URLSession, so there is
+// no dependency to inject into an instance.
 public enum ChromeExtensionCompatibility {
     public static let preambleFile = "cmux-compat.js"
     public static let contentPreambleFile = "cmux-content-compat.js"
@@ -310,7 +313,10 @@ public enum ChromeExtensionCompatibility {
            worker == workerWrapperFile || worker == moduleWorkerWrapperFile,
            let data = try? Data(contentsOf: stateURL),
            let state = try? JSONDecoder().decode(State.self, from: data),
-           let original = state.serviceWorker {
+           let original = state.serviceWorker,
+           // The state file sits in the extension folder; trust only a path
+           // that is still a regular file inside it.
+           containedFile(original, in: folder) != nil {
             background["service_worker"] = original
             changedManifest = true
             try? fileManager.removeItem(at: folder.appendingPathComponent(worker))
