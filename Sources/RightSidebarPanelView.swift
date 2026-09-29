@@ -82,6 +82,7 @@ struct RightSidebarPanelView: View {
         guard let responder = window.firstResponder else { return false }
         return AppDelegate.shared?.isRightSidebarFocusResponder(responder, in: window) == true
     }
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var hasMountedRightSidebarContent = false
@@ -180,7 +181,7 @@ struct RightSidebarPanelView: View {
         .overlay {
             boundary
                 .strokeBorder(
-                    Color(nsColor: cmuxAccentNSColor(for: windowAppearance.resolvedColorScheme)),
+                    Color(nsColor: cmuxAccent.nsColor(isDark: windowAppearance.resolvedColorScheme == .dark)),
                     lineWidth: 1
                 )
                 .opacity(fileExplorerState.rightSidebarOwnsInputFocus ? 1 : 0)
