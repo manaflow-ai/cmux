@@ -232,6 +232,7 @@
       "set-split-ratio",
       "set-tab-pinned",
       "set-terminal-idle-policy",
+      "set-terminal-keep",
       "set-viewport-pane-width",
       "set-window-title",
       "set-workspace-metadata",
@@ -545,6 +546,12 @@
     },
     {
       "name": "terminal-registry-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "terminal-reaped",
       "streams": [
         "subscribe"
       ]

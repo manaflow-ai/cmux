@@ -2849,6 +2849,7 @@ impl Mux {
         expected_generation: Option<&str>,
         expected_terminal_revision: Option<u64>,
         mutation: &WorkspaceMutation,
+        guard: TerminalCloseGuard,
     ) -> anyhow::Result<Option<TerminalCloseResult>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
@@ -2873,6 +2874,20 @@ impl Mux {
             return Ok(None);
         };
         let mut state = self.state.lock().unwrap();
+        if guard == TerminalCloseGuard::UnplacedAndNotKept {
+            // The registry lock serializes placement commits and the creation
+            // fence excludes a creation between runtime and placement, so
+            // this check cannot race a new view of the terminal.
+            let placed = !state
+                .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
+                .is_empty()
+                || state.terminal_catalog.get(&public_id).is_some_and(|runtime| {
+                    state.surfaces.values().any(|view| view.shares_terminal_runtime(runtime))
+                });
+            if placed || registry.terminal_keep(terminal_id)? {
+                return Err(TerminalCloseGuardFailed.into());
+            }
+        }
         let durable_host = registry.terminal_host_id(&public_id)?.ok_or_else(|| {
             terminal_close_state_error(format!("terminal {public_id} has no durable host"))
         })?;

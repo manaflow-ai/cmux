@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "252966630de426c49feb36ad1c035f9489871b52e59dc659d4fd93a49d20e675";
+inline constexpr std::string_view kProtocolIrSha256 = "5538b27d895c3fe3ba9dd2a1ef6747888b26de5c386dcc639facac50cf9c575e";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -111,6 +111,7 @@ struct ServerStatsResult;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
 struct SetTerminalIdlePolicyResult;
+struct SetTerminalKeepResult;
 struct ShutdownDaemonResult;
 struct SidebarPluginResult;
 struct Size;
@@ -264,6 +265,7 @@ struct SetRatioRequest;
 struct SetSplitRatioRequest;
 struct SetTabPinnedRequest;
 struct SetTerminalIdlePolicyRequest;
+struct SetTerminalKeepRequest;
 struct SetViewportPaneWidthRequest;
 struct SetWindowTitleRequest;
 struct SetWorkspaceMetadataRequest;
@@ -327,6 +329,7 @@ struct TabAddedEvent;
 struct TabChangedEvent;
 struct TabClosedEvent;
 struct TabRenamedEvent;
+struct TerminalReapedEvent;
 struct TerminalRegistryChangedEvent;
 struct TitleChangedEvent;
 struct TreeChangedEvent;
@@ -1109,6 +1112,7 @@ struct CreateTerminalRequest {
     Field<std::map<std::string, std::string, std::less<>>> env{};
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
+    std::optional<bool> keep{};
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     Field<std::string> name{};
@@ -1904,6 +1908,7 @@ struct NewTabRequest {
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
     Field<std::map<std::string, std::string, std::less<>>> env{};
+    std::optional<bool> keep{};
     Field<Id> pane{};
     Field<std::uint16_t> rows{};
     friend bool operator==(const NewTabRequest&, const NewTabRequest&) = default;
@@ -2653,6 +2658,19 @@ struct SetTerminalIdlePolicyResult {
     friend bool operator==(const SetTerminalIdlePolicyResult&, const SetTerminalIdlePolicyResult&) = default;
 };
 
+struct SetTerminalKeepRequest {
+    bool keep{};
+    Field<Id> surface{};
+    Field<std::string> terminal_id{};
+    friend bool operator==(const SetTerminalKeepRequest&, const SetTerminalKeepRequest&) = default;
+};
+
+struct SetTerminalKeepResult {
+    bool keep{};
+    std::string terminal_id{};
+    friend bool operator==(const SetTerminalKeepResult&, const SetTerminalKeepResult&) = default;
+};
+
 struct SetViewportPaneWidthRequest {
     Id pane{};
     Field<std::uint64_t> transaction{};
@@ -2679,6 +2697,7 @@ struct SetWorkspaceMetadataRequest {
 };
 
 struct ShutdownDaemonRequest {
+    std::optional<bool> end_terminals{};
     std::optional<bool> force{};
     std::string generation{};
     std::uint32_t pid{};
@@ -2686,6 +2705,7 @@ struct ShutdownDaemonRequest {
 };
 
 struct ShutdownDaemonResult {
+    Field<std::uint64_t> ended_terminals{};
     std::string generation{};
     std::uint32_t pid{};
     friend bool operator==(const ShutdownDaemonResult&, const ShutdownDaemonResult&) = default;
@@ -2710,6 +2730,7 @@ struct SplitRequest {
     Field<std::string> cwd{};
     SplitDirection dir{};
     Field<std::map<std::string, std::string, std::less<>>> env{};
+    std::optional<bool> keep{};
     Id pane{};
     Field<std::uint16_t> rows{};
     friend bool operator==(const SplitRequest&, const SplitRequest&) = default;
@@ -2853,6 +2874,13 @@ struct TerminalPlacement {
     std::uint64_t terminal_revision{};
     std::optional<Id> workspace{};
     friend bool operator==(const TerminalPlacement&, const TerminalPlacement&) = default;
+};
+
+struct TerminalReapedEvent {
+    std::uint64_t grace_ms{};
+    std::optional<std::string> terminal{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalReapedEvent&, const TerminalReapedEvent&) = default;
 };
 
 struct TerminalRegistryChangedEvent {
@@ -3667,6 +3695,12 @@ template <>
 struct Codec<SetTerminalIdlePolicyResult> {
     static Result<Json> encode(const SetTerminalIdlePolicyResult& value);
     static Result<SetTerminalIdlePolicyResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetTerminalKeepResult> {
+    static Result<Json> encode(const SetTerminalKeepResult& value);
+    static Result<SetTerminalKeepResult> decode(const Json& value);
 };
 
 template <>
@@ -4588,6 +4622,12 @@ struct Codec<SetTerminalIdlePolicyRequest> {
 };
 
 template <>
+struct Codec<SetTerminalKeepRequest> {
+    static Result<Json> encode(const SetTerminalKeepRequest& value);
+    static Result<SetTerminalKeepRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<SetViewportPaneWidthRequest> {
     static Result<Json> encode(const SetViewportPaneWidthRequest& value);
     static Result<SetViewportPaneWidthRequest> decode(const Json& value);
@@ -4963,6 +5003,12 @@ template <>
 struct Codec<TabRenamedEvent> {
     static Result<Json> encode(const TabRenamedEvent& value);
     static Result<TabRenamedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalReapedEvent> {
+    static Result<Json> encode(const TerminalReapedEvent& value);
+    static Result<TerminalReapedEvent> decode(const Json& value);
 };
 
 template <>

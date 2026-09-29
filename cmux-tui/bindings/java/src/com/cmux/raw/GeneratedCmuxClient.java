@@ -618,6 +618,11 @@ public abstract class GeneratedCmuxClient {
         return SetTerminalIdlePolicyResult.fromWire(result);
     }
 
+    public final SetTerminalKeepResult setTerminalKeep(SetTerminalKeepRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_TERMINAL_KEEP, request.toWire());
+        return SetTerminalKeepResult.fromWire(result);
+    }
+
     public final EmptyResult setViewportPaneWidth(SetViewportPaneWidthRequest request) throws CmuxException {
         Object result = execute(Commands.SET_VIEWPORT_PANE_WIDTH, request.toWire());
         return EmptyResult.fromWire(result);

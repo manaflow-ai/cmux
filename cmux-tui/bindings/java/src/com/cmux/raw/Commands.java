@@ -40,7 +40,7 @@ public final class Commands {
     public static final CommandMetadata COPY = new CommandMetadata("copy", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CREATE_SURFACE_WITH_RECEIPT = new CommandMetadata("create-surface-with-receipt", Authority.CONTROL, 10, "creation-receipts-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("idempotency_key", "creation-attempt-keys-v1")));
     public static final CommandMetadata CREATE_TAB_GROUP = new CommandMetadata("create-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata CREATE_TERMINAL = new CommandMetadata("create-terminal", Authority.CONTROL, 7, "workspace-registry-v1", StreamKind.NONE, Map.ofEntries(Map.entry("env", 12L), Map.entry("terminal_id", 9L)), Map.ofEntries(Map.entry("env", "terminal-env-v1")));
+    public static final CommandMetadata CREATE_TERMINAL = new CommandMetadata("create-terminal", Authority.CONTROL, 7, "workspace-registry-v1", StreamKind.NONE, Map.ofEntries(Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("terminal_id", 9L)), Map.ofEntries(Map.entry("env", "terminal-env-v1"), Map.entry("keep", "terminal-reap-v1")));
     public static final CommandMetadata CREATE_WORKSPACE = new CommandMetadata("create-workspace", Authority.CONTROL, 7, "workspace-registry-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CREATE_WORKSPACE_GROUP = new CommandMetadata("create-workspace-group", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DELETE_SAVED_TAB_GROUP = new CommandMetadata("delete-saved-tab-group", Authority.CONTROL, 12, "saved-tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -87,7 +87,7 @@ public final class Commands {
     public static final CommandMetadata NEW_PANE = new CommandMetadata("new-pane", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_PANE_RIGHT = new CommandMetadata("new-pane-right", Authority.CONTROL, 9, "viewport-splits-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_SCREEN = new CommandMetadata("new-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata NEW_TAB = new CommandMetadata("new-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("env", 12L)), Map.ofEntries(Map.entry("env", "terminal-env-v1")));
+    public static final CommandMetadata NEW_TAB = new CommandMetadata("new-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("env", 12L), Map.entry("keep", 12L)), Map.ofEntries(Map.entry("env", "terminal-env-v1"), Map.entry("keep", "terminal-reap-v1")));
     public static final CommandMetadata NEW_WORKSPACE = new CommandMetadata("new-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NOTIFY = new CommandMetadata("notify", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PAIRING_RESPONSE = new CommandMetadata("pairing-response", Authority.LOCAL_ADMIN, 7, null, StreamKind.NONE, Map.of(), Map.of());
@@ -131,12 +131,13 @@ public final class Commands {
     public static final CommandMetadata SET_SPLIT_RATIO = new CommandMetadata("set-split-ratio", Authority.CONTROL, 8, null, StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 9L)), Map.ofEntries(Map.entry("transaction", "layout-undo-v1")));
     public static final CommandMetadata SET_TAB_PINNED = new CommandMetadata("set-tab-pinned", Authority.CONTROL, 12, "tab-metadata-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_TERMINAL_IDLE_POLICY = new CommandMetadata("set-terminal-idle-policy", Authority.CONTROL, 12, "terminal-idle-close-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SET_TERMINAL_KEEP = new CommandMetadata("set-terminal-keep", Authority.CONTROL, 12, "terminal-reap-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_VIEWPORT_PANE_WIDTH = new CommandMetadata("set-viewport-pane-width", Authority.CONTROL, 9, "viewport-column-resize-v1", StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 9L)), Map.ofEntries(Map.entry("transaction", "layout-undo-v1")));
     public static final CommandMetadata SET_WINDOW_TITLE = new CommandMetadata("set-window-title", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_WORKSPACE_METADATA = new CommandMetadata("set-workspace-metadata", Authority.CONTROL, 12, "workspace-metadata-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata SHUTDOWN_DAEMON = new CommandMetadata("shutdown-daemon", Authority.LOCAL_ADMIN, 9, null, StreamKind.NONE, Map.ofEntries(Map.entry("force", 10L)), Map.ofEntries(Map.entry("force", "daemon-handoff-force-v1")));
+    public static final CommandMetadata SHUTDOWN_DAEMON = new CommandMetadata("shutdown-daemon", Authority.LOCAL_ADMIN, 9, null, StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L), Map.entry("force", 10L)), Map.ofEntries(Map.entry("end_terminals", "terminal-reap-v1"), Map.entry("force", "daemon-handoff-force-v1")));
     public static final CommandMetadata SIDEBAR_PLUGIN = new CommandMetadata("sidebar-plugin", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata SPLIT = new CommandMetadata("split", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("cwd", 12L), Map.entry("env", 12L)), Map.ofEntries(Map.entry("cwd", "terminal-env-v1"), Map.entry("env", "terminal-env-v1")));
+    public static final CommandMetadata SPLIT = new CommandMetadata("split", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("cwd", 12L), Map.entry("env", 12L), Map.entry("keep", 12L)), Map.ofEntries(Map.entry("cwd", "terminal-env-v1"), Map.entry("env", "terminal-env-v1"), Map.entry("keep", "terminal-reap-v1")));
     public static final CommandMetadata SUBSCRIBE = new CommandMetadata("subscribe", Authority.FRONTEND, 5, null, StreamKind.SUBSCRIBE, Map.ofEntries(Map.entry("surface", 9L), Map.entry("tree_events", 7L)), Map.ofEntries(Map.entry("surface", "surface-subscribe-filter")));
     public static final CommandMetadata SWAP_PANE = new CommandMetadata("swap-pane", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_EVENTS = new CommandMetadata("terminal-events", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
@@ -279,6 +280,7 @@ public final class Commands {
         values.put("set-split-ratio", SET_SPLIT_RATIO);
         values.put("set-tab-pinned", SET_TAB_PINNED);
         values.put("set-terminal-idle-policy", SET_TERMINAL_IDLE_POLICY);
+        values.put("set-terminal-keep", SET_TERMINAL_KEEP);
         values.put("set-viewport-pane-width", SET_VIEWPORT_PANE_WIDTH);
         values.put("set-window-title", SET_WINDOW_TITLE);
         values.put("set-workspace-metadata", SET_WORKSPACE_METADATA);

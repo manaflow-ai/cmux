@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 252966630de426c49feb36ad1c035f9489871b52e59dc659d4fd93a49d20e675. */
+/* cmux-tui mux protocol 12, IR 5538b27d895c3fe3ba9dd2a1ef6747888b26de5c386dcc639facac50cf9c575e. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "252966630de426c49feb36ad1c035f9489871b52e59dc659d4fd93a49d20e675" as const;
+export const SDK_IR_SHA256 = "5538b27d895c3fe3ba9dd2a1ef6747888b26de5c386dcc639facac50cf9c575e" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -442,13 +442,19 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "terminal-env-v1"
       },
+      "keep": {
+        "since": 12,
+        "capability": "terminal-reap-v1"
+      },
       "terminal_id": {
         "since": 9,
         "capability": null
       }
     },
     "stream": null,
-    "constraints": []
+    "constraints": [
+      "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1)."
+    ]
   },
   "create-workspace": {
     "authority": "control",
@@ -919,10 +925,16 @@ export const COMMAND_METADATA = {
       "env": {
         "since": 12,
         "capability": "terminal-env-v1"
+      },
+      "keep": {
+        "since": 12,
+        "capability": "terminal-reap-v1"
       }
     },
     "stream": null,
-    "constraints": []
+    "constraints": [
+      "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1)."
+    ]
   },
   "new-workspace": {
     "authority": "control",
@@ -1389,6 +1401,17 @@ export const COMMAND_METADATA = {
       "The owner closes the terminal, as close-terminal does, once it has had no attached view for idle_close_seconds; unattached time restarts at every attach and after an owner restart."
     ]
   },
+  "set-terminal-keep": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-reap-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The keep flag is stored durably with the terminal and survives owner restarts.",
+      "A terminal that is not kept is ended, as close-terminal does, once it has had no tab placement for the owner's reap grace period (default 30 seconds); a placement restored within the period cancels it."
+    ]
+  },
   "set-viewport-pane-width": {
     "authority": "control",
     "since": 9,
@@ -1427,6 +1450,10 @@ export const COMMAND_METADATA = {
     "since": 9,
     "capability": null,
     "fields": {
+      "end_terminals": {
+        "since": 12,
+        "capability": "terminal-reap-v1"
+      },
       "force": {
         "since": 10,
         "capability": "daemon-handoff-force-v1"
@@ -1437,6 +1464,7 @@ export const COMMAND_METADATA = {
       "pid and generation must match the latest identify result.",
       "force bypasses native-browser ownership only; the identity fence and trusted-local authority still apply.",
       "Clients must require daemon-handoff-force-v1 before sending force:true.",
+      "end_terminals:true ends every terminal and removes its tabs before the handoff; without it terminal hosts stay alive for the next owner. Clients must require terminal-reap-v1 before sending end_terminals:true.",
       "The daemon exits only after the success response is queued."
     ]
   },
@@ -1460,10 +1488,16 @@ export const COMMAND_METADATA = {
       "env": {
         "since": 12,
         "capability": "terminal-env-v1"
+      },
+      "keep": {
+        "since": 12,
+        "capability": "terminal-reap-v1"
       }
     },
     "stream": null,
-    "constraints": []
+    "constraints": [
+      "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1)."
+    ]
   },
   "subscribe": {
     "authority": "frontend",
@@ -2040,6 +2074,14 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
+  "terminal-reaped": {
+    "since": 12,
+    "capability": "terminal-reap-v1",
+    "streams": [
+      "subscribe"
     ],
     "emission": "emitted"
   },
@@ -6024,6 +6066,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "SetTerminalKeepResult": {
+    "additional_properties": false,
+    "fields": {
+      "keep": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ShutdownDaemonResult": {
     "additional_properties": false,
     "fields": {
@@ -6033,6 +6097,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "literal",
           "value": true
+        }
+      },
+      "ended_terminals": {
+        "capability": "terminal-reap-v1",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "generation": {
@@ -8892,6 +8966,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint64"
           }
         },
+        "keep": {
+          "capability": "terminal-reap-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "key": {
           "default": null,
           "nullable": true,
@@ -10685,6 +10770,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "kind": "scalar",
               "name": "string"
             }
+          }
+        },
+        "keep": {
+          "capability": "terminal-reap-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "pane": {
@@ -12588,6 +12684,53 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "SetTerminalIdlePolicyResult"
     }
   },
+  "set-terminal-keep": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "Exactly one of surface or terminal_id is present."
+      ],
+      "fields": {
+        "keep": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "surface": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "terminal_id": {
+          "constraints": [
+            {
+              "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id",
+              "pattern": "^(term_)?[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "SetTerminalKeepResult"
+    }
+  },
   "set-viewport-pane-width": {
     "request": {
       "additional_properties": false,
@@ -12756,6 +12899,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "end_terminals": {
+          "capability": "terminal-reap-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "force": {
           "capability": "daemon-handoff-force-v1",
           "default": false,
@@ -12875,6 +13029,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "kind": "scalar",
               "name": "string"
             }
+          }
+        },
+        "keep": {
+          "capability": "terminal-reap-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "pane": {
@@ -15319,6 +15484,44 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "terminal-reaped": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "terminal-reaped"
+        }
+      },
+      "grace_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "terminal": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

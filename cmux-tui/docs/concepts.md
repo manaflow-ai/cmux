@@ -84,11 +84,11 @@ tab back instead of closing the pane it created.
 
 ## Collapse Behavior
 
-Closing a tab removes one placement. A PTY terminal remains addressable with zero or more placements; closing its process requires `terminal.close`. A browser closes with its only tab. If the pane still has tabs, the active tab index moves to a remaining tab.
+Closing a tab removes one placement. A PTY terminal remains addressable with zero or more placements. The owner ends a terminal that has had zero placements for the reap grace period (default 30 seconds, `--terminal-reap-grace-seconds`; 0 ends it at once) unless it is marked kept (`set-terminal-keep`, `keep` on `new-tab`/`split`/`create-terminal`, or `cmux terminal <term_id> keep on`). A placement restored within the grace period, such as a layout undo, cancels the reap, and a restart of the owner starts the grace period again. `terminal.close` ends a terminal at once. A browser closes with its only tab. If the pane still has tabs, the active tab index moves to a remaining tab.
 
 If a pane loses its last tab, that pane is removed from the split tree and its parent split collapses to the remaining child. If that empties the screen, the screen is removed. A canonical workspace remains in the durable registry when its final screen or terminal view disappears; it becomes an empty workspace and is still projected to every frontend. Only an explicit `close-workspace` mutation tombstones it. If every workspace is explicitly closed, mux emits an `empty` event.
 
-Closing a pane removes all tab placements in that pane. Closing a screen removes every pane and placement in that screen. Closing a workspace tombstones that workspace and removes all of its placements. These tree operations detach PTY terminal views without ending their processes; browser surfaces close because they are single-view.
+Closing a pane removes all tab placements in that pane. Closing a screen removes every pane and placement in that screen. Closing a workspace tombstones that workspace and removes all of its placements. These tree operations detach PTY terminal views without ending their processes at once; a detached terminal that is not kept is reaped after the grace period. Browser surfaces close because they are single-view.
 
 ## PTY and Browser Surfaces
 

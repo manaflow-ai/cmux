@@ -1,6 +1,7 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod host_close;
 mod idle_close;
 mod presentation;
 mod public_projections;
@@ -9,6 +10,7 @@ mod resource_topology;
 mod tab_drag;
 mod tab_groups;
 mod terminal_directory;
+mod terminal_reap;
 
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use presentation::{
@@ -18,6 +20,12 @@ pub(crate) use resource_content::ResourceEffectProjection;
 pub use tab_drag::{TabDragOutcome, TabDropEdge};
 pub(crate) use tab_groups::{PaneTabGroup, pane_tab_groups};
 pub use tab_groups::{TabGroupDestination, TabGroupOutcome};
+pub use terminal_reap::{
+    DEFAULT_TERMINAL_REAP_GRACE, MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_terminal_reaper,
+    validate_terminal_reap_grace,
+};
+#[cfg(test)]
+pub(crate) use terminal_reap::{ReapOutcome, ReapSchedule};
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -959,6 +967,15 @@ pub enum MuxEvent {
         generation: String,
         terminal_revision: u64,
     },
+    /// The owner ended a terminal that had no tab placement for the reap
+    /// grace period and was not marked `keep` (`terminal-reap-v1`).
+    TerminalReaped {
+        /// Stable terminal host id.
+        terminal_id: String,
+        /// Public `term_` resource id, when the terminal had one.
+        terminal: Option<String>,
+        grace_ms: u64,
+    },
     /// A screen's pane geometry changed. Clients should re-fetch layout.
     LayoutChanged(ScreenId),
     /// A control connection attached its first surface.
@@ -1588,6 +1605,27 @@ pub struct TerminalCloseResult {
     pub already_closed: bool,
     pub terminal_revision: u64,
 }
+
+/// A precondition checked atomically with a terminal close.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TerminalCloseGuard {
+    None,
+    /// The terminal has no tab placement and is not marked `keep`
+    /// (`terminal-reap-v1`).
+    UnplacedAndNotKept,
+}
+
+/// The close guard did not hold, so nothing changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TerminalCloseGuardFailed;
+
+impl fmt::Display for TerminalCloseGuardFailed {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("terminal_close_guard_failed")
+    }
+}
+
+impl std::error::Error for TerminalCloseGuardFailed {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TerminalResolution {
@@ -2638,6 +2676,13 @@ pub struct Mux {
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
     idle_close: Mutex<idle_close::IdleCloseTracker>,
+    /// Hosts of closed terminals that were asked to exit.
+    terminal_host_closes: Arc<host_close::TerminalHostCloses>,
+    /// Reap grace period for unplaced terminals, in milliseconds.
+    terminal_reap_grace_ms: AtomicU64,
+    /// The running reaper's event receiver, so keep and grace changes can
+    /// wake it.
+    terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
@@ -3050,6 +3095,12 @@ impl Mux {
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
+            terminal_host_closes: Arc::new(host_close::TerminalHostCloses::default()),
+            terminal_reap_grace_ms: AtomicU64::new(
+                u64::try_from(terminal_reap::DEFAULT_TERMINAL_REAP_GRACE.as_millis())
+                    .unwrap_or(u64::MAX),
+            ),
+            terminal_reaper_events: Mutex::new(None),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(
@@ -9768,6 +9819,28 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<TerminalCloseResult> {
+        self.close_terminal_guarded(
+            terminal_id,
+            terminal_incarnation,
+            expected_generation,
+            expected_revision,
+            mutation,
+            TerminalCloseGuard::None,
+        )
+    }
+
+    /// Close a hosted terminal after checking `guard` under the registry
+    /// lock, which serializes every placement commit. A failed guard returns
+    /// [`TerminalCloseGuardFailed`] and changes nothing.
+    pub(crate) fn close_terminal_guarded(
+        &self,
+        terminal_id: &str,
+        terminal_incarnation: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        guard: TerminalCloseGuard,
+    ) -> anyhow::Result<TerminalCloseResult> {
         validate_terminal_hex(terminal_id, "invalid_terminal_id")?;
         if let Some(incarnation) = terminal_incarnation {
             validate_terminal_hex(incarnation, "invalid_terminal_incarnation")?;
@@ -9778,11 +9851,24 @@ impl Mux {
             expected_generation,
             expected_revision,
             mutation,
+            guard,
         )? {
             return Ok(result);
         }
         let (commit, terminal_incarnation, public_id, notify_public_id) = {
             let mut registry = self.workspace_registry.lock().unwrap();
+            if guard == TerminalCloseGuard::UnplacedAndNotKept {
+                let placed = {
+                    let state = self.state.lock().unwrap();
+                    state.surfaces.values().any(|surface| {
+                        self.resource_terminal_host_identity(surface)
+                            .is_some_and(|identity| identity.terminal_id == terminal_id)
+                    })
+                };
+                if placed || registry.terminal_keep(terminal_id)? {
+                    return Err(TerminalCloseGuardFailed.into());
+                }
+            }
             let public_id = registry.terminal_resource_id(terminal_id)?;
             let commit = registry.close_terminal(
                 mutation,
@@ -9931,53 +10017,10 @@ impl Mux {
         {
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
             let Some(root) = root else { return };
-            let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(&root)
-            else {
-                return;
-            };
-            for (path, record) in records {
-                if record.terminal_id == terminal_id
-                    && incarnation.is_none_or(|expected| record.incarnation == expected)
-                    && !terminate_host_record(record.clone(), path.clone())
-                {
-                    schedule_terminal_host_record_cleanup(record, path);
-                }
-            }
-            let record_path = root.join(format!("{terminal_id}.json"));
-            let _ = acknowledge_terminal_exit_sidecar(&record_path, terminal_id, incarnation);
+            terminate_discovered_terminal_host_in(&root, terminal_id, incarnation);
         }
         #[cfg(not(unix))]
         let _ = (terminal_id, incarnation);
-    }
-
-    fn terminate_terminal_runtime(&self, runtime: &Arc<Surface>) {
-        let identity = self.resource_terminal_host_identity(runtime);
-        #[cfg(unix)]
-        let acknowledged = match runtime
-            .terminate_host_and_wait_for_exit(Instant::now() + TERMINAL_HOST_CLOSE_WAIT)
-        {
-            Ok(Some((path, exit))) => acknowledge_exact_terminal_host_exit(&path, &exit),
-            Ok(None) => false,
-            Err(error) => {
-                if let Some(identity) = identity.as_ref() {
-                    eprintln!(
-                        "cmux-tui: terminal {} close could not await host exit: {error:#}",
-                        identity.terminal_id
-                    );
-                }
-                false
-            }
-        };
-        runtime.kill();
-        #[cfg(unix)]
-        if !acknowledged && let Some(identity) = identity {
-            self.terminate_discovered_terminal_host(
-                &identity.terminal_id,
-                Some(&identity.incarnation),
-            );
-        }
-        #[cfg(not(unix))]
-        let _ = identity;
     }
 
     /// Run `f` with the session state.
@@ -11124,6 +11167,11 @@ impl Mux {
 
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        // Hosts of closed terminals were already asked to exit; give them
+        // their close deadline so this owner acknowledges their exits.
+        if !self.wait_for_terminal_host_closes(Instant::now() + TERMINAL_HOST_CLOSE_WAIT) {
+            eprintln!("cmux-tui: closed terminal hosts did not exit before shutdown");
+        }
         self.config_reload_changed.notify_all();
         self.journal_plugin.shutdown();
         self.journal_kernel.wake_waiters();
@@ -17928,6 +17976,29 @@ fn commit_terminal_workspace(
         }),
     )?;
     Ok(commit.revision)
+}
+
+/// Terminate every host record under `root` for one terminal and
+/// acknowledge its exit sidecar.
+#[cfg(unix)]
+fn terminate_discovered_terminal_host_in(
+    root: &Path,
+    terminal_id: &str,
+    incarnation: Option<&str>,
+) {
+    let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(root) else {
+        return;
+    };
+    for (path, record) in records {
+        if record.terminal_id == terminal_id
+            && incarnation.is_none_or(|expected| record.incarnation == expected)
+            && !terminate_host_record(record.clone(), path.clone())
+        {
+            schedule_terminal_host_record_cleanup(record, path);
+        }
+    }
+    let record_path = root.join(format!("{terminal_id}.json"));
+    let _ = acknowledge_terminal_exit_sidecar(&record_path, terminal_id, incarnation);
 }
 
 #[cfg(unix)]

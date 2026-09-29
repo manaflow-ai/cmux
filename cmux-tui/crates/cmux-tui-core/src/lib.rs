@@ -84,7 +84,11 @@ pub use mux::{
     ViewportWidthError, WorkspaceGroupChange, WorkspaceMutationResult, WorkspacePlacement,
     ZoomMode, ZoomState,
 };
-pub use mux::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
+pub use mux::{
+    DEFAULT_TERMINAL_REAP_GRACE, IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper,
+    MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_idle_terminal_reaper, start_terminal_reaper,
+    validate_terminal_reap_grace,
+};
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};

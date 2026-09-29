@@ -125,6 +125,11 @@ pub const MACHINE_LISTENING_TCP_CAPABILITY: &str = "machine-listening-tcp-v1";
 /// Advertises `set-terminal-idle-policy` and the owner-side reaper that
 /// closes a terminal once it has had no attached view for its policy.
 pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
+/// Advertises the owner-side reaper that ends a terminal after it has had no
+/// tab placement for the reap grace period, `set-terminal-keep`, the `keep`
+/// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
+/// event, and `end_terminals` on `shutdown-daemon`.
+pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
 /// Durable sidebar workspace groups: the `*-workspace-group` commands,
 /// `move-workspace-to-group`, a `groups` array in `list-workspaces`, and a
 /// `group` field on every workspace.
@@ -258,6 +263,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         MACHINE_LISTENING_TCP_CAPABILITY,
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
+        TERMINAL_REAP_CAPABILITY,
         WORKSPACE_GROUPS_CAPABILITY,
         WORKSPACE_METADATA_CAPABILITY,
         TAB_METADATA_CAPABILITY,
@@ -768,6 +774,10 @@ enum Command {
         generation: String,
         #[serde(default)]
         force: bool,
+        /// End every terminal host before the handoff instead of leaving
+        /// hosts for the next owner (`terminal-reap-v1`). For test teardown.
+        #[serde(default)]
+        end_terminals: bool,
     },
     Ping,
     SetClientInfo {
@@ -1004,6 +1014,16 @@ enum Command {
         #[serde(default)]
         idle_close_seconds: Option<u64>,
     },
+    /// Mark (`keep: true`) or unmark one hosted terminal, named by exactly
+    /// one of a PTY `surface` or a stable `terminal_id`, as kept: a kept
+    /// terminal is not reaped when it has no tab placement.
+    SetTerminalKeep {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        terminal_id: Option<String>,
+        keep: bool,
+    },
     /// New tab in a pane (default: the active pane).
     NewTab {
         #[serde(default)]
@@ -1019,6 +1039,9 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        /// Mark the new terminal `keep` so it survives with no tab.
+        #[serde(default)]
+        keep: bool,
     },
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     /// The daemon persists its location and never attaches a CDP target.
@@ -1202,6 +1225,9 @@ enum Command {
         /// Extra environment for the new terminal's child only.
         #[serde(default)]
         env: Option<BTreeMap<String, String>>,
+        /// Mark the new terminal `keep` so it survives with no tab.
+        #[serde(default)]
+        keep: bool,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -1243,6 +1269,9 @@ enum Command {
         /// Extra environment for the new terminal's child only.
         #[serde(default)]
         env: Option<BTreeMap<String, String>>,
+        /// Mark the new terminal `keep` so it survives with no tab.
+        #[serde(default)]
+        keep: bool,
     },
     SetRatio {
         pane: PaneId,
@@ -11953,15 +11982,30 @@ fn handle_command_with_cancellation(
                 "lifecycle_ready": mux.server_lifecycle_ready(),
             }))
         }
-        Command::ShutdownDaemon { pid, generation, force } => {
+        Command::ShutdownDaemon { pid, generation, force, end_terminals } => {
             let actual_identity = mux.begin_daemon_handoff(
                 client,
                 DaemonHandoffRequest::fenced(pid, generation, force),
             )?;
+            // The fenced handoff reservation is held, so no second shutdown
+            // can start while the hosts end. A failure releases it and keeps
+            // this daemon serving.
+            let ended_terminals = if end_terminals {
+                match mux.end_all_terminals() {
+                    Ok(ended) => Some(ended.len()),
+                    Err(error) => {
+                        mux.cancel_daemon_handoff(client);
+                        return Err(error);
+                    }
+                }
+            } else {
+                None
+            };
             Ok(json!({
                 "accepted": true,
                 "pid": actual_identity.pid,
                 "generation": actual_identity.generation,
+                "ended_terminals": ended_terminals,
             }))
         }
         Command::Ping => Ok(json!({
@@ -12512,7 +12556,26 @@ fn handle_command_with_cancellation(
                 "idle_close_seconds": idle_close_seconds,
             }))
         }
-        Command::NewTab { pane, cwd, env, cols, rows } => {
+        Command::SetTerminalKeep { surface, terminal_id, keep } => {
+            let terminal_id = match (surface, terminal_id) {
+                (Some(surface), None) => {
+                    let surface = get_surface(mux, surface)?;
+                    require_pty(&surface)?;
+                    let identity = mux.resource_terminal_host_identity(&surface);
+                    identity.ok_or_else(|| anyhow::anyhow!("terminal_not_hosted"))?.terminal_id
+                }
+                (None, Some(terminal_id)) => {
+                    let resolution = mux.resolve_terminal(&terminal_id)?;
+                    let resolution =
+                        resolution.ok_or_else(|| anyhow::anyhow!("terminal_not_found"))?;
+                    resolution.terminal.terminal_id
+                }
+                _ => anyhow::bail!("bad request: exactly one of surface or terminal_id"),
+            };
+            mux.set_terminal_keep(&terminal_id, keep)?;
+            Ok(json!({ "terminal_id": terminal_id, "keep": keep }))
+        }
+        Command::NewTab { pane, cwd, env, cols, rows, keep } => {
             let env = env.as_ref().map(crate::mux::validate_terminal_env).transpose()?;
             let surface = mux.new_tab_with_env(
                 pane,
@@ -12521,6 +12584,10 @@ fn handle_command_with_cancellation(
                 optional_surface_size(cols, rows),
             )?;
             let terminal_identity = surface.terminal_host_identity();
+            if keep {
+                let identity = mux.resource_terminal_host_identity(&surface);
+                keep_created_terminal(mux, identity.as_ref().map(|i| i.terminal_id.as_str()))?;
+            }
             Ok(json!({
                 "surface": surface.id,
                 "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
@@ -12796,6 +12863,7 @@ fn handle_command_with_cancellation(
             rows,
             terminal_id,
             env,
+            keep,
             mutation,
         } => {
             let env = env
@@ -12849,6 +12917,9 @@ fn handle_command_with_cancellation(
                 mux.activate_created_terminal_surface(result.created_surface)?;
                 mux.reap_created_terminal_surface(result.created_surface);
                 let created = mux.created_terminal_run_result(&result.terminal_id)?;
+                if keep {
+                    keep_created_terminal(mux, Some(created.terminal.terminal_id.as_str()))?;
+                }
                 let placement = created.placement;
                 let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
                 Ok(json!({
@@ -12870,6 +12941,9 @@ fn handle_command_with_cancellation(
             } else {
                 let created =
                     mux.create_terminal_result_in_workspace(workspace, argv, cwd, name, size)?;
+                if keep {
+                    keep_created_terminal(mux, Some(created.terminal.terminal_id.as_str()))?;
+                }
                 let placement = created.placement;
                 let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
                 Ok(json!({
@@ -12906,7 +12980,7 @@ fn handle_command_with_cancellation(
             )?;
             Ok(json!({ "surface": surface.id }))
         }
-        Command::Split { pane, dir, cols, rows, cwd, env } => {
+        Command::Split { pane, dir, cols, rows, cwd, env, keep } => {
             let dir = parse_split_dir(&dir)?;
             let env = env.as_ref().map(crate::mux::validate_terminal_env).transpose()?;
             let surface = mux.split_with(
@@ -12916,6 +12990,10 @@ fn handle_command_with_cancellation(
                 env.unwrap_or_default(),
                 optional_surface_size(cols, rows),
             )?;
+            if keep {
+                let identity = mux.resource_terminal_host_identity(&surface);
+                keep_created_terminal(mux, identity.as_ref().map(|i| i.terminal_id.as_str()))?;
+            }
             Ok(json!({ "surface": surface.id }))
         }
         Command::SetRatio { pane, dir, ratio } => {
@@ -14291,6 +14369,15 @@ fn handle_command_with_cancellation(
     }
 }
 
+/// Apply `keep: true` from a creating command. A terminal without a durable
+/// host (an in-process test surface) has nothing to reap.
+fn keep_created_terminal(mux: &Mux, terminal_id: Option<&str>) -> anyhow::Result<()> {
+    match terminal_id {
+        Some(terminal_id) => mux.set_terminal_keep(terminal_id, true),
+        None => Ok(()),
+    }
+}
+
 fn stamped_build_commit() -> Option<&'static str> {
     option_env!("CMUX_TUI_BUILD_COMMIT")
         .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
@@ -14415,6 +14502,12 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "generation":generation,
             "terminal_revision":terminal_revision,
             "refetch":"terminal-events-or-list-terminals",
+        }),
+        MuxEvent::TerminalReaped { terminal_id, terminal, grace_ms } => json!({
+            "event": "terminal-reaped",
+            "terminal_id": terminal_id,
+            "terminal": terminal,
+            "grace_ms": grace_ms,
         }),
         MuxEvent::LayoutChanged(screen) => json!({"event": "layout-changed", "screen": screen}),
         MuxEvent::ClientAttached { client, transport, name, kind } => json!({
@@ -20941,6 +21034,7 @@ mod tests {
                     rows,
                     terminal_id: None,
                     env: None,
+                    keep: false,
                     mutation: MutationRequest::default(),
                 },
                 &test_writer(),
@@ -20969,6 +21063,7 @@ mod tests {
             rows: Some(24),
             terminal_id: Some("00000000000040008000000000000001".to_string()),
             env: None,
+            keep: false,
             mutation: MutationRequest {
                 origin: Some("raw-projection-test".to_string()),
                 mutation_id: Some("raw-terminal-create-once".to_string()),
@@ -21648,7 +21743,12 @@ mod tests {
         let error = handle_command(
             &owned,
             requester,
-            Command::ShutdownDaemon { pid: std::process::id(), generation, force: false },
+            Command::ShutdownDaemon {
+                pid: std::process::id(),
+                generation,
+                force: false,
+                end_terminals: false,
+            },
             &requester_writer,
         )
         .unwrap_err();
@@ -21665,7 +21765,12 @@ mod tests {
         handle_command(
             &fenced,
             requester,
-            Command::ShutdownDaemon { pid: std::process::id(), generation, force: false },
+            Command::ShutdownDaemon {
+                pid: std::process::id(),
+                generation,
+                force: false,
+                end_terminals: false,
+            },
             &requester_writer,
         )
         .unwrap();

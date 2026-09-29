@@ -344,6 +344,7 @@ tab <selector> terminal|browser ...
 
 terminal list
 terminal <selector> show|write|keys|mouse|copy|move|project|attach|close
+terminal <term_id> keep on|off
 terminal <selector> focus <in|out>
 terminal <selector> screen read|wait
 terminal <selector> state read

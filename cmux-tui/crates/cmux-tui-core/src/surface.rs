@@ -123,6 +123,16 @@ pub enum PointerSnapshotProbe {
     Contended,
 }
 
+/// A hosted terminal that was asked to exit and has not yet been observed
+/// exiting.
+#[cfg(unix)]
+pub(crate) struct HostTermination {
+    identity: crate::terminal_host_runtime::TerminalHostIdentity,
+    path: PathBuf,
+    observed: u64,
+    already_exited: bool,
+}
+
 /// How to spawn surface children.
 #[derive(Debug, Clone)]
 pub struct SurfaceOptions {
@@ -5666,19 +5676,15 @@ impl Surface {
         self.as_pty().and_then(|pty| pty.exit.lock().unwrap().clone())
     }
 
-    /// Terminate a hosted terminal through its existing owner connection and
-    /// wait for that same ordered stream to publish the durable exit receipt.
-    /// Local terminals return `None` and keep their existing kill path.
+    /// Ask a hosted terminal to exit through its existing owner connection,
+    /// without waiting. Local terminals return `None` and keep their existing
+    /// kill path. Pass the result to [`Self::wait_for_host_exit`].
     #[cfg(unix)]
-    pub(crate) fn terminate_host_and_wait_for_exit(
-        &self,
-        deadline: Instant,
-    ) -> anyhow::Result<Option<(PathBuf, crate::terminal_host_runtime::TerminalHostExitRecord)>>
-    {
+    pub(crate) fn begin_host_termination(&self) -> anyhow::Result<Option<HostTermination>> {
         let Some(pty) = self.as_pty() else { return Ok(None) };
         let Some(identity) = pty.host_identity.clone() else { return Ok(None) };
         let Some(path) = pty.host_exit_record_path.clone() else { return Ok(None) };
-        let mut observed = pty.stream_progress.revision();
+        let observed = pty.stream_progress.revision();
         let already_exited = {
             let mut runtime = pty.runtime.lock().unwrap();
             match &mut *runtime {
@@ -5692,12 +5698,27 @@ impl Surface {
                 PtyRuntime::Local { .. } => return Ok(None),
             }
         };
+        Ok(Some(HostTermination { identity, path, observed, already_exited }))
+    }
+
+    /// Wait for the ordered host stream to publish the durable exit receipt
+    /// after [`Self::begin_host_termination`].
+    #[cfg(unix)]
+    pub(crate) fn wait_for_host_exit(
+        &self,
+        termination: HostTermination,
+        deadline: Instant,
+    ) -> anyhow::Result<(PathBuf, crate::terminal_host_runtime::TerminalHostExitRecord)> {
+        let pty = self
+            .as_pty()
+            .ok_or_else(|| anyhow::anyhow!("terminal host termination lost its PTY runtime"))?;
+        let HostTermination { identity, path, mut observed, already_exited } = termination;
         loop {
             if let Some(exit) = pty.exit.lock().unwrap().clone() {
-                return Ok(Some((
+                return Ok((
                     path,
                     crate::terminal_host_runtime::TerminalHostExitRecord::new(&identity, exit),
-                )));
+                ));
             }
             anyhow::ensure!(
                 !already_exited,

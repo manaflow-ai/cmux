@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "252966630de426c49feb36ad1c035f9489871b52e59dc659d4fd93a49d20e675";
+pub const ir_sha256 = "5538b27d895c3fe3ba9dd2a1ef6747888b26de5c386dcc639facac50cf9c575e";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1131,8 +1131,14 @@ pub const SetTerminalIdlePolicyResult = struct {
     terminal_id: []const u8,
 };
 
+pub const SetTerminalKeepResult = struct {
+    keep: bool,
+    terminal_id: []const u8,
+};
+
 pub const ShutdownDaemonResult = struct {
     accepted: bool,
+    ended_terminals: wire.Field(u64) = .absent,
     generation: []const u8,
     pid: u32,
 };
@@ -2659,6 +2665,7 @@ pub const CreateTerminalRequest = struct {
     env: wire.Field(wire.Map([]const u8)) = .absent,
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
+    keep: ?bool = null,
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
@@ -2666,6 +2673,10 @@ pub const CreateTerminalRequest = struct {
     rows: wire.Field(u16) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "keep",
+    };
 };
 
 pub const CreateTerminalResult = TerminalPlacement;
@@ -2680,6 +2691,7 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
             .capability = "workspace-registry-v1",
             .fields = &.{
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
+                .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "terminal_id", .since = 9, .capability = null },
             },
         },
@@ -3657,8 +3669,13 @@ pub const NewTabRequest = struct {
     cols: wire.Field(u16) = .absent,
     cwd: wire.Field([]const u8) = .absent,
     env: wire.Field(wire.Map([]const u8)) = .absent,
+    keep: ?bool = null,
     pane: wire.Field(Id) = .absent,
     rows: wire.Field(u16) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "keep",
+    };
 };
 
 pub const NewTabResult = SurfaceResult;
@@ -3673,6 +3690,7 @@ pub fn newTab(client: anytype, request: NewTabRequest) !wire.Decoded(NewTabResul
             .capability = null,
             .fields = &.{
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
+                .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
             },
         },
         request,
@@ -4606,6 +4624,25 @@ pub fn setTerminalIdlePolicy(client: anytype, request: SetTerminalIdlePolicyRequ
     );
 }
 
+pub const SetTerminalKeepRequest = struct {
+    keep: bool,
+    surface: wire.Field(Id) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+};
+
+pub fn setTerminalKeep(client: anytype, request: SetTerminalKeepRequest) !wire.Decoded(SetTerminalKeepResult) {
+    return client.callTyped(
+        SetTerminalKeepResult,
+        .{
+            .name = "set-terminal-keep",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-reap-v1",
+        },
+        request,
+    );
+}
+
 pub const SetViewportPaneWidthRequest = struct {
     pane: Id,
     transaction: wire.Field(u64) = .absent,
@@ -4677,11 +4714,13 @@ pub fn setWorkspaceMetadata(client: anytype, request: SetWorkspaceMetadataReques
 }
 
 pub const ShutdownDaemonRequest = struct {
+    end_terminals: ?bool = null,
     force: ?bool = null,
     generation: []const u8,
     pid: u32,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "end_terminals",
         "force",
     };
 };
@@ -4695,6 +4734,7 @@ pub fn shutdownDaemon(client: anytype, request: ShutdownDaemonRequest) !wire.Dec
             .since = 9,
             .capability = null,
             .fields = &.{
+                .{ .name = "end_terminals", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "force", .since = 10, .capability = "daemon-handoff-force-v1" },
             },
         },
@@ -4730,8 +4770,13 @@ pub const SplitRequest = struct {
     cwd: wire.Field([]const u8) = .absent,
     dir: SplitDirection,
     env: wire.Field(wire.Map([]const u8)) = .absent,
+    keep: ?bool = null,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "keep",
+    };
 };
 
 pub const SplitResult = SurfaceResult;
@@ -4747,6 +4792,7 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
             .fields = &.{
                 .{ .name = "cwd", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
+                .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
             },
         },
         request,
@@ -5566,6 +5612,13 @@ pub const TabRenamedEvent = struct {
     workspace: Id,
 };
 
+pub const TerminalReapedEvent = struct {
+    event: []const u8,
+    grace_ms: u64,
+    terminal: wire.Nullable([]const u8),
+    terminal_id: []const u8,
+};
+
 pub const TerminalRegistryChangedEvent = struct {
     event: []const u8,
     generation: []const u8,
@@ -5747,6 +5800,7 @@ pub const Event = union(enum) {
     tab_changed: TabChangedEvent,
     tab_closed: TabClosedEvent,
     tab_renamed: TabRenamedEvent,
+    terminal_reaped: TerminalReapedEvent,
     terminal_registry_changed: TerminalRegistryChangedEvent,
     title_changed: TitleChangedEvent,
     tree_changed: TreeChangedEvent,
@@ -5803,6 +5857,7 @@ pub fn eventWireName(event: Event) []const u8 {
         .tab_changed => "tab-changed",
         .tab_closed => "tab-closed",
         .tab_renamed => "tab-renamed",
+        .terminal_reaped => "terminal-reaped",
         .terminal_registry_changed => "terminal-registry-changed",
         .title_changed => "title-changed",
         .tree_changed => "tree-changed",
@@ -5992,6 +6047,10 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(TabRenamedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .tab_renamed = decoded } };
     }
+    if (std.mem.eql(u8, name, "terminal-reaped")) {
+        const decoded = try wire.decodeLeaky(TerminalReapedEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .terminal_reaped = decoded } };
+    }
     if (std.mem.eql(u8, name, "terminal-registry-changed")) {
         const decoded = try wire.decodeLeaky(TerminalRegistryChangedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .terminal_registry_changed = decoded } };
@@ -6061,7 +6120,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 144;
+pub const command_count: usize = 145;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-tabs-to-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
@@ -6184,6 +6243,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-split-ratio", .authority = "control", .since = 8, .capability = null, .stream = null },
     .{ .name = "set-tab-pinned", .authority = "control", .since = 12, .capability = "tab-metadata-v1", .stream = null },
     .{ .name = "set-terminal-idle-policy", .authority = "control", .since = 12, .capability = "terminal-idle-close-v1", .stream = null },
+    .{ .name = "set-terminal-keep", .authority = "control", .since = 12, .capability = "terminal-reap-v1", .stream = null },
     .{ .name = "set-viewport-pane-width", .authority = "control", .since = 9, .capability = "viewport-column-resize-v1", .stream = null },
     .{ .name = "set-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-workspace-metadata", .authority = "control", .since = 12, .capability = "workspace-metadata-v1", .stream = null },
@@ -6259,16 +6319,17 @@ const event_streams_39 = [_][]const u8{"subscribe-deltas"};
 const event_streams_40 = [_][]const u8{"subscribe"};
 const event_streams_41 = [_][]const u8{"subscribe"};
 const event_streams_42 = [_][]const u8{"subscribe"};
-const event_streams_43 = [_][]const u8{"control"};
-const event_streams_44 = [_][]const u8{"attach-byte"};
-const event_streams_45 = [_][]const u8{"subscribe"};
-const event_streams_46 = [_][]const u8{"subscribe-deltas"};
+const event_streams_43 = [_][]const u8{"subscribe"};
+const event_streams_44 = [_][]const u8{"control"};
+const event_streams_45 = [_][]const u8{"attach-byte"};
+const event_streams_46 = [_][]const u8{"subscribe"};
 const event_streams_47 = [_][]const u8{"subscribe-deltas"};
 const event_streams_48 = [_][]const u8{"subscribe-deltas"};
 const event_streams_49 = [_][]const u8{"subscribe-deltas"};
 const event_streams_50 = [_][]const u8{"subscribe-deltas"};
+const event_streams_51 = [_][]const u8{"subscribe-deltas"};
 
-pub const event_count: usize = 51;
+pub const event_count: usize = 52;
 pub const events = [_]EventDescriptor{
     .{ .name = "agent-changed", .since = 11, .capability = null, .streams = &event_streams_0 },
     .{ .name = "bell", .since = 5, .capability = null, .streams = &event_streams_1 },
@@ -6310,15 +6371,16 @@ pub const events = [_]EventDescriptor{
     .{ .name = "tab-changed", .since = 12, .capability = "tab-metadata-v1", .streams = &event_streams_37 },
     .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_38 },
     .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_39 },
-    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_40 },
-    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_41 },
-    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_42 },
-    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_43 },
-    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_44 },
-    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_45 },
-    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_46 },
-    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_47 },
-    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_48 },
-    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_49 },
-    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_50 },
+    .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_40 },
+    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_41 },
+    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_42 },
+    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_43 },
+    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_44 },
+    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_45 },
+    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_46 },
+    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_47 },
+    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_48 },
+    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_49 },
+    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_50 },
+    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_51 },
 };

@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -63,6 +63,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `client-detached` | subscribe | `client` | protocol 6 |
 | `client-list-invalidated` | subscribe | session | protocol 9 reserved serializer; core currently emits no instance |
 | `terminal-registry-changed` | subscribe | terminal registry | protocol 9 |
+| `terminal-reaped` | subscribe | `terminal_id` | protocol 12 additive extension; capability `terminal-reap-v1` |
 | `pairing-requested` | trusted Unix subscribe | `request` | protocol 7 |
 | `pairing-resolved` | trusted Unix subscribe | `request` | protocol 7 |
 | `status` | subscribe | session | protocol 5 internal status line |
@@ -370,6 +371,33 @@ object{
 ```
 
 This event is a durable commit barrier. Fetch `terminal-events` from the last applied revision or replace state from `list-terminals`.
+
+
+### terminal-reaped
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-reaped` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `terminal-reap-v1` |
+
+Payload:
+
+```text
+object{event:"terminal-reaped",terminal_id:string,terminal:string|null,grace_ms:uint64}
+```
+
+Meaning: The owner ended a terminal that had no tab placement for the reap
+grace period and was not marked kept (see `set-terminal-keep`). `terminal_id`
+is the stable host id and `terminal` the public `term_` id when it had one.
+The end already committed through the `close-terminal` path, so the terminal
+registry and resource events report it too.
+
+Example:
+
+```json
+{"event":"terminal-reaped","terminal_id":"0f1e...","terminal":"term_0f1e...","grace_ms":30000}
+```
 
 ### screen-added
 

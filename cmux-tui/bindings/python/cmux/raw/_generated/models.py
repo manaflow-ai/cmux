@@ -1025,11 +1025,19 @@ class SetTerminalIdlePolicyResult:
 
 
 @dataclass(frozen=True)
+class SetTerminalKeepResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetTerminalKeepResult'
+    terminal_id: str
+    keep: bool
+
+
+@dataclass(frozen=True)
 class ShutdownDaemonResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ShutdownDaemonResult'
     accepted: Literal[True]
     generation: str
     pid: int
+    ended_terminals: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1545,6 +1553,7 @@ class CreateTerminalRequest:
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    keep: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1922,6 +1931,7 @@ class NewTabRequest:
     cols: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    keep: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2290,6 +2300,14 @@ class SetTerminalIdlePolicyRequest:
 
 
 @dataclass(frozen=True)
+class SetTerminalKeepRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-terminal-keep/request'
+    keep: bool
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetViewportPaneWidthRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-viewport-pane-width/request'
     pane: Id
@@ -2323,6 +2341,7 @@ class ShutdownDaemonRequest:
     pid: int
     generation: str
     force: Union[bool, MissingType] = field(default=MISSING)
+    end_terminals: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2341,6 +2360,7 @@ class SplitRequest:
     cols: Union[int, None, MissingType] = field(default=MISSING)
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    keep: Union[bool, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
 
 
@@ -2906,6 +2926,16 @@ class TabRenamedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class TerminalReapedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/terminal-reaped/payload'
+    terminal_id: str
+    event: Literal['terminal-reaped']
+    grace_ms: int
+    terminal: Union[str, None]
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class TerminalRegistryChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/terminal-registry-changed/payload'
     event: Literal['terminal-registry-changed']
@@ -3052,7 +3082,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -3161,6 +3191,7 @@ __all__ = [
     'ServerStatsResult',
     'SetCellPixelsResult',
     'SetTerminalIdlePolicyResult',
+    'SetTerminalKeepResult',
     'ShutdownDaemonResult',
     'SidebarPluginResult',
     'Size',
@@ -3309,6 +3340,7 @@ __all__ = [
     'SetSplitRatioRequest',
     'SetTabPinnedRequest',
     'SetTerminalIdlePolicyRequest',
+    'SetTerminalKeepRequest',
     'SetViewportPaneWidthRequest',
     'SetWindowTitleRequest',
     'SetWorkspaceMetadataRequest',
@@ -3372,6 +3404,7 @@ __all__ = [
     'TabChangedEvent',
     'TabClosedEvent',
     'TabRenamedEvent',
+    'TerminalReapedEvent',
     'TerminalRegistryChangedEvent',
     'TitleChangedEvent',
     'TreeChangedEvent',

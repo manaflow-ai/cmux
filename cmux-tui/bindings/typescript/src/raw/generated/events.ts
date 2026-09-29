@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 252966630de426c49feb36ad1c035f9489871b52e59dc659d4fd93a49d20e675. */
+/* cmux-tui mux protocol 12, IR 5538b27d895c3fe3ba9dd2a1ef6747888b26de5c386dcc639facac50cf9c575e. */
 
 
 import type * as T from "./types.js";
@@ -327,6 +327,13 @@ export type TabRenamedEvent = { event: "tab-renamed" } & {
   "workspace": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type TerminalReapedEvent = { event: "terminal-reaped" } & {
+  "grace_ms": bigint;
+  "terminal": (string) | null;
+  "terminal_id": string;
+};
+
 /** Protocol v9; emission: emitted; streams: subscribe. */
 export type TerminalRegistryChangedEvent = { event: "terminal-registry-changed" } & {
   "generation": string;
@@ -474,6 +481,7 @@ export type KnownCmuxEvent =
   | TabChangedEvent
   | TabClosedEvent
   | TabRenamedEvent
+  | TerminalReapedEvent
   | TerminalRegistryChangedEvent
   | TitleChangedEvent
   | TreeChangedEvent
@@ -522,6 +530,7 @@ export type KnownSubscribeEvent =
   | TabChangedEvent
   | TabClosedEvent
   | TabRenamedEvent
+  | TerminalReapedEvent
   | TerminalRegistryChangedEvent
   | TitleChangedEvent
   | TreeChangedEvent
