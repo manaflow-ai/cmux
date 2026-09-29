@@ -25,6 +25,11 @@
       "message": "Konfiguracja maszyny Cloud VM nie powiodła się, a usuwanie pozostałości nadal oczekuje.",
       "action": "Przed utworzeniem kolejnej maszyny skontaktuj się z pomocą techniczną, podając identyfikator śledzenia."
     },
+    "recreateRequired": {
+      "title": "Utwórz tę maszynę ponownie",
+      "message": "Ta maszyna została utworzona przed aktualizacją Cloud i nie można się z nią połączyć.",
+      "action": "Utwórz nową maszynę, skopiuj pliki za pomocą cmux vm pull i cmux vm push, a potem usuń tę."
+    },
     "unsupported": {
       "title": "Operacja Cloud VM jest niedostępna",
       "reason": "Ten typ maszyny nie udostępnia tej operacji.",
