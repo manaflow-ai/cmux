@@ -51,6 +51,30 @@ struct RemoteTmuxCredentialPromptAttachTests {
         )
     }
 
+    /// A prompt on a first attach ends the attach's wait at once. Nothing else arrives until the
+    /// prompt is answered, and nothing in the stream can answer it, so waiting out the deadline only
+    /// delays the error. A transport that reconnects by itself must also not retry: each attempt is a
+    /// new connection that asks again.
+    @Test func aPromptOnAFirstAttachEndsTheWaitWithoutRetrying() {
+        let connection = brokeredConnection()
+        connection.ingest(Data("Passcode: ".utf8))
+        #expect(connection.initialTopologyState == .failed, "the attach must learn now, not at its deadline")
+        #expect(connection.connectionState == .ended, "a retry would open another connection that prompts again")
+        #expect(connection.isAwaitingCredentials, "the error must still say the host wants a sign-in")
+    }
+
+    /// Over ssh the connection parks for the sign-in, and the attach still learns at once.
+    @Test func aPromptOnAFirstSSHAttachEndsTheWait() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        defer { connection.stop() }
+        connection.ingest(Data("Password: ".utf8))
+        #expect(connection.initialTopologyState == .failed, "the attach must learn now, not at its deadline")
+        #expect(connection.isAwaitingCredentials)
+    }
+
     /// Ordinary remote noise must not be read as a login. A host that prints a banner and then works
     /// has to attach, and a false positive here would tell the user to log in when nothing asked.
     @Test func ordinaryPreControlNoiseIsNotAPrompt() {
