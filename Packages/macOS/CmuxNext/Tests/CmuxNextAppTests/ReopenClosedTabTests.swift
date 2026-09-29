@@ -84,4 +84,15 @@ struct ReopenClosedTabTests {
         #expect(spawn.index == 1)
         #expect(spawn.pane == PaneID(rawValue: 3))
     }
+
+    /// Closing a terminal tab only detaches it on a reaping daemon (undo can
+    /// bring it back; the daemon ends it after the grace period). Older
+    /// daemons never end detached terminals, so there the tab ends it.
+    @Test func closingATerminalTabDetachesItOnReapingDaemons() throws {
+        let store = ActionBindingCoverageTests.boundServices().activeDaemon.store
+        store.apply(snapshot: try Self.tree([Self.tab(1, "a", cwd: "/tmp")]))
+        let tab = try #require(store.tab(surface: SurfaceID(rawValue: 1)))
+        #expect(DaemonService.closeCommand(for: tab, reaps: true).label == "close-surface")
+        #expect(DaemonService.closeCommand(for: tab, reaps: false).label == "close-terminal")
+    }
 }

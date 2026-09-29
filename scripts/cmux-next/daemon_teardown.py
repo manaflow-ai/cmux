@@ -4,7 +4,7 @@ PTY outlives it (cmux-tui `terminal-reap-v1`).
 
 Test and bench scripts call `end_terminals()` as their last step. It finds
 the tag's daemon (`server status`, never starting one), records its
-terminal host children (`cmux-tui __terminal-host`, one PTY each), sends
+terminal hosts (`cmux-tui __terminal-host`, one PTY each), sends
 `shutdown-daemon {end_terminals:true}` on a fresh unsubscribed socket, and
 waits for those hosts to exit. The app reconnects and starts a new daemon
 afterwards; kill the tagged instance when done.
@@ -36,9 +36,17 @@ def app_binary_for_tag(tag: str) -> str | None:
     return comm[: comm.index(marker) + 4] + "/Contents/Resources/bin/cmux-tui"
 
 
+def daemon_env(tag: str) -> dict:
+    """The tag daemon's lookup environment. Its socket lives under the
+    per-user TMPDIR the app hands it, so pass the same one."""
+    tmpdir = os.environ.get("TMPDIR") or subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True,
+                                                         text=True).stdout.strip()
+    return {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": tmpdir,
+            "CMUX_TUI_STATE_DIR": os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui")}
+
+
 def daemon_status(binary: str, tag: str) -> dict | None:
-    state = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui")
-    env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "CMUX_TUI_STATE_DIR": state}
+    env = daemon_env(tag)
     out = subprocess.run([binary, "--session", f"cmux-app-{tag}", "--json", "server", "status"],
                          capture_output=True, text=True, env=env, timeout=10).stdout.strip()
     if not out:
@@ -47,8 +55,13 @@ def daemon_status(binary: str, tag: str) -> dict | None:
     return data if data.get("status") == "running" else None
 
 
-def terminal_hosts(daemon_pid: int) -> set[int]:
+def terminal_hosts(daemon_pid: int, binary: str | None = None) -> set[int]:
+    """The daemon's terminal hosts: its children, plus (with `binary`) every
+    host of that tag-private binary. Hosts outlive a daemon restart and the
+    next daemon adopts them without becoming their parent."""
     out = subprocess.run(["pgrep", "-P", str(daemon_pid), "-f", "__terminal-host"], capture_output=True, text=True).stdout
+    if binary:
+        out += subprocess.run(["pgrep", "-f", f"{binary} __terminal-host"], capture_output=True, text=True).stdout
     return {int(pid) for pid in out.split()}
 
 
@@ -90,7 +103,7 @@ def end_terminals(binary: str, tag: str, exit_timeout: float = 10.0) -> dict:
         return {"daemon_pid": identity.get("pid"), "hosts_before": 0, "ended_terminals": 0, "hosts_leaked": [],
                 "error": "daemon lacks terminal-reap-v1 (shutdown-daemon end_terminals)"}
     pid = int(identity["pid"])
-    hosts = terminal_hosts(pid)
+    hosts = terminal_hosts(pid, binary)
     reply = request(status["socket"], {"id": 2, "cmd": "shutdown-daemon", "pid": pid, "generation": identity["generation"],
                                        "end_terminals": True}, 90)
     if not reply.get("ok"):

@@ -30,7 +30,7 @@ import time
 import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from daemon_teardown import end_terminals  # noqa: E402
+from daemon_teardown import daemon_env, end_terminals  # noqa: E402
 
 DEADLINE_S = 2.0
 CLIENT_TIMEOUT_S = DEADLINE_S + 3.0
@@ -366,9 +366,7 @@ class LegacyProfile:
 
 
 def daemon_socket(binary, tag):
-    state = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui")
-    env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "CMUX_TUI_STATE_DIR": state}
-    out = run_env([binary, "--session", f"cmux-app-{tag}", "--json", "server", "ensure"], env)
+    out = run_env([binary, "--session", f"cmux-app-{tag}", "--json", "server", "ensure"], daemon_env(tag))
     data = json.loads(out.strip().splitlines()[-1])
     return data.get("socket") or data.get("data", {}).get("socket")
 

@@ -54,13 +54,8 @@ enum TabLifecycle {
         }
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         if let controller = ctx.services.paneController(for: pane) { return controller.close([StripTabID(tab.id)]) }
-        if tab.kind == .pty, let terminal = tab.terminalID {
-            let incarnation = tab.terminalIncarnation
-            ctx.send("close-terminal") { try await $0.closeTerminal(terminal, incarnation: incarnation) }
-        } else {
-            let surface = tab.surface
-            ctx.send("close-surface") { try await $0.closeTab(surface) }
-        }
+        let command = ctx.services.daemon(for: pane).closeCommand(for: tab)
+        ctx.send(command.label, command.run)
     }
 
     /// The explicitly targeted tab when no window shows it (rename and pin

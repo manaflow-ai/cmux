@@ -128,13 +128,7 @@ extension PaneController {
             }
             guard let tab = tab(id) else { continue }
             pendingClosed.insert(tab.id)
-            if tab.kind == .pty, let terminal = tab.terminalID {
-                let incarnation = tab.terminalIncarnation
-                commands.append(("close-terminal", { try await $0.closeTerminal(terminal, incarnation: incarnation) }))
-            } else {
-                let surface = tab.surface
-                commands.append(("close-surface", { try await $0.closeTab(surface) }))
-            }
+            commands.append(daemon.closeCommand(for: tab))
         }
         apply(snapshot())
         guard !commands.isEmpty else { return }
