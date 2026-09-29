@@ -44,8 +44,9 @@ export const TEAM_PRICING_USD = {
 } as const satisfies MonthlyOnlyPlanPricing;
 
 /**
- * Max is a personal plan above Pro: the same allowance, plus the 32 GB and
- * 64 GB machine sizes Pro cannot start. It is monthly only, so there is no
+ * Max is a personal plan above Pro: the same 50-machine allowance with a
+ * larger advertised pool, plus the 32 GB and 64 GB machine sizes Pro cannot
+ * start. It is monthly only, so there is no
  * annual price and no interval selector on its card.
  */
 export const MAX_PRICING_USD = {

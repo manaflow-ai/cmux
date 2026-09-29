@@ -124,20 +124,29 @@ describe("VM defaults and pricing copy", () => {
 
   // These are the advertised plan limits, not the default shape of one VM.
   // Keep cards, comparison rows, FAQs, and native strings on the same policy.
-  for (const [locale, messages, label, shared] of [
-    ["en", enMessages, "Resources shared across all Cloud VMs", "shared across all"],
-    ["ja", jaMessages, "すべての Cloud VM で共有するリソース", "共有"],
+  for (const [locale, messages, label, shared, pooled] of [
+    ["en", enMessages, "Resources shared across all Cloud VMs", "shared across all", "pooled across the team"],
+    ["ja", jaMessages, "すべての Cloud VM で共有するリソース", "共有", "プール"],
   ] as const) {
-    test(`${locale} pricing advertises 24 GB RAM and 6 vCPUs shared across up to 50 VMs`, () => {
+    test(`${locale} pricing advertises 12 GB RAM, 6 vCPUs, and 300 GB disk shared across up to 50 VMs`, () => {
       const features = messages.pricing.pro.features.join("\n");
       expect(features).toContain("50 ");
       const row = messages.pricing.compare.rows.find(row => row.label === label);
       expect(row).toBeDefined();
       const faq = messages.pricing.faq.items.map(item => item.a).join("\n");
-      for (const copy of [features, row!.pro, row!.team, faq]) {
-        expect(copy).toContain("24 GB RAM");
+      for (const copy of [features, row!.pro, faq]) {
+        expect(copy).toContain("12 GB RAM");
         expect(copy).toContain("6 vCPU");
+        expect(copy).toContain("300 GB");
         expect(copy).toContain(shared);
+      }
+      // Team sells a larger pool per seat than Pro, pooled across the team.
+      const teamFeatures = messages.pricing.team.features.join("\n");
+      for (const copy of [teamFeatures, row!.team, faq]) {
+        expect(copy).toContain("16 GB RAM");
+        expect(copy).toContain("8 vCPU");
+        expect(copy).toContain("400 GB");
+        expect(copy).toContain(pooled);
       }
       // Only Max sells the 32 GB and 64 GB sizes; Free, Pro, and Team copy
       // must not mention them. The Max card, the "Largest Cloud VM" row, and
@@ -145,8 +154,8 @@ describe("VM defaults and pricing copy", () => {
       const { max: _max, compare, faq: _faq, ...otherPlans } = messages.pricing;
       const nonMaxRows = compare.rows.map(({ max: _rowMax, ...rest }) => rest);
       const nonMaxCopy = JSON.stringify([otherPlans, nonMaxRows]);
-      expect(nonMaxCopy).not.toMatch(/(?:8|32|64|256) GB|5 vCPU|each with its own resources|Each machine has its own|各マシンに専用のリソース|各マシンには独立した/);
-      expect(JSON.stringify(messages.pricing)).not.toMatch(/(?:8|256) GB|5 vCPU|each with its own resources|Each machine has its own|各マシンに専用のリソース|各マシンには独立した/);
+      expect(nonMaxCopy).not.toMatch(/(?:^|\D)(?:8|32|48|64|256) GB|5 vCPU|each with its own resources|Each machine has its own|各マシンに専用のリソース|各マシンには独立した/);
+      expect(JSON.stringify(messages.pricing)).not.toMatch(/(?:^|\D)(?:8|256) GB|5 vCPU|each with its own resources|Each machine has its own|各マシンに専用のリソース|各マシンには独立した/);
     });
   }
 
@@ -156,13 +165,15 @@ describe("VM defaults and pricing copy", () => {
   ] as const) {
     test(`${locale} Max copy sells the 32 GB and 64 GB machines Pro cannot start`, () => {
       const features = messages.pricing.max.features.join("\n");
-      expect(features).toContain("64 GB");
-      expect(features).toContain("16 vCPU");
+      expect(features).toContain("48 GB RAM");
+      expect(features).toContain("24 vCPU");
+      expect(features).toContain("1.2 TB");
       expect(features).toContain("50");
       expect(features).toContain(locale === "en" ? "sharing" : "共有");
-      const sharedRow = messages.pricing.compare.rows.find(row => row.max.includes("16 vCPU"));
+      const sharedRow = messages.pricing.compare.rows.find(row => row.max.includes("24 vCPU"));
       expect(sharedRow!.max).toContain(locale === "en" ? "shared across all VMs" : "共有");
-      expect(messages.dashboard.billing.max.upsell).toContain("16 vCPU");
+      expect(messages.dashboard.billing.max.upsell).toContain("24 vCPU");
+      expect(messages.dashboard.billing.max.upsell).toContain("48 GB RAM");
       const row = messages.pricing.compare.rows.find(row => row.label === largestLabel);
       expect(row).toBeDefined();
       expect(row!.max).toBe("64 GB RAM");
@@ -175,7 +186,9 @@ describe("VM defaults and pricing copy", () => {
       const faq = messages.pricing.faq.items.find(item => item.q === faqQuestion);
       expect(faq).toBeDefined();
       expect(faq!.a).toContain("$200");
-      expect(faq!.a).toContain("16 vCPU");
+      expect(faq!.a).toContain("24 vCPU");
+      expect(faq!.a).toContain("48 GB RAM");
+      expect(faq!.a).toContain("1.2 TB");
       expect(faq!.a).toContain(locale === "en" ? "share a total" : "共有");
       expect(faq!.a).toContain("32 GB");
       expect(faq!.a).toContain("64 GB");
@@ -189,8 +202,8 @@ describe("VM defaults and pricing copy", () => {
     for (const locale of locales) {
       if (locale === "en" || locale === "ja") continue;
       const messages = await loadMessages(locale) as unknown as typeof enMessages;
-      expect(messages.pricing.pro.features.join("\n")).toContain("24 GB RAM and 6 vCPUs shared across all VMs");
-      expect(messages.pricing.max.features[0]).toBe("Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs");
+      expect(messages.pricing.pro.features.join("\n")).toContain("12 GB RAM, 6 vCPUs, and 300 GB disk shared across all VMs");
+      expect(messages.pricing.max.features[0]).toBe("Up to 50 Cloud VMs sharing 48 GB RAM, 24 vCPUs, and 1.2 TB disk");
       expect(messages.pricing.compare.rows.find(row => row.label === "Resources shared across all Cloud VMs")).toBeDefined();
     }
   });
@@ -208,15 +221,20 @@ describe("VM defaults and pricing copy", () => {
       ko: "공유",
       ja: "共有",
     };
-    for (const key of ["pricing.native.pro.feature.hours", "pricing.native.team.feature.compute", "pricing.native.sizes.body"]) {
+    const quantities: Record<string, readonly number[]> = {
+      "pricing.native.pro.feature.hours": [12, 6, 300, 50],
+      "pricing.native.team.feature.compute": [16, 8, 400, 50],
+      "pricing.native.sizes.body": [12, 6, 300, 16, 8, 400, 50],
+    };
+    for (const [key, expected] of Object.entries(quantities)) {
       const localizations = catalog.strings[key].localizations as Record<string, { stringUnit: { value: string } }>;
       for (const [locale, { stringUnit: { value } }] of Object.entries(localizations)) {
         // Units and word order are localized; plan quantities stay the same.
-        for (const quantity of [24, 6, 50]) {
+        for (const quantity of expected) {
           expect(value).toMatch(new RegExp(`(?:^|\\D)${quantity}(?:\\D|$)`));
         }
         expect(value).toContain(sharedTerms[locale] ?? sharedTerms.en);
-        expect(value).not.toMatch(/(?:^|\D)(?:8|32|64|256)(?:\D|$)|each with its own resources/);
+        expect(value).not.toMatch(/(?:^|\D)(?:24|32|48|64|256)(?:\D|$)|each with its own resources/);
       }
     }
   });
