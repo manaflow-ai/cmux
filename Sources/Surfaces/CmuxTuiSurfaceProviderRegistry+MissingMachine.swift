@@ -11,14 +11,24 @@ extension CmuxTuiSurfaceProviderRegistry {
         unregisterMachine(rawID)
     }
 
-    /// Retires several missing machines after one local workspace scan.
-    func machineWasDeleted(
-        _ rawIDs: Set<String>,
-        closeLocalWorkspaces: (@MainActor (Set<String>) -> Void)? = nil,
-        invalidatesRefresh: Bool = true
-    ) {
-        (closeLocalWorkspaces ?? { AppDelegate.shared?.closeLocalWorkspaces(forCloudVMIDs: $0) })(rawIDs)
-        if invalidatesRefresh { refreshGeneration &+= 1 }
+    /// Marks scoped-access loss unavailable while retaining local Cloud state.
+    func machineBecameUnavailable(_ rawID: String) {
+        machineBecameUnavailable([rawID])
+    }
+
+    /// Suspends attach work for scoped-access loss without deleting local state.
+    func machineBecameUnavailable(_ rawIDs: Set<String>) {
+        let candidates = Set(providers.keys).union(machineTeardowns.keys).union(pendingMachineCreationIDs)
+        let resolved = Dictionary(candidates.map { ($0.lowercased(), $0) }, uniquingKeysWith: { first, _ in first })
+        for rawID in rawIDs {
+            let id = resolved[rawID.lowercased()] ?? rawID
+            providers[id]?.suspendForFeatureFlag()
+            catalog?.markCloudStateStale(on: .cloud(id), reason: "cloud_scope_unavailable")
+        }
+    }
+
+    /// Unregisters unbound machine rows after one normalized ownership lookup.
+    func unregisterMachines(_ rawIDs: Set<String>) {
         let candidates = Set(providers.keys).union(machineTeardowns.keys).union(pendingMachineCreationIDs)
         let resolved = Dictionary(candidates.map { ($0.lowercased(), $0) }, uniquingKeysWith: { first, _ in first })
         for rawID in rawIDs {
@@ -29,7 +39,7 @@ extension CmuxTuiSurfaceProviderRegistry {
     /// The provider callback is the shared terminal disposition for a typed
     /// `vm_not_found`: close local bindings before unregistering the provider.
     var missingMachineHandler: @MainActor (String, CloudVMHTTPError) -> Void {
-        { [weak self] machineID, _ in self?.machineWasDeleted(machineID) }
+        { [weak self] machineID, _ in self?.machineBecameUnavailable(machineID) }
     }
 
 }

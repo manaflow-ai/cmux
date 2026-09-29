@@ -66,8 +66,8 @@ struct CloudMissingMachineLifecycleTests {
         #expect(!local.panels.isEmpty)
     }
 
-    @Test("A successful empty fleet retires a restored Cloud binding")
-    func missingMachineRefreshClosesRestoredBinding() async throws {
+    @Test("A scoped empty fleet preserves a restored Cloud binding")
+    func missingMachineRefreshPreservesRestoredBinding() async throws {
         _ = NSApplication.shared
         let previousApp = AppDelegate.shared
         let app = AppDelegate()
@@ -102,9 +102,42 @@ struct CloudMissingMachineLifecycleTests {
         AppDelegate.shared = app
         registry.start(catalog: catalog)
         #expect(await registry.refresh(force: true))
-        #expect(workspace.cloudVMID == nil)
-        #expect(workspace.panels.isEmpty)
+        #expect(workspace.cloudVMID == "vm-restored-gone")
+        #expect(!workspace.panels.isEmpty)
         await registry.accessDidEnd()
+    }
+
+    @Test("A team switch suspends Cloud access without destroying local layout")
+    func teamSwitchPreservesBindingAndPanels() throws {
+        _ = NSApplication.shared
+        let previousApp = AppDelegate.shared
+        let app = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowID = UUID()
+        let window = makeWindow(id: windowID)
+        app.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vm-team-switch", isBase: false)
+        let panelCount = workspace.panels.count
+        defer {
+            manager.finalizeAllWorkspacesForWindowClose()
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            window.orderOut(nil)
+            AppDelegate.shared = previousApp
+        }
+        AppDelegate.shared = app
+
+        app.prepareCloudVMAccessForTeamSwitch()
+
+        #expect(workspace.cloudVMID == "vm-team-switch")
+        #expect(workspace.panels.count == panelCount)
     }
 
     private func makeWindow(id: UUID) -> NSWindow {
