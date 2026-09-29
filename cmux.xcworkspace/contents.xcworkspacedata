@@ -199,6 +199,9 @@
          location = "group:CmuxMobileHost">
       </FileRef>
       <FileRef
+         location = "group:CmuxNext">
+      </FileRef>
+      <FileRef
          location = "group:CmuxNotifications">
       </FileRef>
       <FileRef
