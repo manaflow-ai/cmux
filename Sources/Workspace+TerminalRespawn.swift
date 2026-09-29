@@ -121,7 +121,8 @@ extension Workspace {
                 tmuxStartCommand: replacementTmuxStartCommand,
                 initialEnvironmentOverrides: initialEnvironmentOverrides,
                 additionalEnvironment: additionalEnvironment,
-                focusPlacement: focusPlacement
+                focusPlacement: focusPlacement,
+                isRemoteTerminal: oldPanel.surface.isRemoteTerminal
             )
         }
         replacementPanel.adoptOwnedSessionScrollbackReplayArtifact(effectiveReplayFileURL)

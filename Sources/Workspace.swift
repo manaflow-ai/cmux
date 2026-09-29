@@ -4001,6 +4001,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
+        initialTerminalIsRemote: Bool = false,
         initialTerminalInput: String? = nil,
         initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         initialTerminalStartupRestoreCommitOwner: WorkspaceTerminalStartupRestoreCommitOwner = .workspaceTopology,
@@ -4194,6 +4195,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 portOrdinal: portOrdinal,
                 initialCommand: initialTerminalCommand,
                 initialInput: initialTerminalInput,
+                isRemoteTerminal: initialTerminalIsRemote,
                 initialEnvironmentOverrides: Self.startupEnvironment(
                     workspaceEnvironment: sanitizedWorkspaceEnvironment,
                     overlaying: initialTerminalEnvironment

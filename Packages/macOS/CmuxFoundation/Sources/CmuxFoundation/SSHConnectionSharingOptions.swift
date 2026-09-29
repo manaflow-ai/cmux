@@ -28,6 +28,7 @@ public struct SSHConnectionSharingOptions: Sendable {
         "stricthostkeychecking", "checkhostip", "verifyhostkeydns",
         "updatehostkeys", "nohostauthenticationforlocalhost", "knownhostscommand",
         "revokedhostkeys", "visualhostkey", "hashknownhosts",
+        "casignaturealgorithms", "requiredrsasize", "kexalgorithms", "ciphers", "macs",
         "preferredauthentications", "canonicalizehostname", "canonicalizemaxdots",
         "canonicalizepermittedcnames", "remotecommand", "localcommand",
         "permitlocalcommand", "matchfinal", "sendenv", "setenv",
@@ -161,6 +162,17 @@ public struct SSHConnectionSharingOptions: Sendable {
         let hasCustomControlPath = resolver.hasOptionKey(merged, key: "ControlPath")
             || userConfiguredControlOptions?.contains(where: { resolver.optionKey($0) == "controlpath" }) == true
         if routeSensitive && !hasCustomControlPath {
+            // Persist the route decision in the options that later SSH
+            // helpers carry forward. A private marker is intentionally not
+            // enough: callers serialize and re-merge these options after
+            // this function returns, so a marker-only result would be lost
+            // and the next merge would install the shared `%C` socket.
+            if !resolver.hasOptionKey(merged, key: "ControlMaster") {
+                merged.append("ControlMaster=no")
+            }
+            if !resolver.hasOptionKey(merged, key: "ControlPath") {
+                merged.append("ControlPath=none")
+            }
             return merged
         }
         let controlMaster = resolver.optionValue(

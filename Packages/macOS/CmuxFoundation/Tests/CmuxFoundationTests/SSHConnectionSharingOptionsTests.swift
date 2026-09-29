@@ -142,7 +142,7 @@ struct SSHConnectionSharingOptionsTests {
             "IdentityFile=/Users/alice/.ssh/route-key",
             "HostKeyAlias=production",
         ])
-        #expect(!merged.contains(where: { $0.hasPrefix("ControlPath=") }))
+        #expect(!merged.contains("ControlPath=/Users/alice/.cmux/ssh/%C"))
         #expect(!merged.contains("ControlMaster=auto"))
     }
 
@@ -155,9 +155,12 @@ struct SSHConnectionSharingOptionsTests {
             "UpdateHostkeys=no",
             "KnownHostsCommand=/usr/local/bin/known-hosts %H %p",
             "RevokedHostKeys=/Users/alice/.ssh/revoked",
+            "CASignatureAlgorithms=ssh-ed25519",
+            "RequiredRSASize=3072",
+            "KexAlgorithms=curve25519-sha256",
         ] {
             let merged = options.mergingDefaults(into: [option])
-            #expect(!merged.contains(where: { $0.hasPrefix("ControlPath=") }), "\(option)")
+            #expect(!merged.contains("ControlPath=/Users/alice/.cmux/ssh/%C"), "\(option)")
             #expect(!merged.contains("ControlMaster=auto"), "\(option)")
         }
     }
@@ -185,8 +188,12 @@ struct SSHConnectionSharingOptionsTests {
         )
         #expect(resolved?.contains("__cmux_route_sensitive=true") == true)
         let merged = options.mergingDefaults(into: [], userConfiguredControlOptions: resolved)
-        #expect(!merged.contains(where: { $0.hasPrefix("ControlPath=") }))
-        #expect(!merged.contains("ControlMaster=auto"))
+        #expect(merged.contains("ControlMaster=no"))
+        #expect(merged.contains("ControlPath=none"))
+        let remerged = options.mergingDefaults(into: merged)
+        #expect(remerged == merged)
+        #expect(!remerged.contains("ControlMaster=auto"))
+        #expect(!remerged.contains("ControlPath=/Users/alice/.cmux/ssh/%C"))
     }
 
     @Test("OpenSSH's default ssh_config output still enables cmux sharing")
