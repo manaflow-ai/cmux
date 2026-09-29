@@ -35,7 +35,7 @@ struct CloudTreeRowHoverButtons: View {
             .help(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
             .accessibilityLabel(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
             .accessibilityIdentifier("DevicesOptionsMenu")
-        case .cloudMachinesSection(let canCreateMachine):
+        case .cloudMachinesSection(let canCreateMachine, _):
             if canCreateMachine {
                 plus(String(localized: "machines.new", defaultValue: "New Machine")) {
                     nodeActions.newMachine()
@@ -123,7 +123,7 @@ struct CloudTreeRowHoverButtons: View {
         switch kind {
         case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection:
             return true
-        case .cloudMachinesSection(let canCreateMachine):
+        case .cloudMachinesSection(let canCreateMachine, _):
             return canCreateMachine
         case .pendingMachine:
             return true

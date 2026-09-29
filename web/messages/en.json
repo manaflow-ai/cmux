@@ -2586,8 +2586,8 @@
         },
         "terminal": {
           "adaptiveDefaultTheme": "When true (the default), cmux supplies an appearance-adaptive default palette unless a Ghostty theme or terminal colors are configured. Font and other settings are preserved. When false, Ghostty uses its fixed built-in palette. Explicit themes and colors always take precedence, including theme = light:X,dark:Y.",
-          "agentHibernation": "Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, during critical memory pressure cmux may hibernate a bounded batch of safe idle background agents even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback.",
-          "agentHibernationEnabled": "Enable routine Agent Hibernation based on the live-terminal limit. Critical-pressure safety hibernation remains active when false.",
+          "agentHibernation": "Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, under memory pressure (critical pressure from macOS or from the cmux app's own footprint, or cmux's total memory use past its aggregate warning threshold) cmux may hibernate every safe idle background agent even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback.",
+          "agentHibernationEnabled": "Enable routine Agent Hibernation based on the live-terminal limit. Memory-pressure safety hibernation remains active when false.",
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",
           "scrollSpeed": "Scales how far the terminal moves for each mouse-wheel or trackpad scroll event. Values above 1 speed scrolling up and values below 1 slow it down.",
           "sessionContentMaxWidth": "Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width.",
@@ -2638,6 +2638,8 @@
           "tabWidth": "How many columns one tab stop spans. Indent guides use the same spacing."
         },
         "sidebar": {
+          "compactAgentStatus": "Show each workspace on one line: one colored icon before the title for agent, unread, and pull request state replaces the agent status rows (for example Running or Needs input), the branch and directory line, and the pull request rows, whose details move to the icon's tooltip. Other status entries keep their rows.",
+          "compactStatusIcons": "SF Symbol names that replace the compactAgentStatus glyph for each state, for example {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Unset states keep the built-in symbol, and a name that does not render falls back to it.",
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
           "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         },
@@ -3558,7 +3560,7 @@
       "data3": "Pairing and device metadata, to connect your phone to your Mac.",
       "dataNot": "Your interactive terminal session, its contents and keystrokes, flows directly between your phone and your Mac over your own network, and is not relayed through or stored on cmux servers. The one exception is forwarded notification text, which transits cmux and Apple's push service to reach your phone, unless you enable Hide content (see Notifications above).",
       "enterpriseTitle": "Enterprise and self-hosted",
-      "enterpriseDesc": "For a self-hosted or air-gapped deployment, contact <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "For a self-hosted or air-gapped deployment, contact <link>founders@cmux.com</link>."
     },
     "vault": {
       "title": "Vault",
@@ -5895,8 +5897,8 @@
       "privacy": "We use this information to respond to your Enterprise request and route it to the right founder. We do not sell contact information.",
       "submit": "Submit",
       "submitting": "Submitting...",
-      "success": "Thanks. We received your request and will reply from founders@manaflow.com.",
-      "error": "Something went wrong. Please try again or email founders@manaflow.com."
+      "success": "Thanks. We received your request and will reply from founders@cmux.com.",
+      "error": "Something went wrong. Please try again or email founders@cmux.com."
     }
   },
   "support": {
@@ -5919,7 +5921,7 @@
         "description": "Report bugs and request features in the open."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "Prefer email? Write to us directly."
       }
     },
@@ -5941,8 +5943,8 @@
       "privacy": "We use your email address only to reply to your support request. We do not sell contact information.",
       "submit": "Send message",
       "submitting": "Sending...",
-      "success": "Thanks. We received your message and will reply to your email from founders@manaflow.com.",
-      "error": "Something went wrong. Please try again or email founders@manaflow.com."
+      "success": "Thanks. We received your message and will reply to your email from founders@cmux.com.",
+      "error": "Something went wrong. Please try again or email founders@cmux.com."
     }
   },
   "emails": {
@@ -6137,7 +6139,10 @@
     "emailUnavailable": "email unavailable",
     "organization": "Organization",
     "personalAccount": "personal account",
-    "switchAccountButton": "Use a different account"
+    "switchAccountButton": "Use a different account",
+    "signedOutTitle": "Sign in to authorize coderouter",
+    "signedOutBody": "A command line application is waiting for you to sign in. Sign in with your cmux account to finish connecting this terminal. If you did not start this request, close this page.",
+    "signInButton": "Sign in"
   },
   "MobileRelease106": {
     "title": "What's New in 1.0.6",

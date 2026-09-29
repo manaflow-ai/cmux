@@ -304,6 +304,34 @@ struct SurfaceResumeAgentBindingGenerationTests {
         #expect(!workspace.restoredAgentLifecycleOwns(restoredBinding, panelId: panelID))
     }
 
+    @Test("A failed fork clears a snapshot-only parent continuation")
+    func failedForkClearsSnapshotOnlyParentContinuation() throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(tabManager.addWorkspaceIfActive(autoWelcomeIfNeeded: false))
+        let panelID = try #require(workspace.focusedPanelId)
+        let sessionID = "codex-fork-parent-session"
+        workspace.restoredAgentLifecycle.setSnapshot(
+            SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: sessionID,
+                workingDirectory: "/tmp/repo",
+                launchCommand: nil
+            ),
+            panelId: panelID
+        )
+        workspace.restoredAgentLifecycle.setResumeState(.awaitingAutoResumeCommand, panelId: panelID)
+        let target = ControlSurfaceResumeTarget.workspace(
+            tabManager: tabManager,
+            workspace: workspace,
+            surfaceID: panelID
+        )
+
+        target.clearBinding(nil, agentSessionEnded: true, expectedCheckpointID: sessionID)
+
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panelID] == .completedAgentExit)
+    }
+
     private func withFixture(
         _ body: (
             Workspace,

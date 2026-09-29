@@ -8,6 +8,22 @@ import Foundation
 actor DeviceIrxClient {
     typealias ContextProvider = @Sendable () async throws -> DeviceIrxClientContext
 
+    /// Returns whether a waiting session has an authoritative local revocation.
+    nonisolated static func shouldReleaseWaitingSession(cache: V2CachedState?, releaseAll: Bool = false) -> Bool {
+        guard !releaseAll, let cache else { return releaseAll }
+        return cache.authorityRevoked || cache.device?.revoked == true
+    }
+
+    /// Returns whether an authoritative verified-session failure retires its endpoint slot.
+    nonisolated static func shouldReleaseVerifiedSession(after failure: IrxMacPeerAuthorization.Failure) -> Bool {
+        switch failure {
+        case .staleDirectory:
+            return false
+        case .unavailable, .revoked, .notDiscoverable, .identityMismatch:
+            return true
+        }
+    }
+
     private enum Authorization {
         case waiting
         case verified(bindingID: String, generation: Int)
@@ -196,14 +212,29 @@ actor DeviceIrxClient {
         for session in previous { await session.engine.stop() }
     }
 
-    func enforce(_ cache: V2CachedState?) async {
+    /// Reconciles session authorization against an authoritative control snapshot.
+    func enforce(_ cache: V2CachedState?, releaseAll: Bool = false) async {
         let revoked = sessions.filter { endpoint, entry in
-            guard let cache, let peer = try? IrxMacPeerAuthorization(
-                deviceID: entry.instance.deviceID, tag: entry.instance.tag, endpointID: endpoint
-            ).resolve(cache: cache, localIdentity: cache.identity, now: permissionNow()) else { return true }
+            if releaseAll { return true }
+            guard let cache else { return false }
             switch entry.authorization {
-            case .waiting: return false
-            case .verified: return !isAuthorized(peer, endpoint: endpoint, owner: entry.owner)
+            case .waiting:
+                // A control snapshot can be ready before its complete directory
+                // has arrived. The dial validates the latest cache at every
+                // admission boundary; stopping it here turns that normal race
+                // into a user-requested cancellation with no retry signal.
+                return Self.shouldReleaseWaitingSession(cache: cache)
+            case .verified:
+                do {
+                    let peer = try IrxMacPeerAuthorization(
+                        deviceID: entry.instance.deviceID, tag: entry.instance.tag, endpointID: endpoint
+                    ).resolve(cache: cache, localIdentity: cache.identity, now: permissionNow())
+                    return !isAuthorized(peer, endpoint: endpoint, owner: entry.owner)
+                } catch let failure as IrxMacPeerAuthorization.Failure {
+                    return Self.shouldReleaseVerifiedSession(after: failure)
+                } catch {
+                    return false
+                }
             case .closing: return false
             }
         }

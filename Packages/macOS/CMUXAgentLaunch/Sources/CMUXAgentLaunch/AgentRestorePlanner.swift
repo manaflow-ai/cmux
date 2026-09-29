@@ -437,6 +437,7 @@ public struct AgentRestorePlanner: Sendable {
             }
             selected.removeValue(forKey: SubrouterClaudeResumeRouting.environmentKey)
             selected.removeValue(forKey: SubrouterClaudeResumeRouting.launchBoundEnvironmentKey)
+            selected.removeValue(forKey: SubrouterClaudeResumeRouting.accountEnvironmentKey)
             let keys = selected.keys.sorted().filter {
                 Self.claudeAuthSelectionEnvironmentKeys.contains($0)
             }

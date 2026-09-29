@@ -1396,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Mostrar cada workspace em uma única linha: um ícone colorido antes do título indica o estado do agente, dos não lidos e da pull request e substitui as linhas de status dos agentes (por exemplo, Em execução ou Precisa de entrada), a linha de branch e diretório e as linhas de pull request, cujos detalhes passam para a dica do ícone. As outras entradas de status mantêm suas linhas.",
+          "compactStatusIcons": "Nomes de SF Symbols que substituem o glifo de compactAgentStatus para cada estado, por exemplo {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Estados não definidos mantêm o símbolo integrado, e um nome que não pode ser exibido volta para ele.",
           "notificationMessageLineLimit": "Número máximo de linhas exibidas para a notificação mais recente abaixo do título de cada espaço de trabalho.",
           "rightMaxWidth": "Largura máxima em pontos para a barra lateral direita. Quando omitida, o limite dinâmico integrado se aplica."
         },
@@ -2074,7 +2076,7 @@
       "data3": "Metadados de pareamento e do dispositivo, para conectar seu celular ao seu Mac.",
       "dataNot": "Sua sessão interativa de terminal, seu conteúdo e suas teclas digitadas fluem diretamente entre o seu celular e o seu Mac pela sua própria rede, e não são retransmitidos por nem armazenados nos servidores do cmux. A única exceção é o texto de notificação encaminhado, que transita pelo cmux e pelo serviço de push da Apple para chegar ao seu celular, a menos que você ative Hide content (consulte Notificações acima).",
       "enterpriseTitle": "Empresarial e auto-hospedado",
-      "enterpriseDesc": "Para uma implantação auto-hospedada ou isolada da internet, entre em contato com <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "Para uma implantação auto-hospedada ou isolada da internet, entre em contato com <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4323,7 +4325,7 @@
         "description": "Relate bugs e sugira recursos abertamente."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "Prefere e-mail? Escreva diretamente para nós."
       }
     },
@@ -4345,8 +4347,8 @@
       "privacy": "Usamos seu endereço de e-mail apenas para responder à sua solicitação de suporte. Não vendemos informações de contato.",
       "submit": "Enviar mensagem",
       "submitting": "Enviando…",
-      "success": "Obrigado. Recebemos sua mensagem e responderemos ao seu e-mail pelo endereço founders@manaflow.com.",
-      "error": "Algo deu errado. Tente novamente ou escreva para founders@manaflow.com."
+      "success": "Obrigado. Recebemos sua mensagem e responderemos ao seu e-mail pelo endereço founders@cmux.com.",
+      "error": "Algo deu errado. Tente novamente ou escreva para founders@cmux.com."
     }
   },
   "emails": {
@@ -4385,7 +4387,10 @@
     "emailUnavailable": "e-mail indisponível",
     "organization": "Organização",
     "personalAccount": "conta pessoal",
-    "switchAccountButton": "Usar outra conta"
+    "switchAccountButton": "Usar outra conta",
+    "signedOutTitle": "Entre para autorizar o coderouter",
+    "signedOutBody": "Um aplicativo de linha de comando está aguardando você entrar. Entre com sua conta cmux para concluir a conexão deste terminal. Se você não iniciou esta solicitação, feche esta página.",
+    "signInButton": "Entrar"
   },
   "MobileRelease106": {
     "title": "Novidades da versão 1.0.6",

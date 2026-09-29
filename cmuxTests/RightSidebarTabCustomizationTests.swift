@@ -35,7 +35,6 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
 
     private func enableAllModeGates() {
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
-        defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
     }
 
@@ -71,11 +70,12 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
     }
 
     func testHidingLastVisibleTabIsRefused() {
-        // Feed and Dock are feature-gated off in this suite; Cloud may be on
-        // through the process-global rollout flag, so hide it explicitly.
+        // Hide every tab except Sessions through the regular tab-visibility
+        // control; the Dock is no longer beta-gated.
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .files, defaults: defaults))
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .find, defaults: defaults))
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .machines, defaults: defaults))
+        XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .dock, defaults: defaults))
         XCTAssertFalse(
             RightSidebarTabPreferences.setHidden(true, mode: .sessions, defaults: defaults),
             "the last visible tab must stay visible"
@@ -98,8 +98,8 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
     }
 
     func testSetDisplayedOrderPermutesOnlyTheDisplayedSlots() {
-        // Hide Feed; Dock stays hidden-by-gate but keeps its slot in the full
-        // order. Dragging Cloud before Files must not move Feed or Dock.
+        // Hide Feed; Dock keeps its slot in the full order. Dragging Cloud
+        // before Files must not move Feed or Dock.
         enableAllModeGates()
         RightSidebarTabPreferences.setHidden(true, mode: .feed, defaults: defaults)
         RightSidebarTabPreferences.setDisplayedOrder(
@@ -145,13 +145,13 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
 
     // MARK: - Positional shortcut defaults
 
-    /// The reported bug: with Feed and Dock hidden (their beta gates default
-    /// off), Cloud is the 4th visible tab, so ctrl+4 must focus it. The old
-    /// static table pinned Cloud to ctrl+6, three positions past what the mode
-    /// bar showed.
+    /// With Feed and Dock hidden through the regular tab-visibility controls,
+    /// Cloud is the 4th visible tab, so ctrl+4 must focus it.
     func testCloudDefaultsToControlFourWhenFeedAndDockAreHidden() {
         CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         enableMachinesGate()
+        XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .feed, defaults: defaults))
+        XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .dock, defaults: defaults))
         XCTAssertEqual(
             RightSidebarMode.visibleModes(defaults: defaults),
             [.files, .find, .sessions, .machines]
