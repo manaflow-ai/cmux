@@ -4945,11 +4945,11 @@ class TerminalController {
             @MainActor
             func closeWorkspaces(_ workspaces: [Workspace]) -> Int? {
                 let activeWorkspaceIDs = workspaces
-                    .filter(workspaceNeedsConfirmClose)
-                    .map(\.id)
+                    .filter { $0.needsConfirmClose() }
+                    .map { $0.id }
                 guard force || activeWorkspaceIDs.isEmpty else {
                     result = .err(code: "confirmation_required", message: "One or more workspaces have a running process; retry with force=true", data: [
-                        "workspace_ids": activeWorkspaceIDs.map(\.uuidString)
+                        "workspace_ids": activeWorkspaceIDs.map { $0.uuidString }
                     ])
                     return nil
                 }
