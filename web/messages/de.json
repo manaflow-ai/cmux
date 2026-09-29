@@ -4387,7 +4387,10 @@
     "emailUnavailable": "E-Mail nicht verfügbar",
     "organization": "Organisation",
     "personalAccount": "persönliches Konto",
-    "switchAccountButton": "Anderes Konto verwenden"
+    "switchAccountButton": "Anderes Konto verwenden",
+    "signedOutTitle": "Anmelden, um coderouter zu autorisieren",
+    "signedOutBody": "Eine Kommandozeilenanwendung wartet auf deine Anmeldung. Melde dich mit deinem cmux-Konto an, um die Verbindung dieses Terminals abzuschließen. Wenn du diese Anfrage nicht gestartet hast, schließe diese Seite.",
+    "signInButton": "Anmelden"
   },
   "MobileRelease106": {
     "title": "Neu in 1.0.6",
