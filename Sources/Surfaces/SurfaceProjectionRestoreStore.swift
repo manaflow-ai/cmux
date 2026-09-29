@@ -111,19 +111,20 @@ struct SurfaceProjectionRestoreStore: Sendable {
         machineIDsByWorkspace[workspaceID, default: []].insert(machine)
     }
 
-    private mutating func rebuildMachineIndex(for workspaceID: UUID) {
-        if let counts = machineCountsByWorkspace[workspaceID] {
-            machineIDsByWorkspace[workspaceID] = Set(counts.keys)
-        } else {
-            machineIDsByWorkspace[workspaceID] = nil
-        }
-    }
-
     private mutating func removeIndexedMachine(_ machine: SurfaceMachineID, from workspaceID: UUID) {
         guard var counts = machineCountsByWorkspace[workspaceID], let count = counts[machine] else { return }
-        if count <= 1 { counts[machine] = nil } else { counts[machine] = count - 1 }
-        if counts.isEmpty { machineCountsByWorkspace[workspaceID] = nil; machineIDsByWorkspace[workspaceID] = nil }
-        else { machineCountsByWorkspace[workspaceID] = counts; rebuildMachineIndex(for: workspaceID) }
+        if count <= 1 {
+            counts[machine] = nil
+            machineIDsByWorkspace[workspaceID]?.remove(machine)
+        } else {
+            counts[machine] = count - 1
+        }
+        if counts.isEmpty {
+            machineCountsByWorkspace[workspaceID] = nil
+            machineIDsByWorkspace[workspaceID] = nil
+        } else {
+            machineCountsByWorkspace[workspaceID] = counts
+        }
     }
 
     /// Returns staged records for capture and emits one breadcrumb per panel.
