@@ -6,9 +6,16 @@ import SwiftUI
 extension WorkspaceListView {
     var newWorkspaceButton: WorkspaceListNewWorkspaceMenu {
         let scopedExternalHostID = scopedExternalHostID
-        let computerTargets = newWorkspaceComputerTargets
+        let computerTargets = newWorkspaceComputerTargets.filter { target in
+            switch target.kind {
+            case .cloud:
+                createWorkspaceOnCloudMachine != nil
+            case .mac:
+                switchMac != nil
+            }
+        }
         let createOnComputer: ((WorkspaceListNewWorkspaceMenuValue.ComputerTarget) -> Void)? =
-            createWorkspaceOnCloudMachine == nil && switchMac == nil
+            computerTargets.isEmpty
             ? nil
             : { target in
                 createWorkspaceOnComputerTarget(target)
@@ -48,7 +55,8 @@ extension WorkspaceListView {
     ) {
         switch target.kind {
         case .cloud(let hostID):
-            createWorkspaceOnCloudMachine?(hostID)
+            guard let createWorkspaceOnCloudMachine else { return }
+            createWorkspaceOnCloudMachine(hostID)
         case .mac(let macDeviceID, let instanceTag):
             guard macSelectionScope.shouldSwitch(to: target.id) else {
                 createWorkspace()
