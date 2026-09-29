@@ -43,7 +43,6 @@ parsing, test compilation, executed tests and runtime evidence.
 | Settings values and validation | [cmux-settings](cmux-settings/SKILL.md) |
 | Shortcuts, key bindings and templates | [cmux-keyboard-shortcuts](cmux-keyboard-shortcuts/SKILL.md) |
 | Actions, commands and layouts | [cmux-customization](cmux-customization/SKILL.md) |
-| Build a custom sidebar | [cmux-custom-sidebar](cmux-custom-sidebar/SKILL.md) |
 | Diagnose installed hooks, settings, restore or socket access | [cmux-diagnostics](cmux-diagnostics/SKILL.md) |
 | Display a Markdown file in a viewer | [cmux-markdown](cmux-markdown/SKILL.md) |
 
