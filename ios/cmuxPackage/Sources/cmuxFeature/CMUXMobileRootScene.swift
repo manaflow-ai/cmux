@@ -573,7 +573,7 @@ public struct CMUXMobileRootScene: View {
                 cloudWorkspaceBridge?.resetForSignOut()
                 let cloudServerTeardown = cloudSystemVPNController?.serverTeardown()
                 let cloudLocalTeardown = cloudSystemVPNController.map { controller in
-                    { @Sendable in await controller.waitForPendingOperation() }
+                    { @Sendable in await controller.waitForPendingOperationAndGate() }
                 }
                 cloudSystemVPNController?.setScope(nil)
                 let existingServerTeardown = signOutHook.begin()

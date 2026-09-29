@@ -402,6 +402,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
 
         rig.controller.setScope(nil)
         await rig.service.waitForEnrollmentCompletion()
+        await rig.service.waitForRevocation()
         await rig.controller.waitForPendingOperation()
 
         #expect(rig.manager.installed.isEmpty)

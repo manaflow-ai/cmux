@@ -11,6 +11,7 @@ import Foundation
 final class CloudSystemVPNOperationGate {
     private var tail: Task<Void, Never>?
     private var pendingCount = 0
+    private var quarantined = false
 
     var hasPendingOperation: Bool { pendingCount > 0 }
 
@@ -22,6 +23,7 @@ final class CloudSystemVPNOperationGate {
     fileprivate final class State {
         var acquired = false
         var cancelledBeforeAcquisition = false
+        var cancellationRequested = false
         var finished = false
         var abandonmentTask: Task<Void, Never>?
     }
@@ -33,19 +35,22 @@ final class CloudSystemVPNOperationGate {
         private let current: Task<T, any Error>
         private let state: State
         private let turn: Turn
+        private let abandon: @MainActor () -> Void
 
         fileprivate init(
             acquired: Task<Void, Never>,
             result: Task<T, any Error>,
             current: Task<T, any Error>,
             state: State,
-            turn: Turn
+            turn: Turn,
+            abandon: @escaping @MainActor () -> Void
         ) {
             self.acquired = acquired
             self.result = result
             self.current = current
             self.state = state
             self.turn = turn
+            self.abandon = abandon
         }
 
         func cancelIfPending() {
@@ -60,6 +65,7 @@ final class CloudSystemVPNOperationGate {
             onCancellation: @escaping @MainActor () -> Void
         ) -> Bool {
             guard state.acquired, !state.finished else { return false }
+            let hardGrace = max(grace, .seconds(1))
             state.abandonmentTask = Task { @MainActor in
                 do {
                     try await ContinuousClock().sleep(for: grace)
@@ -67,8 +73,16 @@ final class CloudSystemVPNOperationGate {
                     return
                 }
                 guard !state.finished else { return }
+                state.cancellationRequested = true
                 onCancellation()
                 current.cancel()
+                do {
+                    try await ContinuousClock().sleep(for: hardGrace)
+                } catch {
+                    return
+                }
+                guard !state.finished else { return }
+                abandon()
             }
             return true
         }
@@ -105,6 +119,9 @@ final class CloudSystemVPNOperationGate {
         let predecessor = tail
         let state = State()
         let turn = Turn()
+        let abandon: @MainActor () -> Void = { [weak self] in
+            self?.abandon(state: state, turn: turn)
+        }
         let acquired = Task { @MainActor in
             if let predecessor {
                 await predecessor.value
@@ -114,6 +131,9 @@ final class CloudSystemVPNOperationGate {
             defer { self?.finish(state: state, turn: turn) }
             await acquired.value
             guard !state.cancelledBeforeAcquisition else {
+                throw CancellationError()
+            }
+            guard let self, !self.quarantined else {
                 throw CancellationError()
             }
             state.acquired = true
@@ -128,14 +148,26 @@ final class CloudSystemVPNOperationGate {
             result: result,
             current: current,
             state: state,
-            turn: turn
+            turn: turn,
+            abandon: abandon
         )
+    }
+
+    private func abandon(state: State, turn: Turn) {
+        guard !state.finished else { return }
+        state.finished = true
+        pendingCount -= 1
+        quarantined = true
+        turn.release()
     }
 
     private func finish(state: State, turn: Turn) {
         guard !state.finished else { return }
         state.finished = true
         state.abandonmentTask?.cancel()
+        if state.cancellationRequested {
+            quarantined = false
+        }
         pendingCount -= 1
         turn.release()
     }
