@@ -4,18 +4,6 @@ cmux provides a notification panel for AI agents like Claude Code, Codex, and Op
 
 > For inline permission / plan / question approvals directly from the sidebar (Vibe Island-style), see **[Feed](feed.md)**. `cmux hooks setup` installs the Feed bridge alongside the notification hooks covered below.
 
-## Lifetime
-
-cmux does not attach a display timer to notification state. Terminal, OSC, CLI,
-agent-hook, and Cloud notifications stay in cmux's unread/history surfaces until
-the user reads, dismisses, clears, or otherwise triggers the existing focused-surface
-policy. macOS controls how long a desktop banner is visible; a banner disappearing
-from the screen does not remove the cmux record or its unread state.
-
-Feed's hook response deadline and notification-policy hook watchdog are safety
-limits on external processes. They do not act as a five-second notification display
-timer; Feed keeps the item in its persisted timeline when a bounded hook wait ends.
-
 ## Quick Start
 
 ```bash
@@ -106,8 +94,6 @@ Inside a machine:
   `notifications.command` with `CMUX_NOTIFICATION_ORIGIN=cloud-vm:<machine>`. It never gets a
   reply affordance, a click action, agent context, or project `cmux.json` hooks from a local
   directory.
-- The machine admission gate may collapse identical content or rate-limit a burst;
-  those are delivery safeguards, not expiry of an already admitted notification.
 
 ## Navigation
 
