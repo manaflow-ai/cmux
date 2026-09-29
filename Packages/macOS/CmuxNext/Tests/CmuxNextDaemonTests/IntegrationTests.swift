@@ -2,12 +2,32 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// Finds a real cmux-tui: `CMUX_NEXT_TUI_BIN`, else the newest client that
-/// scripts/install-cmux-tui-client.sh cached, else a hosted verification
-/// artifact under cmux-tui/target/hosted. Cached slices are not executable,
-/// so they are copied into a temp dir first.
+/// Finds a real cmux-tui: `CMUX_NEXT_TUI_BIN`, else the pinned hosted
+/// artifact (scripts/cmux-next/cmux-tui.pin, fetched by
+/// scripts/cmux-next/pin-cmux-tui.sh), else the newest client that
+/// scripts/install-cmux-tui-client.sh cached. Cached slices are not
+/// executable, so they are copied into a temp dir first.
 enum RealBinary {
     static let url: URL? = locate()
+
+    /// True when `url` is the pinned hosted build or an explicit override,
+    /// which serve the cmux-next capabilities (release clients do not).
+    static var isBranchBuild: Bool {
+        guard let url else { return false }
+        return url == pinned || ProcessInfo.processInfo.environment[DaemonLauncher.binaryOverrideKey] == url.path
+    }
+
+    /// `cmux-tui/target/hosted/<pinned commit>/cmux-tui`, when downloaded.
+    static let pinned: URL? = {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        guard let pin = try? String(contentsOf: root.appendingPathComponent("scripts/cmux-next/cmux-tui.pin"), encoding: .utf8),
+              let commit = pin.split(separator: "\n").first(where: { $0.hasPrefix("commit=") })?.dropFirst("commit=".count) else {
+            return nil
+        }
+        let binary = root.appendingPathComponent("cmux-tui/target/hosted/\(commit)/cmux-tui")
+        return FileManager.default.isExecutableFile(atPath: binary.path) ? binary : nil
+    }()
 
     private static func locate() -> URL? {
         let fileManager = FileManager.default
@@ -15,6 +35,7 @@ enum RealBinary {
            fileManager.isExecutableFile(atPath: override) {
             return URL(fileURLWithPath: override)
         }
+        if let pinned { return pinned }
         let cache = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Caches/cmux/cmux-tui-client")
         let slice = "cmux-tui-\(machineArch())-apple-darwin"
         let candidates = ((try? fileManager.contentsOfDirectory(at: cache, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])

@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startSettingsAndControl(registry: ActionRegistry) {
         let settings = SettingsController(registry: registry)
         self.settings = settings
+        services.settings = settings
         settings.start()
         Task {
             await settings.waitForLoad(atLeast: 1)

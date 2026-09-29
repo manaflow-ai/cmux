@@ -35,12 +35,11 @@ extension PaneController {
             TabMoves.toNewSplit(tab, pane: pane, edge: direction == .right ? .right : .bottom, services: services)
         case .moveToNewColumn(let id):
             guard let tab = tab(id) else { return }
-            TabMoves.toNewColumn(tab, rightOf: pane, services: services)
+            TabMoves.toNewColumn(tab, anchor: pane, services: services)
         case .dragBegan(let start):
             services.dragSession.begin(start, from: self)
         case .groupDragBegan(let start):
-            // Whole-group drags need tab-groups-v1; end it at once.
-            view.stripView.restoreDetachedGroup(start.groupID)
+            services.dragSession.beginGroup(start, from: self)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
         }

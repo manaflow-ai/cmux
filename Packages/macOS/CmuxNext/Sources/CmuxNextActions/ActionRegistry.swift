@@ -47,6 +47,11 @@ public final class ActionRegistry {
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
 
+    /// Sees every `refuse(_:)` reason (the App logs it and beeps).
+    @ObservationIgnored public var refusalObserver: (@MainActor (String) -> Void)?
+    @ObservationIgnored public internal(set) var isCapturingRefusal = false
+    @ObservationIgnored var capturedRefusal: String?
+
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
     @ObservationIgnored var shortcutIndex: ShortcutIndex?

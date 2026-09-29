@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextSettings
 import CmuxNextTerminal
 
 /// Process-wide services the window controllers share. Model state is not
@@ -11,6 +12,8 @@ final class AppServices {
     let environment: AppEnvironment
     let daemon = DaemonService()
     let registry = ActionRegistry.standard()
+    /// cmux.json controller; set by `AppDelegate` once it starts.
+    var settings: SettingsController?
     private(set) var cache: TabContentCache!
     private(set) var windows: WindowManager!
     private(set) var dragSession: TabDragSession!

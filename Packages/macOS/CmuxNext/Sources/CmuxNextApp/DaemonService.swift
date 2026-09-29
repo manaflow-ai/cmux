@@ -23,7 +23,9 @@ final class DaemonService {
         runTask = Task { [weak self, scheduler, logger] in
             do {
                 let launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: launch.terminalEnvironment)
-                let connection = DaemonConnection(endpointProvider: launcher.endpointProvider)
+                let configuration = DaemonConnection.Configuration(
+                    terminalEnvironment: TerminalEnvironment.shared(overrides: launch.terminalEnvironment))
+                let connection = DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider)
                 let identity = try await connection.start()
                 self?.connection = connection
                 self?.identity = identity
@@ -81,6 +83,27 @@ final class DaemonService {
         } catch {
             logger.error("\(label, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
             return false
+        }
+    }
+
+    /// Like `perform`, with a caller-chosen transaction (a drag commit keeps
+    /// one id from drop to settle). Returns the body's value, or nil when the
+    /// command threw (the patch is then reverted).
+    func commit<T: Sendable>(_ label: String, patch: OptimisticPatch, transaction: ClientTransactionID, expectEcho: Bool,
+                             _ body: @Sendable (DaemonConnection) async throws -> T) async -> T? {
+        guard let connection else {
+            logger.error("\(label, privacy: .public): not connected")
+            return nil
+        }
+        store.applyOptimistic(patch, transaction: transaction)
+        do {
+            let value = try await body(connection)
+            if !expectEcho { store.settleOptimistic(transaction) }
+            return value
+        } catch {
+            store.rejectOptimistic(transaction)
+            logger.error("\(label, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
+            return nil
         }
     }
 

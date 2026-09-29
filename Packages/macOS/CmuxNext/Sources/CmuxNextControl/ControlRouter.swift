@@ -282,6 +282,8 @@ public final class ControlRouter: Sendable {
             throw ControlError(code: "unavailable", message: "\(action.id) is not available in the current context", data: ["action": .string(action.id)])
         case .disabled:
             throw ControlError(code: "disabled", message: "\(action.id) is disabled right now", data: ["action": .string(action.id)])
+        case .refused(let reason):
+            throw ControlError(code: "unavailable", message: "\(action.id) unavailable: \(reason)", data: ["action": .string(action.id), "reason": .string(reason)])
         }
     }
 

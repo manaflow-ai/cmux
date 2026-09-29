@@ -130,6 +130,26 @@ import Testing
     }
 }
 
+extension RegistryReachabilityTests {
+    @Test func unavailableAndRefusedReasonsReachTheSocket() async throws {
+        let registry = ActionRegistry.standard()
+        let bridge = RegistryControlBridge(registry: registry)
+        let router = ControlRouter(identity: testIdentity(), executor: bridge)
+        registry.bindUnavailable("splitRight", reason: "needs daemon capability viewport-splits-v2")
+        registry.bind("splitDown", invoke: { _ in registry.refuse("no pane is focused") })
+        bridge.attach(to: router)
+        defer { bridge.detach() }
+
+        let gated = await router.handle(ControlRequest(method: "action.run", params: ["action": "splitRight"]))
+        #expect(gated.failure?.code == "unavailable")
+        #expect(gated.failure?.message.contains("needs daemon capability viewport-splits-v2") == true)
+
+        let refused = await router.handle(ControlRequest(method: "action.run", params: ["action": "splitDown"]))
+        #expect(refused.failure?.code == "unavailable")
+        #expect(refused.failure?.message.contains("no pane is focused") == true)
+    }
+}
+
 extension Result {
     var failure: Failure? {
         if case .failure(let error) = self { return error }

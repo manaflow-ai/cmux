@@ -2,13 +2,22 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 mod idle_close;
+mod presentation;
 mod public_projections;
 mod resource_content;
 mod resource_topology;
+mod tab_drag;
+mod tab_groups;
 mod terminal_directory;
 
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
+pub use presentation::{
+    TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations, WorkspaceGroupChange,
+};
 pub(crate) use resource_content::ResourceEffectProjection;
+pub use tab_drag::{TabDragOutcome, TabDropEdge};
+pub(crate) use tab_groups::{PaneTabGroup, pane_tab_groups};
+pub use tab_groups::{TabGroupDestination, TabGroupOutcome};
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -1002,6 +1011,8 @@ pub enum TreeDeltaKind {
     WorkspaceClosed,
     WorkspaceRenamed,
     WorkspaceMoved,
+    /// Workspace presentation (color, icon, title) changed.
+    WorkspaceChanged,
     ScreenAdded,
     ScreenClosed,
     ScreenRenamed,
@@ -1010,6 +1021,9 @@ pub enum TreeDeltaKind {
     TabAdded,
     TabClosed,
     TabRenamed,
+    /// Tab metadata (pinned flag, directory, git HEAD, unread marker)
+    /// changed.
+    TabChanged,
 }
 
 impl TreeDeltaKind {
@@ -1019,6 +1033,7 @@ impl TreeDeltaKind {
             Self::WorkspaceClosed => "workspace-closed",
             Self::WorkspaceRenamed => "workspace-renamed",
             Self::WorkspaceMoved => "workspace-moved",
+            Self::WorkspaceChanged => "workspace-changed",
             Self::ScreenAdded => "screen-added",
             Self::ScreenClosed => "screen-closed",
             Self::ScreenRenamed => "screen-renamed",
@@ -1027,6 +1042,7 @@ impl TreeDeltaKind {
             Self::TabAdded => "tab-added",
             Self::TabClosed => "tab-closed",
             Self::TabRenamed => "tab-renamed",
+            Self::TabChanged => "tab-changed",
         }
     }
 }
@@ -1043,6 +1059,9 @@ pub struct TreeDelta {
     /// Present for ordered workspace-registry mutations. Consumers can apply
     /// only the exact next revision and refetch after a gap.
     pub workspace_revision: Option<u64>,
+    /// The client transaction id of the command that caused this delta, so
+    /// a frontend can reconcile its optimistic UI.
+    pub transaction: Option<Arc<str>>,
 }
 
 /// A durable client install identity: non-empty, at most 128 ASCII graphic
@@ -1605,6 +1624,51 @@ struct TerminalReservationRequest {
     expected_generation: Option<String>,
     expected_revision: Option<u64>,
     on_exit: TerminalOnExit,
+    /// Extra environment for this terminal's child only (such as the
+    /// frontend user's login-shell environment), applied at spawn. Like
+    /// argv and cwd it is kept with the creation receipt in the local state
+    /// directory so a recovered creation spawns identically.
+    env: Vec<(String, String)>,
+}
+
+/// Longest accepted per-terminal environment: entries and total bytes.
+const MAX_TERMINAL_ENV_ENTRIES: usize = 1024;
+const MAX_TERMINAL_ENV_BYTES: usize = 256 * 1024;
+
+/// Validate a per-terminal environment and return it as ordered pairs.
+pub(crate) fn validate_terminal_env(
+    env: &std::collections::BTreeMap<String, String>,
+) -> anyhow::Result<Vec<(String, String)>> {
+    anyhow::ensure!(
+        env.len() <= MAX_TERMINAL_ENV_ENTRIES,
+        "bad request: env has more than {MAX_TERMINAL_ENV_ENTRIES} entries"
+    );
+    let mut bytes = 0usize;
+    for (key, value) in env {
+        anyhow::ensure!(
+            !key.is_empty() && !key.contains('=') && !key.contains('\0') && !value.contains('\0'),
+            "bad request: env names must be nonempty without '=' or NUL, and values without NUL"
+        );
+        bytes = bytes.saturating_add(key.len()).saturating_add(value.len());
+    }
+    anyhow::ensure!(
+        bytes <= MAX_TERMINAL_ENV_BYTES,
+        "bad request: env exceeds {MAX_TERMINAL_ENV_BYTES} bytes"
+    );
+    Ok(env.iter().map(|(key, value)| (key.clone(), value.clone())).collect())
+}
+
+/// Environment pairs stored in a creation's `env` field.
+fn terminal_env_field(fields: &Value) -> Vec<(String, String)> {
+    fields
+        .get("env")
+        .and_then(Value::as_object)
+        .map(|env| {
+            env.iter()
+                .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_string())))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2527,6 +2591,11 @@ pub struct Mux {
     /// and only for ids the committed receipts no longer retain, so a failed
     /// create cannot orphan marks the next restart would rebuild.
     notification_read_prunes: Mutex<Vec<NotificationPublicId>>,
+    /// Shared presentation metadata (workspace groups and workspace
+    /// presentation fields), replaced after each registry commit.
+    presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
+    /// Git HEAD lookups keyed by directory, with the time they were read.
+    git_heads: Mutex<HashMap<String, (Instant, Option<presentation::GitHead>)>>,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
@@ -2819,6 +2888,7 @@ impl Mux {
             notification_reads,
         } = restore_public_projections(&state, registry.public_projections()?)?;
         let agent_roster = restore_agent_roster(&registry)?;
+        let presentation = registry.presentation_snapshot()?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
         let machine_public_id = registry.machine_id().clone();
@@ -2941,6 +3011,8 @@ impl Mux {
             notification_ledger: Mutex::new(notification_ledger),
             notification_reads: Mutex::new(notification_reads),
             notification_read_prunes: Mutex::new(Vec::new()),
+            presentation: Mutex::new(Arc::new(presentation)),
+            git_heads: Mutex::new(HashMap::new()),
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
@@ -3208,10 +3280,12 @@ impl Mux {
     ) -> anyhow::Result<()> {
         let opts = self.surface_options.lock().unwrap().clone();
         let cell_pixels = *self.cell_pixels.lock().unwrap();
+        let presentation = self.presentation_snapshot();
         for content in contents {
             let Some(browser) = content.browser.clone() else { continue };
             let size = (browser.cols, browser.rows);
-            let url = browser.url;
+            let frontend = presentation.frontend_browsers.get(browser.public_id.as_str());
+            let url = frontend.map(|record| record.url.clone()).unwrap_or(browser.url);
             let surface = browser::new_surface_with_resource_identity(
                 content.slot,
                 url.clone(),
@@ -3222,6 +3296,9 @@ impl Mux {
                 content.identity.clone(),
             )?;
             surface.set_name(content.name.clone());
+            if let (Some(record), Some(runtime)) = (frontend, surface.as_browser()) {
+                runtime.set_frontend_location(None, record.title.clone());
+            }
             insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
             match browser.reconnect {
                 RegistryBrowserReconnect::Recreate => {
@@ -4510,6 +4587,17 @@ impl Mux {
         )])
     }
 
+    fn insert_terminal_env(fields: &mut Map<String, Value>, env: Vec<(String, String)>) {
+        if !env.is_empty() {
+            fields.insert(
+                "env".into(),
+                Value::Object(
+                    env.into_iter().map(|(key, value)| (key, Value::String(value))).collect(),
+                ),
+            );
+        }
+    }
+
     fn insert_cell_size(fields: &mut Map<String, Value>, size: Option<(u16, u16)>) {
         if let Some((cols, rows)) = size {
             fields.insert("cols".into(), Value::from(cols));
@@ -4577,6 +4665,7 @@ impl Mux {
             &plan.result,
             &plan.deltas,
             plan.workspace_ledger.as_ref(),
+            plan.tab_groups.as_ref(),
         )?;
         plan.apply(&mut state, &commit, workspace_revision);
         drop(state);
@@ -4693,6 +4782,7 @@ impl Mux {
                     workspace_key: key,
                     workspaces: desired,
                     legacy_result: result,
+                    presentation: None,
                 })
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: 1,
@@ -4783,6 +4873,7 @@ impl Mux {
                     workspace_key,
                     workspaces: desired,
                     legacy_result: result,
+                    presentation: None,
                 })
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: 1,
@@ -4886,6 +4977,7 @@ impl Mux {
                     workspace_key,
                     workspaces: desired,
                     legacy_result: result,
+                    presentation: None,
                 })
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: 1,
@@ -5031,6 +5123,7 @@ impl Mux {
                     workspace_key,
                     workspaces: desired,
                     legacy_result: result,
+                    presentation: None,
                 })
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: 1,
@@ -5183,6 +5276,7 @@ impl Mux {
                     workspace_key,
                     workspaces: desired,
                     legacy_result: result,
+                    presentation: None,
                 })
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: 1,
@@ -7799,6 +7893,9 @@ impl Mux {
         if command.is_some() {
             opts.command = command;
         }
+        if let Some(reservation) = &reservation {
+            opts.extra_env.extend(reservation.env.iter().cloned());
+        }
         // Spawn at the latest client-owned size: starting at the default
         // 80x24 and resizing a frame later makes shells emit artifacts
         // (e.g. zsh's reverse-video %% partial-line marker).
@@ -9371,6 +9468,11 @@ impl Mux {
         runtime: Option<Arc<BrowserRuntime>>,
     ) {
         let provider_bootstrap = matches!(&bootstrap, BrowserBootstrap::Provider { .. });
+        // The frontend renders this page itself; the daemon never waits for
+        // or attaches a CDP target for it.
+        if provider_bootstrap && self.is_frontend_browser_surface(&surface) {
+            return;
+        }
         let weak_mux = Arc::downgrade(self);
         let providers = self.browser_providers.clone();
         let id = surface.id;
@@ -9915,6 +10017,13 @@ impl Mux {
 
     pub fn surface_notifications(&self) -> HashMap<SurfaceId, SurfaceNotification> {
         let state = self.state.lock().unwrap();
+        self.surface_notifications_in_state(&state)
+    }
+
+    fn surface_notifications_in_state(
+        &self,
+        state: &State,
+    ) -> HashMap<SurfaceId, SurfaceNotification> {
         let placement_notifications = self.placement_notifications.lock().unwrap();
         let terminal_notifications = self.terminal_notifications.lock().unwrap();
         let mut result = HashMap::new();
@@ -9938,12 +10047,18 @@ impl Mux {
             .or_else(|| state.terminal_runtime_by_id(surface))
             .and_then(|surface| surface.terminal_public_id().cloned());
         drop(state);
-        let cleared = match terminal_id {
+        let cleared = match &terminal_id {
             Some(terminal_id) => {
-                self.terminal_notifications.lock().unwrap().remove(&terminal_id).is_some()
+                self.terminal_notifications.lock().unwrap().remove(terminal_id).is_some()
             }
             None => self.placement_notifications.lock().unwrap().remove(&surface).is_some(),
         };
+        if cleared
+            && let Some(terminal_id) = &terminal_id
+            && self.persist_notification_acks(Some(terminal_id), surface).is_err()
+        {
+            self.report_internal_diagnostic("notification acknowledgement not persisted");
+        }
         if cleared {
             self.emit(MuxEvent::TreeChanged);
         }
@@ -9986,7 +10101,13 @@ impl Mux {
             .and_then(|surface| surface.terminal_public_id().cloned());
         drop(state);
         if let Some(terminal_id) = terminal_id {
-            let _ = self.terminal_notifications.lock().unwrap().remove(&terminal_id);
+            let removed =
+                self.terminal_notifications.lock().unwrap().remove(&terminal_id).is_some();
+            // Selecting a tab is a legacy acknowledgement; persist it like
+            // `ack-tab-notifications` so a restart keeps it read.
+            if removed && self.persist_notification_acks(Some(&terminal_id), surface).is_err() {
+                self.report_internal_diagnostic("notification acknowledgement not persisted");
+            }
         } else {
             let _ = self.placement_notifications.lock().unwrap().remove(&surface);
         }
@@ -12884,7 +13005,7 @@ impl Mux {
         Self::validate_workspace_key(&key)?;
         let requested_name = name.clone();
         let ws_id = self.next_id();
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         let fingerprint = serde_json::json!({
             "op": "create-workspace",
@@ -13019,6 +13140,7 @@ impl Mux {
                     index: Some(index),
                     entity,
                     workspace_revision: Some(revision),
+                    transaction: None,
                 },
                 selection_resync,
             )
@@ -13250,6 +13372,17 @@ impl Mux {
         cwd: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_tab_with_env(pane, cwd, Vec::new(), size)
+    }
+
+    /// `new_tab` with extra environment for the new terminal's child only.
+    pub fn new_tab_with_env(
+        self: &Arc<Self>,
+        pane: Option<PaneId>,
+        cwd: Option<String>,
+        env: Vec<(String, String)>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
@@ -13278,6 +13411,7 @@ impl Mux {
         let mut fields = Map::new();
         Self::insert_optional_string(&mut fields, "cwd", cwd);
         Self::insert_cell_size(&mut fields, size);
+        Self::insert_terminal_env(&mut fields, env);
         let commit = self.commit_ordinary_topology_operation(
             ResourceOperation::TabCreateTerminal,
             selectors,
@@ -13386,10 +13520,11 @@ impl Mux {
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
+        env: Vec<(String, String)>,
     ) -> anyhow::Result<TerminalPlacementResult> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_execution = self.resource_creation_execution.lock().unwrap();
-        self.create_terminal_in_workspace_with_mutation(
+        self.create_terminal_in_workspace_with_mutation_env(
             workspace,
             argv,
             cwd,
@@ -13400,6 +13535,7 @@ impl Mux {
             expected_revision,
             mutation,
             None,
+            env,
         )
     }
 
@@ -13416,6 +13552,36 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         on_exit: Option<TerminalOnExit>,
+    ) -> anyhow::Result<TerminalPlacementResult> {
+        self.create_terminal_in_workspace_with_mutation_env(
+            workspace,
+            argv,
+            cwd,
+            name,
+            size,
+            requested_terminal_id,
+            expected_generation,
+            expected_revision,
+            mutation,
+            on_exit,
+            Vec::new(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_terminal_in_workspace_with_mutation_env(
+        self: &Arc<Self>,
+        workspace: WorkspaceId,
+        argv: Option<Vec<String>>,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+        requested_terminal_id: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        on_exit: Option<TerminalOnExit>,
+        env: Vec<(String, String)>,
     ) -> anyhow::Result<TerminalPlacementResult> {
         let workspace_key = self
             .state
@@ -13455,6 +13621,7 @@ impl Mux {
             expected_generation: expected_generation.map(str::to_string),
             expected_revision,
             on_exit: on_exit.unwrap_or_default(),
+            env,
         };
         let (placement, surface, created_path) = self.create_terminal_in_workspace_impl(
             workspace,
@@ -13580,7 +13747,7 @@ impl Mux {
             drop(workspace_lifecycle);
             return Ok((placement, surface, created_path));
         }
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let active_at = self.next_active_at();
         let mut rollback_removed = Vec::new();
         let attached = {
@@ -13630,6 +13797,7 @@ impl Mux {
                             index: Some(index),
                             entity,
                             workspace_revision: None,
+                            transaction: None,
                         },
                         true,
                         created_path,
@@ -13680,6 +13848,7 @@ impl Mux {
                             index: Some(0),
                             entity,
                             workspace_revision: None,
+                            transaction: None,
                         },
                         false,
                         created_path,
@@ -13755,6 +13924,16 @@ impl Mux {
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_browser_tab_with_fields(url, pane, size, Map::new())
+    }
+
+    fn new_browser_tab_with_fields(
+        self: &Arc<Self>,
+        url: String,
+        pane: Option<PaneId>,
+        size: Option<(u16, u16)>,
+        extra_fields: Map<String, Value>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
@@ -13781,6 +13960,7 @@ impl Mux {
             }
         };
         let mut fields = Map::from_iter([("url".into(), Value::String(url))]);
+        fields.extend(extra_fields);
         if let Some((cols, rows)) = size {
             let (cell_width, cell_height) = self.cell_pixel_size();
             fields.insert("width_px".into(), Value::from(u64::from(cols) * u64::from(cell_width)));
@@ -13862,7 +14042,7 @@ impl Mux {
             let (pane_id, pane) = self.make_pane(surface.id)?;
             let screen_id = self.next_id();
             let ws_id = self.next_id();
-            let notifications = self.surface_notifications();
+            let notifications = self.tree_decorations();
             if let Some(workspace_id) = empty_workspace {
                 let delta = {
                     let mut state = self.state.lock().unwrap();
@@ -13906,6 +14086,7 @@ impl Mux {
                         index: Some(0),
                         entity,
                         workspace_revision: None,
+                        transaction: None,
                     }
                 };
                 self.emit(MuxEvent::TreeDelta(delta));
@@ -13997,6 +14178,7 @@ impl Mux {
                     index: Some(index),
                     entity,
                     workspace_revision: Some(workspace_revision),
+                    transaction: None,
                 }
             };
             let selection_resync = delta.index.is_some_and(|index| index > 0);
@@ -14009,7 +14191,7 @@ impl Mux {
         let surface =
             self.spawn_browser_surface_with_resource_identity(url, size, None, resource_identity)?;
         let active_at = self.next_active_at();
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let attached = {
             let mut state = self.state.lock().unwrap();
             match state.panes.get_mut(&target) {
@@ -14038,6 +14220,7 @@ impl Mux {
                         index: Some(index),
                         entity,
                         workspace_revision: None,
+                        transaction: None,
                     })
                 }
                 None => {
@@ -14074,7 +14257,7 @@ impl Mux {
             resource_identity,
         )?;
         let pending_surface = self.pending_workspace_surface(surface.id);
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let active_at = self.next_active_at();
         let (delta, selection_resync) = {
             let mut state = self.state.lock().unwrap();
@@ -14118,6 +14301,7 @@ impl Mux {
                         index: Some(index),
                         entity,
                         workspace_revision: None,
+                        transaction: None,
                     },
                     true,
                 )
@@ -14158,6 +14342,7 @@ impl Mux {
                         index: Some(0),
                         entity,
                         workspace_revision: None,
+                        transaction: None,
                     },
                     false,
                 )
@@ -14238,7 +14423,7 @@ impl Mux {
         surface: &Arc<Surface>,
         active_at: u64,
     ) -> BrowserSurfaceAttach {
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let attached = {
             let mut state = self.state.lock().unwrap();
             match state.panes.get_mut(&pane_id) {
@@ -14270,6 +14455,7 @@ impl Mux {
                             index: Some(index),
                             entity,
                             workspace_revision: None,
+                            transaction: None,
                         })
                     })();
                     BrowserSurfaceAttach::Attached(delta)
@@ -14308,6 +14494,19 @@ impl Mux {
         dir: SplitDir,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.split_with(target, dir, None, Vec::new(), size)
+    }
+
+    /// `split` with an optional directory and extra environment for the new
+    /// terminal's child only.
+    pub fn split_with(
+        self: &Arc<Self>,
+        target: PaneId,
+        dir: SplitDir,
+        cwd: Option<String>,
+        env: Vec<(String, String)>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
@@ -14317,7 +14516,9 @@ impl Mux {
             SplitDir::Down => "down",
         };
         let mut fields = Map::from_iter([("direction".into(), Value::String(direction.into()))]);
+        Self::insert_optional_string(&mut fields, "cwd", cwd);
         Self::insert_cell_size(&mut fields, size);
+        Self::insert_terminal_env(&mut fields, env);
         let commit = self.commit_ordinary_topology_operation(
             ResourceOperation::PaneSplit,
             selectors,
@@ -14406,7 +14607,7 @@ impl Mux {
     }
 
     fn remove_surface_after_registry(&self, target: SurfaceId) -> bool {
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let remove = || {
             let mut state = self.state.lock().unwrap();
             let selection_before = active_tree_selection(&state);
@@ -14467,7 +14668,7 @@ impl Mux {
     /// lock. Tabs are detached view items; terminal content remains in the
     /// catalog until an explicit terminal close.
     fn close_tree_target(&self, target: TreeCloseTarget) -> anyhow::Result<bool> {
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let result = loop {
             let Some(workspace) =
                 self.with_state(|state| Self::workspace_for_tree_target_in_state(state, target))
@@ -14825,7 +15026,7 @@ impl Mux {
         resolved_target: WorkspaceId,
         project_resource: bool,
     ) -> anyhow::Result<WorkspaceMutationResult> {
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, fingerprint)? {
             let result = workspace_mutation_result(&commit)?;
@@ -15064,7 +15265,7 @@ impl Mux {
             "key": requested_key,
             "name": name,
         });
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
@@ -15118,6 +15319,7 @@ impl Mux {
                     index: None,
                     entity,
                     workspace_revision: Some(workspace_revision),
+                    transaction: None,
                 },
                 workspace_mutation_result(&commit)?,
             )
@@ -15160,7 +15362,7 @@ impl Mux {
         {
             return false;
         }
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let delta = {
             let state = self.state.lock().unwrap();
             if !state.surfaces.contains_key(&target) {
@@ -15184,6 +15386,7 @@ impl Mux {
                     index: None,
                     entity,
                     workspace_revision: None,
+                    transaction: None,
                 })
             })()
         };
@@ -15208,7 +15411,7 @@ impl Mux {
         {
             return false;
         }
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let renamed = {
             let state = self.state.lock().unwrap();
             let Some(wi) = state
@@ -15242,6 +15445,7 @@ impl Mux {
                 index: None,
                 entity,
                 workspace_revision: None,
+                transaction: None,
             }
         };
         self.emit(MuxEvent::TreeDelta(renamed));
@@ -16289,21 +16493,40 @@ impl Mux {
                     )
                     .into());
                 };
-                let screen = &mut state.workspaces[workspace_index].screens[screen_index];
-                let Some(entry) = screen.layout_undo.pop_back() else {
-                    return Err(
-                        LayoutUndoError::Stale("layout undo disappeared".to_string()).into()
-                    );
+                let entry = {
+                    let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+                    let Some(entry) = screen.layout_undo.pop_back() else {
+                        return Err(
+                            LayoutUndoError::Stale("layout undo disappeared".to_string()).into()
+                        );
+                    };
+                    if entry.after_revision != screen.layout_revision
+                        || expected_revision
+                            .is_some_and(|expected| expected != entry.after_revision)
+                    {
+                        screen.layout_undo.push_back(entry);
+                        return Err(LayoutUndoError::Stale(
+                            "layout changed before undo could commit".to_string(),
+                        )
+                        .into());
+                    }
+                    entry
                 };
-                if entry.after_revision != screen.layout_revision
-                    || expected_revision.is_some_and(|expected| expected != entry.after_revision)
-                {
-                    screen.layout_undo.push_back(entry);
-                    return Err(LayoutUndoError::Stale(
-                        "layout changed before undo could commit".to_string(),
+                if let Some(restore) = entry.tab_restore
+                    && let Err(error) = restore_dragged_tab(
+                        self,
+                        &mut state,
+                        workspace_index,
+                        screen_index,
+                        restore,
                     )
-                    .into());
+                {
+                    state.workspaces[workspace_index].screens[screen_index]
+                        .layout_undo
+                        .push_back(entry);
+                    return Err(error);
                 }
+                let screen = &mut state.workspaces[workspace_index].screens[screen_index];
                 let revision = screen.layout_revision.saturating_add(1);
                 screen.restore_layout_snapshot(entry.before);
                 screen.layout_revision = revision;
@@ -16321,7 +16544,7 @@ impl Mux {
 
         let lifecycle = self.workspace_lifecycle(workspace);
         let _workspace_lifecycle = lifecycle.lock().unwrap();
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let registry = self.workspace_registry.lock().unwrap();
         let (removed, deltas, selection_resync, revision) = {
             let mut state = self.state.lock().unwrap();
@@ -16534,7 +16757,7 @@ impl Mux {
         }
         let active_pane = root.first_visible_pane();
         let screen_id = self.next_id();
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let delta = {
             let mut state = self.state.lock().unwrap();
             let Some(workspace_index) = state.workspace_index(target_workspace) else {
@@ -16581,6 +16804,7 @@ impl Mux {
                 index: Some(index),
                 entity,
                 workspace_revision: None,
+                transaction: None,
             }
         };
         let projection_result = self.with_state(|state| {
@@ -16652,6 +16876,7 @@ impl Mux {
                     expected_generation: None,
                     expected_revision: None,
                     on_exit: TerminalOnExit::Close,
+                    env: Vec::new(),
                 };
                 let surface = self.spawn_surface_in_workspace_reserved(
                     workspace_key,
@@ -17138,7 +17363,7 @@ impl Mux {
             "key": requested_key,
             "index": index,
         });
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
@@ -17202,6 +17427,7 @@ impl Mux {
                     index: Some(new_idx),
                     entity,
                     workspace_revision: Some(workspace_revision),
+                    transaction: None,
                 },
                 workspace_mutation_result(&commit)?,
             )
@@ -18779,7 +19005,7 @@ fn workspace_mutation_result(commit: &RegistryCommit) -> anyhow::Result<Workspac
 
 fn close_surface_delta(
     state: &State,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
     surface: SurfaceId,
 ) -> Option<TreeDelta> {
     let pane_id = state.pane_of(surface)?;
@@ -18804,6 +19030,7 @@ fn close_surface_delta(
             index: Some(tab_index),
             entity,
             workspace_revision: None,
+            transaction: None,
         });
     }
     close_pane_delta(state, notifications, pane_id)
@@ -18811,7 +19038,7 @@ fn close_surface_delta(
 
 fn close_pane_delta(
     state: &State,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
     pane: PaneId,
 ) -> Option<TreeDelta> {
     let (wi, si) = state.screen_of(pane)?;
@@ -18831,6 +19058,7 @@ fn close_pane_delta(
             index: Some(panes.iter().position(|candidate| *candidate == pane)?),
             entity,
             workspace_revision: None,
+            transaction: None,
         });
     }
     close_screen_delta(state, notifications, screen.id)
@@ -18838,7 +19066,7 @@ fn close_pane_delta(
 
 fn close_screen_delta(
     state: &State,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
     screen: ScreenId,
 ) -> Option<TreeDelta> {
     let (wi, si) = state.workspaces.iter().enumerate().find_map(|(wi, workspace)| {
@@ -18856,12 +19084,13 @@ fn close_screen_delta(
         index: Some(si),
         entity,
         workspace_revision: None,
+        transaction: None,
     })
 }
 
 fn close_workspace_delta(
     state: &State,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
     workspace: WorkspaceId,
 ) -> Option<TreeDelta> {
     let index = state.workspace_index(workspace)?;
@@ -18880,6 +19109,7 @@ fn close_workspace_delta(
         index: Some(index),
         entity,
         workspace_revision: None,
+        transaction: None,
     })
 }
 
@@ -19078,6 +19308,73 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
     // stable workspace identity.
     stamp_changed_active_pane(mux, state, previous_active);
     (removed, true)
+}
+
+/// Undo one same-screen tab drag: move the tab back to its origin pane and
+/// index, and remove the pane the drag created. Every precondition is
+/// checked first, so a stale entry fails without changing anything.
+fn restore_dragged_tab(
+    mux: &Mux,
+    state: &mut State,
+    workspace_index: usize,
+    screen_index: usize,
+    restore: crate::model::LayoutUndoTabRestore,
+) -> anyhow::Result<()> {
+    let stale = |message: &str| anyhow::Error::new(LayoutUndoError::Stale(message.to_string()));
+    let screen_panes = state.workspaces[workspace_index].screens[screen_index].root.pane_ids_vec();
+    let current = state.pane_of(restore.surface).ok_or_else(|| stale("the dragged tab closed"))?;
+    if !screen_panes.contains(&restore.origin_pane)
+        || !state.panes.contains_key(&restore.origin_pane)
+    {
+        return Err(stale("the dragged tab's origin pane closed"));
+    }
+    if !screen_panes.contains(&current) {
+        return Err(stale("the dragged tab left its screen"));
+    }
+    match restore.created_pane {
+        Some(created) => {
+            let alone = state
+                .panes
+                .get(&created)
+                .is_some_and(|pane| pane.tabs.as_slice() == [restore.surface]);
+            if current != created || !alone {
+                return Err(stale("the pane created by the drag changed"));
+            }
+        }
+        None if current == restore.origin_pane => {
+            return Err(stale("the dragged tab is already in its origin pane"));
+        }
+        None => {}
+    }
+    {
+        let pane = state.panes.get_mut(&current).expect("checked current pane");
+        let old = pane
+            .tabs
+            .iter()
+            .position(|candidate| *candidate == restore.surface)
+            .expect("checked tab membership");
+        pane.tabs.remove(old);
+        if !pane.tabs.is_empty() && pane.active_tab >= old && pane.active_tab > 0 {
+            pane.active_tab -= 1;
+        }
+    }
+    if restore.created_pane == Some(current) {
+        state.remove_pane(current);
+    }
+    let origin = state.panes.get_mut(&restore.origin_pane).expect("checked origin pane");
+    let index = restore.origin_index.min(origin.tabs.len());
+    origin.tabs.insert(index, restore.surface);
+    origin.active_tab = index;
+    state.resource_indexes.tab_pane.insert(restore.surface, restore.origin_pane);
+    let workspace = state.workspaces[workspace_index].id;
+    let screen = state.workspaces[workspace_index].screens[screen_index].id;
+    mux.subscribers.update_surface_session_path(
+        restore.surface,
+        workspace,
+        screen,
+        restore.origin_pane,
+    );
+    Ok(())
 }
 
 fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId) {
@@ -21978,6 +22275,7 @@ mod tests {
             expected_generation: None,
             expected_revision: None,
             on_exit: TerminalOnExit::Close,
+            env: Vec::new(),
         };
         let result = mux.spawn_surface_in_workspace_reserved(
             &workspace.key,

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45.
+// cmux-tui mux protocol 12, IR 252966630de426c49feb36ad1c035f9489871b52e59dc659d4fd93a49d20e675.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -14,6 +14,10 @@ pub type ColorHex = String;
 pub type Id = u64;
 #[rustfmt::skip]
 pub type JsonValue = serde_json::Value;
+#[rustfmt::skip]
+pub type PaneRef = serde_json::Value;
+#[rustfmt::skip]
+pub type TabRef = serde_json::Value;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

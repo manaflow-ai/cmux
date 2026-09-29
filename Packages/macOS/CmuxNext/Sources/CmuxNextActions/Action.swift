@@ -71,6 +71,10 @@ public struct Action: Identifiable {
     /// Typed handler: receives the target and every collected argument.
     /// Takes precedence over `argumentHandler` and `handler` when set.
     public var invoke: (@MainActor (ActionInvocation) -> Void)?
+    /// Why the action cannot run right now (for example "needs daemon
+    /// capability tab-groups-v1"), or nil when it can. A non-nil reason
+    /// disables the action everywhere and is reported by `action.run`.
+    public var unavailableReason: (@MainActor () -> String?)?
 
     public init(
         id: ActionID,
@@ -80,6 +84,7 @@ public struct Action: Identifiable {
         isEnabled: @escaping @MainActor () -> Bool = { true },
         argumentHandler: (@MainActor (String) -> Void)? = nil,
         invoke: (@MainActor (ActionInvocation) -> Void)? = nil,
+        unavailableReason: (@MainActor () -> String?)? = nil,
         handler: @escaping @MainActor () -> Void
     ) {
         self.id = id
@@ -89,6 +94,7 @@ public struct Action: Identifiable {
         self.isEnabled = isEnabled
         self.argumentHandler = argumentHandler
         self.invoke = invoke
+        self.unavailableReason = unavailableReason
         self.handler = handler
     }
 
@@ -114,6 +120,7 @@ public struct Action: Identifiable {
             isEnabled: isEnabled,
             argumentHandler: argumentHandler,
             invoke: invoke,
+            unavailableReason: unavailableReason,
             handler: handler
         )
     }

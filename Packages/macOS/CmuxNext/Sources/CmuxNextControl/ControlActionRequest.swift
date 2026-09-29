@@ -25,4 +25,7 @@ public enum ControlActionOutcome: Sendable, Hashable {
     case unavailable
     /// Its handler's `isEnabled` predicate refused.
     case disabled
+    /// The action cannot run, with a typed reason: a missing daemon
+    /// capability, an unported feature, or a target it cannot act on.
+    case refused(String)
 }

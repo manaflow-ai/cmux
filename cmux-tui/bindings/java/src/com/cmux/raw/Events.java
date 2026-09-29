@@ -48,6 +48,7 @@ public final class Events {
     public static final EventMetadata SURFACE_RESIZE_FAILED = new EventMetadata("surface-resize-failed", 7, null, List.of("subscribe"), true);
     public static final EventMetadata SURFACE_RESIZED = new EventMetadata("surface-resized", 5, null, List.of("subscribe"), true);
     public static final EventMetadata TAB_ADDED = new EventMetadata("tab-added", 7, null, List.of("subscribe-deltas"), true);
+    public static final EventMetadata TAB_CHANGED = new EventMetadata("tab-changed", 12, "tab-metadata-v1", List.of("subscribe-deltas"), true);
     public static final EventMetadata TAB_CLOSED = new EventMetadata("tab-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata TAB_RENAMED = new EventMetadata("tab-renamed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata TERMINAL_REGISTRY_CHANGED = new EventMetadata("terminal-registry-changed", 9, null, List.of("subscribe"), true);
@@ -57,6 +58,7 @@ public final class Events {
     public static final EventMetadata VT_STATE = new EventMetadata("vt-state", 5, null, List.of("attach-byte"), true);
     public static final EventMetadata WINDOW_TITLE_REQUESTED = new EventMetadata("window-title-requested", 6, null, List.of("subscribe"), true);
     public static final EventMetadata WORKSPACE_ADDED = new EventMetadata("workspace-added", 7, null, List.of("subscribe-deltas"), true);
+    public static final EventMetadata WORKSPACE_CHANGED = new EventMetadata("workspace-changed", 12, "workspace-metadata-v1", List.of("subscribe-deltas"), true);
     public static final EventMetadata WORKSPACE_CLOSED = new EventMetadata("workspace-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata WORKSPACE_MOVED = new EventMetadata("workspace-moved", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata WORKSPACE_RENAMED = new EventMetadata("workspace-renamed", 7, null, List.of("subscribe-deltas"), true);
@@ -101,6 +103,7 @@ public final class Events {
         values.put("surface-resize-failed", SURFACE_RESIZE_FAILED);
         values.put("surface-resized", SURFACE_RESIZED);
         values.put("tab-added", TAB_ADDED);
+        values.put("tab-changed", TAB_CHANGED);
         values.put("tab-closed", TAB_CLOSED);
         values.put("tab-renamed", TAB_RENAMED);
         values.put("terminal-registry-changed", TERMINAL_REGISTRY_CHANGED);
@@ -110,6 +113,7 @@ public final class Events {
         values.put("vt-state", VT_STATE);
         values.put("window-title-requested", WINDOW_TITLE_REQUESTED);
         values.put("workspace-added", WORKSPACE_ADDED);
+        values.put("workspace-changed", WORKSPACE_CHANGED);
         values.put("workspace-closed", WORKSPACE_CLOSED);
         values.put("workspace-moved", WORKSPACE_MOVED);
         values.put("workspace-renamed", WORKSPACE_RENAMED);
