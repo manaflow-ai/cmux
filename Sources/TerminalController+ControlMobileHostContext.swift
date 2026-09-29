@@ -41,8 +41,8 @@ extension TerminalController: ControlMobileHostContext {
         bridgeMobileResult(v2MobileTerminalInput(params: foundationParams(params)))
     }
 
-    func controlMobileTerminalReplay(params: [String: JSONValue]) -> ControlCallResult {
-        bridgeMobileResult(v2MobileTerminalReplay(params: foundationParams(params)))
+    func controlMobileTerminalReplay(params: [String: JSONValue]) async -> ControlCallResult {
+        bridgeMobileResult(await v2MobileTerminalReplay(params: foundationParams(params)))
     }
 
     func controlMobileTerminalViewport(params: [String: JSONValue]) -> ControlCallResult {

@@ -179,6 +179,31 @@ extension TerminalController {
         }
         return (resolved.workspace, surfaceID, target)
     }
+
+    /// Resolves a mobile terminal after a cold source runtime registers. A
+    /// remote replay can arrive for a hidden or hibernated panel, so the
+    /// structural panel is resumed before the canonical registry target is
+    /// requested again.
+    func mobileCanonicalTerminalTargetAwaitingSurface(
+        params: [String: Any]
+    ) async -> (
+        workspace: Workspace,
+        surfaceID: UUID,
+        target: ControlTerminalSocketTarget
+    )? {
+        guard let resolved = mobileResolveWorkspaceAndSurface(
+            params: params,
+            requireTerminal: true
+        ), let surfaceID = resolved.surfaceId,
+              let owned = resolved.workspace.terminalInputTarget(forPanelID: surfaceID) else {
+            return nil
+        }
+        owned.panel.resumeAgentHibernationForRemoteAttach()
+        guard await owned.panel.surface.waitForRuntimeSurfaceReady() else {
+            return nil
+        }
+        return mobileCanonicalTerminalTarget(params: params)
+    }
 }
 
 @MainActor

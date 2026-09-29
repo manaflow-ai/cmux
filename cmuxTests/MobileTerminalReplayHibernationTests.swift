@@ -20,7 +20,7 @@ struct MobileTerminalReplayHibernationTests {
         try await withAppContext { workspace in
             let (panelId, panel) = try hibernateFocusedAgent(in: workspace)
 
-            let result = TerminalController.shared.v2MobileTerminalReplay(params: [
+            let result = await TerminalController.shared.v2MobileTerminalReplay(params: [
                 "workspace_id": workspace.id.uuidString,
                 "surface_id": panelId.uuidString,
             ])
@@ -75,7 +75,7 @@ struct MobileTerminalReplayHibernationTests {
         try await withAppContext { workspace in
             let (panelId, panel) = try hibernateFocusedAgent(in: workspace)
 
-            let result = TerminalController.shared.v2MobileTerminalReplay(params: [
+            let result = await TerminalController.shared.v2MobileTerminalReplay(params: [
                 "workspace_id": workspace.id.uuidString,
                 "surface_id": panelId.uuidString,
                 "client_id": "remote-viewer",

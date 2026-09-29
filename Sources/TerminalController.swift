@@ -1306,7 +1306,7 @@ class TerminalController {
                     await self.v2SurfaceReadSelection(params: parsedRequest.params)
                 }
             }
-            if ["mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt"].contains(request.method) {
+            if ["mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt", "mobile.terminal.replay", "terminal.replay"].contains(request.method) {
                 return v2AsyncResultCall(
                     id: request.id,
                     timeoutSeconds: 7
@@ -14924,7 +14924,7 @@ class TerminalController {
         case "mobile.terminal.paste_image", "terminal.paste_image":
             result = v2MobileTerminalPasteImage(params: request.params)
         case "mobile.terminal.replay", "terminal.replay":
-            result = v2MobileTerminalReplay(params: request.params)
+            result = await v2MobileTerminalReplay(params: request.params)
         case "mobile.terminal.viewport", "terminal.viewport":
             result = v2MobileTerminalViewport(params: request.params)
         case "mobile.terminal.scroll", "terminal.scroll":
@@ -15414,7 +15414,7 @@ class TerminalController {
         )
     }
 
-    func v2MobileTerminalReplay(params: [String: Any]) -> V2CallResult {
+    func v2MobileTerminalReplay(params: [String: Any]) async -> V2CallResult {
         let traceID = v2String(params, "trace_id")
             .flatMap(DiagnosticTerminalTraceID.init(stringValue:))
         let traceStartedAt = DispatchTime.now().uptimeNanoseconds
@@ -15439,7 +15439,11 @@ class TerminalController {
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error
         }
-        guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
+        let hasViewportReportFields = params["client_id"] != nil || params["viewport_columns"] != nil || params["viewport_rows"] != nil
+        if hasViewportReportFields, v2String(params, "client_id") == nil || v2Int(params, "viewport_columns") == nil || v2Int(params, "viewport_rows") == nil {
+            return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
+        }
+        guard let resolved = await mobileCanonicalTerminalTargetAwaitingSurface(params: params) else {
             #if DEBUG
             cmuxDebugLog("mobile.terminal.replay NOT_FOUND surface=\(v2RawString(params, "surface_id") ?? "nil")")
             #endif
@@ -15447,14 +15451,18 @@ class TerminalController {
         }
         let surfaceId = resolved.surfaceID
         let terminalTarget = resolved.target
-        let hasViewportReportFields = params["client_id"] != nil || params["viewport_columns"] != nil || params["viewport_rows"] != nil
-        if hasViewportReportFields, v2String(params, "client_id") == nil || v2Int(params, "viewport_columns") == nil || v2Int(params, "viewport_rows") == nil {
-            return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
-        }
-        // A hibernated agent has no runtime, so this replay would be empty and
-        // no output would follow: the viewer would stay blank. Once resumed,
-        // the runtime's output streams to the viewer like any live terminal.
+        // A remote viewer demands the same runtime as a local visit, without
+        // revealing the source pane. Never acknowledge an empty cold attach.
         terminalTarget.resumeAgentHibernationForRemoteAttach()
+        guard await terminalTarget.surface.waitForRuntimeSurfaceReady() else {
+            return Self.readTextTerminalNotRunningResult(workspaceID: resolved.workspace.id,
+                surfaceID: surfaceId, reason: terminalTarget.surface.runtimeUnavailableReason)
+        }
+        guard !Task.isCancelled,
+              let current = resolved.workspace.controlSocketTerminalTarget(for: surfaceId),
+              current.surface === terminalTarget.surface else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
         let expectedViewport = applyMobileViewportReport(
             params: params,
             terminalTarget: terminalTarget,
@@ -16357,23 +16365,12 @@ class TerminalController {
             surfaceId = nil
         }
 
-        // A session-restored / never-foregrounded terminal has its libghostty
-        // surface created lazily — today only on the first keystroke (via the
-        // input path's `requestBackgroundSurfaceStartIfNeeded`). The mobile
-        // render-grid producer only reads a *live* surface, so such a terminal
-        // shows blank on the phone until the user types. When a mobile client
-        // resolves a terminal to read or drive, materialize the surface
-        // headlessly so attaching alone loads it. Idempotent and a no-op once
-        // the surface exists.
+        // Remote reads and input demand a headless runtime even when the
+        // source pane has never been shown. Replay awaits the queued start.
         if requireTerminal,
            let surfaceId,
            let owned = workspace.terminalInputTarget(forPanelID: surfaceId) {
-            // Resolve the panel before asking the registry for a socket target.
-            // Restored, never-foregrounded terminals are intentionally absent
-            // from that registry until this request materializes their runtime.
-            // Resolving the canonical target first made the on-demand start
-            // unreachable for exactly the terminals mobile attach needs.
-            owned.panel.surface.requestBackgroundSurfaceStartIfNeeded()
+            owned.panel.surface.requestInputDemandSurfaceStartIfNeeded()
         }
 
         return (tabManager, workspace, surfaceId)

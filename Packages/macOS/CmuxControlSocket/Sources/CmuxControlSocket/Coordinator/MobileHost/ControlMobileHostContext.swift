@@ -82,11 +82,11 @@ public protocol ControlMobileHostContext: AnyObject {
     func controlMobileTerminalInput(params: [String: JSONValue]) -> ControlCallResult
 
     /// `mobile.terminal.replay` / `terminal.replay` — the cold-attach replay
-    /// anchor (render-grid frame or VT/byte snapshot) for the resolved surface.
+    /// anchor for the resolved surface, awaiting cold runtime startup.
     ///
     /// - Parameter params: The decoded request params.
     /// - Returns: The fully-built command result.
-    func controlMobileTerminalReplay(params: [String: JSONValue]) -> ControlCallResult
+    func controlMobileTerminalReplay(params: [String: JSONValue]) async -> ControlCallResult
 
     /// `mobile.terminal.viewport` / `terminal.viewport` — record or clear a
     /// device's reported grid, recompute the shared minimum, cap the surface,

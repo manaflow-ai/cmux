@@ -114,7 +114,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "mobile.attach_ticket.create",
         // Provider discovery reads config or runs `opencode models`; chat
         // send/interrupt await terminal input. Neither may hold the main actor.
-        "mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt",
+        "mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt", "mobile.terminal.replay", "terminal.replay",
         // `mobile.terminal.set_font` only validates params and emits a push
         // event via thread-safe MobileHostService statics, so it runs on the worker
         // like the other mobile data-plane verbs. Without this entry the policy

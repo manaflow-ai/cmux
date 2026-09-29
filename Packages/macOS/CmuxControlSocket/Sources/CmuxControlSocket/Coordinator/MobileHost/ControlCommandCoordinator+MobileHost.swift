@@ -36,6 +36,8 @@ extension ControlCommandCoordinator {
         context: (any ControlMobileHostContext)?
     ) async -> ControlCallResult? {
         switch request.method {
+        case "mobile.terminal.replay", "terminal.replay":
+            return await context?.controlMobileTerminalReplay(params: request.params)
         case "mobile.task.models.list":
             return await context?.controlMobileTaskModelsList(
                 params: request.params
@@ -65,8 +67,6 @@ extension ControlCommandCoordinator {
             return context?.controlMobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             return context?.controlMobileTerminalInput(params: request.params)
-        case "mobile.terminal.replay", "terminal.replay":
-            return context?.controlMobileTerminalReplay(params: request.params)
         case "mobile.terminal.viewport", "terminal.viewport":
             return context?.controlMobileTerminalViewport(params: request.params)
         case "mobile.terminal.scroll", "terminal.scroll":
