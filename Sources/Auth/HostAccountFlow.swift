@@ -151,8 +151,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     /// Completes an external hosted Stack callback through the shared attempt.
-    func handleCallbackURL(_ url: URL) async -> Bool {
-        await browserSignIn.handleCallbackURL(url)
+    func handleCallbackURL(_ url: URL, delivery: HostBrowserCallbackDelivery) async -> Bool {
+        await browserSignIn.handleCallbackURL(url, delivery: delivery)
     }
 
     func openSignInInDefaultBrowser() {

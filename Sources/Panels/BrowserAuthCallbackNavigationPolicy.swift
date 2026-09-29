@@ -9,8 +9,9 @@ import WebKit
 /// scheme URLs (`cmux://auth-callback`, `cmux-dev-<tag>://auth-callback`, ...)
 /// delivered by the hosted after-sign-in page. WKWebView cannot open native
 /// schemes itself, so the navigation delegate consumes the URL and hands it to
-/// the app's shared native callback entrypoint (the stateless-callback fallback in
-/// HostBrowserSignInFlow accepts it, without a state check).
+/// the app's shared native callback entrypoint as `.trustedAppPage` delivery
+/// (the stateless-callback fallback in HostBrowserSignInFlow accepts it
+/// without a state check or the confirmation that LaunchServices callbacks get).
 ///
 /// Because the stateless path accepts token-bearing callbacks, the automatic
 /// handoff is narrow and fail-closed:
@@ -193,7 +194,7 @@ struct BrowserAuthCallbackNavigationPolicy {
     /// means the account flow completed, not merely that dispatch started.
     func deliverAuthCallbackInApp(_ url: URL) async -> Bool {
         guard let delegate = NSApp.delegate as? AppDelegate else { return false }
-        return await delegate.handleAuthCallbackURLInProcess(url)
+        return await delegate.handleAuthCallbackURLInProcess(url, delivery: .trustedAppPage)
     }
 
     /// Any cmux-family scheme pointing at the auth-callback target, including

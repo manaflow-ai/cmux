@@ -1645,6 +1645,32 @@ html { scroll-behavior: smooth; }
     return null;
   }
 
+  // Markdown files are untrusted input, and Vega fetches data, images,
+  // hyperlink targets, and embed options through its loader. The path scan
+  // above explains common rejections; this loader is the enforcement, so a
+  // reference in a position the scan does not know about still cannot load.
+  // External images in Markdown go through the consent flow instead.
+  function denyVegaExternalResource(uri) {
+    return Promise.reject(new Error('external resource references are not allowed: ' + String(uri)));
+  }
+  var vegaDenyAllLoader = {
+    options: {},
+    fileAccess: false,
+    load: denyVegaExternalResource,
+    sanitize: denyVegaExternalResource,
+    http: denyVegaExternalResource,
+    file: denyVegaExternalResource
+  };
+
+  // `usermeta.embedOptions` lets the document override the embed options,
+  // including the loader, actions, and URL-loaded config or patches.
+  function stripVegaDocumentEmbedOptions(spec) {
+    if (spec && typeof spec === 'object' && spec.usermeta && typeof spec.usermeta === 'object') {
+      delete spec.usermeta.embedOptions;
+    }
+    return spec;
+  }
+
   function renderVegaBlocks() {
     if (typeof vegaEmbed === 'undefined') { renderLibError('vega-lite', 'library missing'); return; }
     var isDark = darkMql.matches;
@@ -1655,13 +1681,13 @@ html { scroll-behavior: smooth; }
       var raw = srcEl ? srcEl.textContent : el.textContent;
       var mode = el.getAttribute('data-vega-mode') === 'vega' ? 'vega' : 'vega-lite';
       try {
-        var spec = JSON.parse(raw);
+        var spec = stripVegaDocumentEmbedOptions(JSON.parse(raw));
         var externalRef = firstVegaExternalReference(spec, 'spec', []);
         if (externalRef) {
           throw new Error('external resource references are not allowed at ' + externalRef);
         }
         el.innerHTML = '';
-        var opts = { mode: mode, actions: false, renderer: 'svg' };
+        var opts = { mode: mode, actions: false, renderer: 'svg', loader: vegaDenyAllLoader };
         if (isDark) { opts.theme = 'dark'; }
         vegaEmbed(el, spec, opts).catch(function(err) {
           el.innerHTML = '<div class="cmux-render-error">Vega: '
