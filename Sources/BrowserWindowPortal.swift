@@ -1270,8 +1270,8 @@ final class WindowBrowserSlotView: NSView {
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
     private weak var hostedWebView: WKWebView?
     private var hostedWebViewConstraints: [NSLayoutConstraint] = []
-    private var forwardedDropZone: DropZone?
-    private var portalDragDropZone: DropZone?
+    var forwardedDropZone: DropZone?
+    var portalDragDropZone: DropZone?
     private var isRefreshingInteractionLayers = false
     private var paneTopChromeHeight: CGFloat = 0
     var preferredHostedInspectorWidth: CGFloat?
@@ -1355,11 +1355,6 @@ final class WindowBrowserSlotView: NSView {
 
     func setDropZoneOverlay(zone: DropZone?) {
         forwardedDropZone = zone
-        applyResolvedDropZoneOverlay()
-    }
-
-    func setPortalDragDropZone(_ zone: DropZone?) {
-        portalDragDropZone = zone
         applyResolvedDropZoneOverlay()
     }
 
@@ -1753,7 +1748,7 @@ final class WindowBrowserSlotView: NSView {
         container.addSubview(dropZoneOverlayView, positioned: .above, relativeTo: nil)
     }
 
-    private func applyResolvedDropZoneOverlay() {
+    func applyResolvedDropZoneOverlay() {
         let resolvedZone = activeDropZone
         if resolvedZone != nil, (bounds.width <= 2 || bounds.height <= 2) {
             bringInteractionLayersToFrontIfNeeded()

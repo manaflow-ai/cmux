@@ -166,6 +166,8 @@ PATH_OWNERS = {
     "scripts/ci/select_package_tests.py": frozenset(("ci",)),
     # test_ci_delta_since_green.py imports it; ci.yml runs the base copy.
     "scripts/ci/delta_since_green.py": frozenset(("ci",)),
+    # test_ci_package_interface_fingerprint.py imports it; the package lane runs it.
+    "scripts/ci/package_interface_fingerprint.py": frozenset(("ci",)),
     "scripts/ci/swift_incremental_diagnostics.py": frozenset(("preflight",)),
     "scripts/ci/test_execution_registry.py": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/SKILL.md": frozenset(("preflight",)),
