@@ -11,7 +11,11 @@ import tempfile
 import threading
 from pathlib import Path
 
-from claude_teams_test_utils import resolve_cmux_cli
+from claude_teams_test_utils import (
+    FIXTURE_SOCKET_PASSWORD,
+    accept_fixture_socket_authentication,
+    resolve_cmux_cli,
+)
 
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
@@ -21,7 +25,6 @@ PANE_REF = "pane:2"
 SURFACE_ID = "33333333-3333-4333-8333-333333333333"
 SURFACE_REF = "surface:3"
 COMMAND_TEXT = r"""printf '%s\n' "spaces 'single' \"double\" $CMUX_VALUE $(printf nested) \\tail 日本語"""
-SOCKET_PASSWORD = "creation-fixture-password"
 
 
 def creation_initial_input(command: str) -> str:
@@ -79,9 +82,7 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             line = self.rfile.readline()
             if not line:
                 return
-            if line.startswith(b"auth "):
-                self.wfile.write(b"OK\n")
-                self.wfile.flush()
+            if accept_fixture_socket_authentication(line, self.wfile):
                 continue
             request = json.loads(line.decode("utf-8"))
             try:
@@ -175,13 +176,10 @@ def invoke_cli(
     ]:
         env.pop(key, None)
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
-    # Exercise the authentication prelude deterministically, without reading
-    # the runner's saved socket password.
-    env["CMUX_SOCKET_PASSWORD"] = SOCKET_PASSWORD
 
     request_start = state.request_count()
     proc = subprocess.run(
-        [cli_path, "--socket", socket_path, *args],
+        [cli_path, "--socket", socket_path, "--password", FIXTURE_SOCKET_PASSWORD, *args],
         capture_output=True,
         text=True,
         check=False,
