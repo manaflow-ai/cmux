@@ -8,7 +8,7 @@
 //   node tests/browser-parity/run.mjs record --backend aside
 //   node tests/browser-parity/run.mjs check  --backend cmux [--dialect aside] [--only 03]
 //
-// Backends: aside, chatgpt, cmux. See tests/browser-parity/README.md.
+// Backends: aside, chatgpt, playwright, cmux, cmux-dev. See tests/browser-parity/README.md.
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -123,6 +123,17 @@ const backends = {
   async playwright(code) {
     try {
       const out = await runPlaywright(code);
+      return { emits: parseEmits(out), raw: out };
+    } catch (e) {
+      return { emits: [], raw: String(e.stack || e) };
+    }
+  },
+  // The engine-neutral runtime (Resources/browser-repl) in this process on
+  // Playwright WebKit through the `dev` driver. No app build needed.
+  async "cmux-dev"(code) {
+    const { runDevRepl } = await import("./lib/dev-driver.mjs");
+    try {
+      const out = await runDevRepl(code);
       return { emits: parseEmits(out), raw: out };
     } catch (e) {
       return { emits: [], raw: String(e.stack || e) };
