@@ -168,10 +168,15 @@ extension DockSplitStore {
         let warningStore = CloseTabWarningStore(
             defaults: manager?.closeTabWarningDefaults ?? .standard
         )
-        if warningStore.shouldConfirmCloseIncludingSafety(
+        let hasActiveProcess = candidates.contains { $0.needsConfirmation }
+        var warningKinds = warningStore.warningKinds(
             requiresConfirmation: needsConfirmation,
             source: .shortcut
-        ) {
+        )
+        if hasActiveProcess {
+            warningKinds.insert(.safety)
+        }
+        if !warningKinds.isEmpty {
             guard let manager else { return false }
             let prompt = CloseOtherTabsConfirmationPrompt(
                 titles: candidates.map(\.title)
@@ -180,7 +185,8 @@ extension DockSplitStore {
                 title: prompt.title,
                 message: prompt.message,
                 scrollableDetails: prompt.details,
-                acceptCmdD: false
+                acceptCmdD: false,
+                dontAskAgain: warningKinds
             ) else {
                 return true
             }

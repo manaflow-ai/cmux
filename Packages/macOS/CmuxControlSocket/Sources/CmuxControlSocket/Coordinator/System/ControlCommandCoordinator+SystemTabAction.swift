@@ -90,7 +90,8 @@ extension ControlCommandCoordinator {
         case .confirmationRequired(let surfaceIDs):
             return .err(
                 code: "confirmation_required",
-                message: "One or more surfaces have a running process; retry with force=true",
+                message: context?.controlSystemCloseStrings().confirmationRequired
+                    ?? "One or more surfaces have a running process; retry with force=true",
                 data: .object([
                     "surface_ids": .array(surfaceIDs.map { .string($0.uuidString) })
                 ])

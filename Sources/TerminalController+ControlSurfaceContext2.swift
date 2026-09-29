@@ -8,6 +8,19 @@ import Foundation
 /// localized respawn strings. Split out of `TerminalController+ControlSurfaceContext`
 /// to keep the conformance readable; see that file's doc comment for the overview.
 extension TerminalController {
+    func controlSurfaceCloseStrings() -> ControlSurfaceCloseStrings {
+        ControlSurfaceCloseStrings(
+            confirmationRequired: String(
+                localized: "socket.surface.close.confirmationRequired",
+                defaultValue: "Surface has a running process; retry with force=true"
+            ),
+            failed: String(
+                localized: "socket.surface.close.failed",
+                defaultValue: "Failed to close surface"
+            )
+        )
+    }
+
     func controlSurfaceRespawnStrings() -> ControlSurfaceRespawnStrings {
         ControlSurfaceRespawnStrings(
             invalidFocus: String(

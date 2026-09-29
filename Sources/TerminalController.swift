@@ -14097,13 +14097,23 @@ class TerminalController {
 
     private func closeWorkspace(_ tabId: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-        guard let uuid = UUID(uuidString: tabId) else { return "ERROR: Invalid tab ID" }
+        let tokens = tabId.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        guard let rawID = tokens.first,
+              let uuid = UUID(uuidString: rawID) else { return "ERROR: Invalid tab ID" }
+        let force = tokens.contains("--force")
 
         var result = "ERROR: Tab not found"
         v2MainSync {
             if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
                 guard tabManager.canCloseWorkspace(tab) else {
                     result = "ERROR: \(workspaceCloseProtectedMessage())"
+                    return
+                }
+                if !force, tabManager.workspaceNeedsConfirmCloseForClose(tab) {
+                    result = "ERROR: " + String(
+                        localized: "cli.socket.error.workspaceCloseConfirmationRequired",
+                        defaultValue: "Workspace has a running process; retry with --force"
+                    )
                     return
                 }
                 let closeFailure = String(localized: "cli.socket.error.workspaceNotClosed", defaultValue: "Workspace not closed")

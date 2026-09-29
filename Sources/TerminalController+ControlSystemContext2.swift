@@ -116,6 +116,7 @@ extension TerminalController {
         func closeTabs(_ tabIds: [TabID]) -> ControlTabActionResolution {
             let activeSurfaceIDs = tabIds.compactMap { tabId -> UUID? in
                 guard let targetPanelID = workspace.panelIdFromSurfaceId(tabId),
+                      !workspace.isPanelPinned(targetPanelID),
                       workspace.panelNeedsConfirmClose(panelId: targetPanelID) else { return nil }
                 return targetPanelID
             }

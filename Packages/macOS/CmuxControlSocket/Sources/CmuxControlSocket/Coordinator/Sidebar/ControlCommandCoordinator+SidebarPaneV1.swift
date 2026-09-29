@@ -254,13 +254,13 @@ extension ControlCommandCoordinator {
         let trimmed = surfaceParts.joined(separator: " ")
         switch sidebarContext?.controlSidebarCloseSurface(surfaceArg: trimmed.isEmpty ? nil : trimmed, force: force) ?? .noTabSelected {
         case .noTabSelected, .closeFailed:
-            return "ERROR: Failed to close surface"
+            return "ERROR: \(sidebarContext?.controlSidebarCloseStrings().failed ?? "Failed to close surface")"
         case .surfaceNotFound:
             return "ERROR: Surface not found"
         case .lastSurface:
             return "ERROR: Cannot close the last surface"
         case .confirmationRequired:
-            return "ERROR: Surface has a running process; retry with --force"
+            return "ERROR: \(sidebarContext?.controlSidebarCloseStrings().confirmationRequired ?? "Surface has a running process; retry with --force")"
         case .closed:
             return "OK"
         }

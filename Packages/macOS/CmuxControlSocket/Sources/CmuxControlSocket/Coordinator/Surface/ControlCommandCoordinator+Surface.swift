@@ -667,13 +667,13 @@ extension ControlCommandCoordinator {
         case .confirmationRequired(let id):
             return .err(
                 code: "confirmation_required",
-                message: "Surface has a running process; retry with force=true",
+                message: context.controlSurfaceCloseStrings().confirmationRequired,
                 data: .object(["surface_id": .string(id.uuidString)])
             )
         case .closeFailed(let id):
             return .err(
                 code: "internal_error",
-                message: "Failed to close surface",
+                message: context.controlSurfaceCloseStrings().failed,
                 data: .object(["surface_id": .string(id.uuidString)])
             )
         case .closed(let windowID, let workspaceID, let closedSurfaceID):

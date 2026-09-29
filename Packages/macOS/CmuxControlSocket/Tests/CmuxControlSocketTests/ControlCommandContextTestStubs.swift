@@ -291,6 +291,7 @@ extension ControlWorkspaceContext {
     func controlWorkspaceStrings() -> ControlWorkspaceStrings {
         ControlWorkspaceStrings(
             closeProtected: "", closeFailed: "",
+            closeConfirmationRequired: "",
             reorderManyMissingOrder: "",
             reorderManyDuplicateWorkspace: "",
             workspaceNotFound: "",
@@ -323,7 +324,8 @@ extension ControlWorkspaceContext {
 
     func controlCloseWorkspace(
         routing: ControlRoutingSelectors,
-        workspaceID: UUID
+        workspaceID: UUID,
+        force: Bool
     ) -> ControlWorkspaceCloseResolution { .tabManagerUnavailable }
 
     func controlMoveWorkspaceToWindow(

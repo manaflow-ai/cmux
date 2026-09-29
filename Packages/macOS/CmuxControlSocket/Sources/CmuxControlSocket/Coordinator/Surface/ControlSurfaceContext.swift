@@ -60,6 +60,9 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Returns: The localized surface-not-found message.
     func controlSurfaceNotFoundMessage() -> String
 
+    /// App-bundle-resolved messages for close failures.
+    func controlSurfaceCloseStrings() -> ControlSurfaceCloseStrings
+
     // MARK: - focus / split / respawn / create / close
 
     /// Focuses a surface for `surface.focus`.

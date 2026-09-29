@@ -11,6 +11,19 @@ import CmuxTerminal
 /// `surface_health`): the exact bodies the former `TerminalController` v1
 /// handlers ran.
 extension TerminalController {
+    func controlSidebarCloseStrings() -> ControlSidebarCloseStrings {
+        ControlSidebarCloseStrings(
+            failed: String(
+                localized: "socket.sidebar.closeSurface.failed",
+                defaultValue: "Failed to close surface"
+            ),
+            confirmationRequired: String(
+                localized: "socket.sidebar.closeSurface.confirmationRequired",
+                defaultValue: "Surface has a running process; retry with --force"
+            )
+        )
+    }
+
     // MARK: - Pane listings / focus
 
     func controlSidebarPaneList() -> ControlSidebarPaneListSnapshot? {

@@ -46,6 +46,9 @@ public protocol ControlSidebarContext: AnyObject {
     /// `guard let tabManager` head of several v1 bodies).
     func controlSidebarTabManagerAvailable() -> Bool
 
+    /// App-bundle-resolved messages for the legacy close command.
+    func controlSidebarCloseStrings() -> ControlSidebarCloseStrings
+
     // MARK: Scheduled sidebar mutations (status / agent / blocks)
 
     /// Enqueues the `set_status`/`report_meta` upsert mutation.

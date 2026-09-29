@@ -1704,7 +1704,7 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         XCTAssertTrue(manager.tabs.contains(where: { $0.id == workspace.id }))
     }
 
-    func testRunningProcessWorkspaceCloseSkipsPromptWhenSettingDisabled() {
+    func testRunningProcessWorkspaceCloseStillWarnsWhenSettingDisabled() {
         let manager = makeManager(warnBeforeClosingWorkspace: false)
         let workspace = manager.tabs[1]
         markRunningProcess(workspace)
@@ -1715,9 +1715,9 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
             return false
         }
 
-        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(workspace))
-        XCTAssertEqual(prompts, [])
-        XCTAssertFalse(manager.tabs.contains(where: { $0.id == workspace.id }))
+        XCTAssertFalse(manager.closeWorkspaceWithConfirmation(workspace))
+        XCTAssertEqual(prompts, [closeWorkspaceTitle])
+        XCTAssertTrue(manager.tabs.contains(where: { $0.id == workspace.id }))
     }
 
     func testMultiWorkspaceCloseSkipsPromptWhenSettingDisabled() {
@@ -1777,8 +1777,8 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         XCTAssertTrue(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: false))
 
         manager.closeTabWarningDefaults.set(false, forKey: AppCatalogSection().warnBeforeClosingWindow.userDefaultsKey)
-        XCTAssertFalse(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: false), "The window setting turns the prompt off")
-        XCTAssertFalse(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: true))
+        XCTAssertTrue(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: false), "Active processes always require a safety prompt")
+        XCTAssertTrue(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: true))
     }
 
     func testClosingEveryWorkspaceFollowsTheWindowSetting() {
@@ -1874,12 +1874,12 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
         }
 
         XCTAssertTrue(manager.closeWorkspaceWithConfirmation(first))
-        XCTAssertEqual(offered, [.workspace])
+        XCTAssertEqual(offered, [[.workspace, .safety]])
         XCTAssertFalse(AppCatalogSection().warnBeforeClosingWorkspace.value(in: defaults))
         XCTAssertTrue(AppCatalogSection().warnBeforeClosingTab.value(in: defaults))
 
         XCTAssertTrue(manager.closeWorkspaceWithConfirmation(second))
-        XCTAssertEqual(promptCount, 1, "The second close should not ask")
+        XCTAssertEqual(promptCount, 2, "The safety warning cannot be disabled")
     }
 
     func testUntickedDontAskAgainKeepsWarningOn() {
