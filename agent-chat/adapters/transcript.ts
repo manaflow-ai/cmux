@@ -113,7 +113,10 @@ function textOf(content: unknown): string {
 }
 
 function tagValue(text: string, tag: string): string | undefined {
-  const match = text.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`));
+  // Task results are untrusted tool output; quoted reminders must not become
+  // delivered cmux messages.
+  const safeText = text.replace(/<(?:task-result|tool_result|tool-result)(?:\s[^>]*)?>[\s\S]*?<\/(?:task-result|tool_result|tool-result)>/gi, "");
+  const match = safeText.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`));
   return match?.[1]?.trim();
 }
 

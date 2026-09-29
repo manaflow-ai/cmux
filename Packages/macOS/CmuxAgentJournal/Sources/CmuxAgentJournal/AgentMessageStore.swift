@@ -128,6 +128,9 @@ public final class AgentMessageStore: @unchecked Sendable {
             }
             messagesById[id] = message
             order.append(id)
+            if let fileURL, order.count > Self.compactionThreshold {
+                compact(to: fileURL)
+            }
             return message
         }
         onChange?(AgentMessageStoreChange(message: message, state: .queued))

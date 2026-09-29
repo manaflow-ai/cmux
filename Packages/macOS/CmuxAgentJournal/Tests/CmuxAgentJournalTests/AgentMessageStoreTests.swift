@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Testing
 @testable import CmuxAgentJournal
 
@@ -202,7 +203,9 @@ struct AgentMessageStoreTests {
 
     @Test("A message that can't be written is not stored and never replaces the file")
     func appendFailsWhenJournalIsUnwritable() throws {
+        guard geteuid() != 0 else { return }
         let url = temporaryFileURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let seen = SeenChanges()
         let store = AgentMessageStore(fileURL: url, onChange: { seen.append($0.state) })
         try store.append(draft(body: "first"))

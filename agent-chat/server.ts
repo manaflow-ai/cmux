@@ -714,7 +714,9 @@ function refreshQueuedMessages(sess: Session) {
       const payload = JSON.stringify({ kind: "session-queued-messages", sessionId: sess.id, messages });
       for (const ws of sess.sockets) ws.send(payload);
     })
-    .catch(() => {})
+    .catch(() => {
+      transcript.queuedReadFailed = true;
+    })
     .finally(() => {
       transcript.queuedInflight = false;
     });

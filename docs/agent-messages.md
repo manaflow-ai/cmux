@@ -7,7 +7,7 @@ cmux agent message cmux-remote-status "The relay fix is on main; rebase when fre
 cmux agent message workspace:4 --from reviewer "Review posted on #123."
 echo "long text" | cmux agent message surface:12 -
 cmux agent message --reply-to <message-id> "Done, PR is #124."
-cmux agent inbox                       # every message, newest first
+cmux agent inbox                       # latest 50 messages, newest first
 cmux agent inbox --surface workspace:4 --state queued
 ```
 

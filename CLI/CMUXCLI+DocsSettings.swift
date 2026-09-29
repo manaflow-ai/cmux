@@ -383,11 +383,11 @@ extension CMUXCLI {
         DocsReference(
             topic: "agents",
             aliases: ["integrations", "agent-integrations"],
-            summary: "Agent hook integrations, agent-to-agent messages, Feed approvals, notifications, and session restore. To reach another agent, use `cmux agent message`; never type into its terminal.",
+            summary: workflowText("cli.docs.agents.summary", "Agent hook integrations, agent-to-agent messages, Feed approvals, notifications, and session restore. To reach another agent, use `cmux agent message`; never type into its terminal."),
             webURL: "https://cmux.com/docs/agent-integrations/oh-my-codex",
             rawResources: [
-                DocsResource(label: "agent hook docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/agent-hooks.md"),
-                DocsResource(label: "agent messages", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/agent-messages.md"),
+                DocsResource(label: workflowText("cli.docs.agents.hooks", "agent hook docs"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/agent-hooks.md"),
+                DocsResource(label: workflowText("cli.docs.agents.messages", "agent messages"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/agent-messages.md"),
                 DocsResource(label: "feed docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/feed.md"),
                 DocsResource(label: "notifications docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/notifications.md"),
             ],

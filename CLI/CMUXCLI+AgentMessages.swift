@@ -182,7 +182,12 @@ extension CMUXCLI {
         var params: [String: Any] = [:]
         if let surface { params["surface"] = surface }
         if let state { params["state"] = state }
-        if let limit, let value = Int(limit) { params["limit"] = value }
+        if let limit {
+            guard let value = Int(limit) else {
+                throw CLIError(message: "Invalid --limit value: \(limit)")
+            }
+            params["limit"] = value
+        }
         let payload = try client.sendV2(method: "agent.message.list", params: params)
         let messages = payload["messages"] as? [[String: Any]] ?? []
         if markRead {
