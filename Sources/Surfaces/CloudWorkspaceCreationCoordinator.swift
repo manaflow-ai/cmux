@@ -146,7 +146,7 @@ final class CloudWorkspaceCreationCoordinator {
             )
             operation.reservation = reservation
             let operationID = operation.id
-            reservation.cancel = { [weak self] in self?.cancel(operationID, discardLocal: false) }
+            reservation.cancel = { [weak self] in self?.cancel(operationID, discardLocal: true) }
             let generatedTitle = CloudTreeNodeActions.localWorkspaceTitle(
                 hostName: CloudTreeNodeActions.resolvedMachineName(operation.machine, snapshot: catalog.snapshot),
                 group: group
@@ -306,7 +306,7 @@ final class CloudWorkspaceCreationCoordinator {
                 operation.revealToken = reveals.begin(in: manager)
             }
             let operationID = operation.id
-            reservation.cancel = { [weak self] in self?.cancel(operationID, discardLocal: true) }
+            reservation.cancel = { [weak self] in self?.cancel(operationID, discardLocal: false) }
             // Bind the local workspace to its machine immediately. The remote
             // workspace ID is filled from the receipt later, but selection and
             // Cmd+N must already recognize this pane as Cloud-owned while it
@@ -422,7 +422,8 @@ final class CloudWorkspaceCreationCoordinator {
         if let host = operation.host, !host.isAvailable { throw CancellationError() }
         if let receipt = operation.receipt {
             try catalog.checkCloudWorkspaceNavigation(machine: operation.machine, workspaceID: receipt.workspace.id)
-            if let state = catalog.cloudStates[operation.machine],
+            if operation.isExistingWorkspaceOpen,
+               let state = catalog.cloudStates[operation.machine],
                catalog.cloudStateObservations[operation.machine]?.freshness == .current,
                !state.workspaceIDs.contains(receipt.workspace.id) {
                 throw CancellationError()
@@ -450,7 +451,7 @@ final class CloudWorkspaceCreationCoordinator {
         for operation in Array(operations.values) where operation.machine == state.machine {
             guard let receipt = operation.receipt else { continue }
             guard let fence = receipt.cursor else {
-                if !state.workspaceIDs.contains(receipt.workspace.id) {
+                if operation.isExistingWorkspaceOpen && !state.workspaceIDs.contains(receipt.workspace.id) {
                     reject(operation)
                 } else if operation.isComplete, operation.isConfirmed(in: state) {
                     operations[operation.id] = nil

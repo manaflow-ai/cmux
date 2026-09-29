@@ -116,7 +116,7 @@ struct CloudTreeNodeActions {
                 return true
             }
             onWillMutate(label)
-            return controller.start(key: key) {
+            let started = controller.start(key: key) {
                 defer { onDidMutate() }
                 do {
                     if let recorder = AppDelegate.shared?.cloudOperations {
@@ -132,6 +132,8 @@ struct CloudTreeNodeActions {
                     onFailure((error as? LocalizedError)?.errorDescription ?? String(describing: error))
                 }
             }
+            if !started { onDidMutate() }
+            return started
         }
         func destination(_ placement: SurfacePlacement) throws -> SurfaceDestination {
             guard let workspaceID = selectedWorkspaceID() else {
@@ -472,7 +474,7 @@ struct CloudTreeNodeActions {
                 return
             }
             guard let provider = catalog().provider(for: machine) else { return }
-            let managerKey = host.manager.map { ObjectIdentifier($0 as AnyObject).hashValue } ?? 0
+            let managerKey = host.manager?.windowId?.uuidString ?? "unowned"
             let key = "cloud-workspace-open:\(machine.rawValue):\(workspace.id):\(managerKey)"
             let label = String(
                 format: String(localized: "cloudTree.operation.project", defaultValue: "Opening on %@\u{2026}"),
