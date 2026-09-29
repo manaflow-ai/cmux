@@ -15005,10 +15005,9 @@ class TerminalController {
     }
 
     /// Adds the authenticated host proof to the v2 workspace snapshot. This is
-    /// called after the mobile connection has been admitted. Supplying the
-    /// current identity explicitly lets the cache produce the exact same
-    /// authenticated payload as the normal status exchange, even when the
-    /// cache's identity publication is a few milliseconds behind startup.
+    /// called after the mobile connection has been admitted. The published v2
+    /// installation identity is authoritative for this response; the physical
+    /// device identity belongs to legacy pairing and must never replace it.
     /// If the identity is unavailable, return the plain workspace result and
     /// let the client use its legacy fallback request.
     @MainActor
@@ -15020,12 +15019,8 @@ class TerminalController {
               var workspaceObject = workspacePayload as? [String: Any] else {
             return workspaceResult
         }
-        guard !MobileHostIdentity.deviceID().isEmpty else {
-            return workspaceResult
-        }
         guard case let .ok(hostStatusPayload) = MobileHostPublicStatusCache.result(
-            includeIdentity: true,
-            deviceID: MobileHostIdentity.deviceID()
+            includeIdentity: true
         ), let hostStatusObject = hostStatusPayload as? [String: Any] else {
             return workspaceResult
         }
@@ -15257,10 +15252,11 @@ class TerminalController {
 
         let tabManager = v2ResolveTabManager(params: params)
         let workspaceCount = tabManager?.tabs.count ?? 0
-        let deviceID = MobileHostIdentity.deviceID()
-        guard !deviceID.isEmpty else {
+        guard case let .ok(identityPayload) = MobileHostPublicStatusCache.result(
+            includeIdentity: true
+        ), var payload = identityPayload as? [String: Any] else {
             return .ok([
-                "mac_device_id": deviceID,
+                "mac_device_id": MobileHostIdentity.deviceID(),
                 "mac_display_name": v2OrNull(MobileHostIdentity.instanceDisplayName()),
                 "host_service": status.payload,
                 "workspace_count": workspaceCount,
@@ -15268,14 +15264,8 @@ class TerminalController {
                 "capabilities": capabilities,
             ])
         }
-
-        var payload = MobileHostService.identityStatusPayload(
-            routes: status.routes,
-            deviceID: deviceID
-        )
         payload["host_service"] = status.payload
         payload["workspace_count"] = workspaceCount
-
         return .ok(payload)
     }
 
