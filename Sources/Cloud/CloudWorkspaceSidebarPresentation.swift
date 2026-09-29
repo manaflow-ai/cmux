@@ -11,7 +11,18 @@ struct CloudWorkspaceSidebarPresentation {
     @MainActor
     static func deviceLabel(workspace: Workspace) -> String? {
         let state = workspace.cloudBindingState
-        let machines = Set(state.projectedResources.values.map(\.machine).filter { $0.deviceInstance != nil })
+        // The live catalog projection is cleared while an offline device is
+        // being rediscovered, but the persisted projection records still carry
+        // the authoritative device identity. Keep the computer badge through
+        // that gap instead of falling back to the generic Cloud badge.
+        let machines = Set(
+            state.projectedResources.values.map(\.machine)
+                .filter { $0.deviceInstance != nil }
+        ).union(
+            SurfaceCatalog.shared.projectionRecords(forWorkspace: workspace.id)
+                .map(\.resource.machine)
+                .filter { $0.deviceInstance != nil }
+        )
         guard !machines.isEmpty else { return nil }
         let names = machines.sorted { $0.rawValue < $1.rawValue }.map { state.machineNames[$0.rawValue] ?? $0.rawValue }
         return String.localizedStringWithFormat(
@@ -26,10 +37,11 @@ struct CloudWorkspaceSidebarPresentation {
     @MainActor
     init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool) {
         let state = workspace.cloudBindingState
-        var machineIDs = Set(state.projectedResources.values.compactMap { $0.machine.cloudMachineID })
+        let persistedMachines = SurfaceCatalog.shared.projectionRecords(forWorkspace: workspace.id).map(\.resource.machine)
+        var machineIDs = Set((state.projectedResources.values.map(\.machine) + persistedMachines).compactMap { $0.cloudMachineID })
         if let id = workspace.cloudVMID { machineIDs.insert(id) }
         isDeviceWorkspace = machineIDs.isEmpty
-        machineIDs.formUnion(state.projectedResources.values.compactMap { $0.machine.isDevice ? $0.machine.rawValue : nil })
+        machineIDs.formUnion((state.projectedResources.values.map(\.machine) + persistedMachines).compactMap { $0.isDevice ? $0.rawValue : nil })
         guard !machineIDs.isEmpty else { return nil }
         let names = Dictionary(uniqueKeysWithValues: machineIDs.map { id in
             let name = state.machineNames[id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? id
