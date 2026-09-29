@@ -3141,7 +3141,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var remoteLastDaemonErrorFingerprint: String?
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
-    var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    var activeRemoteTerminalSurfaceIds: Set<UUID> = [] {
+        didSet {
+            // A surface's remote session registering or ending changes which
+            // machine its shell runs on, so predicted echo classifies it again.
+            for surfaceID in activeRemoteTerminalSurfaceIds.symmetricDifference(oldValue) {
+                TerminalPredictionCenter.shared.surfaceMachineMayHaveChanged(surfaceID: surfaceID)
+            }
+        }
+    }
     var remoteTerminalSessionStatesBySurfaceId: [UUID: WorkspaceRemoteTerminalSessionState] = [:]
     var pendingRemoteTerminalConnectionsBySurfaceId: [UUID: PendingWorkspaceRemoteTerminalConnection] = [:]
     var remoteTerminalAttemptIDsBySurfaceId: [UUID: UUID] = [:]
