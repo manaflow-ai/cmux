@@ -136,7 +136,7 @@ extension TerminalSurface {
     /// can start the PTY, and a zero-sized real-window attachment can establish
     /// ownership, but neither is enough to present a renderer.
     @MainActor
-    fileprivate var isRendererPresentationReady: Bool {
+    var isRendererPresentationReady: Bool {
         guard let attachedView,
               let presentationWindow = uiWindow,
               attachedView.window === presentationWindow else { return false }
