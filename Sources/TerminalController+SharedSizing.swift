@@ -34,11 +34,14 @@ extension TerminalController {
     /// changed, then applies it to the Ghostty surface. Replaces the legacy
     /// "smallest attached viewport wins" rule.
     ///
+    /// - Parameter immediate: `true` when a phone explicitly left, so the
+    ///   resulting size applies without the governor's stability window.
     /// - Returns: the grid the phone's replay fence should expect.
     func resolveSharedSizing(
         surfaceID: UUID,
         reports: [String: MobileViewportReport],
         countsOverride: (clientID: String, value: Bool?)? = nil,
+        immediate: Bool = false,
         reason: String
     ) -> (columns: Int, rows: Int)? {
         if let relay = cloudSizingRelaysBySurfaceID[surfaceID]?.value, relay.relaysPhones {
@@ -51,7 +54,7 @@ extension TerminalController {
             return currentMobileViewportGrid(surfaceID: surfaceID)
         }
         guard var host = localSizingHost(surfaceID: surfaceID, create: !reports.isEmpty) else {
-            return legacyMinimumSizing(surfaceID: surfaceID, reports: reports, reason: reason)
+            return legacyMinimumSizing(surfaceID: surfaceID, reports: reports, immediate: immediate, reason: reason)
         }
         let previous = host.state
         if let viewport = localSizingControllersBySurfaceID[surfaceID]?.naturalViewport() {
@@ -65,7 +68,7 @@ extension TerminalController {
             )
         }
         localSizingHostsBySurfaceID[surfaceID] = host
-        return applyLocalSizing(surfaceID: surfaceID, previous: previous, reason: reason)
+        return applyLocalSizing(surfaceID: surfaceID, previous: previous, immediate: immediate, reason: reason)
     }
 
     /// The pre-shared-sizing rule, kept for manual-I/O mirrors whose remote
@@ -73,16 +76,18 @@ extension TerminalController {
     private func legacyMinimumSizing(
         surfaceID: UUID,
         reports: [String: MobileViewportReport],
+        immediate: Bool,
         reason: String
     ) -> (columns: Int, rows: Int)? {
         guard let minColumns = reports.values.map(\.columns).min(),
               let minRows = reports.values.map(\.rows).min() else {
-            governMobileViewportTarget(surfaceID: surfaceID, target: .uncapped, reason: reason)
+            governMobileViewportTarget(surfaceID: surfaceID, target: .uncapped, immediate: immediate, reason: reason)
             return nil
         }
         return governMobileViewportTarget(
             surfaceID: surfaceID,
             target: .cap(columns: minColumns, rows: minRows),
+            immediate: immediate,
             reason: reason
         )
     }
@@ -143,6 +148,7 @@ extension TerminalController {
     func applyLocalSizing(
         surfaceID: UUID,
         previous: TerminalSizingState?,
+        immediate: Bool = false,
         reason: String
     ) -> (columns: Int, rows: Int)? {
         guard let host = localSizingHostsBySurfaceID[surfaceID] else { return nil }
@@ -152,13 +158,20 @@ extension TerminalController {
             return governMobileViewportTarget(
                 surfaceID: surfaceID,
                 target: .cap(columns: size.cols, rows: size.rows),
+                immediate: immediate,
                 reason: reason
             )
         case .uncapped:
             if host.phoneParticipantIDs.isEmpty {
-                // The last phone left: keep the governor's uncap window, which
-                // absorbs a remount's clear + re-apply (issue 13474).
-                governMobileViewportTarget(surfaceID: surfaceID, target: .uncapped, reason: reason)
+                // The last phone left. An explicit leave restores the pane
+                // now; a TTL expiry keeps the governor's uncap window
+                // (issue 13474).
+                governMobileViewportTarget(
+                    surfaceID: surfaceID,
+                    target: .uncapped,
+                    immediate: immediate,
+                    reason: reason
+                )
             } else if let governor = mobileViewportApplyGovernorsBySurfaceID[surfaceID] {
                 // Ownership moved back to this Mac while phones stay attached:
                 // restore the pane now instead of after the uncap window.
