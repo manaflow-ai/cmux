@@ -394,7 +394,10 @@ build_helper() {
     # Zig 0.15.x treats SDKROOT as a sysroot override. Xcode exports SDKROOT to
     # the macOS SDK, which makes Zig look for SDK paths under that SDK again and
     # leaves build-runner binaries unlinked against libSystem on a cold cache.
-    env -u SDKROOT "${args[@]}"
+    # Xcode also exports TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault. That
+    # selector hides the separately installed Metal Toolchain from xcrun, so
+    # let xcrun resolve Metal from the active Xcode component instead.
+    env -u SDKROOT -u TOOLCHAINS "${args[@]}"
   )
 
   [[ -x "$prefix/bin/ghostty" ]] || {
