@@ -37,6 +37,22 @@ import Testing
         #expect(info.st_uid == geteuid())
     }
 
+    @Test(arguments: [mode_t(0o644), mode_t(0o666)])
+    func makesAnExistingLogPrivateBeforeReturningItsHandle(mode: mode_t) throws {
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let log = path("existing.log")
+        try "earlier\n".write(toFile: log, atomically: false, encoding: .utf8)
+        try #require(chmod(log, mode) == 0)
+
+        let handle = try #require(OwnedLogFile(path: log).openForAppending())
+        defer { try? handle.close() }
+        var info = stat()
+        try #require(fstat(handle.fileDescriptor, &info) == 0)
+        #expect(info.st_mode & 0o7777 == 0o600)
+        try handle.write(contentsOf: Data("private diagnostic\n".utf8))
+        #expect(try String(contentsOfFile: log, encoding: .utf8) == "earlier\nprivate diagnostic\n")
+    }
+
     @Test func doesNotWriteThroughASymlink() throws {
         defer { try? FileManager.default.removeItem(at: directory) }
         let target = path("target")
