@@ -303,7 +303,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
                     </span>
                     {result.excerptHtml && (
                       <span
-                        className="docs-search-excerpt mt-0.5 line-clamp-2 block text-[12.5px] leading-5 text-muted"
+                        className="docs-search-excerpt mt-0.5 line-clamp-2 text-[12.5px] leading-5 text-muted"
                         dangerouslySetInnerHTML={{ __html: result.excerptHtml }}
                       />
                     )}
