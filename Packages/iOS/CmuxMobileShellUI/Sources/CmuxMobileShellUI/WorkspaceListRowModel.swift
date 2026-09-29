@@ -41,11 +41,30 @@ struct WorkspaceListMacStatusRowModel: Equatable {
     let canReconnect: Bool
 }
 
+/// Which guidance the aggregated (All Computers) empty state gives when no
+/// workspaces exist anywhere.
+enum WorkspaceListEmptyGuidance: Equatable {
+    /// Pair a Mac: the user has, or is setting up, cmux Macs.
+    case macPairing
+    /// Use the SSH computers that already exist: pick one or add another.
+    case sshComputers
+
+    /// Mac copy stays whenever a paired Mac gives it context; only an
+    /// SSH-only setup (SSH computers and no paired Mac — a signed-in account
+    /// before its first pairing) switches, because the Mac copy would
+    /// describe a Mac the user does not have (PRD D29: mode-aware empty
+    /// states).
+    init(hasSSHComputers: Bool, hasPairedMacs: Bool) {
+        self = hasSSHComputers && !hasPairedMacs ? .sshComputers : .macPairing
+    }
+}
+
 struct WorkspaceListEmptyRowModel: Equatable {
     let isVisible: Bool
     let hasRetry: Bool
     let ownerID: String?
     let ownerInstanceTag: String?
+    var guidance: WorkspaceListEmptyGuidance = .macPairing
 }
 
 /// What UIKit caches from a row outside its content view: the swipe actions
@@ -207,7 +226,8 @@ extension WorkspaceListTable {
                     isVisible: showsWorkspaceEmptyState,
                     hasRetry: refresh != nil,
                     ownerID: workspaceOwnerID,
-                    ownerInstanceTag: workspaceOwnerInstanceTag
+                    ownerInstanceTag: workspaceOwnerInstanceTag,
+                    guidance: emptyStateGuidance
                 )
             )
         }

@@ -128,7 +128,8 @@ struct WindowOverlayChromeTests {
             glassEffect.apply(to: window)
         }
         let windowRoot = try #require(window.contentView)
-        if installsGlass && glassEffect.isAvailable {
+        let backdropKeepsGlassRoot = installsGlass && glassEffect.isAvailable
+        if backdropKeepsGlassRoot {
             #expect(windowRoot !== content)
             #expect(glassEffect.originalContentView(for: window) === content)
         } else {
@@ -148,7 +149,10 @@ struct WindowOverlayChromeTests {
             browser.synchronizeWebViewForAnchor(browserAnchor)
             terminal.synchronizeHostedViewForAnchor(terminalAnchor)
             let root = try #require(window.contentView)
-            #expect(root === windowRoot, "Portals must preserve the root installed before they bind.")
+            #expect(
+                root === (backdropKeepsGlassRoot ? windowRoot : content),
+                "Portals must preserve the active backdrop root while terminal content binds."
+            )
             #expect(webView.window === window)
             let browserFrame = browserAnchor.convert(browserAnchor.bounds, to: nil)
             let browserPoint = NSPoint(x: browserFrame.midX, y: browserFrame.midY)
