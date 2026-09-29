@@ -360,6 +360,11 @@ extension CmuxTuiSurfaceProvider {
                     return
                 } catch {
                     guard !Task.isCancelled else { return }
+                    if reportMissingCloudMachine(error) {
+                        self.restoredAttachTasks[panelID] = nil
+                        workspace.failReservedCloudTerminalPane(reservation, error: error)
+                        return
+                    }
                     if error as? CloudDiagnosticFailure == .placement {
                         self.restoredAttachTasks[panelID] = nil
                         workspace.failReservedCloudTerminalPane(reservation, error: error)

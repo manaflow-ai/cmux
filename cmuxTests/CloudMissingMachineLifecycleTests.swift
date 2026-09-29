@@ -1,4 +1,6 @@
 import AppKit
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import Testing
 
@@ -62,6 +64,47 @@ struct CloudMissingMachineLifecycleTests {
         app.closeWorkspaces(forManagedCloudVMID: machineID)
         #expect(manager.tabs.map(\.id) == [local.id])
         #expect(!local.panels.isEmpty)
+    }
+
+    @Test("A successful empty fleet retires a restored Cloud binding")
+    func missingMachineRefreshClosesRestoredBinding() async throws {
+        _ = NSApplication.shared
+        let previousApp = AppDelegate.shared
+        let app = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowID = UUID()
+        let window = makeWindow(id: windowID)
+        window.orderBack(nil)
+        app.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vm-restored-gone", isBase: false)
+        let catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(
+            environment: CloudWorkspaceRenameEnvironment(workspaces: { manager.tabs })
+        ))
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { VMListPage(vms: [], limits: nil) }
+        )
+        defer {
+            manager.finalizeAllWorkspacesForWindowClose()
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            window.orderOut(nil)
+            AppDelegate.shared = previousApp
+        }
+        AppDelegate.shared = app
+        registry.start(catalog: catalog)
+        #expect(await registry.refresh(force: true))
+        #expect(workspace.cloudVMID == nil)
+        #expect(workspace.panels.isEmpty)
+        await registry.accessDidEnd()
     }
 
     private func makeWindow(id: UUID) -> NSWindow {

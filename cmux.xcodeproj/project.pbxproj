@@ -1415,9 +1415,11 @@
 		A4E17A019B254CA1AC30620A /* CmuxTuiSurfaceProvider+Refresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7289F02703E9435CBA1C598B /* CmuxTuiSurfaceProvider+Refresh.swift */; };
 		5655A7DFE0224AC69D74EE1A /* CmuxTuiSurfaceProvider+TabRename.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39B27028EBC44AB1A897A8D8 /* CmuxTuiSurfaceProvider+TabRename.swift */; };
 		C12537000000000000000211 /* CmuxTuiSurfaceProvider+TerminalCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12537000000000000000212 /* CmuxTuiSurfaceProvider+TerminalCreation.swift */; };
+		20365D7FF85C6E2FD94623C7 /* CmuxTuiSurfaceProvider+TerminalFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50493345857F319B9FF710B /* CmuxTuiSurfaceProvider+TerminalFailure.swift */; };
 		FBDAF2DF1FC2BDE5F908FA4E /* CmuxTuiSurfaceProvider+TerminalIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ECA6203F1AB489BDF3F7A05 /* CmuxTuiSurfaceProvider+TerminalIO.swift */; };
 		646ACD2F9B5044B8A2AB6C3A /* CmuxTuiSurfaceProvider+TerminalPrimitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = 122E7DF3DF3044E68322B11C /* CmuxTuiSurfaceProvider+TerminalPrimitives.swift */; };
 		D12439050000000000000001 /* CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12439050000000000000002 /* CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift */; };
+		A19CDB3A317A748E17CEE0B5 /* CmuxTuiSurfaceProviderRegistry+MissingMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8F1B7152DBAD999B4D75E6F /* CmuxTuiSurfaceProviderRegistry+MissingMachine.swift */; };
 		175CFE773740410786E08A2B /* CmuxTuiSurfaceProviderRegistry+Production.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95278207545546F08C9A325F /* CmuxTuiSurfaceProviderRegistry+Production.swift */; };
 		DAE9491D73F526601DFC97A2 /* CmuxTuiSurfaceProviderRegistry+Routes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6040C2AA5B187C05EEC1A67 /* CmuxTuiSurfaceProviderRegistry+Routes.swift */; };
 		7D46CAA4C3C848ACAD2E46A7 /* CmuxTuiSurfaceProviderRegistry+Teardown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69821B8A79404A3CA4D07699 /* CmuxTuiSurfaceProviderRegistry+Teardown.swift */; };
@@ -5501,9 +5503,11 @@
 		7289F02703E9435CBA1C598B /* CmuxTuiSurfaceProvider+Refresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+Refresh.swift"; sourceTree = "<group>"; };
 		39B27028EBC44AB1A897A8D8 /* CmuxTuiSurfaceProvider+TabRename.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+TabRename.swift"; sourceTree = "<group>"; };
 		C12537000000000000000212 /* CmuxTuiSurfaceProvider+TerminalCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+TerminalCreation.swift"; sourceTree = "<group>"; };
+		E50493345857F319B9FF710B /* CmuxTuiSurfaceProvider+TerminalFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+TerminalFailure.swift"; sourceTree = "<group>"; };
 		4ECA6203F1AB489BDF3F7A05 /* CmuxTuiSurfaceProvider+TerminalIO.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+TerminalIO.swift"; sourceTree = "<group>"; };
 		122E7DF3DF3044E68322B11C /* CmuxTuiSurfaceProvider+TerminalPrimitives.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+TerminalPrimitives.swift"; sourceTree = "<group>"; };
 		D12439050000000000000002 /* CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift"; sourceTree = "<group>"; };
+		D8F1B7152DBAD999B4D75E6F /* CmuxTuiSurfaceProviderRegistry+MissingMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProviderRegistry+MissingMachine.swift"; sourceTree = "<group>"; };
 		95278207545546F08C9A325F /* CmuxTuiSurfaceProviderRegistry+Production.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProviderRegistry+Production.swift"; sourceTree = "<group>"; };
 		A6040C2AA5B187C05EEC1A67 /* CmuxTuiSurfaceProviderRegistry+Routes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProviderRegistry+Routes.swift"; sourceTree = "<group>"; };
 		69821B8A79404A3CA4D07699 /* CmuxTuiSurfaceProviderRegistry+Teardown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProviderRegistry+Teardown.swift"; sourceTree = "<group>"; };
@@ -8757,6 +8761,8 @@
 				EF71108A70863A2942D129D2 /* CmuxTuiSurfaceProvider+Notifications.swift */,
 				B51835ECCEF581663B12E497 /* CmuxTuiSurfaceProvider+GuestURL.swift */,
 				16F81541F06BB9C88654913B /* SurfaceCatalog+MachineDeletion.swift */,
+				E50493345857F319B9FF710B /* CmuxTuiSurfaceProvider+TerminalFailure.swift */,
+				D8F1B7152DBAD999B4D75E6F /* CmuxTuiSurfaceProviderRegistry+MissingMachine.swift */,
 			);
 			name = Surfaces;
 			path = Surfaces;
@@ -13794,9 +13800,11 @@
 				A4E17A019B254CA1AC30620A /* CmuxTuiSurfaceProvider+Refresh.swift in Sources */,
 				5655A7DFE0224AC69D74EE1A /* CmuxTuiSurfaceProvider+TabRename.swift in Sources */,
 				C12537000000000000000211 /* CmuxTuiSurfaceProvider+TerminalCreation.swift in Sources */,
+				20365D7FF85C6E2FD94623C7 /* CmuxTuiSurfaceProvider+TerminalFailure.swift in Sources */,
 				FBDAF2DF1FC2BDE5F908FA4E /* CmuxTuiSurfaceProvider+TerminalIO.swift in Sources */,
 				646ACD2F9B5044B8A2AB6C3A /* CmuxTuiSurfaceProvider+TerminalPrimitives.swift in Sources */,
 				D12439050000000000000001 /* CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift in Sources */,
+				A19CDB3A317A748E17CEE0B5 /* CmuxTuiSurfaceProviderRegistry+MissingMachine.swift in Sources */,
 				175CFE773740410786E08A2B /* CmuxTuiSurfaceProviderRegistry+Production.swift in Sources */,
 				DAE9491D73F526601DFC97A2 /* CmuxTuiSurfaceProviderRegistry+Routes.swift in Sources */,
 				7D46CAA4C3C848ACAD2E46A7 /* CmuxTuiSurfaceProviderRegistry+Teardown.swift in Sources */,

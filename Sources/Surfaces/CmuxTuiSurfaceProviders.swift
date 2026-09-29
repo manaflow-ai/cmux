@@ -36,7 +36,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     let portForwards: CloudHubPortForwarder?
     let portAccessStore: CloudPortAccessStore
     let displayCoordinator: CloudDisplayCoordinator
-    let browserPolicy: @MainActor () -> BrowserURLAllowlistPolicy
+    let browserPolicy: @MainActor () -> BrowserURLAllowlistPolicy; let onMachineNotFound: (@MainActor (String, CloudVMHTTPError) -> Void)?
     /// Invalidates suspended work when this provider is stopped or replaced.
     var isFeatureSuspended = false
     private(set) var lifecycleGeneration: UInt64 = 0
@@ -137,7 +137,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         attachmentClock: any Clock<Duration> = ContinuousClock(),
         portAccessStore: CloudPortAccessStore? = nil,
         displayCoordinator: CloudDisplayCoordinator? = nil,
-        browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() }
+        browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() }, onMachineNotFound: (@MainActor (String, CloudVMHTTPError) -> Void)? = nil
     ) {
         self.fileAccessTeamScope = fileAccessTeamScope
         machineID = summary.id
@@ -151,7 +151,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard summary.cloudSummary != nil, let client = VMClient.shared else { throw ProviderError.notSignedIn }
             return try await client.exec(id: summary.id, command: command, timeoutMs: timeout)
         }
-        self.browserPolicy = browserPolicy
+        self.browserPolicy = browserPolicy; self.onMachineNotFound = onMachineNotFound
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
         installNotificationSync()
     }
@@ -373,6 +373,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             ) else { return false }
         } catch {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
+            if reportMissingCloudMachine(error) { return false }
             let status = await links.status(machineID: machineID)
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             let text = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
@@ -501,7 +502,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
         return true
     }
-
     @discardableResult
     func installSnapshotIfNewer(_ incoming: CloudVMState, requestVersion: UInt64? = nil) -> Bool {
         equalCursorConflictArmedByLastInstall = false

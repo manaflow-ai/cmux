@@ -8,6 +8,8 @@ extension AppDelegate {
     func closeLocalWorkspaces(forCloudVMID vmID: String) {
         for (manager, doomed) in localWorkspaces(forCloudVMID: vmID) {
             for workspace in doomed {
+                workspace.disconnectRemoteConnection(clearConfiguration: true)
+                workspace.cloudVMBinding = nil
                 if manager.tabs.count > 1 {
                     manager.closeWorkspace(workspace, recordHistory: false)
                 } else {
@@ -34,11 +36,7 @@ extension AppDelegate {
     private func localWorkspaces(forCloudVMID vmID: String) -> [(manager: TabManager, workspaces: [Workspace])] {
         let target = vmID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !target.isEmpty else { return [] }
-        var managers = mainWindowContexts.values.map(\.tabManager)
-        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
-            managers.append(tabManager)
-        }
-        return managers.map { manager in
+        return liveWorkspaceIdentityTabManagers(preferredTabManager: tabManager).map { manager in
             (manager, manager.tabs.filter { $0.cloudVMID?.lowercased() == target })
         }
     }

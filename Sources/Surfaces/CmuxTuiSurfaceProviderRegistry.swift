@@ -148,7 +148,7 @@ final class CmuxTuiSurfaceProviderRegistry {
               providers[summary.id] == nil else { return }
         let provider = CmuxTuiSurfaceProvider(
             summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope, links: links, catalog: catalog,
-            portForwards: portForwards, portAccessStore: portAccess
+            portForwards: portForwards, portAccessStore: portAccess, onMachineNotFound: missingMachineHandler
         )
         providers[summary.id] = provider
         catalog.register(provider)
@@ -415,14 +415,14 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// down its forwards and link on a task the registry owns (awaited by
     /// ``accessDidEnd()``), so no caller has to hold an unstructured task.
     func machineWasDeleted(_ rawID: String) {
+        AppDelegate.shared?.closeLocalWorkspaces(forCloudVMID: rawID)
         // A fleet page fetched before the delete must not re-register the
         // machine on top of this teardown.
         refreshGeneration &+= 1
         unregisterMachine(rawID)
     }
-
     /// Deletion and discovery share ordered teardown without waiting for unrelated machines.
-    private func unregisterMachine(_ rawID: String) {
+    fileprivate func unregisterMachine(_ rawID: String) {
         // Match the registered casing so every ownership table is removed.
         let id = registeredMachineID(matching: rawID)
         pendingMachineCreationIDs.remove(id); refreshedMachineIDs.remove(.cloud(id))
@@ -483,14 +483,14 @@ final class CmuxTuiSurfaceProviderRegistry {
         pendingMachineCreationIDs.subtract(seen)
         // Reconcile both stores. A restored catalog can contain a machine for
         // which this process has not created a provider yet.
-        let catalogMachineIDs = Set(catalog.machines.keys.compactMap(\.cloudMachineID))
+        let catalogMachineIDs = Set(catalog.machines.keys.compactMap(\.cloudMachineID)).union(catalog.boundCloudMachineIDs)
         let staleIDs = Set(providers.keys)
             .union(catalogMachineIDs)
             .union(catalog.pendingRestoredMachineIDs)
             .subtracting(pendingMachineCreationIDs)
             .subtracting(seen)
         for id in staleIDs {
-            unregisterMachine(id)
+            retireMissingMachine(id)
         }
         await links.retainAddresses(machineIDs: seen)
         guard !isRetired, generation == refreshGeneration else { return nil }
@@ -520,7 +520,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             } else {
                 let provider = CmuxTuiSurfaceProvider(
                     summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope, links: links, catalog: catalog,
-                    portForwards: portForwards, portAccessStore: portAccess
+                    portForwards: portForwards, portAccessStore: portAccess, onMachineNotFound: missingMachineHandler
                 )
                 providers[summary.id] = provider
                 catalog.register(provider)

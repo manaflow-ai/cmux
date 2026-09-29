@@ -66,7 +66,7 @@ public actor CloudMachineLinkManager {
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
     private var browserProxies: [String: CloudBrowserProxyProcess] = [:]
     private var browserProxyStarts: [String: Task<CloudBrowserProxyEndpoint, Error>] = [:]
-    private var lastFailure: [String: (at: Date, error: String)] = [:]
+    private var lastFailure: [String: (at: Date, error: String, terminal: Bool)] = [:]
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken. Only background upkeep waits it out
     /// (``backoffRejects(failedAt:now:backoff:)``).
@@ -192,8 +192,8 @@ public actor CloudMachineLinkManager {
                 "outcome": "started"
             ]
         )
-        if let failure = lastFailure[machineID], Self.backoffRejects(failedAt: failure.at, now: Date(), backoff: retryBackoff) {
-            recordPreflightFailure(machineID: machineID, reason: "retry_backoff", correlationID: correlationID)
+        if let failure = lastFailure[machineID], failure.terminal || Self.backoffRejects(failedAt: failure.at, now: Date(), backoff: retryBackoff) {
+            if !failure.terminal { recordPreflightFailure(machineID: machineID, reason: "retry_backoff", correlationID: correlationID) }
             throw ManagerError.retryLater(failure.error)
         }
         guard let clientURL else {
@@ -304,7 +304,7 @@ public actor CloudMachineLinkManager {
         } catch {
             guard connecting[machineID] == task else { throw error }
             let text = CloudMachineLink.errorText(error)
-            lastFailure[machineID] = (Date(), text)
+            lastFailure[machineID] = (Date(), text, Self.shouldStopAutomaticReconnect(error))
             links[machineID] = nil
             #if DEBUG
             CMUXDebugLog.logDebugEvent("cloud.link.failed machine=\(machineID) error=\(String(reflecting: error)) text=\(text)")
