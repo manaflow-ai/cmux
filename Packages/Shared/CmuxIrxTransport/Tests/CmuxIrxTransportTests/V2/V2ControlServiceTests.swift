@@ -2,6 +2,35 @@ import Foundation
 import Testing
 @testable import CmuxIrxTransport
 
+private final class SleepRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedDurations: [TimeInterval] = []
+
+    func sleep(_ duration: TimeInterval) async throws {
+        record(duration)
+        try await Task.sleep(for: .seconds(3600))
+    }
+
+    private func record(_ duration: TimeInterval) {
+        lock.lock()
+        recordedDurations.append(duration)
+        lock.unlock()
+    }
+
+    func durations() -> [TimeInterval] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedDurations
+    }
+
+    func waitFor(_ duration: TimeInterval, count: Int) async {
+        for _ in 0..<200 {
+            if durations().filter({ $0 == duration }).count >= count { return }
+            await Task.yield()
+        }
+    }
+}
+
 @Suite(.timeLimit(.minutes(1))) struct V2ControlServiceTests {
     private let now = 1_789_000_000
 
@@ -14,11 +43,18 @@ import Testing
         )
     }
 
-    private func service(backend: V2TestBackend, store: V2TestStateStore = V2TestStateStore(), journal: IrxJournal? = nil) throws -> V2ControlService {
+    private func service(
+        backend: V2TestBackend,
+        store: V2TestStateStore = V2TestStateStore(),
+        journal: IrxJournal? = nil,
+        sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
+            try await Task.sleep(for: .seconds(max(0, seconds)))
+        }
+    ) throws -> V2ControlService {
         let fixedNow = now
         return V2ControlService(
             configuration: try V2ControlConfiguration(baseURL: URL(string: "https://control.example.com")!, device: device()),
-            dependencies: V2ControlDependencies(connect: { try await backend.connect($0) }, http: { try await backend.http($0) }, stackAccessToken: { _ in "existing-stack-session" }, sign: { _ in Data(repeating: 1, count: 64) }, now: { Date(timeIntervalSince1970: Double(fixedNow)) }, jitter: { 0.5 }, journal: journal),
+            dependencies: V2ControlDependencies(connect: { try await backend.connect($0) }, http: { try await backend.http($0) }, stackAccessToken: { _ in "existing-stack-session" }, sign: { _ in Data(repeating: 1, count: 64) }, now: { Date(timeIntervalSince1970: Double(fixedNow)) }, sleep: sleep, jitter: { 0.5 }, journal: journal),
             store: store
         )
     }
@@ -44,6 +80,36 @@ import Testing
             if snapshot.status == .stopped, let failure = snapshot.failure { throw failure }
         }
         throw V2ControlFailure.stopped
+    }
+
+    @Test func applyWatchdogStaysAnchoredToTheFirstUnacknowledgedSnapshot() async throws {
+        let backend = V2TestBackend(now: now)
+        let sleeps = SleepRecorder()
+        let service = try service(
+            backend: backend,
+            sleep: { seconds in try await sleeps.sleep(seconds) }
+        )
+        let observer = await service.events()
+        await service.start()
+        await sleeps.waitFor(300, count: 1)
+
+        var reachedReady = false
+        for _ in 0..<200 {
+            if await service.snapshot().status == .ready {
+                reachedReady = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(reachedReady)
+        #expect(await service.snapshot().sequence > 1)
+
+        try await Task.sleep(for: .milliseconds(25))
+        let watchdogSleeps = sleeps.durations().filter { $0 == 300 }
+        #expect(watchdogSleeps.count == 1)
+
+        _ = observer
+        await service.stop()
     }
 
     @Test func enrollmentThenResumeUsesOneRegistrationAndSignedTicket() async throws {
