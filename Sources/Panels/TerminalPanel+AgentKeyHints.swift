@@ -111,16 +111,21 @@ extension TerminalPanel {
         guard policy.pressesHint,
             Self.agentKeyHintsEnabled,
             !isAgentHibernated,
-            let context = agentKeyHintAgentContext,
-            let hint = Self.agentKeyHint(
-                inLine: line,
-                atColumn: column,
-                agent: context.agent,
-                isLiveRow: { inLiveRegion }
-            )
+            let context = agentKeyHintAgentContext
         else { return nil }
+        let hint = Self.agentKeyHint(
+            inLine: line,
+            atColumn: column,
+            agent: context.agent,
+            isLiveRow: { inLiveRegion }
+        )
+        let actionCommand: AgentActionCommand? = context.agent == .codex && inLiveRegion
+            ? CodexActionCommandDetector().command(in: line, atColumn: column)
+            : nil
+        guard hint != nil || actionCommand != nil else { return nil }
         return AgentKeyHintClick(
-            hint: hint,
+            hint: hint ?? AgentKeyHint(keys: [], action: actionCommand!.command, columns: actionCommand!.columns),
+            actionCommand: actionCommand,
             agent: context.agent,
             lifecycle: context.lifecycle,
             policy: policy
@@ -153,6 +158,13 @@ extension TerminalPanel {
     /// - Returns: Whether any key was sent or queued.
     @discardableResult
     func pressAgentKeyHint(_ click: AgentKeyHintClick) -> Bool {
+        if let command = click.actionCommand {
+            let sent = sendText(command.command + "\r")
+#if DEBUG
+            cmuxDebugLog("agentActionCommand.press panel=\(id.uuidString.prefix(5)) command=\(command.command) sent=\(sent ? 1 : 0)")
+#endif
+            return sent
+        }
         var sent = false
         for key in agentKeyHintKeys(for: click.hint, agent: click.agent) {
             sent = surface.sendNamedKeyAvoidingTerminalBindings(key) || sent
