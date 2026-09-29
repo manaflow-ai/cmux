@@ -50,6 +50,9 @@ import Testing
         // root, background, separator, icon, title per tab; the selected tab
         // adds its close button (2 layers).
         #expect(h.tabLayers <= 100 * 5 + 2)
+        #expect(h.strip.cells.values.filter(\.hasSpinnerLayer).isEmpty)
+        #expect(h.strip.cells.values.filter(\.hasBadgeLayer).isEmpty)
+        #expect(h.strip.cells.values.filter(\.hasCloseLayers).count <= 1)
     }
 
     @Test func spinnerAndBadgeLayersExistOnlyWhileNeeded() {
@@ -60,9 +63,23 @@ import Testing
         h.model.tabs[1].isUnread = true
         h.strip.sync(fromModel: true)
         #expect(Harness.count(cell.layer) == idle + 2)
+        #expect(cell.hasSpinnerLayer && cell.hasBadgeLayer)
         h.model.tabs[1].isBusy = false
         h.model.tabs[1].isUnread = false
         h.strip.sync(fromModel: true)
         #expect(Harness.count(cell.layer) == idle)
+        #expect(!cell.hasSpinnerLayer && !cell.hasBadgeLayer)
+    }
+
+    @Test func closeButtonLayersFollowHoverOnNarrowTabs() {
+        // Narrow tabs (100 in 1400 pt) show close only when selected or hovered.
+        let h = Harness(count: 100)
+        let cell = h.strip.cells[TabID("t2")]!
+        #expect(!cell.hasCloseLayers)
+        cell.isHovered = true
+        #expect(cell.hasCloseLayers)
+        cell.isHovered = false
+        #expect(!cell.hasCloseLayers)
+        #expect(h.strip.cells[TabID("t0")]!.hasCloseLayers)
     }
 }
