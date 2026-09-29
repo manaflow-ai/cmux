@@ -38,6 +38,7 @@ extension ShortcutAction {
              .equalizeSplits, .resizePaneLeft, .resizePaneRight,
              .resizePaneUp, .resizePaneDown, .splitBrowserRight, .splitBrowserDown,
              .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
+            .fileExplorerQuickLook, .fileExplorerRenameSelection, .fileExplorerToggleHiddenFiles, .fileExplorerSelectParent,
              .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
              .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,

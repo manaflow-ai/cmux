@@ -181,6 +181,10 @@ Values for `shortcuts.bindings.<action>`:
 
 - `shortcuts.bindings.fileExplorerOpenSelection`
 - `shortcuts.bindings.fileExplorerOpenSelectionFinderAlias`
+- `shortcuts.bindings.fileExplorerQuickLook`
+- `shortcuts.bindings.fileExplorerRenameSelection`
+- `shortcuts.bindings.fileExplorerToggleHiddenFiles`
+- `shortcuts.bindings.fileExplorerSelectParent`
 - `shortcuts.bindings.saveFilePreview`
 - `shortcuts.bindings.toggleFileEditorWordWrap`
 - `shortcuts.bindings.toggleFileExplorer`

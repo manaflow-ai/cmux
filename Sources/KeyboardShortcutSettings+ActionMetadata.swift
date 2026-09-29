@@ -4,6 +4,10 @@ extension KeyboardShortcutSettings.Action {
     var allowsChordShortcut: Bool {
         self != .fileExplorerOpenSelection
             && self != .fileExplorerOpenSelectionFinderAlias
+            && self != .fileExplorerQuickLook
+            && self != .fileExplorerRenameSelection
+            && self != .fileExplorerToggleHiddenFiles
+            && self != .fileExplorerSelectParent
             && self != .cycleTextBoxSubmitAction
     }
 
