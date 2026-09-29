@@ -22405,73 +22405,65 @@ mod tests {
     }
 
     #[test]
-    fn displaced_terminal_owner_reclaims_geometry_when_the_new_owner_leaves() {
+    fn remaining_view_takes_the_grid_when_the_newer_owner_stops_counting() {
+        // Shared sizing (`latest`): when the newest owner stops counting, the
+        // next counting view takes the grid in the same step, so a laptop
+        // regains its size when a phone stops sizing the terminal.
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
-        let laptop = mux.control_clients.register(ClientTransport::Unix, test_writer());
-        let phone = mux.control_clients.register(ClientTransport::Unix, test_writer());
-        mux.resize_surface_for_client(surface.id, laptop, 120, 40).unwrap();
-        assert_eq!(mux.claim_terminal_geometry(surface.id, laptop), Some(true));
+        mux.pin_latest_size_policy_for_test(surface.id);
+        let join = |cols, rows| {
+            let writer = test_writer();
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            attach_test_view(&mux, client, surface.id, &writer);
+            handle_command(
+                &mux,
+                client,
+                Command::ResizeSurface { surface: surface.id, cols, rows },
+                &writer,
+            )
+            .unwrap();
+            client
+        };
+        let laptop = join(120, 40);
+        let phone = join(66, 52);
+        assert_eq!(surface.size(), (66, 52));
+
+        mux.set_client_size_participation(surface.id, phone, false).unwrap();
         assert_eq!(surface.size(), (120, 40));
-
-        // The phone views the terminal, then releases its viewport while
-        // keeping its stream (release-attached-view-size).
-        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
-        assert_eq!(mux.claim_terminal_geometry(surface.id, phone), Some(true));
-        assert_eq!(surface.size(), (66, 52));
-        assert!(!mux.client_size_participates(surface.id, laptop));
-        mux.remove_surface_size_client(surface.id, phone);
-        assert_eq!(surface.size(), (120, 40));
-        assert!(mux.client_size_participates(surface.id, laptop));
-        mux.resize_surface_for_client(surface.id, laptop, 118, 38).unwrap();
-        assert_eq!(surface.size(), (118, 38));
-
-        // The phone claims again, then disables its sizing.
-        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
-        mux.claim_terminal_geometry(surface.id, phone).unwrap();
-        assert_eq!(surface.size(), (66, 52));
-        assert_eq!(mux.set_client_size_participation(surface.id, phone, false), Some(true));
-        assert_eq!(surface.size(), (118, 38));
-        assert!(mux.client_size_participates(surface.id, laptop));
-
-        // The phone claims again, then disconnects.
-        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
-        mux.claim_terminal_geometry(surface.id, phone).unwrap();
-        assert_eq!(surface.size(), (66, 52));
-        assert!(disconnect_client(&mux, phone, false));
-        assert_eq!(surface.size(), (118, 38));
-        assert!(mux.client_size_participates(surface.id, laptop));
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert_eq!(state.owners, [format!("c{laptop}")]);
     }
 
     #[test]
-    fn departed_or_frozen_owners_do_not_reclaim_terminal_geometry() {
+    fn departed_owner_never_reclaims_terminal_geometry() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
-        let laptop = mux.control_clients.register(ClientTransport::Unix, test_writer());
-        let phone = mux.control_clients.register(ClientTransport::Unix, test_writer());
-        mux.resize_surface_for_client(surface.id, laptop, 120, 40).unwrap();
-        mux.claim_terminal_geometry(surface.id, laptop).unwrap();
-        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
-        mux.claim_terminal_geometry(surface.id, phone).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
+        let join = |cols, rows| {
+            let writer = test_writer();
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            attach_test_view(&mux, client, surface.id, &writer);
+            handle_command(
+                &mux,
+                client,
+                Command::ResizeSurface { surface: surface.id, cols, rows },
+                &writer,
+            )
+            .unwrap();
+            client
+        };
+        let laptop = join(120, 40);
+        let phone = join(66, 52);
+        assert_eq!(surface.size(), (66, 52));
 
-        // A displaced owner that disconnected is never re-elected.
+        // A disconnected view leaves the engine and never returns; with no
+        // counting view left the grid keeps its last size.
         assert!(disconnect_client(&mux, laptop, false));
-        mux.remove_surface_size_client(surface.id, phone);
+        assert!(disconnect_client(&mux, phone, false));
         assert_eq!(surface.size(), (66, 52));
-        assert!(!mux.client_size_participates(surface.id, phone));
-
-        // An explicit release freezes the grid and forgets displaced owners.
-        let laptop = mux.control_clients.register(ClientTransport::Unix, test_writer());
-        mux.resize_surface_for_client(surface.id, laptop, 120, 40).unwrap();
-        mux.claim_terminal_geometry(surface.id, laptop).unwrap();
-        assert_eq!(surface.size(), (120, 40));
-        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
-        mux.claim_terminal_geometry(surface.id, phone).unwrap();
-        assert_eq!(mux.release_terminal_geometry(surface.id), Some(true));
-        assert_eq!(surface.size(), (66, 52));
-        mux.remove_surface_size_client(surface.id, phone);
-        assert_eq!(surface.size(), (66, 52));
-        assert!(!mux.client_size_participates(surface.id, laptop));
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert!(state.participants.is_empty());
     }
 
     #[test]
