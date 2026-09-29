@@ -99,7 +99,15 @@ final class TabContentCache {
         if let entry = terminals[key] {
             entry.session.isRenderingSuspended = !visible
             entry.io.setVisible(visible)
-            if !visible, let image = entry.session.snapshot(maxPixelSize: 480) { previews.insert(image, for: key) }
+            if !visible {
+                // Rendered off the main thread: the GPU readback used to block it.
+                Task { [weak self] in
+                    guard let image = await entry.session.snapshotInBackground(maxPixelSize: 480) else { return }
+                    // The tab may have closed while the preview rendered.
+                    guard let self, self.terminals[key] != nil else { return }
+                    self.previews.insert(image, for: key)
+                }
+            }
         }
         if let entry = browsers[key] {
             Task { await entry.tab.setOccluded(!visible) }
@@ -126,7 +134,8 @@ final class TabContentCache {
     // MARK: Previews
 
     func previewImage(for key: String, maxPixelSize: CGSize) async -> CGImage? {
-        if let entry = terminals[key], let image = entry.session.snapshot(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) {
+        if let entry = terminals[key],
+           let image = await entry.session.snapshotInBackground(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) {
             previews.insert(image, for: key)
             return image
         }

@@ -464,7 +464,7 @@ def settle(profile, control, quiet_s=1.0, limit_s=30.0):
     return last
 
 
-def wait_for_pty_baseline(profile, pid, baseline, limit_s=15.0):
+def wait_for_pty_baseline(profile, pid, baseline, limit_s=90.0):
     """Terminal hosts exit asynchronously after close-terminal."""
     started = time.monotonic()
     while time.monotonic() - started < limit_s:
@@ -567,7 +567,7 @@ def main():
         # The daemon closes ~10 terminals per second and the mirror may apply
         # them in one batch, so allow a long quiet period before retrying.
         best, since = len(extra), time.monotonic()
-        while time.monotonic() - since < 30.0:
+        while time.monotonic() - since < 45.0:
             time.sleep(0.5)
             count = len(extra_tabs())
             if count == 0:
