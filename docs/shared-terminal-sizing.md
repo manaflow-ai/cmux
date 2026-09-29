@@ -50,10 +50,12 @@ survives reconnects and can rank "Maya's Mac" above "Maya's iPhone".
 
 `mode` is one of:
 
-- `latest` (default, tmux 3.1+ `window-size latest`): the counting participant with
+- `smallest` (default, "Fit everyone"): component-wise min over counting
+  participants, so every attached device sees the whole grid.
+- `latest` (tmux 3.1+ `window-size latest`): the counting participant with
   the newest activity. Activity is attach, explicit focus-click, and keyboard,
   paste or mouse input. Hover and background tabs are not activity.
-- `smallest` / `largest`: component-wise min / max over counting participants.
+- `largest`: component-wise max over counting participants.
 - `priority`: the first key in `priority` that matches a counting participant
   (newest activity breaks ties inside one key). No match falls back to `latest`
   with reason `priority-fallback`.

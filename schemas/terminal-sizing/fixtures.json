@@ -3,12 +3,66 @@
   "notes": "Conformance corpus for docs/shared-terminal-sizing.md. Replayed by Packages/Shared/CmuxTerminalSizing tests and cmux-tui-core sizing_policy tests. Steps run in order; 'expect' checks the published state.",
   "cases": [
     {
+      "name": "default policy is fit everyone",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "via": "mac",
+            "viewport": {
+              "cols": 54,
+              "rows": 44
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 42,
+          "owners": [
+            "mac",
+            "phone"
+          ],
+          "reason": "smallest",
+          "counts": {
+            "mac": true,
+            "phone": true
+          }
+        }
+      ]
+    },
+    {
       "name": "initial size is held until someone reports",
       "initial": {
         "cols": 80,
         "rows": 24
       },
       "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
         {
           "op": "attach",
           "participant": {
@@ -48,6 +102,12 @@
         "rows": 24
       },
       "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
         {
           "op": "attach",
           "participant": {
@@ -104,6 +164,12 @@
       },
       "steps": [
         {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
+        {
           "op": "attach",
           "participant": {
             "id": "a",
@@ -150,6 +216,12 @@
       },
       "steps": [
         {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
+        {
           "op": "attach",
           "participant": {
             "id": "a",
@@ -181,6 +253,12 @@
         "rows": 24
       },
       "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
         {
           "op": "attach",
           "participant": {
@@ -249,6 +327,12 @@
       },
       "steps": [
         {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
+        {
           "op": "attach",
           "participant": {
             "id": "maya",
@@ -293,6 +377,12 @@
         "rows": 24
       },
       "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
         {
           "op": "attach",
           "participant": {
@@ -659,6 +749,12 @@
       },
       "steps": [
         {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
+        {
           "op": "attach",
           "participant": {
             "id": "a",
@@ -780,6 +876,12 @@
         "rows": 24
       },
       "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
         {
           "op": "attach",
           "participant": {
