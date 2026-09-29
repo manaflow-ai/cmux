@@ -289,11 +289,10 @@ public final class CloudSystemVPNController {
         }
     }
 
-    /// Retries the action represented by the current failure row. A failed
-    /// sign-out retries removal instead of trying to enroll without an
-    /// account.
+    /// Retries the action represented by the current failure row. Pending
+    /// cleanup is completed before a new account is refreshed or enrolled.
     public func retry() {
-        if scope == nil && cleanupPending {
+        if cleanupPending {
             retryPendingCleanup()
         } else {
             enable()
@@ -370,7 +369,7 @@ public final class CloudSystemVPNController {
     }
 
     private func retryPendingCleanup() {
-        guard manager.isAvailable, scope == nil, cleanupPending else { return }
+        guard manager.isAvailable, cleanupPending else { return }
         publish(.disconnecting)
         guard !operationGate.hasPendingOperation else {
             scheduleCleanupRetry()
@@ -381,6 +380,13 @@ public final class CloudSystemVPNController {
                 try await removeConfigurationWithRetry()
                 guard self.isCurrent(generation) else { return }
                 cleanupPending = false
+                if let scope {
+                    try await performBounded(reconcilePlatformOnTimeout: true) {
+                        try await self.manager.refresh(scope: scope)
+                    }
+                    guard self.isCurrent(generation) else { return }
+                    needsPlatformReconciliation = false
+                }
                 accept(manager.phase)
             } catch {
                 guard self.isCurrent(generation) else { return }
@@ -395,8 +401,7 @@ public final class CloudSystemVPNController {
         cleanupRetryTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.operationGate.waitForIdle()
-            guard self.scope == nil,
-                  self.cleanupPending,
+            guard self.cleanupPending,
                   self.cleanupRetryRequested else { return }
             self.cleanupRetryTask = nil
             self.cleanupRetryRequested = false

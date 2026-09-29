@@ -440,6 +440,24 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.controller.phase == .off)
     }
 
+    @Test func failedAccountSwitchCleanupCanBeRetriedFromTheRecoveryAction() async {
+        let rig = Rig(cleanupRetryCount: 1)
+        await signedIn(rig, scope: "user-1/team-1")
+        rig.manager.stopFailuresRemaining = 1
+
+        rig.controller.setScope("user-2/team-9")
+        await rig.controller.waitForPendingOperation()
+        #expect(rig.controller.phase == .failed(.configuration))
+
+        rig.controller.retry()
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.manager.stopAttempts == [true, true])
+        #expect(rig.manager.stops == [true])
+        #expect(rig.manager.refreshedScopes == ["user-1/team-1", "user-2/team-9"])
+        #expect(rig.controller.phase == .off)
+    }
+
     @Test func switchingAccountsRemovesTheOldAccountsVPNFirst() async {
         let rig = Rig()
         await signedIn(rig, scope: "user-1/team-1")
