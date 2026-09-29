@@ -44,16 +44,19 @@ running inside zellij isn't launched a second time.
 
 ### After logout or restart
 
-A logout, restart, or shutdown ends the zellij server and its processes. If
-zellij's session serialization is on (the zellij default), the session is kept
-as an exited session: `list` and `status` show it as `exited`, and attaching
-resurrects its layout. zellij asks before rerunning each saved command. This
-brings back the layout and commands, not the old process memory, SSH
-connections, or exact scrollback. To keep processes running while this Mac is
-offline, use `cmux ssh-tmux`, `cmux mosh-tmux`, or a persistent cloud VM.
+A logout, restart, or shutdown ends the zellij server and its processes, and
+the session ends with it. As with local-tmux, this persists processes across
+cmux's lifecycle, not across the machine's. To keep processes running while
+this Mac is offline, use `cmux ssh-tmux`, `cmux mosh-tmux`, or a persistent
+cloud VM.
 
-`start` refuses a name whose session has exited. Attach to it or `close` it
-first.
+cmux creates its sessions with zellij's session serialization off. Only the
+`cmux local-zellij` CLI, which clears cmux's socket credentials and terminal
+identity from the environment, ever starts a zellij server. A serialized
+session would outlive its server, and a cmux terminal's `zellij attach` would
+then resurrect it into a new server that inherits that terminal's
+credentials. If zellij ever does list an owned session as exited, `status`
+reports `exited` and `start` refuses the name until you `close` it.
 
 ## Identity and safety
 
@@ -76,8 +79,8 @@ leave a live session without a record. `start` saves the record before it create
 session, so if creation can't be confirmed (say, the follow-up listing
 fails), rerunning `start` finds the same session instead of starting a second
 one; with `--command` it refuses rather than running the command again. If
-the session exited before `start` could check it, `start` keeps the record
-and says so: `attach` resurrects it and `close` removes it.
+zellij reports the session as exited before `start` could check it, `start`
+keeps the record and says so; `close` removes it.
 
 The state and socket directories are created mode `0700` and the registry
 `0600`; cmux refuses to use them if another user owns them or they are group-

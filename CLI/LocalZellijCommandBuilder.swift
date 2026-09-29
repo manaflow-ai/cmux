@@ -76,6 +76,11 @@ struct LocalZellijCommandBuilder {
             "attach", "--create-background", sessionName,
             "options", "--default-cwd", workingDirectory,
             "--on-force-close", "detach",
+            // Only this CLI's sanitized runner may start a zellij server.
+            // A serialized session outlives its server, and a surface's
+            // `zellij attach` would resurrect it into a new server that
+            // inherits the surface's CMUX_* credentials and identity.
+            "--session-serialization", "false",
         ]
         if let layoutPath {
             arguments.append(contentsOf: ["--default-layout", layoutPath])

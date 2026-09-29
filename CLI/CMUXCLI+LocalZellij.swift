@@ -192,9 +192,8 @@ extension CMUXCLI {
             if let requestedCwd, requestedCwd != record.cwd {
                 throw CLIError(message: String(localized: "cli.localZellij.error.existingSessionCwd", defaultValue: "local-zellij session already exists with a different working directory; use attach or close it first"))
             }
-            record.socketPath = builder.socketDirectory
-            record.updatedAt = Date.now.timeIntervalSince1970
-            try runtime.registry.upsert(record)
+            // Nothing about the session changed. Writing the copy loaded
+            // above back could undo a concurrent attach's update.
             return record
         case .exited:
             throw localZellijExitedError(name)
