@@ -217,9 +217,14 @@ final class GhosttySurfaceSharedSizingLayers {
 
 extension GhosttySurfaceView {
     /// Redraws the shared-sizing layers from the current decoration and the
-    /// last letterbox geometry. Hides them when there is no decoration.
+    /// last letterbox geometry. Hides them unless the mismatch is settled
+    /// (`TerminalSizingChromeGate`).
     func refreshSharedSizingLayers() {
         guard let decoration = sharedSizingDecoration,
+              TerminalSizingChromeGate.drawsChrome(
+                  decoration: decoration,
+                  viewportReportPending: viewportReportPending
+              ),
               let viewportRect = lastLetterboxViewportRect,
               !lastRenderRect.isEmpty else {
             sharedSizingLayers?.hide()

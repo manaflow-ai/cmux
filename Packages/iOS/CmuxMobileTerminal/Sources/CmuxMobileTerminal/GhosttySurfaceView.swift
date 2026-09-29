@@ -675,7 +675,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// size during the attach / keyboard / zoom settle resized the Mac PTY
     /// repeatedly, so the shell redrew its prompt on each SIGWINCH and the
     /// initial scrollback filled with the prompt duplicated at every width.
-    private var pendingViewportReport: TerminalGridSize?
+    private var pendingViewportReport: TerminalGridSize? {
+        didSet {
+            guard (oldValue == nil) != (pendingViewportReport == nil) else { return }
+            viewportReportPendingChanged()
+        }
+    }
     private var viewportReportSettleFrames = 0
     /// Widest container this surface has actually rendered in the current
     /// window geometry. A phone split-view sidebar is an overlay, but UIKit can
@@ -705,7 +710,31 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// `viewportSnapshot()`): `effectiveGrid` is about to be superseded by
     /// the grant answering this report, so layout decisions must not treat
     /// the outgoing value as final.
-    private var awaitingViewportEcho = false
+    private var awaitingViewportEcho = false {
+        didSet {
+            guard oldValue != awaitingViewportEcho else { return }
+            viewportReportPendingChanged()
+        }
+    }
+
+    /// Whether this surface has a viewport report queued or awaiting its
+    /// acknowledgement. Sizing chrome waits for it to settle
+    /// (`TerminalSizingChromeGate`).
+    var viewportReportPending: Bool {
+        pendingViewportReport != nil || awaitingViewportEcho
+    }
+
+    /// Re-evaluates the bounds chrome when a viewport report starts or
+    /// settles; the gate reads `viewportReportPending`.
+    private func viewportReportPendingChanged() {
+        guard let viewportRect = lastLetterboxViewportRect, !lastRenderRect.isEmpty else { return }
+        updateLetterboxBorder(
+            renderRect: lastRenderRect,
+            isLetterboxed: lastRenderRect.width + 0.5 < viewportRect.width
+                || lastRenderRect.height + 0.5 < viewportRect.height,
+            viewportRect: viewportRect
+        )
+    }
     /// Frames of "no zoom in progress" required before the natural grid is
     /// reported to the Mac. Active zoom is already gated separately
     /// (`zoomSettleFrames != nil` holds the report during a pinch), so this is
@@ -6023,7 +6052,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return
         }
         sharedSizingLayers?.hide()
-        guard isLetterboxed else {
+        guard TerminalSizingChromeGate.drawsPlainLetterboxBorder(
+            isLetterboxed: isLetterboxed,
+            viewportReportPending: viewportReportPending
+        ) else {
             letterboxBorderLayer?.isHidden = true
             return
         }

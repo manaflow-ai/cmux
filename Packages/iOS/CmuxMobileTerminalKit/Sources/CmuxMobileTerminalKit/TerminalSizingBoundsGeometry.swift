@@ -117,23 +117,35 @@ public struct TerminalSizingBoundsGeometry: Equatable, Sendable {
 
 /// What the terminal surface draws for shared sizing: the shared grid and
 /// this phone's viewport. The chrome is neutral grey. `nil` on the surface
-/// draws the plain letterbox.
+/// means the host publishes no size state, and the surface draws the plain
+/// letterbox.
 public struct TerminalSizingBoundsDecoration: Equatable, Sendable {
     public var gridColumns: Int
     public var gridRows: Int
     public var viewerColumns: Int
     public var viewerRows: Int
+    /// Whether the host's newest size state lists this phone's latest
+    /// acknowledged viewport. `false` while the state still describes an
+    /// older viewport, so the grid mismatch may be transient.
+    public var viewportConfirmed: Bool
 
     public init(
         gridColumns: Int,
         gridRows: Int,
         viewerColumns: Int,
-        viewerRows: Int
+        viewerRows: Int,
+        viewportConfirmed: Bool = true
     ) {
         self.gridColumns = gridColumns
         self.gridRows = gridRows
         self.viewerColumns = viewerColumns
         self.viewerRows = viewerRows
+        self.viewportConfirmed = viewportConfirmed
+    }
+
+    /// Whether the grid differs from this phone's viewport.
+    public var viewportDiffers: Bool {
+        gridColumns != viewerColumns || gridRows != viewerRows
     }
 
     /// The layout for this decoration in a viewport.

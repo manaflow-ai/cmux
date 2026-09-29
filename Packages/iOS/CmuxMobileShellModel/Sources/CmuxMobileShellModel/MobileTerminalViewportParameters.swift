@@ -56,5 +56,38 @@ public struct MobileTerminalViewportParameters {
         }
         return params
     }
+
+    /// The viewport fields a `mobile.terminal.replay` request carries, so the
+    /// host can register this phone with its viewport and identity and apply
+    /// the shared size BEFORE it captures the replay. The first frame is then
+    /// already sized to the settled grid.
+    ///
+    /// Empty without a viewport: `client_id` and the dimensions travel
+    /// together or not at all.
+    /// - Parameters:
+    ///   - clientID: This phone's client id.
+    ///   - viewport: The phone's latest natural grid, if measured.
+    ///   - generation: The viewport generation of that grid, if allocated.
+    ///   - identity: `device_kind` and `device_name`.
+    /// - Returns: The JSON-ready fields to merge into the replay parameters.
+    public static func replay(
+        clientID: String,
+        viewport: MobileTerminalViewportSize?,
+        generation: UInt64?,
+        identity: MobileTerminalDeviceIdentity
+    ) -> [String: Any] {
+        guard let viewport, viewport.columns > 0, viewport.rows > 0 else { return [:] }
+        var params: [String: Any] = [
+            "client_id": clientID,
+            "viewport_columns": viewport.columns,
+            "viewport_rows": viewport.rows,
+            "device_kind": identity.kind.rawValue,
+            "device_name": identity.name,
+        ]
+        if let generation {
+            params["viewport_generation"] = Int(clamping: generation)
+        }
+        return params
+    }
 }
 
