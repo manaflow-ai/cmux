@@ -10498,7 +10498,7 @@ final class GhosttySurfaceScrollView: NSView {
         documentView.addSubview(surfaceView)
 
         super.init(frame: .zero)
-        applyTerminalScrollerStyle()
+        scrollView.resolveScrollerStyle()
         wantsLayer = true
         layer?.masksToBounds = true
 
@@ -10826,7 +10826,7 @@ final class GhosttySurfaceScrollView: NSView {
         observers.append(NotificationCenter.default.addObserver(
             forName: NSScroller.preferredScrollerStyleDidChangeNotification,
             object: nil,
-            // Reapply our style over AppKit's and match the geometry change
+            // Re-read "Show scroll bars" and match the geometry change
             // immediately so the terminal width does not stay stuck behind a
             // legacy scrollbar gutter.
             queue: nil
@@ -10887,6 +10887,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
+        // Deliberately the system's resolved style, as in upstream Ghostty:
+        // when AppKit would pick legacy (a mouse without a trackpad) the
+        // overlay scroller flashes on hover so it can be grabbed with the mouse.
         guard scrollView.hasVerticalScroller,
               NSScroller.preferredScrollerStyle == .legacy else { return }
         scrollView.flashScrollers()
@@ -13818,17 +13821,6 @@ final class GhosttySurfaceScrollView: NSView {
         return didChange
     }
 
-    /// Applies the style chosen from "Show scroll bars" in place of the one
-    /// AppKit resolves, which is legacy for Automatic with a mouse connected.
-    private func applyTerminalScrollerStyle() {
-        let style = TerminalScrollerStyle(
-            showScrollBarsPreference: UserDefaults.standard.string(
-                forKey: TerminalScrollerStyle.showScrollBarsDefaultsKey
-            )
-        )
-        scrollView.scrollerStyle = style == .legacy ? .legacy : .overlay
-    }
-
     private func handlePreferredScrollerStyleChange() {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in
@@ -13837,7 +13829,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        applyTerminalScrollerStyle()
+        scrollView.resolveScrollerStyle()
         synchronizeScrollbarAppearance()
 
         // Retile just the scroll view so contentSize reflects the current

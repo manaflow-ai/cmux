@@ -16,8 +16,9 @@ extension TerminalScrollerStyle {
     /// Only an explicit "Always" selects the legacy scroller, which reserves a
     /// permanent gutter beside the grid (https://github.com/manaflow-ai/cmux/issues/9994).
     /// "Automatic" and "When scrolling" use the overlay scroller, as upstream
-    /// Ghostty does. AppKit resolves "Automatic" to legacy whenever a mouse is
-    /// connected, which put an empty gutter on every pane of a desktop Mac.
+    /// Ghostty does. AppKit resolves "Automatic" to legacy when a mouse is the
+    /// only pointing device, which put an empty gutter on every pane of a
+    /// desktop Mac without a trackpad.
     ///
     /// - Parameter showScrollBarsPreference: The `AppleShowScrollBars` value,
     ///   or nil when the preference is unset (macOS treats that as Automatic).
