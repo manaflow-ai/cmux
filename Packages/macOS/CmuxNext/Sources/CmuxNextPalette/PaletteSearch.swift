@@ -10,6 +10,12 @@ public final class PaletteSearchIndex {
     public let visibleWhenQueryEmpty: [Bool]
 
     private let fields: [[FuzzyField]]
+    /// Union of each item's field masks, for one-AND rejection.
+    private let masks: [UInt64]
+    /// Per-item ranking inputs, copied out so ranking never copies items.
+    let biases: [Int]
+    let frecencyKeys: [String?]
+    let enabled: [Bool]
     private var cache: (query: FuzzyQuery, matches: [Int])?
 
     /// Field weights in percent.
@@ -34,6 +40,10 @@ public final class PaletteSearchIndex {
             }
             return fields
         }
+        masks = fields.map { $0.reduce(0) { $0 | $1.text.characterMask } }
+        biases = items.map(\.rankBias)
+        frecencyKeys = items.map(\.frecencyKey)
+        enabled = items.map(\.isEnabled)
     }
 
     /// Indices and raw match scores (before frecency and bias) for `query`,
@@ -46,9 +56,14 @@ public final class PaletteSearchIndex {
             candidates = AnySequence(items.indices)
         }
         var result: [(index: Int, score: Int)] = []
-        for index in candidates {
-            if let score = FuzzyMatcher.score(query, fields: fields[index]) {
-                result.append((index, score))
+        let queryMask = query.characterMask
+        fields.withUnsafeBufferPointer { fields in
+            masks.withUnsafeBufferPointer { masks in
+                for index in candidates where masks[index] & queryMask == queryMask {
+                    if let score = FuzzyMatcher.score(query, fields: fields[index]) {
+                        result.append((index, score))
+                    }
+                }
             }
         }
         cache = (query, result.map(\.index))
@@ -102,11 +117,11 @@ public enum PaletteRanker {
             return rankEmpty(index: index, frecency: frecency, now: now, showsRecent: showsRecent, recentLimit: recentLimit)
         }
 
+        let hasHistory = !frecency.entries.isEmpty
         var scored: [(index: Int, score: Int)] = index.matches(for: parsed).map { match in
-            let item = items[match.index]
-            var score = match.score + item.rankBias
-            if let key = item.frecencyKey { score += frecency.boost(for: key, at: now) }
-            if !item.isEnabled { score -= 40 }
+            var score = match.score + index.biases[match.index]
+            if hasHistory, let key = index.frecencyKeys[match.index] { score += frecency.boost(for: key, at: now) }
+            if !index.enabled[match.index] { score -= 40 }
             return (match.index, score)
         }
         scored.sort { lhs, rhs in
