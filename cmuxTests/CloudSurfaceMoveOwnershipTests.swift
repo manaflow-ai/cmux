@@ -15,6 +15,21 @@ import Testing
 @MainActor
 @Suite("Cloud surface mutation boundaries", .serialized)
 struct CloudSurfaceMoveOwnershipTests {
+    @Test("A Cloud Dock accepts a same-Dock reorder through its mapped-tab path")
+    func sameDockReorderKeepsSurfaceOnMachine() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cloud-a", isBase: false)
+        let dock = workspace.requiredDockSplitForTesting
+        let pane = try #require(dock.bonsplitController.allPaneIds.first)
+        let panel = try #require(dock.focusedPanelId)
+        let tab = try #require(dock.surfaceIdFromPanelId(panel))
+        let processID = Int32(ProcessInfo.processInfo.processIdentifier)
+        let transfer = PaneDragTransfer(tabId: tab.uuid, sourcePaneId: pane.id, sourceProcessId: processID)
+        #expect(dock.surfaceDropRejection(transfer, source: .surface) == nil)
+        #expect(dock.machineOwningSurface(panel) == .local)
+    }
+
     @Test("Per-workspace Docks reject foreign displays before detaching", arguments: ["a", "b"])
     func foreignDisplayDockMove(owner: String) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
