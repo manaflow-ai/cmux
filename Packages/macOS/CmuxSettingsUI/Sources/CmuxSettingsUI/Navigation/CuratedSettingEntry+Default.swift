@@ -393,7 +393,6 @@ extension Array where Element == CuratedSettingEntry {
 
             // Beta
             .init(section: .betaFeatures, id: "feed", title: String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), synonyms: "Feed feed right sidebar agent decisions permissions questions approval beta unstable"),
-            .init(section: .betaFeatures, id: "dock", title: String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), synonyms: "Dock dock right sidebar terminal controls tui beta unstable"),
             .init(
                 section: .betaFeatures,
                 id: "cloudMachines",
