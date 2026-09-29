@@ -1,174 +1,155 @@
-# cmux browser REPL parity
+# cmux browser REPL
 
-Living design doc for `cmux browser repl`: an agent REPL for cmux browser panes
-with full parity with the Aside CLI (`aside repl`) and ChatGPT for Chrome (the
-Codex `browser`/`chrome` plugins). Aside's `exec` agent delegation is out of
-scope; only browser operation is in scope.
+`cmux browser repl` is a persistent JavaScript REPL that drives cmux browser
+panes for agents. It has one API. It covers every browser-operation capability
+of Aside's `aside repl` and ChatGPT for Chrome (the Codex `browser`/`chrome`
+plugins), and improves on both where they differ. It does not copy either
+surface: there are no dialects, no `agent` object, and no numbered AX text.
 
-## Target
+Capability coverage is enforced by
+[capabilities.json](../../tests/browser-parity/capabilities.json): every
+reference member maps to a cmux equivalent and the scenario that proves it, or
+to a written exclusion.
 
-One REPL, two dialects, one engine driver:
+## Principles
 
-| Dialect | Globals | Reference |
+1. **Playwright is the action model.** Models know Playwright; both references
+   converge on it (Aside's `page` is Playwright-shaped, ChatGPT exposes
+   `tab.playwright`). `page`, `locator`, `keyboard`, `mouse`, events and waits
+   follow Playwright semantics exactly where Playwright defines them.
+2. **One observation format.** A compact accessibility snapshot with refs. Refs
+   work anywhere a selector works. There is no second format to choose.
+3. **Real input only.** Every click, hover, drag, wheel and key is a native
+   event (`isTrusted === true`). There is no synthetic-event fallback.
+4. **Nothing silent.** Dialogs and file choosers without a handler stay open and
+   show in the snapshot until the agent answers them. Ambiguous input failures
+   are reported and never replayed.
+5. **Less to remember.** Top-level `const`/`let` persist across calls, the last
+   expression's value prints automatically, and printing a snapshot picks the
+   diff or the full tree by size.
+
+## Globals
+
+| Global | Purpose |
+| --- | --- |
+| `page` | The current tab, a Playwright `Page`. |
+| `tabs` | `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`, `get(id)`. Each tab is a `Page` with a stable `page.id`. |
+| `snapshot(target?, options?)` | Accessibility snapshot of `page`, a locator, or a ref string. See [Snapshot](#snapshot). |
+| `screenshot(target?, options?)` | PNG of the viewport, full page, locator or ref. `{ annotate: true }` draws each ref's box and label. Returns an `Image` that displays when printed. |
+| `fetch` | Standard `fetch` that sends the current tab's cookies. |
+| `fs`, `path`, `os`, `Buffer` | Node-compatible subsets. Files are limited to the session directory (the caller's cwd) and the system temp directory. `import("node:fs")` and friends return the same modules. |
+| `sleep(ms)`, `display(value)` | Wait; show a value or image to the agent. |
+| `session` | `name(label)` labels this session's tabs in the UI; `keep(page)` keeps a tab open after a one-shot run ends. |
+
+### Page additions beyond Playwright
+
+| Member | Purpose | Replaces |
 | --- | --- | --- |
-| `aside` | `page`, `tabs`, `listBrowserTabs`, `attachBrowserTab`, `attachActiveBrowserTab`, `getTabByTargetId`, `openTab`, `closeTab`, `snapshot`, `annotatedScreenshot`, `fetch`, `fs`, `path`, `Buffer`, `sleep`, `display`, `pwd` | Aside CLI 1.26.916, `aside guide repl`, [aside-api-surface.txt](../../tests/browser-parity/reference/aside-api-surface.txt) |
-| `chatgpt` | `agent` (`agent.browsers`, `Browser`, `Tab`, `tab.ax`, `tab.playwright`, `tab.cua`, `tab.dom_cua`, `tab.clipboard`, `tab.dev`, `tab.content`, capabilities) | ChatGPT for Chrome 26.917.71314, [chatgpt-api-surface.txt](../../tests/browser-parity/reference/chatgpt-api-surface.txt) (152 members) |
+| `page.locator("e5")`, `page.ref("e5")` | Resolve a snapshot ref. Stale refs throw `ref e5 is stale: the element was removed; take a new snapshot`. | Aside refs, ChatGPT `ax.*(index)`, `dom_cua` node ids |
+| `page.dialog()` | The open JavaScript dialog or `null`: `{ type, message, defaultValue, accept(text?), dismiss() }`. | ChatGPT `getJsDialog()` |
+| `page.fileChooser()` | The open file chooser or `null`: `{ multiple, setFiles(files), cancel() }`. | ChatGPT chooser flow |
+| `page.consoleMessages({ level, filter, limit })`, `page.errors()` | Console history and uncaught errors since the tab opened. | ChatGPT `dev.logs()` |
+| `page.clipboard` | `readText()`, `writeText(text)`, `read()`, `write(items)` on a per-tab clipboard used by paste. | ChatGPT `clipboard` |
+| `page.elementAt(x, y)` | `{ ref, role, name, box }` for the topmost element at a viewport point. | ChatGPT `elementInfo()` |
+| `page.keep()` | Keep this tab open after a one-shot run. | ChatGPT `markDeliverable()` |
 
-Both dialects run in the same session, so `snapshot(page)` and
-`tab.ax.write()` can address the same cmux browser surface.
+Everything else uses standard Playwright: `page.mouse` replaces ChatGPT `cua`
+coordinates, `page.on("popup")`, `waitForEvent("download")`, `page.pdf()`,
+`page.setViewportSize()`, `frameLocator`, `getByRole`, and so on.
 
-Representations:
+## Snapshot
 
-- `snapshot()` reproduces Aside's text exactly: title header, ARIA roles,
-  `[ref=eN]` on actionable nodes, `fN` prefixes for frames, unified diff. Rules:
-  [aside-snapshot-spec.md](aside-snapshot-spec.md).
-- `tab.ax` reproduces ChatGPT's accessibility text: macOS AX role names
-  (`AXWebArea`, `container`, `text field`), preorder IDs that persist by parent
-  and sibling position, and its revision diff. Rules:
-  [chatgpt-ax-spec.md](chatgpt-ax-spec.md). `tests/browser-parity/lib/chatgpt-ax-reference.mjs`
-  renders any fixture with ChatGPT's own renderer (from the installed plugin,
-  not copied) for offline goldens.
+```
+title: Sign up
+url: http://localhost:8765/
+- navigation "Main" [ref=e1]:
+  - link "Home" [ref=e2] [url=/aria.html]
+- main:
+  - heading "Sign up" [level=1]
+  - textbox "Email" [ref=e3] [placeholder="you@x.com"]: "me@x.com"
+  - checkbox "Accept terms" [ref=e4] [checked]
+  - combobox "Plan" [ref=e5]: "Pro"
+  - button "Create account" [ref=e6] [focused]
+  - table "Scores":
+    - row: "Name | Score"
+    - row: "Ada | 9"
+  - paragraph: "Plain bold text."
+  - iframe "Payment" [ref=e7]:
+    - textbox "Card" [ref=f1e1]
+```
 
-## Choosing between the references
+Rules, and how they improve on the references:
 
-Where Aside and ChatGPT disagree on semantics, or a reference is broken, the
-target is the better behavior, recorded per test value in
-`tests/browser-parity/goldens/<dialect>/<scenario>.choices.json` with a reason.
-The tie-breaker for the aside dialect is real Playwright (its API is Aside's
-model). Found so far:
+- **Refs** go on interactive elements, iframes, scrollable regions and named
+  landmarks, dialogs and lists (so a region can be scoped with
+  `snapshot("e1")`). A ref is bound to its DOM node for the node's life and is
+  never reused in that document. Aside renumbers a ref when its name changes;
+  ChatGPT reuses indices after removals.
+- **Frames**, including cross-origin, inline under their iframe with `fN`
+  prefixes in DOM order. Shadow roots are pierced.
+- **States** print as `[checked]`, `[checked=mixed]`, `[disabled]`,
+  `[expanded]`, `[expanded=false]`, `[pressed]`, `[selected]`, `[focused]`,
+  `[required]`, `[invalid]`, `[readonly]`, `[level=N]`. Aside drops expanded and
+  pressed.
+- **Values** print after a colon; combobox shows its selected value and lists
+  options only with `{ options: true }` or when expanded. Links show `[url=…]`,
+  relative when same-origin, so agents do not guess URLs.
+- **Text** collapses whitespace to single spaces (Aside doubles spaces around
+  inline elements). Tables print one `row` per table row with cells joined by
+  `|` (Aside drops table structure).
+- **Open dialogs and file choosers** print first, before the tree, with a ref
+  each, so an agent sees why the page is blocked.
+- **Options**: `interactive` (interactive nodes and their named ancestors),
+  `showHidden`, `maxChars` (truncates with a note), `options`.
+- **Printing** a snapshot prints its diff against the previous snapshot of the
+  same tab when the diff is at least 30% smaller than the tree, else the tree.
+  `.tree` and `.diff` are always available.
+- **Diff** lines are `+` added and `-` removed, each hunk preceded by its
+  unchanged ancestor lines as context so the change is locatable. ChatGPT omits
+  ancestors; Aside prints bare `@@` hunks.
 
-| Area | Aside | Playwright / ChatGPT | Target |
-| --- | --- | --- | --- |
-| Checkbox click, drag | synthetic DOM events (`isTrusted=false`) | trusted input | trusted input |
-| Hover, right click, mouse wheel | no effect | real input | real input |
-| `page.on("dialog")` | never fires; dialogs auto-accepted | handler receives dialog; unhandled dialogs dismissed | Playwright |
-| `waitForURL(RegExp)` | throws | supported | supported |
-| `getByRole` into shadow DOM, `{ level }` | throws | supported | supported |
-| `page.waitForEvent("popup")` | times out | supported | supported |
-| Snapshot format | compact, refs only on actionable nodes | Playwright AI snapshot has refs on every node and more `generic` noise | Aside |
+## Sessions and tabs
+
+- Named sessions (`--session NAME`) keep variables and tabs until
+  `cmux browser repl reset NAME` or 30 minutes idle. A run without `--session`
+  is one-shot: its tabs close at the end unless `page.keep()` was called.
+- A session binds to the caller's cmux workspace (from `CMUX_WORKSPACE_ID`), or
+  to the focused workspace when the caller is outside cmux or the id is unknown
+  to this instance.
+- `tabs.open()` never steals focus. `page.bringToFront()` shows a tab.
+
+## Excluded from the references
+
+- **Site integrations** (Aside `gmail`, `slack`, `notion`, `imessage`, …),
+  password managers, CAPTCHA solving, `aside exec`: outside browser operation.
+- **Raw CDP** (ChatGPT `tab.capabilities.cdp`) and request interception: WebKit
+  has no CDP. ChatGPT disables both by default in its own backends. A Chromium
+  engine would add them as `page.cdp`.
+- **ChatGPT `tabs.content`, `content.exportGsuite`, `exportYouTubeTranscript`,
+  `pageAssets`, `webmcp`, `browser.history`, `browser.user.claimTab`**: product
+  features outside the REPL's browser-operation scope; listed per member in
+  capabilities.json.
 
 ## Architecture
 
 ```
-agent ── cmux browser repl ──▶ control socket ──▶ ReplSession (JavaScriptCore, one per session)
-                                                   │ aside + chatgpt dialect runtimes (JS)
-                                                   ▼
-                                             BrowserDriver protocol
-                                              │                 │
-                                     WebKit driver        Chromium driver
-                                (WKWebView, native)     (CDP passthrough, when the
-                                                         Chromium engine lands)
+agent -> cmux browser repl -> control socket -> REPL session (JavaScriptCore)
+                                                  runtime-core.js, api.js
+                                                  | driver protocol
+                                                  v
+                                   WebKit driver (Swift, WKWebView)
 ```
 
-- **REPL host.** Sessions run in JavaScriptCore inside the app, one
-  `JSContext` per session on its own thread. The CLI sends code over the socket
-  and streams `console.log` output back. Top-level `const`/`let` persist across
-  calls, as in Aside, by rewriting top-level declarations before evaluation.
-  JavaScriptCore gives the same sandbox Aside documents (no `import`/`require`)
-  and needs no bundled Node. Open decision: ChatGPT's REPL is full Node; scripts
-  that use Node modules beyond `fs`/`path`/`Buffer` will not run.
-- **Page script.** One script in an isolated `WKContentWorld`, injected in every
-  frame including cross-origin frames. It builds both snapshot formats, owns the
-  ref table, and resolves locators. Locator semantics (`getByRole`, `getByText`,
-  `filter`, `nth`, frame locators) use Playwright's injected script (Apache-2.0,
-  runs on WebKit), so they match Playwright rather than an approximation.
-- **Input.** Clicks, hover, drag, wheel and keys are native `NSEvent`s delivered
-  to the `WKWebView`, so pages see `isTrusted=true`. The current synthetic JS
-  click path is removed from automation.
-- **Engine hooks.** Dialogs, file choosers and popups come from `WKUIDelegate`;
-  downloads from `WKDownloadDelegate`; PDF from `createPDF`; screenshots from
-  `takeSnapshot`; request and response events from WebKit's resource load
-  delegate.
+- Runtime: `Resources/browser-repl/` (`runtime-core.js` Playwright model,
+  `api.js` globals, `snapshot.js` host-side stitching and diff, `page-agent.js`
+  per-frame script in an isolated content world, `repl-host.js`). Locators use
+  Playwright's injected script (Apache-2.0).
+- Driver contract: [driver-protocol.md](driver-protocol.md).
+- Reference studies kept for the record: [aside-snapshot-spec.md](aside-snapshot-spec.md),
+  [chatgpt-ax-spec.md](chatgpt-ax-spec.md).
 
-## Engine limits
+## Tests
 
-WebKit cannot provide Chrome DevTools Protocol. These ChatGPT members need the
-Chromium driver: `tab.capabilities.cdp` (raw CDP) and network interception.
-ChatGPT disables both by default in its own `iab` and `extension` backends. The
-WebKit driver reports them as unsupported capabilities; the Chromium driver
-passes them through.
-
-## Test suite
-
-`tests/browser-parity/`: fixture site on two origins, scenarios per dialect,
-goldens recorded from the references, and a runner. See
-[its README](../../tests/browser-parity/README.md).
-
-## Status
-
-- [x] Reference API surfaces captured
-- [x] Fixture site, runner, Aside and Playwright goldens (13 scenarios)
-- [ ] ChatGPT goldens (needs a Codex login with a ChatGPT account)
-- [x] Snapshot and AX format specs
-- [ ] Page script (both formats) passing format goldens on WebKit
-- [ ] Native input, dialogs, file chooser, downloads, popups, PDF
-- [ ] JavaScriptCore REPL host and `cmux browser repl`
-- [ ] All scenarios pass on a tagged build
-
-## Runtime status
-
-The engine-neutral runtime lives in `Resources/browser-repl/` and loads in the
-order the app's `BrowserReplRuntimeBundle` uses: `vendor/acorn.js`,
-`vendor/playwright-locator-utils.js`, `runtime-core.js`, `dialect-aside.js`,
-`dialect-chatgpt.js`, `repl-host.js` for the REPL context, and
-`vendor/playwright-injected.js` plus `page-agent.js` for each frame's agent
-world. `repl-host.js` adapts the app's `__cmuxNative` object and defines
-`__cmuxReplEval`. Both dialects share one session.
-
-`tests/browser-parity/lib/dev-driver.mjs` implements the driver protocol on
-Playwright WebKit, and `run.mjs --backend cmux-dev` runs scenarios through the
-same scripts in Node, with no app build:
-
-```sh
-node tests/browser-parity/run.mjs check --backend cmux-dev --dialect aside
-node tests/browser-parity/run.mjs ax        # tab.ax text vs ChatGPT's own renderer
-node --test tests/browser-parity/unit/*.test.mjs
-```
-
-Results on 2026-09-29:
-
-- Aside dialect: 11 of 13 scenarios match their goldens exactly. `04-input`
-  and `05-frames` fail only on the golden disputes below.
-- `tab.ax`: 12 of 12 cases match ChatGPT's renderer byte for byte (all
-  fixture pages, the 02 action sequence, revision diffs, the no-change
-  message, focus, and a prompt dialog).
-- ChatGPT scenarios run end to end; there are no ChatGPT goldens yet.
-
-Golden disputes (goldens left unchanged):
-
-- `04-input` `scrolled` expects `false`. The Playwright reference reads
-  `scrollTop` right after `mouse.wheel()`, while Chrome still scrolls
-  asynchronously. WebKit scrolls before the read, so cmux reports `true`,
-  which is what the scenario means to test.
-- `05-frames` `full` and `after-clicks` use Aside's registration-order frame
-  prefixes (`f2` for the first iframe); cmux numbers frames in DOM order, as
-  decided above. The URL in the title line also keeps a raw peer port
-  (`%3A56559`) that `normalize.mjs` cannot rewrite, because `\b` does not
-  match between `A` and the digits. With the peer port pinned and `f1`/`f2`
-  swapped, both values match exactly.
-- `scenarios/chatgpt/02-ax-actions.js` looks for `/textbox Email/`,
-  `/checkbox Accept terms/` and `/textbox Bio/`. ChatGPT prints `text field
-  (settable) Email` and `checkbox (settable, integer) Description: Accept
-  terms`, so the scenario throws on the real reference too. With matching
-  regexes the sequence runs and its AX text matches the reference.
-
-Decisions made in the runtime:
-
-- Click focus follows Chromium. WebKit on macOS does not focus buttons and
-  links on mouse click; the runtime focuses the clicked control between
-  mousedown and mouseup when the page did not move focus itself. Goldens 03
-  and 05 (`[focused]`) depend on it. The Swift driver must not add its own
-  emulation.
-- Pointer actions check the hit target again after moving the pointer and
-  retry, as Playwright's hit-target interceptor does (a `:hover` menu that
-  collapses on move shifts the target).
-- `fs`, uploads and `download.saveAs` stay inside the session directory;
-  completed downloads are readable. ChatGPT scenario 06 uploads files from
-  `os.tmpdir()` and fails under this rule.
-- `import()` in a cell calls the host's optional `importModule`. The app has
-  none, so Node modules fail with a clear error; the dev backend allows them.
-- The page agent builds ChatGPT's tree from DOM and ARIA with Chromium's
-  role strings and quirks (list markers, redundant checkbox labels, select
-  popups, disclosure triangles, iframe bodies). Roles and names come from
-  the DOM, not WebKit's accessibility tree, so pages beyond the fixtures can
-  still differ from Chromium; `run.mjs ax` is the regression check.
+[tests/browser-parity](../../tests/browser-parity/README.md): one scenario set in
+this API, run against the cmux app, a Playwright WebKit development driver, and
+a real-Playwright oracle (headless Chrome) for behavior values.
