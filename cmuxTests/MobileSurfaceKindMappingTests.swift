@@ -28,6 +28,7 @@ import Testing
         .cloudVMLoading: "cloudVMLoading",
         .mobilePairing: "mobilePairing",
         .accountSignIn: "accountSignIn",
+        .cloudVPNSetup: "cloudVPNSetup",
     ]
 
     @Test func everyPanelTypeMapsToItsCanonicalWireKind() throws {

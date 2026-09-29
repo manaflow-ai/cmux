@@ -84,6 +84,8 @@ The deliberate exceptions are listed with reasons in the guard's `EXEMPT`
 table: the Zig-only Ghostty builds, the macOS 14 compatibility lane, and
 `relay-tls.yml`'s Xcode 16.2 job.
 
+**CI routing is minis first, always. Never send a lane straight to Blacksmith.** Every CI lane tries the owned Mac minis first; Blacksmith only takes overflow. Do not set lane switches (`CI_E2E_OWNED_UI`, `CI_IOS_OWNED`, `CI_PR_POOL_OWNED`, `CI_OWNED_*`) to `0` or point `MACOS_RUNNER_*` at Blacksmith to "free up" minis. When dev builds are starved, the controller's lend drain gives them priority: after a foreground dev build waits 3 minutes, a lent mini stops taking new PR jobs for it (hq#956, hq#966; tune with `CMUX_CI_LEND_DRAIN_AFTER` / `CMUX_CI_LEND_DRAIN_PER_BUILDS`). On 2026-09-29 an agent flipped `CI_E2E_OWNED_UI` and `CI_IOS_OWNED` to 0 as a stopgap, which bypassed the minis and put UI tests onto Blacksmith macOS runners whose consoles come up locked. Fix capacity problems in the drain, disk eviction or worker supply, never by rerouting a lane.
+
 ## Lanes
 
 Not every macOS job follows the same variable, because not every macOS job has
@@ -739,6 +741,17 @@ take the Blacksmith default. ci-owned-pool-rescue.yml watches these runs while
 relay-tls `system-keychain` (it changes the System keychain trust store and
 selects Xcode 16.2) and plain-paste-worker (macOS 15 only) stay on Blacksmith.
 Clear both variables to send every side lane back.
+
+### Main compile probes
+
+`main-compile-probe.yml` compiles one main commit that the per-push seeds
+skipped, only when `ci-compile-attribution.yml` needs it to narrow a compile
+break down to one merge (rare: a burst of merges with a break inside). It asks
+for the PR pool's root label (`vars.CI_COMPILE_PROBE_POOL`, default
+`glaeda-root-std-xcode-26.6`) and adopts the nearest main seed. A probe still
+queued after three minutes is cancelled and dispatched on
+`blacksmith-12vcpu-macos-26`. The per-push compile itself is
+`seed-derived-data.yml`, which costs the canary no extra Mac time.
 
 ### Which macOS jobs may take an owned Mac
 

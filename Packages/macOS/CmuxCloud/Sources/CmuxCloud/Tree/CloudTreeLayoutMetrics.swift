@@ -1,4 +1,5 @@
 import CoreGraphics
+import CmuxFoundation
 
 /// Geometry shared by the Cloud outline's document and row content.
 ///
@@ -35,5 +36,14 @@ public struct CloudTreeLayoutMetrics: Equatable, Sendable {
         trailingContentWidth: CGFloat
     ) -> CGFloat {
         max(0, rowWidth - leadingContentWidth - trailingContentWidth - referenceInset)
+    }
+    /// Horizontal origin shared by AppKit cell frames and wrapping Ports status measurements.
+    public func contentLeading(level: Int, style: CloudTreeStyle, magnification: Int = GlobalFontMagnification.storedPercent) -> CGFloat {
+        GlobalFontMagnification.scaledSize(8 + CGFloat(max(0, level)) * style.indentPerLevel, percent: magnification)
+            + GlobalFontMagnification.scaledSize(style.rowGrid.disclosureSlot + style.rowGrid.disclosureGap, percent: magnification)
+    }
+
+    public func portsContentWidth(columnWidth: CGFloat, level: Int, style: CloudTreeStyle) -> CGFloat {
+        max(1, columnWidth - contentLeading(level: level, style: style) - style.rowGrid.trailingPadding)
     }
 }

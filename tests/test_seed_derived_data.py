@@ -885,9 +885,14 @@ class Wiring(unittest.TestCase):
 
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             text = path.read_text()
-            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml", "test-e2e.yml"}:
+            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml", "test-e2e.yml",
+                                                                        "main-compile-probe.yml"}:
                 self.fail(f"{path.name} names the admission DerivedData seed")
-        # E2E builds adopt the same seed but only read it.
+        # E2E builds and main compile probes adopt the same seed but only read it.
+        probe = (ROOT / ".github/workflows/main-compile-probe.yml").read_text()
+        self.assertEqual(set(re.findall(r"seed_derived_data\.py (\w+)", probe)), {"adopt"})
+        self.assertNotIn("cache-save", probe)
+        self.assertNotIn("secrets.", probe)
         e2e = (ROOT / ".github/workflows/test-e2e.yml").read_text()
         for command in re.findall(r"seed_derived_data\.py (\w+)", e2e):
             self.assertIn(command, {"start", "adopt"})
