@@ -195,8 +195,18 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
+    /// Pads the top so a short transcript sits at the bottom, next to the composer.
+    private func updateBottomAnchoring() {
+        let contentHeight = tableView.numberOfRows > 0 ? tableView.rect(ofRow: tableView.numberOfRows - 1).maxY : 0
+        let top = max(6, scrollView.frame.height - contentHeight - scrollView.contentInsets.bottom)
+        if abs(scrollView.contentInsets.top - top) > 0.5 {
+            scrollView.contentInsets.top = top
+        }
+    }
+
     func scrollToBottom(animated: Bool) {
         tableView.layoutSubtreeIfNeeded()
+        updateBottomAnchoring()
         let clip = scrollView.contentView
         let maxY = max(-scrollView.contentInsets.top, tableView.frame.height - clip.bounds.height + scrollView.contentInsets.bottom)
         let target = NSPoint(x: 0, y: maxY)
