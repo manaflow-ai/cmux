@@ -216,6 +216,13 @@ final class FileSearchGlobField: NSTextField, NSTextFieldDelegate {
     var onChange: (() -> Void)?
     var onCommit: (() -> Void)?
     var onCancel: (() -> Void)?
+    var onFocus: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        if result { onFocus?() }
+        return result
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

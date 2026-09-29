@@ -944,7 +944,7 @@ final class FileExplorerContainerView: NSView {
     init(
         coordinator: FileExplorerPanelView.Coordinator,
         presentation: FileExplorerPanelPresentation,
-        makeSearchSession: (() -> FileSearchSession)? = nil
+        makeSearchSession: (@MainActor () -> FileSearchSession)? = nil
     ) {
         headerView = FileExplorerHeaderView()
         scrollView = NSScrollView()

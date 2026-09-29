@@ -49,7 +49,7 @@ final class FileSearchSessionCache {
     private var order: [UUID] = []
 
     /// The session for `workspace`, created with `make` on first use.
-    func session(for workspace: UUID, make: () -> FileSearchSession) -> FileSearchSession {
+    func session(for workspace: UUID, make: @MainActor () -> FileSearchSession) -> FileSearchSession {
         order.removeAll { $0 == workspace }
         order.append(workspace)
         if let existing = sessions[workspace] { return existing }

@@ -23,7 +23,7 @@ final class FileSearchPanelView: NSView {
     private var sessionKey: UUID?
     private weak var sessionCache: FileSearchSessionCache?
     private let unscopedSessionKey = UUID()
-    private let sessionFactory: () -> FileSearchSession
+    private let sessionFactory: @MainActor () -> FileSearchSession
     var historyCursor = FileSearchHistoryCursor()
     var history: FileSearchHistory
 
@@ -46,7 +46,7 @@ final class FileSearchPanelView: NSView {
     ///   sessions whose engines use a manual clock.
     init(
         coordinator: FileExplorerPanelView.Coordinator,
-        makeSession: @escaping () -> FileSearchSession = { FileSearchSession() }
+        makeSession: @escaping @MainActor () -> FileSearchSession = { FileSearchSession() }
     ) {
         self.coordinator = coordinator
         sessionFactory = makeSession
@@ -74,6 +74,7 @@ final class FileSearchPanelView: NSView {
         for field in [queryBar.includeField, queryBar.excludeField] {
             field.onCommit = { [weak self] in self?.runSearchNow() }
             field.onCancel = { [weak self] in self?.focusQueryField(seed: nil) }
+            field.onFocus = { [weak self] in self?.onFocus?() }
         }
         addSubview(queryBar)
 
