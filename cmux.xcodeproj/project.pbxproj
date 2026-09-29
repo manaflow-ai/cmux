@@ -2331,6 +2331,7 @@
 		A17070900000000000000002 /* MobileHostIrohApplicationLaneRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17070900000000000000001 /* MobileHostIrohApplicationLaneRouter.swift */; };
 		C1A070000000000000000004 /* MobileHostIrohServerEventWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */; };
 		FE55F7CA36F9D0E40BEBAB94 /* MobileHostIrxEventWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593F0D7C2C70B01EF272FBAF /* MobileHostIrxEventWriter.swift */; };
+		8898D01EA8DBF082AF73DFAB /* MobileHostIrxLegacyDialectAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 982542CAC4B96779B2BE63A2 /* MobileHostIrxLegacyDialectAuthorizationTests.swift */; };
 		C1B1810000000000000003 /* MobileHostIrxLegacyDialectServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */; };
 		A5E0ECE2015D8940EB38ABEB /* MobileHostIrxRuntime+DeviceAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD3A5543C7D058686ECC1ABF /* MobileHostIrxRuntime+DeviceAccess.swift */; };
 		C1B1810000000000000004 /* MobileHostIrxRuntime+SettingsControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000014 /* MobileHostIrxRuntime+SettingsControl.swift */; };
@@ -6438,6 +6439,7 @@
 		A17070900000000000000001 /* MobileHostIrohApplicationLaneRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohApplicationLaneRouter.swift; sourceTree = "<group>"; };
 		C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohServerEventWriter.swift; sourceTree = "<group>"; };
 		593F0D7C2C70B01EF272FBAF /* MobileHostIrxEventWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxEventWriter.swift; sourceTree = "<group>"; };
+		982542CAC4B96779B2BE63A2 /* MobileHostIrxLegacyDialectAuthorizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileHostIrxLegacyDialectAuthorizationTests.swift"; sourceTree = "<group>"; };
 		C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxLegacyDialectServer.swift; sourceTree = "<group>"; };
 		BD3A5543C7D058686ECC1ABF /* MobileHostIrxRuntime+DeviceAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Mobile/MobileHostIrxRuntime+DeviceAccess.swift"; sourceTree = SOURCE_ROOT; };
 		C1B1810000000000000014 /* MobileHostIrxRuntime+SettingsControl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrxRuntime+SettingsControl.swift"; sourceTree = "<group>"; };
@@ -12524,6 +12526,7 @@
 				C51DB22258B5393E2AB9104C /* ClaudeHookSessionLivenessTests.swift */,
 				A43345B5B3C60929B9F661CB /* ExitingProcessCensusReader.swift */,
 				08202CA6A24B08873B5CC6FD /* GhosttyDialogThemeTests.swift */,
+				982542CAC4B96779B2BE63A2 /* MobileHostIrxLegacyDialectAuthorizationTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16791,6 +16794,7 @@
 				B8B056D80000000000000003 /* MobileHostIdentityConcurrencyTests.swift in Sources */,
 				B8B056D80000000000000001 /* MobileHostIdentityTests.swift in Sources */,
 				C1A071000000000000000001 /* MobileHostIrohAdmissionTests.swift in Sources */,
+				8898D01EA8DBF082AF73DFAB /* MobileHostIrxLegacyDialectAuthorizationTests.swift in Sources */,
 				BC6C909156BA44C7923C2218 /* MobileHostIrxSettingsMappingTests.swift in Sources */,
 				DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */,
 				A1B2C3D4E5F60718293A4C03 /* MobileHostOrderedInputTests.swift in Sources */,

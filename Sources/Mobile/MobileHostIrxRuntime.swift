@@ -101,6 +101,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private var legacyAcceptorPeer: CmxIrohGrantPeer?
     private var legacyStartTask: Task<Void, Never>?
     private var legacyEventsTask: Task<Void, Never>?
+    /// Live legacy-dialect sessions, swept by the same directory enforcement
+    /// that cuts revoked irx sessions.
+    private let legacyDialectSessions = MobileHostIrxLegacyDialectSessions()
     private var registry: IrxServerSessionRegistry?
     private var identity: IrxIdentity?
     private(set) var controlService: V2ControlService?
@@ -372,6 +375,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         await oldControl?.stop()
         await oldRelayWatch?.stop()
         await oldRegistry?.closeAll(code: .hostShutdown)
+        await legacyDialectSessions.closeAll()
         await oldLegacy?.stop(revokeOwnBinding: true)
         await oldEndpoint?.deactivate()
         guard generationToken == token, let scope, isCurrent(token) else { return }
@@ -591,6 +595,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             relayAddressWatch = nil; relayAddressWatchGeneration = nil
             permissionExpiryTask?.cancel(); permissionExpiryTask = nil
             await oldRegistry?.closeAll(code: .revoked)
+            await legacyDialectSessions.closeAll()
             await oldEndpoint?.deactivate()
             await oldRelayWatch?.stop()
             await oldLegacy?.stop(revokeOwnBinding: true)
@@ -782,6 +787,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     }
 
     private func enforcePeerPermissions(token: UUID) async {
+        guard isCurrent(token) else { return }
+        await legacyDialectSessions.closeUnauthorized()
         guard isCurrent(token), let admission, let registry else { return }
         let legacyCurrent = legacyService?.listCurrent
         let macEndpoints = Set(cachedState?.directory?.inboundPeers?.filter {
@@ -899,11 +906,13 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     }
                     let adopted = try? CmxIrohLibEndpointFactory.adoptAcceptedConnection(connection)
                     guard let adopted else { continue }
+                    let legacySessions = self.legacyDialectSessions
                     Task {
                         await MobileHostIrxLegacyDialectServer.serve(adopted: adopted,
                             acceptor: acceptor, trust: trust,
                             brokerClient: legacyService.broker.hostBrokerClient,
                             listCurrent: legacyService.listCurrent,
+                            sessions: legacySessions,
                             isCurrent: { [weak self] in
                                 guard let self else { return false }
                                 return await MainActor.run { self.isCurrent(token) }
