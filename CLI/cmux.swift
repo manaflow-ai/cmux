@@ -31134,6 +31134,7 @@ struct CMUXCLI {
     private static let codexMonitorRetiredLeaseMaxAgeSeconds: TimeInterval = 2 * 60
     private static let codexMonitorOwnerCheckIntervalSeconds: TimeInterval = 60
     private static let codexMonitorOwnerCheckTimeoutSeconds: TimeInterval = 1
+    private static let codexMonitorOwnerGoneGraceSeconds: TimeInterval = 2
 
     private func codexMonitorLeaseDirectory(env: [String: String]) -> URL {
         let statePath = NSString(
@@ -31377,7 +31378,7 @@ struct CMUXCLI {
             )
             return nil
         }
-        let workspaceId = optionValue(commandArgs, name: "--workspace") ?? env["CMUX_WORKSPACE_ID"] ?? ""
+        var workspaceId = optionValue(commandArgs, name: "--workspace") ?? env["CMUX_WORKSPACE_ID"] ?? ""
         let surfaceId = optionValue(commandArgs, name: "--surface") ?? env["CMUX_SURFACE_ID"]
         let sessionId = optionValue(commandArgs, name: "--session")
             ?? env["CMUX_CODEX_SESSION_ID"]
@@ -31396,17 +31397,11 @@ struct CMUXCLI {
         defer { removeCodexMonitorLease(path: leasePath) }
         let deadline = Date().addingTimeInterval(4 * 60 * 60)
         var nextOwnerCheck = Date.distantPast
+        var ownerGoneSince: Date?
         var publishedUserInputCallIds = Set<String>()
         while Date() < deadline {
             if isCodexMonitorLeaseRetired(path: leasePath) {
                 return nil
-            }
-            let now = Date()
-            if now >= nextOwnerCheck {
-                nextOwnerCheck = now.addingTimeInterval(Self.codexMonitorOwnerCheckIntervalSeconds)
-                if codexMonitorOwnerState(workspaceId: workspaceId, surfaceId: surfaceId, client: client) == .gone {
-                    return nil
-                }
             }
 
             if transcriptPath == nil {
@@ -31458,9 +31453,61 @@ struct CMUXCLI {
                 }
             }
 
+            // A completed transcript is authoritative even when the pane is
+            // briefly absent from surface.list during restore or projection
+            // refresh. Checking ownership first can abandon this monitor and
+            // strand the sidebar's Running status.
+            let now = Date()
+            if now >= nextOwnerCheck {
+                nextOwnerCheck = now.addingTimeInterval(Self.codexMonitorOwnerCheckIntervalSeconds)
+                switch codexMonitorOwnerState(workspaceId: workspaceId, surfaceId: surfaceId, client: client) {
+                case .gone:
+                    // A pane can move to another workspace while its
+                    // transcript is still pending. Preserve the monitor and
+                    // follow the authoritative surface owner before falling
+                    // back to the bounded disappearance grace period.
+                    if let surfaceId,
+                       case .resolved(let liveTarget) = liveAgentSurfaceDeliveryTarget(
+                           surfaceId: surfaceId,
+                           claimedWorkspaceId: workspaceId,
+                           client: client
+                       ), liveTarget.workspaceId != workspaceId {
+                        workspaceId = liveTarget.workspaceId
+                        ownerGoneSince = nil
+                        nextOwnerCheck = now.addingTimeInterval(Self.codexMonitorOwnerCheckIntervalSeconds)
+                        continue
+                    }
+                    if ownerGoneSince == nil {
+                        ownerGoneSince = now
+                    }
+                case .alive:
+                    ownerGoneSince = nil
+                case .unknown:
+                    break
+                }
+            }
+
+            // Surface projection can briefly omit a pane while it is being
+            // restored or moved. Keep a monitor with a real transcript alive
+            // for a bounded grace period so a pending completion can still
+            // settle the sidebar. A permanently empty owner exits once the
+            // grace expires; this remains fail-closed for deleted panes.
+            let ownerGraceActive: Bool
+            if let ownerGoneSince {
+                let elapsed = now.timeIntervalSince(ownerGoneSince)
+                guard elapsed < Self.codexMonitorOwnerGoneGraceSeconds else { return nil }
+                ownerGraceActive = transcriptPath != nil
+            } else {
+                ownerGraceActive = false
+            }
+
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return nil }
-            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
+            waitForCodexTranscriptChange(
+                path: transcriptPath,
+                leasePath: leasePath,
+                timeout: min(ownerGraceActive ? 0.25 : 30, remaining)
+            )
         }
         return nil
     }
@@ -34764,7 +34811,8 @@ export default CMUXSessionRestore;
             telemetry: telemetry,
             socketPassword: socketPassword,
             rawInputOverride: replay.payload,
-            hookDeadline: hookDeadline
+            hookDeadline: hookDeadline,
+            monitorReplay: replay
         )
     }
 
@@ -34778,7 +34826,8 @@ export default CMUXSessionRestore;
         telemetry: CLISocketSentryTelemetry,
         socketPassword: String?,
         rawInputOverride: String?,
-        hookDeadline: Date?
+        hookDeadline: Date?,
+        monitorReplay: CodexTranscriptMonitorStopReplay? = nil
     ) throws {
         let env = ProcessInfo.processInfo.environment
         let skipCodexLegacyPromptStop = env["CMUX_CODEX_SETTLED_CHILD_STOP"] == "1"
@@ -34879,14 +34928,16 @@ export default CMUXSessionRestore;
         let processBindingPolicy: AgentProcessBindingResolution = def.name == "omp" ? .controllingTTY : .corroborated
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag
-            ?? snapshottedRoute?.workspaceId
-            ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
+            ?? (monitorReplay == nil
+                ? snapshottedRoute?.workspaceId
+                    ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
+                : nil)
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
         let strictPiTarget = def.name == "pi"
             ? try resolveStrictPiHookTarget(commandArgs: hookArgs, client: client)
             : nil
         let directSurfaceArg = explicitSurfaceFlag
-            ?? (hookWsFlag == nil
+            ?? (monitorReplay == nil && hookWsFlag == nil
                 ? snapshottedRoute?.surfaceId
                     ?? normalizedHookValue(env["CMUX_SURFACE_ID"])
                 : nil)
@@ -35608,6 +35659,13 @@ export default CMUXSessionRestore;
                       ) else {
                     return nil
                 }
+                return (liveSurfaceTarget.workspaceId, liveSurfaceTarget.surfaceId)
+            }
+            // A transcript monitor replay carries the monitor's original
+            // owner only as a lookup hint. Always consult the live owner map
+            // first so a pane move between monitor exit and Stop projection
+            // cannot fall through to the stale persisted workspace.
+            if monitorReplay != nil, let liveSurfaceTarget = tryLiveSurfaceBinding() {
                 return (liveSurfaceTarget.workspaceId, liveSurfaceTarget.surfaceId)
             }
             if hookWsFlag == nil, explicitSurfaceFlag == nil,
