@@ -58,16 +58,25 @@ extension HostAccountFlow {
     /// ``pendingTeamCreate`` stands for the team until the server answers; by
     /// then the coordinator has selected the new team, or kept the previous one.
     func createTeam(displayName: String) async throws -> AccountTeamSummary {
-        // Admission belongs to the coordinator. A second request must neither
-        // replace nor clear the projection owned by the create it will reject.
-        let ownsProjection = pendingTeamCreate == nil
+        // Admission belongs to the coordinator. While it is still busy, a
+        // second request must neither replace nor clear the active projection.
+        // Once the coordinator has finished, a new request may claim a fresh
+        // projection before the previous caller's continuation runs its defer.
+        let requestID = UUID()
+        let ownsProjection = !coordinator.isCreatingTeam
         if ownsProjection {
+            pendingTeamCreateRequestID = requestID
             pendingTeamCreate = PendingTeamCreate(
                 displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines),
                 existingTeamIDs: Set(availableTeams.map(\.id))
             )
         }
-        defer { if ownsProjection { pendingTeamCreate = nil } }
+        defer {
+            if ownsProjection, pendingTeamCreateRequestID == requestID {
+                pendingTeamCreate = nil
+                pendingTeamCreateRequestID = nil
+            }
+        }
         let team = try await coordinator.createTeam(displayName: displayName)
         return AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
     }

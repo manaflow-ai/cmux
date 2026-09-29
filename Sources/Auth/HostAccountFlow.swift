@@ -34,6 +34,9 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// until the server answers. Switches and creates from every surface are
     /// refused until it finishes, since a later change would fail it.
     var pendingTeamCreate: PendingTeamCreate?
+    /// Owns the optimistic create projection so a later create cannot clear
+    /// it when the earlier coordinator request has already finished.
+    var pendingTeamCreateRequestID: UUID?
     var isCreatingTeam: Bool { coordinator.isCreatingTeam }
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
