@@ -2032,6 +2032,7 @@
               "quit",
               "toggleSidebar",
               "newTab",
+              "newLocalWorkspace",
               "newBrowserWorkspace",
               "newCloudWorkspace",
               "newCloudMachine",
