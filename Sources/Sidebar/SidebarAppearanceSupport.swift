@@ -111,9 +111,11 @@ func sidebarActiveForegroundNSColor(
 }
 
 @MainActor
-func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {
+/// The appearance titlebar controls draw over: the terminal backdrop.
+@MainActor
+func titlebarControlAppearance() -> WindowAppearanceSnapshot {
     let app = GhosttyApp.shared
-    let appearance = WindowAppearanceResolver(
+    WindowAppearanceResolver(
         terminalAppearance: WindowTerminalAppearanceSnapshot(
             backgroundColor: app.defaultBackgroundColor,
             backgroundOpacity: app.defaultBackgroundOpacity,
@@ -125,10 +127,19 @@ func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {
         defaults: .standard,
         colorScheme: AppearanceSettings.currentAmbientColorScheme()
     )
-    return titlebarControlForegroundNSColor(
-        opacity: opacity,
-        appearance: appearance
-    )
+}
+
+/// Light or dark for chrome drawn over the titlebar, the same choice that
+/// colors the titlebar icons. Shortcut-hint pills there use it so their
+/// palette matches the icons instead of the window appearance.
+@MainActor
+func titlebarControlColorScheme() -> ColorScheme {
+    cmuxReadableColorScheme(for: titlebarControlAppearance().compositedTerminalBackgroundColor)
+}
+
+@MainActor
+func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {
+    titlebarControlForegroundNSColor(opacity: opacity, appearance: titlebarControlAppearance())
 }
 
 func titlebarControlForegroundNSColor(opacity: CGFloat, appearance: WindowAppearanceSnapshot) -> NSColor {
