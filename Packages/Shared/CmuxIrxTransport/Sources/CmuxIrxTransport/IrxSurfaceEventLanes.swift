@@ -182,6 +182,9 @@ public actor IrxSurfaceEventLanes {
         guard generation >= minimumGenerationBySurfaceID[surfaceID, default: 0] else {
             throw LaneError.released
         }
+        // Record the newest requested generation before the native open
+        // suspends. An older open that completes later must not replace it.
+        minimumGenerationBySurfaceID[surfaceID] = generation
         if let lane = lanes[surfaceID] {
             if lane.generation == generation { return lane }
             // A newer generation means frames on the old stream may be lost;

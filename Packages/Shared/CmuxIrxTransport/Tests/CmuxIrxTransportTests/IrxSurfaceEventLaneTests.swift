@@ -186,6 +186,11 @@ private actor SendOutcomes {
     }
 }
 
+private enum SurfaceLaneSendOutcome: Equatable {
+    case completed
+    case failed(IrxSurfaceEventLanes.LaneError)
+}
+
 private func frame(_ text: String) -> Data {
     var length = UInt32(text.utf8.count).bigEndian
     var data = Data(bytes: &length, count: 4)
@@ -464,6 +469,37 @@ struct IrxSurfaceEventLanesTests {
         await opener.releaseAll()
         for send in sends { await send.value }
         #expect(await outcomes.successes == 2)
+        await lanes.closeAll()
+    }
+
+    @Test func anOlderPendingGenerationCannotReplaceANewerOpen() async throws {
+        let opener = PendingLaneOpener()
+        let lanes = makeLanes(opener, configuration: .init(maximumLaneCount: 2))
+        let old = Task<SurfaceLaneSendOutcome, Never> {
+            do {
+                try await lanes.send(frame("old"), surfaceID: "surface", generation: 0)
+                return .completed
+            } catch let error as IrxSurfaceEventLanes.LaneError {
+                return .failed(error)
+            } catch {
+                return .failed(.released)
+            }
+        }
+        #expect(try await waitUntil { await opener.openCount == 1 })
+        let newer = Task<SurfaceLaneSendOutcome, Never> {
+            do {
+                try await lanes.send(frame("new"), surfaceID: "surface", generation: 1)
+                return .completed
+            } catch let error as IrxSurfaceEventLanes.LaneError {
+                return .failed(error)
+            } catch {
+                return .failed(.released)
+            }
+        }
+        #expect(try await waitUntil { await opener.openCount == 2 })
+        await opener.releaseAll()
+        #expect(await old.value == .failed(.released))
+        #expect(await newer.value == .completed)
         await lanes.closeAll()
     }
 
