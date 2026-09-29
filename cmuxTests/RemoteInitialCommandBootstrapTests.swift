@@ -121,11 +121,20 @@ struct RemoteInitialCommandBootstrapTests {
         delayed.standardError = delayedStderr
         try delayed.run()
 
-        let gateWriter = try openFIFOWriter(gate, waitingFor: delayed, timeout: 5)
+        var gateWriter: FileHandle?
+        defer {
+            try? gateWriter?.close()
+            if delayed.isRunning {
+                delayed.terminate()
+                try? waitForExit(delayed, timeout: 5)
+            }
+        }
+        gateWriter = try openFIFOWriter(gate, waitingFor: delayed, timeout: 5)
         let concurrent = try runShell("umask 022\n" + concurrentScript, environment: environment)
         #expect(concurrent.status == 0, "stdout: \(concurrent.stdout)\nstderr: \(concurrent.stderr)")
-        gateWriter.write(Data("release\n".utf8))
-        try gateWriter.close()
+        try gateWriter?.write(contentsOf: Data("release\n".utf8))
+        try gateWriter?.close()
+        gateWriter = nil
         try waitForExit(delayed, timeout: 10)
         let delayedResult = ProcessResult(
             status: delayed.terminationStatus,
