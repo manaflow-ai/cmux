@@ -116,12 +116,14 @@ if [[ -n "$SOAK_PROFILE" ]]; then
     # The app deadline is the workload duration plus the rollover probe and
     # its bounded readiness/teardown allowance. The waiter starts after the
     # prewarm launch below, so this margin only covers report delivery.
-    basic) REPORT_TIMEOUT=1170 ;;
+    basic)
+      REPORT_TIMEOUT="$([[ "$MODE" == relay-only ]] && printf 2790 || printf 1170)"
+      ;;
     stress)
-      # Relay-only stress adds the 330-second rollover probe after the
+      # Relay-only stress adds the 1950-second rollover probe after the
       # one-hour workload. Leave enough time for that probe, teardown, and
       # report delivery.
-      REPORT_TIMEOUT="$([[ "$MODE" == relay-only ]] && printf 4170 || printf 3870)"
+      REPORT_TIMEOUT="$([[ "$MODE" == relay-only ]] && printf 5850 || printf 3870)"
       ;;
     *) echo "error: invalid soak profile" >&2; exit 2 ;;
   esac
@@ -1043,7 +1045,6 @@ CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 CMUX_ATTACH_READY_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_ATTACH_READY_TIMEOUT_SECONDS:-90}" \
 CMUX_IROH_RELEASE_GATE_SCENARIO="$GATE_SCENARIO" \
 CMUX_IROH_SOAK_PROFILE="$SOAK_PROFILE" \
-CMUX_IROH_V2_VERIFY_RENEW_INTERVAL_SECONDS="$([[ "$GATE_SCENARIO" == "relay_rollover" ]] && printf 180 || printf '')" \
 CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="$([[ "$GATE_SCENARIO" == "relay_expiry" ]] && printf 1 || printf 0)" \
 run_release_gate_launch "$GATE_LAUNCH_LOG" ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}" || launch_status=$?
 sed -E \
@@ -1220,8 +1221,8 @@ if expected_scenario == "relay_rollover":
     ):
         if report.get(key) is not True:
             problems.append(f"{key} was not true")
-    if report.get("soakDurationSeconds", 0) < 330:
-        problems.append("rollover soak was shorter than 330 seconds")
+    if report.get("soakDurationSeconds", 0) < 1950:
+        problems.append("rollover soak was shorter than 1950 seconds")
 elif expected_scenario == "relay_expiry":
     if report.get("unrefreshedExpiryDisconnectVerified") is not True:
         problems.append("unrefreshedExpiryDisconnectVerified was not true")

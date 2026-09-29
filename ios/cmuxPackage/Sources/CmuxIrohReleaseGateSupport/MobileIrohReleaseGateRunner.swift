@@ -15,7 +15,10 @@ private let mobileIrohReleaseGateLog = Logger(
 
 @MainActor
 final class MobileIrohReleaseGateRunner {
-    private static let relayRolloverSoakDurationSeconds = 330
+    // Relay credentials live for 30 minutes. Keep the explicit continuity
+    // probe just beyond that lifetime so it proves the normal make-before-break
+    // renewal path instead of relying on a shortened test interval.
+    private static let relayRolloverSoakDurationSeconds = 1_950
     private static let requiredReadyObservations = 2
     private static let standardTimeout: Duration = .seconds(90)
     private static let extendedTimeout: Duration = .seconds(420)
