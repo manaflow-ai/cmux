@@ -2817,8 +2817,6 @@ final class BrowserPanel: Panel, ObservableObject {
         let target = discardRestoreTarget(for: oldWebView)
         let restoreURL = target.restoreURL
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
-
-        clearBrowserFocusMode(reason: "webViewDiscard")
         invalidateSearchFocusRequests(reason: "webViewDiscard")
         searchState = nil
         loadingEndScheduler.cancel()
@@ -2827,15 +2825,9 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconRefreshGeneration &+= 1
         loadingGeneration &+= 1
         cancelPendingInteractiveBrowserPrompts(reason: "discardHiddenWebView")
-
-        detachWebViewObservers()
         closeBackgroundPreloadHost(reason: "discardHiddenWebView")
-        BrowserWindowPortalRegistry.detach(webView: oldWebView)
-        webAuthnCoordinator.tearDown(from: oldWebView); oldWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
-        oldWebView.navigationDelegate = nil
-        oldWebView.uiDelegate = nil
-        if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
+        tearDownWebViewBeforeReplacement(oldWebView, reason: "webViewDiscard")
 
         let replacement = makeReplacementWebView(
             profileID: profileID,
@@ -4422,21 +4414,15 @@ final class BrowserPanel: Panel, ObservableObject {
         _ = hideDeveloperTools()
         cancelDeveloperToolsRestoreRetry()
 
-        detachWebViewObservers()
         clearWebContentTerminationRecovery()
-        clearBrowserFocusMode(reason: "profileSwitch")
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
         cancelPendingInteractiveBrowserPrompts(reason: "profileSwitch")
         closeBackgroundPreloadHost(reason: "profileSwitch")
         navigationDelegate?.clearSSLTrustState()
-        BrowserWindowPortalRegistry.detach(webView: previousWebView)
-        webAuthnCoordinator.tearDown(from: previousWebView); previousWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
-        previousWebView.navigationDelegate = nil
-        previousWebView.uiDelegate = nil
-        if let previousCmuxWebView = previousWebView as? CmuxWebView { previousCmuxWebView.clearBrowserDownloadCallbacks() }
+        tearDownWebViewBeforeReplacement(previousWebView, reason: "profileSwitch")
 
         profileID = resolvedProfileID
         historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
@@ -5074,22 +5060,16 @@ final class BrowserPanel: Panel, ObservableObject {
         BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: nil)
         BrowserWindowPortalRegistry.updateDesignComposer(for: webView, configuration: nil)
         BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: nil)
-        BrowserWindowPortalRegistry.detach(webView: webView)
         cancelPendingInteractiveBrowserPrompts(reason: "close", cancelAuthenticationPrompts: false)
         closeBackgroundPreloadHost(reason: "close")
         closeAllPopupControllers()
-        webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
-        designModeController.webViewWillBeRemoved(webView)
+        tearDownWebViewBeforeReplacement(webView, reason: "close")
         designModeController.releaseDeliveredHandoffForTeardown()
         isMainFrameProvisionalNavigationActive = false
-        webView.navigationDelegate = nil
-        webView.uiDelegate = nil
-        if let cmuxWebView = webView as? CmuxWebView { cmuxWebView.clearBrowserDownloadCallbacks() }
         navigationDelegate = nil
         uiDelegate = nil
         webViewDidRequestClose = nil
         openAppLinkInBrowserSplit = nil
-        detachWebViewObservers()
         faviconTask?.cancel(); faviconTask = nil
         designModeToolbarToggleTask?.cancel()
     }
@@ -6142,15 +6122,10 @@ extension BrowserPanel {
         lockedPortalHost = nil
 
         let oldWebView = webView
-        detachWebViewObservers()
         cancelPendingInteractiveBrowserPrompts(reason: "contextReset")
         closeBackgroundPreloadHost(reason: "contextReset")
-        BrowserWindowPortalRegistry.detach(webView: oldWebView)
-        webAuthnCoordinator.tearDown(from: oldWebView); oldWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
-        oldWebView.navigationDelegate = nil
-        oldWebView.uiDelegate = nil
-        if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
+        tearDownWebViewBeforeReplacement(oldWebView, reason: "contextReset")
 
         clearBrowserAutomationUserScripts()
         let replacement = Self.makeWebView(

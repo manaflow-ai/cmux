@@ -133,8 +133,6 @@ extension BrowserPanel {
         )
 #endif
 
-        detachWebViewObservers()
-        clearBrowserFocusMode(reason: reason)
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
@@ -144,12 +142,8 @@ extension BrowserPanel {
         estimatedProgress = 0
         cancelPendingInteractiveBrowserPrompts(reason: reason)
         closeBackgroundPreloadHost(reason: reason)
-        BrowserWindowPortalRegistry.detach(webView: oldWebView)
-        webAuthnCoordinator.tearDown(from: oldWebView); oldWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
-        oldWebView.navigationDelegate = nil
-        oldWebView.uiDelegate = nil
-        if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
+        tearDownWebViewBeforeReplacement(oldWebView, reason: reason)
 
         let replacement = makeReplacementWebView(
             profileID: profileID,

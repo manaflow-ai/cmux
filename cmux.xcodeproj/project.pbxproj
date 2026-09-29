@@ -491,6 +491,7 @@
 		B424PWAD000000000000PW01 /* BrowserPanel+PrewarmedWebViewAdoption.swift in Sources */ = {isa = PBXBuildFile; fileRef = B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */; };
 		129980000000000000000005 /* BrowserPanel+Reload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 129980000000000000000006 /* BrowserPanel+Reload.swift */; };
 		C0DE47010000000000000001 /* BrowserPanel+WebContentTermination.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE47010000000000000002 /* BrowserPanel+WebContentTermination.swift */; };
+		B8A2E98B5CD2294386898E6E /* BrowserPanel+WebViewTeardown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81A4A7AFECBA4787FEC65E97 /* BrowserPanel+WebViewTeardown.swift */; };
 		A5001402 /* BrowserPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001412 /* BrowserPanel.swift */; };
 		B1F0C0090000000000000001 /* BrowserPanelDeveloperToolsLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0090000000000000002 /* BrowserPanelDeveloperToolsLifecycle.swift */; };
 		B65060010000000000000002 /* BrowserPanelSessionRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B65060010000000000000001 /* BrowserPanelSessionRestoreTests.swift */; };
@@ -4729,6 +4730,7 @@
 		B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PrewarmedWebViewAdoption.swift"; sourceTree = "<group>"; };
 		129980000000000000000006 /* BrowserPanel+Reload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+Reload.swift"; sourceTree = "<group>"; };
 		C0DE47010000000000000002 /* BrowserPanel+WebContentTermination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+WebContentTermination.swift"; sourceTree = "<group>"; };
+		81A4A7AFECBA4787FEC65E97 /* BrowserPanel+WebViewTeardown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+WebViewTeardown.swift"; sourceTree = "<group>"; };
 		A5001412 /* BrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanel.swift; sourceTree = "<group>"; };
 		B1F0C0090000000000000002 /* BrowserPanelDeveloperToolsLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanelDeveloperToolsLifecycle.swift; sourceTree = "<group>"; };
 		B65060010000000000000001 /* BrowserPanelSessionRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPanelSessionRestoreTests.swift; sourceTree = "<group>"; };
@@ -11072,6 +11074,7 @@
 				3840C3CAEE266F282EE96A37 /* SidebarReorderInteractionState.swift */,
 				01AFEB5B2588D6391DC94892 /* WorkspaceActivityReorderController.swift */,
 				FFFCEC5E783F29C91BC6A8EE /* Workspace+SplitSpace.swift */,
+				81A4A7AFECBA4787FEC65E97 /* BrowserPanel+WebViewTeardown.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13585,6 +13588,7 @@
 				B424PWAD000000000000PW01 /* BrowserPanel+PrewarmedWebViewAdoption.swift in Sources */,
 				129980000000000000000005 /* BrowserPanel+Reload.swift in Sources */,
 				C0DE47010000000000000001 /* BrowserPanel+WebContentTermination.swift in Sources */,
+				B8A2E98B5CD2294386898E6E /* BrowserPanel+WebViewTeardown.swift in Sources */,
 				A5001402 /* BrowserPanel.swift in Sources */,
 				B1F0C0090000000000000001 /* BrowserPanelDeveloperToolsLifecycle.swift in Sources */,
 				A5001404 /* BrowserPanelView.swift in Sources */,
