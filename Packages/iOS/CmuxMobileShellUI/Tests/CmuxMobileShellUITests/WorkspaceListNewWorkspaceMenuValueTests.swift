@@ -48,7 +48,7 @@ import Testing
         )
 
         #expect(
-            WorkspaceListNewWorkspaceRouting.soleConnectedTarget(
+            WorkspaceListNewWorkspaceMenuValue.soleConnectedTarget(
                 scopedExternalHostID: "cloud-1",
                 targets: [mac]
             ) == nil

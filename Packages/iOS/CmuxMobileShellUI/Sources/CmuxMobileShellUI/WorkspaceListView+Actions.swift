@@ -23,7 +23,7 @@ extension WorkspaceListView {
         let createWorkspaceAction: () -> Void = {
             if let scopedExternalHostID, let createWorkspaceOnCloudMachine {
                 createWorkspaceOnCloudMachine(scopedExternalHostID)
-            } else if let target = WorkspaceListNewWorkspaceRouting.soleConnectedTarget(
+            } else if let target = WorkspaceListNewWorkspaceMenuValue.soleConnectedTarget(
                 scopedExternalHostID: scopedExternalHostID,
                 targets: computerTargets
             ),

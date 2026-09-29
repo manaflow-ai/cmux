@@ -18,13 +18,11 @@ struct WorkspaceListNewWorkspaceMenuValue: Equatable {
         return target
     }
     var isEnabled: Bool { canCreate || computerTargets.contains(where: \.isConnected) }
-}
 
-enum WorkspaceListNewWorkspaceRouting {
     static func soleConnectedTarget(
         scopedExternalHostID: String?,
-        targets: [WorkspaceListNewWorkspaceMenuValue.ComputerTarget]
-    ) -> WorkspaceListNewWorkspaceMenuValue.ComputerTarget? {
+        targets: [ComputerTarget]
+    ) -> ComputerTarget? {
         guard scopedExternalHostID == nil else { return nil }
         let connectedTargets = targets.filter(\.isConnected)
         guard connectedTargets.count == 1 else { return nil }
