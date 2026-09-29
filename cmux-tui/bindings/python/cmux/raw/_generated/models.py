@@ -1450,6 +1450,7 @@ class ClientFocusResult:
 class ClosePaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/close-pane/request'
     pane: Id
+    end_terminals: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1464,6 +1465,7 @@ class CloseProviderManagedWorkspaceRequest:
 class CloseScreenRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/close-screen/request'
     screen: Id
+    end_terminals: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1476,6 +1478,19 @@ class CloseSurfaceRequest:
 class CloseTabGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/close-tab-group/request'
     group: str
+    end_terminals: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloseTabsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/close-tabs/request'
+    surfaces: List[TabRef]
+    end_terminals: Union[bool, MissingType] = field(default=MISSING)
+    expected_generation: Union[str, None, MissingType] = field(default=MISSING)
+    expected_revision: Union[int, None, MissingType] = field(default=MISSING)
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1498,6 +1513,7 @@ class CloseWorkspaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    end_terminals: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3251,6 +3267,7 @@ __all__ = [
     'CloseScreenRequest',
     'CloseSurfaceRequest',
     'CloseTabGroupRequest',
+    'CloseTabsRequest',
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
     'CopyRequest',

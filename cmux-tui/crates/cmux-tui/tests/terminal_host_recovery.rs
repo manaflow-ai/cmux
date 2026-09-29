@@ -3757,10 +3757,8 @@ fn close_workspace_with_end_terminals_ends_only_its_unkept_terminals() {
             "end_terminals": true,
         }),
     );
-    let ended = reply["terminals"].as_array().unwrap();
-    assert_eq!(ended.len(), 1, "{reply}");
-    assert_eq!(ended[0]["terminal_id"], doomed.as_str());
-    assert_eq!(reply["changed"], true);
+    assert_eq!(reply["changed"], true, "{reply}");
+    assert_eq!(reply["replayed"], false, "{reply}");
     wait_for_terminal_lifecycle(&harness.socket, &doomed, "tombstoned");
     wait_for_host_records(&harness.host_root(), 2);
     for (index, terminal_id) in [&survivor, &kept].into_iter().enumerate() {

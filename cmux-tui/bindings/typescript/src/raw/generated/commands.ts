@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 006ce9e0317fb3ac4fa67c61bbf854d85fb74ae2c6ad91a7d7cb2e47eac8610e. */
+/* cmux-tui mux protocol 12, IR d47bea9f7d0d29f310c6ec2e6a529451364fa5c8572ad0acfa44674593e08d85. */
 
 
 import type * as T from "./types.js";
@@ -213,6 +213,7 @@ export type ClientFocusResult = {
 /** Protocol v5; authority: control. */
 export interface ClosePaneRequest extends CmuxRequestBase {
   cmd: "close-pane";
+  "end_terminals"?: boolean;
   "pane": T.Id;
 }
 export type ClosePaneResult = T.EmptyResult;
@@ -229,6 +230,7 @@ export type CloseProviderManagedWorkspaceResult = T.ProviderWorkspaceMutationRes
 /** Protocol v5; authority: control. */
 export interface CloseScreenRequest extends CmuxRequestBase {
   cmd: "close-screen";
+  "end_terminals"?: boolean;
   "screen": T.Id;
 }
 export type CloseScreenResult = T.EmptyResult;
@@ -243,9 +245,23 @@ export type CloseSurfaceResult = T.EmptyResult;
 /** Protocol v12; authority: control. */
 export interface CloseTabGroupRequest extends CmuxRequestBase {
   cmd: "close-tab-group";
+  "end_terminals"?: boolean;
   "group": string;
 }
 export type CloseTabGroupResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface CloseTabsRequest extends CmuxRequestBase {
+  cmd: "close-tabs";
+  "end_terminals"?: boolean;
+  "expected_generation"?: (string) | null;
+  "expected_revision"?: (bigint) | null;
+  "mutation_id"?: (string) | null;
+  "origin"?: (string) | null;
+  "surfaces": Array<T.TabRef>;
+  "transaction"?: (string) | null;
+}
+export type CloseTabsResult = T.JsonValue;
 
 /** Protocol v9; authority: control. */
 export interface CloseTerminalRequest extends CmuxRequestBase {
@@ -261,6 +277,7 @@ export interface CloseTerminalRequest extends CmuxRequestBase {
 /** Protocol v5; authority: control. */
 export interface CloseWorkspaceRequest extends CmuxRequestBase {
   cmd: "close-workspace";
+  "end_terminals"?: boolean;
   "expected_generation"?: (string) | null;
   "expected_revision"?: (bigint) | null;
   "key"?: (string) | null;
@@ -1354,6 +1371,7 @@ export type CmuxRequest =
   | CloseScreenRequest
   | CloseSurfaceRequest
   | CloseTabGroupRequest
+  | CloseTabsRequest
   | CloseTerminalRequest
   | CloseWorkspaceRequest
   | CopyRequest
@@ -1675,6 +1693,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "tab-groups-v1";
+    stream: null;
+  };
+  "close-tabs": {
+    request: CloseTabsRequest;
+    result: CloseTabsResult;
+    authority: "control";
+    since: 12;
+    capability: "batch-close-v1";
     stream: null;
   };
   "close-terminal": {

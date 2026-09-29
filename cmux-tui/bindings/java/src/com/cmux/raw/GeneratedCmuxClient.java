@@ -138,6 +138,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object closeTabs(CloseTabsRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOSE_TABS, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final CloseTerminalResult closeTerminal(CloseTerminalRequest request) throws CmuxException {
         Object result = execute(Commands.CLOSE_TERMINAL, request.toWire());
         return CloseTerminalResult.fromWire(result);

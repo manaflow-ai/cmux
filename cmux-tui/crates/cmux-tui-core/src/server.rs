@@ -13330,11 +13330,11 @@ fn handle_command_with_cancellation(
             let members = mux.ungroup_tab_group(&group)?;
             Ok(json!({ "group": group, "surfaces": members }))
         }
-        Command::CloseTabGroup { group, end_terminals: false } => {
-            let closed = mux.close_tab_group(&group)?;
-            Ok(json!({ "group": group, "closed": closed }))
-        }
-        Command::CloseTabGroup { group, end_terminals: true } => {
+        Command::CloseTabGroup { group, end_terminals } => {
+            if !end_terminals {
+                let closed = mux.close_tab_group(&group)?;
+                return Ok(json!({ "group": group, "closed": closed }));
+            }
             let outcome = mux.close_container_ending_terminals(crate::BatchCloseTarget::TabGroup(
                 group.clone(),
             ))?;
@@ -13597,65 +13597,44 @@ fn handle_command_with_cancellation(
             }
             Ok(reply)
         }
-        Command::ClosePane { pane, end_terminals: true } => {
-            let outcome = mux.close_container_ending_terminals(crate::BatchCloseTarget::Pane(pane))?;
-            Ok(json!({
-                "closed": outcome.closed(),
-                "terminals": batch_close_terminals_json(&outcome),
-            }))
-        }
-        Command::ClosePane { pane, end_terminals: false } => {
-            if !mux.close_pane(pane)? {
+        // With `end_terminals` the result shapes stay those of the plain
+        // closes; the ended terminals show in the terminal and resource streams.
+        Command::ClosePane { pane, end_terminals } => {
+            if end_terminals {
+                mux.close_container_ending_terminals(crate::BatchCloseTarget::Pane(pane))?;
+            } else if !mux.close_pane(pane)? {
                 anyhow::bail!("unknown pane {pane}");
             }
             Ok(json!({}))
         }
-        Command::CloseScreen { screen, end_terminals: true } => {
-            let outcome =
+        Command::CloseScreen { screen, end_terminals } => {
+            if end_terminals {
                 mux.close_container_ending_terminals(crate::BatchCloseTarget::Screen(screen))?;
-            Ok(json!({
-                "closed": outcome.closed(),
-                "terminals": batch_close_terminals_json(&outcome),
-            }))
-        }
-        Command::CloseScreen { screen, end_terminals: false } => {
-            if !mux.close_screen(screen)? {
+            } else if !mux.close_screen(screen)? {
                 anyhow::bail!("unknown screen {screen}");
             }
             Ok(json!({}))
         }
-        Command::CloseWorkspace { workspace, key, end_terminals: true, mutation } => {
+        Command::CloseWorkspace { workspace, key, end_terminals, mutation } => {
             let workspace_mutation = workspace_mutation(&mutation)?;
-            let (result, outcome) = mux.close_workspace_ending_terminals(
-                workspace,
-                key.as_deref(),
-                mutation.expected_generation.as_deref(),
-                mutation.expected_revision,
-                &workspace_mutation,
-            )?;
-            let (registry_id, generation) = mux.registry_identity();
-            Ok(json!({
-                "workspace": result.workspace,
-                "key": result.key,
-                "index": result.index,
-                "workspace_revision": result.revision,
-                "changed": result.changed,
-                "replayed": result.replayed,
-                "registry_id": registry_id,
-                "generation": generation,
-                "closed": outcome.closed(),
-                "terminals": batch_close_terminals_json(&outcome),
-            }))
-        }
-        Command::CloseWorkspace { workspace, key, end_terminals: false, mutation } => {
-            let workspace_mutation = workspace_mutation(&mutation)?;
-            let result = mux.close_workspace_with_mutation(
-                workspace,
-                key.as_deref(),
-                mutation.expected_generation.as_deref(),
-                mutation.expected_revision,
-                &workspace_mutation,
-            )?;
+            let result = if end_terminals {
+                mux.close_workspace_ending_terminals(
+                    workspace,
+                    key.as_deref(),
+                    mutation.expected_generation.as_deref(),
+                    mutation.expected_revision,
+                    &workspace_mutation,
+                )?
+                .0
+            } else {
+                mux.close_workspace_with_mutation(
+                    workspace,
+                    key.as_deref(),
+                    mutation.expected_generation.as_deref(),
+                    mutation.expected_revision,
+                    &workspace_mutation,
+                )?
+            };
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
                 "workspace": result.workspace,
