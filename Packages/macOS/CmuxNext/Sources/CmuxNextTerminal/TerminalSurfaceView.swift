@@ -1,35 +1,71 @@
 public import AppKit
-public import Foundation
 import GhosttyKit
+import QuartzCore
 
-/// NSView that hosts one Ghostty surface.
+/// NSView that hosts one Ghostty surface fed by a ``TerminalIO``.
 ///
 /// Ghostty's Metal renderer installs its own `IOSurfaceLayer` as this view's
-/// layer; never replace the layer. The surface is created when the view first
-/// joins a window and freed when the view deinitializes.
+/// layer (ghostty/src/renderer/Metal.zig); never replace the layer. The
+/// surface is created in `init`, like Ghostty.app does, so output that
+/// arrives before the view joins a window is not lost, and freed in `deinit`.
 ///
-/// Not yet implemented (next CmuxNextTerminal steps, shell.md section 5):
-/// `NSTextInputClient` / IME, render-presented callbacks, occlusion, Kitty
-/// replay restore, and authoritative grid size from the daemon.
+/// Created and owned by ``TerminalSession``; embed ``TerminalSession/view``,
+/// not this view directly.
 public final class TerminalSurfaceView: NSView {
-    public enum IOMode {
-        /// Ghostty spawns and owns the shell. Used to validate input and
-        /// rendering before the daemon client exists.
-        case exec
-        /// cmux-tui owns the PTY and answers terminal queries. User input
-        /// bytes go to `write` on Ghostty's IO thread; daemon output comes
-        /// back through `processOutput(_:)`.
-        case manualMirror(write: @Sendable (Data) -> Void)
+    // MARK: State
+
+    private(set) var surface: ghostty_surface_t?
+    private let bridge: Unmanaged<SurfaceBridge>
+    /// Serial lane for output and other process_output-ordered calls.
+    private(set) var lane: TerminalOutputLane?
+    weak var session: TerminalSession?
+
+    /// Whether this view's pixel size decides the terminal grid. Followers
+    /// render the daemon's canonical grid instead (shell.md 2.3).
+    var ownsGeometry = true {
+        didSet { if ownsGeometry != oldValue { updateSurfaceSize(forceReport: true) } }
     }
 
-    private let ioMode: IOMode
-    private var surface: ghostty_surface_t?
-    private var ioWriteBox: Unmanaged<IOWriteBox>?
-    private var trackingArea: NSTrackingArea?
+    /// Grid decided elsewhere; applied while ``ownsGeometry`` is false.
+    var canonicalGrid: TerminalGridSize? {
+        didSet { if canonicalGrid != oldValue, !ownsGeometry { updateSurfaceSize() } }
+    }
 
-    public init(ioMode: IOMode) {
-        self.ioMode = ioMode
-        super.init(frame: .zero)
+    /// App-controlled pause (off-screen niri column, unselected tab).
+    var isRenderingSuspended = false {
+        didSet { if isRenderingSuspended != oldValue { updateOcclusion() } }
+    }
+
+    /// Mirrors attached to this view. While positive the surface keeps
+    /// rendering even when hidden, so hover previews stay live.
+    var mirrorDemand = 0 {
+        didSet { if (mirrorDemand > 0) != (oldValue > 0) { updateOcclusion() } }
+    }
+
+    /// Last grid reported to the owner, so a resize that keeps the same
+    /// cell count does not generate a daemon `resize-surface`.
+    private var reportedGrid: TerminalGridSize?
+    private var lastOcclusionVisible: Bool?
+    private var lastFocus: Bool?
+    private var windowObservers: [any NSObjectProtocol] = []
+    var trackingArea: NSTrackingArea?
+    var cursor: NSCursor = .iBeam
+
+    // Keyboard state (see TerminalSurfaceView+Keyboard.swift).
+    var markedText = NSMutableAttributedString()
+    var keyTextAccumulator: [String]?
+    var lastPerformKeyEventTimestamp: TimeInterval?
+    var previousPressureStage = 0
+
+    // MARK: Lifecycle
+
+    init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?) {
+        let bridge = SurfaceBridge(input: input)
+        self.bridge = Unmanaged.passRetained(bridge)
+        self.session = session
+        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        bridge.view = self
+        createSurface(mode: mode)
     }
 
     @available(*, unavailable)
@@ -38,54 +74,96 @@ public final class TerminalSurfaceView: NSView {
     }
 
     isolated deinit {
+        for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
+        TerminalSecureInput.release(self)
         if let surface {
+            lane?.close()
             ghostty_surface_free(surface)
         }
-        // The IO box must outlive ghostty_surface_free, which joins the IO thread.
-        ioWriteBox?.release()
+        // Released after free: free joins the IO thread that reads the bridge.
+        bridge.release()
     }
 
-    // MARK: Manual IO
+    /// `ghostty_surface_new` with embedder-owned IO (ghostty.h:548-559,
+    /// :627-629). `GHOSTTY_SURFACE_IO_MANUAL_MIRROR` for the daemon,
+    /// `GHOSTTY_SURFACE_IO_MANUAL` for a bare PTY.
+    private func createSurface(mode: ghostty_surface_io_mode_e) {
+        guard let app = GhosttyRuntime.shared.app else { return }
+        let userdata = bridge.toOpaque()
+        var config = ghostty_surface_config_new()
+        config.platform_tag = GHOSTTY_PLATFORM_MACOS
+        config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(nsview: Unmanaged.passUnretained(self).toOpaque()))
+        config.userdata = userdata
+        config.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 2)
+        config.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
+        config.io_mode = mode
+        config.io_write_cb = ghosttyIOWrite
+        config.io_write_userdata = userdata
+        guard let surface = ghostty_surface_new(app, &config) else {
+            GhosttyRuntime.logger.error("ghostty_surface_new failed")
+            return
+        }
+        self.surface = surface
+        lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output")
+        registerForDraggedTypes([.fileURL, .URL, .string])
+        updateContentScale()
+        updateSurfaceSize(forceReport: true)
+        updateOcclusion()
+        updateFocus()
+    }
 
-    /// Feeds PTY bytes from the daemon. Calls must be serialized per surface.
-    public func processOutput(_ data: Data) {
-        guard let surface, !data.isEmpty else { return }
-        data.withUnsafeBytes { buffer in
-            guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
-            ghostty_surface_process_output(surface, base, UInt(buffer.count))
+    public override var isFlipped: Bool { false }
+
+    // MARK: Window, scale, and size
+
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
+        windowObservers.removeAll()
+        guard let newWindow else { return }
+        let center = NotificationCenter.default
+        let names: [Notification.Name] = [
+            NSWindow.didChangeOcclusionStateNotification,
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.didResignKeyNotification,
+            NSWindow.didChangeScreenNotification,
+        ]
+        for name in names {
+            windowObservers.append(center.addObserver(forName: name, object: newWindow, queue: .main) { [weak self] note in
+                let name = note.name
+                MainActor.assumeIsolated { self?.windowStateChanged(name) }
+            })
         }
     }
-
-    // MARK: Lifecycle
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard let window, surface == nil else { return }
-        createSurface(scale: window.backingScaleFactor)
-    }
-
-    private func createSurface(scale: CGFloat) {
-        guard let app = GhosttyRuntime.shared.app else { return }
-        var config = ghostty_surface_config_new()
-        let viewPointer = Unmanaged.passUnretained(self).toOpaque()
-        config.platform_tag = GHOSTTY_PLATFORM_MACOS
-        config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(nsview: viewPointer))
-        config.userdata = viewPointer
-        config.scale_factor = scale
-        config.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
-        switch ioMode {
-        case .exec:
-            config.io_mode = GHOSTTY_SURFACE_IO_EXEC
-        case .manualMirror(let write):
-            let box = Unmanaged.passRetained(IOWriteBox(write: write))
-            ioWriteBox = box
-            config.io_mode = GHOSTTY_SURFACE_IO_MANUAL_MIRROR
-            config.io_write_cb = ghosttyIOWrite
-            config.io_write_userdata = box.toOpaque()
-        }
-        surface = ghostty_surface_new(app, &config)
         updateContentScale()
         updateSurfaceSize()
+        updateOcclusion()
+        updateFocus()
+    }
+
+    private func windowStateChanged(_ name: Notification.Name) {
+        switch name {
+        case NSWindow.didChangeOcclusionStateNotification:
+            updateOcclusion()
+        case NSWindow.didChangeScreenNotification:
+            updateContentScale()
+            updateSurfaceSize()
+        default:
+            updateFocus()
+        }
+    }
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        updateOcclusion()
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        updateOcclusion()
     }
 
     public override func viewDidChangeBackingProperties() {
@@ -99,20 +177,76 @@ public final class TerminalSurfaceView: NSView {
         updateSurfaceSize()
     }
 
+    /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`
+    /// (ghostty.h:1440, :1821).
     private func updateContentScale() {
-        guard let surface, let window else { return }
+        guard let surface else { return }
         let scale = convertToBacking(NSSize(width: 1, height: 1))
         ghostty_surface_set_content_scale(surface, scale.width, scale.height)
-        if let screenNumber = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
-            ghostty_surface_set_display_id(surface, screenNumber.uint32Value)
+        if let window {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.contentsScale = window.backingScaleFactor
+            CATransaction.commit()
+            if let screenNumber = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
+                ghostty_surface_set_display_id(surface, screenNumber.uint32Value)
+            }
         }
     }
 
-    private func updateSurfaceSize() {
+    /// Owner: size the surface to the view and report a changed grid.
+    /// Follower: render the canonical grid (`ghostty_surface_set_grid_size`,
+    /// ghostty.h:1464) regardless of the view size.
+    func updateSurfaceSize(forceReport: Bool = false) {
         guard let surface else { return }
+        if !ownsGeometry, let canonicalGrid,
+           let columns = UInt16(exactly: canonicalGrid.columns), let rows = UInt16(exactly: canonicalGrid.rows) {
+            var resolved = ghostty_surface_size_s()
+            if ghostty_surface_set_grid_size(surface, columns, rows, &resolved) {
+                publish(size: resolved)
+            }
+            return
+        }
         let pixels = convertToBacking(bounds.size)
-        guard pixels.width > 0, pixels.height > 0 else { return }
+        guard pixels.width >= 1, pixels.height >= 1 else { return }
         ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
+        let size = ghostty_surface_size(surface)
+        publish(size: size)
+        guard ownsGeometry, size.columns > 0, size.rows > 0 else { return }
+        let grid = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
+        if forceReport || grid != reportedGrid {
+            reportedGrid = grid
+            session?.surfaceDidReport(grid: grid, pixelWidth: Int(size.width_px), pixelHeight: Int(size.height_px))
+        }
+    }
+
+    private func publish(size: ghostty_surface_size_s) {
+        guard let model = session?.model else { return }
+        let grid = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
+        if model.grid != grid { model.grid = grid }
+        let cell = CGSize(width: Int(size.cell_width_px), height: Int(size.cell_height_px))
+        if model.cellPixelSize != cell { model.cellPixelSize = cell }
+    }
+
+    /// Cell size in points, for IME rectangles.
+    var cellPointSize: CGSize {
+        guard let surface else { return CGSize(width: 8, height: 16) }
+        let size = ghostty_surface_size(surface)
+        let backing = convertFromBacking(NSSize(width: Int(size.cell_width_px), height: Int(size.cell_height_px)))
+        return CGSize(width: max(backing.width, 1), height: max(backing.height, 1))
+    }
+
+    // MARK: Occlusion
+
+    /// `ghostty_surface_set_occlusion(surface, visible)` (ghostty.h:1442).
+    /// Hidden surfaces stop drawing but keep parsing output.
+    func updateOcclusion() {
+        guard let surface else { return }
+        let onScreen = window.map { $0.occlusionState.contains(.visible) } ?? false
+        let visible = mirrorDemand > 0 || (onScreen && !isHiddenOrHasHiddenAncestor && !isRenderingSuspended)
+        guard visible != lastOcclusionVisible else { return }
+        lastOcclusionVisible = visible
+        ghostty_surface_set_occlusion(surface, visible)
     }
 
     // MARK: Focus
@@ -121,124 +255,43 @@ public final class TerminalSurfaceView: NSView {
 
     public override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
-        if accepted, let surface { ghostty_surface_set_focus(surface, true) }
+        if accepted { updateFocus(firstResponder: true) }
         return accepted
     }
 
     public override func resignFirstResponder() -> Bool {
         let accepted = super.resignFirstResponder()
-        if accepted, let surface { ghostty_surface_set_focus(surface, false) }
+        if accepted { updateFocus(firstResponder: false) }
         return accepted
     }
 
-    // MARK: Keyboard (no IME yet)
+    var isFirstResponder: Bool { window?.firstResponder === self }
 
-    public override func keyDown(with event: NSEvent) {
-        sendKey(event, action: event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS)
-    }
-
-    public override func keyUp(with event: NSEvent) {
-        sendKey(event, action: GHOSTTY_ACTION_RELEASE)
-    }
-
-    private func sendKey(_ event: NSEvent, action: ghostty_input_action_e) {
+    /// Focus is first responder in the key window. Ghostty uses it for cursor
+    /// style and for focus reports (mode 1004) to the program.
+    private func updateFocus(firstResponder: Bool? = nil) {
         guard let surface else { return }
-        var key = ghostty_input_key_s()
-        key.action = action
-        key.mods = Self.mods(event.modifierFlags)
-        key.consumed_mods = ghostty_input_mods_e(rawValue: 0)
-        key.keycode = UInt32(event.keyCode)
-        key.composing = false
-        key.unshifted_codepoint = event.charactersIgnoringModifiers?.unicodeScalars.first?.value ?? 0
-        // Control characters are encoded by Ghostty from keycode + mods.
-        let text = event.characters.flatMap { chars in
-            chars.unicodeScalars.first.map { $0.value >= 0x20 ? chars : nil } ?? nil
-        }
-        if action != GHOSTTY_ACTION_RELEASE, let text {
-            text.withCString { pointer in
-                key.text = pointer
-                _ = ghostty_surface_key(surface, key)
-            }
-        } else {
-            _ = ghostty_surface_key(surface, key)
+        let focused = (firstResponder ?? isFirstResponder) && (window?.isKeyWindow ?? false)
+        guard focused != lastFocus else { return }
+        lastFocus = focused
+        ghostty_surface_set_focus(surface, focused)
+        session?.model.isFocused = focused
+    }
+
+    // MARK: Binding actions
+
+    /// Runs a Ghostty binding action such as `copy_to_clipboard` or
+    /// `search:foo` (ghostty.h:1665).
+    @discardableResult
+    func performBindingAction(_ action: String) -> Bool {
+        guard let surface else { return false }
+        return action.withCString { pointer in
+            ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
         }
     }
 
-    static func mods(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
-        var raw = GHOSTTY_MODS_NONE.rawValue
-        if flags.contains(.shift) { raw |= GHOSTTY_MODS_SHIFT.rawValue }
-        if flags.contains(.control) { raw |= GHOSTTY_MODS_CTRL.rawValue }
-        if flags.contains(.option) { raw |= GHOSTTY_MODS_ALT.rawValue }
-        if flags.contains(.command) { raw |= GHOSTTY_MODS_SUPER.rawValue }
-        if flags.contains(.capsLock) { raw |= GHOSTTY_MODS_CAPS.rawValue }
-        return ghostty_input_mods_e(rawValue: raw)
+    var hasSelection: Bool {
+        guard let surface else { return false }
+        return ghostty_surface_has_selection(surface)
     }
-
-    // MARK: Mouse
-
-    public override func updateTrackingAreas() {
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        trackingArea = area
-        super.updateTrackingAreas()
-    }
-
-    public override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        sendMouseButton(event, state: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT)
-    }
-
-    public override func mouseUp(with event: NSEvent) {
-        sendMouseButton(event, state: GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT)
-    }
-
-    public override func rightMouseDown(with event: NSEvent) {
-        sendMouseButton(event, state: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_RIGHT)
-    }
-
-    public override func rightMouseUp(with event: NSEvent) {
-        sendMouseButton(event, state: GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_RIGHT)
-    }
-
-    public override func mouseMoved(with event: NSEvent) { sendMousePosition(event) }
-    public override func mouseDragged(with event: NSEvent) { sendMousePosition(event) }
-    public override func rightMouseDragged(with event: NSEvent) { sendMousePosition(event) }
-
-    public override func scrollWheel(with event: NSEvent) {
-        guard let surface else { return }
-        // Bit 0 of the scroll mods marks precise (trackpad) deltas.
-        let scrollMods: ghostty_input_scroll_mods_t = event.hasPreciseScrollingDeltas ? 1 : 0
-        ghostty_surface_mouse_scroll(surface, event.scrollingDeltaX, event.scrollingDeltaY, scrollMods)
-    }
-
-    private func sendMouseButton(_ event: NSEvent, state: ghostty_input_mouse_state_e, button: ghostty_input_mouse_button_e) {
-        guard let surface else { return }
-        sendMousePosition(event)
-        _ = ghostty_surface_mouse_button(surface, state, button, Self.mods(event.modifierFlags))
-    }
-
-    private func sendMousePosition(_ event: NSEvent) {
-        guard let surface else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        // Ghostty expects a top-left origin in points.
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, Self.mods(event.modifierFlags))
-    }
-}
-
-/// Retained across the surface lifetime and handed to Ghostty as
-/// `io_write_userdata`.
-nonisolated final class IOWriteBox: Sendable {
-    let write: @Sendable (Data) -> Void
-
-    init(write: @escaping @Sendable (Data) -> Void) {
-        self.write = write
-    }
-}
-
-/// Runs on Ghostty's IO thread: copy the bytes and hand them off.
-nonisolated private func ghosttyIOWrite(_ userdata: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<CChar>?, _ length: UInt) {
-    guard let userdata, let bytes, length > 0 else { return }
-    let box = Unmanaged<IOWriteBox>.fromOpaque(userdata).takeUnretainedValue()
-    box.write(Data(bytes: bytes, count: Int(length)))
 }

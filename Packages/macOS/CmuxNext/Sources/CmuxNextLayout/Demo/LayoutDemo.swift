@@ -41,8 +41,8 @@ public final class LayoutDemoController: NSObject {
             rootView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             rootView.topAnchor.constraint(equalTo: container.topAnchor, constant: 40),
             rootView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            chip.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            chip.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+            chip.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Metrics.space5),
+            chip.topAnchor.constraint(equalTo: container.topAnchor, constant: Metrics.space4),
         ])
         window.contentView = container
         installKeys()
@@ -100,18 +100,18 @@ private final class DemoTabChip: NSView, NSDraggingSource {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.cornerRadius = 7
+        layer?.cornerRadius = Metrics.itemCornerRadius
         layer?.backgroundColor = Palette.selectionFill.cgColor
         let label = NSTextField(labelWithString: String(localized: "layout.demo.tabChip", defaultValue: "Tab", bundle: .module))
-        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.font = Typography.bodyEmphasized
         label.textColor = Palette.textPrimary
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.space5),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.space5),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            heightAnchor.constraint(equalToConstant: 24),
+            heightAnchor.constraint(equalToConstant: Metrics.tabHeight),
         ])
     }
 

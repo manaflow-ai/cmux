@@ -85,6 +85,9 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
             ],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .target(

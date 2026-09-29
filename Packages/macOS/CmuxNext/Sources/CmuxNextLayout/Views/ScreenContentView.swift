@@ -6,7 +6,7 @@ import CmuxNextDesign
 /// displayed frame subtracts the scroll offset.
 final class ScreenContentView: NSView {
     let screenID: ScreenID
-    private let context: LayoutViewContext
+    let context: LayoutViewContext
 
     private(set) var layout: ScreenLayout
     private(set) var geometry: ScreenGeometry
@@ -15,22 +15,14 @@ final class ScreenContentView: NSView {
     private var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
     private var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
 
-    private(set) var scroll = SpringValue(0)
+    var scroll = SpringValue(0)
     /// Unbanded offset accumulated during a trackpad gesture.
-    private var rawScroll: CGFloat = 0
-    private(set) var isUserScrolling = false
-    private var scrollSamples: [(time: TimeInterval, delta: CGFloat)] = []
-    private var reportScrollOnSettle = false
+    var rawScroll: CGFloat = 0
+    var isUserScrolling = false
+    var scrollSamples: [(time: TimeInterval, delta: CGFloat)] = []
+    var reportScrollOnSettle = false
 
-    private var activeDrag: ActiveDrag?
-
-    private struct ActiveDrag {
-        var kind: DividerHandleView.Kind
-        var transaction: LayoutTransactionID
-        var grabOffset: CGFloat
-        var container: CGRect
-        var axis: SplitAxis
-    }
+    var activeDrag: ActiveDrag?
 
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext) {
         self.screenID = screenID
@@ -218,7 +210,7 @@ final class ScreenContentView: NSView {
         return moving
     }
 
-    private func applyPresentation() {
+    func applyPresentation() {
         let dx = -scroll.value
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
@@ -285,146 +277,6 @@ final class ScreenContentView: NSView {
     /// Displayed frame of `pane` in local coordinates.
     func displayedFrame(of pane: PaneID) -> CGRect? {
         paneFrames[pane].map { $0.rect.offsetBy(dx: -scroll.value, dy: 0) }
-    }
-
-    // MARK: Scrolling
-
-    /// Scrolls so `pane`'s column is visible per `mode`. Returns true if frames are needed.
-    @discardableResult
-    func reveal(_ pane: PaneID, mode: ColumnRevealMode, animated: Bool) -> Bool {
-        guard geometry.isColumns, let column = layout.column(containing: pane), let frame = geometry.columns[column.id] else { return false }
-        let target = ColumnStripGeometry.revealOffset(
-            for: frame,
-            current: scroll.target,
-            viewportWidth: bounds.width,
-            contentWidth: geometry.contentWidth,
-            gap: context.style.columnGap,
-            mode: mode
-        )
-        guard target != scroll.target else { return false }
-        scroll.target = target
-        reportScrollOnSettle = true
-        if !animated || context.reduceMotion {
-            scroll.snap()
-            applyPresentation()
-            reportScrollOnSettle = false
-            reportLeadingColumn()
-            return false
-        }
-        return true
-    }
-
-    var acceptsHorizontalScroll: Bool { geometry.isColumns && geometry.maxOffset > 0.5 }
-
-    func beginUserScroll() {
-        isUserScrolling = true
-        scroll.velocity = 0
-        rawScroll = scroll.value
-        scrollSamples.removeAll()
-    }
-
-    func userScroll(deltaX: CGFloat, timestamp: TimeInterval) {
-        rawScroll -= deltaX
-        scroll.value = ColumnStripGeometry.rubberBand(rawScroll, contentWidth: geometry.contentWidth, viewportWidth: bounds.width)
-        scroll.target = scroll.value
-        scrollSamples.append((timestamp, -deltaX))
-        scrollSamples.removeAll { timestamp - $0.time > 0.1 }
-        applyPresentation()
-    }
-
-    /// Ends a trackpad gesture: projects the fling and springs to a column edge.
-    func endUserScroll(timestamp: TimeInterval) {
-        isUserScrolling = false
-        let recent = scrollSamples.filter { timestamp - $0.time <= 0.1 }
-        var velocity: CGFloat = 0
-        if let first = recent.first, recent.count > 1 {
-            let dt = max(timestamp - first.time, 1.0 / 120.0)
-            velocity = recent.reduce(0) { $0 + $1.delta } / CGFloat(dt)
-        }
-        scrollSamples.removeAll()
-        let target = ColumnStripGeometry.snapTarget(releaseOffset: scroll.value, velocity: velocity, snaps: geometry.snapOffsets)
-        scroll.target = target
-        scroll.velocity = velocity
-        reportScrollOnSettle = true
-        if context.reduceMotion {
-            scroll.snap()
-            applyPresentation()
-        }
-    }
-
-    /// One mouse wheel notch: move to the adjacent snap point.
-    func discreteScroll(direction: Int) {
-        scroll.target = ColumnStripGeometry.adjacentSnap(from: scroll.target, direction: direction, snaps: geometry.snapOffsets)
-        reportScrollOnSettle = true
-        if context.reduceMotion {
-            scroll.snap()
-            applyPresentation()
-        }
-    }
-
-    private func reportLeadingColumn() {
-        guard geometry.isColumns,
-              let index = ColumnStripGeometry.leadingColumnIndex(frames: geometry.orderedColumnFrames, offset: scroll.value, gap: context.style.columnGap)
-        else { return }
-        context.model.reportScroll(screen: screenID, leadingColumn: geometry.columnOrder[index])
-    }
-
-    // MARK: Divider drags
-
-    private func contentPoint(fromWindow point: NSPoint) -> CGPoint {
-        let local = convert(point, from: nil)
-        return CGPoint(x: local.x + scroll.value, y: local.y)
-    }
-
-    private func handleDrag(kind: DividerHandleView.Kind, event: DividerHandleView.DragEvent) {
-        let model = context.model
-        switch event {
-        case .doubleClick:
-            switch kind {
-            case let .split(id):
-                model.equalizeSplit(id)
-            case let .columnEdge(id):
-                guard let column = layout.columns.first(where: { $0.id == id }) else { return }
-                model.setColumnWidth(id, width: ColumnWidthPreset.next(after: column.width).rawValue, transaction: .make(), phase: .ended)
-            }
-        case let .began(windowPoint):
-            let point = contentPoint(fromWindow: windowPoint)
-            switch kind {
-            case let .split(id):
-                guard let divider = geometry.dividers.first(where: { $0.id == id }) else { return }
-                let pointer = divider.axis == .horizontal ? point.x : point.y
-                let start = divider.axis == .horizontal ? divider.frame.minX : divider.frame.minY
-                activeDrag = ActiveDrag(kind: kind, transaction: .make(), grabOffset: pointer - start, container: divider.container, axis: divider.axis)
-            case let .columnEdge(id):
-                guard let frame = geometry.columns[id] else { return }
-                activeDrag = ActiveDrag(kind: kind, transaction: .make(), grabOffset: point.x - frame.maxX, container: frame, axis: .horizontal)
-            }
-            model.setGestureActive(true)
-            context.requestFrames()
-        case let .moved(windowPoint):
-            applyDrag(at: windowPoint, phase: .changed)
-            context.requestFrames()
-        case let .ended(windowPoint):
-            applyDrag(at: windowPoint, phase: .ended)
-            activeDrag = nil
-            model.setGestureActive(false)
-        }
-    }
-
-    private func applyDrag(at windowPoint: NSPoint, phase: LayoutGesturePhase) {
-        guard let drag = activeDrag else { return }
-        let point = contentPoint(fromWindow: windowPoint)
-        let style = context.style
-        switch drag.kind {
-        case let .split(id):
-            let pointer = drag.axis == .horizontal ? point.x : point.y
-            let ratio = SplitGeometry.ratio(forPointer: pointer, grabOffset: drag.grabOffset, container: drag.container, axis: drag.axis, style: style)
-            context.model.setSplitRatio(id, ratio: ratio, transaction: drag.transaction, phase: phase)
-        case let .columnEdge(id):
-            let width = point.x - drag.grabOffset - drag.container.minX
-            let fraction = ColumnStripGeometry.fraction(forPixelWidth: width, viewportWidth: bounds.width, gap: style.columnGap)
-            context.model.setColumnWidth(id, width: fraction, transaction: drag.transaction, phase: phase)
-        }
     }
 
     /// Releases every hosted pane that is not live elsewhere (screen removed).

@@ -1,0 +1,41 @@
+public import Foundation
+
+/// One row in the address bar dropdown.
+public nonisolated struct BrowserSuggestion: Hashable, Sendable, Identifiable {
+    public enum Kind: Hashable, Sendable {
+        /// Load the typed URL.
+        case navigate
+        /// Search for the typed or suggested query.
+        case search
+        /// A page from history.
+        case history
+    }
+
+    public var kind: Kind
+    /// Main line: page title or query.
+    public var title: String
+    /// Second line: display URL, or empty.
+    public var detail: String
+    public var url: URL
+    /// Higher ranks first. Providers use `0...1000`.
+    public var score: Double
+
+    public var id: String { "\(kind)|\(url.absoluteString)" }
+
+    public init(kind: Kind, title: String, detail: String, url: URL, score: Double) {
+        self.kind = kind
+        self.title = title
+        self.detail = detail
+        self.url = url
+        self.score = score
+    }
+}
+
+/// Source of suggestion rows. Providers must be cheap for local data; remote
+/// providers should honor task cancellation, because every keystroke cancels
+/// the previous query.
+public protocol BrowserSuggestionProvider: AnyObject {
+    func suggestions(for text: String) async -> [BrowserSuggestion]
+}
+
+// MARK: - History

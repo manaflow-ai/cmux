@@ -14,7 +14,7 @@ while IFS= read -r -d '' file; do
     status=1
   fi
   # Top-level primary declarations (extensions and small nested helpers are fine).
-  types=$(grep -cE '^(public |internal |package |fileprivate |private |final |@MainActor |@Observable )*(final )?(class|struct|enum|actor|protocol) ' "$file" || true)
+  types=$(grep -cE '^(public |internal |package |fileprivate |private |final |nonisolated |indirect |@MainActor |@Observable |@frozen )*(final )?(class|struct|enum|actor|protocol) ' "$file" || true)
   if [[ "$file" != */Tests/* ]] && (( types > 3 )); then
     echo "god file: ${file#"$root"/} declares $types top-level types (limit 3)"
     status=1
