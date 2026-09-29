@@ -104,6 +104,10 @@ to one that does not, and when both the kept DerivedData and the kept seed
 would, a nearer bucket seed wins at any distance if GitHub's compare of its
 commit with the checkout shows no package source change: its download (about
 250 s on a mini) costs less than recompiling the app (365 to 1,053 s).
+When both recompile the app and no such download applies, the kept
+DerivedData stays, however many fewer inputs the kept seed changes: from
+2026-09-27 17:45Z to 2026-09-28, 269 local-seed starts with a package interface
+change compiled in 515 s at the median, kept builds with one in 408 to 429 s.
 
 `keep` also stamps MERGED_ONTO, the main commit the kept build merged onto,
 and `warm-keys` prints the main commits this Mac starts from cheaply, for the
@@ -1016,7 +1020,12 @@ def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distanc
             result.update(prefer="true", reason="kept DerivedData has no input record")
             return result
         result.update(seed_changed=str(seed_cost[1]), seed_rebuilds_app=str(seed_cost[0]).lower())
-        if seed_cost < kept_cost:
+        if seed_cost[0] and kept_cost[0]:
+            # Both recompile the whole app, so the seed's fewer changed inputs save nothing, and the kept
+            # build recompiles it faster: from 2026-09-27 17:45Z to 2026-09-28, 269 local-seed starts with a
+            # package interface change compiled in 515 s at the median, kept builds with one in 408 to 429 s.
+            result["reason"] = "the kept DerivedData and the seed this Mac keeps both recompile the app"
+        elif seed_cost < kept_cost:
             touch_kept_seed(key)
             result.update(prefer="true", reason="this Mac keeps a seed with fewer changed inputs")
             best, local_distance = seed_cost, distance
