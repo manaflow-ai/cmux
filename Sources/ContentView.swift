@@ -10998,13 +10998,21 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         if let accessibilityIdentifier {
-            content
-                // A clear shape with a gesture is otherwise omitted from the
-                // accessibility tree. Expose the divider as one element while
-                // preserving the existing drag handling.
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(accessibilityLabel)
-                .accessibilityIdentifier(accessibilityIdentifier)
+            if accessibilityIdentifier == "RightSidebarResizer" {
+                content
+                    // A clear shape with a gesture is otherwise omitted from
+                    // the accessibility tree. Expose the right divider as one
+                    // element while preserving the existing drag handling.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(accessibilityLabel)
+                    .accessibilityIdentifier(accessibilityIdentifier)
+            } else {
+                // Keep the left sidebar's existing accessibility identity.
+                // Making this clear-shape divider an accessibility container
+                // causes the retained AppKit workspace table to re-apply
+                // hidden updates during sidebar presentation changes.
+                content.accessibilityIdentifier(accessibilityIdentifier)
+            }
         } else {
             content
         }
