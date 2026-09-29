@@ -25,6 +25,7 @@ const devices = [{
 }];
 
 // Only the auth wrapper and account scope are stand-ins; the JSON helper is real.
+// The scope stand-in records calls so the test proves the route never uses it.
 const realRouteHelpers = { ...await import("../services/vms/routeHelpers") };
 mock.module("../services/vms/routeHelpers", () => ({
   ...realRouteHelpers,
@@ -78,7 +79,6 @@ describe("GET /api/vm/access-grants", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(await response.json()).toEqual({ devices });
-    expect(scopeCalls).toEqual(["user-1"]);
     expect(listCalls).toEqual([{ userId: "user-1" }]);
   });
 
@@ -89,11 +89,14 @@ describe("GET /api/vm/access-grants", () => {
     expect(listCalls).toEqual([]);
   });
 
-  test("returns the account-scope refusal unchanged", async () => {
-    accountScopeRefusal = Response.json({ error: "vm_billing_team_not_found" }, { status: 404 });
+  // Regression: an ambiguous or stale team selection returned 409
+  // `vm_billing_team_required` and hid the user's own Macs.
+  test("lists grants without resolving a billing team", async () => {
+    accountScopeRefusal = Response.json({ error: "vm_billing_team_required" }, { status: 409 });
     const response = await GET(request());
-    expect(response.status).toBe(404);
-    expect(listCalls).toEqual([]);
+    expect(response.status).toBe(200);
+    expect(scopeCalls).toEqual([]);
+    expect(listCalls).toEqual([{ userId: "user-1" }]);
   });
 
   test("returns the workflow's mapped error response", async () => {

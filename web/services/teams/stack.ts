@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { getStackServerApp } from "../../app/lib/stack";
-import { TeamServiceUnavailableError } from "./errors";
+import { TeamGoneError, TeamServiceUnavailableError } from "./errors";
 
 /**
  * The subset of the Stack server SDK the team services use. Method syntax
@@ -95,9 +95,25 @@ export async function withStackDeadline<T>(operation: () => Promise<T>): Promise
     Effect.tryPromise(operation).pipe(Effect.timeout(STACK_TIMEOUT), Effect.either),
   );
   if (result._tag === "Left") {
+    // A deleted team is an answer, not an outage: retrying cannot succeed.
+    if (isTeamNotFound(unwrapEffectCause(result.left))) throw new TeamGoneError("Stack team not found");
     throw new TeamServiceUnavailableError("Stack team request failed");
   }
   return result.right;
+}
+
+/** `Effect.tryPromise` wraps a rejection as `UnknownException { error }`. */
+function unwrapEffectCause(failure: unknown): unknown {
+  return failure && typeof failure === "object" && "error" in failure
+    ? (failure as { error: unknown }).error
+    : failure;
+}
+
+/** Stack's known error for a team that does not exist (or was just deleted). */
+export function isTeamNotFound(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { errorCode?: unknown; code?: unknown };
+  return candidate.errorCode === "TEAM_NOT_FOUND" || candidate.code === "TEAM_NOT_FOUND";
 }
 
 /** Stack team ids are UUIDs; anything else cannot name a team. */

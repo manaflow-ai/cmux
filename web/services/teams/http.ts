@@ -8,7 +8,7 @@ import {
   parseBearer,
   requiresBrowserMutationProtection,
 } from "../vms/routeHelpers";
-import { TeamApiError, teamErrorResponse, TeamServiceUnavailableError } from "./errors";
+import { TeamApiError, teamErrorResponse, TeamGoneError, TeamServiceUnavailableError } from "./errors";
 
 export const TEAM_REQUEST_BODY_LIMIT_BYTES = 16 * 1024;
 
@@ -85,6 +85,8 @@ export async function runTeamRoute(route: string, handler: () => Promise<Respons
     return await handler();
   } catch (error) {
     if (error instanceof TeamApiError) return error.toResponse();
+    // Same status as requireTeamAccess's missing-team refusal.
+    if (error instanceof TeamGoneError) return teamErrorResponse("team_not_found", 403);
     if (error instanceof TeamServiceUnavailableError) {
       console.error("team route dependency unavailable", { route });
       return teamErrorResponse("service_unavailable", 503, { headers: { "retry-after": "5" } });

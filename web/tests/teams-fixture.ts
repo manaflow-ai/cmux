@@ -47,6 +47,7 @@ export class FakeStack {
   invitations: FakeInvitation[] = [];
   readonly calls: string[] = [];
   failListUsers = false;
+  teamGoneOnListUsers = false;
   failAddUser: unknown = null;
   failGrant = false;
   hangGetTeam = false;
@@ -105,6 +106,8 @@ export class FakeStack {
       listUsers: async (): Promise<StackTeamMember[]> => {
         this.calls.push(`listUsers:${teamId}`);
         if (this.failListUsers) throw new Error("stack down");
+        // Stack's known error when the team was deleted after getTeam resolved.
+        if (this.teamGoneOnListUsers) throw Object.assign(new Error(`Team ${teamId} not found.`), { errorCode: "TEAM_NOT_FOUND" });
         return [...data.members].map((id) => ({
           id,
           displayName: null,

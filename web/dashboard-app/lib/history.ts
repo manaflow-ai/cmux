@@ -28,9 +28,21 @@ export function createDashboardHistory(win: Window = window): RouterHistory {
     };
   win.history.pushState = skipNextEcho(tanstackPush);
   win.history.replaceState = skipNextEcho(tanstackReplace);
-  // `history.destroy()` restores the functions TanStack wrapped (Next's
-  // patch), which also removes this wrapper.
   return history;
+}
+
+let pageHistory: RouterHistory | undefined;
+
+/**
+ * One history per document. It is never destroyed: React Strict Mode runs
+ * unmount cleanups at mount, and destroying the history there removes its
+ * popstate listener, so Back and Forward change the URL without rendering.
+ * When the SPA unmounts, TanStack's `Transitioner` unsubscribes the router,
+ * so the remaining patch only tracks the location for the next mount.
+ */
+export function dashboardHistory(): RouterHistory {
+  pageHistory ??= createDashboardHistory();
+  return pageHistory;
 }
 
 function isNextInternalState(data: unknown): boolean {

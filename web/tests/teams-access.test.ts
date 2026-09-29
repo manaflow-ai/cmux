@@ -73,6 +73,17 @@ describe("requireTeamAccess", () => {
     expect(result.response.headers.get("retry-after")).toBe("5");
   });
 
+  // Regression: a team deleted mid-request answered a retryable 503.
+  test("a team deleted during the request is team_not_found, not an outage", async () => {
+    const stack = standardTeam();
+    stack.teamGoneOnListUsers = true;
+    const result = await requireTeamAccess({ id: ADMIN_ID }, TEAM_ID, { stack: stack.app() });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.refusal).toEqual({ code: "team_not_found", status: 403 });
+    expect(result.response.headers.get("retry-after")).toBeNull();
+  });
+
   test("grants an admin every capability including billing", async () => {
     const stack = standardTeam();
     const result = await requireTeamAccess({ id: ADMIN_ID }, TEAM_ID, {

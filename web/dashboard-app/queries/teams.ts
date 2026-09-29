@@ -205,6 +205,16 @@ type DetailContext = { readonly previous: TeamDetail | undefined };
  * the request, restore the snapshot on failure, and refetch afterwards.
  * Exported as a factory so tests can drive it with a bare QueryClient.
  */
+/**
+ * Mutations that write to one team share a scope, so TanStack Query runs
+ * them one at a time and each waits for the previous `onSettled` (its detail
+ * refetch). Deleting or leaving a team therefore starts only after earlier
+ * edits settled, and no late refetch asks for a team that is gone.
+ */
+export function teamMutationScope(teamId: string) {
+  return { id: `team:${teamId}` } as const;
+}
+
 export function optimisticDetailMutation<Variables, Result>(
   queryClient: QueryClient,
   teamId: string,
@@ -214,6 +224,7 @@ export function optimisticDetailMutation<Variables, Result>(
   const key = teamQueryKeys.detail(teamId);
   return {
     mutationFn,
+    scope: teamMutationScope(teamId),
     onMutate: async (variables) => {
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<TeamDetail>(key);
@@ -326,6 +337,7 @@ export function useUpdateTeam(teamId: string) {
 export function useInviteMembers(teamId: string) {
   const queryClient = useQueryClient();
   return useMutation({
+    scope: teamMutationScope(teamId),
     mutationFn: ({ emails, role }: { emails: readonly string[]; role: TeamRole }) =>
       teamApi.invite(teamId, emails, role),
     onSuccess: (result) => {
@@ -350,6 +362,7 @@ export function useInviteMembers(teamId: string) {
 export function useCreateLink(teamId: string) {
   const queryClient = useQueryClient();
   return useMutation({
+    scope: teamMutationScope(teamId),
     mutationFn: (input: { expiresInDays: 1 | 7 | 30 | null; maxUses: number | null }) =>
       teamApi.createLink(teamId, input),
     onSuccess: ({ link }) => {
@@ -366,13 +379,37 @@ export function useCreateLink(teamId: string) {
  * "not found" for a moment.
  */
 export function useDeleteTeam(teamId: string) {
-  return useMutation({ mutationFn: () => teamApi.remove(teamId) });
+  return useMutation({ scope: teamMutationScope(teamId), mutationFn: () => teamApi.remove(teamId) });
 }
 
-/** After leaving or deleting a team: drop its detail and refresh the team scope. */
+/**
+ * After leaving or deleting a team: drop its detail and refresh the team
+ * scope. The team screen may still be mounted while navigation commits, and
+ * removing an observed query makes its observer fetch it again, which asks
+ * the server for a team that no longer exists. So the detail is cancelled
+ * now and removed when its last observer unmounts.
+ */
 export async function forgetTeam(queryClient: QueryClient, teamId: string): Promise<void> {
-  queryClient.removeQueries({ queryKey: teamQueryKeys.detail(teamId) });
+  const queryKey = teamQueryKeys.detail(teamId);
+  await queryClient.cancelQueries({ queryKey });
+  removeWhenUnobserved(queryClient, queryKey);
   await invalidateTeamScope(queryClient);
+}
+
+function removeWhenUnobserved(queryClient: QueryClient, queryKey: readonly unknown[]): void {
+  const cache = queryClient.getQueryCache();
+  const query = cache.find({ queryKey, exact: true });
+  if (!query) return;
+  if (query.getObserversCount() === 0) {
+    cache.remove(query);
+    return;
+  }
+  const unsubscribe = cache.subscribe((event) => {
+    if (event.query !== query || event.type !== "observerRemoved") return;
+    if (query.getObserversCount() > 0) return;
+    unsubscribe();
+    cache.remove(query);
+  });
 }
 
 export function useCreateTeam() {

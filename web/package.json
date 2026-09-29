@@ -47,7 +47,8 @@
     "test:db:behavior": "bash scripts/run-db-behavior-tests.sh",
     "typecheck": "tsgo --noEmit",
     "lint": "eslint",
-    "lint:complexity": "bun scripts/check-complexity.mjs"
+    "lint:complexity": "bun scripts/check-complexity.mjs",
+    "test:e2e:dashboard": "playwright test -c playwright.dashboard.config.ts"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.1045.0",
