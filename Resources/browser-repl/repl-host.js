@@ -254,6 +254,20 @@
       renameSync: (from, to) => void op("rename", { from: abs(from), to: abs(to) }),
       copyFileSync: (from, to) => void op("copyFile", { from: abs(from), to: abs(to) }),
       realpathSync: (p) => op("resolve", { path: abs(p) }),
+      mkdtempSync(prefix) {
+        const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+        for (let attempt = 0; attempt < 16; attempt++) {
+          let suffix = "";
+          for (let i = 0; i < 6; i++) suffix += chars[Math.floor(Math.random() * chars.length)];
+          const dir = abs(String(prefix) + suffix);
+          if (op("exists", { path: dir })) continue;
+          op("mkdir", { path: dir });
+          return dir;
+        }
+        const e = new Error(`EEXIST: file already exists, mkdtemp '${prefix}XXXXXX'`);
+        e.code = "EEXIST";
+        throw e;
+      },
     };
     const promises = {};
     for (const [key, fn] of Object.entries(sync)) {
