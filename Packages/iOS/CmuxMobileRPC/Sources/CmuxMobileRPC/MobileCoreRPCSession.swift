@@ -660,13 +660,27 @@ actor MobileCoreRPCSession {
             }
         }
 
-        if callerCancelled {
-            connectionTask?.waiters.remove(waiterID)
+        var readyToInstall = true
+        if let connectionReadiness {
+            readyToInstall = await connectionReadiness.permitsConnection
+            // The readiness hop can race another waiter's installation or
+            // teardown. Keep an admitted generation, but never install a
+            // pending candidate while lifecycle authority is unavailable.
+            if let installedTransport = transport {
+                guard installedConnectionID == connectionID else {
+                    closeUninstalledConnectedCandidate(candidate, lease: connectLease)
+                    throw MobileShellConnectionError.connectionClosed
+                }
+                if callerCancelled || Task.isCancelled { throw CancellationError() }
+                return installedTransport
+            }
+            guard connectionTask?.id == connectionID, !isTearingDown else {
+                closeUninstalledConnectedCandidate(candidate, lease: connectLease)
+                throw MobileShellConnectionError.connectionClosed
+            }
         }
-
-        if callerCancelled, connectionTask?.waiters.isEmpty == true {
-            connectionTask = nil
-            closeUninstalledConnectedCandidate(candidate, lease: connectLease)
+        if !readyToInstall || callerCancelled || Task.isCancelled {
+            await cancelConnectingWaiter(id: connectionID, waiterID: waiterID)
             throw CancellationError()
         }
 
