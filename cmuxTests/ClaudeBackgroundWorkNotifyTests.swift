@@ -314,6 +314,47 @@ struct ClaudeBackgroundWorkNotifyTests {
                 "Idle idle_prompt must journal a settled-idle observation; saw \(snapshot)")
     }
 
+    @Test func idlePromptAfterStopHookContinuationTagsNotPending() throws {
+        let session = "idle-after-continuation"
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "idle-continuation")
+        defer { context.cleanup() }
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-idle-continuation",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-idle-continuation",
+            storeURL: storeURL
+        )
+        let stopResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","stop_hook_active":true,"last_assistant_message":"Intermediate response","background_tasks":[],"session_crons":[]}"#,
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(stopResult)
+
+        let notificationResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Notification","message":"Claude is waiting for your input","notification_type":"idle_prompt"}"#,
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(notificationResult)
+        #expect(notifyLine(context.state.snapshot(), containing: "c=idle-reminder;p=0") != nil,
+                "stop_hook_active must not cache pending work for idle_prompt; saw \(context.state.snapshot())")
+    }
+
     @Test func agentCompletedNotificationLeavesPaneRunning() throws {
         // `agent_completed` is Claude Code's user-facing form of SubagentStop: a
         // Task subagent finished while the parent agent keeps working on its
