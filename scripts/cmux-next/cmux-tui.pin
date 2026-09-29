@@ -1,0 +1,4 @@
+# Hosted cmux-tui the cmux-next app bundles. Refresh: scripts/cmux-next/pin-cmux-tui.sh
+commit=4adc02cdae6ed63bf1e452397d52bbece853de0d
+run=36544056450
+sha256=fd20bc5d98c5c308d9f88ac4ce768ea97ac5ca7ee71f1b3591d6106e01f9d225
