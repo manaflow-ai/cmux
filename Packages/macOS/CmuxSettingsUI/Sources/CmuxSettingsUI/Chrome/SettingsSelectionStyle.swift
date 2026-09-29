@@ -1,11 +1,25 @@
 import SwiftUI
 
-/// Neutral gray for the selected tile in Settings pickers (theme, app icon,
-/// terminal theme). Settings keeps the accent color for control values, such
-/// as switches, rather than for selection chrome.
-enum SettingsSelectionStyle {
+/// Colors for the selected tile in Settings pickers (theme, app icon,
+/// terminal theme). The Settings root owns the value and injects it through
+/// `\.settingsSelectionStyle`; the defaults are the neutral gray Settings
+/// uses so selection chrome never takes the accent color, which stays for
+/// control values such as switches.
+struct SettingsSelectionStyle: Equatable {
     /// Fill behind a selected tile.
-    static let selectedFill = Color.primary.opacity(0.10)
+    var selectedFill = Color.primary.opacity(0.10)
     /// Outline of a selected tile.
-    static let selectedStroke = Color.primary.opacity(0.45)
+    var selectedStroke = Color.primary.opacity(0.45)
+}
+
+private struct SettingsSelectionStyleKey: EnvironmentKey {
+    static let defaultValue = SettingsSelectionStyle()
+}
+
+extension EnvironmentValues {
+    /// Selection colors for Settings picker tiles, injected by the Settings root.
+    var settingsSelectionStyle: SettingsSelectionStyle {
+        get { self[SettingsSelectionStyleKey.self] }
+        set { self[SettingsSelectionStyleKey.self] = newValue }
+    }
 }

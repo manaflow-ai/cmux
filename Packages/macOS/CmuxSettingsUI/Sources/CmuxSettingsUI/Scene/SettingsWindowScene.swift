@@ -171,6 +171,7 @@ public struct SettingsWindowRoot: View {
         // and publish the active highlight so the matching row pulses.
         .environment(\.settingsSearchIndex, searchIndex)
         .environment(\.settingsSearchHighlightState, searchHighlight)
+        .environment(\.settingsSelectionStyle, SettingsSelectionStyle())
         // Legacy SettingsRootView pins the window minimum to
         // SettingsWindowPresenter.minimumSize (820 x 540); mirror that
         // so the package window can shrink to the same lower bound.
