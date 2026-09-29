@@ -174,16 +174,18 @@ extension String {
         // filename. This must run before the ordinary whitespace segment so a
         // real file such as "Standard - Consultant Agreement.docx" wins over
         // an existing suffix decoy such as "Agreement.docx".
-        append(leadingListLabelPath(containingColumn: column))
+        for candidate in leadingListLabelPaths(containingColumn: column) {
+            append(candidate)
+        }
         append(rawPathSegment(containingColumn: column))
         append(shellEscapedToken(containingColumn: column))
 
         return candidates
     }
 
-    private func leadingListLabelPath(containingColumn column: Int) -> String? {
+    private func leadingListLabelPaths(containingColumn column: Int) -> [String] {
         let characters = Array(self)
-        guard !characters.isEmpty, column >= 0, column < characters.count else { return nil }
+        guard !characters.isEmpty, column >= 0, column < characters.count else { return [] }
 
         var marker = 0
         while marker < characters.count, characters[marker] == " " {
@@ -191,14 +193,14 @@ extension String {
         }
         guard marker < characters.count, characters[marker] == "-",
               marker + 1 < characters.count, characters[marker + 1].isWhitespace else {
-            return nil
+            return []
         }
 
         var bodyStart = marker + 1
         while bodyStart < characters.count, characters[bodyStart].isWhitespace {
             bodyStart += 1
         }
-        guard bodyStart < characters.count, column >= bodyStart else { return nil }
+        guard bodyStart < characters.count, column >= bodyStart else { return [] }
 
         // A run of two or more spaces is the column delimiter in common
         // `ls`-style output. Keep the candidate scoped to the path field so a
@@ -213,7 +215,7 @@ extension String {
                 break
             }
         }
-        guard column < bodyEnd else { return nil }
+        guard column < bodyEnd else { return [] }
 
         let bodyCharacters = Array(characters[bodyStart..<bodyEnd])
         let body = String(bodyCharacters)
@@ -232,17 +234,20 @@ extension String {
                !suffix.isEmpty,
                (colonFollowedByWhitespace || suffixLooksLikePath) {
                 let suffixOffset = bodyCharacters.distance(from: bodyCharacters.startIndex, to: suffixStart)
-                guard column >= bodyStart + suffixOffset else { return nil }
-                return suffix
+                guard column >= bodyStart + suffixOffset else { return [] }
+                return [suffix]
             }
         }
-        // A doubled-space run separates an `ls`-style field from a
-        // neighboring column. Returning the entire first field here would
-        // still swallow text outside the clicked token when the field is
-        // prose or contains multiple paths. Let rawPathSegment constrain the
-        // candidate to the clicked field instead.
-        guard !hasColumnDelimiter else { return nil }
-        return body
+        guard hasColumnDelimiter else { return [body] }
+
+        // A doubled-space run can be either an `ls`-style column delimiter or
+        // part of a filename. Try the complete list body first so a clicked
+        // filename such as `My  File.md` remains intact. If it is a real
+        // column delimiter, that candidate fails the file-existence probe and
+        // the field-scoped candidate below still resolves the path.
+        let fullBody = String(characters[bodyStart...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return fullBody == body ? [body] : [fullBody, body]
     }
 
     private func rawPathSegment(containingColumn column: Int) -> String? {

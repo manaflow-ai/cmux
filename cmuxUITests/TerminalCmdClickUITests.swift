@@ -311,8 +311,12 @@ final class TerminalCmdClickUITests: XCTestCase {
         // open-url action, the cmd-click word-path fallback must not ALSO open
         // the same file through the preferred-editor/system path — that is the
         // double-open (e.g. Preview and the preferred editor at once).
-        XCTAssertTrue(
-            waitForOpenCountToStay(0, timeout: 1.5),
+        // runCommand publishes lastCommandRoutingCompleted only after the
+        // release path and its callbacks return, so the capture is complete
+        // here. An elapsed stability window could miss a late duplicate.
+        XCTAssertEqual(
+            loadCapturedOpenPaths(),
+            [],
             "Cmd-click dispatched a second open for the same click: the word-path fallback ran even though Ghostty already routed the link. opened=\(loadCapturedOpenPaths()) result=\(result)"
         )
         // The open-url route itself must also stay at exactly one dispatch
