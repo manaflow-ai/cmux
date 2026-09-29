@@ -368,36 +368,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
               Self.requestRequiresAuth(request) else {
             throw MobileShellConnectionError.invalidResponse
         }
-        // Iroh admission and Stack-token preparation are independent. Start
-        // the cached route dial before preparing the first authenticated frame
-        // so launch latency pays for the slower phase only once. The normal
-        // request path reuses the session's in-flight connection task.
-        let preconnectTask: Task<Void, Never>?
-        if route.kind == .iroh {
-            let preconnectTimeout = timeoutNanoseconds
-                ?? runtime.rpcRequestTimeoutNanoseconds
-            preconnectTask = Task { [session] in
-                try? await session.preconnect(timeoutNanoseconds: preconnectTimeout)
-            }
-        } else {
-            preconnectTask = nil
-        }
-        let authorized: AuthenticatedRequestResult
-        do {
-            authorized = try await sendRequestOperation(
-                requestData,
-                timeoutNanoseconds: timeoutNanoseconds
-            )
-        } catch {
-            preconnectTask?.cancel()
-            _ = await preconnectTask?.result
-            throw error
-        }
-        // ``beginSend`` shares the session's connection task, so a successful
-        // request normally leaves this task already complete. Await it anyway
-        // to drain the rare race where authentication finished first and the
-        // transport is still settling.
-        _ = await preconnectTask?.result
+        let authorized = try await sendRequestOperation(
+            requestData,
+            timeoutNanoseconds: timeoutNanoseconds
+        )
         if acceptCombinedHostStatus,
            let combinedHostStatus = Self.combinedHostStatusResponse(
                in: authorized.response
