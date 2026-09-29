@@ -546,10 +546,21 @@ mod tests {
     /// stored with the same value, and no stale live row remains (a stale
     /// row would appear as a tombstone in the projection).
     fn assert_store_matches_full_projection(mux: &Mux) {
-        let registry = mux.workspace_registry.lock().unwrap();
+        let mut registry = mux.workspace_registry.lock().unwrap();
         let mut state = mux.state.lock().unwrap().clone();
         let projection =
             mux.resource_effect_projection_locked(&registry, &mut state, json!({})).unwrap();
+        // The journal's pruned public changes, folded, state exactly the
+        // values a full projection publishes now.
+        for change in projection.changes.as_array().unwrap() {
+            if change["kind"] != "upsert" {
+                continue;
+            }
+            let (resource, id) = (change["resource"].as_str().unwrap(), change["id"].as_str().unwrap());
+            if let Some(stated) = registry.stated_topology_value_for_test(resource, id) {
+                assert_eq!(stated.as_ref(), Some(&change["value"]), "journal states a stale {resource} {id}");
+            }
+        }
         let snapshot = registry.resource_topology_snapshot().unwrap();
         let legacy = registry.snapshot().unwrap();
         let terminals = registry.terminal_snapshot().unwrap().terminals;
@@ -735,6 +746,34 @@ mod tests {
         assert_eq!(outcome.terminals().len(), 1);
         assert_eq!(lifecycle(&mux, 1), "tombstoned");
         assert_eq!(lifecycle(&mux, 2), "running");
+        assert_store_matches_full_projection(&mux);
+    }
+
+    /// Once the fold is seeded, a close journals only the resources it
+    /// changes, not every live workspace.
+    #[test]
+    fn a_close_journals_only_the_topology_it_changes() {
+        let mux = mux();
+        let mut surfaces = Vec::new();
+        for n in 1..=8 {
+            let key = workspace(&mux, n);
+            surfaces.push(seed(&mux, n, &key));
+        }
+        mux.close_tabs(vec![surfaces[0]], true, &WorkspaceMutation::local("seed")).unwrap();
+        let before = resource_revision(&mux);
+        mux.close_tabs(vec![surfaces[1]], true, &WorkspaceMutation::local("second")).unwrap();
+        let registry = mux.workspace_registry.lock().unwrap();
+        let page = registry.resource_events_after(before).unwrap();
+        assert_eq!(page.batches.len(), 1);
+        let changes = page.batches[0].changes.as_array().unwrap();
+        let upserted_workspaces =
+            changes.iter().filter(|change| change["kind"] == "upsert" && change["resource"] == "workspace").count();
+        assert!(upserted_workspaces <= 1, "{changes:#?}");
+        assert!(
+            changes.iter().any(|change| change["kind"] == "delete" && change["resource"] == "terminal"),
+            "{changes:#?}"
+        );
+        drop(registry);
         assert_store_matches_full_projection(&mux);
     }
 

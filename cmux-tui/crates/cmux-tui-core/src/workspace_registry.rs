@@ -34,11 +34,11 @@ mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
 mod presentation_store;
+mod public_fold;
 mod public_projection_store;
 mod resource_store;
 mod session_journal;
 mod terminal_exit_store;
-mod public_fold;
 mod terminal_keep_store;
 mod topology_close_store;
 

@@ -53,7 +53,9 @@ impl PublicTopologyFold {
 
     fn states(&self, change: &Value) -> bool {
         change["kind"] == "upsert"
-            && change["resource"].as_str().is_some_and(|resource| TRACKED_RESOURCES.contains(&resource))
+            && change["resource"]
+                .as_str()
+                .is_some_and(|resource| TRACKED_RESOURCES.contains(&resource))
             && match (change["resource"].as_str(), change["id"].as_str()) {
                 (Some(resource), Some(id)) => self
                     .values
@@ -144,8 +146,16 @@ impl WorkspaceRegistry {
         }
     }
 
+    /// The value the journal states for one topology resource, after
+    /// catching up; `None` while the fold is unseeded.
     #[cfg(test)]
-    pub(crate) fn public_fold_revision_for_test(&self) -> Option<u64> {
-        self.public_fold.as_ref().map(|fold| fold.revision)
+    pub(crate) fn stated_topology_value_for_test(
+        &mut self,
+        resource: &str,
+        id: &str,
+    ) -> Option<Option<Value>> {
+        self.catch_up_public_fold();
+        let fold = self.public_fold.as_ref()?;
+        Some(fold.values.get(&(resource.to_string(), id.to_string())).cloned())
     }
 }

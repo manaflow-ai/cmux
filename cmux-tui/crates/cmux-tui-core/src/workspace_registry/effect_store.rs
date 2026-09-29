@@ -1095,7 +1095,12 @@ impl WorkspaceRegistry {
             &deltas,
         )?;
         tx.commit()?;
-        self.record_public_fold(resource.revision.saturating_sub(1), resource.revision, &deltas, true);
+        self.record_public_fold(
+            resource.revision.saturating_sub(1),
+            resource.revision,
+            &deltas,
+            true,
+        );
         Ok(ResourceCloseCommit { resource, workspace_revision, terminal_batch })
     }
 
