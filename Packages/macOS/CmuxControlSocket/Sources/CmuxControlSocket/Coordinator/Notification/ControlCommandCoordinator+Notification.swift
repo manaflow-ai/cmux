@@ -107,6 +107,9 @@ extension ControlCommandCoordinator {
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
+        // A relayed notification never asks for a reply: the remote host cannot
+        // collect local input through a notification it posted.
+        let isRelayed = params["_cmux_remote_workspace_id"] != nil
         let resolution = context?.controlNotificationCreateForTarget(
             routing: routingSelectors(params),
             workspaceID: workspaceID,
@@ -114,7 +117,7 @@ extension ControlCommandCoordinator {
             title: title,
             subtitle: subtitle,
             body: body,
-            replyShapeWire: rawString(params, "reply_shape")
+            replyShapeWire: isRelayed ? nil : rawString(params, "reply_shape")
         ) ?? .tabManagerUnavailable
         return targetedDeliveryResult(resolution)
     }

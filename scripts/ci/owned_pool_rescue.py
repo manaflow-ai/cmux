@@ -40,7 +40,9 @@ its runner setup step failed or no workflow step succeeded, counts as refused
 (compile admission's `always()` metrics steps still succeed after a refusal).
 A failed job that ran no step at all counts too, whatever its length: GitHub
 fails a job whose runner went away only after 10 minutes ("The self-hosted
-runner lost communication with the server"). The watcher lets the rest of the
+runner lost communication with the server"). A failed Select Xcode or Select
+helper Xcode step also counts, without a time limit, because a missing pin is
+a machine fault even when a helper build succeeded first. The watcher lets the rest of the
 run finish, since GitHub re-runs no job of a run in progress and cancelling
 it would kill every healthy sibling, then confirms the head has not moved and
 re-runs its failed jobs. Only a run still going at the watch's end, or main's
@@ -342,6 +344,7 @@ def person_rerun(run: Mapping[str, Any]) -> bool:
             and str((run.get("triggering_actor") or {}).get("login") or "") != RESCUE_ACTOR)
 # The runner's own steps, which run before glaeda's hook decides.
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
+XCODE_SELECTION_STEPS = frozenset({"Select Xcode", "Select helper Xcode"})
 # glaeda's hook no longer refuses a job for the mini's capacity: it waits,
 # with no limit, inside the runner's setup ("Set up runner") until the units
 # and tokens it needs are free (glaeda CAPACITY_WAIT, 2026-09-28). A job still
@@ -446,7 +449,7 @@ def job_budget(job: Mapping[str, Any], budget_seconds: int, *, deadline: dt.date
 
 
 def refused(job: Mapping[str, Any]) -> bool:
-    """A job the owned runner refused at job start (see the module docstring), or whose runner was lost."""
+    """An owned runner's setup or Xcode pin failure, or a lost runner."""
     if not job_pool(job) or job.get("status") != "completed" or job.get("conclusion") != "failure":
         return False
     steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
@@ -455,6 +458,11 @@ def refused(job: Mapping[str, Any]) -> bool:
         # runner went away ("The self-hosted runner lost communication with the
         # server"), which it reports only after 10 minutes, so no length applies
         # (run 36420353579).
+        return True
+    # A helper build can precede Xcode selection, so neither elapsed time nor
+    # earlier successful steps make a missing pin a source failure.
+    if any(step.get("name") in XCODE_SELECTION_STEPS and step.get("conclusion") == "failure"
+           for step in steps):
         return True
     started, completed = parse_time(job.get("started_at")), parse_time(job.get("completed_at"))
     if started is None or completed is None or (completed - started).total_seconds() > REFUSAL_SECONDS:
@@ -530,7 +538,7 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     turned_away = [job for job in jobs if refused(job)]
     if turned_away:
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
-        return Look("refused", f"{names} refused by {job_pool(turned_away[0])} at job start")
+        return Look("refused", f"{names} refused by {job_pool(turned_away[0])} at job start or Xcode selection")
     if waiting or settling:
         return Look("watch", f"{len(waiting)} job(s) waiting for a persistent runner, {len(settling)} in its setup",
                     waiting=True)
