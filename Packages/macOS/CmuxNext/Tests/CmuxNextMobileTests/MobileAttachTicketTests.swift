@@ -20,7 +20,8 @@ struct MobileAttachTicketTests {
         let url = try #require(URLComponents(string: payload.attachURL))
         #expect(url.scheme == scheme.rawValue)
         let decoded = try CmxPairingQRCode().decode(url)
-        #expect(decoded.macDeviceID == Self.identity.macDeviceID)
+        #expect(decoded.macDeviceID == payload.ticket.macDeviceID)
+        #expect(payload.ticket.macDeviceID.caseInsensitiveCompare(Self.identity.macDeviceID) == .orderedSame)
         guard case .peer(let peer, let hints)? = decoded.routes.first?.endpoint else {
             Issue.record("expected an iroh peer route")
             return
