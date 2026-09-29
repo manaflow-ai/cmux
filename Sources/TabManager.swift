@@ -28,6 +28,45 @@ typealias Tab = Workspace
 
 private let tabManagerLogger = Logger(subsystem: "com.cmuxterm.app", category: "TabManager")
 
+enum WelcomeBannerDelivery: Equatable {
+    case shellStartup
+    case typedCommand
+
+    static let environmentKey = "CMUX_SHOW_WELCOME_FILE"
+    static let typedCommandText = " cmux welcome\n"
+    private static let tokenDirectoryName = "cmux-welcome-banner"
+    private static let integratedShellNames: Set<String> = ["zsh", "bash", "fish", "nu"]
+
+    @MainActor
+    static func current(defaults: UserDefaults = .standard) -> WelcomeBannerDelivery {
+        let integrationEnabled = defaults.object(forKey: "sidebarShellIntegration") as? Bool ?? true
+        let shell = GhosttyApp.shared.resolvedUserShell
+        guard integrationEnabled,
+              !GhosttyApp.shared.hasUserGhosttyCommand,
+              let shell,
+              integratedShellNames.contains(URL(fileURLWithPath: shell).lastPathComponent) else {
+            return .typedCommand
+        }
+        return .shellStartup
+    }
+
+    static func prepareLaunch(
+        _ delivery: WelcomeBannerDelivery,
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> (delivery: WelcomeBannerDelivery, environment: [String: String]) {
+        guard delivery == .shellStartup else { return (.typedCommand, [:]) }
+        let directory = tempDirectory.appendingPathComponent(tokenDirectoryName, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let token = directory.appendingPathComponent(UUID().uuidString)
+            try Data().write(to: token, options: .atomic)
+            return (.shellStartup, [environmentKey: token.path])
+        } catch {
+            return (.typedCommand, [:])
+        }
+    }
+}
+
 enum WorkspaceOrderChangeNotificationKey {
     static let movedWorkspaceIds = "movedWorkspaceIds"
 }
@@ -538,6 +577,8 @@ class TabManager: ObservableObject {
     let pullRequestProbeService: PullRequestProbeService
 
     private let managedDevicePolicy: ManagedDevicePolicy
+
+    var welcomeBannerDeliveryResolver: @MainActor () -> WelcomeBannerDelivery = { WelcomeBannerDelivery.current() }
 
     init(
         initialWorkspaceTitle: String? = nil,
