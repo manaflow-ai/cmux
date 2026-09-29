@@ -10,9 +10,15 @@ pub(super) struct FrameSchedule {
 }
 
 impl FrameSchedule {
-    pub fn new(now: Instant) -> Self { Self { dirty: true, deadline: now } }
-    pub fn request(&mut self) { self.dirty = true; }
-    pub fn ready(&self, now: Instant) -> bool { self.dirty && now >= self.deadline }
+    pub fn new(now: Instant) -> Self {
+        Self { dirty: true, deadline: now }
+    }
+    pub fn request(&mut self) {
+        self.dirty = true;
+    }
+    pub fn ready(&self, now: Instant) -> bool {
+        self.dirty && now >= self.deadline
+    }
     pub fn presented(&mut self, now: Instant) {
         self.dirty = false;
         self.deadline = now + FRAME_INTERVAL;
@@ -29,7 +35,9 @@ mod tests {
         let mut frames = FrameSchedule::new(now);
         assert!(frames.ready(now));
         frames.presented(now);
-        for _ in 0..10_000 { frames.request(); }
+        for _ in 0..10_000 {
+            frames.request();
+        }
         assert!(!frames.ready(now + Duration::from_millis(15)));
         assert!(frames.ready(now + Duration::from_millis(16)));
         frames.presented(now + Duration::from_millis(16));

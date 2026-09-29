@@ -1,7 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
-use std::sync::atomic::Ordering;
 use super::*;
+use std::sync::atomic::Ordering;
 
 impl Hub {
     // --------------------------------------------------------------- turns
@@ -21,9 +21,15 @@ impl Hub {
             .agent_session_id
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         let text = prompt_text(&blocks);
-        let steer_now = steer && session.steering.load(Ordering::SeqCst) && session.turn().is_some();
+        let steer_now =
+            steer && session.steering.load(Ordering::SeqCst) && session.turn().is_some();
         if steer_now {
-            self.append(session, "mux", "user_message", json!({"text": text, "steer": true, "client": client}));
+            self.append(
+                session,
+                "mux",
+                "user_message",
+                json!({"text": text, "steer": true, "client": client}),
+            );
             let mut params = json!({"sessionId": agent_sid, "prompt": blocks});
             params["_meta"] = json!({"steer": true});
             return child.request(method::SESSION_PROMPT, params).await;
@@ -32,7 +38,12 @@ impl Hub {
         let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
         if waiting {
             // Tell every client right away; the turn itself starts when the lock frees.
-            self.append(session, "mux", "queued", json!({"text": text, "client": client, "position": position}));
+            self.append(
+                session,
+                "mux",
+                "queued",
+                json!({"text": text, "client": client, "position": position}),
+            );
         }
         let guard = session.turn_lock.lock().await;
         session.queued.fetch_sub(1, Ordering::SeqCst);
@@ -43,12 +54,13 @@ impl Hub {
             .agent_session_id
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         if session.rehydrate.swap(false, Ordering::SeqCst)
-            && let Some(transcript) = self.transcript(session, 24_000) {
-                blocks.insert(
+            && let Some(transcript) = self.transcript(session, 24_000)
+        {
+            blocks.insert(
                     0,
                     json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
                 );
-            }
+        }
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
@@ -68,10 +80,20 @@ impl Hub {
         });
         self.append(session, "mux", "user_message", json!({"text": text, "client": client}));
         session.stderr_tail.lock().unwrap().clear();
-        let turn_seq = self.append(session, "mux", "turn_started", json!({"prompt": short_text(&text, 200), "client": client})).seq;
+        let turn_seq = self
+            .append(
+                session,
+                "mux",
+                "turn_started",
+                json!({"prompt": short_text(&text, 200), "client": client}),
+            )
+            .seq;
         self.set_status(session, SessionStatus::Running);
         let mut result = child
-            .request(method::SESSION_PROMPT, json!({"sessionId": agent_sid, "prompt": blocks.clone()}))
+            .request(
+                method::SESSION_PROMPT,
+                json!({"sessionId": agent_sid, "prompt": blocks.clone()}),
+            )
             .await;
         // The account behind this harness is exhausted: move the session
         // onto its fallback profile (the subrouter pool for Claude), which
@@ -80,30 +102,46 @@ impl Hub {
             // A pool launcher that dies on the prompt (its proxy is down)
             // moves the session too, not only a usage or auth limit.
             if (is_limit_error(&e.message) || e.message.starts_with("agent process closed"))
-                && let Some(to) = self.fallback_profile(session).await {
-                    let from = session.meta().harness;
-                    self.append(session, "mux", "failover", json!({"from": from, "to": to, "reason": e.message}));
-                    self.detach_child(session).await;
-                    session.meta.lock().unwrap().harness = to.clone();
-                    self.save_meta(session);
-                    match self.child_for(session).await {
-                        Ok(child2) => {
-                            if let Some(sid2) = session.meta().agent_session_id {
-                                result = child2.request(method::SESSION_PROMPT, json!({"sessionId": sid2, "prompt": blocks})).await;
-                            }
+                && let Some(to) = self.fallback_profile(session).await
+            {
+                let from = session.meta().harness;
+                self.append(
+                    session,
+                    "mux",
+                    "failover",
+                    json!({"from": from, "to": to, "reason": e.message}),
+                );
+                self.detach_child(session).await;
+                session.meta.lock().unwrap().harness = to.clone();
+                self.save_meta(session);
+                match self.child_for(session).await {
+                    Ok(child2) => {
+                        if let Some(sid2) = session.meta().agent_session_id {
+                            result = child2
+                                .request(
+                                    method::SESSION_PROMPT,
+                                    json!({"sessionId": sid2, "prompt": blocks}),
+                                )
+                                .await;
                         }
-                        Err(e2) => result = Err(e2),
                     }
+                    Err(e2) => result = Err(e2),
                 }
+            }
         }
         *session.turn.lock().unwrap() = None;
         // A process that died without answering: say what it printed last.
         if let Err(e) = &mut result {
-            let bare = e.message == "agent process closed" || e.message == "Internal error" || (e.code == -32603 && e.message.len() < 40);
+            let bare = e.message == "agent process closed"
+                || e.message == "Internal error"
+                || (e.code == -32603 && e.message.len() < 40);
             if bare {
-                let tail: Vec<String> = session.stderr_tail.lock().unwrap().iter().cloned().collect();
+                let tail: Vec<String> =
+                    session.stderr_tail.lock().unwrap().iter().cloned().collect();
                 // The last stderr line that is not a stack frame or a wrapper tag.
-                if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| !l.is_empty() && !l.starts_with("at ") && !l.starts_with("[SYSTEM_ERROR]")) {
+                if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| {
+                    !l.is_empty() && !l.starts_with("at ") && !l.starts_with("[SYSTEM_ERROR]")
+                }) {
                     let agent = session.meta().harness;
                     e.message = format!("{} ({agent}): {last}", e.message);
                 }
@@ -113,11 +151,22 @@ impl Hub {
             Ok(v) => {
                 let stop = v.get("stopReason").cloned().unwrap_or(Value::Null);
                 self.append(session, "mux", "turn_end", json!({"stopReason": stop}));
-                let status = if stop.as_str() == Some("cancelled") { "cancelled" } else { "completed" };
-                self.append(session, "mux", "turn_result", json!({"status": status, "stopReason": stop, "turnSeq": turn_seq}));
+                let status =
+                    if stop.as_str() == Some("cancelled") { "cancelled" } else { "completed" };
+                self.append(
+                    session,
+                    "mux",
+                    "turn_result",
+                    json!({"status": status, "stopReason": stop, "turnSeq": turn_seq}),
+                );
             }
             Err(e) => {
-                self.append(session, "mux", "turn_error", json!({"error": e.message, "code": e.code}));
+                self.append(
+                    session,
+                    "mux",
+                    "turn_error",
+                    json!({"error": e.message, "code": e.code}),
+                );
                 self.append(session, "mux", "turn_result", json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq}));
             }
         }
@@ -127,7 +176,10 @@ impl Hub {
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;
-            self.set_status(session, if alive { SessionStatus::Ready } else { SessionStatus::Disconnected });
+            self.set_status(
+                session,
+                if alive { SessionStatus::Ready } else { SessionStatus::Disconnected },
+            );
         }
         self.save_meta(session);
         drop(guard);
@@ -165,10 +217,8 @@ impl Hub {
                     }
                 }
                 "agent_message_chunk" => {
-                    if let Some(t) = e
-                        .msg
-                        .pointer("/params/update/content/text")
-                        .and_then(Value::as_str)
+                    if let Some(t) =
+                        e.msg.pointer("/params/update/content/text").and_then(Value::as_str)
                     {
                         agent_buf.push_str(t);
                     }
@@ -183,7 +233,10 @@ impl Hub {
         let mut text = lines.join("\n\n");
         if text.chars().count() > max_chars {
             let skip = text.chars().count() - max_chars;
-            text = format!("[… {skip} earlier characters omitted …]\n{}", text.chars().skip(skip).collect::<String>());
+            text = format!(
+                "[… {skip} earlier characters omitted …]\n{}",
+                text.chars().skip(skip).collect::<String>()
+            );
         }
         Some(text)
     }
@@ -228,9 +281,13 @@ impl Hub {
                 // A process that died on this request: quote its last stderr
                 // line, as prompt() does, so "agent process closed" says why.
                 if e.message == "agent process closed" {
-                    let tail: Vec<String> = session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                    if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| !l.is_empty() && !l.starts_with("at ") && !l.starts_with("[SYSTEM_ERROR]")) {
-                        e.message = format!("agent process closed ({}): {last}", session.meta().harness);
+                    let tail: Vec<String> =
+                        session.stderr_tail.lock().unwrap().iter().cloned().collect();
+                    if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| {
+                        !l.is_empty() && !l.starts_with("at ") && !l.starts_with("[SYSTEM_ERROR]")
+                    }) {
+                        e.message =
+                            format!("agent process closed ({}): {last}", session.meta().harness);
                     }
                 }
                 return Err(e);
@@ -261,10 +318,12 @@ impl Hub {
         Ok(res)
     }
 
-    pub async fn set_mode(self: &Arc<Self>, session: &Arc<Session>, mode_id: &str) -> Result<Value, RpcError> {
-        let r = self
-            .forward(session, method::SESSION_SET_MODE, json!({"modeId": mode_id}))
-            .await?;
+    pub async fn set_mode(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        mode_id: &str,
+    ) -> Result<Value, RpcError> {
+        let r = self.forward(session, method::SESSION_SET_MODE, json!({"modeId": mode_id})).await?;
         {
             let mut meta = session.meta.lock().unwrap();
             if let Some(modes) = meta.modes.as_mut() {
@@ -276,25 +335,40 @@ impl Hub {
         Ok(r)
     }
 
-    pub async fn set_config(self: &Arc<Self>, session: &Arc<Session>, config_id: &str, value: Value) -> Result<Value, RpcError> {
+    pub async fn set_config(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        config_id: &str,
+        value: Value,
+    ) -> Result<Value, RpcError> {
         // Make sure the child is up so its option list is known, then map
         // portable names (effort) onto the harness's own id.
         let _ = self.child_for(session).await?;
         let config_id = resolve_config_id(&session.meta(), config_id);
         let config_id = config_id.as_str();
         let r = self
-            .forward(session, method::SESSION_SET_CONFIG_OPTION, json!({"configId": config_id, "value": value}))
+            .forward(
+                session,
+                method::SESSION_SET_CONFIG_OPTION,
+                json!({"configId": config_id, "value": value}),
+            )
             .await?;
         self.append(session, "mux", "config", json!({"configId": config_id, "value": value}));
         Ok(r)
     }
 
-    pub async fn set_model(self: &Arc<Self>, session: &Arc<Session>, model_id: &str) -> Result<Value, RpcError> {
+    pub async fn set_model(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        model_id: &str,
+    ) -> Result<Value, RpcError> {
         // A harness that takes its model on the command line or in env
         // gets it at the next spawn: record it and drop the current process.
         let at_spawn = {
             let cfg = self.config.read().await;
-            cfg.profile(&session.meta().harness).map(super::lifecycle::profile_takes_model_at_spawn).unwrap_or(false)
+            cfg.profile(&session.meta().harness)
+                .map(super::lifecycle::profile_takes_model_at_spawn)
+                .unwrap_or(false)
         };
         if at_spawn {
             session.meta.lock().unwrap().model_request = Some(model_id.to_owned());
@@ -313,14 +387,20 @@ impl Hub {
             .unwrap_or(false);
         if has_model_option {
             let meta = session.meta();
-            let option = meta.config_options.as_ref().and_then(Value::as_array)
-                .and_then(|opts| opts.iter().find(|o| o["id"] == "model")).unwrap();
-            let value = Value::String(crate::model_catalog::resolve(option, model_id).map_err(RpcError::invalid_params)?);
+            let option = meta
+                .config_options
+                .as_ref()
+                .and_then(Value::as_array)
+                .and_then(|opts| opts.iter().find(|o| o["id"] == "model"))
+                .unwrap();
+            let value = Value::String(
+                crate::model_catalog::resolve(option, model_id)
+                    .map_err(RpcError::invalid_params)?,
+            );
             return self.set_config(session, "model", value).await;
         }
-        let r = self
-            .forward(session, method::SESSION_SET_MODEL, json!({"modelId": model_id}))
-            .await?;
+        let r =
+            self.forward(session, method::SESSION_SET_MODEL, json!({"modelId": model_id})).await?;
         self.append(session, "mux", "model", json!({"modelId": model_id}));
         Ok(r)
     }
@@ -351,7 +431,10 @@ impl Hub {
         } else {
             let child = self.child_for(session).await?;
             let res = child
-                .request(method::SESSION_FORK, json!({"sessionId": sid, "cwd": cwd, "mcpServers": []}))
+                .request(
+                    method::SESSION_FORK,
+                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": []}),
+                )
                 .await?;
             let new_sid = res
                 .get("sessionId")
@@ -384,7 +467,11 @@ impl Hub {
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
             modes: res.get("modes").cloned().filter(|v| !v.is_null()).or(parent_meta.modes.clone()),
-            config_options: res.get("configOptions").cloned().filter(|v| !v.is_null()).or(parent_meta.config_options.clone()),
+            config_options: res
+                .get("configOptions")
+                .cloned()
+                .filter(|v| !v.is_null())
+                .or(parent_meta.config_options.clone()),
             models: parent_meta.models.clone(),
             permission_policy: parent_meta.permission_policy.clone(),
             title: None,
@@ -409,7 +496,16 @@ impl Hub {
                 if e.seq > fork_seq {
                     break;
                 }
-                if matches!(e.kind.as_str(), "user_message" | "agent_message_chunk" | "agent_thought_chunk" | "tool_call" | "tool_call_update" | "plan" | "turn_end") {
+                if matches!(
+                    e.kind.as_str(),
+                    "user_message"
+                        | "agent_message_chunk"
+                        | "agent_thought_chunk"
+                        | "tool_call"
+                        | "tool_call_update"
+                        | "plan"
+                        | "turn_end"
+                ) {
                     self.append(&new, &e.dir, &e.kind, e.msg);
                 }
             }
@@ -472,12 +568,16 @@ impl Hub {
             // Tell watchers (peers, TUIs) the session is gone.
             let _ = self.events.send(HubEvent {
                 session_id: session.id.clone(),
-                record: EventRecord { seq: session.meta().last_seq + 1, at: now_ms(), dir: "mux".into(), kind: "purged".into(), msg: json!({"sessionId": session.id}) },
+                record: EventRecord {
+                    seq: session.meta().last_seq + 1,
+                    at: now_ms(),
+                    dir: "mux".into(),
+                    kind: "purged".into(),
+                    msg: json!({"sessionId": session.id}),
+                },
                 remote: None,
             });
-            self.store
-                .delete(&session.id)
-                .map_err(|e| RpcError::internal(e.to_string()))?;
+            self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
         }
         Ok(())
     }
@@ -499,7 +599,6 @@ impl Hub {
             self.detach_child(&s).await;
         }
     }
-
 }
 
 /// Does an agent error mean the account cannot serve, not that the prompt

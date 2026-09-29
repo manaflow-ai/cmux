@@ -16,7 +16,12 @@ impl App {
         let default_open = match t {
             Toggle::Turn(_) | Toggle::Group(_) => true,
             Toggle::Item(i) => {
-                let is_thought = self.selected_id().and_then(|id| self.transcripts.get(&id)).and_then(|tr| tr.items.get(i)).map(|it| matches!(it, crate::transcript::Item::Thought { .. })).unwrap_or(false);
+                let is_thought = self
+                    .selected_id()
+                    .and_then(|id| self.transcripts.get(&id))
+                    .and_then(|tr| tr.items.get(i))
+                    .map(|it| matches!(it, crate::transcript::Item::Thought { .. }))
+                    .unwrap_or(false);
                 is_thought && self.show_thoughts
             }
         };
@@ -39,10 +44,13 @@ impl App {
         for (i, it) in tr.items.iter().enumerate() {
             let t = match it {
                 crate::transcript::Item::User { .. } => Toggle::Turn(i),
-                crate::transcript::Item::Tool { .. } | crate::transcript::Item::Thought { .. } => Toggle::Item(i),
+                crate::transcript::Item::Tool { .. } | crate::transcript::Item::Thought { .. } => {
+                    Toggle::Item(i)
+                }
                 _ => continue,
             };
-            let default_open = matches!(t, Toggle::Turn(_)) || (matches!(it, crate::transcript::Item::Thought { .. }) && self.show_thoughts);
+            let default_open = matches!(t, Toggle::Turn(_))
+                || (matches!(it, crate::transcript::Item::Thought { .. }) && self.show_thoughts);
             if default_open != open {
                 set.insert(t);
             }

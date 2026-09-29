@@ -26,15 +26,8 @@ pub enum Direction {
 /// Something the agent sent that acpmux must act on.
 #[derive(Debug)]
 pub enum Inbound {
-    Request {
-        id: Id,
-        method: String,
-        params: Option<Value>,
-    },
-    Notification {
-        method: String,
-        params: Option<Value>,
-    },
+    Request { id: Id, method: String, params: Option<Value> },
+    Notification { method: String, params: Option<Value> },
     Stderr(String),
     Exited(Option<i32>),
 }
@@ -137,9 +130,7 @@ impl ChildAgent {
         let stderr = child.stderr.take().context("agent stderr")?;
 
         let (stdin_tx, mut stdin_rx) = mpsc::channel::<String>(256);
-        let pending = Arc::new(Mutex::new(Pending {
-            map: HashMap::new(),
-        }));
+        let pending = Arc::new(Mutex::new(Pending { map: HashMap::new() }));
         let agent = Arc::new(Self {
             name: name.to_owned(),
             child: Mutex::new(Some(child)),
@@ -195,7 +186,9 @@ impl ChildAgent {
                         let raw: Value = match serde_json::from_str(&line) {
                             Ok(v) => v,
                             Err(_) => {
-                                let _ = inbound.send(Inbound::Stderr(format!("[non-json stdout] {line}"))).await;
+                                let _ = inbound
+                                    .send(Inbound::Stderr(format!("[non-json stdout] {line}")))
+                                    .await;
                                 continue;
                             }
                         };
@@ -203,7 +196,10 @@ impl ChildAgent {
                         let kind = format!(
                             "claude.{}{}",
                             raw.get("type").and_then(Value::as_str).unwrap_or("?"),
-                            raw.get("subtype").and_then(Value::as_str).map(|s| format!(".{s}")).unwrap_or_default()
+                            raw.get("subtype")
+                                .and_then(Value::as_str)
+                                .map(|s| format!(".{s}"))
+                                .unwrap_or_default()
                         );
                         tap(Direction::In, &Message::notification(&kind, raw.clone()));
                         let translated = tr.inbound(&raw).await;
@@ -223,29 +219,32 @@ impl ChildAgent {
                             }
                             Err(e) => {
                                 tracing::warn!(agent = %agent_for_exit.name, "bad line from agent: {e}: {line}");
-                                let _ = inbound.send(Inbound::Stderr(format!("[non-json stdout] {line}"))).await;
+                                let _ = inbound
+                                    .send(Inbound::Stderr(format!("[non-json stdout] {line}")))
+                                    .await;
                                 continue;
                             }
                         }
                     };
                     for msg in msgs {
-                    match msg {
-                        Message::Response { id, result, error } => {
-                            let tx = pending.lock().await.map.remove(&key(&id));
-                            if let Some(tx) = tx {
-                                let _ = tx.send(match error {
-                                    Some(e) => Err(e),
-                                    None => Ok(result.unwrap_or(Value::Null)),
-                                });
+                        match msg {
+                            Message::Response { id, result, error } => {
+                                let tx = pending.lock().await.map.remove(&key(&id));
+                                if let Some(tx) = tx {
+                                    let _ = tx.send(match error {
+                                        Some(e) => Err(e),
+                                        None => Ok(result.unwrap_or(Value::Null)),
+                                    });
+                                }
+                            }
+                            Message::Request { id, method, params } => {
+                                let _ = inbound.send(Inbound::Request { id, method, params }).await;
+                            }
+                            Message::Notification { method, params } => {
+                                let _ =
+                                    inbound.send(Inbound::Notification { method, params }).await;
                             }
                         }
-                        Message::Request { id, method, params } => {
-                            let _ = inbound.send(Inbound::Request { id, method, params }).await;
-                        }
-                        Message::Notification { method, params } => {
-                            let _ = inbound.send(Inbound::Notification { method, params }).await;
-                        }
-                    }
                     }
                 }
                 // Fail every pending request, then report exit.
@@ -311,22 +310,29 @@ impl ChildAgent {
             match tr.outbound(msg).await {
                 crate::claude_stdio::Outbound::Lines(lines) => {
                     for l in lines {
-                        (self.tap)(Direction::Out, &Message::notification("claude.stdin", l.clone()));
+                        (self.tap)(
+                            Direction::Out,
+                            &Message::notification("claude.stdin", l.clone()),
+                        );
                         let mut s = l.to_string();
                         s.push('\n');
-                        self.stdin_tx.send(s).await.map_err(|_| anyhow!("agent {} stdin closed", self.name))?;
+                        self.stdin_tx
+                            .send(s)
+                            .await
+                            .map_err(|_| anyhow!("agent {} stdin closed", self.name))?;
                     }
                     Ok(())
                 }
                 crate::claude_stdio::Outbound::Reply(reply) => {
                     // Immediate local answer: feed it back as if claude replied.
                     if let Message::Response { id, result, error } = reply
-                        && let Some(tx) = self.pending.lock().await.map.remove(&key(&id)) {
-                            let _ = tx.send(match error {
-                                Some(e) => Err(e),
-                                None => Ok(result.unwrap_or(Value::Null)),
-                            });
-                        }
+                        && let Some(tx) = self.pending.lock().await.map.remove(&key(&id))
+                    {
+                        let _ = tx.send(match error {
+                            Some(e) => Err(e),
+                            None => Ok(result.unwrap_or(Value::Null)),
+                        });
+                    }
                     Ok(())
                 }
             }
@@ -342,18 +348,13 @@ impl ChildAgent {
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
-        self.pending
-            .lock()
-            .await
-            .map
-            .insert(key(&Value::from(id)), tx);
+        self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
         let msg = Message::request(id, method, params);
         if let Err(e) = self.write(&msg).await {
             self.pending.lock().await.map.remove(&key(&Value::from(id)));
             return Err(RpcError::internal(e.to_string()));
         }
-        rx.await
-            .unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")))
+        rx.await.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")))
     }
 
     pub async fn notify(&self, method: &str, params: Value) -> Result<()> {

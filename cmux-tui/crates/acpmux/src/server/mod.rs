@@ -117,7 +117,12 @@ pub async fn listen_ws(hub: Arc<Hub>, addr: String, token: Option<String>) -> Re
         let token = token.clone();
         tokio::spawn(async move {
             let mut head = [0u8; 4096];
-            let n = match tokio::time::timeout(std::time::Duration::from_secs(5), stream.peek(&mut head)).await {
+            let n = match tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                stream.peek(&mut head),
+            )
+            .await
+            {
                 Ok(Ok(n)) => n,
                 _ => return,
             };
@@ -164,9 +169,10 @@ pub async fn listen_ws(hub: Arc<Hub>, addr: String, token: Option<String>) -> Re
             tokio::spawn(async move {
                 while let Some(Ok(frame)) = source.next().await {
                     if let tokio_tungstenite::tungstenite::Message::Text(t) = frame
-                        && in_tx.send(t.to_string()).await.is_err() {
-                            break;
-                        }
+                        && in_tx.send(t.to_string()).await.is_err()
+                    {
+                        break;
+                    }
                 }
             });
             tokio::spawn(async move {
@@ -224,7 +230,11 @@ async fn serve_http(mut stream: tokio::net::TcpStream, head: &str, token: Option
 
 // ------------------------------------------------------------ connection
 
-pub async fn serve_connection(hub: Arc<Hub>, mut inbound: mpsc::Receiver<String>, out: mpsc::Sender<String>) {
+pub async fn serve_connection(
+    hub: Arc<Hub>,
+    mut inbound: mpsc::Receiver<String>,
+    out: mpsc::Sender<String>,
+) {
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
         name: StdMutex::new(String::new()),
@@ -244,10 +254,7 @@ pub async fn serve_connection(hub: Arc<Hub>, mut inbound: mpsc::Receiver<String>
                 match rx.recv().await {
                     Ok(ev) => deliver(&hub, &conn, ev),
                     Err(broadcast::error::RecvError::Lagged(n)) => {
-                        conn.send(&Message::notification(
-                            "_acpmux/lagged",
-                            json!({"dropped": n}),
-                        ));
+                        conn.send(&Message::notification("_acpmux/lagged", json!({"dropped": n})));
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
@@ -271,7 +278,8 @@ pub async fn serve_connection(hub: Arc<Hub>, mut inbound: mpsc::Receiver<String>
                 let hub = hub.clone();
                 let conn = conn.clone();
                 tokio::spawn(async move {
-                    let result = handle_request(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
+                    let result =
+                        handle_request(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
                     conn.send(&match result {
                         Ok(v) => Message::ok(id, v),
                         Err(e) => Message::err(id, e),
@@ -312,14 +320,16 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     }
     if attached && rec.dir != "peer" {
         // Agent -> client updates as standard ACP notifications.
-        if rec.dir == "in" && !rec.kind.ends_with(".replay")
+        if rec.dir == "in"
+            && !rec.kind.ends_with(".replay")
             && let Some(m) = rec.msg.get("method").and_then(Value::as_str)
-                && m == method::SESSION_UPDATE {
-                    let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
-                    params["sessionId"] = Value::String(ev.session_id.clone());
-                    params["_meta"] = json!({"acpmux": {"seq": rec.seq, "at": rec.at}});
-                    conn.send(&Message::notification(method::SESSION_UPDATE, params));
-                }
+            && m == method::SESSION_UPDATE
+        {
+            let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
+            params["sessionId"] = Value::String(ev.session_id.clone());
+            params["_meta"] = json!({"acpmux": {"seq": rec.seq, "at": rec.at}});
+            conn.send(&Message::notification(method::SESSION_UPDATE, params));
+        }
         if rec.dir == "mux" {
             conn.send(&Message::notification(method::MUX_EVENT, event_value(&ev.session_id, rec)));
             if rec.kind == "permission_request" {
@@ -341,20 +351,41 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         if rec.dir == "mux" && rec.kind == "purged" {
-            conn.send(&Message::notification(method::MUX_SESSION_CHANGED, json!({"session": {"sessionId": ev.session_id}, "kind": "purged", "seq": rec.seq})));
+            conn.send(&Message::notification(
+                method::MUX_SESSION_CHANGED,
+                json!({"session": {"sessionId": ev.session_id}, "kind": "purged", "seq": rec.seq}),
+            ));
             return;
         }
         if rec.dir == "mux"
             && matches!(
                 rec.kind.as_str(),
-                "status" | "created" | "user_message" | "turn_end" | "turn_error" | "renamed" | "forked" | "imported" | "permission_request" | "permission_decision" | "mode" | "model" | "config" | "policy" | "rules" | "tags" | "turn_started" | "turn_result"
+                "status"
+                    | "created"
+                    | "user_message"
+                    | "turn_end"
+                    | "turn_error"
+                    | "renamed"
+                    | "forked"
+                    | "imported"
+                    | "permission_request"
+                    | "permission_decision"
+                    | "mode"
+                    | "model"
+                    | "config"
+                    | "policy"
+                    | "rules"
+                    | "tags"
+                    | "turn_started"
+                    | "turn_result"
             )
-            && let Ok(s) = hub.resolve(&ev.session_id) {
-                conn.send(&Message::notification(
-                    method::MUX_SESSION_CHANGED,
-                    json!({"session": hub.session_summary(&s), "kind": rec.kind, "seq": rec.seq}),
-                ));
-            }
+            && let Ok(s) = hub.resolve(&ev.session_id)
+        {
+            conn.send(&Message::notification(
+                method::MUX_SESSION_CHANGED,
+                json!({"session": hub.session_summary(&s), "kind": rec.kind, "seq": rec.seq}),
+            ));
+        }
     }
 }
 

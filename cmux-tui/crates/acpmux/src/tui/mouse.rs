@@ -85,14 +85,19 @@ impl App {
             ButtonAction::CloseOverlay => {
                 let was_agent = matches!(&self.overlay, Overlay::Picker(p) if matches!(p.on_pick, PickTarget::Agent));
                 self.overlay = Overlay::None;
-                if was_agent
-                    && let Some(form) = self.parked_form.take() {
-                        self.overlay = form;
-                    }
+                if was_agent && let Some(form) = self.parked_form.take() {
+                    self.overlay = form;
+                }
             }
-            ButtonAction::ConfirmYes => self.on_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)),
-            ButtonAction::ConfirmNo => self.on_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE)),
-            ButtonAction::CreateFromForm => self.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            ButtonAction::ConfirmYes => {
+                self.on_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE))
+            }
+            ButtonAction::ConfirmNo => {
+                self.on_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE))
+            }
+            ButtonAction::CreateFromForm => {
+                self.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+            }
             ButtonAction::PermissionOption(i) => self.answer_permission(PermChoice::Index(*i)),
             ButtonAction::PermissionAllow => self.answer_permission(PermChoice::Allow),
             ButtonAction::PermissionDeny => self.answer_permission(PermChoice::Deny),
@@ -113,14 +118,14 @@ impl App {
     }
 
     pub fn selected_supports_steer(&self) -> bool {
-        self.selected_session()
-            .and_then(|s| s.get("agentInfo"))
-            .map(|_| true)
-            .unwrap_or(false)
+        self.selected_session().and_then(|s| s.get("agentInfo")).map(|_| true).unwrap_or(false)
             && self
                 .selected_id()
                 .and_then(|id| self.details.get(&id))
-                .and_then(|d| d.pointer("/agentCapabilities/_meta/steering/supported").and_then(Value::as_bool))
+                .and_then(|d| {
+                    d.pointer("/agentCapabilities/_meta/steering/supported")
+                        .and_then(Value::as_bool)
+                })
                 .unwrap_or(false)
     }
 
@@ -161,17 +166,32 @@ impl App {
     /// edge and clear of the header row and the scrollbar.
     pub(super) fn transcript_inner(&self) -> Rect {
         let col = self.areas.column;
-        Rect { x: col.x + 1, y: col.y + 1, width: col.width.saturating_sub(3), height: col.height.saturating_sub(1) }
+        Rect {
+            x: col.x + 1,
+            y: col.y + 1,
+            width: col.width.saturating_sub(3),
+            height: col.height.saturating_sub(1),
+        }
     }
     pub(super) fn transcript_cell_lenient(&self, x: u16, y: u16) -> Option<(usize, usize)> {
         let a = self.areas.transcript;
-        if a.width < 4 || a.height < 2 || x < a.x || x >= a.x + a.width || y < a.y || y >= a.y + a.height {
+        if a.width < 4
+            || a.height < 2
+            || x < a.x
+            || x >= a.x + a.width
+            || y < a.y
+            || y >= a.y + a.height
+        {
             return None;
         }
         if self.rows_cache.is_empty() {
             return None;
         }
-        let (rect, row) = self.transcript_hitboxes.iter().find(|(rect, _)| x >= rect.x && x < rect.x + rect.width && y == rect.y).copied()?;
+        let (rect, row) = self
+            .transcript_hitboxes
+            .iter()
+            .find(|(rect, _)| x >= rect.x && x < rect.x + rect.width && y == rect.y)
+            .copied()?;
         let col = ((x - rect.x) as usize).min(self.rows_cache[row].chars().count());
         Some((row, col))
     }
@@ -180,23 +200,31 @@ impl App {
         let (x, y) = (m.column, m.row);
         self.hover = Some((x, y));
         let hit = |r: Rect| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
-        let mut over = self.sidebar_rows.iter().any(|(r, _)| hit(*r)) || self.buttons.iter().any(|(r, _)| hit(*r)) || self.perm_rows.iter().any(|(r, _)| hit(*r)) || self.transcript_hitboxes.iter().any(|(r, _)| hit(*r)) || hit(self.areas.sidebar_rule);
+        let mut over = self.sidebar_rows.iter().any(|(r, _)| hit(*r))
+            || self.buttons.iter().any(|(r, _)| hit(*r))
+            || self.perm_rows.iter().any(|(r, _)| hit(*r))
+            || self.transcript_hitboxes.iter().any(|(r, _)| hit(*r))
+            || hit(self.areas.sidebar_rule);
         // Hover moves the picker cursor, except while the scrollbar is dragged.
         let dragging = self.dialog.viewport.drag.is_some() || self.sidebar_drag.is_some();
         if let (Overlay::Picker(p), false) = (&mut self.overlay, dragging)
             && let Some((_, vi)) = p.row_rects.iter().find(|(r, _)| hit(*r)).cloned()
-                && p.visible.get(vi).map(|&ri| !p.rows[ri].header).unwrap_or(false) {
-                    p.cursor = vi;
-                    over = true;
-                }
+            && p.visible.get(vi).map(|&ri| !p.rows[ri].header).unwrap_or(false)
+        {
+            p.cursor = vi;
+            over = true;
+        }
         self.set_pointer(over);
         match m.kind {
             MouseEventKind::ScrollDown => self.wheel(x, y, WHEEL_ROWS),
             MouseEventKind::ScrollUp => self.wheel(x, y, -WHEEL_ROWS),
             MouseEventKind::Down(MouseButton::Left) => self.press(x, y, m.modifiers),
-            MouseEventKind::Drag(MouseButton::Left) if matches!(self.overlay, Overlay::Menu(_)) => {}
+            MouseEventKind::Drag(MouseButton::Left) if matches!(self.overlay, Overlay::Menu(_)) => {
+            }
             MouseEventKind::Drag(MouseButton::Left) => self.drag(x, y),
-            MouseEventKind::Up(MouseButton::Left) if matches!(self.overlay, Overlay::Menu(_)) => self.menu_release(x, y),
+            MouseEventKind::Up(MouseButton::Left) if matches!(self.overlay, Overlay::Menu(_)) => {
+                self.menu_release(x, y)
+            }
             MouseEventKind::Up(MouseButton::Left) => self.release(),
             MouseEventKind::Down(MouseButton::Right) => {
                 if let Overlay::Menu(_) = self.overlay {
@@ -223,11 +251,12 @@ impl App {
         }
         self.menu_pressed = false;
         if let Overlay::Menu(m) = &self.overlay
-            && let Some(i) = m.item_at(x, y) {
-                let a = m.items[i].action.clone();
-                self.overlay = Overlay::None;
-                self.run_menu_action(a);
-            }
+            && let Some(i) = m.item_at(x, y)
+        {
+            let a = m.items[i].action.clone();
+            self.overlay = Overlay::None;
+            self.run_menu_action(a);
+        }
     }
 
     pub(super) fn wheel(&mut self, x: u16, y: u16, delta: isize) {
@@ -269,29 +298,29 @@ impl App {
                 return;
             }
             if let Overlay::Picker(p) = &mut self.overlay
-                && let Some((_, vi)) = p.row_rects.iter().find(|(r, _)| hit(*r)).cloned() {
-                    if let Some(&ri) = p.visible.get(vi)
-                        && !p.rows[ri].header {
-                            p.cursor = vi;
-                            let row = p.rows[ri].clone();
-                            let target = p.on_pick.clone();
-                            let is_agent = matches!(target, PickTarget::Agent);
-                            self.overlay = Overlay::None;
-                            self.apply_pick(target, row.value, row.group);
-                            if is_agent
-                                && let Some(form) = self.parked_form.take() {
-                                    self.overlay = form;
-                                }
-                        }
-                    return;
+                && let Some((_, vi)) = p.row_rects.iter().find(|(r, _)| hit(*r)).cloned()
+            {
+                if let Some(&ri) = p.visible.get(vi)
+                    && !p.rows[ri].header
+                {
+                    p.cursor = vi;
+                    let row = p.rows[ri].clone();
+                    let target = p.on_pick.clone();
+                    let is_agent = matches!(target, PickTarget::Agent);
+                    self.overlay = Overlay::None;
+                    self.apply_pick(target, row.value, row.group);
+                    if is_agent && let Some(form) = self.parked_form.take() {
+                        self.overlay = form;
+                    }
                 }
+                return;
+            }
             if !hit(self.dialog_rect) {
                 let is_agent = matches!(&self.overlay, Overlay::Picker(p) if matches!(p.on_pick, PickTarget::Agent));
                 self.overlay = Overlay::None;
-                if is_agent
-                    && let Some(form) = self.parked_form.take() {
-                        self.overlay = form;
-                    }
+                if is_agent && let Some(form) = self.parked_form.take() {
+                    self.overlay = form;
+                }
             }
             return;
         }
@@ -306,7 +335,12 @@ impl App {
             return;
         }
         // Sidebar row click selects.
-        if let Some((_, idx)) = self.sidebar_rows.iter().find(|(r, _)| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height).cloned() {
+        if let Some((_, idx)) = self
+            .sidebar_rows
+            .iter()
+            .find(|(r, _)| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)
+            .cloned()
+        {
             self.select(idx);
             self.focus = Focus::Input;
             return;
@@ -314,10 +348,11 @@ impl App {
         // Scrollbar track.
         if let Some(id) = self.selected_id()
             && let Some(vp) = self.viewport.get_mut(&id)
-                && vp.track_contains(x, y) {
-                    vp.press(y);
-                    return;
-                }
+            && vp.track_contains(x, y)
+        {
+            vp.press(y);
+            return;
+        }
         // Composer click focuses input.
         let comp = self.areas.composer;
         if x >= comp.x && x < comp.x + comp.width && y >= comp.y && y < comp.y + comp.height {
@@ -325,7 +360,11 @@ impl App {
             if y > comp.y && y < comp.y + comp.height - 2 {
                 let width = comp.width.saturating_sub(render::COMPOSER_INDENT + 1) as usize;
                 let row = self.editor().scroll + (y - comp.y - 1) as usize;
-                self.editor_mut().click(width, row, x.saturating_sub(comp.x + render::COMPOSER_INDENT) as usize);
+                self.editor_mut().click(
+                    width,
+                    row,
+                    x.saturating_sub(comp.x + render::COMPOSER_INDENT) as usize,
+                );
                 let cur = self.editor().cursor();
                 self.composer_sel = Some((cur, cur));
             }
@@ -334,29 +373,41 @@ impl App {
         // Ctrl-click or Alt-click opens the link under the pointer (Cmd-click
         // is handled by the terminal through OSC 8 and never reaches us).
         if mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-            && let Some((row, col)) = self.transcript_cell_lenient(x, y) {
-                let text = self.rows_cache.get(row).cloned().unwrap_or_default();
-                if let Some(link) = crate::tui::links::find(&text).into_iter().find(|l| col >= l.start && col < l.end) {
-                    let cwd = self.selected_session().and_then(|s| s.get("cwd").and_then(Value::as_str)).unwrap_or("").to_owned();
-                    self.status = crate::tui::links::open(&link.target, &cwd);
-                    self.selection = None;
-                    return;
-                }
+            && let Some((row, col)) = self.transcript_cell_lenient(x, y)
+        {
+            let text = self.rows_cache.get(row).cloned().unwrap_or_default();
+            if let Some(link) =
+                crate::tui::links::find(&text).into_iter().find(|l| col >= l.start && col < l.end)
+            {
+                let cwd = self
+                    .selected_session()
+                    .and_then(|s| s.get("cwd").and_then(Value::as_str))
+                    .unwrap_or("")
+                    .to_owned();
+                self.status = crate::tui::links::open(&link.target, &cwd);
+                self.selection = None;
+                return;
             }
+        }
         // Transcript: a click on a collapsible header opens or closes it.
         if let Some((row, _)) = self.transcript_cell_lenient(x, y)
-            && let (Some(&(_, Some(t))), Some(id)) = (self.row_meta.get(row), self.selected_id()) {
-                let a = self.areas.transcript;
-                let exact_row = y > a.y && (self.viewport.get(&id).map(|v| v.offset).unwrap_or(0) + (y - a.y - 1) as usize) == row;
-                if exact_row {
-                    let screen_row = y.saturating_sub(self.transcript_inner().y) as usize;
-                    self.transcript_anchor = Some((id.clone(), row, screen_row));
-                    self.toggle(t);
-                    if let Some(vp) = self.viewport.get_mut(&id) { vp.follow = false; }
-                    self.selection = None;
-                    return;
+            && let (Some(&(_, Some(t))), Some(id)) = (self.row_meta.get(row), self.selected_id())
+        {
+            let a = self.areas.transcript;
+            let exact_row = y > a.y
+                && (self.viewport.get(&id).map(|v| v.offset).unwrap_or(0) + (y - a.y - 1) as usize)
+                    == row;
+            if exact_row {
+                let screen_row = y.saturating_sub(self.transcript_inner().y) as usize;
+                self.transcript_anchor = Some((id.clone(), row, screen_row));
+                self.toggle(t);
+                if let Some(vp) = self.viewport.get_mut(&id) {
+                    vp.follow = false;
                 }
+                self.selection = None;
+                return;
             }
+        }
         // Transcript: start a selection, with double and triple click. Any
         // point in the pane counts, not only a cell with text under it.
         let Some((row, col)) = self.transcript_cell_lenient(x, y) else {
@@ -366,7 +417,13 @@ impl App {
         let Some(id) = self.selected_id() else { return };
         let now = Instant::now();
         let count = match self.last_click {
-            Some((t, lx, ly, n)) if now.duration_since(t).as_millis() <= MULTI_CLICK_MS && lx.abs_diff(x) <= 1 && ly == y => (n % 3) + 1,
+            Some((t, lx, ly, n))
+                if now.duration_since(t).as_millis() <= MULTI_CLICK_MS
+                    && lx.abs_diff(x) <= 1
+                    && ly == y =>
+            {
+                (n % 3) + 1
+            }
             _ => 1,
         };
         self.last_click = Some((now, x, y, count));
@@ -377,8 +434,18 @@ impl App {
                 let (s, e) = word_bounds(&line, col);
                 Selection { session: id, anchor: (row, s), head: (row, e), mode: SelectMode::Word }
             }
-            3 => Selection { session: id, anchor: (row, 0), head: (row, line.chars().count()), mode: SelectMode::Line },
-            _ => Selection { session: id, anchor: (row, col), head: (row, col), mode: SelectMode::Cell },
+            3 => Selection {
+                session: id,
+                anchor: (row, 0),
+                head: (row, line.chars().count()),
+                mode: SelectMode::Line,
+            },
+            _ => Selection {
+                session: id,
+                anchor: (row, col),
+                head: (row, col),
+                mode: SelectMode::Cell,
+            },
         });
     }
 
@@ -395,17 +462,22 @@ impl App {
         }
         if let Some(id) = self.selected_id()
             && let Some(vp) = self.viewport.get_mut(&id)
-                && vp.drag.is_some() {
-                    vp.drag_to(y);
-                    return;
-                }
+            && vp.drag.is_some()
+        {
+            vp.drag_to(y);
+            return;
+        }
         // Composer selection follows the pointer.
         if let Some((anchor, _)) = self.composer_sel {
             let comp = self.areas.composer;
             let width = comp.width.saturating_sub(render::COMPOSER_INDENT + 1) as usize;
             let yy = y.clamp(comp.y + 1, (comp.y + comp.height).saturating_sub(3));
             let row = self.editor().scroll + (yy - comp.y - 1) as usize;
-            self.editor_mut().click(width, row, x.saturating_sub(comp.x + render::COMPOSER_INDENT) as usize);
+            self.editor_mut().click(
+                width,
+                row,
+                x.saturating_sub(comp.x + render::COMPOSER_INDENT) as usize,
+            );
             let head = self.editor().cursor();
             self.composer_sel = Some((anchor, head));
             return;
@@ -460,7 +532,9 @@ impl App {
         if let Some(sel) = self.selection.as_mut() {
             sel.head = match sel.mode {
                 SelectMode::Cell => (row, if d < 0 { 0 } else { line.chars().count() }),
-                SelectMode::Word | SelectMode::Line => (row, if d < 0 { 0 } else { line.chars().count() }),
+                SelectMode::Word | SelectMode::Line => {
+                    (row, if d < 0 { 0 } else { line.chars().count() })
+                }
             };
         }
         let _ = col;
@@ -485,10 +559,11 @@ impl App {
         }
         if let Some(id) = self.selected_id()
             && let Some(vp) = self.viewport.get_mut(&id)
-                && vp.drag.is_some() {
-                    vp.release();
-                    return;
-                }
+            && vp.drag.is_some()
+        {
+            vp.release();
+            return;
+        }
         let Some(sel) = self.selection.clone() else { return };
         if sel.anchor == sel.head {
             self.selection = None;

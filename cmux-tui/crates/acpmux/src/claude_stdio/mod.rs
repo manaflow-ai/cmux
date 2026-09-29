@@ -31,11 +31,7 @@ pub const AGENT_NAME: &str = "claude-stdio";
 /// harness, and bypassPermissions would also need the process launched with
 /// --dangerously-skip-permissions. Plan and auto change what Claude does,
 /// so they stay.
-const MODES: [(&str, &str); 3] = [
-    ("default", "Normal"),
-    ("plan", "Plan"),
-    ("auto", "Auto"),
-];
+const MODES: [(&str, &str); 3] = [("default", "Normal"), ("plan", "Plan"), ("auto", "Auto")];
 
 /// Model aliases Claude Code accepts on `set_model` and `--model`. Aliases
 /// track Claude Code's own defaults; the `[1m]` suffix asks for the 1M
@@ -95,7 +91,14 @@ pub struct SpawnPlan {
 /// `mode` is pinned with `--permission-mode` so the user's Claude settings
 /// (often `auto`) cannot silently bypass acpmux's permission policy; the
 /// mode chip then always tells the truth.
-pub fn spawn_plan(profile: &HarnessProfile, resume: Option<&str>, fork: bool, fresh_id: Option<&str>, effort: Option<&str>, mode: &str) -> SpawnPlan {
+pub fn spawn_plan(
+    profile: &HarnessProfile,
+    resume: Option<&str>,
+    fork: bool,
+    fresh_id: Option<&str>,
+    effort: Option<&str>,
+    mode: &str,
+) -> SpawnPlan {
     let program = profile.argv.first().cloned().unwrap_or_else(|| "claude".into());
     // Everything after the program in argv comes first: a wrapper such as
     // `sr claude proxy` needs its own words before Claude's flags, and a
@@ -210,16 +213,28 @@ fn tool_kind(name: &str) -> &'static str {
 fn tool_title(name: &str, input: &Value) -> String {
     let s = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_owned);
     match name {
-        "Bash" => s("command").map(|c| c.lines().next().unwrap_or("").chars().take(120).collect()).unwrap_or_else(|| "Bash".into()),
-        "Read" | "Write" | "Edit" | "MultiEdit" => format!("{name} {}", s("file_path").map(|p| Path::new(&p).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or(p)).unwrap_or_default()),
+        "Bash" => s("command")
+            .map(|c| c.lines().next().unwrap_or("").chars().take(120).collect())
+            .unwrap_or_else(|| "Bash".into()),
+        "Read" | "Write" | "Edit" | "MultiEdit" => format!(
+            "{name} {}",
+            s("file_path")
+                .map(|p| Path::new(&p)
+                    .file_name()
+                    .map(|f| f.to_string_lossy().into_owned())
+                    .unwrap_or(p))
+                .unwrap_or_default()
+        ),
         "Glob" | "Grep" => format!("{name} {}", s("pattern").unwrap_or_default()),
         "WebFetch" => format!("Fetch {}", s("url").unwrap_or_default()),
         "WebSearch" => format!("Search {}", s("query").unwrap_or_default()),
         "Task" | "Agent" => format!("Agent: {}", s("description").unwrap_or_default()),
-        "AskUserQuestion" => input.pointer("/questions/0/question").and_then(Value::as_str).map(|q| format!("Question: {q}")).unwrap_or_else(|| "Question".into()),
+        "AskUserQuestion" => input
+            .pointer("/questions/0/question")
+            .and_then(Value::as_str)
+            .map(|q| format!("Question: {q}"))
+            .unwrap_or_else(|| "Question".into()),
         "ExitPlanMode" => "Approve plan".into(),
         _ => name.to_owned(),
     }
 }
-
-

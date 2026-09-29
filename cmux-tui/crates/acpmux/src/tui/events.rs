@@ -16,12 +16,29 @@ impl App {
             method::MUX_EVENT => {
                 if let Some(id) = sid {
                     let kind = p.get("kind").and_then(Value::as_str).unwrap_or("");
-                    let level = match kind { "turn_error" => 3, "turn_end" => 1, _ => 0 };
+                    let level = match kind {
+                        "turn_error" => 3,
+                        "turn_end" => 1,
+                        _ => 0,
+                    };
                     if level > 0 && self.selected_id().as_deref() != Some(&id) {
                         let e = self.attention.entry(id.clone()).or_insert(0);
                         *e = (*e).max(level);
-                        let who = self.sessions.iter().find(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id)).and_then(|s| s.get("name").and_then(Value::as_str)).unwrap_or("session").to_owned();
-                        super::notify::send("acpmux", &if level == 3 { format!("{who} failed") } else { format!("{who} finished") });
+                        let who = self
+                            .sessions
+                            .iter()
+                            .find(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id))
+                            .and_then(|s| s.get("name").and_then(Value::as_str))
+                            .unwrap_or("session")
+                            .to_owned();
+                        super::notify::send(
+                            "acpmux",
+                            &if level == 3 {
+                                format!("{who} failed")
+                            } else {
+                                format!("{who} finished")
+                            },
+                        );
                     }
                     self.transcripts.entry(id).or_default().apply_event(&p);
                 }
@@ -30,13 +47,18 @@ impl App {
                 if let Some(s) = p.get("session") {
                     let id = s.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
                     if p.get("kind").and_then(Value::as_str) == Some("purged") {
-                        self.sessions.retain(|x| x.get("sessionId").and_then(Value::as_str) != Some(&id));
+                        self.sessions
+                            .retain(|x| x.get("sessionId").and_then(Value::as_str) != Some(&id));
                         self.transcripts.remove(&id);
                         self.attention.remove(&id);
                         self.selected = self.selected.min(self.row_count().saturating_sub(1));
                         return;
                     }
-                    if let Some(slot) = self.sessions.iter_mut().find(|x| x.get("sessionId").and_then(Value::as_str) == Some(&id)) {
+                    if let Some(slot) = self
+                        .sessions
+                        .iter_mut()
+                        .find(|x| x.get("sessionId").and_then(Value::as_str) == Some(&id))
+                    {
                         *slot = s.clone();
                     } else {
                         self.sessions.push(s.clone());
@@ -44,28 +66,40 @@ impl App {
                     self.sort_sessions();
                     // The bar said a permission was needed: clear it once nobody waits.
                     if self.status.starts_with("permission needed in")
-                        && !self.sessions.iter().any(|x| x.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0)
+                        && !self.sessions.iter().any(|x| {
+                            x.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0
+                        })
                     {
                         self.status = super::DEFAULT_STATUS.into();
                     }
                 }
             }
             method::MUX_PERMISSION_PENDING => {
-                let title = p.pointer("/request/toolCall/title").and_then(Value::as_str).unwrap_or("permission");
+                let title = p
+                    .pointer("/request/toolCall/title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("permission");
                 let who = sid
                     .as_deref()
-                    .and_then(|id| self.sessions.iter().find(|s| s.get("sessionId").and_then(Value::as_str) == Some(id)))
+                    .and_then(|id| {
+                        self.sessions
+                            .iter()
+                            .find(|s| s.get("sessionId").and_then(Value::as_str) == Some(id))
+                    })
                     .and_then(|s| s.get("name").and_then(Value::as_str))
                     .unwrap_or("?");
                 self.status = format!("permission needed in {who}: {title}  (y / n / 1-9)");
                 super::notify::send("acpmux", &format!("{who} needs a permission: {title}"));
                 if let Some(id) = sid.clone()
-                    && self.selected_id().as_deref() != Some(&id) {
-                        let e = self.attention.entry(id).or_insert(0);
-                        *e = (*e).max(2);
-                    }
+                    && self.selected_id().as_deref() != Some(&id)
+                {
+                    let e = self.attention.entry(id).or_insert(0);
+                    *e = (*e).max(2);
+                }
             }
-            "_acpmux/lagged" => self.status = "event stream lagged; reattach with Enter on the session".into(),
+            "_acpmux/lagged" => {
+                self.status = "event stream lagged; reattach with Enter on the session".into()
+            }
             _ => {}
         }
     }
@@ -78,9 +112,13 @@ impl App {
             ub.cmp(&ua)
         });
         if let Some(id) = selected_id
-            && let Some(i) = self.sessions.iter().position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id)) {
-                self.selected = i + self.drafts.len();
-            }
+            && let Some(i) = self
+                .sessions
+                .iter()
+                .position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id))
+        {
+            self.selected = i + self.drafts.len();
+        }
     }
 
     pub(super) fn on_msg(&mut self, msg: AppMsg) {
@@ -96,8 +134,16 @@ impl App {
             AppMsg::Attached { id, detail, events } => {
                 if events.is_empty() && self.transcripts.contains_key(&id) {
                     if let Some(t) = self.transcripts.get_mut(&id) {
-                        t.mode = detail.get("currentModeId").and_then(Value::as_str).map(str::to_owned).or(t.mode.clone());
-                        t.model = detail.get("model").and_then(Value::as_str).map(str::to_owned).or(t.model.clone());
+                        t.mode = detail
+                            .get("currentModeId")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                            .or(t.mode.clone());
+                        t.model = detail
+                            .get("model")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                            .or(t.model.clone());
                     }
                     self.details.insert(id, detail);
                     return;
@@ -123,21 +169,32 @@ impl App {
                     .and_then(Value::as_array)
                     .map(|a| {
                         a.iter()
-                            .map(|p| (
-                                p.get("name").and_then(Value::as_str).unwrap_or("").to_owned(),
-                                p.get("connected").and_then(Value::as_bool).unwrap_or(false),
-                                p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
-                            ))
+                            .map(|p| {
+                                (
+                                    p.get("name").and_then(Value::as_str).unwrap_or("").to_owned(),
+                                    p.get("connected").and_then(Value::as_bool).unwrap_or(false),
+                                    p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
+                                )
+                            })
                             .collect()
                     })
                     .unwrap_or_default();
             }
             AppMsg::Models(v) => self.show_model_picker(v),
             AppMsg::HarnessCatalog(id, v) => {
-                if self.draft().map(|d| d.id) == Some(id) && matches!(self.overlay, Overlay::Picker(ref p) if matches!(p.on_pick, PickTarget::DraftHarness)) {
-                    let filter = if let Overlay::Picker(ref p) = self.overlay { p.filter.text().to_owned() } else { String::new() };
+                if self.draft().map(|d| d.id) == Some(id)
+                    && matches!(self.overlay, Overlay::Picker(ref p) if matches!(p.on_pick, PickTarget::DraftHarness))
+                {
+                    let filter = if let Overlay::Picker(ref p) = self.overlay {
+                        p.filter.text().to_owned()
+                    } else {
+                        String::new()
+                    };
                     self.show_harness_picker(v);
-                    if let Overlay::Picker(ref mut p) = self.overlay { p.filter.insert_str(&filter); p.refilter(); }
+                    if let Overlay::Picker(ref mut p) = self.overlay {
+                        p.filter.insert_str(&filter);
+                        p.refilter();
+                    }
                 }
             }
             AppMsg::DraftFailed => {
@@ -156,4 +213,3 @@ impl App {
         }
     }
 }
-

@@ -28,9 +28,10 @@ pub fn validate(rules: &Value) -> Result<(), String> {
         }
     }
     if let Some(d) = obj.get("default")
-        && !matches!(d.as_str(), Some("approve" | "deny" | "ask")) {
-            return Err("default must be approve, deny or ask".into());
-        }
+        && !matches!(d.as_str(), Some("approve" | "deny" | "ask"))
+    {
+        return Err("default must be approve, deny or ask".into());
+    }
     for k in obj.keys() {
         if !matches!(k.as_str(), "autoApprove" | "autoDeny" | "ask" | "default") {
             return Err(format!("unknown key {k}"));
@@ -105,15 +106,27 @@ mod tests {
         let rules = json!({"autoApprove": ["read", "bash"], "autoDeny": ["rm -rf"], "ask": ["execute"], "default": "deny"});
         assert_eq!(decide(&rules, &req("execute", "rm -rf /tmp/x")), Some(RuleDecision::Deny));
         assert_eq!(decide(&rules, &req("execute", "ls")), Some(RuleDecision::Approve)); // raw name Bash
-        assert_eq!(decide(&json!({"ask": ["execute"], "default": "deny"}), &req("execute", "ls")), Some(RuleDecision::Ask));
-        assert_eq!(decide(&json!({"default": "deny"}), &req("edit", "Write a.txt")), Some(RuleDecision::Deny));
+        assert_eq!(
+            decide(&json!({"ask": ["execute"], "default": "deny"}), &req("execute", "ls")),
+            Some(RuleDecision::Ask)
+        );
+        assert_eq!(
+            decide(&json!({"default": "deny"}), &req("edit", "Write a.txt")),
+            Some(RuleDecision::Deny)
+        );
         assert_eq!(decide(&json!({}), &req("edit", "Write a.txt")), None);
     }
 
     #[test]
     fn title_head_and_star() {
-        assert_eq!(decide(&json!({"autoApprove": ["write"]}), &req("edit", "Write: a.txt")), Some(RuleDecision::Approve));
-        assert_eq!(decide(&json!({"autoDeny": ["*"]}), &req("read", "Read x")), Some(RuleDecision::Deny));
+        assert_eq!(
+            decide(&json!({"autoApprove": ["write"]}), &req("edit", "Write: a.txt")),
+            Some(RuleDecision::Approve)
+        );
+        assert_eq!(
+            decide(&json!({"autoDeny": ["*"]}), &req("read", "Read x")),
+            Some(RuleDecision::Deny)
+        );
     }
 
     #[test]

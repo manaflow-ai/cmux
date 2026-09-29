@@ -8,7 +8,9 @@ impl Translator {
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
         let sid = self.acp_session_id.clone();
-        let upd = |u: Value| Message::notification(method::SESSION_UPDATE, json!({"sessionId": sid, "update": u}));
+        let upd = |u: Value| {
+            Message::notification(method::SESSION_UPDATE, json!({"sessionId": sid, "update": u}))
+        };
         let mut out = Vec::new();
         match kind {
             "system" if sub == "init" => {
@@ -22,15 +24,25 @@ impl Translator {
                     *self.mode.lock().await = m.to_owned();
                 }
                 // Answer a pending session/new or session/load now that we have the id.
-                let waiting: Vec<String> = self.pending.lock().await.iter().filter(|(_, p)| matches!(p, Pending::NewOrLoad)).map(|(k, _)| k.clone()).collect();
+                let waiting: Vec<String> = self
+                    .pending
+                    .lock()
+                    .await
+                    .iter()
+                    .filter(|(_, p)| matches!(p, Pending::NewOrLoad))
+                    .map(|(k, _)| k.clone())
+                    .collect();
                 for k in waiting {
                     self.pending.lock().await.remove(&k);
                     let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k.clone()));
-                    out.push(Message::ok(id, json!({
-                        "sessionId": self.session_id.lock().await.clone(),
-                        "modes": self.modes_value().await,
-                        "configOptions": self.config_options_value().await,
-                    })));
+                    out.push(Message::ok(
+                        id,
+                        json!({
+                            "sessionId": self.session_id.lock().await.clone(),
+                            "modes": self.modes_value().await,
+                            "configOptions": self.config_options_value().await,
+                        }),
+                    ));
                 }
                 out.push(upd(json!({"sessionUpdate": "session_info_update", "title": Value::Null, "_meta": {"claude": {"tools": line.get("tools"), "mcp_servers": line.get("mcp_servers"), "model": line.get("model")}}})));
                 out.push(upd(json!({"sessionUpdate": "config_option_update", "configOptions": self.config_options_value().await})));
@@ -54,17 +66,28 @@ impl Translator {
                     Some("message_delta") => {
                         if let Some(u) = ev.get("usage") {
                             let used = u.get("input_tokens").and_then(Value::as_u64).unwrap_or(0)
-                                + u.get("cache_read_input_tokens").and_then(Value::as_u64).unwrap_or(0)
-                                + u.get("cache_creation_input_tokens").and_then(Value::as_u64).unwrap_or(0)
+                                + u.get("cache_read_input_tokens")
+                                    .and_then(Value::as_u64)
+                                    .unwrap_or(0)
+                                + u.get("cache_creation_input_tokens")
+                                    .and_then(Value::as_u64)
+                                    .unwrap_or(0)
                                 + u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
-                            out.push(upd(json!({"sessionUpdate": "usage_update", "used": used, "size": 0})));
+                            out.push(upd(
+                                json!({"sessionUpdate": "usage_update", "used": used, "size": 0}),
+                            ));
                         }
                     }
                     _ => {}
                 }
             }
             "assistant" => {
-                for c in line.pointer("/message/content").and_then(Value::as_array).cloned().unwrap_or_default() {
+                for c in line
+                    .pointer("/message/content")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                {
                     if c.get("type").and_then(Value::as_str) == Some("tool_use") {
                         let name = c.get("name").and_then(Value::as_str).unwrap_or("tool");
                         let input = c.get("input").cloned().unwrap_or(Value::Null);
@@ -81,11 +104,20 @@ impl Translator {
                 }
             }
             "user" => {
-                for c in line.pointer("/message/content").and_then(Value::as_array).cloned().unwrap_or_default() {
+                for c in line
+                    .pointer("/message/content")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                {
                     if c.get("type").and_then(Value::as_str) == Some("tool_result") {
                         let text = match c.get("content") {
                             Some(Value::String(s)) => s.clone(),
-                            Some(Value::Array(a)) => a.iter().filter_map(|x| x.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n"),
+                            Some(Value::Array(a)) => a
+                                .iter()
+                                .filter_map(|x| x.get("text").and_then(Value::as_str))
+                                .collect::<Vec<_>>()
+                                .join("\n"),
                             _ => String::new(),
                         };
                         let is_err = c.get("is_error").and_then(Value::as_bool).unwrap_or(false);
@@ -108,7 +140,10 @@ impl Translator {
                         let n = self.next_control.fetch_add(1, Ordering::SeqCst);
                         let acp_id = Value::from(1_000_000 + n);
                         self.control_out.lock().await.insert(rid.clone(), acp_id.clone());
-                        let interactive = req.get("requires_user_interaction").and_then(Value::as_bool).unwrap_or(false);
+                        let interactive = req
+                            .get("requires_user_interaction")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false);
                         let mut options = vec![
                             json!({"optionId": "allow_once", "name": if interactive { "Answer" } else { "Allow" }, "kind": "allow_once"}),
                         ];
@@ -164,10 +199,19 @@ impl Translator {
                     self.pending.lock().await.remove(&id.to_string());
                     if ok {
                         let mode = self.mode.lock().await.clone();
-                        out.push(upd(json!({"sessionUpdate": "current_mode_update", "currentModeId": mode})));
+                        out.push(upd(
+                            json!({"sessionUpdate": "current_mode_update", "currentModeId": mode}),
+                        ));
                         out.push(Message::ok(id, json!({"configOptions": self.config_options_value().await, "currentModeId": mode})));
                     } else {
-                        out.push(Message::err(id, RpcError::internal(resp.get("error").and_then(Value::as_str).unwrap_or("control request failed"))));
+                        out.push(Message::err(
+                            id,
+                            RpcError::internal(
+                                resp.get("error")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("control request failed"),
+                            ),
+                        ));
                     }
                 }
                 // "int-*" acks need no reply; the result message ends the turn.
@@ -183,12 +227,22 @@ impl Translator {
                     return out;
                 }
                 self.in_turn.store(false, Ordering::SeqCst);
-                let waiting: Vec<String> = self.pending.lock().await.iter().filter(|(_, p)| matches!(p, Pending::Prompt)).map(|(k, _)| k.clone()).collect();
+                let waiting: Vec<String> = self
+                    .pending
+                    .lock()
+                    .await
+                    .iter()
+                    .filter(|(_, p)| matches!(p, Pending::Prompt))
+                    .map(|(k, _)| k.clone())
+                    .collect();
                 let cancelled = self.cancelled.swap(false, Ordering::SeqCst);
                 // `is_error` with a success subtype is how Claude reports a
                 // usage limit or an API refusal: a failed turn, not a reply.
                 let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
-                let stop = if cancelled || (sub == "error_during_execution" && line.get("result").map(Value::is_null).unwrap_or(true)) {
+                let stop = if cancelled
+                    || (sub == "error_during_execution"
+                        && line.get("result").map(Value::is_null).unwrap_or(true))
+                {
                     "cancelled"
                 } else if sub == "error_max_turns" {
                     "max_turn_requests"
@@ -201,7 +255,12 @@ impl Translator {
                     self.pending.lock().await.remove(&k);
                     let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k.clone()));
                     if (sub.starts_with("error") || is_error) && !cancelled && stop != "cancelled" {
-                        out.push(Message::err(id, RpcError::internal(line.get("result").and_then(Value::as_str).unwrap_or(sub))));
+                        out.push(Message::err(
+                            id,
+                            RpcError::internal(
+                                line.get("result").and_then(Value::as_str).unwrap_or(sub),
+                            ),
+                        ));
                     } else {
                         out.push(Message::ok(id, json!({"stopReason": stop, "_meta": {"claude": {"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")}}})));
                     }
@@ -212,4 +271,3 @@ impl Translator {
         out
     }
 }
-

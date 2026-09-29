@@ -5,9 +5,17 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
-    User { text: String, steer: bool, queued: bool },
-    Assistant { text: String },
-    Thought { text: String },
+    User {
+        text: String,
+        steer: bool,
+        queued: bool,
+    },
+    Assistant {
+        text: String,
+    },
+    Thought {
+        text: String,
+    },
     Tool {
         id: String,
         title: String,
@@ -15,17 +23,27 @@ pub enum Item {
         status: String,
         detail: String,
     },
-    Plan { entries: Vec<(String, String)> },
+    Plan {
+        entries: Vec<(String, String)>,
+    },
     Permission {
         id: String,
         title: String,
         options: Vec<(String, String, String)>,
         decided: Option<String>,
     },
-    Status { text: String },
-    TurnEnd { stop: String },
-    Error { text: String },
-    Stderr { text: String },
+    Status {
+        text: String,
+    },
+    TurnEnd {
+        stop: String,
+    },
+    Error {
+        text: String,
+    },
+    Stderr {
+        text: String,
+    },
 }
 
 #[derive(Debug, Default, Clone)]
@@ -71,7 +89,8 @@ pub fn diff_lines(old: &str, new: &str) -> Vec<(char, String)> {
     let mut lcs = vec![vec![0u32; m + 1]; n + 1];
     for i in (0..n).rev() {
         for j in (0..m).rev() {
-            lcs[i][j] = if a[i] == b[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
+            lcs[i][j] =
+                if a[i] == b[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
         }
     }
     let (mut i, mut j) = (0, 0);
@@ -129,7 +148,9 @@ pub fn diff_text(path: &str, old: &str, new: &str) -> String {
 
 /// (+lines, -lines) when `detail` is a diff, else None.
 pub fn diff_counts(detail: &str) -> Option<(usize, usize)> {
-    if !detail.starts_with("@@ ") && !detail.lines().any(|l| l.starts_with("+ ") || l.starts_with("- ")) {
+    if !detail.starts_with("@@ ")
+        && !detail.lines().any(|l| l.starts_with("+ ") || l.starts_with("- "))
+    {
         return None;
     }
     let plus = detail.lines().filter(|l| l.starts_with("+ ")).count();
@@ -181,12 +202,21 @@ impl Transcript {
     pub fn apply_session_update(&mut self, update: &Value) {
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
         let from = match kind {
-            "agent_message_chunk" | "agent_thought_chunk" | "user_message_chunk" => self.items.len().saturating_sub(1),
+            "agent_message_chunk" | "agent_thought_chunk" | "user_message_chunk" => {
+                self.items.len().saturating_sub(1)
+            }
             "tool_call" | "tool_call_update" => {
                 let id = update.get("toolCallId").and_then(Value::as_str).unwrap_or("");
-                self.items.iter().rposition(|i| matches!(i, Item::Tool { id: tid, .. } if tid == id)).unwrap_or(self.items.len())
+                self.items
+                    .iter()
+                    .rposition(|i| matches!(i, Item::Tool { id: tid, .. } if tid == id))
+                    .unwrap_or(self.items.len())
             }
-            "plan" => self.items.iter().rposition(|i| matches!(i, Item::Plan { .. })).unwrap_or(self.items.len()),
+            "plan" => self
+                .items
+                .iter()
+                .rposition(|i| matches!(i, Item::Plan { .. }))
+                .unwrap_or(self.items.len()),
             _ => self.items.len(),
         };
         self.invalidate_layout(from);
@@ -194,7 +224,11 @@ impl Transcript {
             "user_message_chunk" => {
                 let t = text_of(update.get("content").unwrap_or(&Value::Null));
                 match self.items.last_mut() {
-                    Some(Item::User { text, steer: false, .. }) if !text.is_empty() && self.pending_user_chunk => text.push_str(&t),
+                    Some(Item::User { text, steer: false, .. })
+                        if !text.is_empty() && self.pending_user_chunk =>
+                    {
+                        text.push_str(&t)
+                    }
                     _ => self.items.push(Item::User { text: t, steer: false, queued: false }),
                 }
                 self.pending_user_chunk = true;
@@ -215,10 +249,17 @@ impl Transcript {
                     _ => self.items.push(Item::Thought { text: t }),
                 }
                 let preview = self.items.iter().rev().find_map(|item| match item {
-                    Item::Thought { text } => text.lines().find(|line| !line.trim().is_empty()).map(str::trim),
+                    Item::Thought { text } => {
+                        text.lines().find(|line| !line.trim().is_empty()).map(str::trim)
+                    }
                     _ => None,
                 });
-                self.activity = Some(preview.map(|line| line.chars().take(120).collect::<String>()).filter(|s| !s.is_empty()).unwrap_or_else(|| "Thinking".into()));
+                self.activity = Some(
+                    preview
+                        .map(|line| line.chars().take(120).collect::<String>())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "Thinking".into()),
+                );
             }
             "tool_call" | "tool_call_update" => {
                 let id = update.get("toolCallId").and_then(Value::as_str).unwrap_or("").to_owned();
@@ -246,12 +287,13 @@ impl Transcript {
                     }
                 }
                 if detail.is_empty()
-                    && let Some(o) = update.get("rawOutput") {
-                        detail = match o {
-                            Value::String(s) => s.clone(),
-                            other => other.to_string(),
-                        };
-                    }
+                    && let Some(o) = update.get("rawOutput")
+                {
+                    detail = match o {
+                        Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                }
                 if detail.len() > 4000 {
                     let mut cut = 4000;
                     while !detail.is_char_boundary(cut) {
@@ -264,11 +306,20 @@ impl Transcript {
                     Item::Tool { id: tid, .. } if *tid == id => Some(i),
                     _ => None,
                 }) {
-                    if let Item::Tool { title: et, kind: ek, status: es, detail: ed, .. } = existing {
-                        if let Some(t) = title { *et = t; }
-                        if let Some(k) = tkind { *ek = k; }
-                        if let Some(s) = status { *es = s; }
-                        if !detail.is_empty() { *ed = detail; }
+                    if let Item::Tool { title: et, kind: ek, status: es, detail: ed, .. } = existing
+                    {
+                        if let Some(t) = title {
+                            *et = t;
+                        }
+                        if let Some(k) = tkind {
+                            *ek = k;
+                        }
+                        if let Some(s) = status {
+                            *es = s;
+                        }
+                        if !detail.is_empty() {
+                            *ed = detail;
+                        }
                     }
                 } else {
                     self.items.push(Item::Tool {
@@ -289,14 +340,22 @@ impl Transcript {
                         e.iter()
                             .map(|x| {
                                 (
-                                    x.get("status").and_then(Value::as_str).unwrap_or("").to_owned(),
-                                    x.get("content").and_then(Value::as_str).unwrap_or("").to_owned(),
+                                    x.get("status")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .to_owned(),
+                                    x.get("content")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .to_owned(),
                                 )
                             })
                             .collect()
                     })
                     .unwrap_or_default();
-                if let Some(Item::Plan { entries: e }) = self.items.iter_mut().rev().find(|i| matches!(i, Item::Plan { .. })) {
+                if let Some(Item::Plan { entries: e }) =
+                    self.items.iter_mut().rev().find(|i| matches!(i, Item::Plan { .. }))
+                {
                     *e = entries;
                 } else {
                     self.items.push(Item::Plan { entries });
@@ -315,7 +374,8 @@ impl Transcript {
                 if let Some(opts) = update.get("configOptions").and_then(Value::as_array) {
                     for o in opts {
                         if o.get("id").and_then(Value::as_str) == Some("model") {
-                            self.model = o.get("currentValue").and_then(Value::as_str).map(str::to_owned);
+                            self.model =
+                                o.get("currentValue").and_then(Value::as_str).map(str::to_owned);
                         }
                     }
                 }
@@ -324,7 +384,13 @@ impl Transcript {
                 self.available_commands = update
                     .get("availableCommands")
                     .and_then(Value::as_array)
-                    .map(|a| a.iter().filter_map(|c| c.get("name").and_then(Value::as_str).map(str::to_owned)).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|c| {
+                                c.get("name").and_then(Value::as_str).map(str::to_owned)
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default();
             }
             _ => {}
@@ -336,19 +402,30 @@ impl Transcript {
     /// update stream. This is intentionally based on normalized transcript
     /// items so all harnesses render the same semantics.
     fn refresh_activity(&mut self) {
-        self.active_tools = self.items.iter().filter(|item| matches!(item,
-            Item::Tool { status, .. } if status == "pending" || status == "in_progress"
-        )).count();
+        self.active_tools = self
+            .items
+            .iter()
+            .filter(|item| {
+                matches!(item,
+                    Item::Tool { status, .. } if status == "pending" || status == "in_progress"
+                )
+            })
+            .count();
         self.active_terminals = self.items.iter().filter(|item| matches!(item,
             Item::Tool { kind, status, .. } if matches!(kind.as_str(), "execute" | "terminal" | "shell") && (status == "pending" || status == "in_progress")
         )).count();
         if let Some(title) = self.items.iter().rev().find_map(|item| match item {
-            Item::Tool { title, status, .. } if status == "pending" || status == "in_progress" => Some(title.as_str()),
+            Item::Tool { title, status, .. } if status == "pending" || status == "in_progress" => {
+                Some(title.as_str())
+            }
             _ => None,
         }) {
             self.activity = Some(title.chars().take(120).collect());
         } else if let Some(step) = self.items.iter().rev().find_map(|item| match item {
-            Item::Plan { entries } => entries.iter().find(|(status, _)| status == "in_progress").map(|(_, content)| content.as_str()),
+            Item::Plan { entries } => entries
+                .iter()
+                .find(|(status, _)| status == "in_progress")
+                .map(|(_, content)| content.as_str()),
             _ => None,
         }) {
             self.activity = Some(step.chars().take(120).collect());
@@ -379,9 +456,10 @@ impl Transcript {
                 return;
             }
             if msg.get("method").and_then(Value::as_str) == Some("session/update")
-                && let Some(update) = msg.pointer("/params/update") {
-                    self.apply_session_update(update);
-                }
+                && let Some(update) = msg.pointer("/params/update")
+            {
+                self.apply_session_update(update);
+            }
             return;
         }
         if dir != "mux" {
@@ -392,12 +470,16 @@ impl Transcript {
         let from = match kind {
             "user_message" => {
                 let text = msg.get("text").and_then(Value::as_str).unwrap_or("");
-                self.items.iter().rposition(|i| matches!(i, Item::User { text: t, .. } if t == text))
+                self.items
+                    .iter()
+                    .rposition(|i| matches!(i, Item::User { text: t, .. } if t == text))
                     .unwrap_or(self.items.len().saturating_sub(1))
             }
             "permission_decision" | "permission_auto" => {
                 let id = msg.get("permissionId").and_then(Value::as_str).unwrap_or("");
-                self.items.iter().rposition(|i| matches!(i, Item::Permission { id: pid, .. } if pid == id))
+                self.items
+                    .iter()
+                    .rposition(|i| matches!(i, Item::Permission { id: pid, .. } if pid == id))
                     .unwrap_or(self.items.len())
             }
             _ => self.items.len().saturating_sub(1),
@@ -415,11 +497,25 @@ impl Transcript {
                 let steer = msg.get("steer").and_then(Value::as_bool).unwrap_or(false);
                 // A queued message becomes the live one when its turn starts:
                 // it moves to the end so it sits after the turn that ran before it.
-                let promoted = self.items.iter().position(|i| matches!(i, Item::User { text: t, queued: true, .. } if *t == text));
+                let promoted = self.items.iter().position(
+                    |i| matches!(i, Item::User { text: t, queued: true, .. } if *t == text),
+                );
                 match promoted {
                     Some(pos) => {
                         let item = self.items.remove(pos);
-                        let moved: std::collections::HashMap<usize, u64> = self.user_at.drain().filter_map(|(k, v)| if k == pos { None } else if k > pos { Some((k - 1, v)) } else { Some((k, v)) }).collect();
+                        let moved: std::collections::HashMap<usize, u64> = self
+                            .user_at
+                            .drain()
+                            .filter_map(|(k, v)| {
+                                if k == pos {
+                                    None
+                                } else if k > pos {
+                                    Some((k - 1, v))
+                                } else {
+                                    Some((k, v))
+                                }
+                            })
+                            .collect();
                         self.user_at = moved;
                         for tt in self.turn_times.iter_mut() {
                             if tt.0 > pos {
@@ -440,9 +536,10 @@ impl Transcript {
                     }
                 }
                 if let Some(idx) = self.items.iter().rposition(|i| matches!(i, Item::User { .. }))
-                    && at > 0 {
-                        self.user_at.entry(idx).or_insert(at);
-                    }
+                    && at > 0
+                {
+                    self.user_at.entry(idx).or_insert(at);
+                }
             }
             "turn_started" => {
                 if let Some(idx) = self.items.iter().rposition(|i| matches!(i, Item::User { .. })) {
@@ -451,9 +548,10 @@ impl Transcript {
             }
             "turn_result" => {
                 if let Some(last) = self.turn_times.last_mut()
-                    && last.2.is_none() {
-                        last.2 = Some(at);
-                    }
+                    && last.2.is_none()
+                {
+                    last.2 = Some(at);
+                }
             }
             "status" => {
                 self.status = msg.get("status").and_then(Value::as_str).unwrap_or("").to_owned();
@@ -468,18 +566,35 @@ impl Transcript {
             "claude.system.api_retry" => {
                 let attempt = msg.get("attempt").and_then(Value::as_u64).unwrap_or(0);
                 let max = msg.get("max_retries").and_then(Value::as_u64).unwrap_or(0);
-                let err = msg.get("error").and_then(Value::as_str).filter(|e| *e != "unknown").map(|e| format!(" ({e})")).unwrap_or_default();
+                let err = msg
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .filter(|e| *e != "unknown")
+                    .map(|e| format!(" ({e})"))
+                    .unwrap_or_default();
                 self.note = Some(format!("API retry {attempt}/{max}{err}"));
             }
-            "turn_end" if { self.note = None; true } => {
+            "turn_end"
+                if {
+                    self.note = None;
+                    true
+                } =>
+            {
                 self.activity = None;
                 self.active_tools = 0;
                 self.active_terminals = 0;
                 if let Some(last) = self.turn_times.last_mut()
-                    && last.2.is_none() {
-                        last.2 = Some(at);
-                    }
-                self.items.push(Item::TurnEnd { stop: msg.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned() })
+                    && last.2.is_none()
+                {
+                    last.2 = Some(at);
+                }
+                self.items.push(Item::TurnEnd {
+                    stop: msg
+                        .get("stopReason")
+                        .and_then(Value::as_str)
+                        .unwrap_or("end_turn")
+                        .to_owned(),
+                })
             }
             "turn_error" => self.items.push(Item::Error {
                 text: msg.get("error").and_then(Value::as_str).unwrap_or("turn failed").to_owned(),
@@ -499,7 +614,10 @@ impl Transcript {
                         a.iter()
                             .map(|o| {
                                 (
-                                    o.get("optionId").and_then(Value::as_str).unwrap_or("").to_owned(),
+                                    o.get("optionId")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .to_owned(),
                                     o.get("name").and_then(Value::as_str).unwrap_or("").to_owned(),
                                     o.get("kind").and_then(Value::as_str).unwrap_or("").to_owned(),
                                 )
@@ -516,16 +634,19 @@ impl Transcript {
                     .or_else(|| msg.get("optionId"))
                     .and_then(Value::as_str)
                     .map(str::to_owned)
-                    .or_else(|| msg.pointer("/outcome/outcome").and_then(Value::as_str).map(str::to_owned))
+                    .or_else(|| {
+                        msg.pointer("/outcome/outcome").and_then(Value::as_str).map(str::to_owned)
+                    })
                     .unwrap_or_else(|| "cancelled".into());
                 let mut found = false;
                 for item in self.items.iter_mut().rev() {
                     if let Item::Permission { id: pid, decided: d, .. } = item
-                        && pid == id {
-                            *d = Some(decided.clone());
-                            found = true;
-                            break;
-                        }
+                        && pid == id
+                    {
+                        *d = Some(decided.clone());
+                        found = true;
+                        break;
+                    }
                 }
                 if !found && kind == "permission_auto" {
                     let title = msg
@@ -533,43 +654,68 @@ impl Transcript {
                         .and_then(Value::as_str)
                         .unwrap_or("permission")
                         .to_owned();
-                    self.items.push(Item::Permission { id: id.to_owned(), title, options: vec![], decided: Some(decided) });
+                    self.items.push(Item::Permission {
+                        id: id.to_owned(),
+                        title,
+                        options: vec![],
+                        decided: Some(decided),
+                    });
                 }
             }
             "stderr" => self.items.push(Item::Stderr {
                 text: msg.get("text").and_then(Value::as_str).unwrap_or("").to_owned(),
             }),
             "exited" => self.items.push(Item::Status {
-                text: format!("agent exited unexpectedly (code {})", msg.get("code").map(|c| c.to_string()).unwrap_or_default()),
+                text: format!(
+                    "agent exited unexpectedly (code {})",
+                    msg.get("code").map(|c| c.to_string()).unwrap_or_default()
+                ),
             }),
             "stopped" => self.items.push(Item::Status { text: "agent stopped".into() }),
             "resumed" => self.items.push(Item::Status {
-                text: format!("resumed ({})", msg.get("level").and_then(Value::as_str).unwrap_or("?")),
+                text: format!(
+                    "resumed ({})",
+                    msg.get("level").and_then(Value::as_str).unwrap_or("?")
+                ),
             }),
             "resume_failed" => self.items.push(Item::Status {
-                text: format!("resume failed: {}", msg.get("error").and_then(Value::as_str).unwrap_or("?")),
+                text: format!(
+                    "resume failed: {}",
+                    msg.get("error").and_then(Value::as_str).unwrap_or("?")
+                ),
             }),
             "forked" => self.items.push(Item::Status { text: "forked from parent".into() }),
             "reopened" => self.items.push(Item::Status { text: "reopened".into() }),
             "imported" => self.items.push(Item::Status { text: "imported".into() }),
             "mode" => {
                 self.mode = msg.get("modeId").and_then(Value::as_str).map(str::to_owned);
-                self.items.push(Item::Status { text: format!("mode: {}", self.mode.clone().unwrap_or_default()) });
+                self.items.push(Item::Status {
+                    text: format!("mode: {}", self.mode.clone().unwrap_or_default()),
+                });
             }
             "model" => {
                 self.model = msg.get("modelId").and_then(Value::as_str).map(str::to_owned);
-                self.items.push(Item::Status { text: format!("model: {}", self.model.clone().unwrap_or_default()) });
+                self.items.push(Item::Status {
+                    text: format!("model: {}", self.model.clone().unwrap_or_default()),
+                });
             }
             "config" => {
                 if msg.get("configId").and_then(Value::as_str) == Some("model") {
                     self.model = msg.get("value").and_then(Value::as_str).map(str::to_owned);
                 }
                 self.items.push(Item::Status {
-                    text: format!("{} = {}", msg.get("configId").and_then(Value::as_str).unwrap_or("?"), msg.get("value").map(|v| v.to_string()).unwrap_or_default()),
+                    text: format!(
+                        "{} = {}",
+                        msg.get("configId").and_then(Value::as_str).unwrap_or("?"),
+                        msg.get("value").map(|v| v.to_string()).unwrap_or_default()
+                    ),
                 });
             }
             "renamed" => self.items.push(Item::Status {
-                text: format!("renamed to {}", msg.get("to").and_then(Value::as_str).unwrap_or("?")),
+                text: format!(
+                    "renamed to {}",
+                    msg.get("to").and_then(Value::as_str).unwrap_or("?")
+                ),
             }),
             _ => {}
         }
@@ -627,14 +773,18 @@ mod tests {
     #[test]
     fn mux_events_add_user_and_permission() {
         let mut t = Transcript::default();
-        t.apply_event(&json!({"seq": 1, "dir": "mux", "kind": "user_message", "msg": {"text": "hi"}}));
+        t.apply_event(
+            &json!({"seq": 1, "dir": "mux", "kind": "user_message", "msg": {"text": "hi"}}),
+        );
         t.apply_event(&json!({"seq": 2, "dir": "mux", "kind": "permission_request", "msg": {"permissionId": "p1", "request": {"toolCall": {"title": "rm -rf"}, "options": [{"optionId": "y", "name": "Allow", "kind": "allow_once"}]}}}));
         assert!(t.pending_permission().is_some());
         t.apply_event(&json!({"seq": 3, "dir": "mux", "kind": "permission_decision", "msg": {"permissionId": "p1", "outcome": {"outcome": "selected", "optionId": "y"}}}));
         assert!(t.pending_permission().is_none());
         t.apply_event(&json!({"seq": 4, "dir": "mux", "kind": "queued", "msg": {"text": "later", "position": 1}}));
         assert!(matches!(t.items.last(), Some(Item::User { queued: true, .. })));
-        t.apply_event(&json!({"seq": 5, "dir": "mux", "kind": "user_message", "msg": {"text": "later"}}));
+        t.apply_event(
+            &json!({"seq": 5, "dir": "mux", "kind": "user_message", "msg": {"text": "later"}}),
+        );
         assert!(matches!(t.items.last(), Some(Item::User { queued: false, .. })));
         assert_eq!(t.items.iter().filter(|i| matches!(i, Item::User { .. })).count(), 2);
         assert_eq!(t.last_seq, 5);
@@ -644,7 +794,12 @@ mod tests {
 /// Plain text of one item, for copying.
 pub fn item_text(item: &Item) -> String {
     match item {
-        Item::User { text, .. } | Item::Assistant { text } | Item::Thought { text } | Item::Error { text } | Item::Stderr { text } | Item::Status { text } => text.clone(),
+        Item::User { text, .. }
+        | Item::Assistant { text }
+        | Item::Thought { text }
+        | Item::Error { text }
+        | Item::Stderr { text }
+        | Item::Status { text } => text.clone(),
         Item::Tool { title, detail, .. } => {
             if detail.is_empty() {
                 title.clone()
@@ -652,7 +807,9 @@ pub fn item_text(item: &Item) -> String {
                 format!("{title}\n{detail}")
             }
         }
-        Item::Plan { entries } => entries.iter().map(|(s, c)| format!("[{s}] {c}")).collect::<Vec<_>>().join("\n"),
+        Item::Plan { entries } => {
+            entries.iter().map(|(s, c)| format!("[{s}] {c}")).collect::<Vec<_>>().join("\n")
+        }
         Item::Permission { title, .. } => title.clone(),
         Item::TurnEnd { stop } => stop.clone(),
     }

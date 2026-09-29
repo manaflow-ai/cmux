@@ -43,7 +43,13 @@ pub struct AppError {
 
 impl AppError {
     pub fn new(code: Code, detail: &str, message: impl Into<String>) -> Self {
-        Self { code, detail: detail.into(), message: message.into(), session_id: None, retryable: false }
+        Self {
+            code,
+            detail: detail.into(),
+            message: message.into(),
+            session_id: None,
+            retryable: false,
+        }
     }
     pub fn usage(message: impl Into<String>) -> Self {
         Self::new(Code::Usage, "usage", message)
@@ -52,7 +58,11 @@ impl AppError {
         Self::new(Code::Timeout, "timeout", message)
     }
     pub fn no_session(key: &str) -> Self {
-        Self::new(Code::NoSession, "no_session", format!("no session matches {key:?}; run `acpmux ls` or `acpmux ensure {key}`"))
+        Self::new(
+            Code::NoSession,
+            "no_session",
+            format!("no session matches {key:?}; run `acpmux ls` or `acpmux ensure {key}`"),
+        )
     }
     pub fn with_session(mut self, id: &str) -> Self {
         self.session_id = Some(id.to_owned());
@@ -87,16 +97,29 @@ pub fn classify(e: &anyhow::Error) -> AppError {
     if lower.contains("connection closed") {
         return AppError::new(Code::Runtime, "daemon_closed", msg).retryable();
     }
-    if lower.contains("no session matches") || lower.contains("unknown session") || lower.contains("not found") && lower.contains("session") {
+    if lower.contains("no session matches")
+        || lower.contains("unknown session")
+        || lower.contains("not found") && lower.contains("session")
+    {
         return AppError::new(Code::NoSession, "no_session", msg);
     }
-    if lower.contains("cursor_future") || lower.contains("cursor_expired") || lower.starts_with("usage:") || lower.contains("invalid params") {
+    if lower.contains("cursor_future")
+        || lower.contains("cursor_expired")
+        || lower.starts_with("usage:")
+        || lower.contains("invalid params")
+    {
         return AppError::new(Code::Usage, "usage", msg);
     }
     if lower.contains("timed out") || lower.contains("timeout") {
         return AppError::new(Code::Timeout, "timeout", msg);
     }
-    let detail = if lower.contains("connection refused") || lower.contains("daemon") { "daemon_unreachable" } else if lower.contains("spawn") { "agent_spawn_failed" } else { "error" };
+    let detail = if lower.contains("connection refused") || lower.contains("daemon") {
+        "daemon_unreachable"
+    } else if lower.contains("spawn") {
+        "agent_spawn_failed"
+    } else {
+        "error"
+    };
     AppError::new(Code::Runtime, detail, msg)
 }
 
@@ -119,14 +142,23 @@ mod tests {
     #[test]
     fn classifies_common_errors() {
         assert_eq!(classify(&anyhow::anyhow!("no session matches \"x\"")).code, Code::NoSession);
-        assert_eq!(classify(&anyhow::anyhow!("cursor_future: afterSeq 9 is beyond the last event 3")).code, Code::Usage);
+        assert_eq!(
+            classify(&anyhow::anyhow!("cursor_future: afterSeq 9 is beyond the last event 3")).code,
+            Code::Usage
+        );
         assert_eq!(classify(&anyhow::anyhow!("turn timed out after 5s")).code, Code::Timeout);
         assert_eq!(classify(&anyhow::anyhow!("something broke")).code, Code::Runtime);
         let closed = classify(&acpmux::client::closed_error("waiting", Some("abc 2026-01-01")));
         assert_eq!(closed.detail, "daemon_closed");
         assert!(closed.retryable);
-        assert!(closed.message.contains("while waiting") && closed.message.contains("daemon.log"), "{}", closed.message);
-        let app = AppError::new(Code::PermissionDenied, "all_denied", "every permission was denied").with_session("abc");
+        assert!(
+            closed.message.contains("while waiting") && closed.message.contains("daemon.log"),
+            "{}",
+            closed.message
+        );
+        let app =
+            AppError::new(Code::PermissionDenied, "all_denied", "every permission was denied")
+                .with_session("abc");
         let e: anyhow::Error = app.clone().into();
         assert_eq!(classify(&e).code, Code::PermissionDenied);
         assert_eq!(app.envelope()["error"]["exit"], 5);

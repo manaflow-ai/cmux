@@ -246,9 +246,10 @@ impl LocalStore {
         for entry in rd.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
             if let Some(stem) = name.strip_suffix(".ndjson")
-                && let Ok(idx) = stem.parse::<u32>() {
-                    out.push((idx, entry.path()));
-                }
+                && let Ok(idx) = stem.parse::<u32>()
+            {
+                out.push((idx, entry.path()));
+            }
         }
         out.sort();
         Ok(out)
@@ -264,11 +265,7 @@ impl LocalStore {
         };
         let file = OpenOptions::new().create(true).append(true).open(&path)?;
         let written = file.metadata().map(|m| m.len()).unwrap_or(0);
-        Ok(SegmentWriter {
-            index,
-            file,
-            written,
-        })
+        Ok(SegmentWriter { index, file, written })
     }
 }
 
@@ -315,11 +312,7 @@ impl Store for LocalStore {
             let index = w.index + 1;
             let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
             let file = OpenOptions::new().create(true).append(true).open(&path)?;
-            *w = SegmentWriter {
-                index,
-                file,
-                written: 0,
-            };
+            *w = SegmentWriter { index, file, written: 0 };
         }
         let mut line = serde_json::to_string(record)?;
         line.push('\n');

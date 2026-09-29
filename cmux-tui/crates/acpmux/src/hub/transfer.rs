@@ -39,13 +39,20 @@ impl Hub {
         Ok(dir)
     }
 
-    pub async fn import(self: &Arc<Self>, bundle: &Path, name: Option<String>) -> Result<Arc<Session>, RpcError> {
+    pub async fn import(
+        self: &Arc<Self>,
+        bundle: &Path,
+        name: Option<String>,
+    ) -> Result<Arc<Session>, RpcError> {
         let meta_text = std::fs::read_to_string(bundle.join("session.json"))
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_str(&meta_text)
             .map_err(|e| RpcError::invalid_params(format!("parse session.json: {e}")))?;
         if self.sessions.lock().unwrap().contains_key(&meta.id) {
-            return Err(RpcError::invalid_params(format!("session {} already exists here", meta.id)));
+            return Err(RpcError::invalid_params(format!(
+                "session {} already exists here",
+                meta.id
+            )));
         }
         if let Some(n) = name {
             meta.name = n;
@@ -53,10 +60,16 @@ impl Hub {
             meta.name = self.unique_name(&meta.name);
         }
         if !self.config.read().await.harnesses.contains_key(&meta.harness) {
-            return Err(RpcError::invalid_params(format!("agent {:?} is not configured on this host", meta.harness)));
+            return Err(RpcError::invalid_params(format!(
+                "agent {:?} is not configured on this host",
+                meta.harness
+            )));
         }
         if !meta.cwd.is_dir() {
-            return Err(RpcError::invalid_params(format!("cwd {} does not exist here; pass a new cwd via fork or edit session.json", meta.cwd.display())));
+            return Err(RpcError::invalid_params(format!(
+                "cwd {} does not exist here; pass a new cwd via fork or edit session.json",
+                meta.cwd.display()
+            )));
         }
         meta.status = SessionStatus::Idle;
         let restored = crate::native::restore(bundle, &meta).unwrap_or_default();
@@ -82,9 +95,13 @@ impl Hub {
         session.seq.store(last, Ordering::SeqCst);
         session.meta.lock().unwrap().last_seq = last;
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
-        self.append(&session, "mux", "imported", json!({"from": bundle, "nativeRestored": restored}));
+        self.append(
+            &session,
+            "mux",
+            "imported",
+            json!({"from": bundle, "nativeRestored": restored}),
+        );
         self.save_meta(&session);
         Ok(session)
     }
-
 }

@@ -33,13 +33,31 @@ pub struct PickRow {
 }
 
 impl Picker {
-    pub fn new(title: &str, rows: Vec<PickRow>, current: Option<&str>, on_pick: PickTarget, hint: &str) -> Self {
-        let mut p = Self { title: title.into(), rows, visible: Vec::new(), cursor: 0, filter: Editor::default(), on_pick, row_rects: Vec::new(), hint: hint.into(), reveal: true };
+    pub fn new(
+        title: &str,
+        rows: Vec<PickRow>,
+        current: Option<&str>,
+        on_pick: PickTarget,
+        hint: &str,
+    ) -> Self {
+        let mut p = Self {
+            title: title.into(),
+            rows,
+            visible: Vec::new(),
+            cursor: 0,
+            filter: Editor::default(),
+            on_pick,
+            row_rects: Vec::new(),
+            hint: hint.into(),
+            reveal: true,
+        };
         p.refilter();
         if let Some(cur) = current
-            && let Some(i) = p.visible.iter().position(|&r| !p.rows[r].header && p.rows[r].value == cur) {
-                p.cursor = i;
-            }
+            && let Some(i) =
+                p.visible.iter().position(|&r| !p.rows[r].header && p.rows[r].value == cur)
+        {
+            p.cursor = i;
+        }
         p
     }
     pub fn refilter(&mut self) {
@@ -52,11 +70,18 @@ impl Picker {
             }
             if r.header {
                 // Keep a header when any of its rows match.
-                let any = self.rows[i + 1..].iter().take_while(|x| !x.header).any(|x| x.label.to_lowercase().contains(&f) || x.value.to_lowercase().contains(&f) || x.group.to_lowercase().contains(&f));
+                let any = self.rows[i + 1..].iter().take_while(|x| !x.header).any(|x| {
+                    x.label.to_lowercase().contains(&f)
+                        || x.value.to_lowercase().contains(&f)
+                        || x.group.to_lowercase().contains(&f)
+                });
                 if any {
                     vis.push(i);
                 }
-            } else if r.label.to_lowercase().contains(&f) || r.value.to_lowercase().contains(&f) || r.group.to_lowercase().contains(&f) {
+            } else if r.label.to_lowercase().contains(&f)
+                || r.value.to_lowercase().contains(&f)
+                || r.group.to_lowercase().contains(&f)
+            {
                 vis.push(i);
             }
         }
@@ -74,7 +99,11 @@ impl Picker {
         let mut c = self.cursor.min(n - 1);
         let mut steps = 0;
         while self.rows[self.visible[c]].header && steps < n {
-            if dir > 0 { c = (c + 1) % n } else { c = (c + n - 1) % n }
+            if dir > 0 {
+                c = (c + 1) % n
+            } else {
+                c = (c + n - 1) % n
+            }
             steps += 1;
         }
         self.cursor = c;
@@ -84,7 +113,8 @@ impl Picker {
         if n == 0 {
             return;
         }
-        self.cursor = if dir > 0 { (self.cursor + 1).min(n - 1) } else { self.cursor.saturating_sub(1) };
+        self.cursor =
+            if dir > 0 { (self.cursor + 1).min(n - 1) } else { self.cursor.saturating_sub(1) };
         self.snap_cursor(dir);
         self.reveal = true;
     }

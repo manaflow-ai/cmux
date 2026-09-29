@@ -19,8 +19,15 @@ pub enum PeerNotice {
     Disconnected(String),
     /// Full session list from `_acpmux/watch` or a single `session_changed`.
     Sessions(Vec<Value>),
-    SessionChanged { session: Value, kind: String, seq: u64 },
-    Notification { method: String, params: Value },
+    SessionChanged {
+        session: Value,
+        kind: String,
+        seq: u64,
+    },
+    Notification {
+        method: String,
+        params: Value,
+    },
 }
 
 pub struct Peer {
@@ -44,7 +51,12 @@ pub struct Peer {
 }
 
 impl Peer {
-    pub fn new(name: &str, url: &str, token: Option<String>, notices: mpsc::Sender<(String, PeerNotice)>) -> Arc<Self> {
+    pub fn new(
+        name: &str,
+        url: &str,
+        token: Option<String>,
+        notices: mpsc::Sender<(String, PeerNotice)>,
+    ) -> Arc<Self> {
         let (out, out_rx) = mpsc::channel(1024);
         let tunnel_port = url.starts_with("ssh://").then(|| {
             // Stable local port derived from the peer name, in 48000..48999.
@@ -88,7 +100,9 @@ impl Peer {
     fn ssh_parts(&self) -> Option<(String, u16)> {
         let rest = self.url.strip_prefix("ssh://")?;
         let (host, port) = match rest.rsplit_once(':') {
-            Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty() => (h.to_owned(), p.parse().unwrap_or(47811)),
+            Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty() => {
+                (h.to_owned(), p.parse().unwrap_or(47811))
+            }
             _ => (rest.to_owned(), 47811),
         };
         Some((host, port))
@@ -105,12 +119,18 @@ impl Peer {
             let child = tokio::process::Command::new("ssh")
                 .args([
                     "-N",
-                    "-o", "BatchMode=yes",
-                    "-o", "ExitOnForwardFailure=yes",
-                    "-o", "ServerAliveInterval=15",
-                    "-o", "ServerAliveCountMax=3",
-                    "-o", "ConnectTimeout=10",
-                    "-L", &format!("127.0.0.1:{local}:127.0.0.1:{remote_port}"),
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "ExitOnForwardFailure=yes",
+                    "-o",
+                    "ServerAliveInterval=15",
+                    "-o",
+                    "ServerAliveCountMax=3",
+                    "-o",
+                    "ConnectTimeout=10",
+                    "-L",
+                    &format!("127.0.0.1:{local}:127.0.0.1:{remote_port}"),
                     &host,
                 ])
                 .stdin(std::process::Stdio::null())
@@ -129,9 +149,10 @@ impl Peer {
                     break;
                 }
                 if let Some(c) = guard.as_mut()
-                    && let Ok(Some(status)) = c.try_wait() {
-                        return Err(format!("ssh tunnel to {host} exited: {status}"));
-                    }
+                    && let Ok(Some(status)) = c.try_wait()
+                {
+                    return Err(format!("ssh tunnel to {host} exited: {status}"));
+                }
             }
             if !ok {
                 return Err(format!("ssh tunnel to {host} did not come up on port {local}"));
@@ -143,11 +164,19 @@ impl Peer {
         }
         // Read the remote token once over ssh.
         let out = tokio::process::Command::new("ssh")
-            .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", &host, "cat ~/.acpmux/config.json"])
+            .args([
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=10",
+                &host,
+                "cat ~/.acpmux/config.json",
+            ])
             .output()
             .await
             .map_err(|e| format!("read remote config: {e}"))?;
-        let cfg: Value = serde_json::from_slice(&out.stdout).map_err(|_| format!("remote {host} has no readable ~/.acpmux/config.json"))?;
+        let cfg: Value = serde_json::from_slice(&out.stdout)
+            .map_err(|_| format!("remote {host} has no readable ~/.acpmux/config.json"))?;
         cfg.pointer("/websocket/token")
             .and_then(Value::as_str)
             .map(str::to_owned)
@@ -189,7 +218,9 @@ impl Peer {
         }
         match tokio::time::timeout(Duration::from_secs(600), rx).await {
             Ok(Ok(r)) => r,
-            Ok(Err(_)) => Err(RpcError::internal(format!("peer {} dropped the request", self.name))),
+            Ok(Err(_)) => {
+                Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
+            }
             Err(_) => Err(RpcError::internal(format!("peer {} timed out", self.name))),
         }
     }
@@ -210,7 +241,8 @@ impl Peer {
                 Ok(()) => backoff = 1,
                 Err(e) => {
                     *self.last_error.lock().unwrap() = Some(e.clone());
-                    let _ = self.notices.send((self.name.clone(), PeerNotice::Disconnected(e))).await;
+                    let _ =
+                        self.notices.send((self.name.clone(), PeerNotice::Disconnected(e))).await;
                 }
             }
             self.connected.store(false, Ordering::SeqCst);
@@ -227,7 +259,10 @@ impl Peer {
         }
     }
 
-    async fn connect_once(self: &Arc<Self>, out_rx: &mut mpsc::Receiver<String>) -> Result<(), String> {
+    async fn connect_once(
+        self: &Arc<Self>,
+        out_rx: &mut mpsc::Receiver<String>,
+    ) -> Result<(), String> {
         let (ws_url, token) = if let Some(local) = self.tunnel_port {
             let token = self.ensure_tunnel().await?;
             (format!("ws://127.0.0.1:{local}"), Some(token))
@@ -241,10 +276,11 @@ impl Peer {
                 format!("Bearer {t}").parse().map_err(|_| "bad token".to_owned())?,
             );
         }
-        let (ws, _) = tokio::time::timeout(Duration::from_secs(10), tokio_tungstenite::connect_async(req))
-            .await
-            .map_err(|_| "connect timed out".to_owned())?
-            .map_err(|e| e.to_string())?;
+        let (ws, _) =
+            tokio::time::timeout(Duration::from_secs(10), tokio_tungstenite::connect_async(req))
+                .await
+                .map_err(|_| "connect timed out".to_owned())?
+                .map_err(|e| e.to_string())?;
         let (mut sink, mut source) = ws.split();
         self.connected.store(true, Ordering::SeqCst);
         *self.last_error.lock().unwrap() = None;
@@ -259,11 +295,20 @@ impl Peer {
                     json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-peer", "version": crate::hub::VERSION}}),
                 )
                 .await?;
-            let v = init.pointer("/_meta/acpmux/version").and_then(Value::as_str).unwrap_or("?").to_owned();
-            let b = init.pointer("/_meta/acpmux/build").and_then(Value::as_str).unwrap_or("unknown").to_owned();
+            let v = init
+                .pointer("/_meta/acpmux/version")
+                .and_then(Value::as_str)
+                .unwrap_or("?")
+                .to_owned();
+            let b = init
+                .pointer("/_meta/acpmux/build")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_owned();
             *me.remote_version.lock().unwrap() = Some((v, b));
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
-            let sessions = watch.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
+            let sessions =
+                watch.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
             let _ = me.notices.send((me.name.clone(), PeerNotice::Sessions(sessions))).await;
             let _ = me.notices.send((me.name.clone(), PeerNotice::Connected)).await;
             let attached: Vec<String> = me.attached.lock().unwrap().iter().cloned().collect();

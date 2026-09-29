@@ -54,33 +54,47 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
         Some(a) if !a.is_empty() => a
             .iter()
             .filter_map(Value::as_str)
-            .map(|s| Until::parse(s).ok_or_else(|| RpcError::invalid_params(format!("unknown state {s:?}; use ready, permission, closed, done or running"))))
+            .map(|s| {
+                Until::parse(s).ok_or_else(|| {
+                    RpcError::invalid_params(format!(
+                        "unknown state {s:?}; use ready, permission, closed, done or running"
+                    ))
+                })
+            })
             .collect::<Result<_, _>>()?,
         _ => vec![Until::Ready, Until::Permission],
     };
     let all = params.get("all").and_then(Value::as_bool).unwrap_or(false);
-    let timeout = params.get("timeoutMs").and_then(Value::as_u64).map(std::time::Duration::from_millis);
+    let timeout =
+        params.get("timeoutMs").and_then(Value::as_u64).map(std::time::Duration::from_millis);
     let after: HashMap<String, u64> = params
         .get("afterSeq")
         .and_then(Value::as_object)
         .map(|o| o.iter().filter_map(|(k, v)| v.as_u64().map(|n| (k.clone(), n))).collect())
         .unwrap_or_default();
     // Resolve targets once: explicit keys, or everything in flight now.
-    let keys: Vec<String> = params.get("sessions").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
+    let keys: Vec<String> = params
+        .get("sessions")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default();
     let mut ids: Vec<String> = Vec::new();
     if keys.is_empty() {
         for s in hub.all_session_summaries() {
             if Until::Running.matches(&s)
-                && let Some(id) = s.get("sessionId").and_then(Value::as_str) {
-                    ids.push(id.to_owned());
-                }
+                && let Some(id) = s.get("sessionId").and_then(Value::as_str)
+            {
+                ids.push(id.to_owned());
+            }
         }
     } else {
         for k in &keys {
             match hub.resolve(k) {
                 Ok(s) => ids.push(s.id.clone()),
                 Err(_) => {
-                    let (_, id, _) = hub.resolve_remote(k).ok_or_else(|| RpcError::not_found(format!("no session matches {k:?}")))?;
+                    let (_, id, _) = hub
+                        .resolve_remote(k)
+                        .ok_or_else(|| RpcError::not_found(format!("no session matches {k:?}")))?;
                     ids.push(id);
                 }
             }
@@ -96,12 +110,25 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
         let mut rows = Vec::new();
         let mut resolved = Vec::new();
         for id in &ids {
-            let s = summaries.iter().find(|s| s.get("sessionId").and_then(Value::as_str) == Some(id)).cloned().unwrap_or_else(|| json!({"sessionId": id, "status": "closed", "missing": true}));
-            let seq_ok = after.get(id).map(|a| s.get("stateSeq").and_then(Value::as_u64).unwrap_or(0) > *a).unwrap_or(true);
+            let s = summaries
+                .iter()
+                .find(|s| s.get("sessionId").and_then(Value::as_str) == Some(id))
+                .cloned()
+                .unwrap_or_else(|| json!({"sessionId": id, "status": "closed", "missing": true}));
+            let seq_ok = after
+                .get(id)
+                .map(|a| s.get("stateSeq").and_then(Value::as_u64).unwrap_or(0) > *a)
+                .unwrap_or(true);
             let hit = seq_ok && until.iter().any(|u| u.matches(&s));
             let mut row = s.clone();
             row["resolved"] = json!(hit);
-            row["matched"] = json!(until.iter().filter(|u| seq_ok && u.matches(&s)).map(|u| format!("{u:?}").to_lowercase()).collect::<Vec<_>>());
+            row["matched"] = json!(
+                until
+                    .iter()
+                    .filter(|u| seq_ok && u.matches(&s))
+                    .map(|u| format!("{u:?}").to_lowercase())
+                    .collect::<Vec<_>>()
+            );
             if hit {
                 resolved.push(row.clone());
             }
@@ -132,8 +159,11 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
             Some(d) => {
                 if tokio::time::timeout_at(d, wake).await.is_err() {
                     let (rows, resolved) = evaluate(hub);
-                    let finished = if all { resolved.len() == ids.len() } else { !resolved.is_empty() };
-                    return Ok(json!({"sessions": rows, "resolved": resolved, "timedOut": !finished}));
+                    let finished =
+                        if all { resolved.len() == ids.len() } else { !resolved.is_empty() };
+                    return Ok(
+                        json!({"sessions": rows, "resolved": resolved, "timedOut": !finished}),
+                    );
                 }
             }
             None => wake.await,

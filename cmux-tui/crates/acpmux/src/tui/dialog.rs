@@ -48,7 +48,10 @@ impl DialogState {
     }
     /// Body row under a screen point.
     pub fn row_at(&self, x: u16, y: u16) -> Option<usize> {
-        self.row_rects.iter().find(|(r, _)| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height).map(|(_, i)| *i)
+        self.row_rects
+            .iter()
+            .find(|(r, _)| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)
+            .map(|(_, i)| *i)
     }
     /// Keep `row` inside the visible window, centering when it was far away.
     pub fn reveal(&mut self, row: usize) {
@@ -102,15 +105,31 @@ pub struct DialogOut {
 
 /// Draw the dialog and update `state`. Registers buttons and the close
 /// button into `buttons`.
-pub fn draw(buf: &mut Buffer, area: Rect, c: &Chrome, hover: Option<(u16, u16)>, spec: DialogSpec, state: &mut DialogState, buttons: &mut Vec<(Rect, ButtonAction)>) -> DialogOut {
+pub fn draw(
+    buf: &mut Buffer,
+    area: Rect,
+    c: &Chrome,
+    hover: Option<(u16, u16)>,
+    spec: DialogSpec,
+    state: &mut DialogState,
+    buttons: &mut Vec<(Rect, ButtonAction)>,
+) -> DialogOut {
     // Width: widest row or header line, within bounds.
     let widest_row = spec
         .rows
         .iter()
-        .map(|r| r.spans.iter().map(|(s, _)| s.width()).sum::<usize>() + r.note.as_ref().map(|n| n.width() + 3).unwrap_or(0))
+        .map(|r| {
+            r.spans.iter().map(|(s, _)| s.width()).sum::<usize>()
+                + r.note.as_ref().map(|n| n.width() + 3).unwrap_or(0)
+        })
         .max()
         .unwrap_or(0);
-    let widest_header = spec.header.iter().map(|l| l.iter().map(|(s, _)| s.width()).sum::<usize>()).max().unwrap_or(0);
+    let widest_header = spec
+        .header
+        .iter()
+        .map(|l| l.iter().map(|(s, _)| s.width()).sum::<usize>())
+        .max()
+        .unwrap_or(0);
     let widest = widest_row.max(widest_header).max(spec.title.width() + 16) as u16 + 8;
     let width = widest.clamp(spec.min_width, spec.max_width).min(area.width.saturating_sub(2));
     // Height: border + title + header + body + footer + border, capped to the screen.
@@ -129,8 +148,15 @@ pub fn draw(buf: &mut Buffer, area: Rect, c: &Chrome, hover: Option<(u16, u16)>,
         let close = " esc ";
         let cw = close.width() as u16;
         let cr = Rect { x: r.x + r.width - 2 - cw, y: r.y + 1, width: cw, height: 1 };
-        let hovered = hover.map(|(hx, hy)| hy == cr.y && hx >= cr.x && hx < cr.x + cr.width).unwrap_or(false);
-        buf.set_stringn(cr.x, cr.y, close, cw as usize, if hovered { c.button(false, true) } else { c.prompt().fg(c.status_dim_fg) });
+        let hovered =
+            hover.map(|(hx, hy)| hy == cr.y && hx >= cr.x && hx < cr.x + cr.width).unwrap_or(false);
+        buf.set_stringn(
+            cr.x,
+            cr.y,
+            close,
+            cw as usize,
+            if hovered { c.button(false, true) } else { c.prompt().fg(c.status_dim_fg) },
+        );
         buttons.push((cr, ButtonAction::CloseOverlay));
     }
     // Header lines.
@@ -159,7 +185,8 @@ pub fn draw(buf: &mut Buffer, area: Rect, c: &Chrome, hover: Option<(u16, u16)>,
     if let (Some(sel), true) = (spec.selected, spec.reveal && state.viewport.drag.is_none()) {
         state.reveal(sel);
     }
-    state.viewport.hover = hover.map(|(hx, hy)| state.viewport.track_contains(hx, hy)).unwrap_or(false);
+    state.viewport.hover =
+        hover.map(|(hx, hy)| state.viewport.track_contains(hx, hy)).unwrap_or(false);
     let offset = state.viewport.offset;
     state.row_rects.clear();
     let body_w = if state.viewport.has_scrollbar() { inner_w.saturating_sub(1) } else { inner_w };
@@ -167,7 +194,10 @@ pub fn draw(buf: &mut Buffer, area: Rect, c: &Chrome, hover: Option<(u16, u16)>,
         let ry = body_y + (i - offset) as u16;
         let rect = Rect { x: r.x + 1, y: ry, width: r.width.saturating_sub(3), height: 1 };
         let selected = spec.selected == Some(i) && row.selectable;
-        let hovered = row.selectable && hover.map(|(hx, hy)| hy == ry && hx >= rect.x && hx < rect.x + rect.width).unwrap_or(false);
+        let hovered = row.selectable
+            && hover
+                .map(|(hx, hy)| hy == ry && hx >= rect.x && hx < rect.x + rect.width)
+                .unwrap_or(false);
         let base = if selected {
             c.prompt().bg(c.menu_selected_bg).fg(c.menu_selected_fg).add_modifier(Modifier::BOLD)
         } else if hovered {
@@ -194,7 +224,11 @@ pub fn draw(buf: &mut Buffer, area: Rect, c: &Chrome, hover: Option<(u16, u16)>,
                 break;
             }
             let w = (s.width() as u16).min(room);
-            let st = if selected || hovered { base.fg(style.fg.unwrap_or(base.fg.unwrap_or(c.prompt_fg))) } else { style.patch(c.prompt()) };
+            let st = if selected || hovered {
+                base.fg(style.fg.unwrap_or(base.fg.unwrap_or(c.prompt_fg)))
+            } else {
+                style.patch(c.prompt())
+            };
             let st = if selected { st.add_modifier(Modifier::BOLD) } else { st };
             buf.set_stringn(x, ry, s, w as usize, st);
             x += w;
@@ -202,7 +236,13 @@ pub fn draw(buf: &mut Buffer, area: Rect, c: &Chrome, hover: Option<(u16, u16)>,
         if let Some(note) = &row.note {
             let nw = note.width() as u16;
             if nw + 2 < body_w {
-                buf.set_stringn(inner_x + body_w.saturating_sub(nw), ry, note, nw as usize, base.fg(c.status_dim_fg));
+                buf.set_stringn(
+                    inner_x + body_w.saturating_sub(nw),
+                    ry,
+                    note,
+                    nw as usize,
+                    base.fg(c.status_dim_fg),
+                );
             }
         }
         if row.selectable {
@@ -210,7 +250,14 @@ pub fn draw(buf: &mut Buffer, area: Rect, c: &Chrome, hover: Option<(u16, u16)>,
         }
     }
     if state.viewport.has_scrollbar() {
-        draw_thumb(buf, track, state.viewport.thumb(), c.scrollbar_thumb_fg, c.scrollbar_thumb_active_fg, state.viewport.thumb_state());
+        draw_thumb(
+            buf,
+            track,
+            state.viewport.thumb(),
+            c.scrollbar_thumb_fg,
+            c.scrollbar_thumb_active_fg,
+            state.viewport.thumb_state(),
+        );
     }
     // Footer: hint left, counter, buttons right.
     let rects = footer_buttons(buf, r.x + r.width - 2, footer_y, &spec.buttons, c, hover);
@@ -234,16 +281,25 @@ pub fn draw(buf: &mut Buffer, area: Rect, c: &Chrome, hover: Option<(u16, u16)>,
 
 /// Right-aligned `[ label ]` buttons on one row. Returns their rects in
 /// the order given.
-pub fn footer_buttons(buf: &mut Buffer, right_x: u16, y: u16, labels: &[(&str, bool, ButtonAction)], c: &Chrome, hover: Option<(u16, u16)>) -> Vec<Rect> {
+pub fn footer_buttons(
+    buf: &mut Buffer,
+    right_x: u16,
+    y: u16,
+    labels: &[(&str, bool, ButtonAction)],
+    c: &Chrome,
+    hover: Option<(u16, u16)>,
+) -> Vec<Rect> {
     let mut rects = Vec::new();
     let mut x = right_x;
     for (label, accent, _) in labels.iter().rev() {
         // Codex app: filled pill buttons. Callers still write "[ Yes y ]".
-        let label = format!(" {} ", label.trim().trim_start_matches('[').trim_end_matches(']').trim());
+        let label =
+            format!(" {} ", label.trim().trim_start_matches('[').trim_end_matches(']').trim());
         let w = label.width() as u16;
         x = x.saturating_sub(w);
         let r = Rect { x, y, width: w, height: 1 };
-        let hovered = hover.map(|(hx, hy)| hy == y && hx >= r.x && hx < r.x + r.width).unwrap_or(false);
+        let hovered =
+            hover.map(|(hx, hy)| hy == y && hx >= r.x && hx < r.x + r.width).unwrap_or(false);
         buf.set_stringn(x, y, &label, w as usize, c.button(*accent, hovered));
         rects.push(r);
         x = x.saturating_sub(2);
@@ -254,14 +310,29 @@ pub fn footer_buttons(buf: &mut Buffer, right_x: u16, y: u16, labels: &[(&str, b
 
 /// A one-line text field inside a dialog header: filled input background,
 /// placeholder when empty. Returns the cursor screen position.
-pub fn text_field(buf: &mut Buffer, x: u16, y: u16, width: u16, text: &str, cursor_col: usize, placeholder: &str, c: &Chrome) -> (u16, u16) {
+pub fn text_field(
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    width: u16,
+    text: &str,
+    cursor_col: usize,
+    placeholder: &str,
+    c: &Chrome,
+) -> (u16, u16) {
     for cx in x..x + width {
         if let Some(cell) = buf.cell_mut((cx, y)) {
             cell.set_style(c.prompt_input());
         }
     }
     if text.is_empty() {
-        buf.set_stringn(x + 1, y, placeholder, width.saturating_sub(1) as usize, c.prompt_input().fg(c.status_dim_fg));
+        buf.set_stringn(
+            x + 1,
+            y,
+            placeholder,
+            width.saturating_sub(1) as usize,
+            c.prompt_input().fg(c.status_dim_fg),
+        );
     } else {
         // Keep the cursor visible in a long value.
         let avail = width.saturating_sub(2) as usize;

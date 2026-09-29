@@ -57,13 +57,20 @@ pub enum Overlay {
     Menu(Menu),
     Help,
     /// Add a remote daemon over ssh: one text field.
-    AddHost { text: Editor },
+    AddHost {
+        text: Editor,
+    },
     /// Change the working directory: one text field. On a live session this
     /// forks into a new draft, since a running agent cannot move.
-    Directory { text: Editor },
+    Directory {
+        text: Editor,
+    },
     NewSession(NewForm),
     Picker(Picker),
-    Confirm { title: String, action: ConfirmAction },
+    Confirm {
+        title: String,
+        action: ConfirmAction,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -102,7 +109,8 @@ pub struct Draft {
     pub images: Vec<PromptImage>,
 }
 
-pub const POLICIES: [&str; 5] = ["ask", "approve-reads", "approve-edits", "approve-all", "deny-all"];
+pub const POLICIES: [&str; 5] =
+    ["ask", "approve-reads", "approve-edits", "approve-all", "deny-all"];
 
 #[derive(Debug, Clone)]
 pub enum PickTarget {
@@ -118,7 +126,9 @@ pub enum PickTarget {
     /// session id, config id
     Config(String, String),
     /// An inline `$skill-id` reference for the composer.
-    Skill { replace_prefix: bool },
+    Skill {
+        replace_prefix: bool,
+    },
     DraftHarness,
     Agent,
 }

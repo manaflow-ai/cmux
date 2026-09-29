@@ -24,7 +24,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         config.store.mode = crate::config::StoreMode::Memory;
     }
     if config.harnesses.is_empty() {
-        tracing::warn!("no harnesses configured; add {{\"harnesses\":{{\"codex\":{{\"argv\":[\"codex-acp\"]}}}}}} to {}", Config::path().display());
+        tracing::warn!(
+            "no harnesses configured; add {{\"harnesses\":{{\"codex\":{{\"argv\":[\"codex-acp\"]}}}}}} to {}",
+            Config::path().display()
+        );
     }
     std::fs::create_dir_all(home())?;
     // launchd starts us in /; sessions without a cwd default to home.
@@ -48,11 +51,19 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let ws = opts
         .ws_listen
         .clone()
-        .map(|listen| (listen, opts.ws_token.clone().or_else(|| config.websocket.as_ref().and_then(|w| w.token.clone()))))
+        .map(|listen| {
+            (
+                listen,
+                opts.ws_token
+                    .clone()
+                    .or_else(|| config.websocket.as_ref().and_then(|w| w.token.clone())),
+            )
+        })
         .or_else(|| config.websocket.clone().map(|w| (w.listen, w.token)));
     if let Some((listen, token)) = &ws {
         let mut cfg = config.clone();
-        cfg.websocket = Some(crate::config::WebSocketConfig { listen: listen.clone(), token: token.clone() });
+        cfg.websocket =
+            Some(crate::config::WebSocketConfig { listen: listen.clone(), token: token.clone() });
         config = cfg;
     }
     let hub = Hub::new(config, store);
@@ -61,13 +72,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tokio::spawn(notify_loop(hub.clone()));
 
     let unix = tokio::spawn(crate::server::listen_unix(hub.clone(), socket_path()));
-    let ws_task = ws.map(|(listen, token)| tokio::spawn(crate::server::listen_ws(hub.clone(), listen, token)));
+    let ws_task = ws
+        .map(|(listen, token)| tokio::spawn(crate::server::listen_ws(hub.clone(), listen, token)));
 
     let shutdown = async {
         let ctrl_c = tokio::signal::ctrl_c();
         #[cfg(unix)]
         {
-            let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
+            let mut term =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
             tokio::select! {
                 _ = ctrl_c => {},
                 _ = async { match term.as_mut() { Some(t) => { t.recv().await; } None => std::future::pending::<()>().await } } => {},
@@ -137,7 +150,8 @@ async fn import_login_env() {
     }
     if let Some(lp) = login_path {
         let current = std::env::var("PATH").unwrap_or_default();
-        let mut merged: Vec<String> = lp.split(':').filter(|p| !p.is_empty()).map(str::to_owned).collect();
+        let mut merged: Vec<String> =
+            lp.split(':').filter(|p| !p.is_empty()).map(str::to_owned).collect();
         for p in current.split(':') {
             if !p.is_empty() && !merged.iter().any(|m| m == p) {
                 merged.push(p.to_owned());
@@ -152,7 +166,22 @@ async fn import_login_env() {
 /// Shell-private and per-process variables are dropped; anything an rc
 /// file printed before `env` ran is discarded up to the last newline.
 fn parse_env0(text: &str) -> (Vec<(String, String)>, Option<String>) {
-    let skip = ["PWD", "OLDPWD", "SHLVL", "_", "TERM", "TERM_SESSION_ID", "TTY", "LOGNAME", "HOME", "USER", "SHELL", "TMPDIR", "SSH_AUTH_SOCK", "ACPMUX_LOGIN_ENV"];
+    let skip = [
+        "PWD",
+        "OLDPWD",
+        "SHLVL",
+        "_",
+        "TERM",
+        "TERM_SESSION_ID",
+        "TTY",
+        "LOGNAME",
+        "HOME",
+        "USER",
+        "SHELL",
+        "TMPDIR",
+        "SSH_AUTH_SOCK",
+        "ACPMUX_LOGIN_ENV",
+    ];
     let mut vars = Vec::new();
     let mut login_path = None;
     for chunk in text.split('\0') {
@@ -160,7 +189,11 @@ fn parse_env0(text: &str) -> (Vec<(String, String)>, Option<String>) {
         let start = chunk[..eq].rfind('\n').map(|i| i + 1).unwrap_or(0);
         let key = &chunk[start..eq];
         let value = &chunk[eq + 1..];
-        if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || key.starts_with("XPC_") || skip.contains(&key) {
+        if key.is_empty()
+            || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            || key.starts_with("XPC_")
+            || skip.contains(&key)
+        {
             continue;
         }
         if key == "PATH" {
@@ -211,7 +244,11 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
             return Ok(c);
         }
         if std::time::Instant::now() > deadline {
-            return Err(anyhow!("daemon did not come up at {}; see {}", path.display(), home().join("daemon.log").display()));
+            return Err(anyhow!(
+                "daemon did not come up at {}; see {}",
+                path.display(),
+                home().join("daemon.log").display()
+            ));
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
@@ -220,17 +257,12 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
 fn spawn_detached() -> Result<()> {
     let exe = std::env::current_exe()?;
     std::fs::create_dir_all(home())?;
-    let log = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(home().join("daemon.log"))?;
+    let log =
+        std::fs::OpenOptions::new().create(true).append(true).open(home().join("daemon.log"))?;
     let log_err = log.try_clone()?;
     let mut cmd = std::process::Command::new(exe);
     crate::config::scrub_nested_claude_env(&mut cmd);
-    cmd.args(["daemon", "run"])
-        .stdin(std::process::Stdio::null())
-        .stdout(log)
-        .stderr(log_err);
+    cmd.args(["daemon", "run"]).stdin(std::process::Stdio::null()).stdout(log).stderr(log_err);
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -269,13 +301,32 @@ async fn notify_loop(hub: Arc<Hub>) {
         }
         let name = summary.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
         let text = match kind {
-            "permission_request" => format!("{name} needs a permission: {}", ev.record.msg.pointer("/request/toolCall/title").and_then(Value::as_str).unwrap_or("tool")),
-            _ => format!("{name} finished ({})", ev.record.msg.get("status").and_then(Value::as_str).unwrap_or("completed")),
+            "permission_request" => format!(
+                "{name} needs a permission: {}",
+                ev.record
+                    .msg
+                    .pointer("/request/toolCall/title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("tool")
+            ),
+            _ => format!(
+                "{name} finished ({})",
+                ev.record.msg.get("status").and_then(Value::as_str).unwrap_or("completed")
+            ),
         };
         let mut c = tokio::process::Command::new("sh");
-        c.arg("-c").arg(&cmd).env("ACPMUX_EVENT", kind).env("ACPMUX_SESSION_ID", &ev.session_id).env("ACPMUX_SESSION_NAME", &name).env("ACPMUX_TEXT", &text);
+        c.arg("-c")
+            .arg(&cmd)
+            .env("ACPMUX_EVENT", kind)
+            .env("ACPMUX_SESSION_ID", &ev.session_id)
+            .env("ACPMUX_SESSION_NAME", &name)
+            .env("ACPMUX_TEXT", &text);
         crate::config::scrub_nested_claude_env_tokio(&mut c);
-        let _ = c.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+        let _ = c
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
     }
 }
 
@@ -288,6 +339,12 @@ mod tests {
         let text = "fnm: using node 22\nANTHROPIC_BASE_URL=http://x\0PATH=/a:/b\0PWD=/tmp\0XPC_SERVICE_NAME=svc\0BAD KEY=1\0MULTI=a\nb\0";
         let (vars, path) = parse_env0(text);
         assert_eq!(path.as_deref(), Some("/a:/b"));
-        assert_eq!(vars, vec![("ANTHROPIC_BASE_URL".to_owned(), "http://x".to_owned()), ("MULTI".to_owned(), "a\nb".to_owned())]);
+        assert_eq!(
+            vars,
+            vec![
+                ("ANTHROPIC_BASE_URL".to_owned(), "http://x".to_owned()),
+                ("MULTI".to_owned(), "a\nb".to_owned())
+            ]
+        );
     }
 }

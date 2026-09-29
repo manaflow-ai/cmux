@@ -94,7 +94,8 @@ impl Editor {
     }
     /// Snapshot only at word boundaries so undo removes a word, not a char.
     fn snapshot_coalesced(&mut self, boundary: bool) {
-        let last_is_boundary = self.cursor > 0 && matches!(self.chars.get(self.cursor - 1), Some(' ') | Some('\n'));
+        let last_is_boundary =
+            self.cursor > 0 && matches!(self.chars.get(self.cursor - 1), Some(' ') | Some('\n'));
         if boundary || last_is_boundary || self.undo.is_empty() {
             self.snapshot();
         }
@@ -340,7 +341,9 @@ impl Editor {
         // first cell of the next row, never the box border / scrollbar.
         if col == width {
             rows.push((self.chars.len(), self.chars.len()));
-            if self.cursor == self.chars.len() { cursor_rc = (rows.len() - 1, 0); }
+            if self.cursor == self.chars.len() {
+                cursor_rc = (rows.len() - 1, 0);
+            }
         }
         cursor_rc.1 = cursor_rc.1.min(width - 1);
         (rows, cursor_rc)
@@ -517,7 +520,9 @@ mod tests {
     fn paste_in_middle_preserves_tail_and_undo() {
         let mut e = ed("before after");
         e.to_start();
-        for _ in 0..7 { e.right(); }
+        for _ in 0..7 {
+            e.right();
+        }
         e.insert_str("界\n".repeat(10_000).as_str());
         assert!(e.text().ends_with("after"));
         assert_eq!(e.cursor(), 20_007);

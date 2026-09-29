@@ -195,7 +195,15 @@ enum Command {
     Daemon(DaemonCmd),
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
-    Tail { session: String, #[arg(long, default_value_t = 50)] last: u64, #[arg(long, short)] follow: bool, #[arg(long)] since: Option<String> },
+    Tail {
+        session: String,
+        #[arg(long, default_value_t = 50)]
+        last: u64,
+        #[arg(long, short)]
+        follow: bool,
+        #[arg(long)]
+        since: Option<String>,
+    },
     #[command(hide = true)]
     TagCmd { session: String, assignments: Vec<String>, remove: Vec<String>, ttl: Option<u64> },
     #[command(hide = true)]
@@ -212,11 +220,21 @@ enum Command {
     #[command(hide = true)]
     Cancel { session: String },
     #[command(hide = true, alias = "kill-session")]
-    Kill { session: String, #[arg(long)] purge: bool },
+    Kill {
+        session: String,
+        #[arg(long)]
+        purge: bool,
+    },
     #[command(hide = true, alias = "rename-session")]
     Rename { session: String, new_name: String },
     #[command(hide = true)]
-    Fork { session: String, #[arg(long, short)] name: Option<String>, #[arg(long)] cwd: Option<PathBuf> },
+    Fork {
+        session: String,
+        #[arg(long, short)]
+        name: Option<String>,
+        #[arg(long)]
+        cwd: Option<PathBuf>,
+    },
     #[command(hide = true)]
     Set { session: String, assignment: String },
     #[command(hide = true)]
@@ -224,9 +242,17 @@ enum Command {
     #[command(hide = true)]
     Deny { session: String },
     #[command(hide = true)]
-    Export { session: String, #[arg(long)] dest: Option<PathBuf> },
+    Export {
+        session: String,
+        #[arg(long)]
+        dest: Option<PathBuf>,
+    },
     #[command(hide = true)]
-    Import { path: PathBuf, #[arg(long, short)] name: Option<String> },
+    Import {
+        path: PathBuf,
+        #[arg(long, short)]
+        name: Option<String>,
+    },
     #[command(hide = true)]
     Harnesses,
     #[command(hide = true)]
@@ -264,12 +290,22 @@ enum SessionCmd {
     Cancel { session: String },
     /// Stop the agent process. The session stays resumable.
     #[command(alias = "kill")]
-    Stop { session: String, /// Also delete the log.
-        #[arg(long)] purge: bool },
+    Stop {
+        session: String,
+        /// Also delete the log.
+        #[arg(long)]
+        purge: bool,
+    },
     /// Rename a session.
     Rename { session: String, new_name: String },
     /// Fork a session into a new one that shares the history so far.
-    Fork { session: String, #[arg(long, short)] name: Option<String>, #[arg(long)] cwd: Option<PathBuf> },
+    Fork {
+        session: String,
+        #[arg(long, short)]
+        name: Option<String>,
+        #[arg(long)]
+        cwd: Option<PathBuf>,
+    },
     /// Change mode, model, a config option, or the permission policy: key=value.
     Set { session: String, assignment: String },
     /// Answer a pending permission request.
@@ -277,9 +313,17 @@ enum SessionCmd {
     /// Reject a pending permission request.
     Deny { session: String },
     /// Export a session bundle.
-    Export { session: String, #[arg(long)] dest: Option<PathBuf> },
+    Export {
+        session: String,
+        #[arg(long)]
+        dest: Option<PathBuf>,
+    },
     /// Import a session bundle directory.
-    Import { path: PathBuf, #[arg(long, short)] name: Option<String> },
+    Import {
+        path: PathBuf,
+        #[arg(long, short)]
+        name: Option<String>,
+    },
     /// Print the last raw events as JSON lines; -f keeps following.
     Tail {
         session: String,
@@ -471,7 +515,9 @@ async fn main() -> Result<()> {
         }
         Some(Command::DaemonRun { listen, token, memory, log }) => {
             tracing_subscriber::fmt()
-                .with_env_filter(tracing_subscriber::EnvFilter::try_new(&log).unwrap_or_else(|_| "info".into()))
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::try_new(&log).unwrap_or_else(|_| "info".into()),
+                )
                 .with_target(false)
                 .init();
             acpmux::daemon::run(DaemonOptions { ws_listen: listen, ws_token: token, memory }).await
@@ -505,13 +551,21 @@ fn flatten(c: Command) -> Command {
             SessionCmd::Deny { session } => Command::Deny { session },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
-            SessionCmd::Tail { session, last, follow, since } => Command::Tail { session, last, follow, since },
-            SessionCmd::Tag { session, assignments, remove, ttl } => Command::TagCmd { session, assignments, remove, ttl },
-            SessionCmd::Rules { session, rules, clear } => Command::RulesCmd { session, rules, clear },
+            SessionCmd::Tail { session, last, follow, since } => {
+                Command::Tail { session, last, follow, since }
+            }
+            SessionCmd::Tag { session, assignments, remove, ttl } => {
+                Command::TagCmd { session, assignments, remove, ttl }
+            }
+            SessionCmd::Rules { session, rules, clear } => {
+                Command::RulesCmd { session, rules, clear }
+            }
             SessionCmd::History { session, limit } => Command::History { session, limit },
         },
         Command::Daemon(dc) => match dc {
-            DaemonCmd::Run { listen, token, memory, log } => Command::DaemonRun { listen, token, memory, log },
+            DaemonCmd::Run { listen, token, memory, log } => {
+                Command::DaemonRun { listen, token, memory, log }
+            }
             DaemonCmd::Status => Command::Status,
             DaemonCmd::Shutdown => Command::Shutdown,
             DaemonCmd::Config => Command::Config,
@@ -524,4 +578,3 @@ fn flatten(c: Command) -> Command {
         other => other,
     }
 }
-

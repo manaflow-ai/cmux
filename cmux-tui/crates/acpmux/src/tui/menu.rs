@@ -95,7 +95,10 @@ impl Menu {
         Self { title: title.into(), items, at, cursor: 0, rects: Vec::new(), rect: Rect::default() }
     }
     pub fn item_at(&self, x: u16, y: u16) -> Option<usize> {
-        self.rects.iter().find(|(r, _)| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height).map(|(_, i)| *i)
+        self.rects
+            .iter()
+            .find(|(r, _)| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)
+            .map(|(_, i)| *i)
     }
 }
 
@@ -110,14 +113,21 @@ impl App {
         // Host chips in the status bar.
         if let Some((_, key)) = self.host_chips.iter().find(|(r, _)| hit(*r)).cloned() {
             let is_local = key.as_deref() == Some("local");
-            let name = if is_local { "this Mac".to_owned() } else { key.clone().unwrap_or_default() };
+            let name =
+                if is_local { "this Mac".to_owned() } else { key.clone().unwrap_or_default() };
             let mut items = vec![
                 item(format!("Show only {name}"), MenuAction::Host(key.clone(), HostOp::Filter)),
                 item("Show every host", MenuAction::Host(None, HostOp::ShowAll)),
-                item(format!("New session on {name}"), MenuAction::Host(key.clone(), HostOp::NewSession)),
+                item(
+                    format!("New session on {name}"),
+                    MenuAction::Host(key.clone(), HostOp::NewSession),
+                ),
             ];
             if !is_local {
-                items.push(item(format!("Remove host {name}"), MenuAction::Host(key.clone(), HostOp::Remove)));
+                items.push(item(
+                    format!("Remove host {name}"),
+                    MenuAction::Host(key.clone(), HostOp::Remove),
+                ));
             }
             items.push(item("Add host…", MenuAction::Host(None, HostOp::Add)));
             self.overlay = Overlay::Menu(Menu::new(name, (x, y), items));
@@ -143,19 +153,30 @@ impl App {
             }
             if let Some(id) = self.selected_id() {
                 let name = self.selected_name();
-                let stopped = self.selected_session().and_then(|s| s.get("status").and_then(Value::as_str)) == Some("closed");
+                let stopped =
+                    self.selected_session().and_then(|s| s.get("status").and_then(Value::as_str))
+                        == Some("closed");
                 let mut items = vec![
                     item("Rename…", MenuAction::Session(id.clone(), SessionOp::Rename)),
                     item("Fork with history", MenuAction::Session(id.clone(), SessionOp::Fork)),
-                    item("New session in this directory", MenuAction::Session(id.clone(), SessionOp::NewHere)),
+                    item(
+                        "New session in this directory",
+                        MenuAction::Session(id.clone(), SessionOp::NewHere),
+                    ),
                     item("Export bundle", MenuAction::Session(id.clone(), SessionOp::Export)),
                     item("Copy session id", MenuAction::Session(id.clone(), SessionOp::CopyId)),
                     item("Open in web dashboard", MenuAction::Session(id.clone(), SessionOp::Web)),
                 ];
                 if !stopped {
-                    items.push(item("Stop agent (keeps history)", MenuAction::Session(id.clone(), SessionOp::Stop)));
+                    items.push(item(
+                        "Stop agent (keeps history)",
+                        MenuAction::Session(id.clone(), SessionOp::Stop),
+                    ));
                 }
-                items.push(item("Delete session…", MenuAction::Session(id.clone(), SessionOp::Delete)));
+                items.push(item(
+                    "Delete session…",
+                    MenuAction::Session(id.clone(), SessionOp::Delete),
+                ));
                 self.overlay = Overlay::Menu(Menu::new(name, (x, y), items));
             }
             return;
@@ -176,12 +197,25 @@ impl App {
         }
         // Composer.
         if hit(self.areas.composer) {
-            let running = self.selected_session().and_then(|s| s.get("status").and_then(Value::as_str)) == Some("running");
-            let mut items = vec![item("Copy text", MenuAction::Composer(ComposerOp::CopyAll)), item("Clear", MenuAction::Composer(ComposerOp::Clear)), item("Undo", MenuAction::Composer(ComposerOp::Undo))];
+            let running =
+                self.selected_session().and_then(|s| s.get("status").and_then(Value::as_str))
+                    == Some("running");
+            let mut items = vec![
+                item("Copy text", MenuAction::Composer(ComposerOp::CopyAll)),
+                item("Clear", MenuAction::Composer(ComposerOp::Clear)),
+                item("Undo", MenuAction::Composer(ComposerOp::Undo)),
+            ];
             if !self.editor().is_empty() {
                 items.push(item("Send", MenuAction::Composer(ComposerOp::Send)));
                 if running {
-                    items.push(item(if self.selected_supports_steer() { "Steer the running turn" } else { "Queue after the running turn" }, MenuAction::Composer(ComposerOp::Steer)));
+                    items.push(item(
+                        if self.selected_supports_steer() {
+                            "Steer the running turn"
+                        } else {
+                            "Queue after the running turn"
+                        },
+                        MenuAction::Composer(ComposerOp::Steer),
+                    ));
                 }
             }
             items.push(item("Model…", MenuAction::Run(Action::Model)));
@@ -194,11 +228,19 @@ impl App {
         if let Some((row, col)) = self.transcript_cell_lenient(x, y) {
             let text = self.rows_cache.get(row).cloned().unwrap_or_default();
             let mut items = Vec::new();
-            if let Some(link) = links::find(&text).into_iter().find(|l| col >= l.start && col < l.end) {
-                items.push(item(format!("Open {}", render::truncate(&link.target, 40)), MenuAction::Transcript(TranscriptOp::OpenLink(link.target))));
+            if let Some(link) =
+                links::find(&text).into_iter().find(|l| col >= l.start && col < l.end)
+            {
+                items.push(item(
+                    format!("Open {}", render::truncate(&link.target, 40)),
+                    MenuAction::Transcript(TranscriptOp::OpenLink(link.target)),
+                ));
             }
             if self.selection.as_ref().map(|s| s.anchor != s.head).unwrap_or(false) {
-                items.push(item("Copy selection", MenuAction::Transcript(TranscriptOp::CopySelection)));
+                items.push(item(
+                    "Copy selection",
+                    MenuAction::Transcript(TranscriptOp::CopySelection),
+                ));
             }
             if let Some(&(item_idx, toggle)) = self.row_meta.get(row) {
                 if let Some(t) = toggle {
@@ -208,17 +250,32 @@ impl App {
                         Toggle::Group(_) => "tool calls",
                         Toggle::Item(_) => "details",
                     };
-                    items.push(item(format!("{} {what}", if open { "Collapse" } else { "Expand" }), MenuAction::Transcript(TranscriptOp::Toggle(t))));
+                    items.push(item(
+                        format!("{} {what}", if open { "Collapse" } else { "Expand" }),
+                        MenuAction::Transcript(TranscriptOp::Toggle(t)),
+                    ));
                 }
                 if item_idx != usize::MAX {
-                    items.push(item("Copy message", MenuAction::Transcript(TranscriptOp::CopyItem(item_idx))));
+                    items.push(item(
+                        "Copy message",
+                        MenuAction::Transcript(TranscriptOp::CopyItem(item_idx)),
+                    ));
                 }
             }
             items.push(item("Copy row", MenuAction::Transcript(TranscriptOp::CopyRow(row))));
             items.push(item("Expand everything", MenuAction::Transcript(TranscriptOp::ExpandAll)));
-            items.push(item("Collapse everything", MenuAction::Transcript(TranscriptOp::CollapseAll)));
-            items.push(item(if self.show_thoughts { "Hide thinking text" } else { "Show all thinking" }, MenuAction::Run(Action::ToggleThoughts)));
-            items.push(item(if self.show_system { "Hide lifecycle events" } else { "Show lifecycle events" }, MenuAction::Run(Action::ToggleSystem)));
+            items.push(item(
+                "Collapse everything",
+                MenuAction::Transcript(TranscriptOp::CollapseAll),
+            ));
+            items.push(item(
+                if self.show_thoughts { "Hide thinking text" } else { "Show all thinking" },
+                MenuAction::Run(Action::ToggleThoughts),
+            ));
+            items.push(item(
+                if self.show_system { "Hide lifecycle events" } else { "Show lifecycle events" },
+                MenuAction::Run(Action::ToggleSystem),
+            ));
             self.overlay = Overlay::Menu(Menu::new("transcript", (x, y), items));
         }
     }
@@ -227,7 +284,11 @@ impl App {
         match action {
             MenuAction::Run(a) => self.run_action(a, &[]),
             MenuAction::Session(id, op) => {
-                if let Some(i) = self.sessions.iter().position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id)) {
+                if let Some(i) = self
+                    .sessions
+                    .iter()
+                    .position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id))
+                {
                     self.select(i + self.drafts.len());
                 }
                 match op {
@@ -240,7 +301,11 @@ impl App {
                     SessionOp::CopyId => self.copy_to_clipboard(&id),
                     SessionOp::Web => self.run_action(Action::Web, &[]),
                     SessionOp::NewHere => {
-                        let cwd = self.selected_session().and_then(|s| s.get("cwd").and_then(Value::as_str)).unwrap_or("").to_owned();
+                        let cwd = self
+                            .selected_session()
+                            .and_then(|s| s.get("cwd").and_then(Value::as_str))
+                            .unwrap_or("")
+                            .to_owned();
                         self.apply_directory(cwd);
                     }
                 }
@@ -283,14 +348,23 @@ impl App {
                     self.copy_to_clipboard(text.trim_start());
                 }
                 TranscriptOp::CopyItem(idx) => {
-                    let text = self.selected_id().and_then(|id| self.transcripts.get(&id)).and_then(|t| t.items.get(idx)).map(crate::transcript::item_text).unwrap_or_default();
+                    let text = self
+                        .selected_id()
+                        .and_then(|id| self.transcripts.get(&id))
+                        .and_then(|t| t.items.get(idx))
+                        .map(crate::transcript::item_text)
+                        .unwrap_or_default();
                     self.copy_to_clipboard(&text);
                 }
                 TranscriptOp::Toggle(t) => self.toggle(t),
                 TranscriptOp::ExpandAll => self.set_all_open(true),
                 TranscriptOp::CollapseAll => self.set_all_open(false),
                 TranscriptOp::OpenLink(target) => {
-                    let cwd = self.selected_session().and_then(|s| s.get("cwd").and_then(Value::as_str)).unwrap_or("").to_owned();
+                    let cwd = self
+                        .selected_session()
+                        .and_then(|s| s.get("cwd").and_then(Value::as_str))
+                        .unwrap_or("")
+                        .to_owned();
                     self.status = links::open(&target, &cwd);
                 }
             },
@@ -309,11 +383,21 @@ impl App {
 }
 
 /// Draw the menu at its pointer position, clamped to the screen.
-pub fn draw(buf: &mut Buffer, area: Rect, c: &theme::Chrome, hover: Option<(u16, u16)>, m: &mut Menu) {
-    let w = (m.items.iter().map(|i| i.label.width()).max().unwrap_or(8).max(m.title.width() + 2) as u16 + 4).min(area.width.saturating_sub(2));
+pub fn draw(
+    buf: &mut Buffer,
+    area: Rect,
+    c: &theme::Chrome,
+    hover: Option<(u16, u16)>,
+    m: &mut Menu,
+) {
+    let w = (m.items.iter().map(|i| i.label.width()).max().unwrap_or(8).max(m.title.width() + 2)
+        as u16
+        + 4)
+    .min(area.width.saturating_sub(2));
     let h = (m.items.len() as u16 + 3).min(area.height.saturating_sub(1));
     let x = m.at.0.min(area.x + area.width - w);
-    let y = if m.at.1 + h <= area.y + area.height { m.at.1 } else { m.at.1.saturating_sub(h) }.max(area.y);
+    let y = if m.at.1 + h <= area.y + area.height { m.at.1 } else { m.at.1.saturating_sub(h) }
+        .max(area.y);
     let r = Rect { x, y, width: w, height: h };
     m.rect = r;
     render::fill(buf, r, c.prompt());
@@ -323,12 +407,18 @@ pub fn draw(buf: &mut Buffer, area: Rect, c: &theme::Chrome, hover: Option<(u16,
     for (i, it) in m.items.iter().enumerate().take(h.saturating_sub(3) as usize) {
         let ry = r.y + 2 + i as u16;
         let rect = Rect { x: r.x + 1, y: ry, width: r.width - 2, height: 1 };
-        let hovered = hover.map(|(hx, hy)| hy == ry && hx >= rect.x && hx < rect.x + rect.width).unwrap_or(false);
+        let hovered = hover
+            .map(|(hx, hy)| hy == ry && hx >= rect.x && hx < rect.x + rect.width)
+            .unwrap_or(false);
         if hovered {
             m.cursor = i;
         }
         let selected = m.cursor == i;
-        let style = if selected { c.prompt().bg(c.menu_selected_bg).fg(c.menu_selected_fg).add_modifier(Modifier::BOLD) } else { c.prompt() };
+        let style = if selected {
+            c.prompt().bg(c.menu_selected_bg).fg(c.menu_selected_fg).add_modifier(Modifier::BOLD)
+        } else {
+            c.prompt()
+        };
         if selected {
             for cx in rect.x..rect.x + rect.width {
                 if let Some(cell) = buf.cell_mut((cx, ry)) {

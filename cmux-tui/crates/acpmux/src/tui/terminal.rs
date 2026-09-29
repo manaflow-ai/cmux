@@ -2,10 +2,19 @@
 //! they never repaint the transcript behind Ratatui's back. All escapes for
 //! a frame, including the final cursor, are committed as one buffered update.
 
-use std::{cell::RefCell, collections::BTreeMap, io::{self, Write}, rc::Rc};
-use ratatui::{backend::{Backend, ClearType, CrosstermBackend, WindowSize}, buffer::{Buffer, Cell}, layout::{Position, Size}};
-use unicode_width::UnicodeWidthStr;
 use super::{App, links::LinkCell};
+use ratatui::{
+    backend::{Backend, ClearType, CrosstermBackend, WindowSize},
+    buffer::{Buffer, Cell},
+    layout::{Position, Size},
+};
+use std::{
+    cell::RefCell,
+    collections::BTreeMap,
+    io::{self, Write},
+    rc::Rc,
+};
+use unicode_width::UnicodeWidthStr;
 
 type Coord = (u16, u16); // row, column: terminal output order
 
@@ -22,7 +31,9 @@ impl LinkState {
             let mut x = link.x;
             let end = x.saturating_add(link.text.width() as u16);
             while x < end {
-                let Some(cell) = buffer.cell((x, link.y)) else { break; };
+                let Some(cell) = buffer.cell((x, link.y)) else {
+                    break;
+                };
                 next.insert((link.y, x), (link.href.clone(), cell.clone()));
                 x = x.saturating_add(cell.symbol().width().max(1) as u16);
             }
@@ -37,11 +48,14 @@ impl LinkState {
         }
         for (&(y, x), (_, old)) in &self.current {
             if !next.contains_key(&(y, x))
-                && let Some(cell) = buffer.cell((x, y)) {
-                    // Changed cells already belong to Ratatui's diff. In
-                    // particular, do not force a wide-glyph continuation.
-                    if cell == old { self.forced.insert((y, x), cell.clone()); }
+                && let Some(cell) = buffer.cell((x, y))
+            {
+                // Changed cells already belong to Ratatui's diff. In
+                // particular, do not force a wide-glyph continuation.
+                if cell == old {
+                    self.forced.insert((y, x), cell.clone());
                 }
+            }
         }
         self.current = next;
     }
@@ -55,7 +69,9 @@ impl Write for FrameBytes {
         self.0.borrow_mut().extend_from_slice(bytes);
         Ok(bytes.len())
     }
-    fn flush(&mut self) -> io::Result<()> { Ok(()) }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 pub(super) struct AtomicBackend<W: Write> {
@@ -69,14 +85,23 @@ pub(super) struct AtomicBackend<W: Write> {
 impl<W: Write> AtomicBackend<W> {
     fn new(out: W, links: Rc<RefCell<LinkState>>) -> Self {
         let bytes = FrameBytes::default();
-        Self { out, encoded: CrosstermBackend::new(bytes.clone()), bytes, links, cursor_visible: false }
+        Self {
+            out,
+            encoded: CrosstermBackend::new(bytes.clone()),
+            bytes,
+            links,
+            cursor_visible: false,
+        }
     }
 }
 
 impl<W: Write> Backend for AtomicBackend<W> {
     type Error = io::Error;
 
-    fn draw<'a, I>(&mut self, content: I) -> io::Result<()> where I: Iterator<Item = (u16, u16, &'a Cell)> {
+    fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
+    where
+        I: Iterator<Item = (u16, u16, &'a Cell)>,
+    {
         let mut links = self.links.borrow_mut();
         let mut cells = std::mem::take(&mut links.forced);
         cells.extend(content.map(|(x, y, c)| ((y, x), c.clone())));
@@ -85,27 +110,51 @@ impl<W: Write> Backend for AtomicBackend<W> {
         while start < cells.len() {
             let href = links.current.get(&cells[start].0).map(|(h, _)| h.as_str());
             let mut end = start + 1;
-            while end < cells.len() && links.current.get(&cells[end].0).map(|(h, _)| h.as_str()) == href { end += 1; }
+            while end < cells.len()
+                && links.current.get(&cells[end].0).map(|(h, _)| h.as_str()) == href
+            {
+                end += 1;
+            }
             if let Some(href) = href {
                 // Never let content terminate an OSC sequence.
                 let safe: String = href.chars().filter(|c| !c.is_control()).collect();
                 write!(self.encoded, "\x1b]8;;{safe}\x1b\\")?;
             }
             self.encoded.draw(cells[start..end].iter().map(|((y, x), c)| (*x, *y, c)))?;
-            if href.is_some() { self.encoded.write_all(b"\x1b]8;;\x1b\\")?; }
+            if href.is_some() {
+                self.encoded.write_all(b"\x1b]8;;\x1b\\")?;
+            }
             start = end;
         }
         Ok(())
     }
 
-    fn hide_cursor(&mut self) -> io::Result<()> { self.cursor_visible = false; Ok(()) }
-    fn show_cursor(&mut self) -> io::Result<()> { self.cursor_visible = true; Ok(()) }
-    fn get_cursor_position(&mut self) -> io::Result<Position> { self.encoded.get_cursor_position() }
-    fn set_cursor_position<P: Into<Position>>(&mut self, p: P) -> io::Result<()> { self.encoded.set_cursor_position(p) }
-    fn clear(&mut self) -> io::Result<()> { self.encoded.clear() }
-    fn clear_region(&mut self, c: ClearType) -> io::Result<()> { self.encoded.clear_region(c) }
-    fn size(&self) -> io::Result<Size> { self.encoded.size() }
-    fn window_size(&mut self) -> io::Result<WindowSize> { self.encoded.window_size() }
+    fn hide_cursor(&mut self) -> io::Result<()> {
+        self.cursor_visible = false;
+        Ok(())
+    }
+    fn show_cursor(&mut self) -> io::Result<()> {
+        self.cursor_visible = true;
+        Ok(())
+    }
+    fn get_cursor_position(&mut self) -> io::Result<Position> {
+        self.encoded.get_cursor_position()
+    }
+    fn set_cursor_position<P: Into<Position>>(&mut self, p: P) -> io::Result<()> {
+        self.encoded.set_cursor_position(p)
+    }
+    fn clear(&mut self) -> io::Result<()> {
+        self.encoded.clear()
+    }
+    fn clear_region(&mut self, c: ClearType) -> io::Result<()> {
+        self.encoded.clear_region(c)
+    }
+    fn size(&self) -> io::Result<Size> {
+        self.encoded.size()
+    }
+    fn window_size(&mut self) -> io::Result<WindowSize> {
+        self.encoded.window_size()
+    }
     fn flush(&mut self) -> io::Result<()> {
         let mut encoded = self.bytes.0.borrow_mut();
         let mut frame = Vec::with_capacity(encoded.len() + 40);
@@ -113,7 +162,9 @@ impl<W: Write> Backend for AtomicBackend<W> {
         // and hiding the cursor still prevent exposing intermediate positions.
         frame.extend_from_slice(b"\x1b[?2026h\x1b[?25l");
         frame.append(&mut encoded);
-        if self.cursor_visible { frame.extend_from_slice(b"\x1b[?25h"); }
+        if self.cursor_visible {
+            frame.extend_from_slice(b"\x1b[?25h");
+        }
         frame.extend_from_slice(b"\x1b[?2026l");
         self.out.write_all(&frame)?;
         self.out.flush()
@@ -147,17 +198,27 @@ impl TerminalOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::{layout::Rect, style::{Color, Style}};
+    use ratatui::{
+        layout::Rect,
+        style::{Color, Style},
+    };
 
     #[derive(Default)]
-    struct RecordingWriter { bytes: Vec<u8>, writes: usize, flushes: usize }
+    struct RecordingWriter {
+        bytes: Vec<u8>,
+        writes: usize,
+        flushes: usize,
+    }
     impl Write for RecordingWriter {
         fn write(&mut self, b: &[u8]) -> io::Result<usize> {
             self.writes += 1;
             self.bytes.extend_from_slice(b);
             Ok(b.len())
         }
-        fn flush(&mut self) -> io::Result<()> { self.flushes += 1; Ok(()) }
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushes += 1;
+            Ok(())
+        }
     }
 
     fn link(href: &str) -> LinkCell {
@@ -180,7 +241,11 @@ mod tests {
         let first = String::from_utf8(backend.out.bytes.clone()).unwrap();
         assert!(first.starts_with("\x1b[?2026h\x1b[?25l"));
         assert!(first.ends_with("\x1b[5;4H\x1b[?25h\x1b[?2026l"));
-        assert_eq!(first.matches("src/main.rs").count(), 2, "one href and one text, no second paint");
+        assert_eq!(
+            first.matches("src/main.rs").count(),
+            2,
+            "one href and one text, no second paint"
+        );
         assert_eq!((backend.out.writes, backend.out.flushes), (1, 1));
 
         let previous = screen.clone();

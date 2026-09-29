@@ -5,13 +5,24 @@
 use std::process::Command;
 
 fn git(args: &[&str]) -> Option<String> {
-    Command::new("git").args(args).output().ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+    Command::new("git")
+        .args(args)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
 }
 
 fn main() {
     let hash = git(&["rev-parse", "--short=9", "HEAD"]).unwrap_or_else(|| "nogit".into());
-    let dirty = git(&["status", "--porcelain", "--untracked-files=no", "--", "."]).is_some_and(|s| !s.is_empty());
-    let date = Command::new("date").args(["-u", "+%Y-%m-%d"]).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned()).unwrap_or_default();
+    let dirty = git(&["status", "--porcelain", "--untracked-files=no", "--", "."])
+        .is_some_and(|s| !s.is_empty());
+    let date = Command::new("date")
+        .args(["-u", "+%Y-%m-%d"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .unwrap_or_default();
     println!("cargo:rustc-env=ACPMUX_BUILD={hash}{} {date}", if dirty { "+dirty" } else { "" });
     for path in ["HEAD", "index"] {
         if let Some(p) = git(&["rev-parse", "--path-format=absolute", "--git-path", path]) {
