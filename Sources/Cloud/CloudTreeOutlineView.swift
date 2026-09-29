@@ -462,10 +462,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
         /// One place decides what "open" means per row. Every surface row is
         /// `SurfaceCatalog.project` (focusing an open pane first); machine and
-        /// group rows toggle. Creation is never an open side effect: the hover
-        /// "+" and the context menu own it (an expired machine still prompts,
-        /// and the asleep placeholder still wakes, because those rows advertise
-        /// exactly that).
+        /// group rows toggle. A workspace row admits its local destination
+        /// through the shared optimistic open owner, while remote creation stays
+        /// with the hover "+" and context-menu verbs (an expired machine still
+        /// prompts, and the asleep placeholder still wakes, because those rows
+        /// advertise exactly that).
         func open(_ node: CloudTreeNode) {
             switch node.kind {
             case .machine(let machine, _):

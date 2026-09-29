@@ -28,8 +28,10 @@ struct CloudTreeNodeActions {
     /// terminal in `remoteWorkspaceID` on the machine instead.
     let openGroup: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ placement: SurfacePlacement, _ remoteWorkspaceID: String?) -> Void
     /// Open a whole group as a NEW local workspace named after it, every resource its own
-    /// pane (what clicking a remote workspace row does). An empty group starts a fresh
-    /// terminal in `remoteWorkspaceID` on the machine instead.
+    /// pane. Explicit open-here and drag/drop callers use this destination-owning verb;
+    /// the workspace row uses ``openWorkspace`` so it can admit its local destination
+    /// optimistically. An empty group starts a fresh terminal in `remoteWorkspaceID` on
+    /// the machine instead.
     let openGroupAsWorkspace: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ remoteWorkspaceID: String?) -> Void
     /// Open an existing Cloud workspace row as one local workspace. This is the
     /// optimistic row verb; explicit group/open-here routes keep using
