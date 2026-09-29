@@ -19,10 +19,10 @@ import Foundation
 @MainActor
 final class FileExplorerStore: ObservableObject {
     @Published var rootPath: String = ""
-    @Published internal(set) var isRootLoading: Bool = false
+    @Published var isRootLoading: Bool = false
     /// Bumped when the root reloads or a filesystem change batch lands. Find
     /// uses it to refresh searches.
-    @Published internal(set) var contentRevision = 0
+    @Published var contentRevision = 0
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
 
@@ -47,17 +47,17 @@ final class FileExplorerStore: ObservableObject {
     // MARK: Tree state
 
     /// Top-level rows, in display order.
-    internal(set) var rootNodes: [FileExplorerNode] = []
+    var rootNodes: [FileExplorerNode] = []
     /// Every materialized row by path.
-    internal(set) var nodesByPath: [String: FileExplorerNode] = [:]
+    var nodesByPath: [String: FileExplorerNode] = [:]
     /// Directories the viewer expanded. Survives reloads and provider swaps.
-    internal(set) var expandedPaths: Set<String> = []
+    var expandedPaths: Set<String> = []
     /// Stable keyboard/navigation anchor.
-    internal(set) var selectedPath: String?
+    var selectedPath: String?
     /// Stable multi-selection; `selectedPath` is its anchor.
-    internal(set) var selectedPaths: Set<String> = []
+    var selectedPaths: Set<String> = []
     /// Directories with a listing in flight.
-    internal(set) var loadingPaths: Set<String> = []
+    var loadingPaths: Set<String> = []
     /// Git status by absolute path. Row colors refresh through observers, not SwiftUI.
     private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
 
