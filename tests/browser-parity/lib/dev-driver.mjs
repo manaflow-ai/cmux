@@ -115,7 +115,7 @@ export async function createDevDriver({ headless = true, viewport = { width: 128
 
   function register(page) {
     if (tabOf.has(page)) return tabOf.get(page);
-    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], openerTargetId: undefined };
+    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], openerTargetId: undefined, openDialogs: 0, title: "", loadState: "commit" };
     tabs.set(tab.targetId, tab);
     tabOf.set(page, tab);
     frameId(tab, page.mainFrame());
@@ -131,6 +131,7 @@ export async function createDevDriver({ headless = true, viewport = { width: 128
     page.on("dialog", (d) => {
       const dialogId = `d${nextId++}`;
       dialogs.set(dialogId, d);
+      tab.openDialogs++;
       emit("dialog.opened", { targetId, dialogId, type: d.type(), message: d.message(), defaultValue: d.defaultValue() });
     });
     page.on("filechooser", async (c) => {
@@ -321,15 +322,16 @@ export async function createDevDriver({ headless = true, viewport = { width: 128
       await tabFor(targetId).page.reload({ waitUntil, timeout: timeoutMs ?? 30000 });
     },
     "tab.info": async ({ targetId }) => {
-      const page = tabFor(targetId).page;
-      const readyState = await page.mainFrame().evaluate("document.readyState").catch(() => "loading");
-      return {
-        url: page.url(),
-        title: await page.title().catch(() => ""),
-        loadState: readyState === "complete" ? "load" : readyState === "interactive" ? "domcontentloaded" : "commit",
-        viewport: page.viewportSize() ?? viewport,
-        deviceScaleFactor: 1,
-      };
+      const tab = tabFor(targetId);
+      const page = tab.page;
+      // Page script is blocked while a JavaScript dialog is open, so report
+      // the last known title and load state instead of evaluating.
+      if (!tab.openDialogs) {
+        const readyState = await page.mainFrame().evaluate("document.readyState").catch(() => "loading");
+        tab.loadState = readyState === "complete" ? "load" : readyState === "interactive" ? "domcontentloaded" : "commit";
+        tab.title = await page.title().catch(() => tab.title);
+      }
+      return { url: page.url(), title: tab.title, loadState: tab.loadState, viewport: page.viewportSize() ?? viewport, deviceScaleFactor: 1 };
     },
     "tab.setViewport": async ({ targetId, width, height, reset }) => {
       await tabFor(targetId).page.setViewportSize(reset ? viewport : { width, height });
@@ -429,10 +431,11 @@ export async function createDevDriver({ headless = true, viewport = { width: 128
       if (cancel) return;
       await chooser.setFiles(files.map((f) => ({ name: f.name, mimeType: f.mimeType, buffer: Buffer.from(f.base64, "base64") })));
     },
-    "dialog.respond": async ({ dialogId, accept, promptText }) => {
+    "dialog.respond": async ({ targetId, dialogId, accept, promptText }) => {
       const d = dialogs.get(dialogId);
       dialogs.delete(dialogId);
       if (!d) throw new DriverError("not_found", `Dialog ${dialogId} is gone`);
+      if (tabs.has(targetId)) tabs.get(targetId).openDialogs--;
       if (accept) await d.accept(promptText);
       else await d.dismiss();
     },
@@ -507,6 +510,8 @@ export function createNodeHost({ workDir, log = (line) => process.stdout.write(l
     now: () => Date.now(),
     console: { log },
     display: (value) => log(typeof value === "string" ? value : JSON.stringify(value)),
+    // The ChatGPT reference REPL is Node, so dev runs allow Node modules.
+    importModule: (specifier) => import(specifier),
     async fetch(url, init = {}) {
       const res = await fetch(url, { method: init.method, headers: init.headers, body: init.body === undefined ? undefined : Buffer.from(init.body, "base64") });
       const body = Buffer.from(await res.arrayBuffer());

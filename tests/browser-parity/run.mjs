@@ -31,8 +31,9 @@ function parseArgs(argv) {
     else if (a === "-v" || a === "--verbose") args.verbose = true;
     else throw new Error(`unknown argument ${a}`);
   }
+  if (args.mode === "ax") return args;
   if (!["record", "check"].includes(args.mode) || !args.backend) {
-    throw new Error("usage: run.mjs record|check --backend aside|chatgpt|cmux [--dialect aside|chatgpt] [--only PREFIX]");
+    throw new Error("usage: run.mjs record|check --backend aside|chatgpt|playwright|cmux|cmux-dev [--dialect aside|chatgpt] [--only PREFIX]\n       run.mjs ax [--only PREFIX] [-v]");
   }
   return args;
 }
@@ -148,8 +149,146 @@ const backends = {
   },
 };
 
+// Compares cmux-dev's tab.ax text with ChatGPT's own renderer
+// (lib/chatgpt-ax-reference.mjs on headless Chrome) for every fixture page and
+// for the action sequence of scenarios/chatgpt/02-ax-actions.js.
+async function axCheck(args) {
+  // Playwright reads the browsers path when it loads; the dev driver's WebKit
+  // lives in the parity cache.
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= path.join(process.env.HOME, ".cache/cmux-parity-browsers");
+  const { loadChatGPTAccessibilityCore, ChatGPTAxReference, loadPlaywright } = await import("./lib/chatgpt-ax-reference.mjs");
+  const { runDevRepl } = await import("./lib/dev-driver.mjs");
+  const server = await startFixtureServers();
+  const core = await loadChatGPTAccessibilityCore();
+  const { chromium } = loadPlaywright();
+  const browser = await chromium.launch({ channel: "chrome", headless: true });
+  const urlFor = (p) => `${server.origins.primary}${p}?peer=${encodeURIComponent(server.origins.peer)}`;
+  // Reference: one Chrome tab per case; `steps` run between captures.
+  const reference = async (pagePath, steps) => {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const page = await context.newPage();
+    const ref = new ChatGPTAxReference(page, core, { tabId: 1 });
+    await page.goto(urlFor(pagePath), { waitUntil: "load" });
+    await page.waitForTimeout(150);
+    let dialog = null;
+    page.on("dialog", (d) => (dialog = d));
+    const out = [await ref.state({ disableDiffing: true })];
+    for (const step of steps) {
+      await step(page);
+      await page.waitForTimeout(250);
+      if (dialog) {
+        out.push(await ref.dialogState(dialog, { disableDiffing: false }));
+        await dialog.dismiss().catch(() => {});
+        dialog = null;
+      } else out.push(await ref.state({ disableDiffing: false }));
+    }
+    await context.close();
+    return out;
+  };
+  const cmux = async (pagePath, steps) => {
+    const code = [
+      "const b = await agent.browsers.getDefault(); const tab = await b.tabs.new();",
+      `await tab.goto(${JSON.stringify(urlFor(pagePath))});`,
+      `const s1 = await tab.ax.get("state", { disableDiffing: true }); console.log(${JSON.stringify(MARK)} + JSON.stringify(s1));`,
+      "const idx = (re) => Number(s1.split('\\n').find((l) => re.test(l)).trim().split(' ')[0]);",
+      ...steps.map((s) => `${s} await new Promise((r) => setTimeout(r, 250)); console.log(${JSON.stringify(MARK)} + JSON.stringify(await tab.ax.get()));`),
+    ].join("\n");
+    const out = await runDevRepl(code);
+    return out.split("\n").filter((l) => l.includes(MARK)).map((l) => JSON.parse(l.slice(l.indexOf(MARK) + MARK.length)));
+  };
+  const pages = fs.readdirSync(path.join(root, "fixtures")).filter((f) => f.endsWith(".html") && f !== "frame-inner.html").sort();
+  const cases = pages.map((f) => ({ name: f, page: `/${f}`, ref: [], mine: [] }));
+  cases.push({
+    name: "02-ax-actions",
+    page: "/index.html",
+    ref: [
+      async (p) => {
+        await p.fill("#email", "me@x.com");
+        await p.click("#tos");
+        await p.click("#submit");
+      },
+      async (p) => {
+        await p.focus("#bio");
+        await p.evaluate(() => { const b = document.getElementById("bio"); b.setSelectionRange(b.value.length, b.value.length); });
+        await p.keyboard.type(" there");
+        await p.keyboard.press("Tab");
+        await p.locator("#far").evaluate((e) => e.scrollIntoView({ block: "center" }));
+      },
+    ],
+    mine: [
+      "await tab.ax.setValue(idx(/textbox Email|text field.*Email/), 'me@x.com'); await tab.ax.click(idx(/checkbox.*Accept terms/)); await tab.ax.click(idx(/button Create account/));",
+      "await tab.ax.typeText(idx(/Bio/), ' there'); await tab.ax.pressKey(null, 'Tab'); await tab.ax.scroll(idx(/button Far away/), 'down', 1);",
+    ],
+  });
+  // Revision diffs and the no-change message need pages above the renderer's
+  // 1000-byte saving threshold, so these use the ARIA fixture.
+  cases.push({
+    name: "aria-diff",
+    page: "/aria.html",
+    ref: [
+      async () => {},
+      async (p) => {
+        await p.evaluate(() => {
+          document.querySelector("h1").textContent = "Changed heading";
+          document.querySelector("details").open = true;
+          document.querySelector("footer").insertAdjacentHTML("beforebegin", "<button>Added</button>");
+        });
+      },
+      async (p) => {
+        await p.evaluate(() => document.querySelector("nav").remove());
+      },
+    ],
+    mine: [
+      "",
+      "await tab.playwright.evaluate(() => { document.querySelector('h1').textContent = 'Changed heading'; document.querySelector('details').open = true; document.querySelector('footer').insertAdjacentHTML('beforebegin', '<button>Added</button>'); });",
+      "await tab.playwright.evaluate(() => document.querySelector('nav').remove());",
+    ],
+  });
+  cases.push({
+    name: "aria-focus",
+    page: "/aria.html",
+    ref: [async (p) => p.focus("input[title]")],
+    mine: ["await tab.playwright.locator('input[title]').focus();"],
+  });
+  cases.push({
+    name: "dialog-prompt",
+    page: "/dialogs.html",
+    ref: [(p) => { p.click("#prompt", { noWaitAfter: true }).catch(() => {}); }, async () => {}],
+    mine: [
+      "tab.playwright.locator('#prompt').click().catch(() => {}); for (let i = 0; i < 50 && !(await tab.getJsDialog()); i++) await new Promise((r) => setTimeout(r, 50));",
+      "await (await tab.getJsDialog()).dismiss();",
+    ],
+  });
+  let failures = 0;
+  let ran = 0;
+  try {
+    for (const c of cases) {
+      if (args.only && !c.name.startsWith(args.only)) continue;
+      ran++;
+      const expected = (await reference(c.page, c.ref)).map((t) => normalize(t, server.origins));
+      const actual = (await cmux(c.page, c.mine)).map((t) => normalize(t, server.origins));
+      const problems = diffEmits(expected.map((v, i) => ({ k: `capture ${i}`, v })), actual.map((v, i) => ({ k: `capture ${i}`, v })));
+      if (problems.length) {
+        failures++;
+        console.log(`FAIL ax/${c.name}`);
+        for (const p of problems) console.log(`  ${p}`);
+        if (args.verbose) console.log(`--- expected\n${expected.join("\n=====\n")}\n--- actual\n${actual.join("\n=====\n")}`);
+      } else {
+        console.log(`PASS ax/${c.name}`);
+        if (args.verbose) console.log(actual.join("\n=====\n"));
+      }
+    }
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+  console.log(`\n${ran - failures}/${ran} AX cases match`);
+  process.exitCode = failures ? 1 : 0;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.mode === "ax") return axCheck(args);
   const run = backends[args.backend];
   if (!run) throw new Error(`unknown backend ${args.backend}`);
   const dialects = args.dialect ? [args.dialect] : Object.keys(referenceFor);

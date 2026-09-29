@@ -984,37 +984,597 @@
   }
 
   // ---------------------------------------------------------------------------
-  // ChatGPT-dialect helpers
+  // ChatGPT accessibility tree (docs/browser-repl/chatgpt-ax-spec.md, 1.1).
+  //
+  // ChatGPT renders Chromium's CDP accessibility tree. WebKit exposes no such
+  // tree to page script, so this builds the same shape from DOM and ARIA:
+  // Chromium role strings, names and their sources, the properties the
+  // renderer reads, and Chromium's structural quirks (list markers, redundant
+  // checkbox labels, select popups, disclosure triangles). Each node carries a
+  // stable `key` (an element handle) so revisions can keep element IDs.
 
-  function domSnapshot() {
-    const clone = document.documentElement.cloneNode(true);
-    for (const s of clone.querySelectorAll("script, style")) s.remove();
-    return "<!DOCTYPE html>\n" + clone.outerHTML;
+  const CREDENTIAL = /user[-_ ]?name|e[-_ ]?mail|one[-_ ]?time[-_ ]?code|password|passcode|passwd|\botp\b|\b(?:2fa|mfa)\b|phone|mobile|\btel\b/i;
+  const AX_SKIP = new Set(["script", "style", "template", "head", "noscript", "title", "meta", "link", "base"]);
+  const INPUT_ROLES = {
+    "": "textbox", text: "textbox", email: "textbox", tel: "textbox", url: "textbox", password: "textbox",
+    search: "searchbox", number: "spinbutton", range: "slider", checkbox: "checkbox", radio: "radio",
+    submit: "button", button: "button", reset: "button", image: "button", file: "button",
+    color: "ColorWell", date: "Date", time: "InputTime", "datetime-local": "DateTime", month: "Date", week: "Date",
+  };
+  const CHROME_TAG_ROLES = {
+    button: "button", textarea: "textbox", h1: "heading", h2: "heading", h3: "heading", h4: "heading",
+    h5: "heading", h6: "heading", nav: "navigation", main: "main", article: "article", aside: "complementary",
+    form: "form", ul: "list", ol: "list", menu: "list", li: "listitem", dl: "DescriptionList", dt: "term", dd: "definition",
+    p: "paragraph", label: "LabelText", canvas: "Canvas", table: "table", caption: "caption", thead: "rowgroup",
+    tfoot: "rowgroup", tr: "row", td: "cell", fieldset: "group", legend: "Legend", details: "group",
+    summary: "DisclosureTriangle", dialog: "dialog", strong: "strong", em: "emphasis", code: "code", pre: "Pre",
+    blockquote: "blockquote", figure: "figure", figcaption: "Figcaption", hr: "separator", progress: "progressbar",
+    meter: "meter", output: "status", iframe: "Iframe", frame: "Iframe", video: "Video", audio: "Audio",
+    mark: "mark", ins: "insertion", del: "deletion", time: "time", abbr: "Abbr", sub: "subscript", sup: "superscript",
+    search: "search", br: "LineBreak", math: "math",
+  };
+  const NAME_FROM_CONTENTS = new Set(["button", "cell", "checkbox", "columnheader", "gridcell", "heading", "link",
+    "menuitem", "menuitemcheckbox", "menuitemradio", "option", "radio", "rowheader", "switch", "tab", "tooltip",
+    "treeitem", "DisclosureTriangle", "caption", "Legend", "LabelText", "term", "Figcaption"]);
+
+  function chromeRole(el) {
+    const tag = tagOf(el);
+    const explicit = explicitRole(el);
+    if (explicit) return explicit;
+    if (tag === "a" || tag === "area") return el.hasAttribute("href") ? "link" : "generic";
+    if (tag === "input") {
+      const type = (el.getAttribute("type") || "").toLowerCase();
+      if (type === "hidden") return null;
+      return INPUT_ROLES[type] || "textbox";
+    }
+    if (tag === "select") return el.multiple || el.size > 1 ? "listbox" : "combobox";
+    if (tag === "img") return el.getAttribute("alt") === "" ? null : "image";
+    if (tag === "svg") return "image";
+    if (tag === "section") return accessibleNameSource(el, "region").name ? "region" : "Section";
+    if (tag === "header" || tag === "footer") {
+      const scoped = el.parentElement && el.parentElement.closest("article, aside, main, nav, section");
+      if (scoped) return tag === "header" ? "SectionHeader" : "SectionFooter";
+      return tag === "header" ? "banner" : "contentinfo";
+    }
+    if (tag === "th") return el.getAttribute("scope") === "row" ? "rowheader" : "columnheader";
+    if (isContentEditableHost(el) && !(el.parentElement && el.parentElement.isContentEditable)) return "generic";
+    if (CHROME_TAG_ROLES[tag]) return CHROME_TAG_ROLES[tag];
+    if (el.getAttribute("draggable") === "true") return "group";
+    return "generic";
   }
 
-  function visibleDom() {
-    const nodes = [];
-    const walk = (el, depth) => {
-      if (!el || el.nodeType !== 1 || SKIP_TAGS.has(tagOf(el))) return null;
-      if (!computeVisible(el)) return null;
-      const entry = { tag: tagOf(el) };
-      if (isInteractive(el) || REF_ROLES.has(roleOf(el))) {
-        entry.id = nodes.length;
-        nodes.push(handleFor(el));
-        const r = el.getBoundingClientRect();
-        entry.bbox = [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+  function idrefText(el, attr) {
+    const ids = (el.getAttribute(attr) || "").split(/\s+/).filter(Boolean);
+    const parts = [];
+    for (const id of ids) {
+      const target = el.ownerDocument.getElementById(id);
+      if (target) parts.push(injected ? injected.utils.getElementAccessibleName(target, true) || collapse(target.textContent || "").trim() : collapse(target.textContent || "").trim());
+    }
+    return collapse(parts.join(" ")).trim();
+  }
+
+  function labelsOf(el) {
+    return el.labels ? [...el.labels] : [];
+  }
+
+  // Chromium's text for name-from-contents: descendant text in tree order,
+  // skipping hidden subtrees and, for tree items, nested groups.
+  function contentsText(el, role) {
+    let out = "";
+    const walk = (node) => {
+      for (const child of axChildren(node)) {
+        if (child.nodeType === 3) out += child.nodeValue;
+        else if (child.nodeType === 1) {
+          if (AX_SKIP.has(tagOf(child)) || !axRendered(child)) continue;
+          const childRole = chromeRole(child);
+          if (role === "treeitem" && (childRole === "group" || childRole === "tree")) continue;
+          const own = (child.getAttribute("aria-label") || "").trim();
+          if (own) {
+            out += " " + own + " ";
+            continue;
+          }
+          if (tagOf(child) === "img") {
+            out += child.getAttribute("alt") || "";
+            continue;
+          }
+          const display = (styleOf(child) || {}).display || "";
+          const block = display && !display.startsWith("inline") && display !== "contents";
+          if (block) out += " ";
+          walk(child);
+          if (block) out += " ";
+        }
       }
-      const name = accessibleName(el);
-      if (name) entry.name = name;
-      const text = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.nodeValue.trim()).filter(Boolean).join(" ");
-      if (text) entry.text = text;
-      const children = [...el.children, ...(el.shadowRoot ? el.shadowRoot.children : [])]
-        .map((c) => walk(c, depth + 1)).filter(Boolean);
-      if (children.length) entry.children = children;
-      if (entry.id === undefined && !entry.text && !entry.name && children.length === 1) return children[0];
-      return entry;
     };
-    return { root: walk(document.body, 0), handles: nodes };
+    walk(el);
+    return collapse(out).trim();
+  }
+
+  // Returns { name, source } the way Chromium's CDP reports them.
+  function accessibleNameSource(el, role) {
+    if (el.hasAttribute("aria-labelledby")) {
+      const text = idrefText(el, "aria-labelledby");
+      if (text) return { name: text, source: "relatedElement" };
+    }
+    const ariaLabel = (el.getAttribute("aria-label") || "").trim();
+    if (ariaLabel) return { name: ariaLabel, source: "attribute" };
+    const tag = tagOf(el);
+    if (["input", "select", "textarea", "meter", "progress", "output"].includes(tag)) {
+      const type = tag === "input" ? (el.type || "").toLowerCase() : "";
+      if (type === "submit" || type === "reset" || type === "button") {
+        const v = el.value || (type === "submit" ? "Submit" : type === "reset" ? "Reset" : "");
+        if (v) return { name: v, source: "value" };
+      }
+      const labels = labelsOf(el);
+      if (labels.length) {
+        const text = collapse(labels.map((l) => {
+          let t = "";
+          const walk = (n) => {
+            for (const c of n.childNodes) {
+              if (c === el) continue;
+              if (c.nodeType === 3) t += c.nodeValue;
+              else if (c.nodeType === 1 && !AX_SKIP.has(tagOf(c)) && axRendered(c)) walk(c);
+            }
+          };
+          walk(l);
+          return t;
+        }).join(" ")).trim();
+        if (text) return { name: text, source: "relatedElement" };
+      }
+    }
+    if (tag === "img" || tag === "area" || (tag === "input" && (el.type || "").toLowerCase() === "image")) {
+      const alt = el.getAttribute("alt");
+      if (alt) return { name: alt.trim(), source: "attribute" };
+    }
+    if (tag === "fieldset") {
+      const legend = [...el.children].find((c) => tagOf(c) === "legend");
+      if (legend) return { name: contentsText(legend, "Legend"), source: "relatedElement" };
+    }
+    if (tag === "table") {
+      const caption = [...el.children].find((c) => tagOf(c) === "caption");
+      if (caption) return { name: contentsText(caption, "caption"), source: "relatedElement" };
+    }
+    if (NAME_FROM_CONTENTS.has(role) && role !== "LabelText" && role !== "Legend" && role !== "caption") {
+      const text = contentsText(el, role);
+      if (text) return { name: text, source: "contents" };
+    }
+    const title = (el.getAttribute("title") || "").trim();
+    if (title) return { name: title, source: "attribute" };
+    const placeholder = (el.getAttribute("placeholder") || "").trim();
+    if (placeholder && ["input", "textarea"].includes(tag)) return { name: placeholder, source: "placeholder" };
+    return { name: "", source: "relatedElement" };
+  }
+
+  function axChildren(node) {
+    if (node.nodeType === 1 && node.shadowRoot) return [...node.shadowRoot.childNodes];
+    if (node.nodeType === 1 && tagOf(node) === "slot") {
+      const assigned = node.assignedNodes();
+      return assigned.length ? assigned : [...node.childNodes];
+    }
+    return [...node.childNodes];
+  }
+
+  function axRendered(el) {
+    if (el.getAttribute("aria-hidden") === "true") return false;
+    if (el.hasAttribute("hidden") && !(styleOf(el) || {}).display) return false;
+    const cs = styleOf(el);
+    if (cs && cs.display === "none") return false;
+    // Closed <details> render only their summary.
+    const details = el.parentElement && el.parentElement.closest("details");
+    if (details && !details.open) {
+      const summary = [...details.children].find((c) => tagOf(c) === "summary");
+      if (summary !== el && !(summary && summary.contains(el)) && el !== details) return false;
+    }
+    return true;
+  }
+
+  function textRendered(textNode) {
+    try {
+      const range = textNode.ownerDocument.createRange();
+      range.selectNodeContents(textNode);
+      return [...range.getClientRects()].some((r) => r.width > 0 || r.height > 0);
+    } catch {
+      return true;
+    }
+  }
+
+  function isBlock(el) {
+    const d = (styleOf(el) || {}).display || "";
+    return !!d && !d.startsWith("inline") && d !== "contents" && d !== "none";
+  }
+
+  // Layout text of a text node: collapsed whitespace, trimmed at block edges.
+  function layoutText(textNode) {
+    const parent = textNode.parentElement;
+    const ws = (parent && styleOf(parent) || {}).whiteSpace || "normal";
+    let text = textNode.nodeValue;
+    if (ws.startsWith("pre") || ws === "break-spaces") return text;
+    text = text.replace(/[ \t\n\r\f]+/g, " ");
+    const edge = (sibling, dir) => {
+      for (let s = sibling; s; s = s[dir]) {
+        if (s.nodeType === 3) {
+          if (/\S/.test(s.nodeValue)) return false;
+          continue;
+        }
+        if (s.nodeType === 1) {
+          if (!axRendered(s)) continue;
+          return isBlock(s) || tagOf(s) === "br";
+        }
+      }
+      return true;
+    };
+    if (edge(textNode.previousSibling, "previousSibling") && (!parent || isBlock(parent) || !parent.previousSibling)) text = text.replace(/^ /, "");
+    if (edge(textNode.nextSibling, "nextSibling") && (!parent || isBlock(parent) || !parent.nextSibling)) text = text.replace(/ $/, "");
+    return text;
+  }
+
+  function listMarker(li) {
+    const cs = styleOf(li);
+    if (!cs || cs.display !== "list-item") return null;
+    const type = cs.listStyleType;
+    if (!type || type === "none") return null;
+    if (type === "disc") return "• ";
+    if (type === "circle") return "◦ ";
+    if (type === "square") return "▪ ";
+    const list = li.parentElement;
+    let index = 1;
+    if (list && tagOf(list) === "ol") {
+      const items = [...list.children].filter((c) => tagOf(c) === "li");
+      const start = list.hasAttribute("start") ? Number(list.getAttribute("start")) : 1;
+      index = start + items.indexOf(li);
+      if (list.reversed) index = (list.hasAttribute("start") ? start : items.length) - items.indexOf(li);
+    } else if (list) {
+      index = [...list.children].filter((c) => tagOf(c) === "li").indexOf(li) + 1;
+    }
+    if (li.hasAttribute("value")) index = Number(li.getAttribute("value"));
+    const alpha = (n) => {
+      let s = "";
+      while (n > 0) {
+        n--;
+        s = String.fromCharCode(97 + (n % 26)) + s;
+        n = Math.floor(n / 26);
+      }
+      return s;
+    };
+    const roman = (n) => {
+      const map = [[1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"], [50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"]];
+      let s = "";
+      for (const [v, r] of map) while (n >= v) (s += r), (n -= v);
+      return s;
+    };
+    if (type === "lower-alpha" || type === "lower-latin") return alpha(index) + ". ";
+    if (type === "upper-alpha" || type === "upper-latin") return alpha(index).toUpperCase() + ". ";
+    if (type === "lower-roman") return roman(index) + ". ";
+    if (type === "upper-roman") return roman(index).toUpperCase() + ". ";
+    return `${index}. `;
+  }
+
+  function isRedundantLabel(el) {
+    if (tagOf(el) !== "label") return false;
+    const control = el.control;
+    if (!control || tagOf(control) !== "input") return false;
+    const type = (control.type || "").toLowerCase();
+    return type === "checkbox" || type === "radio";
+  }
+
+  function referencedIds() {
+    const ids = new Set();
+    for (const el of document.querySelectorAll("[aria-labelledby], [aria-describedby], [aria-controls], [aria-owns], [aria-details]")) {
+      for (const attr of ["aria-labelledby", "aria-describedby", "aria-controls", "aria-owns", "aria-details"]) {
+        for (const id of (el.getAttribute(attr) || "").split(/\s+/)) if (id) ids.add(id);
+      }
+    }
+    return ids;
+  }
+
+  function keepGeneric(el, ctx) {
+    if (el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby") || el.hasAttribute("title")) return true;
+    if (el.hasAttribute("tabindex") || el.hasAttribute("onclick") || isContentEditableHost(el)) return true;
+    if (el.id && ctx.referenced.has(el.id)) return true;
+    if (isScrollable(el)) return true;
+    // Chromium keeps block-level generic containers and drops inline ones.
+    return isBlock(el) && (el.id !== "" || el.childNodes.length > 0);
+  }
+
+  function axProps(el, role, ctx) {
+    const props = {};
+    const tag = tagOf(el);
+    const type = tag === "input" ? (el.type || "").toLowerCase() : "";
+    if (el === ctx.focused) props.focused = true;
+    if (role === "heading") {
+      const level = /^h[1-6]$/.test(tag) ? Number(tag[1]) : Number(el.getAttribute("aria-level")) || 2;
+      props.level = level;
+    }
+    if (role === "listitem") {
+      let level = 0;
+      for (let p = el.parentElement; p; p = p.parentElement) if (["ul", "ol", "menu"].includes(tagOf(p))) level++;
+      props.level = Math.max(1, level);
+    }
+    if (role === "treeitem") {
+      let level = Number(el.getAttribute("aria-level")) || 0;
+      if (!level) for (let p = el.parentElement; p; p = p.parentElement) {
+        const r = explicitRole(p);
+        if (r === "tree") {
+          level++;
+          break;
+        }
+        if (r === "group") level++;
+      }
+      props.level = Math.max(1, level);
+    }
+    if (role === "link" || (role === "image" && el.src)) props.url = role === "link" ? el.href : el.src;
+    if (type === "checkbox" || type === "radio") props.checked = el.indeterminate ? "mixed" : String(!!el.checked);
+    else if (["checkbox", "radio", "switch", "menuitemcheckbox", "menuitemradio"].includes(role) && el.hasAttribute("aria-checked")) {
+      props.checked = el.getAttribute("aria-checked");
+    }
+    if (el.hasAttribute("aria-pressed") && role === "button") props.pressed = el.getAttribute("aria-pressed");
+    if (el.hasAttribute("aria-expanded")) props.expanded = el.getAttribute("aria-expanded") === "true";
+    if (role === "DisclosureTriangle") props.expanded = !!(el.parentElement && el.parentElement.open);
+    if (tag === "select" && role === "combobox") {
+      props.hasPopup = "menu";
+      props.expanded = false;
+    } else if (el.hasAttribute("aria-haspopup") && el.getAttribute("aria-haspopup") !== "false") {
+      props.hasPopup = el.getAttribute("aria-haspopup") === "true" ? "menu" : el.getAttribute("aria-haspopup");
+    }
+    if (["tab", "treeitem", "option", "row", "gridcell"].includes(role)) {
+      if (tag === "option") props.selected = !!el.selected;
+      else if (el.hasAttribute("aria-selected")) props.selected = el.getAttribute("aria-selected") === "true";
+      else if (role === "treeitem" || role === "tab") props.selected = false;
+    }
+    if (isNativeDisabled(el) || el.getAttribute("aria-disabled") === "true") props.disabled = true;
+    if (["textbox", "searchbox", "spinbutton"].includes(role) && (tag === "input" || tag === "textarea")) {
+      props.settable = !el.readOnly && !el.disabled;
+      props.editable = "plaintext";
+      props.multiline = tag === "textarea";
+    }
+    if (role === "slider" && tag === "input") props.settable = true;
+    if (isContentEditableHost(el)) props.editable = "richtext";
+    const placeholder = el.getAttribute("placeholder");
+    if (placeholder && (tag === "input" || tag === "textarea")) props.placeholder = placeholder;
+    if (el.hasAttribute("aria-roledescription")) props.roledescription = el.getAttribute("aria-roledescription");
+    if (["slider", "progressbar", "meter", "spinbutton", "scrollbar"].includes(role)) {
+      if (el.hasAttribute("aria-valuetext")) props.valuetext = el.getAttribute("aria-valuetext");
+      else if (tag === "input" && role === "slider") props.valuetext = String(el.value);
+      else props.valuetext = "";
+    }
+    if (el.hasAttribute("aria-description")) props.hasAriaDescription = true;
+    return props;
+  }
+
+  function axValue(el, role) {
+    const tag = tagOf(el);
+    if (tag === "input") {
+      const type = (el.type || "").toLowerCase();
+      if (type === "checkbox" || type === "radio" || type === "submit" || type === "button" || type === "reset" || type === "image") return null;
+      if (type === "file") return el.files && el.files.length ? [...el.files].map((f) => f.name).join(", ") : "No file chosen";
+      if (type === "range") return String(el.value);
+      return el.value;
+    }
+    if (tag === "textarea") return el.value;
+    if (tag === "select") {
+      const o = el.options[el.selectedIndex];
+      return o ? collapse(o.textContent).trim() : "";
+    }
+    if (tag === "progress") return el.hasAttribute("value") ? String(Math.round((el.value / (el.max || 1)) * 100)) : null;
+    if (["slider", "progressbar", "meter", "spinbutton", "scrollbar"].includes(role) && el.hasAttribute("aria-valuenow")) {
+      return el.getAttribute("aria-valuenow");
+    }
+    if (isContentEditableHost(el)) return collapse(el.innerText || "").trim();
+    return null;
+  }
+
+  function buildAxNode(el, ctx) {
+    const role = chromeRole(el);
+    const { name, source } = role === "generic" && !el.hasAttribute("aria-label") && !el.hasAttribute("aria-labelledby") && !el.hasAttribute("title")
+      ? { name: "", source: "relatedElement" }
+      : accessibleNameSource(el, role);
+    const tag = tagOf(el);
+    const credential = tag === "input" &&
+      CREDENTIAL.test(["type", "autocomplete", "id", "name", "placeholder", "aria-label", "title"].map((a) => el.getAttribute(a) || "").join(" "));
+    const node = {
+      key: handleFor(el),
+      role,
+      name,
+      nameSource: source,
+      value: axValue(el, role),
+      description: el.hasAttribute("aria-describedby") ? idrefText(el, "aria-describedby") : null,
+      props: axProps(el, role, ctx),
+      dom: {
+        identifier: el.id || null,
+        className: el.getAttribute("class"),
+        declaredRole: el.getAttribute("role"),
+        tagName: ["input", "select", "textarea"].includes(tag) ? tag : null,
+        inputType: tag === "input" ? (el.type || "").toLowerCase() : null,
+      },
+      children: [],
+    };
+    if (credential) {
+      node.value = null;
+      node.description = null;
+      delete node.props.valuetext;
+      delete node.props.placeholder;
+      node.dom = { identifier: null, className: null, declaredRole: null, tagName: null, inputType: null };
+      node.credential = true;
+    }
+    return node;
+  }
+
+  function axWalk(node, out, ctx) {
+    for (const child of axChildren(node)) {
+      if (child.nodeType === 3) {
+        if (ctx.skipText) continue;
+        const parentStyle = child.parentElement && styleOf(child.parentElement);
+        if (parentStyle && (parentStyle.visibility === "hidden" || parentStyle.visibility === "collapse")) continue;
+        const text = layoutText(child);
+        if (!text || (!/\S/.test(text) && !textRendered(child))) continue;
+        if (!/\S/.test(child.nodeValue) && !textRendered(child)) continue;
+        const parentEditable = child.parentElement && child.parentElement.isContentEditable;
+        const n = { key: handleFor(child), role: "StaticText", name: text, nameSource: "contents", value: null, description: null, props: parentEditable ? { editable: "richtext" } : {}, dom: {}, children: [] };
+        out.push(n);
+        continue;
+      }
+      if (child.nodeType !== 1) continue;
+      const el = child;
+      const tag = tagOf(el);
+      if (AX_SKIP.has(tag) || !axRendered(el)) continue;
+      if (isRedundantLabel(el)) {
+        axWalk(el, out, { ...ctx, skipText: true });
+        continue;
+      }
+      const role = chromeRole(el);
+      const visibility = (styleOf(el) || {}).visibility;
+      if (visibility === "hidden" || visibility === "collapse" ||
+        role === null || role === "none" || role === "presentation" || (role === "generic" && !keepGeneric(el, ctx)) ||
+        tag === "tbody" || role === "LineBreak") {
+        axWalk(el, out, ctx);
+        continue;
+      }
+      const n = buildAxNode(el, ctx);
+      out.push(n);
+      if (role === "listitem" || (tag === "li" && (styleOf(el) || {}).display === "list-item")) {
+        const marker = listMarker(el);
+        if (marker) {
+          n.children.push({ key: n.key + ":marker", role: role === "listitem" ? "ListMarker" : "StaticText", name: marker, nameSource: "contents", value: null, description: null, props: {}, dom: role === "listitem" ? {} : null, children: [] });
+        }
+      }
+      if (tag === "select" && role === "combobox") {
+        const popup = { key: n.key + ":popup", role: "MenuListPopup", name: "", nameSource: "relatedElement", value: null, description: null, props: {}, dom: null, children: [] };
+        for (const option of el.options) {
+          popup.children.push({ key: handleFor(option), role: "option", name: collapse(option.textContent).trim(), nameSource: "contents", value: null, description: null, props: { selected: option.selected }, dom: {}, children: [], inMenuList: true });
+        }
+        n.children.push(popup);
+        continue;
+      }
+      if (tag === "input" || tag === "textarea" || tag === "img" || tag === "iframe" || tag === "frame" || tag === "canvas") {
+        if (tag === "iframe" || tag === "frame") ctx.iframes.push({ key: n.key, handle: n.key });
+        continue;
+      }
+      axWalk(el, n.children, { ...ctx, skipText: false });
+    }
+  }
+
+  function axTree(opts) {
+    opts = opts || {};
+    const doc = document;
+    const active = doc.activeElement;
+    const ctx = {
+      referenced: referencedIds(),
+      focused: active && active !== doc.body && active !== doc.documentElement ? active : null,
+      iframes: [],
+      skipText: false,
+    };
+    const root = {
+      key: "root",
+      role: "RootWebArea",
+      name: doc.title || "",
+      nameSource: "relatedElement",
+      value: null,
+      description: null,
+      props: { url: String(global.location.href) },
+      dom: {},
+      children: [],
+    };
+    if (!ctx.focused && (opts.isMain || opts.focusedFrame)) root.props.focused = true;
+    if (doc.body) {
+      if (opts.isMain) axWalk(doc.body, root.children, ctx);
+      else {
+        // Child frames keep their <body> as a generic container (observed in
+        // Chromium's tree); the main frame does not.
+        const body = { key: handleFor(doc.body), role: "generic", name: "", nameSource: "relatedElement", value: null, description: null, props: {}, dom: { identifier: doc.body.id || null }, children: [] };
+        axWalk(doc.body, body.children, ctx);
+        root.children.push(body);
+      }
+    }
+    return { root, iframes: ctx.iframes, activeIsFrame: !!(active && ["iframe", "frame"].includes(tagOf(active))) };
+  }
+
+  // tab.dom_cua.get_visible_dom() lines (spec section 7); node ids are filled
+  // in by the runtime.
+  function visibleDomLines(opts) {
+    const max = (opts && opts.maxElements) || 200;
+    const lines = [];
+    const out = [];
+    const clean = (s) => String(s).replace(/[\t\n\r\f]+/g, " ").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const interactive = (el) => {
+      const tag = tagOf(el);
+      if (["a", "button", "details", "input", "option", "select", "summary", "textarea"].includes(tag)) return true;
+      const ce = el.getAttribute("contenteditable");
+      if (ce !== null && ce !== "false") return true;
+      if (el.hasAttribute("href") || el.hasAttribute("onclick")) return true;
+      const role = (el.getAttribute("role") || "").trim().toLowerCase();
+      if (["button", "checkbox", "combobox", "link", "menuitem", "option", "radio", "slider", "spinbutton", "switch", "tab", "textbox"].includes(role)) return true;
+      const ti = el.getAttribute("tabindex");
+      return ti !== null && Number(ti) >= 0;
+    };
+    const visible = (el) => {
+      const cs = styleOf(el);
+      if (!cs || cs.visibility !== "visible" || cs.display === "none" || cs.pointerEvents === "none" || Number(cs.opacity) <= 0.01) return false;
+      const w = global.innerWidth;
+      const h = global.innerHeight;
+      return [...el.getClientRects()].some((r) => r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < w && r.top < h);
+    };
+    const textOf = (el) => {
+      const parts = [];
+      let total = 0;
+      const walk = (n) => {
+        for (const c of n.nodeType === 1 && n.shadowRoot ? [...n.shadowRoot.childNodes, ...n.childNodes] : n.childNodes) {
+          if (total >= 160) return;
+          if (c.nodeType === 3) {
+            const t = c.nodeValue.replace(/\s+/g, " ").trim();
+            if (t) {
+              parts.push(t);
+              total += t.length + 1;
+            }
+          } else if (c.nodeType === 1 && !["script", "style", "noscript", "template"].includes(tagOf(c))) walk(c);
+        }
+      };
+      walk(el);
+      return parts.join(" ").replace(/\s+/g, " ").trim().slice(0, 160);
+    };
+    let chars = 0;
+    const visit = (el) => {
+      if (lines.length >= max) return false;
+      if (el.nodeType !== 1) return true;
+      if (el.getAttribute("aria-hidden") === "true" || el.hasAttribute("hidden") || el.id === "codex-agent-overlay-root") return true;
+      const tag = tagOf(el);
+      if (tag === "input" && (el.type || "").toLowerCase() === "hidden") return true;
+      if (interactive(el) && visible(el)) {
+        let attrs = "";
+        for (const a of ["aria-disabled", "aria-label", "contenteditable", "href", "name", "placeholder", "role", "title", "type", "value"]) {
+          let v = el.getAttribute(a);
+          if (a === "value" && tag === "input") {
+            const cred = CREDENTIAL.test(["type", "autocomplete", "id", "name", "placeholder", "aria-label", "title"].map((x) => el.getAttribute(x) || "").join(" "));
+            if (cred || (el.type || "").toLowerCase() === "hidden") v = null;
+          }
+          if (v) attrs += ` ${a}="${clean(v)}"`;
+        }
+        for (const b of ["checked", "disabled", "multiple", "readonly", "required", "selected"]) if (el.hasAttribute(b)) attrs += ` ${b}="true"`;
+        const text = clean(textOf(el));
+        const line = text ? `<${tag} node_id=?${attrs}>${text}</${tag}>` : `<${tag} node_id=?${attrs} />`;
+        if (chars + line.length + (lines.length ? 1 : 0) > 20000) return false;
+        chars += line.length + (lines.length ? 1 : 0);
+        lines.push(line);
+        out.push(handleFor(el));
+      }
+      if (el.shadowRoot) for (const c of el.shadowRoot.children) if (!visit(c)) return false;
+      for (const c of el.children) if (!visit(c)) return false;
+      return true;
+    };
+    if (document.body) visit(document.body);
+    return { lines, handles: out };
+  }
+
+  // Playwright's AI snapshot of this frame's body, for domSnapshot().
+  function aiSnapshot() {
+    const inj = requireInjected();
+    const r = inj.incrementalAriaSnapshot(document.body || document.documentElement, { mode: "ai", track: "cmux-dom" });
+    const text = typeof r === "string" ? r : r.full;
+    const iframes = [];
+    for (const el of document.querySelectorAll("iframe, frame")) {
+      if (el.getAttribute("aria-hidden") === "true" || !computeVisible(el)) continue;
+      const ref = inj._lastAriaSnapshotForQuery ? inj._lastAriaSnapshotForQuery.refs.get(el) : null;
+      iframes.push({ handle: handleFor(el), id: el.id || null, name: el.getAttribute("name") || null, ref: ref || null });
+    }
+    return { text, iframes };
   }
 
   const agent = {
@@ -1051,8 +1611,9 @@
     contentBox,
     annotate,
     clearAnnotations,
-    domSnapshot,
-    visibleDom,
+    axTree,
+    visibleDomLines,
+    aiSnapshot,
     roleOf,
     accessibleName,
     injected,

@@ -36,6 +36,20 @@
     return out;
   }
 
+  // Dynamic import() cannot run in a Function-constructed cell (and
+  // JavaScriptCore has no module loader here), so every ImportExpression is
+  // routed through the host's optional importModule().
+  function importExpressions(node, out) {
+    if (!node || typeof node.type !== "string") return out;
+    if (node.type === "ImportExpression") out.push(node);
+    for (const key of Object.keys(node)) {
+      const v = node[key];
+      if (Array.isArray(v)) v.forEach((c) => importExpressions(c, out));
+      else if (v && typeof v === "object" && typeof v.type === "string") importExpressions(v, out);
+    }
+    return out;
+  }
+
   // Rewrites top-level declarations of one cell. Returns the new source, the
   // declared names (the caller predefines them on the scope so assignments
   // inside `with` land there), and whether the last statement is an
@@ -48,6 +62,14 @@
       allowReturnOutsideFunction: false,
       allowHashBang: true,
     });
+    const imports = importExpressions(ast, []);
+    if (imports.length) {
+      // Replace the `import` keyword (6 chars) from the end so offsets stay valid.
+      for (const node of imports.sort((a, b) => b.start - a.start)) {
+        code = code.slice(0, node.start) + "__cmuxImport" + code.slice(node.start + 6);
+      }
+      return rewriteTopLevel(code);
+    }
     const names = [];
     const hoisted = [];
     let out = "";
@@ -167,6 +189,10 @@
         if (t !== undefined) host.clearTimeout(t);
       },
       queueMicrotask: (fn) => Promise.resolve().then(fn),
+      __cmuxImport: (specifier) => {
+        if (typeof host.importModule === "function") return host.importModule(String(specifier));
+        return Promise.reject(new Error(`import(${JSON.stringify(String(specifier))}) is not available in the cmux browser REPL`));
+      },
     };
   }
 
