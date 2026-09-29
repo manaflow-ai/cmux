@@ -884,7 +884,14 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false))
+        let rightPanel = try XCTUnwrap(
+            workspace.newTerminalSplitOutcome(
+                from: leftPanelId,
+                orientation: .horizontal,
+                focus: false,
+                autoLayout: true
+            ).panel
+        )
         let leftTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(leftPanelId))
         let rightTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(rightPanel.id))
 
