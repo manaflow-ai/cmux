@@ -40,7 +40,7 @@ enum KeyboardShortcutBareStartCache {
 private extension KeyboardShortcutSettings.Action {
     var participatesInAppWideBareStartRouting: Bool {
         switch self {
-        case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
+        case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias, .fileExplorerQuickLook, .fileExplorerRenameSelection, .fileExplorerToggleHiddenFiles, .fileExplorerSelectParent:
             return false
         default:
             return true

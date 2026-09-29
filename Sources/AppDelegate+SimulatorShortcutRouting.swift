@@ -54,6 +54,10 @@ extension AppDelegate {
             && action != .resetWorkspaceTerminalFontSize
             && action != .fileExplorerOpenSelection
             && action != .fileExplorerOpenSelectionFinderAlias
+            && action != .fileExplorerQuickLook
+            && action != .fileExplorerRenameSelection
+            && action != .fileExplorerToggleHiddenFiles
+            && action != .fileExplorerSelectParent
             && !KeyboardShortcutSettings.Action.simulatorActions.contains(action)
     }
 }

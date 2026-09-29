@@ -6,7 +6,15 @@ import CmuxFoundation
 final class FileExplorerHeaderView: NSView {
     private let iconView = CmuxResolvedIconImageView()
     private let retryButton = NSButton()
+    private let viewOptionsButton = NSButton()
     private var retry: (() -> Void)?
+    /// Builds the view-options menu (hidden files, sort, refresh) on demand.
+    var viewOptionsMenuProvider: (() -> NSMenu)? {
+        didSet {
+            let hidden = viewOptionsMenuProvider == nil
+            if viewOptionsButton.isHidden != hidden { viewOptionsButton.isHidden = hidden }
+        }
+    }
     private let pathLabel = NSTextField(labelWithString: "")
     private var heightConstraint: NSLayoutConstraint?
     private var displayPath = ""
@@ -42,6 +50,17 @@ final class FileExplorerHeaderView: NSView {
         retryButton.toolTip = String(localized: "common.retry", defaultValue: "Retry")
         retryButton.setAccessibilityLabel(retryButton.toolTip)
         addSubview(retryButton)
+        viewOptionsButton.translatesAutoresizingMaskIntoConstraints = false
+        viewOptionsButton.image = NSImage(systemSymbolName: "ellipsis.circle", accessibilityDescription: nil)
+        viewOptionsButton.bezelStyle = .inline
+        viewOptionsButton.isBordered = false
+        viewOptionsButton.target = self
+        viewOptionsButton.action = #selector(showViewOptions)
+        viewOptionsButton.toolTip = String(localized: "fileExplorer.header.viewOptions", defaultValue: "View Options")
+        viewOptionsButton.setAccessibilityLabel(viewOptionsButton.toolTip)
+        viewOptionsButton.setAccessibilityIdentifier("FileExplorerViewOptionsButton")
+        viewOptionsButton.isHidden = true
+        addSubview(viewOptionsButton)
 
         let heightConstraint = heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight)
         self.heightConstraint = heightConstraint
@@ -57,7 +76,10 @@ final class FileExplorerHeaderView: NSView {
             pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: RightSidebarChromeMetrics.contentIconTextSpacing),
             pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             pathLabel.trailingAnchor.constraint(equalTo: retryButton.leadingAnchor, constant: -8),
-            retryButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            retryButton.trailingAnchor.constraint(equalTo: viewOptionsButton.leadingAnchor, constant: -4),
+            viewOptionsButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            viewOptionsButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            viewOptionsButton.widthAnchor.constraint(equalToConstant: 18),
             retryButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             retryButton.widthAnchor.constraint(equalToConstant: 18),
         ])
@@ -71,9 +93,16 @@ final class FileExplorerHeaderView: NSView {
 
     @objc private func retryFiles() { retry?() }
 
+    @objc private func showViewOptions() {
+        guard let menu = viewOptionsMenuProvider?() else { return }
+        let below = viewOptionsButton.isFlipped ? viewOptionsButton.bounds.maxY + 4 : -4
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: below), in: viewOptionsButton)
+    }
+
     func update(displayPath: String, retry: (() -> Void)? = nil) {
         self.retry = retry
-        retryButton.isHidden = retry == nil
+        let retryHidden = retry == nil
+        if retryButton.isHidden != retryHidden { retryButton.isHidden = retryHidden }
         guard self.displayPath != displayPath else { return }
         self.displayPath = displayPath
         applyHeaderState()

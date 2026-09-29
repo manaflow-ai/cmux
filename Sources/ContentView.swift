@@ -1,5 +1,6 @@
 import CmuxCloud
 import AppKit
+import CmuxFileTree
 import CmuxAppKitSupportUI
 import CmuxCommandPalette
 import CmuxCore
@@ -938,7 +939,9 @@ struct ContentView: View {
     @State private var workspaceSwitchPortalSignalRouter = WorkspaceSwitchPortalSignalRouter()
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
-    @StateObject private var fileExplorerStore = FileExplorerStore()
+    @StateObject private var fileExplorerStore = FileExplorerStore(
+        viewStateRepository: AppDelegate.shared?.fileExplorerViewStateRepository
+    )
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
@@ -2476,7 +2479,8 @@ struct ContentView: View {
             return
         }
 
-        fileExplorerStore.showHiddenFiles = true
+        fileExplorerStore.showHiddenFiles = fileExplorerState.showHiddenFiles
+        fileExplorerStore.sortOrder = fileExplorerState.sortOrder
 
         let directory = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         sessionIndexStore.setCurrentDirectoryIfChanged(

@@ -2162,6 +2162,10 @@ enum CmuxEmbeddedConfigSchema {
               "toggleFileExplorer",
               "fileExplorerOpenSelection",
               "fileExplorerOpenSelectionFinderAlias",
+              "fileExplorerQuickLook",
+              "fileExplorerRenameSelection",
+              "fileExplorerToggleHiddenFiles",
+              "fileExplorerSelectParent",
               "saveFilePreview",
               "toggleFileEditorWordWrap",
               "openBrowser",
@@ -2206,6 +2210,18 @@ enum CmuxEmbeddedConfigSchema {
               "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
             },
             "fileExplorerOpenSelectionFinderAlias": {
+              "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
+            },
+            "fileExplorerQuickLook": {
+              "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
+            },
+            "fileExplorerRenameSelection": {
+              "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
+            },
+            "fileExplorerToggleHiddenFiles": {
+              "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
+            },
+            "fileExplorerSelectParent": {
               "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollDown": {

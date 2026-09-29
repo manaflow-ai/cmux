@@ -66,7 +66,7 @@ struct CloudFileExplorerBehaviorTests {
                 guard command.contains("scandir") else { return nil }
                 return VMExecResult(
                     exitCode: 0,
-                    stdout: "[{\"name\":\"cloud.txt\",\"path\":\"/home/cmux/cloud.txt\",\"directory\":false}]",
+                    stdout: "[{\"ok\":true,\"entries\":[[\"cloud.txt\",\"f\",4,1.0]],\"omitted\":0}]",
                     stderr: ""
                 )
             },
@@ -193,7 +193,7 @@ struct CloudFileExplorerBehaviorTests {
             vmID: "vivid-newt", displayTarget: "vivid-newt", isAvailable: true, commandRunner: runner
         )
         await #expect(throws: FileExplorerError.self) {
-            try await provider.listDirectory(path: "/home/cmux", showHidden: true)
+            try await provider.listDirectory(at: "/home/cmux")
         }
     }
 }

@@ -2,6 +2,7 @@ import CmuxCloud
 import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
+import CmuxFileTree
 import Testing
 
 #if canImport(cmux_DEV)
@@ -116,9 +117,9 @@ private final class PreviewDownloadTransport: SSHFileExplorerTransport, Sendable
         await requests.record("HOME")
         return "/home/remote"
     }
-    nonisolated func listDirectory(
-        path: String, connection: SSHFileExplorerConnection, showHidden: Bool
-    ) async throws -> [FileExplorerEntry] { [] }
+    nonisolated func listDirectories(
+        paths: [String], connection: SSHFileExplorerConnection
+    ) async throws -> [String: Result<FileTreeListing, any Error>] { [:] }
     nonisolated func downloadFile(
         path: String, connection: SSHFileExplorerConnection, to localURL: URL
     ) async throws {

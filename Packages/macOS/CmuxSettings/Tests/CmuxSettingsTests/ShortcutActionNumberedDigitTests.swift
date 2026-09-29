@@ -48,6 +48,18 @@ struct ShortcutActionNumberedDigitTests {
                 first: ShortcutStroke(key: "↓", command: true)
             )
         )
+        #expect(ShortcutAction.fileExplorerQuickLook.defaultShortcut == StoredShortcut(first: ShortcutStroke(key: "space")))
+        #expect(ShortcutAction.fileExplorerRenameSelection.defaultShortcut == StoredShortcut(first: ShortcutStroke(key: "f2")))
+        #expect(
+            ShortcutAction.fileExplorerToggleHiddenFiles.defaultShortcut == StoredShortcut(
+                first: ShortcutStroke(key: ".", command: true, shift: true)
+            )
+        )
+        #expect(
+            ShortcutAction.fileExplorerSelectParent.defaultShortcut == StoredShortcut(
+                first: ShortcutStroke(key: "↑", command: true)
+            )
+        )
     }
 
     @Test func onlyFocusedContentActionsAllowBareFirstStrokes() {
@@ -65,6 +77,10 @@ struct ShortcutActionNumberedDigitTests {
             .diffViewerPreviousFile,
             .fileExplorerOpenSelection,
             .fileExplorerOpenSelectionFinderAlias,
+            .fileExplorerQuickLook,
+            .fileExplorerRenameSelection,
+            .fileExplorerToggleHiddenFiles,
+            .fileExplorerSelectParent,
         ]
 
         for action in ShortcutAction.allCases {

@@ -115,21 +115,6 @@ extension NSMenu {
 
 extension FileExplorerPanelView.Coordinator {
     @MainActor
-    private func contextMenuNodes(clicked node: FileExplorerNode) -> [FileExplorerNode] {
-        guard let outlineView else { return [node] }
-        let clickedRow = outlineView.clickedRow
-        let selectedRows = outlineView.selectedRowIndexes
-        guard clickedRow >= 0, selectedRows.contains(clickedRow) else {
-            return [node]
-        }
-        let nodes = selectedRows.compactMap { row -> FileExplorerNode? in
-            guard row >= 0, row < outlineView.numberOfRows else { return nil }
-            return outlineView.item(atRow: row) as? FileExplorerNode
-        }
-        return nodes.isEmpty ? [node] : nodes
-    }
-
-    @MainActor
     @objc func contextMenuInsertPath(_ sender: NSMenuItem) {
         guard let node = sender.representedObject as? FileExplorerNode else { return }
         FileExplorerTerminalPathInsertion.insert(
