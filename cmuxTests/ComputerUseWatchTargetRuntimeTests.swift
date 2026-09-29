@@ -202,7 +202,10 @@ struct ComputerUseWatchTargetRuntimeTests {
 
         #expect(scannedLogicalSessionID == backgroundLogicalSessionID)
         #expect(activatedProcessIdentifiers.isEmpty)
-        #expect(focusedTerminalSessions.count == 2)
+        // Activity in calling-terminal mode reasserts the helper cursor without
+        // selecting the calling workspace; only the explicit menu action above
+        // focuses its terminal.
+        #expect(focusedTerminalSessions.count == 1)
 
         let identity = ComputerUseTargetIdentity(
             processIdentifier: Int(target.processIdentifier),
