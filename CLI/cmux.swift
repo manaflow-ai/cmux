@@ -12340,10 +12340,19 @@ struct CMUXCLI {
             var workspaceCreateParams: [String: Any] = [
                 "initial_command": initialSSHStartupCommand,
             ]
+            var initialEnvironment: [String: String] = [:]
             if let agentSocketPath = sshOptions.agentSocketPath {
-                workspaceCreateParams["initial_env"] = [
-                    "SSH_AUTH_SOCK": agentSocketPath,
-                ]
+                initialEnvironment["SSH_AUTH_SOCK"] = agentSocketPath
+            }
+            if let configuredForegroundAuthToken {
+                // The first terminal can start before the remote configuration
+                // exists, so hand it the token that configuration will carry.
+                initialEnvironment.merge(
+                    SSHForegroundAuthenticationLaunch(token: configuredForegroundAuthToken).environment
+                ) { _, token in token }
+            }
+            if !initialEnvironment.isEmpty {
+                workspaceCreateParams["initial_env"] = initialEnvironment
             }
             try applyWindowOrCallerContext(to: &workspaceCreateParams, client: client, windowRaw: sshOptions.windowRaw)
 
@@ -16260,8 +16269,8 @@ struct CMUXCLI {
     ) -> String? {
         guard shouldDeferRemoteReconnect(in: options) else { return nil }
         let preferredCLIPath = localCLIPath?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let quotedForegroundAuthToken = shellQuote(foregroundAuthToken)
-        return [
+        let launch = SSHForegroundAuthenticationLaunch(token: foregroundAuthToken)
+        var lines: [String] = [
             preferredCLIPath.map { "cmux_reconnect_cli=\(shellQuote($0));" } ?? "cmux_reconnect_cli=\"\";",
             "cmux_reconnect_socket=\"${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}\";",
             "if [ -z \"$cmux_reconnect_cli\" ] && [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]; then cmux_reconnect_cli=\"$CMUX_BUNDLED_CLI_PATH\"; fi;",
@@ -16270,14 +16279,21 @@ struct CMUXCLI {
             "if [ -z \"$cmux_reconnect_socket\" ]; then printf '%s\\n' 'cmux: deferred SSH reconnect skipped, local cmux socket not found' >&2;",
             "elif [ -z \"$cmux_reconnect_cli\" ] || [ ! -x \"$cmux_reconnect_cli\" ]; then printf '%s\\n' 'cmux: deferred SSH reconnect skipped, local cmux CLI not found' >&2;",
             "else",
-            "cmux_reconnect_token=\(quotedForegroundAuthToken);",
-            "cmux_reconnect_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"foreground_auth_token\\\":\\\"$cmux_reconnect_token\\\"}\";",
-            "\"$cmux_reconnect_cli\" --socket \"$cmux_reconnect_socket\" rpc workspace.remote.foreground_auth_ready \"$cmux_reconnect_payload\" >/dev/null 2>&1 || true;",
-            "unset cmux_reconnect_payload cmux_reconnect_token;",
+        ]
+        lines += launch.tokenLoadShellLines(into: "cmux_reconnect_token")
+        lines += SSHForegroundAuthenticationLaunch.readyShellLines(
+            tokenVariable: "cmux_reconnect_token",
+            payloadVariable: "cmux_reconnect_payload",
+            cliVariable: "cmux_reconnect_cli",
+            socketVariable: "cmux_reconnect_socket",
+            requireSuccess: false
+        )
+        lines += [
             "fi;",
             "fi;",
             "unset cmux_reconnect_socket cmux_reconnect_cli;",
-        ].joined(separator: " ")
+        ]
+        return lines.joined(separator: " ")
     }
 
     private func shouldDeferRemoteReconnect(in options: [String]) -> Bool {
@@ -19022,6 +19038,8 @@ struct CMUXCLI {
             Usage: cmux rpc <method> [json-params]
 
             Call a raw v2 method with an optional JSON object for params.
+            Pass - to read the params from stdin, which keeps them out of the
+            process arguments.
             Example: cmux rpc surface.report_tty '{"workspace_id":"...","surface_id":"...","tty_name":"ttys001"}'
             """
         case "help":
@@ -23248,7 +23266,15 @@ struct CMUXCLI {
 
     private func parseRPCParams(_ args: [String]) throws -> [String: Any] {
         guard !args.isEmpty else { return [:] }
-        let raw = args.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawArgument: String
+        if args == ["-"] {
+            // Params can carry secrets, such as an SSH foreground-auth token,
+            // that must not appear in the process arguments.
+            rawArgument = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
+        } else {
+            rawArgument = args.joined(separator: " ")
+        }
+        let raw = rawArgument.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return [:] }
         guard let data = raw.data(using: .utf8) else {
             throw CLIError(message: "rpc params must be valid UTF-8 JSON")
