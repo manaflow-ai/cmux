@@ -2049,6 +2049,12 @@ impl Terminal {
             && unsafe { sys::ghostty_terminal_vt_stream_is_ground(self.raw) }
     }
 
+    /// Whether a replay built now, followed by the rest of the live stream,
+    /// reproduces this terminal in a fresh parser.
+    pub fn vt_replay_resumes_stream(&self) -> bool {
+        self.vt_stream_is_ground()
+    }
+
     fn refresh_mouse_mode_revision(&mut self) {
         let next_bits = self.current_mouse_mode_bits();
         let bits_changed = next_bits != self.mouse_mode_bits;

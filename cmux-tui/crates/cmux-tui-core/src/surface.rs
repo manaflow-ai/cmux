@@ -4776,6 +4776,18 @@ impl Surface {
         Some(())
     }
 
+    /// Apply PTY bytes the way the local reader does: parse them under the
+    /// terminal lock and publish the normalized bytes to byte attachments.
+    #[cfg(test)]
+    pub(crate) fn apply_local_pty_output_for_test(&self, bytes: &[u8]) -> Option<()> {
+        let pty = self.as_pty()?;
+        let mut term = pty.term.lock().unwrap();
+        let normalized = term.vt_write_with_normalized(bytes).into_owned();
+        pty.broadcast_attach_output(&normalized);
+        pty.stream_progress.notify();
+        Some(())
+    }
+
     #[cfg(test)]
     pub(crate) fn terminal_stream_waiter_count_for_test(&self) -> Option<usize> {
         Some(self.as_pty()?.stream_progress.waiter_count())
@@ -8341,6 +8353,148 @@ mod tests {
             }
         }
         assert_eq!(received, expected);
+    }
+
+    /// Streaming output that crosses every kind of parser state a byte mirror
+    /// can join in the middle of: CSI, OSC (BEL and ST), OSC 8, DCS, APC, and
+    /// multi-byte UTF-8.
+    const MIRROR_TRANSCRIPT: &[u8] = concat!(
+        "before λ 🙂 ",
+        "\u{1b}[1;31mstyled 赤\u{1b}[0m ",
+        "\u{1b}]0;title λ\u{1b}\\",
+        "\u{1b}]8;;https://example.com\u{7}link\u{1b}]8;;\u{7} ",
+        "\u{1b}P$qm\u{1b}\\",
+        "\u{1b}_ignored\u{1b}\\",
+        "\u{1b}[3;7H\u{1b}[38;2;10;20;30mrgb\u{1b}[m",
+        "\r\n\u{1b}[Kafter"
+    )
+    .as_bytes();
+
+    /// Models the native Cloud pane with its grid pinned to the daemon: a byte
+    /// mirror that rebuilds from every replay at the advertised grid and then
+    /// follows the live byte stream.
+    struct PinnedByteMirror {
+        term: Terminal,
+        attach: AttachStream,
+    }
+
+    impl PinnedByteMirror {
+        fn attach(surface: &Surface) -> Self {
+            let attach = surface.attach_stream().unwrap();
+            let term = Self::from_replay(attach.cols, attach.rows, &attach.replay);
+            Self { term, attach }
+        }
+
+        fn from_replay(cols: u16, rows: u16, replay: &[u8]) -> Terminal {
+            let mut term = Terminal::new(cols, rows, 1000, Callbacks::default()).unwrap();
+            term.vt_write(replay);
+            term
+        }
+
+        fn drain(&mut self) {
+            while let Ok(frame) = self.attach.stream.try_recv() {
+                match frame {
+                    AttachFrame::Output(bytes) => self.term.vt_write(&bytes),
+                    AttachFrame::OutputWithColors { output, .. } => self.term.vt_write(&output),
+                    AttachFrame::Resized { cols, rows, replay, .. }
+                    | AttachFrame::ResizedWithColors { cols, rows, replay, .. } => {
+                        self.term = Self::from_replay(cols, rows, &replay);
+                    }
+                    AttachFrame::ColorsChanged(_) => {}
+                }
+            }
+        }
+
+        /// Returns a description of every way this mirror differs from the
+        /// authoritative terminal.
+        fn divergence(&mut self, surface: &Surface) -> Option<String> {
+            let disconnected = self.attach.lifecycle.is_canceled();
+            self.drain();
+            let pty = surface.as_pty().unwrap();
+            let mut source = pty.term.lock().unwrap();
+            let grid = (source.cols(), source.rows());
+            let mirror_grid = (self.term.cols(), self.term.rows());
+            let text = source.viewport_text().unwrap();
+            let mirror_text = self.term.viewport_text().unwrap();
+            let cursor = source.cursor_position();
+            let mirror_cursor = self.term.cursor_position();
+            (disconnected || grid != mirror_grid || text != mirror_text || cursor != mirror_cursor)
+                .then(|| {
+                    format!(
+                        "disconnected={disconnected} grid={grid:?}/{mirror_grid:?} \
+                         cursor={cursor:?}/{mirror_cursor:?} text={text:?} mirror={mirror_text:?}"
+                    )
+                })
+        }
+    }
+
+    fn mirror_test_surface(mux: &Arc<Mux>) -> Arc<Surface> {
+        let options = SurfaceOptions { cols: 80, rows: 10, ..SurfaceOptions::default() };
+        Surface::spawn_for_test(1, options, Arc::downgrade(mux)).unwrap()
+    }
+
+    #[test]
+    fn byte_mirror_attached_inside_any_sequence_matches_the_terminal() {
+        let mux = Mux::new_for_test("mirror-attach-mid-sequence", SurfaceOptions::default());
+        let mut failures = Vec::new();
+        for split in 0..=MIRROR_TRANSCRIPT.len() {
+            let surface = mirror_test_surface(&mux);
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[..split]).unwrap();
+            let mut mirror = PinnedByteMirror::attach(&surface);
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[split..]).unwrap();
+            if let Some(divergence) = mirror.divergence(&surface) {
+                failures.push(format!("attach at byte {split}: {divergence}"));
+            }
+        }
+        assert!(failures.is_empty(), "byte mirror diverged:\n{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn byte_mirror_survives_owner_resize_inside_any_sequence() {
+        let mux = Mux::new_for_test("mirror-resize-mid-sequence", SurfaceOptions::default());
+        let mut failures = Vec::new();
+        for split in 0..=MIRROR_TRANSCRIPT.len() {
+            let surface = mirror_test_surface(&mux);
+            let mut mirror = PinnedByteMirror::attach(&surface);
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[..split]).unwrap();
+            surface.resize(100, 30).unwrap();
+            surface.apply_local_pty_output_for_test(&MIRROR_TRANSCRIPT[split..]).unwrap();
+            if let Some(divergence) = mirror.divergence(&surface) {
+                failures.push(format!("resize at byte {split}: {divergence}"));
+            }
+        }
+        assert!(failures.is_empty(), "byte mirror diverged:\n{}", failures.join("\n"));
+    }
+
+    /// Several people view one terminal at different sizes. Viewers join at
+    /// arbitrary stream positions while geometry ownership moves between them,
+    /// and every viewer must still show exactly the authoritative screen.
+    #[test]
+    fn byte_mirrors_joining_during_owner_churn_converge_on_the_terminal() {
+        let mux = Mux::new_for_test("mirror-owner-churn", SurfaceOptions::default());
+        let transcript = [MIRROR_TRANSCRIPT, MIRROR_TRANSCRIPT].concat();
+        let owner_grids = [(45, 20), (132, 40), (80, 24)];
+        let mut failures = Vec::new();
+        for split in 0..=MIRROR_TRANSCRIPT.len() {
+            let surface = mirror_test_surface(&mux);
+            let mut first = PinnedByteMirror::attach(&surface);
+            surface.apply_local_pty_output_for_test(&transcript[..split]).unwrap();
+            let mut second = PinnedByteMirror::attach(&surface);
+            surface.resize(owner_grids[0].0, owner_grids[0].1).unwrap();
+            let middle = split + MIRROR_TRANSCRIPT.len() / 2;
+            surface.apply_local_pty_output_for_test(&transcript[split..middle]).unwrap();
+            let mut third = PinnedByteMirror::attach(&surface);
+            surface.resize(owner_grids[1].0, owner_grids[1].1).unwrap();
+            surface.resize(owner_grids[2].0, owner_grids[2].1).unwrap();
+            surface.apply_local_pty_output_for_test(&transcript[middle..]).unwrap();
+            for (name, mirror) in [("first", &mut first), ("second", &mut second), ("third", &mut third)]
+            {
+                if let Some(divergence) = mirror.divergence(&surface) {
+                    failures.push(format!("{name} viewer, split {split}: {divergence}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "byte mirrors diverged:\n{}", failures.join("\n"));
     }
 
     fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {

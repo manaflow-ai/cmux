@@ -498,6 +498,106 @@ fn theme_portable_replay_preserves_stream_state_at_every_byte_boundary() {
     }
 }
 
+/// A live terminal is rarely at a parser boundary: streaming agents emit
+/// escape sequences constantly, so attach and resize must be able to replay
+/// from inside any sequence. Unlike
+/// [`assert_theme_portable_replay_boundaries`], this never waits for ground
+/// before snapshotting.
+fn assert_theme_portable_replay_resumes_mid_sequence(
+    label: &str,
+    transcript: &[u8],
+    cols: u16,
+    rows: u16,
+) {
+    let mut failures = Vec::new();
+    for split in 0..=transcript.len() {
+        let mut source = Terminal::new(cols, rows, 100, Callbacks::default()).unwrap();
+        source.vt_write(&transcript[..split]);
+        let resumable = source.vt_replay_resumes_stream();
+        let replay = source.vt_replay_bounded_theme_portable(8 * 1024 * 1024).unwrap();
+
+        let mut mirror = Terminal::new(cols, rows, 100, Callbacks::default()).unwrap();
+        mirror.vt_write(&replay);
+        source.vt_write(&transcript[split..]);
+        mirror.vt_write(&transcript[split..]);
+
+        let source_text = source.viewport_text().unwrap();
+        let mirror_text = mirror.viewport_text().unwrap();
+        let cells_equal = snapshot_cells(&mut source) == snapshot_cells(&mut mirror);
+        let cursor_equal = source.cursor_position() == mirror.cursor_position();
+        let title_equal = source.title() == mirror.title();
+        if !resumable || source_text != mirror_text || !cells_equal || !cursor_equal || !title_equal
+        {
+            failures.push(format!(
+                "{label} split {split}: resumable={resumable} source={source_text:?} \
+                 mirror={mirror_text:?} cells_equal={cells_equal} cursor_equal={cursor_equal} \
+                 title_equal={title_equal}"
+            ));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "mid-sequence replay diverged from the source terminal:\n{}",
+        failures.join("\n")
+    );
+}
+
+#[test]
+fn theme_portable_replay_resumes_inside_every_partial_sequence() {
+    let transcript = concat!(
+        "before λ 🙂 e\u{301} ",
+        "\u{1b}[1;31mstyled 赤\u{1b}[0m ",
+        "\u{1b}]0;title λ🙂\u{1b}\\",
+        "\u{1b}]8;;https://example.com\u{7}link\u{1b}]8;;\u{7} ",
+        "\u{1b}P$qm\u{1b}\\",
+        "\u{1b}_ignored\u{1b}\\",
+        "\u{1b}]2;bel title\u{7}",
+        "\u{1b}[2;5H\u{1b}[38;2;10;20;30mrgb\u{1b}[m",
+        "\r\u{1b}[K",
+        " after"
+    )
+    .as_bytes();
+    assert_theme_portable_replay_resumes_mid_sequence("mixed", transcript, 80, 4);
+}
+
+#[test]
+fn theme_portable_replay_resumes_zsh_startup_at_every_byte() {
+    assert_theme_portable_replay_resumes_mid_sequence("zsh-startup", ZSH_STARTUP_CAPTURE, 97, 69);
+}
+
+#[test]
+fn replay_after_invalid_utf8_does_not_duplicate_replacement_characters() {
+    // Ghostty prints U+FFFD for an abandoned lead byte, so that byte is part
+    // of the snapshot and must not be replayed again as a pending sequence.
+    for prefix in [&b"a\xce\x1b[3"[..], &b"a\xe2\x82\x1b]0;t"[..], &b"a\xf0\x9f\x1b"[..]] {
+        let mut source = Terminal::new(20, 2, 0, Callbacks::default()).unwrap();
+        source.vt_write(prefix);
+        assert!(source.vt_replay_resumes_stream(), "{prefix:?}");
+        let replay = source.vt_replay_bounded_theme_portable(1024 * 1024).unwrap();
+        let mut mirror = Terminal::new(20, 2, 0, Callbacks::default()).unwrap();
+        mirror.vt_write(&replay);
+        for term in [&mut source, &mut mirror] {
+            term.vt_write(b"1mX\x07\x1b\\Y");
+        }
+        assert_eq!(source.viewport_text().unwrap(), mirror.viewport_text().unwrap(), "{prefix:?}");
+        assert_eq!(snapshot_cells(&mut source), snapshot_cells(&mut mirror), "{prefix:?}");
+    }
+}
+
+#[test]
+fn oversized_pending_sequence_is_reported_as_not_resumable() {
+    // An unterminated control string larger than the pending-sequence budget
+    // cannot be carried in a replay. Callers must see that and fall back to a
+    // fresh attachment instead of silently printing the rest as text.
+    let mut term = Terminal::new(20, 2, 0, Callbacks::default()).unwrap();
+    term.vt_write(b"\x1b]52;c;");
+    assert!(term.vt_replay_resumes_stream());
+    term.vt_write(&vec![b'A'; 4 * 1024 * 1024]);
+    assert!(!term.vt_replay_resumes_stream());
+    term.vt_write(b"\x07");
+    assert!(term.vt_replay_resumes_stream());
+}
+
 #[test]
 fn theme_portable_replay_preserves_pending_wrap() {
     for (label, prefix) in [
