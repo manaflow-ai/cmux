@@ -25,9 +25,8 @@ public enum MobileRPCTransportConnectEvent: Equatable, Sendable {
         failure: DiagnosticFailureKind,
         elapsedMilliseconds: Int
     )
-    /// A pending dial was cancelled by a lifecycle owner. The eventual
-    /// `.failed(.cancelled)` event remains for transport outcome compatibility;
-    /// this event explains who requested the cancellation.
+    /// A pending dial was cancelled by a lifecycle owner. This is its terminal
+    /// outcome; late native completion cannot emit a second outcome.
     case cancelled(
         attemptID: Int,
         transport: DiagnosticTransportKind,

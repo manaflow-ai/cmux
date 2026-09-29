@@ -1353,10 +1353,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Identifies the fetch generation that owns ``stateSyncFetchTask``, so a
     /// cancelled predecessor's deferred cleanup cannot clear its replacement.
     var stateSyncFetchGeneration = UUID()
-    /// Number of deadline-abandoned reconnect dials that have not yet
-    /// resolved. Bounds automatic retry scheduling (see
-    /// ``registerAbandonedReconnectDial(_:)``).
+    /// Bounds retained noncooperative work until its transport cleanup finishes.
     var abandonedReconnectDialCount = 0
+    var connectionReadinessTask: Task<Void, Never>?
+    var storedMacReconnectDeadlineTask: Task<DeadlineRaceOutcome<StoredMacReconnectOutcome>, Never>?
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
@@ -3141,6 +3141,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hydratePairedMacs: Bool = false
     ) async -> StoredMacReconnectOutcome {
         lastReconnectStackUserID = stackUserID
+        startObservingConnectionReadiness()
+        guard connectionEstablishmentIsAllowed else {
+            pendingInactiveRecoveryTrigger = .foreground
+            finishStoredMacReconnectAttempt(generation: storedMacReconnectGeneration)
+            return .superseded
+        }
         startObservingNetworkPathChanges()
         // A hydrating restore is the launch/team-change lifecycle attempt:
         // fresh user-visible intent, like a manual retry. Transient pacing
@@ -3184,25 +3190,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self, !Task.isCancelled,
                   generation == self.storedMacReconnectGeneration,
                   self.connectionState != .connected else { return }
-            // Resolve only the visible restoring flags; the dial may still be
-            // legitimately in flight (slow network, wedged physical cleanup
-            // ahead of it in the transport queue). Superseding the generation
-            // here used to discard a dial that then completed successfully
-            // seconds later: the adoption guards refused the freshly admitted
-            // session, leaking it, and the UI stayed at Not Connected with
-            // nothing scheduled to retry. A newer attempt supersedes this one
-            // naturally by claiming the next generation.
+            // The visible restoring gate can finish before the dial deadline;
+            // only that deadline or an explicit lifecycle change retires ownership.
             MobileDebugLog.anchormux(
                 "storedMacReconnect restoring gate resolved; dial continues generation=\(generation)"
             )
             self.finishStoredMacReconnectAttempt(generation: generation)
         }
         defer { restoringDeadline.cancel() }
-        // Run the awaited restore/dial phase under the same hard ceiling for
-        // startup, team changes, manual fallback, and automatic recovery. The
-        // generation claim above remains synchronous, preserving serialization
-        // while the unstructured operation can be abandoned if an FFI dial
-        // ignores cancellation.
+        // All reconnect entrypoints share this cancellable deadline owner.
         let deadlineNanoseconds = runtime?.reconnectAttemptDeadlineNanoseconds
             ?? 30_000_000_000
         let deadlineSleep: RPCTaskTimeout.Sleep = { [runtime] nanoseconds in
@@ -3214,20 +3210,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 try await RPCTaskTimeout.continuousClockSleep(nanoseconds: nanoseconds)
             }
         }
-        let race = await Self.raceAgainstDeadline(
-            nanoseconds: deadlineNanoseconds,
-            sleep: deadlineSleep
-        ) { [weak self] in
-            await self?.performReconnectActiveMacAttempt(
-                stackUserID: stackUserID,
-                refreshBackupBeforeDial: refreshBackupBeforeDial,
-                hydratePairedMacs: hydratePairedMacs,
-                generation: generation
-            ) ?? .superseded
+        storedMacReconnectDeadlineTask?.cancel()
+        let deadlineTask = Task { @MainActor [weak self] in
+            await Self.raceAgainstDeadline(nanoseconds: deadlineNanoseconds, sleep: deadlineSleep) { [weak self] in
+                await self?.performReconnectActiveMacAttempt(
+                    stackUserID: stackUserID,
+                    refreshBackupBeforeDial: refreshBackupBeforeDial,
+                    hydratePairedMacs: hydratePairedMacs,
+                    generation: generation
+                ) ?? .superseded
+            }
         }
+        storedMacReconnectDeadlineTask = deadlineTask
+        let race = await withTaskCancellationHandler {
+            await deadlineTask.value
+        } onCancel: { deadlineTask.cancel() }
         registerAbandonedReconnectDial(race.abandoned)
-        if race.wasCancelled {
+        guard generation == storedMacReconnectGeneration else { return .superseded }
+        storedMacReconnectDeadlineTask = nil
+        if race.wasCancelled || !connectionEstablishmentIsAllowed {
             finishStoredMacReconnectAttempt(generation: generation)
+            invalidateStoredMacReconnectAttempt()
             return .superseded
         }
         if let outcome = race.value {
@@ -3249,14 +3252,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         MobileDebugLog.anchormux(
             "storedMacReconnect deadline expired generation=\(generation)"
         )
-        // When a newer reconnect owns the connection, reporting this expiry as
-        // a failure would let the caller tear down that newer session and arm
-        // backoff for a dial nobody is waiting on.
-        if generation != storedMacReconnectGeneration,
-           newerStoredMacReconnectOwnsConnection(than: generation) {
-            return .superseded
-        }
         finishStoredMacReconnectAttempt(generation: generation)
+        invalidateStoredMacReconnectAttempt()
         if Self.shouldRecordReconnectBackoff(
             abandonedDialCount: abandonedReconnectDialCount
         ),
@@ -8635,6 +8632,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func invalidateStoredMacReconnectAttempt() {
+        storedMacReconnectDeadlineTask?.cancel()
+        storedMacReconnectDeadlineTask = nil
         storedMacReconnectGeneration &+= 1
         zeroTouchDialRace?.close()
         zeroTouchDialRace = nil

@@ -52,10 +52,12 @@ struct cmuxApp: App {
             additionalInstanceTags: MobileMacTagAllowlist.persisted()
         )
         let v2Configuration = MobileIrohV2Configuration.current(projectID: auth.config.stack.projectId)
+        let connectionReadiness = MobileConnectionLifecycle()
         let irx = MobileIrxRuntimeComposition(configuration: v2Configuration,
             macListAuthState: MobileMacListAuthState(),
             keychainAccessGroup: auth.keychainAccessGroup,
-            diagnosticLog: diagnosticLog)
+            diagnosticLog: diagnosticLog,
+            permitsConnection: { await connectionReadiness.permitsConnection })
         Task { await irx.configure(auth: auth.coordinator) }
         // iroh cannot observe every iOS network change on its own; forward
         // each one so the transport drops dead paths now instead of after
@@ -120,7 +122,8 @@ struct cmuxApp: App {
                 return try await irx.openSimulatorStreamLane(for: request, panelID: panelUUID)
             },
             // irx.serverEventByteStream merges every per-surface event lane.
-            independentEventsMergeSurfaceLanes: true
+            independentEventsMergeSurfaceLanes: true,
+            connectionReadiness: connectionReadiness
         )
 
         return AppCompositionRoot(

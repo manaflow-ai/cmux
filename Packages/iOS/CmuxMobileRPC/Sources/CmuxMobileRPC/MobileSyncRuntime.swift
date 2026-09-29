@@ -7,6 +7,8 @@ public import Foundation
 /// `CMUXMobileCore` while the app's `CMUXMobileRuntime` conforms to it at the
 /// composition root. This avoids pulling the auth domain into the service layer.
 public protocol MobileSyncRuntime: Sendable {
+    /// App lifecycle readiness; nil for non-application runtimes.
+    var connectionReadiness: (any MobileConnectionReadinessProviding)? { get }
     /// Factory that builds a byte transport for a given attach route.
     var transportFactory: any CmxByteTransportFactory { get }
     /// Mints a Stack Auth access token for requests not covered by an attach ticket.
@@ -92,6 +94,7 @@ public protocol MobileSyncRuntime: Sendable {
 }
 
 public extension MobileSyncRuntime {
+    var connectionReadiness: (any MobileConnectionReadinessProviding)? { nil }
     var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? { nil }
     var independentEventsMergeSurfaceLanes: Bool { false }
     var terminalLaneProvider: MobileTerminalLaneProvider? { nil }

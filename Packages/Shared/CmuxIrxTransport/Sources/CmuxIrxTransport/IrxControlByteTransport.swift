@@ -60,16 +60,17 @@ public actor IrxControlByteTransport: CmxByteTransport {
         let continuation: CheckedContinuation<LaneReadOutcome, Never>
     }
 
-    private let establish: Establish
-    private let onClose: OnClose?
+    let establish: Establish
+    let onClose: OnClose?
     private let permitsIO: @Sendable () async -> Bool
-    private let closeCode: IrxCloseCode
+    let closeCode: IrxCloseCode
     private let controlRepairDeadline: Duration
-    private var pair: (IrxConnection, IrxLaneStream)?
-    private var lastConnection: IrxConnection?
-    private var connectInFlight: Task<(IrxConnection, IrxLaneStream), any Error>?
-    private var isClosed = false
-    private var controlTerminationObserved = false
+    var pair: (IrxConnection, IrxLaneStream)?
+    var lastConnection: IrxConnection?
+    var connectInFlight: Task<(IrxConnection, IrxLaneStream), any Error>?
+    var connectWaiters: [UUID: CheckedContinuation<(IrxConnection, IrxLaneStream), any Error>] = [:]
+    var isClosed = false
+    var controlTerminationObserved = false
     private var closureObservationReadyWaiters: [CheckedContinuation<Void, Never>] = []
     /// Increments each time a replacement stream takes over the control lane.
     private var laneGeneration: UInt64 = 0
@@ -213,6 +214,9 @@ public actor IrxControlByteTransport: CmxByteTransport {
         finishLaneReplacement()
         connectInFlight?.cancel()
         connectInFlight = nil
+        let waiters = connectWaiters.values
+        connectWaiters = [:]
+        for waiter in waiters { waiter.resume(throwing: IrxConnectionError.closed(nil)) }
         guard let (connection, lane) = pair else { return }
         pair = nil
         await closeEstablishedPair(connection: connection, lane: lane)
@@ -410,71 +414,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
         return Data(buffered[buffered.startIndex..<split])
     }
 
-    // MARK: - Establishment
-
-    private func establishedPair() async throws -> (IrxConnection, IrxLaneStream) {
-        guard !isClosed else { throw IrxConnectionError.closed(nil) }
-        if let pair {
-            let connectionIsClosed = await pair.0.isConnectionClosed()
-            guard !isClosed else { throw IrxConnectionError.closed(nil) }
-            if connectionIsClosed {
-                // Reads and writes may still be unwinding on this pair. Keep
-                // their eventual close tied to this RPC generation's session.
-                await close()
-                throw IrxConnectionError.closed(nil)
-            }
-            // A replacement may have installed while this call suspended.
-            return self.pair ?? pair
-        }
-        if let connectInFlight {
-            let established = try await connectInFlight.value
-            guard !isClosed else { throw IrxConnectionError.closed(nil) }
-            return established
-        }
-        let task = Task<(IrxConnection, IrxLaneStream), any Error> {
-            try await self.establish()
-        }
-        connectInFlight = task
-        defer { connectInFlight = nil }
-        let established = try await task.value
-        guard !isClosed else {
-            lastConnection = established.0
-            await closeEstablishedPair(
-                connection: established.0,
-                lane: established.1
-            )
-            throw IrxConnectionError.closed(nil)
-        }
-        lastConnection = established.0
-        pair = established
-        resumeClosureObservationReadyWaiters()
-        return established
-    }
-
-    private func closeEstablishedPair(
-        connection: IrxConnection,
-        lane: IrxLaneStream
-    ) async {
-        let connectionWasAlreadyClosed = await connection.isConnectionClosed()
-        let retiresConnection = !controlTerminationObserved
-            && !connectionWasAlreadyClosed
-        let terminationCode: IrxCloseCode =
-            controlTerminationObserved ? .hostShutdown : closeCode
-        if !retiresConnection, !connectionWasAlreadyClosed {
-            // A finished control lane is the peer's session termination
-            // signal. Close the complete connection before releasing the lane
-            // claim, so a replacement cannot attach to this dead stream.
-            await connection.close(code: terminationCode, origin: .remote)
-        }
-        await onClose?(connection, terminationCode, retiresConnection)
-        await lane.writer.finish()
-        await lane.reader.stop()
-        if retiresConnection {
-            await connection.close(code: closeCode, origin: .local)
-        }
-    }
-
-    private func resumeClosureObservationReadyWaiters() {
+    func resumeClosureObservationReadyWaiters() {
         let waiters = closureObservationReadyWaiters
         closureObservationReadyWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters {

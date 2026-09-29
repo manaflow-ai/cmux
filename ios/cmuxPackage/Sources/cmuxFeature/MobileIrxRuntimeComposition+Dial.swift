@@ -26,14 +26,16 @@ extension MobileIrxRuntimeComposition {
     }
 
     func ensureSession(forPeer peerHex: String, trigger: String) async throws -> IrxClientSession {
+        try Task.checkCancellation()
+        guard await permitsConnection() else { throw CancellationError() }
         let ready = try await waitForRuntimeReadiness(for: peerHex)
         let scope = ready.scope
         let currentEpoch = ready.epoch
-        try await assertScope(scope, epoch: currentEpoch)
+        try await assertDialScope(scope, epoch: currentEpoch)
         let desired = dialIntentByPeer[peerHex] ?? .automatic
         let replace = activeDialIntentByPeer[peerHex].map { $0 != desired } ?? false
         let session = try await engine(forPeer: peerHex).ensureSession(explicit: replace, trigger: trigger)
-        try await assertScope(scope, epoch: currentEpoch)
+        try await assertDialScope(scope, epoch: currentEpoch)
         return session
     }
 
@@ -85,11 +87,21 @@ extension MobileIrxRuntimeComposition {
         return (scope, epoch)
     }
 
+    private func assertDialScope(_ scope: AuthenticatedTeamScope, epoch: UInt64) async throws {
+        try Task.checkCancellation()
+        guard await permitsConnection() else { throw CancellationError() }
+        try await assertScope(scope, epoch: epoch)
+        try Task.checkCancellation()
+        guard await permitsConnection() else { throw CancellationError() }
+    }
+
     func dialOnce(peerHex: String) async throws -> IrxClientSession {
+        try Task.checkCancellation()
+        guard await permitsConnection() else { throw CancellationError() }
         guard let scope = activeScope else { throw CompositionError.notSignedIn }
         let currentEpoch = epoch
         guard let directory = await freshLiveDiscovery() else { throw CompositionError.peerNotDiscovered }
-        try await assertScope(scope, epoch: currentEpoch)
+        try await assertDialScope(scope, epoch: currentEpoch)
         guard let record = directory.devices.first(where: { $0.descriptor.endpointID == peerHex }),
               !record.revoked, record.descriptor.metadata.pairingEnabled,
               record.descriptor.metadata.platform == .mac else { throw IrxAdmissionDenied(code: .revoked) }
@@ -123,7 +135,7 @@ extension MobileIrxRuntimeComposition {
                     refreshAfter: Date(timeIntervalSince1970: Double($0.refreshAfter)))
             }
         }
-        try await assertScope(scope, epoch: currentEpoch)
+        try await assertDialScope(scope, epoch: currentEpoch)
         let relay: String?
         var direct: [String]
         switch intent {
@@ -151,11 +163,11 @@ extension MobileIrxRuntimeComposition {
             }
             guard !direct.isEmpty else { throw CompositionError.directDialUnavailable }
         }
-        try await assertScope(scope, epoch: currentEpoch)
+        try await assertDialScope(scope, epoch: currentEpoch)
         let address = try supervisor.dialAddress(peerEndpointIDHex: peerHex, relayURL: relay, directAddresses: direct)
         let connection = try await supervisor.dial(address: address, credentials: credentials)
         do {
-            try await assertScope(scope, epoch: currentEpoch)
+            try await assertDialScope(scope, epoch: currentEpoch)
             var authorizesDirectPaths = false
             if !forceRelayOnly, case .automatic = intent { authorizesDirectPaths = true }
             let (admit, control) = try await IrxAdmission().performClient(
@@ -165,14 +177,14 @@ extension MobileIrxRuntimeComposition {
                 // superseded during admission never discloses candidates.
                 preAuthorization: { [weak self] in
                     guard let self else { throw CompositionError.directDialUnavailable }
-                    try await self.assertScope(scope, epoch: currentEpoch)
+                    try await self.assertDialScope(scope, epoch: currentEpoch)
                 })
-            try await assertScope(scope, epoch: currentEpoch)
+            try await assertDialScope(scope, epoch: currentEpoch)
             // One shared events lane plus up to 16 per-terminal output lanes
             // (IrxSurfaceEventLanes), with headroom for streams the Mac is
             // replacing. An older Mac opens only the shared lane.
             await connection.raiseRemoteStreamCredit(bi: 0, uni: 40)
-            try await assertScope(scope, epoch: currentEpoch)
+            try await assertDialScope(scope, epoch: currentEpoch)
             activeDialIntentByPeer[peerHex] = intent
             admittedSessionCount += 1
             journal.record("v2-peer", "admitted", ["session": admit.session, "count": String(admittedSessionCount),

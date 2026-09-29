@@ -23,6 +23,7 @@ public actor MobileIrxRuntimeComposition {
     public nonisolated var transportFactory: CmxConnectivityDeferredTransportFactory {
         CmxConnectivityDeferredTransportFactory(provider: self)
     }
+    let permitsConnection: @Sendable () async -> Bool
     let journal: IrxJournal
     let diagnosticLog: DiagnosticLog?
     let installation: MobileIrohV2InstallationStore
@@ -60,7 +61,9 @@ public actor MobileIrxRuntimeComposition {
 
     /// Dependencies are owned here; authentication is supplied later without copying its persistence.
     public init(configuration: MobileIrohV2Configuration, macListAuthState: MobileMacListAuthState, keychainAccessGroup: String? = nil,
-                session: URLSession = .shared, diagnosticLog: DiagnosticLog? = nil) {
+                session: URLSession = .shared, diagnosticLog: DiagnosticLog? = nil,
+                permitsConnection: @escaping @Sendable () async -> Bool = { true }) {
+        self.permitsConnection = permitsConnection
         self.macListAuthState = macListAuthState
         self.configuration = configuration
         self.urlSession = session

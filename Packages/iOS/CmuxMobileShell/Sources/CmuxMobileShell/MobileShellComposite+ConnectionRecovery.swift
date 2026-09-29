@@ -57,7 +57,7 @@ extension MobileShellComposite {
         guard connectionState == .connected,
               let client = remoteClient,
               pairedMacStore != nil else { return }
-        guard foregroundRefreshIsActive else {
+        guard connectionEstablishmentIsAllowed else {
             pendingInactiveRecoveryTrigger = .foreground
             return
         }
@@ -79,7 +79,7 @@ extension MobileShellComposite {
         guard remoteClient != nil || pairedMacStore != nil else { return }
         // A dial launched while the scene is inactive suspends with the
         // process; park the trigger and replay it once on foreground.
-        guard foregroundRefreshIsActive else {
+        guard connectionEstablishmentIsAllowed else {
             pendingInactiveRecoveryTrigger = trigger
             return
         }
@@ -242,7 +242,7 @@ extension MobileShellComposite {
         expectedClient: MobileCoreRPCClient
     ) {
         guard remoteClient === expectedClient, connectionState == .connected else { return }
-        guard foregroundRefreshIsActive else {
+        guard connectionEstablishmentIsAllowed else {
             pendingInactiveRecoveryTrigger = trigger
             return
         }

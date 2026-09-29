@@ -484,6 +484,7 @@ extension MobileShellComposite {
         guard foregroundRefreshLifecycleState != .background else { return }; workspacePresenceAnnouncer?.setWorkspaceViewing(false)
         foregroundRefreshLifecycleState = .background
         foregroundRefreshIsActive = false
+        storedMacReconnectDeadlineTask?.cancel()
         if connectionRecoveryOwner.cancelProbing() {
             applyConnectionRecoveryOwnerState()
         }
@@ -703,11 +704,10 @@ extension MobileShellComposite {
         }
     }
 
-    /// Returns the completed result when an async stored reconnect must stop.
-    /// A newer generation owns the work (`false`); an already-live foreground
-    /// client satisfies the request without another dial (`true`).
+    /// Stops cancelled/superseded reconnects; a live foreground satisfies the request.
     func storedMacReconnectInterruptionResult(generation: Int) -> Bool? {
-        guard generation == storedMacReconnectGeneration else { return false }
+        guard !Task.isCancelled, connectionEstablishmentIsAllowed,
+              generation == storedMacReconnectGeneration else { return false }
         guard !hasActiveMacConnection else {
             finishStoredMacReconnectAttempt(generation: generation)
             return true

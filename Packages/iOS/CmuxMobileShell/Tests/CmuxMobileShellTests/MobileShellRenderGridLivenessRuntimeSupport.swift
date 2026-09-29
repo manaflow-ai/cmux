@@ -17,6 +17,7 @@ final class TestClock: @unchecked Sendable {
 }
 
 struct LivenessTestRuntime: MobileSyncRuntime {
+    var connectionReadiness: (any MobileConnectionReadinessProviding)? = nil
     var transportFactory: any CmxByteTransportFactory
     var stackAccessTokenProvider: @Sendable () async throws -> String = { "test-stack-token" }
     var stackAccessTokenForceRefresher: @Sendable () async throws -> String = { "test-stack-token" }
