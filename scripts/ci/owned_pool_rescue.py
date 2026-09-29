@@ -342,6 +342,7 @@ def person_rerun(run: Mapping[str, Any]) -> bool:
             and str((run.get("triggering_actor") or {}).get("login") or "") != RESCUE_ACTOR)
 # The runner's own steps, which run before glaeda's hook decides.
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
+XCODE_SELECTION_STEPS = frozenset({"Select Xcode", "Select helper Xcode"})
 # glaeda's hook no longer refuses a job for the mini's capacity: it waits,
 # with no limit, inside the runner's setup ("Set up runner") until the units
 # and tokens it needs are free (glaeda CAPACITY_WAIT, 2026-09-28). A job still
@@ -446,7 +447,7 @@ def job_budget(job: Mapping[str, Any], budget_seconds: int, *, deadline: dt.date
 
 
 def refused(job: Mapping[str, Any]) -> bool:
-    """A job the owned runner refused at job start (see the module docstring), or whose runner was lost."""
+    """An owned runner's setup or Xcode pin failure, or a lost runner."""
     if not job_pool(job) or job.get("status") != "completed" or job.get("conclusion") != "failure":
         return False
     steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
@@ -455,6 +456,11 @@ def refused(job: Mapping[str, Any]) -> bool:
         # runner went away ("The self-hosted runner lost communication with the
         # server"), which it reports only after 10 minutes, so no length applies
         # (run 36420353579).
+        return True
+    # A helper build can precede Xcode selection, so neither elapsed time nor
+    # earlier successful steps make a missing pin a source failure.
+    if any(step.get("name") in XCODE_SELECTION_STEPS and step.get("conclusion") == "failure"
+           for step in steps):
         return True
     started, completed = parse_time(job.get("started_at")), parse_time(job.get("completed_at"))
     if started is None or completed is None or (completed - started).total_seconds() > REFUSAL_SECONDS:
