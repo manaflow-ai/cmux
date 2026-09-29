@@ -14,7 +14,7 @@ struct DeviceDiscoverabilityGatingTests {
         let section = CloudTreeDevicesSection(
             discoveryEnabled: true, incomingAccessEnabled: true, available: false
         )
-        #expect(section.inlineRowCount == 2)
+        #expect(section.inlineRowCount == 3)
         #expect(!section.discoveryControl.isEnabled)
         #expect(!section.incomingControl.isEnabled)
         #expect(section.discoveryControl.title == "Discover other Macs")
