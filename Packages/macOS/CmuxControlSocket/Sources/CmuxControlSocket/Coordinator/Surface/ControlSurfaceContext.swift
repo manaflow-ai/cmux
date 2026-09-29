@@ -120,7 +120,8 @@ public protocol ControlSurfaceContext: AnyObject {
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
-        hasSurfaceIDParam: Bool
+        hasSurfaceIDParam: Bool,
+        force: Bool
     ) -> ControlSurfaceCloseResolution
 
     // MARK: - move / reorder
@@ -428,4 +429,20 @@ public protocol ControlSurfaceContext: AnyObject {
     ///
     /// - Returns: The bridged payload, or `nil` when unavailable.
     func controlDebugTerminals() -> JSONValue?
+}
+
+public extension ControlSurfaceContext {
+    /// Backward-compatible non-forced close for app-owned callers.
+    func controlSurfaceClose(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
+    ) -> ControlSurfaceCloseResolution {
+        controlSurfaceClose(
+            routing: routing,
+            surfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            force: false
+        )
+    }
 }

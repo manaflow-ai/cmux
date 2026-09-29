@@ -31,6 +31,8 @@ extension DockSplitStore {
             _ = setDockPanelCustomTitle(panelId: panelId, title: nil)
         case .copyIdentifiers:
             copyDockIdentifiers(panelId: panelId, paneId: pane)
+        case .close:
+            _ = closePanel(panelId, force: false)
         case .closeToLeft:
             _ = closeDockTabs(
                 dockTabIds(toLeftOf: tab.id, inPane: pane),
@@ -166,7 +168,7 @@ extension DockSplitStore {
         let warningStore = CloseTabWarningStore(
             defaults: manager?.closeTabWarningDefaults ?? .standard
         )
-        if warningStore.shouldConfirmClose(
+        if warningStore.shouldConfirmCloseIncludingSafety(
             requiresConfirmation: needsConfirmation,
             source: .shortcut
         ) {

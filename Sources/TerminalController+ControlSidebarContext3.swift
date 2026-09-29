@@ -277,7 +277,7 @@ extension TerminalController {
         }
     }
 
-    func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution {
+    func controlSidebarCloseSurface(surfaceArg: String?, force: Bool = false) -> ControlSidebarCloseSurfaceResolution {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
@@ -301,8 +301,10 @@ extension TerminalController {
             return .lastSurface
         }
 
-        // Socket commands must be non-interactive: bypass close-confirmation gating.
-        guard controlSidebarCloseSurfaceRecordingHistory(in: tab, surfaceId: targetSurfaceId, force: true) else {
+        if !force, tab.panelNeedsConfirmClose(panelId: targetSurfaceId) {
+            return .confirmationRequired
+        }
+        guard controlSidebarCloseSurfaceRecordingHistory(in: tab, surfaceId: targetSurfaceId, force: force) else {
             return .closeFailed
         }
         return .closed

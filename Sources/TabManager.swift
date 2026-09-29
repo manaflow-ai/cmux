@@ -2643,7 +2643,7 @@ class TabManager: ObservableObject {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(requiresConfirmation: true, source: .shortcut) {
+        if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(requiresConfirmation: true, source: .shortcut) {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
             guard confirmClose(
                 title: prompt.title,
@@ -2736,7 +2736,8 @@ class TabManager: ObservableObject {
         }
 
         let plan = closeWorkspacesPlan(for: workspaces)
-        if shouldConfirmClose(requiresConfirmation: true, source: .tabClose) {
+        if shouldConfirmClose(requiresConfirmation: true, source: .tabClose)
+            || plan.workspaces.contains(where: workspaceNeedsConfirmClose) {
             guard confirmClose(
                 title: plan.title,
                 message: plan.message,
@@ -3042,12 +3043,12 @@ class TabManager: ObservableObject {
         case .workspace:
             return requiresConfirmation
         case .tabClose:
-            return CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+            return CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
                 requiresConfirmation: requiresConfirmation,
                 source: .shortcut
             )
         case .tabCloseButton:
-            return CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+            return CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
                 requiresConfirmation: requiresConfirmation,
                 source: .tabCloseButton
             )
@@ -3171,7 +3172,7 @@ class TabManager: ObservableObject {
             requiresConfirmation = false
         }
 
-        if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+        if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
             requiresConfirmation: requiresConfirmation,
             source: .shortcut
         ) {

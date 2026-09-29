@@ -39,4 +39,13 @@ extension CloseTabWarningReading {
                 || (requiresConfirmation && warnsBeforeClosingTab)
         }
     }
+
+    /// Whether a close should be gated by either the user's warning setting or
+    /// an active process that must never be killed silently.
+    public func shouldConfirmCloseIncludingSafety(
+        requiresConfirmation: Bool,
+        source: CloseTabCloseSource
+    ) -> Bool {
+        requiresConfirmation || shouldConfirmClose(requiresConfirmation: true, source: source)
+    }
 }

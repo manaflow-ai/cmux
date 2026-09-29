@@ -245,7 +245,8 @@ extension TerminalController {
         tabManager: TabManager,
         surfaceID: UUID,
         isImplicitTarget: Bool,
-        routedPaneID: UUID?
+        routedPaneID: UUID?,
+        force: Bool
     ) -> ControlSurfaceCloseResolution? {
         let location: RemoteTmuxControlPaneLocation
         if isImplicitTarget,
@@ -261,6 +262,10 @@ extension TerminalController {
             case .notRemote:
                 return nil
             }
+        }
+        if !force,
+           location.windowMirror?.paneForegroundState(location.pane.tmuxPaneID)?.hasActiveCommand == true {
+            return .confirmationRequired(location.pane.panel.id)
         }
         guard location.requestKill() else {
             return .closeFailed(location.pane.panel.id)
