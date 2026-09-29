@@ -1,0 +1,125 @@
+import Foundation
+
+/// A problem found while reading cmux.json. Loading never fails on a bad
+/// entry: the entry is skipped and reported here.
+public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
+    public enum Kind: String, Sendable, Hashable {
+        /// The file is not valid JSONC. Nothing was applied from it.
+        case unreadableFile
+        case invalidValue
+        case unknownAction
+        case unknownMetric
+        /// A two-stroke chord; the registry cannot dispatch chords yet.
+        case unsupportedChord
+        /// Two actions claim the same shortcut in the same context.
+        case shortcutConflict
+    }
+
+    public let kind: Kind
+    /// Dotted key path of the offending entry.
+    public let path: String
+    public let message: String
+
+    public init(kind: Kind, path: String, message: String) {
+        self.kind = kind
+        self.path = path
+        self.message = message
+    }
+
+    public var description: String { "\(kind.rawValue) \(path): \(message)" }
+}
+
+/// The parts of cmux.json that cmux-next applies, parsed off the main actor.
+/// Keys stay strings here; `SettingsApplier` maps them onto `DesignSettings`
+/// and the action registry on the main actor.
+public struct CmuxConfigSnapshot: Sendable, Equatable {
+    /// The whole document, for `settings.get`.
+    public var root: JSONValue
+    /// `appearance.density`, when present and valid.
+    public var density: String?
+    /// `appearance.metrics.<name>` in points.
+    public var metrics: [String: Double]
+    /// Shortcut bindings by action ID: `shortcuts.bindings.<id>` merged with
+    /// direct `shortcuts.<id>` keys (direct keys win, as in the old loader).
+    public var shortcuts: [String: ShortcutBinding]
+    public var diagnostics: [SettingsDiagnostic]
+
+    public static let empty = CmuxConfigSnapshot(root: .object([:]), density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
+
+    /// Keys under `shortcuts` that are settings, not action IDs.
+    static let reservedShortcutKeys: Set<String> = ["bindings", "when", "showModifierHoldHints"]
+
+    /// Parses a document. `validDensities` and `validMetrics` come from the
+    /// design module so this stays free of main-actor types.
+    public static func parse(
+        _ root: JSONValue,
+        validDensities: Set<String>,
+        validMetrics: Set<String>
+    ) -> CmuxConfigSnapshot {
+        var snapshot = CmuxConfigSnapshot(root: root, density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
+        guard case .object = root else {
+            snapshot.diagnostics.append(SettingsDiagnostic(kind: .unreadableFile, path: "", message: "root is not an object"))
+            return snapshot
+        }
+
+        if let appearance = root["appearance"] {
+            if case .object(let members) = appearance {
+                if let density = members["density"] {
+                    if let value = density.stringValue, validDensities.contains(value) {
+                        snapshot.density = value
+                    } else {
+                        snapshot.diagnostics.append(SettingsDiagnostic(
+                            kind: .invalidValue, path: "appearance.density",
+                            message: "expected one of \(validDensities.sorted().joined(separator: ", "))"
+                        ))
+                    }
+                }
+                if let metrics = members["metrics"] {
+                    if case .object(let entries) = metrics {
+                        for (name, value) in entries {
+                            let path = "appearance.metrics.\(name)"
+                            guard validMetrics.contains(name) else {
+                                snapshot.diagnostics.append(SettingsDiagnostic(kind: .unknownMetric, path: path, message: "unknown metric"))
+                                continue
+                            }
+                            guard let number = value.doubleValue else {
+                                snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path, message: "expected a number"))
+                                continue
+                            }
+                            snapshot.metrics[name] = number
+                        }
+                    } else {
+                        snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.metrics", message: "expected an object"))
+                    }
+                }
+            } else {
+                snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance", message: "expected an object"))
+            }
+        }
+
+        if let shortcuts = root["shortcuts"] {
+            guard case .object(let section) = shortcuts else {
+                snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "shortcuts", message: "expected an object"))
+                return snapshot
+            }
+            var raw: [(String, String, JSONValue)] = []
+            if let bindings = section["bindings"] {
+                if case .object(let entries) = bindings {
+                    raw += entries.map { ($0.key, "shortcuts.bindings.\($0.key)", $0.value) }
+                } else {
+                    snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "shortcuts.bindings", message: "expected an object"))
+                }
+            }
+            raw += section.filter { !reservedShortcutKeys.contains($0.key) }.map { ($0.key, "shortcuts.\($0.key)", $0.value) }
+            for (actionID, path, value) in raw {
+                guard let binding = ShortcutBindingFormat.parse(value) else {
+                    snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path, message: "not a valid shortcut"))
+                    continue
+                }
+                snapshot.shortcuts[actionID] = binding
+            }
+        }
+        snapshot.diagnostics.sort { $0.path < $1.path }
+        return snapshot
+    }
+}
