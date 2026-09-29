@@ -61,19 +61,23 @@ public struct DaemonLauncher: Sendable {
         self.clock = clock
     }
 
-    /// The standard app launcher: bundled binary, session from `CMUX_TAG`,
-    /// login-shell environment captured once and cached.
+    /// The standard app launcher: bundled binary, session from the app's own
+    /// tag (never an inherited `CMUX_TAG`), login-shell environment captured
+    /// once and cached. `terminalEnvironment` (the app's `CMUX_SOCKET_PATH`,
+    /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) reaches every shell the daemon spawns.
     public static func forApp(
+        tag: String?,
+        terminalEnvironment: [String: String],
         bundle: Bundle = .main,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> DaemonLauncher {
-        let tag = processEnvironment["CMUX_TAG"].flatMap { $0.isEmpty ? nil : $0 }
+        let tag = tag.flatMap { $0.isEmpty ? nil : $0 }
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         let session = try sessionName(tag: tag)
         let stateDirectory = tag.map { tagStateDirectory(tag: $0) }
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory)
         let cache = LoginEnvironmentCache()
-        var overrides: [String: String] = [:]
+        var overrides = terminalEnvironment
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         let fixedOverrides = overrides
         return DaemonLauncher(configuration: configuration, environment: {

@@ -1,8 +1,13 @@
 import AppKit
+import CmuxNextControl
 
 /// Entry point called from the Xcode target's `App/main.swift`.
 public enum CmuxNextApp {
     public static func main() {
+        // Before any thread starts or anything reads the environment: drop
+        // cmux variables inherited from a shell inside another cmux, so they
+        // cannot pick this app's socket, tag, or daemon session.
+        LaunchIdentity.stripInheritedEnvironment()
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         let delegate = AppDelegate()

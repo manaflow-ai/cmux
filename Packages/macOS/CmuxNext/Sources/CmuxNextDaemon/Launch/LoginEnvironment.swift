@@ -20,8 +20,9 @@ public enum LoginEnvironment {
         "TERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "TERM_SESSION_ID", "COLORTERM",
         "XPC_SERVICE_NAME", "XPC_FLAGS", "__CFBundleIdentifier",
         "CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET", "CMUX_TUI_SESSION",
-        "CMUX_SOCKET_PATH", "CMUX_SOCKET_ENABLE", "CMUX_BUNDLE_ID",
-        "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_PANE_ID",
+        "CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_SOCKET_ENABLE", "CMUX_BUNDLE_ID", "CMUX_TAG",
+        "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_PANE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID",
+        "CMUXD_UNIX_PATH",
     ]
 
     /// Captures the login env, or returns nil on failure or timeout.
