@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxSurfaceCatalogModel
 
 extension CmuxTuiSurfaceProviderRegistry {
     /// Retires one missing machine and clears the caller's local bindings first.
