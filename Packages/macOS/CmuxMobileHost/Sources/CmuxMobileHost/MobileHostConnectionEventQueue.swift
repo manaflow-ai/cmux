@@ -198,7 +198,7 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
     /// Surface-lane state is keyed by ``canonicalSurfaceKey(_:)`` so focus and render IDs cannot split it.
     internal var surfaceLaneGenerations: [String: UInt64] = [:]
     private var surfaceLaneFailureCounts: [String: Int] = [:]
-    private var sharedLanePinnedSurfaceIDs: Set<String> = []
+    internal var sharedLanePinnedSurfaceIDs: Set<String> = []
     private var queuedCountByLane: [MobileHostEventLane: Int] = [:]
     private var lastRenderGridRouteBySurfaceID: [String: RenderGridRoute] = [:]
     /// Surfaces whose delta chain was broken by a shed frame. Only a
