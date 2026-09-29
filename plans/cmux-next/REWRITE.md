@@ -80,3 +80,5 @@ Enforcement: a registry conformance test fails if an action lacks a cliName or a
 - Workspace groups: sidebar sections (daemon state, feat-cmux-next-daemon).
 - Tab groups: Chrome-style groups inside a pane's tab strip: name, color (gray-friendly palette), collapse/expand with animation, drag a whole group, drag tabs in/out, close group, ungroup, move group to new split/column/workspace/window. Daemon state (tab placement belongs to a group id in the pane), journaled, CLI-controllable.
 - Both fully covered by the action contract (create, rename, recolor, collapse, move, ungroup, close, add/remove member) via right-click, shortcuts, CLI, palette.
+- Sidebar (PR 15513, merged): App must `model.apply` intents optimistically. Fix later: auto-scroll timer should run only near edges; agent spinner should use a finite/paused animation when the window is occluded; group header double-click flicker. 1000 workspaces: ~55 row views, 0.14 ms layout.
+- Terminal (PR 15511, merged): output lane has no backpressure (daemon client adds bounded buffering); remove the `CMUX_NEXT_DEBUG_TERMINAL` AppDelegate hook when real panes land; bundle Ghostty resources in the target.
