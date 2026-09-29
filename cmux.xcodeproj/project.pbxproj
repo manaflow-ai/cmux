@@ -318,6 +318,7 @@
 		A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */; };
 		A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
+		CE7A00000000000000000015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		961300000000000000000003 /* AttributedString+SidebarRowLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 961300000000000000000004 /* AttributedString+SidebarRowLinks.swift */; };
 		A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A47E00010000000000000002 /* AuthEnvironmentTests.swift */; };
 		A10649160000000000000001 /* AutomationActionExecutionResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649120000000000000001 /* AutomationActionExecutionResult.swift */; };
@@ -977,6 +978,7 @@
 		D13184000000000000000008 /* CloudWorkspaceTargetingFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13184000000000000000007 /* CloudWorkspaceTargetingFixture.swift */; };
 		D1318400000000000000000A /* CloudWorkspaceTargetingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13184000000000000000009 /* CloudWorkspaceTargetingTests.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
+		CE7A0000000000000000000E /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
 		9758A0029758A0029758A002 /* cmux-amp-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = 9758A0019758A0019758A001 /* cmux-amp-wrapper */; };
 		C1ADE20002A1B2C3D4E5F719 /* cmux-claude-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */; };
 		C1ADE30002A1B2C3D4E5F719 /* cmux-codex-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE30001A1B2C3D4E5F719 /* cmux-codex-wrapper */; };
@@ -1293,6 +1295,7 @@
 		C54860010000000000000001 /* CmuxNavigationTargetResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860010000000000000002 /* CmuxNavigationTargetResolver.swift */; };
 		C54860030000000000000001 /* CmuxNavigationTargetResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860030000000000000002 /* CmuxNavigationTargetResolverTests.swift */; };
 		C54860130000000000000001 /* CmuxNavigationWorkspaceDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860130000000000000002 /* CmuxNavigationWorkspaceDescriptor.swift */; };
+		CE7A00000000000000000012 /* CmuxNextApp in Frameworks */ = {isa = PBXBuildFile; productRef = CE7A00000000000000000014 /* CmuxNextApp */; };
 		468110000000000000000001 /* CmuxNotificationHookCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468110000000000000000002 /* CmuxNotificationHookCache.swift */; };
 		468140000000000000000005 /* CmuxNotificationHookCacheEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468140000000000000000006 /* CmuxNotificationHookCacheEntry.swift */; };
 		468140000000000000000001 /* CmuxNotificationHookCacheKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468140000000000000000002 /* CmuxNotificationHookCacheKey.swift */; };
@@ -1977,6 +1980,7 @@
 		002B272099440F41EC5623C4 /* GhosttyHostKeybindDefaultsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 382F96CE151B2550BECC488E /* GhosttyHostKeybindDefaultsTests.swift */; };
 		048A66B6400AB53182FA4304 /* GhosttyKeyModifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77F5AB36771F1414A95E3330 /* GhosttyKeyModifiers.swift */; };
 		A5001006 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5001016 /* GhosttyKit.xcframework */; };
+		CE7A00000000000000000011 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5001016 /* GhosttyKit.xcframework */; };
 		F0A110010000000000000001 /* GhosttyMouseSessionLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A110020000000000000001 /* GhosttyMouseSessionLedger.swift */; };
 		F0A110050000000000000001 /* GhosttyMouseSessionLedgerButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A110060000000000000001 /* GhosttyMouseSessionLedgerButton.swift */; };
 		F0A110090000000000000001 /* GhosttyMouseSessionLedgerPointerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1100A0000000000000001 /* GhosttyMouseSessionLedgerPointerState.swift */; };
@@ -2200,6 +2204,7 @@
 		A78C41010000000000000001 /* MacSentryStartupPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78C41010000000000000002 /* MacSentryStartupPolicy.swift */; };
 		5E2701030000000000000001 /* MacSentryStartupPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2701030000000000000002 /* MacSentryStartupPolicyTests.swift */; };
 		7A0CE1000000000000000202 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000201 /* main.swift */; };
+		CE7A00000000000000000002 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7A00000000000000000001 /* main.swift */; };
 		875900000000000000000009 /* MainThreadHangCaptureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87590000000000000000000A /* MainThreadHangCaptureStore.swift */; };
 		87590000000000000000000B /* MainThreadHangSampleRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87590000000000000000000C /* MainThreadHangSampleRunner.swift */; };
 		875900000000000000000003 /* MainThreadHangWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875900000000000000000004 /* MainThreadHangWatchdog.swift */; };
@@ -4186,6 +4191,13 @@
 			remoteGlobalIDString = 7A0CE1000000000000000054;
 			remoteInfo = cmuxTunnelExtension;
 		};
+		CE7A00000000000000000010 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A5001070 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B9000005A1B2C3D4E5F60719;
+			remoteInfo = "cmux-cli";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -4243,6 +4255,17 @@
 				7A0CE1000000000000000049 /* cmuxTunnel.systemextension in Embed System Extensions */,
 			);
 			name = "Embed System Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CE7A0000000000000000000C /* Copy CLI */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = bin;
+			dstSubfolderSpec = 7;
+			files = (
+				CE7A0000000000000000000E /* cmux in Copy CLI */,
+			);
+			name = "Copy CLI";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -5200,6 +5223,7 @@
 		C1ADE40001A1B2C3D4E5F719 /* cmux-hermes-agent-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-hermes-agent-wrapper"; sourceTree = SOURCE_ROOT; };
 		C1ADE50001A1B2C3D4E5F719 /* cmux-hermes-python-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-hermes-python-wrapper"; sourceTree = SOURCE_ROOT; };
 		C1ADE60001A1B2C3D4E5F719 /* cmux-hermes-sitecustomize.py */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.python; path = "Resources/bin/cmux-hermes-sitecustomize.py"; sourceTree = SOURCE_ROOT; };
+		CE7A00000000000000000004 /* cmux-next.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "cmux-next.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C1ADE70001A1B2C3D4E5F719 /* cmux-pi-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-pi-wrapper"; sourceTree = SOURCE_ROOT; };
 		D96971000000000000000002 /* cmux-sudo */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-sudo"; sourceTree = SOURCE_ROOT; };
 		A5001000 /* cmux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -6283,6 +6307,7 @@
 		A78C41010000000000000002 /* MacSentryStartupPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MacSentryStartupPolicy.swift; sourceTree = "<group>"; };
 		5E2701030000000000000002 /* MacSentryStartupPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacSentryStartupPolicyTests.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000201 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		CE7A00000000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		87590000000000000000000A /* MainThreadHangCaptureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainThreadHangCaptureStore.swift; sourceTree = "<group>"; };
 		87590000000000000000000C /* MainThreadHangSampleRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainThreadHangSampleRunner.swift; sourceTree = "<group>"; };
 		875900000000000000000004 /* MainThreadHangWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainThreadHangWatchdog.swift; sourceTree = "<group>"; };
@@ -8390,6 +8415,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CE7A0000000000000000000A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CE7A00000000000000000012 /* CmuxNextApp in Frameworks */,
+				CE7A00000000000000000011 /* GhosttyKit.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -8967,6 +9001,7 @@
 				C11757000000000000000004 /* cmuxCLITestSupport */,
 				7A0CE1000000000000000053 /* TunnelExtension */,
 				A5001042 /* Products */,
+				CE7A00000000000000000003 /* App */,
 			);
 			sourceTree = "<group>";
 		};
@@ -11079,6 +11114,7 @@
 				7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */,
 				F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */,
 				C11757000000000000000005 /* cmuxCLITests.xctest */,
+				CE7A00000000000000000004 /* cmux-next.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -12520,6 +12556,14 @@
 			path = TunnelExtension;
 			sourceTree = "<group>";
 		};
+		CE7A00000000000000000003 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				CE7A00000000000000000001 /* main.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -12805,6 +12849,29 @@
 			productReference = 7A0CE1000000000000000026 /* cmuxTunnel.systemextension */;
 			productType = "com.apple.product-type.system-extension";
 		};
+		CE7A00000000000000000005 /* cmux-next */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CE7A00000000000000000006 /* Build configuration list for PBXNativeTarget "cmux-next" */;
+			buildPhases = (
+				CE7A00000000000000000009 /* Sources */,
+				CE7A0000000000000000000A /* Frameworks */,
+				CE7A0000000000000000000B /* Resources */,
+				CE7A0000000000000000000C /* Copy CLI */,
+				CE7A0000000000000000000D /* Reject Bundled Provider Binaries */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CE7A0000000000000000000F /* PBXTargetDependency */,
+			);
+			name = "cmux-next";
+			packageProductDependencies = (
+				CE7A00000000000000000014 /* CmuxNextApp */,
+			);
+			productName = "cmux-next";
+			productReference = CE7A00000000000000000004 /* cmux-next.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -12916,6 +12983,7 @@
 				1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */,
 				D0F3A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudImagePaste" */,
 				C4B1E0000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileHost" */,
+				CE7A00000000000000000013 /* XCLocalSwiftPackageReference "Packages/macOS/CmuxNext" */,
 			);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -12928,6 +12996,7 @@
 				CB450DF0F0B3839599082C4D /* cmuxUITests */,
 				F1000004A1B2C3D4E5F60718 /* cmuxTests */,
 				C11757000000000000000002 /* cmuxCLITests */,
+				CE7A00000000000000000005 /* cmux-next */,
 			);
 		};
 /* End PBXProject section */
@@ -12989,6 +13058,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				7A0CE1000000000000000048 /* InfoPlist.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CE7A0000000000000000000B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CE7A00000000000000000015 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -13166,6 +13243,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/scripts/build-plain-text-paste-worker.sh\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin/cmux-paste-text-worker\" \"${ARCHS}\"\n";
+		};
+		CE7A0000000000000000000D /* Reject Bundled Provider Binaries */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Reject Bundled Provider Binaries";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nBIN_DIR=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin\"\nPROVIDERS=\"codex claude opencode pi\"\nfor provider in $PROVIDERS; do\n  if [ -e \"${SRCROOT}/Resources/bin/${provider}\" ]; then\n    echo \"error: provider executable must not be checked in at Resources/bin/${provider}\" >&2\n    exit 1\n  fi\n  if [ -e \"${BIN_DIR}/${provider}\" ]; then\n    rm -rf \"${BIN_DIR:?}/${provider}\"\n  fi\n  if [ -e \"${BIN_DIR}/${provider}\" ]; then\n    echo \"error: provider executable must not be bundled at ${BIN_DIR}/${provider}\" >&2\n    exit 1\n  fi\ndone\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -17194,6 +17290,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CE7A00000000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CE7A00000000000000000002 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -17226,6 +17330,11 @@
 			isa = PBXTargetDependency;
 			target = 7A0CE1000000000000000054 /* cmuxTunnelExtension */;
 			targetProxy = 7A0CE1000000000000000061 /* PBXContainerItemProxy */;
+		};
+		CE7A0000000000000000000F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B9000005A1B2C3D4E5F60719 /* cmux-cli */;
+			targetProxy = CE7A00000000000000000010 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -17654,6 +17763,102 @@
 			};
 			name = Release;
 		};
+		CE7A00000000000000000007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Debug";
+				CMUX_AUTH_CALLBACK_SCHEME = "cmux-dev";
+				CMUX_IROH_RELAY_POLICY_KEY_ID = "cmux-staging-relay-policy-2026-07";
+				CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID = "cmux-staging-relay-policy-2026-08";
+				CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64 = "KnOZ6gKmH05Mrfan2tXgwRygBKxcSUue4bp34udiQFA=";
+				CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64 = "Otx9S0B4d/tlwIKYRf5evJaqhjCltFLPjMfXrLFd6lk=";
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.cmuxterm.app.cmux.sidebar;
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 106;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.64.25;
+				OTHER_LDFLAGS = (
+					"-lc++",
+					"-framework",
+					Metal,
+					"-framework",
+					QuartzCore,
+					"-framework",
+					IOSurface,
+					"-framework",
+					UniformTypeIdentifiers,
+					"-framework",
+					Carbon,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.debug;
+				PRODUCT_NAME = "cmux DEV";
+				OTHER_SWIFT_FLAGS = (
+					"-Xllvm",
+					"-global-isel=0",
+				);
+				SPARKLE_PUBLIC_KEY = "avjcgKibf1FTvhIjLBxhd+0HSpsXU4D0IGlVk8cgqRc=";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_ENABLE_BATCH_MODE = NO;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		CE7A00000000000000000008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CMUX_AUTH_CALLBACK_SCHEME = cmux;
+				CMUX_IROH_RELAY_POLICY_KEY_ID = "cmux-production-relay-policy-2026-07";
+				CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID = "cmux-production-relay-policy-2026-08";
+				CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64 = "k+FND+WlELCkHs9QnWg1TfTuHXBwyv2907umX+mUOOU=";
+				CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64 = "qoBinRqX4TI1Ro6xAuOQxKUkeZT3pkFJuERP/+R+9aw=";
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.cmuxterm.app.cmux.sidebar;
+				CODE_SIGN_ENTITLEMENTS = Resources/cmux.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 106;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.64.25;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = (
+					"-lc++",
+					"-framework",
+					Metal,
+					"-framework",
+					QuartzCore,
+					"-framework",
+					IOSurface,
+					"-framework",
+					UniformTypeIdentifiers,
+					"-framework",
+					Carbon,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app;
+				PRODUCT_NAME = cmux;
+				SPARKLE_PUBLIC_KEY = "avjcgKibf1FTvhIjLBxhd+0HSpsXU4D0IGlVk8cgqRc=";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -17725,6 +17930,15 @@
 			buildConfigurations = (
 				7A0CE1000000000000000063 /* Debug */,
 				7A0CE1000000000000000064 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CE7A00000000000000000006 /* Build configuration list for PBXNativeTarget "cmux-next" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CE7A00000000000000000007 /* Debug */,
+				CE7A00000000000000000008 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -18001,6 +18215,10 @@
 		D0F4A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudTunnelCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCloudTunnelCore;
+		};
+		CE7A00000000000000000013 /* XCLocalSwiftPackageReference "Packages/macOS/CmuxNext" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxNext;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -18473,6 +18691,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D0F4A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudTunnelCore" */;
 			productName = CmuxCloudTunnelCore;
+		};
+		CE7A00000000000000000014 /* CmuxNextApp */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CE7A00000000000000000013 /* XCLocalSwiftPackageReference "Packages/macOS/CmuxNext" */;
+			productName = CmuxNextApp;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
