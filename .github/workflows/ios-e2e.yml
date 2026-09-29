@@ -132,7 +132,7 @@ jobs:
       - name: Join tailnet
         # TODO(ios-e2e): pin to a commit SHA like the other third-party
         # actions in this repo once the action version settles.
-        uses: tailscale/github-action@v4
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
@@ -223,7 +223,7 @@ jobs:
       - name: Join tailnet
         # TODO(ios-e2e): pin to a commit SHA (see backend job); also confirm
         # the action's macOS-runner support on the Blacksmith image.
-        uses: tailscale/github-action@v4
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
@@ -320,7 +320,7 @@ jobs:
 
       - name: Join tailnet
         # TODO(ios-e2e): pin to a commit SHA (see backend job).
-        uses: tailscale/github-action@v4
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}

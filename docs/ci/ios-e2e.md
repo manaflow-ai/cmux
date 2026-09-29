@@ -39,7 +39,7 @@ each step covers live in [scripts/e2e/README.md](../../scripts/e2e/README.md).
 
 | Job | Runner | Timeout | Does |
 | --- | --- | --- | --- |
-| `route` | Linux (`blacksmith-4vcpu-ubuntu-2404`) | 5m | Decides `run_e2e` (stub: always true, `detect_ci_change_areas.py` integration pending) and the backend tag: `ci<PR#>` when `web/` changed, shared `ci-main` otherwise. |
+| `route` | Linux (`blacksmith-4vcpu-ubuntu-2404`) | 5m | Sets `run_e2e=true` for manual dispatch; pull-request runs are skipped, with a backend tag selected for dispatch. |
 | `backend` | Linux | 10m | Joins the tailnet (`tailscale/github-action@v4`, tag:ci), pings the backend host, ensures the tagged stack (stub; real call is cmuxterm-hq `scripts/dev-backend.sh url --tag <tag>` over SSH). |
 | `mac-host` | macOS (`MACOS_RUNNER_PR` or `blacksmith-6vcpu-macos-26`) | 45m | Downloads the prebuilt Mac app (reuse pending), joins the tailnet under the deterministic name `cmux-e2e-mac-<run_id>`, launches signed into the CI Stack account, advertises through the backend, waits on `/tmp/e2e-done-<run_id>` (bounded ~25m). |
 | `ios-e2e` | macOS (`MACOS_RUNNER_IOS` fallback chain) | 45m | Downloads the sim app product (pending), boots a fresh per-run simulator, runs `scripts/e2e/ios-e2e-run.sh`, then ALWAYS signals the Mac's done-file over Tailscale SSH, uploads evidence, deletes the sim. |
@@ -102,7 +102,7 @@ does not count against the lane's flake budget during shadow. A red with no
 
 ## Promotion plan
 
-1. **Shadow.** The workflow runs on every PR (route-gated, not required) and
+1. **Shadow.** The workflow runs on manual dispatch while pull-request runs are skipped, and
    on dispatch. Expected red until the TODOs land, in this order: real
    router via `scripts/ci/detect_ci_change_areas.py`; backend ensure with
    `CMUX_DEV_BACKEND_SSH_KEY`; Mac app product reuse

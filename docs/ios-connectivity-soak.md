@@ -160,6 +160,5 @@ the rest of the hour's workload. A failed reconnect or a second terminal
 failure stops the run and reports that primary failure without cascading
 coverage noise. The retry covers the regular probe, workspace usage steps,
 and the final terminal transaction. Workspace cleanup and restoration must
-succeed before retrying a failed scratch-workspace step. Both attempts and
-reconnection share the existing 30-second cycle deadline. Successful recovery
+succeed before retrying a failed scratch-workspace step. Reconnection and the retry get a fresh 60-second deadline, and a recovered cycle may take up to 60 seconds (`soak_recovery_cycle_exceeded_60_seconds`). Successful recovery
 still produces `passed: false` with `soak_terminal_recovered` in the app report.

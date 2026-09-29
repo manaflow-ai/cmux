@@ -19,6 +19,7 @@ set -euo pipefail
 TAG="${CMUX_E2E_TAG:?CMUX_E2E_TAG is required}"
 DONE_FILE="${CMUX_E2E_DONE_FILE:?CMUX_E2E_DONE_FILE is required}"
 WAIT_BUDGET="${CMUX_E2E_WAIT_TIMEOUT_SECONDS:-1500}"
+rm -f "$DONE_FILE"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -58,7 +59,6 @@ until CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" auth status 2>/dev/
 done
 phase ready "socket up, signed in; holding for done-file $DONE_FILE (budget ${WAIT_BUDGET}s)"
 
-rm -f "$DONE_FILE"
 deadline=$(( $(date +%s) + WAIT_BUDGET ))
 until [[ -f "$DONE_FILE" ]]; do
   if (( $(date +%s) >= deadline )); then
