@@ -22,4 +22,8 @@ struct CmuxTopProcessReader: CmuxTopProcessReading {
     func matches(pid: Int, key: CmuxTopProcessScopeCacheKey) -> Bool {
         CmuxTopProcessSnapshot.processMatchesKey(pid, key)
     }
+    func processHasExited(pid: Int) -> Bool {
+        guard pid > 0, pid <= Int(Int32.max) else { return false }
+        return PIDPresence.current(pid: pid_t(pid)) == .absent
+    }
 }
