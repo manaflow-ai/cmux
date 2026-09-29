@@ -304,8 +304,20 @@ jobs:
       - name: Create isolated simulator
         run: |
           set -euo pipefail
-          device_type="$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; items=[x for x in json.load(sys.stdin)["devicetypes"] if "iPhone" in x.get("name","")]; print(items[-1]["identifier"] if items else (_ for _ in ()).throw(SystemExit("no iPhone simulator device type")))')"
-          udid="$(xcrun simctl create "cmux-e2e-${GITHUB_RUN_ID}" "$device_type")"
+          device_type="$(xcrun simctl list devicetypes -j | python3 -c '
+          import json,sys
+          items=[x for x in json.load(sys.stdin)["devicetypes"] if "iPhone" in x.get("name","")]
+          preferred=("iPhone 17 Pro Max","iPhone 17 Pro","iPhone 17","iPhone 16 Pro Max","iPhone 16 Pro","iPhone 16","iPhone 15 Pro")
+          for name in preferred:
+              match=next((x for x in items if x.get("name")==name),None)
+              if match: print(match["identifier"]); break
+          else:
+              match=next((x for x in items if not any(old in x.get("name","") for old in ("iPhone 6","iPhone 5","iPhone SE"))),None)
+              if not match: raise SystemExit("no modern iPhone simulator device type")
+              print(match["identifier"])
+          ')"
+          runtime="$(xcrun simctl list runtimes available -j | python3 -c 'import json,sys; rs=[r for r in json.load(sys.stdin)["runtimes"] if r.get("isAvailable",True) and "iOS" in r.get("identifier","")]; print(sorted(rs,key=lambda r:tuple(int(x) for x in r.get("version","0").split(".")))[-1]["identifier"])')"
+          udid="$(xcrun simctl create "cmux-e2e-${GITHUB_RUN_ID}" "$device_type" "$runtime")"
           xcrun simctl boot "$udid"
           xcrun simctl bootstatus "$udid" -b
           echo "CMUX_E2E_SIM_UDID=$udid" >> "$GITHUB_ENV"
