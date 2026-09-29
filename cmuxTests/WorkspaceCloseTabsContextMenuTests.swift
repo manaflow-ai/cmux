@@ -101,7 +101,12 @@ struct WorkspaceCloseTabsContextMenuTests {
                 promptCount += 1
                 return true
             }
-            #expect(fixture.workspace.requestCloseTabRecordingHistory(tabId, force: false))
+            let tab = try #require(fixture.workspace.bonsplitController.tab(tabId))
+            #expect(!fixture.workspace.splitTabBar(
+                fixture.workspace.bonsplitController,
+                shouldCloseTab: tab,
+                inPane: fixture.paneId
+            ))
             drainMainQueue()
             drainMainQueue()
 

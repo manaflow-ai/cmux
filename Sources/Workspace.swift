@@ -14712,10 +14712,7 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             copyIdentifiersToPasteboard(surfaceId: panelId)
         case .close:
-            guard let manager = owningTabManager
-                ?? AppDelegate.shared?.tabManagerFor(tabId: id)
-                ?? AppDelegate.shared?.tabManager else { return }
-            manager.closePanelWithConfirmation(tabId: id, surfaceId: tab.id.uuid)
+            closeTabsFromContextMenu([tab.id])
         case .closeToLeft:
             closeTabs(tabIdsToLeft(of: tab.id, inPane: pane))
         case .closeToRight:
