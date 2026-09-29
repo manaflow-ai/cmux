@@ -51,7 +51,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// A forced refresh waits for an existing pass instead of starting a second
     /// fleet read. This prevents an older page from unregistering a machine that
     /// a newer page just added.
-    private var refreshGeneration: UInt64 = 0
+    var refreshGeneration: UInt64 = 0
     /// Bumped by every ``start(catalog:)``. `NotificationCenter` blocks queued
     /// on `.main` are already enqueued when `removeObserver` runs, so a
     /// teardown posted before a restart can still land after it. The observer
@@ -411,24 +411,6 @@ final class CmuxTuiSurfaceProviderRegistry {
         return providers[machineID]
     }
 
-    /// The machine is gone: drop its provider and catalog entry now, and tear
-    /// down its forwards and link on a task the registry owns (awaited by
-    /// ``accessDidEnd()``), so no caller has to hold an unstructured task.
-    func machineWasDeleted(_ rawID: String) {
-        AppDelegate.shared?.closeLocalWorkspaces(forCloudVMID: rawID)
-        // A fleet page fetched before the delete must not re-register the
-        // machine on top of this teardown.
-        refreshGeneration &+= 1
-        unregisterMachine(rawID)
-    }
-
-    /// Retires several missing machines while scanning local workspace tabs
-    /// only once. Each provider still receives its own ordered teardown.
-    func machineWasDeleted(_ rawIDs: Set<String>) {
-        AppDelegate.shared?.closeLocalWorkspaces(forCloudVMIDs: rawIDs)
-        refreshGeneration &+= 1
-        for rawID in rawIDs { unregisterMachine(rawID) }
-    }
     /// Deletion and discovery share ordered teardown without waiting for unrelated machines.
     func unregisterMachine(_ rawID: String) {
         // Match the registered casing so every ownership table is removed.

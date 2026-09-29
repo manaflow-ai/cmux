@@ -9269,7 +9269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let target = vmID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !target.isEmpty else { return }
         // The sidebar's headless link to that machine has nothing left to talk to.
-        CmuxTuiSurfaceProviderRegistry.shared.machineWasDeleted(target)
+        CmuxTuiSurfaceProviderRegistry.shared.machineWasDeleted(target, closeLocalWorkspaces: { [weak self] id in self?.closeLocalWorkspaces(forCloudVMID: id) })
     }
 
     /// The local workspace attached to a cloud machine, through either transport: the

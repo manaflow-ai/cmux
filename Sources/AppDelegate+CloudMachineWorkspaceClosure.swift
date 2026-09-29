@@ -43,6 +43,7 @@ extension AppDelegate {
         Set(localWorkspaces(forCloudVMID: vmID).flatMap { $0.workspaces.map(\.id) })
     }
 
+    /// Normalizes a managed Cloud VM ID for case-insensitive workspace matching.
     private static func normalizedCloudVMID(_ vmID: String?) -> String? {
         guard let vmID else { return nil }
         let normalized = vmID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

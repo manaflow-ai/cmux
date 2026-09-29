@@ -6,6 +6,7 @@ import CmuxSettings
 
 @MainActor
 extension CmuxTuiSurfaceProvider {
+    /// Creates a Cloud provider from a VM summary and forwards its terminal disposition callback.
     convenience init(
         summary: VMSummary,
         fileAccessTeamScope: AuthenticatedTeamScope? = nil,
