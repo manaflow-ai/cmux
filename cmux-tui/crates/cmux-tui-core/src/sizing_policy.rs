@@ -123,8 +123,9 @@ impl TerminalSizingParticipant {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TerminalSizingMode {
-    #[default]
     Latest,
+    /// "Fit everyone": the default, so every attached device sees the whole grid.
+    #[default]
     Smallest,
     Largest,
     Priority,

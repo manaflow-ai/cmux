@@ -32,7 +32,7 @@ public struct LocalTerminalSizingHost: Sendable {
     public init(
         macParticipant: TerminalSizingParticipant,
         initialSize: TerminalGridSize,
-        policy: TerminalSizingPolicy = .latest
+        policy: TerminalSizingPolicy = .fitEveryone
     ) {
         macParticipantID = macParticipant.id
         engine = TerminalSizingEngine(initialSize: initialSize, policy: policy)

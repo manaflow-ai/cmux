@@ -19,7 +19,7 @@ public struct TerminalSizingEngine: Sendable {
     /// - Parameters:
     ///   - initialSize: the grid before anyone reports, usually the PTY's current size.
     ///   - policy: the effective policy (workspace default or terminal override).
-    public init(initialSize: TerminalGridSize, policy: TerminalSizingPolicy = .latest) {
+    public init(initialSize: TerminalGridSize, policy: TerminalSizingPolicy = .fitEveryone) {
         self.policy = policy
         self.held = initialSize.clamped
         self.state = TerminalSizingState(

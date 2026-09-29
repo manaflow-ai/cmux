@@ -105,18 +105,21 @@ public struct TerminalSizingPolicy: Codable, Hashable, Sendable {
     /// Grid used by `.fixed`.
     public var fixed: TerminalGridSize?
 
-    public init(mode: TerminalSizingMode = .latest, priority: [String] = [], fixed: TerminalGridSize? = nil) {
+    public init(mode: TerminalSizingMode = .smallest, priority: [String] = [], fixed: TerminalGridSize? = nil) {
         self.mode = mode
         self.priority = priority
         self.fixed = fixed?.clamped
     }
 
-    public static let latest = TerminalSizingPolicy()
+    /// The default: fit everyone, so every attached device sees the whole grid.
+    public static let fitEveryone = TerminalSizingPolicy(mode: .smallest)
+
+    public static let latest = TerminalSizingPolicy(mode: .latest)
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
-            mode: try c.decodeIfPresent(TerminalSizingMode.self, forKey: .mode) ?? .latest,
+            mode: try c.decodeIfPresent(TerminalSizingMode.self, forKey: .mode) ?? .smallest,
             priority: try c.decodeIfPresent([String].self, forKey: .priority) ?? [],
             fixed: try c.decodeIfPresent(TerminalGridSize.self, forKey: .fixed)
         )

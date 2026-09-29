@@ -6,10 +6,14 @@ import Testing
 @Suite struct LocalTerminalSizingHostTests {
     private let me = TerminalSharingIdentity(userID: "u_me", displayName: "Me", deviceName: "Mac")
 
-    private func host(mac: TerminalGridSize = TerminalGridSize(cols: 200, rows: 60)) -> LocalTerminalSizingHost {
+    private func host(
+        mac: TerminalGridSize = TerminalGridSize(cols: 200, rows: 60),
+        policy: TerminalSizingPolicy = .latest
+    ) -> LocalTerminalSizingHost {
         LocalTerminalSizingHost(
             macParticipant: me.participant(id: "mac:pane", deviceKind: .mac, viewport: mac),
-            initialSize: mac
+            initialSize: mac,
+            policy: policy
         )
     }
 
@@ -19,6 +23,13 @@ import Testing
             userID: user, deviceKind: .iphone, deviceName: "iPhone",
             viewport: TerminalGridSize(cols: cols, rows: rows)
         )
+    }
+
+    @Test func defaultFitsEveryoneIncludingMyPhone() {
+        var h = host(policy: .fitEveryone)
+        h.syncPhones([phone("a")])
+        #expect(h.state.participant("mobile:a")?.counts == true)
+        #expect(h.applyTarget == .grid(TerminalGridSize(cols: 50, rows: 30)))
     }
 
     @Test func macAloneIsUncapped() {
