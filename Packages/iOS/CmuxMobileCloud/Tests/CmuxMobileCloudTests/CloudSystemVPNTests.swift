@@ -15,19 +15,33 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
     var installDelay: Duration?
     var stopFailuresRemaining = 0
     var stopAttempts: [Bool] = []
+    private(set) var activeOperations = 0
+    private(set) var maxConcurrentOperations = 0
     /// The phase iOS reports once a start is requested.
     var phaseAfterStart: CloudSystemVPNPhase = .connecting
 
-    func refresh(scope: String) async throws { refreshedScopes.append(scope) }
+    func refresh(scope: String) async throws {
+        beginOperation()
+        defer { endOperation() }
+        refreshedScopes.append(scope)
+    }
 
     func installAndStart(configuration: String, scope: String) async throws {
+        beginOperation()
+        defer { endOperation() }
         if let installFailure { throw installFailure }
-        if let installDelay { try await Task.sleep(for: installDelay) }
+        if let installDelay {
+            await Task.detached {
+                try? await ContinuousClock().sleep(for: installDelay)
+            }.value
+        }
         installed.append((configuration, scope))
         phase = phaseAfterStart
     }
 
     func stop(removeConfiguration: Bool) async throws {
+        beginOperation()
+        defer { endOperation() }
         stopAttempts.append(removeConfiguration)
         if stopFailuresRemaining > 0 {
             stopFailuresRemaining -= 1
@@ -35,6 +49,15 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         }
         stops.append(removeConfiguration)
         phase = .off
+    }
+
+    private func beginOperation() {
+        activeOperations += 1
+        maxConcurrentOperations = max(maxConcurrentOperations, activeOperations)
+    }
+
+    private func endOperation() {
+        activeOperations -= 1
     }
 
     /// Simulates iOS reporting a status change on its own.
@@ -54,8 +77,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
 
         @MainActor init(
             operationTimeout: Duration = .seconds(30),
-            cleanupRetryCount: Int = 3,
-            cleanupRetryDelay: Duration = .seconds(1)
+            cleanupRetryCount: Int = 3
         ) {
             controller = CloudSystemVPNController(
                 service: service,
@@ -63,8 +85,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
                 manager: manager,
                 deviceName: "Aziz's iPhone",
                 operationTimeout: operationTimeout,
-                cleanupRetryCount: cleanupRetryCount,
-                cleanupRetryDelay: cleanupRetryDelay
+                cleanupRetryCount: cleanupRetryCount
             )
         }
     }
@@ -166,13 +187,30 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
 
     @Test func aStalledInstallTimesOutAndLeavesTheSwitchRecoverable() async {
         let rig = Rig(operationTimeout: .milliseconds(100))
-        rig.manager.installDelay = .seconds(60)
+        rig.manager.installDelay = .milliseconds(500)
         await signedIn(rig)
         rig.controller.enable()
         await rig.controller.waitForPendingOperation()
 
         #expect(rig.controller.phase == .failed(.configuration))
         #expect(rig.manager.installed.isEmpty)
+    }
+
+    @Test func aReplacementWaitsForTheOriginalPlatformCall() async {
+        let rig = Rig(operationTimeout: .milliseconds(100))
+        rig.manager.installDelay = .milliseconds(500)
+        await signedIn(rig)
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+        #expect(rig.controller.phase == .failed(.configuration))
+
+        rig.controller.disable()
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.manager.maxConcurrentOperations == 1)
+        #expect(rig.manager.stops == [false])
+        #expect(rig.controller.phase == .off)
     }
 
     @Test func aDeclinedConsentKeepsItsRecoveryState() async {
@@ -229,7 +267,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
     }
 
     @Test func signingOutRetriesCleanupAfterATransientRemovalFailure() async {
-        let rig = Rig(cleanupRetryDelay: .milliseconds(1))
+        let rig = Rig()
         await signedIn(rig)
         rig.manager.stopFailuresRemaining = 1
         rig.controller.setScope(nil)

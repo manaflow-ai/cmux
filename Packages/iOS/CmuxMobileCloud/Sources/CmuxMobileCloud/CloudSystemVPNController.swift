@@ -24,8 +24,8 @@ public final class CloudSystemVPNController {
     private let deviceName: String
     private let routePolicy = CloudVPNRoutePolicy()
     private let timeout: CloudSystemVPNTaskTimeout
+    private let operationGate = CloudSystemVPNOperationGate()
     private let cleanupRetryCount: Int
-    private let cleanupRetryDelay: Duration
     private var scope: String?
     private var hasLoadedScope = false
     private var cleanupPending = false
@@ -43,15 +43,13 @@ public final class CloudSystemVPNController {
     ///     Extension operation.
     ///   - cleanupRetryCount: Number of attempts made to remove an old VPN
     ///     profile before leaving cleanup pending for a later retry.
-    ///   - cleanupRetryDelay: Delay between profile removal attempts.
     public init(
         service: any CloudVMServing,
         identityStore: any CloudDeviceIdentityStoring,
         manager: any CloudSystemVPNManaging,
         deviceName: String,
         operationTimeout: Duration = .seconds(30),
-        cleanupRetryCount: Int = 3,
-        cleanupRetryDelay: Duration = .seconds(1)
+        cleanupRetryCount: Int = 3
     ) {
         self.service = service
         self.identityResolver = CloudDeviceIdentityResolver(store: identityStore)
@@ -59,9 +57,11 @@ public final class CloudSystemVPNController {
         self.deviceName = deviceName
         timeout = CloudSystemVPNTaskTimeout(timeout: max(.milliseconds(1), operationTimeout))
         self.cleanupRetryCount = max(1, cleanupRetryCount)
-        self.cleanupRetryDelay = max(.zero, cleanupRetryDelay)
         manager.onPhaseChange = { [weak self] phase in
-            guard let self, self.scope != nil, self.operation == nil else { return }
+            guard let self,
+                  self.scope != nil,
+                  self.operation == nil,
+                  !self.operationGate.hasPendingOperation else { return }
             self.accept(phase)
         }
     }
@@ -95,10 +95,9 @@ public final class CloudSystemVPNController {
                     cleanupPending = false
                 }
                 if let newScope {
-                    let refreshTask = Task { @MainActor in
-                        try await manager.refresh(scope: newScope)
+                    try await performBounded {
+                        try await self.manager.refresh(scope: newScope)
                     }
-                    try await timeout.value(refreshTask)
                     guard self.isCurrent(generation) else { return }
                 }
                 phase = manager.phase
@@ -136,10 +135,9 @@ public final class CloudSystemVPNController {
                     guard self.isCurrent(generation) else { return }
                     cleanupPending = false
                 }
-                let refreshTask = Task { @MainActor in
-                    try await manager.refresh(scope: scope)
+                try await performBounded {
+                    try await self.manager.refresh(scope: scope)
                 }
-                try await timeout.value(refreshTask)
                 guard self.isCurrent(generation) else { return }
                 accept(manager.phase)
             } catch {
@@ -175,19 +173,17 @@ public final class CloudSystemVPNController {
                 let enrollment: CloudTunnelEnrollment
                 let keyPair = WireGuardKeyPair()
                 do {
-                    let identityTask = Task { @MainActor in
-                        try await identityResolver.resolve()
+                    identity = try await performBounded {
+                        try await self.identityResolver.resolve()
                     }
-                    identity = try await timeout.value(identityTask)
-                    let enrollmentTask = Task { @MainActor in
-                        try await service.enrollTunnel(
+                    enrollment = try await performBounded {
+                        try await self.service.enrollTunnel(
                             clientPublicKey: keyPair.publicKey,
                             deviceFingerprint: identity.fingerprint,
                             tunnelPurpose: .browser,
-                            deviceName: deviceName
+                            deviceName: self.deviceName
                         )
                     }
-                    enrollment = try await timeout.value(enrollmentTask)
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
@@ -210,10 +206,9 @@ public final class CloudSystemVPNController {
                 guard routePolicy.permitsOnlyPrivateRoutes(inQuickConfig: configuration.text) else {
                     throw CloudSystemVPNError.configuration
                 }
-                let installTask = Task { @MainActor in
-                    try await manager.installAndStart(configuration: configuration.text, scope: scope)
+                try await performBounded {
+                    try await self.manager.installAndStart(configuration: configuration.text, scope: scope)
                 }
-                try await timeout.value(installTask)
                 guard self.isCurrent(generation) else { return }
                 phase = manager.phase
             } catch {
@@ -229,10 +224,9 @@ public final class CloudSystemVPNController {
         phase = .disconnecting
         enqueue { [self] generation in
             do {
-                let stopTask = Task { @MainActor in
-                    try await manager.stop(removeConfiguration: false)
+                try await performBounded {
+                    try await self.manager.stop(removeConfiguration: false)
                 }
-                try await timeout.value(stopTask)
                 guard self.isCurrent(generation) else { return }
                 phase = manager.phase
             } catch {
@@ -265,22 +259,27 @@ public final class CloudSystemVPNController {
 
     private func removeConfigurationWithRetry() async throws {
         var lastError: (any Error)?
-        for attempt in 0..<cleanupRetryCount {
+        for _ in 0..<cleanupRetryCount {
             do {
-                let stopTask = Task { @MainActor in
-                    try await manager.stop(removeConfiguration: true)
+                try await performBounded {
+                    try await self.manager.stop(removeConfiguration: true)
                 }
-                try await timeout.value(stopTask)
                 return
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
                 lastError = error
             }
-            guard attempt + 1 < cleanupRetryCount else { break }
-            try await Task.sleep(for: cleanupRetryDelay)
         }
         throw lastError ?? CloudSystemVPNError.configuration
+    }
+
+    private func performBounded<T: Sendable>(
+        _ action: @escaping @MainActor () async throws -> T
+    ) async throws -> T {
+        let operation = operationGate.start(action)
+        await operation.acquired.value
+        return try await timeout.value(operation.result)
     }
 
     private func isCurrent(_ generation: UInt64) -> Bool {
