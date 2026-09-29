@@ -486,8 +486,9 @@ struct MachinesPanelView: View {
                 discoveryEnabled: includesDevices,
                 incomingAccessEnabled: devicesModel.preferences?.incomingAccessEnabled ?? false,
                 discoveryManaged: discoveryManaged,
-                incomingAccessManaged: incomingAccessManaged
+                incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable()
             ),
+            showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
             reveal: devicesModel.revealRequest,

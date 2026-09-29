@@ -149,6 +149,11 @@ def creation_cases(command: str | None) -> list[tuple[str, list[str], str]]:
             ["new-workspace"],
             "workspace.create",
         ),
+        (
+            "workspace create",
+            ["workspace", "create"],
+            "workspace.create",
+        ),
     ]
     if command is None:
         return cases

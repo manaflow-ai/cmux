@@ -25,6 +25,11 @@
       "message": "Postavljanje Cloud VM-a nije uspjelo i čišćenje je još na čekanju.",
       "action": "Obratite se podršci s ID-jem praćenja prije kreiranja druge mašine."
     },
+    "recreateRequired": {
+      "title": "Ponovo kreirajte ovu mašinu",
+      "message": "Ova mašina je kreirana prije ažuriranja Clouda i ne može se povezati.",
+      "action": "Kreirajte novu mašinu, kopirajte datoteke pomoću cmux vm pull i cmux vm push, a zatim obrišite ovu."
+    },
     "unsupported": {
       "title": "Operacija Cloud VM-a nije dostupna",
       "reason": "Ova vrsta mašine ne pruža ovu operaciju.",
