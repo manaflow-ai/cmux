@@ -1437,7 +1437,7 @@ actor MobileHostConnection {
     nonisolated var connectionID: UUID { id }
     private let transport: any CmxByteTransport
     private let writer: MobileHostSerializedTransportWriter
-    fileprivate let independentEventWriter: (any MobileHostIndependentEventWriting)?
+    internal let independentEventWriter: (any MobileHostIndependentEventWriting)?
     private let firstFrameTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     /// Per-request authorization for transports whose admission lease can
@@ -1476,14 +1476,14 @@ actor MobileHostConnection {
     private var independentEventNegotiationInProgress = false
     /// Whether the event queue currently routes render-grid frames onto
     /// per-surface lanes (mirrors the subscriptions that negotiated them).
-    fileprivate var surfaceEventLanesActive = false
+    internal var surfaceEventLanesActive = false
     /// Last surface this connection wrote terminal input to; its output lane
     /// is scheduled first so keystroke echo never waits behind other surfaces.
-    fileprivate var lastInteractiveSurfaceKey: String?
+    internal var lastInteractiveSurfaceKey: String?
     /// Monotonic owner for focus transitions across actor suspension.
-    fileprivate var focusTransitionGeneration: UInt64 = 0
+    internal var focusTransitionGeneration: UInt64 = 0
     private var didDecodeFirstFrame = false
-    fileprivate var isClosed = false
+    internal var isClosed = false
     private var exit = CmxIrohAdmittedConnectionExit(
         lifecycle: .explicitlyInvalidated,
         failure: .none

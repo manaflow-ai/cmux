@@ -17,7 +17,7 @@ extension MobileHostConnection {
         )
     }
 
-    fileprivate func focusSurfaceLane(
+    func focusSurfaceLane(
         _ surfaceKey: String,
         writer: any MobileHostIndependentEventWriting,
         transitionGeneration: UInt64
