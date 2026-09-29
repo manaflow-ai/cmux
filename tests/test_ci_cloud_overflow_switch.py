@@ -288,6 +288,14 @@ class MainTests(unittest.TestCase):
         self.assertIn("outcome=stalled", out)
         self.assertIn("would set", summary)
 
+    def test_a_drill_reports_failovers_without_the_app_token(self) -> None:
+        env = {**BLACKSMITH_STEADY, "PROBE_LABEL_DRILL": "blacksmith-0vcpu-no-such-label"}
+        code, out, summary = run_main(env, FakeActions(probe_job(0)), None)
+        self.assertEqual(code, 0)
+        self.assertIn("outcome=stalled", out)
+        self.assertIn("LINUX_RUNNER: would set ubuntu-24.04", summary)
+        self.assertNotIn("no switch token", summary)
+
     def test_runner_values_come_from_the_block(self) -> None:
         values = switch.current_values({"CMUX_CI_RUNNER_VARIABLES": "LINUX_RUNNER=ubuntu-24.04\nMACOS_RUNNER_PR=\n"},
                                        ["LINUX_RUNNER", "MACOS_RUNNER_PR"])

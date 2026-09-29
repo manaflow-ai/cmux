@@ -505,7 +505,13 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         log(f"{stamp}: the probe started on {label}; Blacksmith is serving")
         if record:
             restores = plan_on(record, current)
-            if switch is None:
+            if args.dry_run:
+                for item in restores:
+                    if item.skipped:
+                        log(f"- {item.name}: {item.skipped}")
+                    else:
+                        log(f"- {item.name}: would restore {item.value or 'unset'} (dry run)")
+            elif switch is None:
                 log("::error title=Cloud overflow switch::no switch token (CI_OVERFLOW_SWITCH_APP_ID); overflow "
                     "stays off. Turn it back on by hand: " + "; ".join(
                         f"{r.name} -> {r.value or 'unset'}" for r in restores if not r.skipped))
@@ -514,15 +520,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 for item in restores:
                     if item.skipped:
                         log(f"- {item.name}: {item.skipped}")
-                    elif args.dry_run:
-                        log(f"- {item.name}: would restore {item.value or 'unset'} (dry run)")
                     else:
                         (switch.set_variable(item.name, item.value) if item.value
                          else switch.delete_variable(item.name))
                         log(f"- {item.name}: restored {item.value or 'unset'}")
-                if not args.dry_run:
-                    switch.delete_variable(RECORD_VARIABLE)
-                    log(f"overflow back on; {RECORD_VARIABLE} deleted (it was off since {record.get('since')})")
+                switch.delete_variable(RECORD_VARIABLE)
+                log(f"overflow back on; {RECORD_VARIABLE} deleted (it was off since {record.get('since')})")
     else:
         log(f"{stamp}: the probe waited {minutes} min on {label} with no runner; Blacksmith is not serving")
         if not record:
@@ -530,14 +533,14 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             new_record = {"since": stamp, "probe": label, "reason": f"probe on {label} queued {minutes} min "
                           "with no runner", "run": f"https://github.com/{repo}/actions/runs/{run_id}",
                           "changed": changed}
-            if switch is None:
+            if args.dry_run:
+                for name, change in changed.items():
+                    log(f"- {name}: would set {change['after']} (was {change['before'] or 'unset'}; dry run)")
+            elif switch is None:
                 log("::error title=Cloud overflow switch::no switch token (CI_OVERFLOW_SWITCH_APP_ID); overflow "
                     "stays on. Turn it off by hand: " + "; ".join(
                         f"{name} -> {change['after']}" for name, change in changed.items()))
                 code = 1
-            elif args.dry_run:
-                for name, change in changed.items():
-                    log(f"- {name}: would set {change['after']} (was {change['before'] or 'unset'}; dry run)")
             else:
                 # The record first: a failure halfway still leaves what to put back.
                 switch.set_variable(RECORD_VARIABLE, json.dumps(new_record, sort_keys=True))
