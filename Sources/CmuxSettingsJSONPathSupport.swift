@@ -468,5 +468,10 @@ enum BrowserSettingsFileMapping {
             defaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey,
             invalidPath: "browser.urlAllowlist"
         ),
+        .init(
+            jsonKey: "toolbarItems",
+            defaultsKey: BrowserToolbarLayout.userDefaultsKey,
+            invalidPath: "browser.toolbarItems"
+        ),
     ]
 }

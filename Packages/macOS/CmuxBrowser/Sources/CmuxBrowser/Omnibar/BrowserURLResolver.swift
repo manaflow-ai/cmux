@@ -76,8 +76,8 @@ public struct BrowserURLResolver: Sendable {
 
     /// Returns a URL for an explicit scheme already present in the input.
     ///
-    /// The omnibar intentionally keeps its existing web/file allowlist: other
-    /// schemes are handled by the browser's external-navigation paths rather
+    /// The omnibar intentionally keeps its existing web/file allowlist plus
+    /// cmux-owned pages such as `cmux://extensions`: other schemes are handled by the browser's external-navigation paths rather
     /// than being loaded as typed omnibar destinations.
     private func explicitURL(from input: String) -> URL? {
         guard let url = URL(string: input),
@@ -91,6 +91,10 @@ public struct BrowserURLResolver: Sendable {
         case "file":
             guard url.isFileURL, url.path.hasPrefix("/") else { return nil }
             return url
+        case ChromeExtensionsManagerPage.scheme:
+            // Only cmux-owned pages load in the browser; other cmux:// links
+            // (auth callbacks, workspace deep links) keep their app routing.
+            return ChromeExtensionsManagerPage.isManagerPageURL(url) ? url : nil
         default:
             return nil
         }

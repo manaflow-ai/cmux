@@ -12,6 +12,18 @@ import CmuxBrowser
 @MainActor
 @Suite
 struct BrowserUserAgentPolicyWebKitTests {
+    /// Extension pages and service workers cannot take a full custom user
+    /// agent. WebKit stops extension workers whose identity differs from the
+    /// last loaded tab, so the application-name suffix must reproduce the tab
+    /// identity exactly.
+    @Test func applicationNameReproducesTabIdentity() async throws {
+        let configuration = WKWebViewConfiguration()
+        configuration.applicationNameForUserAgent = BrowserUserAgentPolicy.system.safariApplicationName
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let navigatorUserAgent = try await webView.evaluateJavaScript("navigator.userAgent") as? String
+        #expect(navigatorUserAgent == BrowserUserAgentPolicy.system.safariCompatibleUserAgent)
+    }
+
     @Test func restartRequestChangesIdentityOnceAndStripsStaleHeader() throws {
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         var request = URLRequest(url: URL(string: "https://workspace.google.com/")!)
