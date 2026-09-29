@@ -174,6 +174,22 @@ private actor BlockingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
     }
 }
 
+private struct DirectoryScopedWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
+    let directory: String
+
+    func workspaceMetadata(for requestedDirectory: String) async -> GitWorkspaceMetadata {
+        guard requestedDirectory == directory else { return .notARepository }
+        return GitWorkspaceMetadata(
+            isRepository: true,
+            branch: "main",
+            isDirty: false,
+            indexSignature: "index",
+            indexContentSignature: "content",
+            headSignature: "head"
+        )
+    }
+}
+
 private struct ProcessRunResult {
     let status: Int32
     let stdout: String
@@ -1236,18 +1252,34 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try fileManager.createDirectory(at: repoURL, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: repoURL) }
 
-        try runGit(["init", "-b", "main"], in: repoURL)
-        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
-        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
-        try "seed\n".write(
-            to: repoURL.appendingPathComponent("README.md"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try runGit(["add", "README.md"], in: repoURL)
-        try runGit(["commit", "-m", "Initial commit"], in: repoURL)
+        let sidebar = SidebarCatalogSection()
+        let pinnedDefaults: [(key: String, value: Bool)] = [
+            (sidebar.watchGitStatus.userDefaultsKey, true),
+            (sidebar.showBranchDirectory.userDefaultsKey, true),
+            (sidebar.hideAllDetails.userDefaultsKey, false),
+        ]
+        let previousDefaults = pinnedDefaults.map { UserDefaults.standard.object(forKey: $0.key) }
+        for setting in pinnedDefaults {
+            UserDefaults.standard.set(setting.value, forKey: setting.key)
+        }
+        defer {
+            for (setting, previousValue) in zip(pinnedDefaults, previousDefaults) {
+                restoreUserDefaultForTabManagerTests(previousValue, key: setting.key)
+            }
+        }
 
-        let manager = TabManager()
+        let settingsSuiteName = "cmux-tests-tab-manager-background-git-\(UUID().uuidString)"
+        let settingsDefaults = try XCTUnwrap(UserDefaults(suiteName: settingsSuiteName))
+        settingsDefaults.removePersistentDomain(forName: settingsSuiteName)
+        defer { settingsDefaults.removePersistentDomain(forName: settingsSuiteName) }
+
+        // This test covers background-workspace inheritance and scheduling, not
+        // Git parsing or the process-wide concurrency budget.
+        let manager = TabManager(
+            workspaceGitMetadataReader: DirectoryScopedWorkspaceGitMetadataReader(directory: repoURL.path),
+            gitProbeLimiter: WorkspaceGitMetadataProbeLimiter(limit: 1),
+            settings: UserDefaultsSettingsClient(defaults: settingsDefaults)
+        )
         guard let workspace = manager.selectedWorkspace else {
             XCTFail("Expected selected workspace")
             return

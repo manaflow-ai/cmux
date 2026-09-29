@@ -80,6 +80,25 @@ ADMISSION_DECLINED = (
     "2026-09-27T10:40:00.0000000Z macOS admission gate declined: a fast Linux job failed. The product compiled "
     "and was uploaded; re-run failed jobs to collect macOS results anyway.\n"
 )
+# Run 36553044270's swift-package-tests on cmux14 (glaeda-std-xcode-26.6), as
+# the job printed it then (a head branched before the marker), and as
+# scripts/select-ci-xcode.sh prints it now.
+XCODE_PIN_MISSING_LEGACY = textwrap.dedent("""\
+    2026-09-29T12:23:37.0000000Z ##[group]Run set -euo pipefail
+    2026-09-29T12:23:37.0000000Z \x1b[36;1mset -euo pipefail\x1b[0m
+    2026-09-29T12:23:37.0000000Z ##[endgroup]
+    2026-09-29T12:23:37.1000000Z Pinned Xcode developer dir does not exist: /Applications/Xcode_26.3.app/Contents/Developer
+    2026-09-29T12:23:37.1000000Z ##[error]Process completed with exit code 1.
+    """)
+XCODE_PIN_MISSING = (
+    "2026-09-29T12:23:37.1000000Z ##[error]Pinned Xcode developer dir does not exist: "
+    "/Applications/Xcode_26.3.app/Contents/Developer on runner cmux14-glaeda-1. "
+    "[cmux-ci machine: xcode-pin-missing] Installed: Xcode.app=26.3 Xcode_26.6.app=26.6\n"
+)
+POOL_XCODE_MISSING = (
+    "2026-09-29T12:23:37.1000000Z ##[error]This macOS 26 runner has no Xcode 26.6, the version "
+    "scripts/ci/xcode-pins.txt pins for its pool. Installed: Xcode_26.3.app=26.3\n"
+)
 NOISE = textwrap.dedent("""\
     2026-09-27T09:24:56.6949430Z ##[group]Run if [ "$REQUESTED_RUNNER" = ubuntu-24.04 ]; then
     2026-09-27T09:24:56.6949430Z \x1b[36;1m      echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"\x1b[0m
@@ -118,6 +137,21 @@ class SignatureTests(unittest.TestCase):
         self.assertEqual(self.verdict(DISPLAY_NAME_TEST_FAILED), (cf.CODE, "swift-testing-issue"))
         self.assertEqual(self.verdict(COMPILE_FAILED), (cf.CODE, "compile-error"))
         self.assertEqual(self.verdict(STATIC_CHECK_FAILED), (cf.CODE, "static-check-failed"))
+
+    def test_a_missing_pinned_xcode_is_the_machine(self) -> None:
+        for log in (XCODE_PIN_MISSING, XCODE_PIN_MISSING_LEGACY, POOL_XCODE_MISSING):
+            with self.subTest(log=log[:80]):
+                self.assertEqual(self.verdict(log), (cf.MACHINE, "xcode-pin-missing"))
+        # Only every failed job being machine re-runs the run; this one does.
+        jobs = cf.classify_jobs([job(7, "macos / swift-package-tests", step="Select Xcode")],
+                                {7: (XCODE_PIN_MISSING_LEGACY, [])})
+        self.assertTrue(cf.all_machine(jobs))
+
+    def test_a_forks_missing_pool_xcode_warning_is_not_the_machine(self) -> None:
+        # A fork's own CI warns and falls back; that warning is not where it failed.
+        warned = POOL_XCODE_MISSING.replace("##[error]", "##[warning]") + COMPILE_FAILED + \
+            "2026-09-29T12:30:00.0000000Z ##[error]Process completed with exit code 65.\n"
+        self.assertEqual(self.verdict(warned), (cf.CODE, "compile-error"))
 
     def test_a_signature_in_an_echoed_script_or_cleanup_noise_does_not_count(self) -> None:
         self.assertEqual(self.verdict(NOISE), (cf.UNKNOWN, None))
@@ -283,7 +317,10 @@ class ActTests(unittest.TestCase):
         gh = FakeGitHub()
         result = self.act(gh, self.report([cf.MACHINE]))
         self.assertTrue(result["rerun"])
+        # The bot's re-run may emit no workflow_run event, so it starts the
+        # UI test dispatch for attempt 2 itself (ci-ui-tests.yml).
         self.assertEqual(gh.calls, [("POST", "repos/manaflow-ai/cmux/actions/runs/42/rerun-failed-jobs"),
+                                    ("POST", "repos/manaflow-ai/cmux/actions/workflows/ci-ui-tests.yml/dispatches"),
                                     ("POST", "repos/manaflow-ai/cmux/issues/7/comments")])
 
     def test_the_bots_comment_is_edited_and_a_lookalike_is_ignored(self) -> None:

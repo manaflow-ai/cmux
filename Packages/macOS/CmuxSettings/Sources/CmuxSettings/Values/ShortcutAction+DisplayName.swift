@@ -120,6 +120,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
+        case .newPaneAutoLayout:
+            return String(localized: "shortcut.newPaneAutoLayout.label", defaultValue: "New Pane (Auto Layout)")
         case .toggleSplitZoom: return "Toggle Pane Zoom"
         case .increaseWorkspaceTerminalFontSize:
             return String(

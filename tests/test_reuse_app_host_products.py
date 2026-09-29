@@ -10,6 +10,7 @@ from unittest import mock
 import shutil
 import sys
 import tarfile
+import tempfile
 import subprocess
 import unittest
 import zipfile
@@ -2017,6 +2018,33 @@ class ContractParity(unittest.TestCase):
             f"CMUX_DERIVED_DATA_PATH={root / 'derived-data-compile-admission'}",
             f"CMUX_E2E_COMPILATION_CACHE={root / 'compile-admission-cas'}",
         ])
+
+    def test_contract_ignores_an_sdkroot_naming_the_default_sdk(self):
+        # Some owned Macs' runner services export SDKROOT, others do not.
+        with tempfile.TemporaryDirectory() as directory:
+            sdk = Path(directory) / "MacOSX26.5.sdk"
+            sdk.mkdir()
+            alias = Path(directory) / "MacOSX.sdk"
+            alias.symlink_to(sdk.name)
+            other = Path(directory) / "MacOSX15.5.sdk"
+            other.mkdir()
+            unset = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1"})
+
+            def contract_at(sdkroot):
+                answers = {"xcodebuild": "Xcode 26.6\nBuild version 17F113",
+                           ("xcrun", "--sdk", "macosx", "--show-sdk-build-version"): "25F70",
+                           ("xcrun", "--sdk", "macosx", "--show-sdk-path"): str(sdk)}
+                with mock.patch.dict(os.environ, {"CMUX_SKIP_ZIG_BUILD": "1", "SDKROOT": sdkroot}, clear=True), \
+                        mock.patch.object(reuse, "read", side_effect=lambda *args: answers.get(args, answers.get(args[0]))), \
+                        mock.patch.object(reuse.shutil, "which", return_value=None), \
+                        mock.patch.object(reuse.product_inputs, "local_identity", return_value={"source": "s"}):
+                    return reuse.contract()
+
+            self.assertEqual(unset["environment"]["SDKROOT"], "")
+            for name in (str(alias), str(sdk)):
+                with self.subTest(sdkroot=name):
+                    self.assertEqual(contract_at(name)["environment"]["SDKROOT"], "")
+            self.assertEqual(contract_at(str(other))["environment"]["SDKROOT"], str(other))
 
     def test_contract_names_the_selected_xcode_not_its_selector(self):
         # Admission pins Xcode by path; an E2E dispatch picks the same Xcode by

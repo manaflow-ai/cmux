@@ -94,6 +94,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.simulatorToggleAppearance`
 - `shortcuts.bindings.simulatorToggleSoftwareKeyboard`
 - `shortcuts.bindings.splitDown`
+- `shortcuts.bindings.newPaneAutoLayout`
 - `shortcuts.bindings.splitRight`
 - `shortcuts.bindings.toggleSplitZoom`
 - `shortcuts.bindings.toggleTerminalCopyMode`

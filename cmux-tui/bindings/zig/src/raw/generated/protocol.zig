@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "3c6f98d7eacaa1a69e77a9f845eec335ffc4f3422755e0e7edc0162284de1c6b";
+pub const ir_sha256 = "70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1182,6 +1182,11 @@ pub const SetSizePolicyResult = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "state",
     };
+};
+
+pub const SetTerminalIdlePolicyResult = struct {
+    idle_close_seconds: wire.Nullable(u64),
+    terminal_id: []const u8,
 };
 
 pub const ShutdownDaemonResult = struct {
@@ -4335,6 +4340,25 @@ pub fn setSplitRatio(client: anytype, request: SetSplitRatioRequest) !wire.Decod
     );
 }
 
+pub const SetTerminalIdlePolicyRequest = struct {
+    idle_close_seconds: wire.Field(u64) = .absent,
+    surface: wire.Field(Id) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+};
+
+pub fn setTerminalIdlePolicy(client: anytype, request: SetTerminalIdlePolicyRequest) !wire.Decoded(SetTerminalIdlePolicyResult) {
+    return client.callTyped(
+        SetTerminalIdlePolicyResult,
+        .{
+            .name = "set-terminal-idle-policy",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-idle-close-v1",
+        },
+        request,
+    );
+}
+
 pub const SetViewportPaneWidthRequest = struct {
     pane: Id,
     transaction: wire.Field(u64) = .absent,
@@ -5639,7 +5663,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 116;
+pub const command_count: usize = 117;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -5740,6 +5764,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-size-counts", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-size-policy", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-split-ratio", .authority = "control", .since = 8, .capability = null, .stream = null },
+    .{ .name = "set-terminal-idle-policy", .authority = "control", .since = 12, .capability = "terminal-idle-close-v1", .stream = null },
     .{ .name = "set-viewport-pane-width", .authority = "control", .since = 9, .capability = "viewport-column-resize-v1", .stream = null },
     .{ .name = "set-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "shutdown-daemon", .authority = "local-admin", .since = 9, .capability = null, .stream = null },

@@ -772,6 +772,10 @@ public struct VMCloudSession: Sendable {
     public let title: String?
     public let kind: String
     public let status: String
+    /// Lifetime attaches for this session, not the number of clients attached
+    /// now. The control plane only ever adds to it, so it never returns to
+    /// zero. Socket clients receive it as `attachment_count`; do not present it
+    /// as a live viewer count.
     public let attachmentCount: Int
     public let effectiveCols: Int?
     public let effectiveRows: Int?
@@ -1973,7 +1977,7 @@ public actor VMClient {
         var tokens: [String] = []
         for entry in raw {
             let token = entry.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard token.range(of: "^[a-z0-9-]{1,64}$", options: .regularExpression) != nil,
+            guard token.range(of: "^[a-z0-9-]{1,64}\\z", options: .regularExpression) != nil,
                   seen.insert(token).inserted else { continue }
             tokens.append(token)
             if tokens.count == 16 { break }

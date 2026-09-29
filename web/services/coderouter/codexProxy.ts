@@ -316,13 +316,13 @@ async function proxyCodexRequestWith(
     }
     const upstreamStartedAt = performance.now();
     try {
-      upstream = await sendResponses(
+      upstream = replaceUpstreamResponse(upstream, await sendResponses(
         request.clone(),
         forwardedHeaders,
         credential,
         runtime.fetch,
         headersTimeoutMs,
-      );
+      ));
       recordCoderouterSpan({
         name: "upstream_attempt",
         startedAt: upstreamStartedAt,
@@ -378,17 +378,17 @@ async function proxyCodexRequestWith(
           );
           if (retryHeadersTimeoutMs === null) {
             failureStage = "upstream_transport";
-            upstream = null;
+            upstream = discardUpstreamResponse(upstream);
             break;
           }
           const retryStartedAt = performance.now();
-          upstream = await sendResponses(
+          upstream = replaceUpstreamResponse(upstream, await sendResponses(
             request.clone(),
             forwardedHeaders,
             refreshed,
             runtime.fetch,
             retryHeadersTimeoutMs,
-          );
+          ));
           recordCoderouterSpan({
             name: "upstream_attempt",
             startedAt: retryStartedAt,
@@ -410,7 +410,7 @@ async function proxyCodexRequestWith(
           request_id: requestId,
         });
         if (error instanceof CoderouterOperationDeadlineError) {
-          upstream = null;
+          upstream = discardUpstreamResponse(upstream);
           break;
         }
         continue;
@@ -1122,6 +1122,20 @@ type ResponsesCredential = Extract<
 
 function servesResponses(credential: CodeRouterCredential): credential is ResponsesCredential {
   return (RESPONSES_PROVIDERS as readonly string[]).includes(credential.provider);
+}
+
+// Keep the last rejection available until another attempt supplies a response.
+// Once replaced or dropped, its body must release its connection even if it
+// never ends. Cleanup must not delay the selected response or turn success
+// into an error.
+function replaceUpstreamResponse(previous: Response | null, replacement: Response): Response {
+  if (previous && previous !== replacement) discardUpstreamResponse(previous);
+  return replacement;
+}
+
+function discardUpstreamResponse(response: Response | null): null {
+  void response?.body?.cancel().catch(() => undefined);
+  return null;
 }
 
 /**

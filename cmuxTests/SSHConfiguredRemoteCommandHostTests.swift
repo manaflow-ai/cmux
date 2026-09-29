@@ -387,7 +387,7 @@ struct SSHConfiguredRemoteCommandHostTests {
             remoteCommand: "printf ready"
         )
         #expect(
-            command.contains("-o RemoteCommand=none -T cmux-remotecommand-host true"),
+            command.contains("-o RemoteCommand=none -T -- cmux-remotecommand-host true"),
             "Restore foreground auth must override a host-configured RemoteCommand before running its command-line `true`; command: \(command)"
         )
         #expect(

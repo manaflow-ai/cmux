@@ -164,7 +164,7 @@ enum KeyboardShortcutSettings {
         case focusPreviousPane
         case focusNextPane
         case splitRight
-        case splitDown, toggleSplitZoom
+        case splitDown, toggleSplitZoom, newPaneAutoLayout
         case increaseWorkspaceTerminalFontSize
         case decreaseWorkspaceTerminalFontSize
         case resetWorkspaceTerminalFontSize
@@ -328,6 +328,7 @@ enum KeyboardShortcutSettings {
             case .focusNextPane: return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
             case .splitRight: return String(localized: "shortcut.splitRight.label", defaultValue: "Split Right")
             case .splitDown: return String(localized: "shortcut.splitDown.label", defaultValue: "Split Down")
+            case .newPaneAutoLayout: return String(localized: "shortcut.newPaneAutoLayout.label", defaultValue: "New Pane (Auto Layout)")
             case .toggleSplitZoom: return String(localized: "shortcut.togglePaneZoom.label", defaultValue: "Toggle Pane Zoom")
             case .increaseWorkspaceTerminalFontSize:
                 return String(
@@ -557,13 +558,12 @@ enum KeyboardShortcutSettings {
             // cycles panes on the terminal-config keys when Focus Back/Forward do
             // not claim them; these entries exist so pane cycling stays rebindable
             // now that ⌘[ / ⌘] reach global focus history.
-            case .focusPreviousPane:
-                return .unbound
-            case .focusNextPane:
+            case .focusPreviousPane, .focusNextPane:
                 return .unbound
             case .splitRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
+            case .newPaneAutoLayout: return StoredShortcut(key: "n", command: true, shift: false, option: false, control: true)
             case .toggleSplitZoom: return StoredShortcut(key: "\r", command: true, shift: true, option: false, control: false)
             case .increaseWorkspaceTerminalFontSize:
                 return StoredShortcut(key: "=", command: true, shift: false, option: false, control: true)

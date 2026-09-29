@@ -414,6 +414,15 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       { id: "splitRight", combos: [["⌘", "D"]], description: { en: "Split right", ja: "右に分割" } },
       { id: "splitDown", combos: [["⌘", "⇧", "D"]], description: { en: "Split down", ja: "下に分割" } },
+      {
+        id: "newPaneAutoLayout",
+        combos: [["⌃", "⌘", "N"]],
+        description: { en: "New pane (auto layout)", ja: "新しいペイン（自動レイアウト）" },
+        note: {
+          en: "retiles all panes like Zellij and cmux-tui Alt-n: the right column fills to four panes before a new column opens",
+          ja: "Zellij や cmux-tui の Alt-n と同様に全ペインを再配置します。右の列が 4 ペインになると新しい列が開きます",
+        },
+      },
       { id: "splitBrowserRight", combos: [["⌥", "⌘", "D"]], description: { en: "Split browser right", ja: "右にブラウザ分割" } },
       { id: "splitBrowserDown", combos: [["⌥", "⌘", "⇧", "D"]], description: { en: "Split browser down", ja: "下にブラウザ分割" } },
       { id: "toggleSplitZoom", combos: [["⌘", "⇧", "↩"]], description: { en: "Toggle pane zoom", ja: "ペインズームを切り替え" } },

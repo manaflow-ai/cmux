@@ -1257,6 +1257,51 @@ fn byte_attach_between_transmit_and_place_keeps_the_unplaced_image() {
 }
 
 #[test]
+fn attach_and_resize_replays_restore_the_osc_title() {
+    let mux = Mux::new(unique_session("test-attach-osc-title"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    surface.try_with_terminal(|terminal| terminal.vt_write(b"\x1b]2;renamed tab\x07")).unwrap();
+
+    let attach = surface.attach_stream().unwrap();
+    let mut initial =
+        ghostty_vt::Terminal::new(attach.cols, attach.rows, 1000, ghostty_vt::Callbacks::default())
+            .unwrap();
+    initial
+        .apply_vt_replay(&ghostty_vt::VtReplay {
+            bytes: attach.replay.to_vec(),
+            kitty_image_aliases: attach.kitty_image_aliases.clone(),
+            kitty_state: attach.kitty_state,
+        })
+        .unwrap();
+    assert_eq!(initial.title().as_deref(), Some("renamed tab"));
+
+    mux.resize_surface(surface.id, 21, 4).unwrap();
+    let (cols, rows, replay, aliases, kitty_state) =
+        match attach.stream.recv_timeout(Duration::from_secs(2)) {
+            Ok(AttachFrame::Resized { cols, rows, replay, kitty_image_aliases, kitty_state })
+            | Ok(AttachFrame::ResizedWithColors {
+                cols,
+                rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state,
+                ..
+            }) => (cols, rows, replay, kitty_image_aliases, kitty_state),
+            other => panic!("missing ordered resize replay: {other:?}"),
+        };
+    let mut resized =
+        ghostty_vt::Terminal::new(cols, rows, 1000, ghostty_vt::Callbacks::default()).unwrap();
+    resized
+        .apply_vt_replay(&ghostty_vt::VtReplay {
+            bytes: replay.to_vec(),
+            kitty_image_aliases: aliases,
+            kitty_state,
+        })
+        .unwrap();
+    assert_eq!(resized.title().as_deref(), Some("renamed tab"));
+}
+
+#[test]
 fn attach_resize_replay_preserves_an_inflight_kitty_transmission() {
     let mux = Mux::new(unique_session("test-attach-inflight-kitty"), shell_opts("cat"));
     let surface = mux.new_workspace(None, Some((20, 4))).unwrap();

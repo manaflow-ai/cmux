@@ -192,6 +192,8 @@ struct SSHStartupManualReconnectTests {
 
         let startupCommand = Self.persistentAttachSupervisorCommand(replacingSystemSSHWith: fakeSSH)
         var environment = ProcessInfo.processInfo.environment
+        environment[SSHForegroundAuthenticationLaunch.environmentKey] =
+            Self.persistentAttachSupervisorAuthToken
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
         environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
@@ -284,6 +286,8 @@ struct SSHStartupManualReconnectTests {
 
         let startupCommand = Self.persistentAttachSupervisorCommand(replacingSystemSSHWith: fakeSSH)
         var environment = ProcessInfo.processInfo.environment
+        environment[SSHForegroundAuthenticationLaunch.environmentKey] =
+            Self.persistentAttachSupervisorAuthToken
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
         environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
@@ -374,6 +378,8 @@ struct SSHStartupManualReconnectTests {
 
         let startupCommand = Self.persistentAttachSupervisorCommand(replacingSystemSSHWith: fakeSSH)
         var environment = ProcessInfo.processInfo.environment
+        environment[SSHForegroundAuthenticationLaunch.environmentKey] =
+            Self.persistentAttachSupervisorAuthToken
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
         environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
@@ -789,7 +795,7 @@ struct SSHStartupManualReconnectTests {
         while prompt.process.isRunning, Date.now < deadline {
             var state = termios()
             // The prompt text precedes the CLI helper. Raw input with ISIG is
-            // observable only after that helper's atomic TCSAFLUSH boundary.
+            // observable only after its immediate mode switch and input-only flush.
             if tcgetattr(fd, &state) == 0,
                state.c_lflag & tcflag_t(ICANON | ECHO) == 0,
                state.c_lflag & tcflag_t(ISIG) != 0 {

@@ -56,6 +56,10 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
     /// before the field existed keep decoding, absent on a capture that produced
     /// a usable argv, and never set alongside one.
     public private(set) var rejectionReason: AgentLaunchCaptureRejectionReason?
+    /// The outer launcher that started the agent, when it was not a shell
+    /// (for example `["sr", "claude", "proxy", "--account", "x"]`). Recovery
+    /// resumes through it so the session keeps its account routing.
+    public var launcherPrefix: [String]?
 
     /// Whether this record explicitly rejects its launch capture as restore evidence.
     ///
@@ -91,6 +95,7 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
     ///   - verificationHome: The launch home used only for provider-state verification.
     ///   - capturedAt: The capture timestamp.
     ///   - source: The capture source.
+    ///   - launcherPrefix: The outer launcher argv, when one was captured.
     public init(
         launcher: String? = nil,
         externalLauncher: String? = nil,
@@ -100,7 +105,8 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
         environment: [String: String]? = nil,
         verificationHome: String? = nil,
         capturedAt: TimeInterval? = nil,
-        source: String? = nil
+        source: String? = nil,
+        launcherPrefix: [String]? = nil
     ) {
         self.launcher = launcher
         self.externalLauncher = externalLauncher
@@ -112,6 +118,7 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
         self.capturedAt = capturedAt
         self.source = !arguments.isEmpty && Self.isRejectedSourceMarker(source) ? nil : source
         self.rejectionReason = nil
+        self.launcherPrefix = launcherPrefix
     }
 
     /// Creates a capture that produced no trustworthy argv, naming the ground it
@@ -129,6 +136,7 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
     ///   - verificationHome: The launch home used only for provider-state verification.
     ///   - capturedAt: The capture timestamp.
     ///   - source: The capture source.
+    ///   - launcherPrefix: The outer launcher argv, when one was captured.
     public init(
         rejectedOn rejectionReason: AgentLaunchCaptureRejectionReason,
         launcher: String? = nil,
@@ -138,7 +146,8 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
         environment: [String: String]? = nil,
         verificationHome: String? = nil,
         capturedAt: TimeInterval? = nil,
-        source: String? = nil
+        source: String? = nil,
+        launcherPrefix: [String]? = nil
     ) {
         self.launcher = launcher
         self.externalLauncher = externalLauncher
@@ -150,6 +159,7 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
         self.capturedAt = capturedAt
         self.source = source
         self.rejectionReason = rejectionReason
+        self.launcherPrefix = launcherPrefix
     }
 
     /// Decodes a stored record, keeping it as written except for the one
@@ -182,6 +192,7 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
             forKey: .rejectionReason
         )
         rejectionReason = arguments.isEmpty ? storedRejectionReason : nil
+        launcherPrefix = try container.decodeIfPresent([String].self, forKey: .launcherPrefix)
     }
 }
 

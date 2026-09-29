@@ -14,21 +14,22 @@
 /// This decision is pure so the rebase arithmetic is unit-testable without a
 /// Ghostty surface.
 extension GhosttySurfaceView.LocalPixelScrollState {
-    /// Resolves the content-space base position for one gesture batch.
+    /// Resolves the content-space base position for one pixel-scroll batch.
     ///
-    /// Mid-gesture the held position is the authority: a verified replay may
-    /// have reset the live viewport to the bottom between batches, and
-    /// deriving from it would make the reset hijack the gesture. The hold has
-    /// two anchoring modes: a hold docked at the tail is BOTTOM-anchored and
-    /// targets the LIVE tail, so output appended between batches cannot leave
-    /// the viewport a row behind the bottom (the pin-to-bottom contract of
-    /// messaging apps); an undocked hold is CONTENT-anchored and keeps the
-    /// same rows visible, rebased content-true across a row-space revision
-    /// change. Only an unreconcilable space falls back to the live viewport.
+    /// When held authority is active, a verified replay may have reset the
+    /// live viewport to the bottom between batches, and deriving from it would
+    /// make the reset hijack the gesture. The hold has two anchoring modes: a
+    /// hold docked at the tail is BOTTOM-anchored and targets the LIVE tail, so
+    /// output appended between batches cannot leave the viewport a row behind
+    /// the bottom (the pin-to-bottom contract of messaging apps); an undocked
+    /// hold is CONTENT-anchored and keeps the same rows visible, rebased
+    /// content-true across a row-space revision change. Only an
+    /// unreconcilable space falls back to the live viewport.
     ///
     /// - Parameters:
-    ///   - rebaseFromHeldPosition: Whether a gesture (or its deceleration)
-    ///     owns the axis; idle batches always trust the live viewport.
+    ///   - rebaseFromHeldPosition: Whether the last applied pixel position is
+    ///     still authoritative for this batch. The caller keeps this true
+    ///     until an explicit pixel-authority clear.
     ///   - held: The last applied position, or `nil` before the first apply.
     ///   - scrollbarOffset: The live viewport top row.
     ///   - scrollbarRevision: The live row-space revision.

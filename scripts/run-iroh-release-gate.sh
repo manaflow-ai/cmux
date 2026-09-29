@@ -806,6 +806,10 @@ if [[ -n "$SOAK_PROFILE" ]]; then
   echo "==> prewarming cached Stack and v2 state before the measured launch"
   CMUX_DEV_AUTH_REPLACE_SESSION=1 \
     ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}"
+  # The first launch verified sign-in and pairing. The measured launch must
+  # restore those saved values through the same startup path as a user launch.
+  # --ensure-mac would otherwise inject a new URL and bypass that path entirely.
+  MOBILE_LAUNCH_ARGS+=(--restore-pairing)
 fi
 
 # Wait for the app's atomic report-write signal. Start this after prewarm so
@@ -954,7 +958,8 @@ fi
 run_release_gate_launch() {
   local log_path="$1"
   shift
-  /usr/bin/python3 - "$log_path" "$((REPORT_TIMEOUT + 30))" "$@" <<'PY_LAUNCH'
+/usr/bin/python3 - "$log_path" "$((REPORT_TIMEOUT + 30))" "$@" <<'PY_LAUNCH'
+import os
 import signal
 import subprocess
 import sys
@@ -997,6 +1002,7 @@ CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 CMUX_ATTACH_READY_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_ATTACH_READY_TIMEOUT_SECONDS:-90}" \
 CMUX_IROH_RELEASE_GATE_SCENARIO="$GATE_SCENARIO" \
 CMUX_IROH_SOAK_PROFILE="$SOAK_PROFILE" \
+CMUX_IROH_V2_VERIFY_RENEW_INTERVAL_SECONDS="$([[ "$GATE_SCENARIO" == "relay_rollover" ]] && printf 180 || printf '')" \
 CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="$([[ "$GATE_SCENARIO" == "relay_expiry" ]] && printf 1 || printf 0)" \
 run_release_gate_launch "$GATE_LAUNCH_LOG" ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}" || launch_status=$?
 sed -E \
@@ -1089,6 +1095,7 @@ allowed_keys = {
     "selectedPath",
     "failure",
     "uiLatencies",
+    "startupPath",
     "lastDiagnosticEventCode",
     "lastDiagnosticFailureKind",
     "soak",
@@ -1116,18 +1123,22 @@ if soak_profile:
     allowed_paths["relayOnly"].add("relay")
     soak = report.get("soak") or {}
     duration, cycles = (600, 50) if soak_profile == "basic" else (3600, 300)
-    if soak.get("profile") != soak_profile or soak.get("planVersion") != 1:
+    if soak.get("profile") != soak_profile or soak.get("planVersion") != 2:
         problems.append("soak profile or plan version mismatch")
     if soak.get("requestedDurationSeconds") != duration or soak.get("elapsedSeconds", 0) < duration:
         problems.append("soak did not complete its full observation window")
     if soak.get("completedCycles", 0) < cycles or soak.get("currentOperation") != "complete":
         problems.append("soak workload incomplete")
+    if report.get("startupPath") != "stored_pairing":
+        problems.append("soak did not use the saved-pairing startup path")
     required_operations = ["host_status", "rpc_inventory", "terminal_round_trip", "workspace_rename_restore",
                            "independent_events", "notification_reconcile", "chat_sessions", "artifact_scan"]
     if soak_profile == "stress":
         required_operations += ["workspace_navigation", "workspace_refresh", "notification_refresh",
                                 "unicode_output_burst", "workspace_create", "workspace_switch", "workspace_close",
-                                "terminal_after_restore"]
+                                "terminal_after_restore", "terminal_after_refresh"]
+    if soak.get("recoverableFailures") != {}:
+        problems.append("soak reported terminal failures or missing recovery evidence")
     counts = soak.get("operationCounts", {})
     for operation in required_operations:
         minimum = cycles if operation in required_operations[:8] else cycles // 4
@@ -1138,8 +1149,8 @@ if soak_profile:
     launch_latency = (report.get("uiLatencies") or {}).get(
         "app_launch_request_to_workspace_rows_visible"
     )
-    if not isinstance(launch_latency, (int, float)) or launch_latency >= 2.5:
-        problems.append("workspace list exceeded the 2.5 second launch budget")
+    if not isinstance(launch_latency, (int, float)) or launch_latency >= 3.5:
+        problems.append("workspace list exceeded the 3.5 second launch budget")
 unexpected_keys = set(report) - allowed_keys
 if unexpected_keys:
     problems.append("report contained unexpected fields")

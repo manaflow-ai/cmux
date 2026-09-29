@@ -109,6 +109,7 @@ public final class Commands {
     public static final CommandMetadata SET_SIZE_COUNTS = new CommandMetadata("set-size-counts", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_SIZE_POLICY = new CommandMetadata("set-size-policy", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_SPLIT_RATIO = new CommandMetadata("set-split-ratio", Authority.CONTROL, 8, null, StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 9L)), Map.ofEntries(Map.entry("transaction", "layout-undo-v1")));
+    public static final CommandMetadata SET_TERMINAL_IDLE_POLICY = new CommandMetadata("set-terminal-idle-policy", Authority.CONTROL, 12, "terminal-idle-close-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_VIEWPORT_PANE_WIDTH = new CommandMetadata("set-viewport-pane-width", Authority.CONTROL, 9, "viewport-column-resize-v1", StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 9L)), Map.ofEntries(Map.entry("transaction", "layout-undo-v1")));
     public static final CommandMetadata SET_WINDOW_TITLE = new CommandMetadata("set-window-title", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SHUTDOWN_DAEMON = new CommandMetadata("shutdown-daemon", Authority.LOCAL_ADMIN, 9, null, StreamKind.NONE, Map.ofEntries(Map.entry("force", 10L)), Map.ofEntries(Map.entry("force", "daemon-handoff-force-v1")));
@@ -229,6 +230,7 @@ public final class Commands {
         values.put("set-size-counts", SET_SIZE_COUNTS);
         values.put("set-size-policy", SET_SIZE_POLICY);
         values.put("set-split-ratio", SET_SPLIT_RATIO);
+        values.put("set-terminal-idle-policy", SET_TERMINAL_IDLE_POLICY);
         values.put("set-viewport-pane-width", SET_VIEWPORT_PANE_WIDTH);
         values.put("set-window-title", SET_WINDOW_TITLE);
         values.put("shutdown-daemon", SHUTDOWN_DAEMON);

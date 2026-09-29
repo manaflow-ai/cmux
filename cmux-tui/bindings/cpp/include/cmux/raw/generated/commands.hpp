@@ -140,6 +140,7 @@ public:
     [[nodiscard]] Result<SetSizeCountsResult> set_size_counts(const SetSizeCountsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetSizePolicyResult> set_size_policy(const SetSizePolicyRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_split_ratio(const SetSplitRatioRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<SetTerminalIdlePolicyResult> set_terminal_idle_policy(const SetTerminalIdlePolicyRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_viewport_pane_width(const SetViewportPaneWidthRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_window_title(const SetWindowTitleRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ShutdownDaemonResult> shutdown_daemon(const ShutdownDaemonRequest& request, RequestOptions options = {});
