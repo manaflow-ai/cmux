@@ -9323,8 +9323,14 @@ impl Mux {
 
     fn client_sizing_identity(&self, client: u64) -> ClientSizingIdentity {
         if client == 0 {
+            // The in-process frontend, named after its host like a remote TUI.
+            static DEVICE_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+            let device_name = DEVICE_NAME.get_or_init(|| {
+                crate::platform::local_hostname().unwrap_or_else(|| "cmux-tui".to_string())
+            });
             return ClientSizingIdentity {
                 device_kind: TerminalDeviceKind::Tui,
+                device_name: Some(device_name.clone()),
                 ..ClientSizingIdentity::default()
             };
         }

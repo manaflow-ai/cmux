@@ -2042,9 +2042,8 @@ impl RemoteSession {
             // like the Mac and iPhone (docs/shared-terminal-sizing.md).
             negotiated.push(SHARED_SIZING_CAPABILITY);
             client_info["device_kind"] = json!("tui");
-            if let Some(hostname) = local_hostname() {
-                client_info["device_name"] = json!(hostname);
-            }
+            client_info["device_name"] =
+                json!(local_hostname().unwrap_or_else(|| "cmux-tui".to_string()));
         }
         if !negotiated.is_empty() {
             client_info["capabilities"] = json!(negotiated);
@@ -2083,6 +2082,28 @@ impl RemoteSession {
         }
         states.insert(surface, super::SurfaceSizeState { state, self_participant });
         true
+    }
+
+    /// A `shared-sizing-v1` attach answers with this view's participant id
+    /// and the current size state, so the terminal has bounds before the
+    /// first change event.
+    fn adopt_attach_size_state(&self, surface: SurfaceId, response: &Value) {
+        let Some(state) = response
+            .get("size_state")
+            .cloned()
+            .and_then(|state| serde_json::from_value::<TerminalSizingState>(state).ok())
+        else {
+            return;
+        };
+        let self_participant =
+            response.get("participant").and_then(Value::as_str).map(str::to_string);
+        if self.store_size_state(surface, state.clone(), self_participant) {
+            self.emit(MuxEvent::SizeStateChanged {
+                surface,
+                runtime: surface,
+                state: Arc::new(state),
+            });
+        }
     }
 
     pub(super) fn supports_capability(&self, capability: &str) -> bool {
@@ -3487,6 +3508,9 @@ impl RemoteSession {
                 None
             }
         };
+        if superseded.is_none() {
+            self.adopt_attach_size_state(id, &response);
+        }
         if let Some(outcome) = superseded {
             if let Some(lease) = attachment_lease
                 && self.supports_capability(VIEW_ATTACHMENT_DETACH_CAPABILITY)
