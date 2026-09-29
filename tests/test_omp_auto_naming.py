@@ -67,6 +67,10 @@ def run_case(cli, agent, override=None):
                 with connection:
                     stream = connection.makefile("rwb")
                     for raw in stream:
+                        if raw.startswith(b"auth "):
+                            stream.write(b"OK\n")
+                            stream.flush()
+                            continue
                         request = json.loads(raw)
                         requests.append(request)
                         result = {"enabled": True, "workspace_user_owned": False,

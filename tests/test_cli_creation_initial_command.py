@@ -79,6 +79,10 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             line = self.rfile.readline()
             if not line:
                 return
+            if line.startswith(b"auth "):
+                self.wfile.write(b"OK\n")
+                self.wfile.flush()
+                continue
             request = json.loads(line.decode("utf-8"))
             try:
                 result = self.server.state.handle(  # type: ignore[attr-defined]
