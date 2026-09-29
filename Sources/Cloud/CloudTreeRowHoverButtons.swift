@@ -90,7 +90,11 @@ struct CloudTreeRowHoverButtons: View {
             plus(String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display")) {
                 nodeActions.newDisplay(machine)
             }
-            .disabled(!canCreate)
+            // Keep the host hit-testable while guest discovery is pending.
+            // Disabling the SwiftUI button makes AppKit hand the click to the
+            // outline row, which collapses Displays instead of starting the
+            // self-starting creation path.
+            .opacity(canCreate ? 1 : 0.55)
             .help(canCreate ? String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display") : CloudGuestDisplaySnapshot.unavailableMessage)
         case .workspacesGroup(let machine):
             plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
