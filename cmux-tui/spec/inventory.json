@@ -149,6 +149,7 @@
       "close-screen",
       "close-surface",
       "close-tab-group",
+      "close-tabs",
       "close-terminal",
       "close-workspace",
       "copy",

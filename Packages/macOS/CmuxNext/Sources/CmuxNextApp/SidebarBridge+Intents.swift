@@ -73,9 +73,15 @@ extension SidebarBridge {
             model.apply(intent)
             groupCommand("move-workspace-group", group) { c, id in try await c.moveGroup(id, to: index) }
         case .closeGroup(let group):
-            let members = keys(model.group(group)?.workspaces.map(\.id) ?? [])
+            let members = (model.group(group)?.workspaces.map(\.id) ?? []).compactMap { id in
+                services.machines.workspace(id: id.rawValue).flatMap { workspace, daemon in
+                    workspace.key.map { (daemon, $0, WorkspaceClose.terminals(of: workspace, on: daemon)) }
+                }
+            }
             model.apply(intent)
-            for (daemon, key) in members { command("close-workspace", on: daemon) { c, _ in _ = try await c.closeWorkspace(key) } }
+            for (daemon, key, terminals) in members {
+                command("close-workspace", on: daemon) { c, _ in try await WorkspaceClose.close(key, terminals: terminals, on: c) }
+            }
         case .setIcon, .setPinned, .setGroupPinned, .openGroup:
             // Needs daemon fields this build does not map yet; apply locally
             // so the UI responds, the next store change restores truth.

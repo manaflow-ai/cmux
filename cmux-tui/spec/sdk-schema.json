@@ -8615,6 +8615,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "end_terminals": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "batch-close-v1"
      }
     },
     "additional_properties": false
@@ -8640,6 +8651,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "end_terminals": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "batch-close-v1"
      }
     },
     "additional_properties": false
@@ -8677,6 +8699,17 @@
       "default": null,
       "since": 7,
       "capability": "workspace-registry-v1"
+     },
+     "end_terminals": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "batch-close-v1"
      },
      "origin": {
       "type": {
@@ -11832,9 +11865,112 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "end_terminals": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "batch-close-v1"
      }
     },
     "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "close-tabs": {
+   "authority": "control",
+   "since": 12,
+   "capability": "batch-close-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surfaces": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "TabRef"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "end_terminals": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "origin": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "mutation_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "expected_generation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "expected_revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "aliases": [
+       "expected_terminal_revision"
+      ]
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "surfaces holds 1 to 4096 live tab placements.",
+     "origin and mutation_id are either both present or both absent.",
+     "expected_generation and expected_revision are rejected."
+    ]
    },
    "result": {
     "kind": "ref",

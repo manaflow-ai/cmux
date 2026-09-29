@@ -72,26 +72,29 @@ class GeneratedClientMixin:
     def client_focus(self, client_id: str) -> ClientFocusResult:
         return self._invoke_command('client-focus', ClientFocusRequest(client_id=client_id))
 
-    def close_pane(self, pane: Id) -> EmptyResult:
-        return self._invoke_command('close-pane', ClosePaneRequest(pane=pane))
+    def close_pane(self, pane: Id, *, end_terminals: Union[bool, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('close-pane', ClosePaneRequest(pane=pane, end_terminals=end_terminals))
 
     def close_provider_managed_workspace(self, workspace: Id, key: str, authority: str) -> ProviderWorkspaceMutationResult:
         return self._invoke_command('close-provider-managed-workspace', CloseProviderManagedWorkspaceRequest(workspace=workspace, key=key, authority=authority))
 
-    def close_screen(self, screen: Id) -> EmptyResult:
-        return self._invoke_command('close-screen', CloseScreenRequest(screen=screen))
+    def close_screen(self, screen: Id, *, end_terminals: Union[bool, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('close-screen', CloseScreenRequest(screen=screen, end_terminals=end_terminals))
 
     def close_surface(self, surface: Id) -> EmptyResult:
         return self._invoke_command('close-surface', CloseSurfaceRequest(surface=surface))
 
-    def close_tab_group(self, group: str) -> JsonValue:
-        return self._invoke_command('close-tab-group', CloseTabGroupRequest(group=group))
+    def close_tab_group(self, group: str, *, end_terminals: Union[bool, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('close-tab-group', CloseTabGroupRequest(group=group, end_terminals=end_terminals))
+
+    def close_tabs(self, surfaces: List[TabRef], *, end_terminals: Union[bool, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('close-tabs', CloseTabsRequest(surfaces=surfaces, end_terminals=end_terminals, expected_generation=expected_generation, expected_revision=expected_revision, mutation_id=mutation_id, origin=origin, transaction=transaction))
 
     def close_terminal(self, terminal_id: str, *, expected_generation: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, terminal_incarnation: Union[str, None, MissingType] = MISSING) -> CloseTerminalResult:
         return self._invoke_command('close-terminal', CloseTerminalRequest(terminal_id=terminal_id, expected_generation=expected_generation, expected_revision=expected_revision, mutation_id=mutation_id, origin=origin, terminal_incarnation=terminal_incarnation))
 
-    def close_workspace(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING) -> WorkspaceMutationResult:
-        return self._invoke_command('close-workspace', CloseWorkspaceRequest(workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id))
+    def close_workspace(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, end_terminals: Union[bool, MissingType] = MISSING) -> WorkspaceMutationResult:
+        return self._invoke_command('close-workspace', CloseWorkspaceRequest(workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, end_terminals=end_terminals))
 
     def copy(self, surface: Id, mode: Literal['screen', 'selection', 'scrollback']) -> CopyResult:
         return self._invoke_command('copy', CopyRequest(surface=surface, mode=mode))
@@ -473,6 +476,7 @@ GeneratedClientMixin.close_provider_managed_workspace.__cmux_command__ = COMMAND
 GeneratedClientMixin.close_screen.__cmux_command__ = COMMANDS['close-screen']
 GeneratedClientMixin.close_surface.__cmux_command__ = COMMANDS['close-surface']
 GeneratedClientMixin.close_tab_group.__cmux_command__ = COMMANDS['close-tab-group']
+GeneratedClientMixin.close_tabs.__cmux_command__ = COMMANDS['close-tabs']
 GeneratedClientMixin.close_terminal.__cmux_command__ = COMMANDS['close-terminal']
 GeneratedClientMixin.close_workspace.__cmux_command__ = COMMANDS['close-workspace']
 GeneratedClientMixin.copy.__cmux_command__ = COMMANDS['copy']

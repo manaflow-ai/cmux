@@ -88,7 +88,7 @@ Closing a tab removes one placement. A PTY terminal remains addressable with zer
 
 If a pane loses its last tab, that pane is removed from the split tree and its parent split collapses to the remaining child. If that empties the screen, the screen is removed. A canonical workspace remains in the durable registry when its final screen or terminal view disappears; it becomes an empty workspace and is still projected to every frontend. Only an explicit `close-workspace` mutation tombstones it. If every workspace is explicitly closed, mux emits an `empty` event.
 
-Closing a pane removes all tab placements in that pane. Closing a screen removes every pane and placement in that screen. Closing a workspace tombstones that workspace and removes all of its placements. These tree operations detach PTY terminal views without ending their processes at once; a detached terminal that is not kept is reaped after the grace period. Browser surfaces close because they are single-view.
+Closing a pane removes all tab placements in that pane. Closing a screen removes every pane and placement in that screen. Closing a workspace tombstones that workspace and removes all of its placements. These tree operations detach PTY terminal views without ending their processes at once; a detached terminal that is not kept is reaped after the grace period. Browser surfaces close because they are single-view. With `end_terminals` (capability `batch-close-v1`), `close-pane`, `close-screen`, `close-workspace`, and `close-tab-group` also end, in the same durable commit, every terminal whose views all closed and that is not kept. `close-tabs` closes any set of tabs in one commit, with the same option.
 
 ## PTY and Browser Surfaces
 

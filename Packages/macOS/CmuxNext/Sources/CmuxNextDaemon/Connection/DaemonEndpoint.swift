@@ -47,9 +47,12 @@ public enum DaemonCapabilities {
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
     public static let terminalReap = "terminal-reap-v1"
+    /// `close-tabs` and `end_terminals` on the container closes: many tabs and
+    /// the terminals they end close in one daemon commit.
+    public static let batchClose = "batch-close-v1"
     public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap]
+                                            terminalReap, batchClose]
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public static let advertised: [String] = required + optional + [
