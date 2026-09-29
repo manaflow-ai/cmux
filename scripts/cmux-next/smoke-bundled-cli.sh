@@ -99,13 +99,19 @@ echo "ok: --help"
 step="CLI localization"
 key="cli.help.topic.start"
 langs=()
-for lproj in "$app/Contents/Resources/"*.lproj; do
+for lproj in "$app/Contents/Resources/en.lproj" "$app/Contents/Resources/"*.lproj; do
+  [[ "$lproj" == */en.lproj && " ${langs[*]:-} " == *" en "* ]] && continue
   lang="$(basename "$lproj" .lproj)"
   strings_file="$lproj/Localizable.strings"
   [[ -f "$strings_file" ]] || fail "$lang.lproj has no Localizable.strings (CLI string table not bundled)"
   expected="$(plutil -convert json -o - "$strings_file" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "$key" 2>/dev/null)" \
     || fail "$lang.lproj/Localizable.strings has no $key"
+  if [[ "$lang" == en ]]; then
+    english="$expected"
+  elif [[ -n "${english:-}" && "$expected" == "$english" ]]; then
+    fail "$lang.lproj has the English value for $key"
+  fi
   out="$(cli env AppleLanguages="($lang)" "$cli_path" --help)"
   grep -Fq "  $expected:" <<<"$out" || fail "AppleLanguages=($lang) --help lacks '$expected'"
   langs+=("$lang")
