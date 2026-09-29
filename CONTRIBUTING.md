@@ -12,12 +12,11 @@ These prerequisites are for native app development. For documentation or portabl
 contributor tooling, start with [fast checks](#fast-checks-before-committing-or-building)
 and the [validation guide](skills/cmux-testing/references/local-vs-ci-validation.md).
 
-- macOS 14+
-- Xcode 26 (the pinned toolchain); Xcode 16.2 on Intel Macs running macOS 14.5 or later also builds the macOS app (best effort, [Swift 6.0 limits](skills/cmux-architecture/references/swift-6-0-compatibility.md))
+- macOS 26 (the app's deployment target)
+- Xcode 26 (the pinned toolchain)
 - [Zig](https://ziglang.org/) (install via `brew install zig`)
-- [Rust](https://rustup.rs) — `scripts/setup.sh` requires `rustup`, and every app build compiles
-  the bundled `cmux-cua` engine with `cargo`. The official installer puts both in `~/.cargo/bin`,
-  which is where `setup.sh` looks:
+- [Rust](https://rustup.rs): `scripts/setup.sh` requires `rustup`. The official installer puts
+  `rustup` and `cargo` in `~/.cargo/bin`, which is where `setup.sh` looks:
 
   ```bash
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -88,12 +87,12 @@ The base comes from local `upstream/HEAD`, then `origin/HEAD`; nothing is fetche
 Use `--list` to preview, `--all` for the full CI static recipe, or `--affected BASE`
 to choose a different static comparison base.
 
-Checks cover localization, project/test wiring, package grouping, generated policy
+Checks cover localization, project wiring, package grouping, generated policy
 and feature flags. Unknown inputs or a missing base select the full static recipe.
 CI also keeps the full static recipe. Failures print a focused rerun command:
 
 ```sh
-python3 scripts/verify-local.py --only project --only test-wiring
+python3 scripts/verify-local.py --only project
 ```
 
 Parsing does not replace typechecking, app tests or a build. Add `--receipt -`

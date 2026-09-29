@@ -8,7 +8,6 @@ stage() {
 
 cd "$root"
 stage start setup
-python3 scripts/ci/cmux_unit_test_shard.py --validate
 stage end setup
 
 stage start test
@@ -18,9 +17,6 @@ python3 tests/test_ci_linux_guard_routing.py
 python3 tests/test_ci_merge_queue_required_checks.py
 python3 tests/test_ci_reusable_workflow_permissions.py
 ./scripts/lint-pbxproj-test-wiring.sh
-./scripts/lint-pbxproj-test-wiring.sh --target cmuxCLITests --tests-dir cmuxCLITests
 ./scripts/lint-pbxproj-test-wiring.sh --target cmuxCLITests --tests-dir cmuxCLITestSupport
-./scripts/lint-pbxproj-test-wiring.sh --target cmuxTests --tests-dir cmuxCLITestSupport
-./scripts/lint-pbxproj-test-wiring.sh --target cmuxUITests --tests-dir cmuxUITests
 ./tests/test_ci_pbxproj_app_sources_wiring.sh
 stage end test

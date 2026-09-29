@@ -372,8 +372,7 @@ class Workflow(unittest.TestCase):
         cls.jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
 
     def test_the_consumers_wait_for_late_placement_and_read_it_first_on_attempt_one(self):
-        keys = {"app-host-unit-tests": "format('shard-{0}', matrix.shard)",
-                "tests-build-and-lag": "'lag'", "cli-product-tests": "'cli-product'"}
+        keys = {"cli-product-tests": "'cli-product'"}
         prefix = "${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')[%s] || "
         for job, key in keys.items():
             with self.subTest(job=job):

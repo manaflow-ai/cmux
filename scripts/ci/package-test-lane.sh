@@ -3,16 +3,14 @@
 # runs on a GitHub runner and as a fleet ci-step (`cmux-ci run`, hq#794) from a
 # fresh checkout of the commit on a mini.
 #
-# Usage: package-test-lane.sh [run|select|bonsplit|packages|ghostty-sha]
+# Usage: package-test-lane.sh [run|select|packages|ghostty-sha]
 #          [--event[=]NAME] [--full-suite[=]true|false]
 #
 #   run       (default) select, then set up what the selection needs (Xcode,
-#             GhosttyKit.xcframework, Rust) and run the Bonsplit and package
-#             tests.
+#             GhosttyKit.xcframework, Rust) and run the package tests.
 #   select    choose the packages. Under Actions it writes the step outputs
-#             (selected_packages, selected_count, bonsplit, needs_ghosttykit,
+#             (selected_packages, selected_count, needs_ghosttykit,
 #             needs_rust, changed_files) to GITHUB_OUTPUT.
-#   bonsplit  run the Bonsplit package tests.
 #   packages  run the packages listed in the file SELECTED_PACKAGES.
 #   prebuild-one PACKAGE LOG
 #             build PACKAGE and its tests into LOG; the packages phase runs
@@ -26,7 +24,7 @@ set -euo pipefail
 
 phase=run
 case "${1:-}" in
-  run|select|bonsplit|packages|ghostty-sha) phase="$1"; shift ;;
+  run|select|packages|ghostty-sha) phase="$1"; shift ;;
   prebuild-one) phase="$1"; prebuild_package="$2"; prebuild_log="$3"; shift 3 ;;
 esac
 event="${EVENT_NAME:-}"
@@ -53,15 +51,6 @@ output() {
   fi
 }
 
-# A fleet step starts from a worktree without submodules. Bonsplit is a local
-# package of several packages and is read by the selector, so it has to be
-# there before anything else. A GitHub checkout already has it.
-ensure_bonsplit() {
-  if [ ! -f vendor/bonsplit/Package.swift ]; then
-    git submodule update --init vendor/bonsplit
-  fi
-}
-
 # The selection needs the commit's first parent. A GitHub checkout fetches
 # depth 2; a fleet step's worktree may be shallow, so fetch the parent there.
 ensure_parent() {
@@ -76,16 +65,12 @@ ensure_parent() {
 select_packages() {
   PACKAGES=(
     CMUXAuthCore
-    CmuxBrowser
     CmuxCanvasUI
-    CmuxCloud
     CmuxCloudMachines
-    CmuxCloudTui
     CmuxComputerUse
     CmuxCore
     CmuxRemoteDaemon
     CmuxRemoteWorkspace
-    CmuxRemoteSession
     CmuxAgentChat
     CmuxAgentSessionStore
     CmuxAuthRuntime
@@ -106,26 +91,21 @@ select_packages() {
     CmuxSurfaceCatalogModel
     CmuxSudoBroker
     CmuxSudoBrokerUI
-    CmuxTerminal
     CmuxTerminalCore
     CmuxTerminalImport
     CmuxTerminalPrediction
     CmuxUpdater
-    CmuxWorkspaces
     CMUXAgentLaunch
     CmuxAgentJournal
     CmuxFilePreviewCore
     CmuxSyntaxHighlighting
-    CmuxAppKitSupportUI
     CmuxCanvas
     CmuxCloudBannerCore
     CmuxCloudImagePaste
-    CmuxCloudTunnelCore
     CMUXDebugLog
     CmuxExtensionKit
     CmuxFeedback
     CmuxLiveEval
-    CmuxPanes
     CmuxPhonePush
     CMUXProjectModel
     CmuxSidebar
@@ -140,14 +120,9 @@ select_packages() {
 
   changed="$work/changed-files.txt"
   selected="$work/selected-packages.txt"
-  run_bonsplit=false
   if { [ "$event" = "pull_request" ] || [ "$event" = "merge_group" ]; } \
     && git diff --no-renames --name-only HEAD^1 HEAD > "$changed" 2>/dev/null; then
     output "changed_files=$changed"
-    # vendor/bonsplit is a submodule, so a revision bump is the bare path.
-    if grep -qE '^vendor/bonsplit(/|$)' "$changed" || grep -qxF '.github/workflows/ci.yml' "$changed"; then
-      run_bonsplit=true
-    fi
     selection_args=(--changed-files "$changed")
     if [ "$full_suite" != "true" ]; then
       # Match the router's candidate filtering even for mixed PRs.
@@ -161,18 +136,13 @@ select_packages() {
       exit 1
     fi
     echo "Diff unavailable; running every package."
-    run_bonsplit=true
     printf '%s\n' "${PACKAGES[@]}" > "$selected"
   fi
-  if [ "$run_bonsplit" = true ]; then
-    output "bonsplit=true"
-  fi
-
   count="$(wc -l < "$selected" | tr -d ' ')"
   output "selected_packages=$selected"
   output "selected_count=$count"
 
-  if grep -qxE 'CmuxTerminal|CmuxTerminalCore|CmuxCloudTui|CmuxCloud' "$selected"; then
+  if grep -qxE 'CmuxTerminalCore' "$selected"; then
     needs_ghosttykit=true
   else
     needs_ghosttykit=false
@@ -231,36 +201,6 @@ install_rust() {
   ./scripts/install-rust-ci.sh
   # install-rust-ci.sh hands PATH to later workflow steps; this shell needs it now.
   export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$HOME/.cargo/bin:$PATH"
-}
-
-run_bonsplit_tests() {
-  # Blacksmith macOS runners intermittently abort a package's test
-  # runner at startup. Retry exactly once only for the known signal
-  # 5/6 crash immediately after build and before test output, matching
-  # the package loop below.
-  # Output streams live through the hang watchdog, which fails a run
-  # whose tests stop making progress (see the package loop below).
-  log="$(mktemp -t bonsplit-test.XXXXXX)"
-  run_swift_test() {
-    test_status=0
-    python3 scripts/ci/hung_test_watchdog.py \
-      --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-180}" \
-      --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
-      --sample-seconds 5 --label Bonsplit --log "$log" \
-      -- swift test --package-path vendor/bonsplit < /dev/null || test_status=$?
-  }
-  run_swift_test
-  if [ "$test_status" -ne 0 ] \
-    && grep -Fq 'Build complete!' "$log" \
-    && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' "$log" \
-    && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' "$log"; then
-    echo "Test runner crashed at startup (runner flake); retrying Bonsplit once."
-    run_swift_test
-  fi
-  if [ "$test_status" -ne 0 ]; then
-    exit "$test_status"
-  fi
-  python3 scripts/ci/require_swift_test_execution.py --log "$log"
 }
 
 # Sets pkgdir and swift_test_args for one package. The prebuild and the test
@@ -323,15 +263,13 @@ prebuild_packages() {
 }
 
 run_package_tests() {
-  # The cmux-unit scheme only runs the cmuxTests app-host suite; it does
-  # not execute the SPM package test targets. Run them here so package
-  # tests (settings stores, secret-file migration, socket-control
+  # No Xcode scheme executes the SPM package test targets. Run them here
+  # so package tests (settings stores, secret-file migration, socket-control
   # convergence, etc.) are a real CI gate, not just compiled.
   # Scoped to packages that build headlessly via SwiftPM (no GhosttyKit /
   # app-target dependency). Add a package here once its `swift test`
   # is confirmed to resolve standalone. The GhosttyKit-referencing
-  # packages (CmuxTerminalCore and the terminal packages stacked on
-  # it) are the exception: their binaryTarget only needs the
+  # package (CmuxTerminalCore) is the exception: their binaryTarget only needs the
   # xcframework present at the repo root (downloaded earlier in this
   # lane), and their test runners link a C stub for the @_silgen_name
   # symbol instead of the GhosttyKit archive.
@@ -388,7 +326,7 @@ run_package_tests() {
     CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
-    CmuxTerminal|CmuxTerminalCore|CmuxCloudTui|CmuxCloud)
+    CmuxTerminalCore)
       run_swift_test
       if [ "$test_status" -ne 0 ]; then
         if [ "$test_status" -eq 1 ] \
@@ -478,18 +416,13 @@ case "$phase" in
     echo "${GHOSTTY_SHA:-}"
     ;;
   select)
-    ensure_bonsplit
     ensure_parent
     select_packages
-    ;;
-  bonsplit)
-    run_bonsplit_tests
     ;;
   packages)
     run_package_tests
     ;;
   run)
-    ensure_bonsplit
     ensure_parent
     # Under Actions the select step already wrote the outputs; this run only
     # needs the files.
@@ -500,9 +433,6 @@ case "$phase" in
     fi
     if [ "$needs_rust" = true ]; then
       install_rust
-    fi
-    if [ "$run_bonsplit" = true ]; then
-      run_bonsplit_tests
     fi
     SELECTED_PACKAGES="$selected" SELECTED_COUNT="$count" run_package_tests
     ;;

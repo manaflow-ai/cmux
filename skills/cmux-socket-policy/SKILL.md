@@ -10,7 +10,7 @@ description: "Socket command threading and focus policy for cmux CLI/socket work
 - Do not use `DispatchQueue.main.sync` for high-frequency socket telemetry commands such as `report_*`, `ports_kick`, status/progress updates, or log metadata updates.
 - For telemetry hot paths, parse and validate arguments off-main.
 - Dedupe and coalesce off-main first.
-- Schedule minimal UI/model mutation with `DispatchQueue.main.async` only when needed.
+- Schedule minimal UI/model mutation on the main actor only when needed. In the app, mutations go through the bounded `MainActorWorkQueue` and read-only queries answer off the main actor from the published `ControlSnapshot` ([architecture 5a](../../plans/cmux-next/architecture.md)).
 - Commands that directly manipulate AppKit/Ghostty UI state are allowed to run on the main actor.
 - If adding a new socket command, default to off-main handling and require an explicit reason in code comments when main-thread execution is necessary.
 

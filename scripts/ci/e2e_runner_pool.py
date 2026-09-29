@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Pick the macOS pool an E2E run lands on.
 
-test-e2e.yml and scripts/ci/dispatch-focused-test.py both call this, so a
-workflow started from the Actions UI, `gh workflow run`, or run-e2e.sh applies
-one rule.
+iroh-release-gate.yml, test-ios.yml and ios-screenshots.yml call this, so
+every dispatch that offers a job to the owned Macs applies one rule.
 
 `runner: auto` means `vars.MACOS_RUNNER_TESTS` when it names a pool, else the
 6vcpu macOS 26 pool. On that default an E2E run takes a pool by the rule pull

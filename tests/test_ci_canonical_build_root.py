@@ -438,7 +438,7 @@ class SeededBuildFileSystemModeTests(unittest.TestCase):
     def test_every_scheme_builds_in_checksum_only_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
             records, _ = self.run_recipe(Path(tmp))
-        builds = [r for r in records if "build-for-testing" in r["args"]]
+        builds = [r for r in records if {"build", "build-for-testing"} & set(r["args"])]
         sys.path.insert(0, str(ROOT / "scripts" / "ci"))
         import product_input_identity as identity
 
@@ -471,7 +471,7 @@ class BuildEnvironmentTests(SeededBuildFileSystemModeTests):
         with tempfile.TemporaryDirectory() as tmp:
             records, _ = self.run_recipe(Path(tmp))
         resolves = [r for r in records if "-resolvePackageDependencies" in r["args"]]
-        builds = [r for r in records if "build-for-testing" in r["args"]]
+        builds = [r for r in records if {"build", "build-for-testing"} & set(r["args"])]
         self.assertEqual(len(resolves), 1)
         self.assertTrue(builds)
         resolve_env = resolves[0]["env"]
@@ -484,7 +484,7 @@ class BuildEnvironmentTests(SeededBuildFileSystemModeTests):
         with tempfile.TemporaryDirectory() as tmp:
             records, _ = self.run_recipe(Path(tmp))
             caller = self.caller_env
-        builds = [r for r in records if "build-for-testing" in r["args"]]
+        builds = [r for r in records if {"build", "build-for-testing"} & set(r["args"])]
         self.assertTrue(builds)
         for record in builds:
             args = record["args"]

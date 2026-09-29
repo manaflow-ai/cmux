@@ -228,14 +228,9 @@ chk "a symlinked file is scanned" 1 "$(grep -c "linkedFileWait" <<<"$out")"
 chk "a symlinked directory is scanned" 1 "$(grep -c "linkedDirectoryWait" <<<"$out")"
 rm -f "$fx/Sources/RemoteTmuxLinked.swift" "$fx/Sources/RemoteTmuxLinkedDir"
 # The default roots, run the way CI runs it: a copy of the lint inside a fixture repository,
-# with no LINT_SCOPE_DIR, must scan Sources and Packages.
-mkdir -p "$fx/repo/scripts" "$fx/repo/Sources" "$fx/repo/Packages/P/Sources/P/RemoteTmux"
+# with no LINT_SCOPE_DIR, must scan Packages.
+mkdir -p "$fx/repo/scripts" "$fx/repo/Packages/P/Sources/P/RemoteTmux"
 cp "$LINT" "$fx/repo/scripts/lint-remote-tmux-no-polling.sh"
-cat > "$fx/repo/Sources/RemoteTmuxA.swift" <<'SWIFT'
-func sourcesRootWait() {
-    usleep(1)
-}
-SWIFT
 cat > "$fx/repo/Packages/P/Sources/P/RemoteTmux/B.swift" <<'SWIFT'
 func packagesRootWait() {
     usleep(2)
@@ -243,7 +238,6 @@ func packagesRootWait() {
 SWIFT
 out="$(env -u LINT_SCOPE_DIR LINT_BASELINE_FILE="$base" bash "$fx/repo/scripts/lint-remote-tmux-no-polling.sh" 2>&1)"; rc=$?
 chk "the default roots fail on new waits" 1 "$rc"
-chk "Sources is a default root" 1 "$(grep -c "sourcesRootWait" <<<"$out")"
 chk "Packages is a default root" 1 "$(grep -c "packagesRootWait" <<<"$out")"
 
 # 13. An empty scope is a broken scan, not a clean tree.

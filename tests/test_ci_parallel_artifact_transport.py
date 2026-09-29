@@ -31,14 +31,13 @@ transport = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(transport)
 
 WORKFLOW = (ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
-CONSUMERS = ("app-host-unit-tests", "tests-build-and-lag")
+CONSUMERS = ("cli-product-tests",)
 SOURCE_ORDER = (
     "Try node-local compiled product cache",
     "Try trusted fleet peer artifact source",
-    "Restore selective app-host product layers",
     "Try shared R2 artifact transport",
     "Try parallel GitHub artifact transport",
-    "Download compiled app-host test product",
+    "Download compiled test product",
 )
 
 
@@ -84,22 +83,21 @@ class WorkflowWiringTests(unittest.TestCase):
             for guard in (
                 "steps.node-products.outputs.hit != 'true'",
                 "steps.peer-products.outputs.hit != 'true'",
-                "steps.restore-layers.outputs.hit != 'true'",
                 "steps.r2-products.outputs.hit != 'true'",
             ):
                 self.assertIn(guard, step, job)
 
     def test_restore_step_records_the_transport_it_used(self):
         for job in CONSUMERS:
-            step = step_block(job_block(job), "Restore compiled app-host test product")
+            step = step_block(job_block(job), "Restore compiled test product")
             self.assertIn("CMUX_PARALLEL_PRODUCT_HIT: ${{ steps.parallel-products.outputs.hit }}", step)
         script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
         self.assertIn('"github-parallel" if parallel_hit else', script)
         self.assertIn('echo "$EXPECTED_SHA256  $archive" | shasum -a 256 -c -', script)
 
     def test_cli_product_lane_keeps_the_consumer_transport_chain(self):
-        # cli-product-tests restores the same compiled product without layers,
-        # so it must keep the same fast sources, route check and cache finalize.
+        # cli-product-tests restores the compiled product without layers, so it
+        # must keep the fast sources, route check and cache finalize.
         block = job_block("cli-product-tests")
         order = (
             "Verify GitHub-hosted route",
@@ -126,19 +124,9 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}", finalize)
         self.assertIn("node_product_cache.py finalize", finalize)
         jobs = yaml.safe_load(WORKFLOW)["jobs"]
-        # Same permissions: the R2 transport needs id-token to mint its token.
-        self.assertEqual(jobs["cli-product-tests"]["permissions"], jobs["app-host-unit-tests"]["permissions"])
-        # The two routes differ only by the job's owned_jobs key (#14318) and
-        # the shards' pr_shard_runner branch (pr_runner_pool.spread_shards).
-        # Both take pr_gui_runner: both hold the mini's gui token
-        # (pr_runner_pool.gui_token_job()).
-        shard_route = step_block(job_block("app-host-unit-tests"), "Verify GitHub-hosted route")
-        self.assertIn("inputs.pr_shard_runner || ", shard_route)
-        self.assertEqual(
-            step_block(block, "Verify GitHub-hosted route").replace("' cli-product '", "KEY").replace("'cli-product'", "LATE"),
-            shard_route.replace("format(' shard-{0} ', matrix.shard)", "KEY").replace("format('shard-{0}', matrix.shard)", "LATE")
-            .replace("inputs.pr_shard_runner || ", ""),
-        )
+        # The R2 transport needs id-token to mint its token.
+        self.assertEqual(jobs["cli-product-tests"]["permissions"],
+                         {"contents": "read", "actions": "read", "id-token": "write"})
 
     def test_layer_transport_prefers_parallel_reads_and_keeps_the_stream_fallback(self):
         source = (ROOT / "scripts/ci/app_host_layer_transport.py").read_text(encoding="utf-8")

@@ -34,13 +34,13 @@ def fixture(root: Path) -> None:
         "Packages/macOS/Loner": manifest(),
         "Packages/macOS/CmuxCommandPalette": manifest(),
         "Packages/macOS/Palette": manifest("../CmuxCommandPalette"),
-        "Packages/macOS/Splitter": manifest("../../../vendor/bonsplit"),
+        "Packages/macOS/Splitter": manifest("../../../vendor/splitter"),
     }
     for directory, text in layout.items():
         (root / directory).mkdir(parents=True)
         (root / directory / "Package.swift").write_text(text, encoding="utf-8")
-    (root / "vendor/bonsplit").mkdir(parents=True)
-    (root / "vendor/bonsplit/Package.swift").write_text(manifest(), encoding="utf-8")
+    (root / "vendor/splitter").mkdir(parents=True)
+    (root / "vendor/splitter/Package.swift").write_text(manifest(), encoding="utf-8")
 
 
 def check(root: Path, changed: list[str] | None, expected: list[str], why: str) -> None:
@@ -69,13 +69,12 @@ def job_scripts() -> set[str]:
     return found
 
 
-def run_package_step(package: str, attempts: list[tuple[str, int]], bonsplit=False):
+def run_package_step(package: str, attempts: list[tuple[str, int]]):
     """Execute the real lane script; only Swift's process boundary is substituted."""
-    script = f"bash '{ROOT / LANE}' {'bonsplit' if bonsplit else 'packages'}\n"
+    script = f"bash '{ROOT / LANE}' packages\n"
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / "Packages/macOS" / package).mkdir(parents=True)
-        (root / "vendor/bonsplit").mkdir(parents=True)
         (root / "scripts/ci").mkdir(parents=True)
         for helper in ("require_swift_test_execution.py", "hung_test_watchdog.py", "ci_process_tree.py"):
             shutil.copyfile(ROOT / "scripts/ci" / helper, root / "scripts/ci" / helper)
@@ -106,24 +105,23 @@ def check_package_output_behavior() -> None:
     padding = "build progress line without diagnostics\n" * 12000
     passed = "✔ Test run with 4 tests in 1 suites passed after 0.001 seconds.\n"
     cosmetic = "error: unexpected binary name GhosttyKit\n"
-    for package in ("CmuxTerminal", "CmuxTerminalCore"):
+    for package in ("CmuxTerminalCore",):
         result, count = run_package_step(package, [(cosmetic + "error: real compiler failure\n" + padding + passed, 1)])
         assert result.returncode == 1 and count == 1, f"{package}: real error incorrectly tolerated: {result.returncode}"
         result, count = run_package_step(package, [(cosmetic + padding + passed, 1)])
         assert result.returncode == 0 and count == 1, f"{package}: cosmetic diagnostic no longer tolerated"
         result, count = run_package_step(package, [(cosmetic + "with 1 failure\n" + padding + passed, 1)])
         assert result.returncode == 1 and count == 1, f"{package}: test failure incorrectly tolerated"
-    for bonsplit in (False, True):
-        for signal in (5, 6):
-            startup = f"Build complete!\nerror: Exited with unexpected signal code {signal}\n" + padding
-            result, count = run_package_step("CmuxSettings", [(startup, 1), (passed, 0)], bonsplit)
-            assert result.returncode == 0 and count == 2, f"startup signal {signal} must retry once (bonsplit={bonsplit})"
-            result, count = run_package_step("CmuxSettings", [(startup, 1)], bonsplit)
-            assert result.returncode == 1 and count == 2, "repeated startup crashes must fail after one retry"
-        for output in ("Build complete!\nerror: Exited with unexpected signal code 10\n" + padding,
-                       "Build complete!\nerror: Exited with unexpected signal code 5\nTest Suite started\n" + padding):
-            result, count = run_package_step("CmuxSettings", [(output, 1)], bonsplit)
-            assert result.returncode == 1 and count == 1, "non-startup failures must not retry"
+    for signal in (5, 6):
+        startup = f"Build complete!\nerror: Exited with unexpected signal code {signal}\n" + padding
+        result, count = run_package_step("CmuxSettings", [(startup, 1), (passed, 0)])
+        assert result.returncode == 0 and count == 2, f"startup signal {signal} must retry once"
+        result, count = run_package_step("CmuxSettings", [(startup, 1)])
+        assert result.returncode == 1 and count == 2, "repeated startup crashes must fail after one retry"
+    for output in ("Build complete!\nerror: Exited with unexpected signal code 10\n" + padding,
+                   "Build complete!\nerror: Exited with unexpected signal code 5\nTest Suite started\n" + padding):
+        result, count = run_package_step("CmuxSettings", [(output, 1)])
+        assert result.returncode == 1 and count == 1, "non-startup failures must not retry"
     print("PASS: real package CI steps reject true errors and preserve bounded startup retries")
 
 
@@ -134,23 +132,23 @@ def main() -> int:
         fixture(root)
         check(root, None, PACKAGES, "an unknown diff runs everything")
         check(root, [], [], "an empty diff runs nothing")
-        check(root, ["Sources/App.swift", "cmuxTests/AppTests.swift", "web/app/page.tsx", "README.md"], [],
+        check(root, ["CLI/cmux.swift", "cmuxCLITests/CLITests.swift", "web/app/page.tsx", "README.md"], [],
               "app, web and docs changes reach no package")
         check(root, ["Packages/macOS/Loner/Sources/Loner/A.swift"], ["Loner"], "a leaf change runs that package")
         check(root, ["Packages/macOS/Base/Sources/Base/A.swift"], ["Base", "Middle", "Top"],
               "a change runs every transitive dependent, across group folders")
         check(root, ["Packages/macOS/Middle/Tests/MiddleTests/T.swift"], ["Middle", "Top"],
               "dependents follow the changed package, not its dependencies")
-        check(root, ["vendor/bonsplit/Sources/Bonsplit/A.swift"], ["Splitter"],
+        check(root, ["vendor/splitter/Sources/Splitter/A.swift"], ["Splitter"],
               "a path dependency outside Packages/ counts")
-        check(root, ["vendor/bonsplit"], ["Splitter"], "a submodule revision bump is the bare directory path")
+        check(root, ["vendor/splitter"], ["Splitter"], "a submodule revision bump is the bare directory path")
         check(root, ["Native/CommandPaletteNucleoFFI/src/lib.rs"], ["Palette"],
               "an extra input reaches the packages that depend on its owner")
         check(root, ["Packages/macOS/Unlisted/Sources/A.swift"], [], "a package outside the list selects nothing")
         check(root, [".github/workflows/ci.yml"], PACKAGES, "the job's own workflow runs everything")
         check(root, [".github/workflows/nightly.yml", "scripts/reload.sh"], [], "other workflows and scripts run nothing")
         check(root, ["ghostty"], PACKAGES, "the GhosttyKit revision runs everything")
-        check(root, ["Loner.swift", "Sources/App.swift"], PACKAGES, "an unknown path runs everything")
+        check(root, ["Loner.swift", "CLI/cmux.swift"], PACKAGES, "an unknown path runs everything")
 
         # Exercise the CLI used by the workflow, including mixed package/global
         # inputs. Full-suite selection retains its existing fail-open policy.
@@ -168,7 +166,7 @@ def main() -> int:
         # Targeted PR selection must preserve declared local dependencies,
         # including submodule revision paths, rather than dropping them before
         # the dependency-aware selector sees the diff.
-        for path in ("vendor/bonsplit", "vendor/bonsplit/Sources/Bonsplit/A.swift"):
+        for path in ("vendor/splitter", "vendor/splitter/Sources/Splitter/A.swift"):
             changed_file = root / "changed.txt"
             changed_file.write_text(path + "\n.github/workflows/ci-macos.yml\n")
             result = subprocess.run(
@@ -182,7 +180,7 @@ def main() -> int:
         # Check the actual PR router too: a normal package selector result is
         # insufficient if the lane never starts. These are current declared
         # local dependencies of packages in the workflow's test inventory.
-        for path in ("vendor/bonsplit", "vendor/stack-auth-swift-sdk-prerelease"):
+        for path in ("vendor/stack-auth-swift-sdk-prerelease",):
             changed_file = root / "router-changed.txt"
             changed_file.write_text(path + "\n")
             outputs = root / "router-outputs.txt"
@@ -215,7 +213,6 @@ def main() -> int:
 
     select_step = lane.split("\nselect_packages() {\n", 1)[1].split("\n}\n", 1)[0]
     assert "git diff --no-renames --name-only HEAD^1 HEAD" in select_step, "a move out of a package must list the old path"
-    assert "'^vendor/bonsplit(/|$)'" in select_step, "a Bonsplit submodule bump must run the Bonsplit tests"
 
     # A change to any script the job runs can break every package's tests, so
     # each one must force the full set.

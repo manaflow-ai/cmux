@@ -73,7 +73,7 @@ def nightly_workflow_inputs(root: Path) -> frozenset[str]:
 
 
 def bundled_paths(root: Path) -> frozenset[str]:
-    """Repository paths the cmux target copies into the app bundle.
+    """Repository paths the app target copies into the app bundle.
 
     Read from the Xcode project, because the pull-request router excuses some
     of these: it asks whether a Release compile is needed, and a script copied
@@ -110,8 +110,8 @@ def bundled_paths(root: Path) -> frozenset[str]:
             if detect._pbx_field(reference, "sourceTree") != "SOURCE_ROOT":
                 continue
             paths.add(detect.normalize_path(detect._pbx_field(reference, "path")))
-    if not paths:
-        raise ValueError("the cmux target bundles no repository path")
+    # The cmux-next target bundles only built products and package resources,
+    # so an empty set is a valid answer, not an unreadable project.
     return frozenset(paths)
 
 

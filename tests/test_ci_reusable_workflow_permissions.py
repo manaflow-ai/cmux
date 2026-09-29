@@ -479,15 +479,6 @@ MANUAL_REF_TARGETS = {
     "reload-build.yml": {
         "build": "ref: ${{ needs.resolve-ref.outputs.sha }}",
     },
-    "test-macos-suite.yml": {
-        "tests": "ref: ${{ needs.resolve-ref.outputs.sha }}",
-    },
-    "test-e2e.yml": {
-        # Both halves of the split check out the revision the dispatcher
-        # resolved, so the product is built from and tested at one revision.
-        "build": "ref: ${{ needs.resolve-ref.outputs.sha }}",
-        "test": "ref: ${{ needs.resolve-ref.outputs.sha }}",
-    },
 }
 
 

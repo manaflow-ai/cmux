@@ -142,19 +142,10 @@
          location = "group:CmuxAgentSessionStore">
       </FileRef>
       <FileRef
-         location = "group:CmuxAppKitSupportUI">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxBrowser">
-      </FileRef>
-      <FileRef
          location = "group:CmuxCanvas">
       </FileRef>
       <FileRef
          location = "group:CmuxCanvasUI">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxCloud">
       </FileRef>
       <FileRef
          location = "group:CmuxCloudBannerCore">
@@ -164,12 +155,6 @@
       </FileRef>
       <FileRef
          location = "group:CmuxCloudMachines">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxCloudTui">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxCloudTunnelCore">
       </FileRef>
       <FileRef
          location = "group:CmuxCommandPalette">
@@ -217,9 +202,6 @@
          location = "group:CmuxNotifications">
       </FileRef>
       <FileRef
-         location = "group:CmuxPanes">
-      </FileRef>
-      <FileRef
          location = "group:CmuxPhonePush">
       </FileRef>
       <FileRef
@@ -227,9 +209,6 @@
       </FileRef>
       <FileRef
          location = "group:CmuxRemoteDaemon">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxRemoteSession">
       </FileRef>
       <FileRef
          location = "group:CmuxRemoteWorkspace">
@@ -271,9 +250,6 @@
          location = "group:CmuxSwiftRenderUI">
       </FileRef>
       <FileRef
-         location = "group:CmuxTerminal">
-      </FileRef>
-      <FileRef
          location = "group:CmuxTerminalCore">
       </FileRef>
       <FileRef
@@ -290,9 +266,6 @@
       </FileRef>
       <FileRef
          location = "group:CmuxWindowing">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxWorkspaces">
       </FileRef>
    </Group>
    <Group

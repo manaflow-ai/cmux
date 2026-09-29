@@ -109,8 +109,8 @@ composition gates.
   proprietary Browser requires independently reimplementing or separately
   licensing Helium-derived behavior.
 - **Bonsplit:** preserve the MIT notice and exact source revision for adapted
-  split-layout and animation behavior, even though cmux already ships Bonsplit
-  elsewhere in the monorepo.
+  split-layout and animation behavior. The monorepo no longer vendors Bonsplit,
+  so the Browser release must carry that notice itself.
 - **uBlock Origin:** pin the extension payload digest and upstream source tag,
   preserve GPL-3.0-only notices, and distribute the corresponding source or a
   valid source offer with the binary. Preserve and inventory the extension's

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The legacy filename stays wired into workflow-guard-tests. Its contract now
 # protects the build-once/test-many path: SwiftPM resolution belongs to compile
-# admission, while app-host shards execute only the restored compiled product.
+# admission, while the CLI product lane executes only the restored product.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -21,7 +21,7 @@ def job(name: str) -> str:
     return match.group(0)
 
 admission = job("macos-compile-admission")
-consumer = job("app-host-unit-tests")
+consumer = job("cli-product-tests")
 # The swift-package-tests job runs its package list from the lane script.
 packages = Path("scripts/ci/package-test-lane.sh").read_text(encoding="utf-8")
 restore = Path("scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
@@ -30,11 +30,10 @@ restore = Path("scripts/ci/restore-app-host-test-product.sh").read_text(encoding
 # callers that already sit at a stable source root.
 assert "scripts/ci/compile-app-host-test-product.sh canonical-resolve" in admission
 assert "scripts/ci/compile-app-host-test-product.sh canonical-build" in admission
-assert "Restore compiled app-host test product" in consumer
-assert "test-without-building" in consumer
+assert "Restore compiled test product" in consumer
 
 # CmuxTerminalCore's split-theme coverage belongs to the strict package gate.
-# Do not rebuild/relink the same package test product inside an app-host shard.
+# Do not rebuild/relink the same package test product inside the CLI lane.
 package_array = re.search(r"(?ms)^\s*PACKAGES=\(\n(.*?)^\s*\)", packages)
 assert package_array is not None
 package_entries = {
@@ -51,13 +50,13 @@ for forbidden in (
     ".ci-source-packages",
     "-project cmux.xcodeproj",
 ):
-    assert forbidden not in consumer, f"app-host consumer reintroduced {forbidden}"
+    assert forbidden not in consumer, f"CLI product consumer reintroduced {forbidden}"
 
 assert "PackageFrameworks" in restore
 assert "app_host_test_products.py restore" in restore
 
 print(
     "PASS: SwiftPM resolution stays in compile admission; "
-    "app-host shards consume restored compiled products"
+    "the CLI product lane consumes restored compiled products"
 )
 PY

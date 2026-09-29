@@ -21,7 +21,6 @@ Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Vault/Providers/RovoDev/R
 Packages/macOS/CmuxSidebar/Sources/CmuxSidebar/ExtensionHost/Browser/CMUXSidebarExtensionBrowserPresenter.swift:CMUXSidebarExtensionBrowserPresenter
 Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileSyncProtocol.swift:CmxMobileDefaults
 Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileSyncProtocol.swift:MobileSyncFrameCodec
-Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Pasteboard/PasteboardTextFidelity.swift:PasteboardTextFidelity
 Packages/macOS/CMUXProjectModel/Sources/CMUXProjectModel/XcconfigParser.swift:XcconfigParser
 Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CMUXSidebarExtensionPoint.swift:CmuxSidebarExtensionPoint
 Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CMUXSidebarXPC.swift:CmuxSidebarXPCCodec

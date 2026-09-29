@@ -4,9 +4,7 @@
 Diagnostics and metrics steps run with `continue-on-error: true` because
 collecting evidence should never fail a job. Without an `id` whose outcome
 something reads, a failure there is invisible: the artifact simply does not
-exist and nothing says why. The app-host suite is the largest consumer of
-macOS capacity and the least reliable, so losing its diagnostics silently is
-the worst case, not a hypothetical one. See #13812.
+exist and nothing says why. See #13812.
 """
 
 from pathlib import Path
@@ -28,15 +26,6 @@ EVIDENCE_STEPS = {
     "macos-compile-admission": (
         "Upload compile admission metrics",
         "Upload Xcode build metrics receipt",
-        # The changed suites compile admission runs itself.
-        "Collect app-host failure diagnostics",
-        "Upload app-host failure diagnostics",
-    ),
-    "app-host-unit-tests": (
-        "Collect RemoteTmuxMirror crash diagnostics",
-        "Upload RemoteTmuxMirror crash diagnostics",
-        "Collect app-host failure diagnostics",
-        "Upload app-host failure diagnostics",
     ),
 }
 

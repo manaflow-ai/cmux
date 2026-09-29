@@ -283,10 +283,7 @@ class ActTests(unittest.TestCase):
         gh = FakeGitHub()
         result = self.act(gh, self.report([cf.MACHINE]))
         self.assertTrue(result["rerun"])
-        # The bot's re-run may emit no workflow_run event, so it starts the
-        # UI test dispatch for attempt 2 itself (ci-ui-tests.yml).
         self.assertEqual(gh.calls, [("POST", "repos/manaflow-ai/cmux/actions/runs/42/rerun-failed-jobs"),
-                                    ("POST", "repos/manaflow-ai/cmux/actions/workflows/ci-ui-tests.yml/dispatches"),
                                     ("POST", "repos/manaflow-ai/cmux/issues/7/comments")])
 
     def test_the_bots_comment_is_edited_and_a_lookalike_is_ignored(self) -> None:

@@ -885,12 +885,8 @@ class Wiring(unittest.TestCase):
 
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             text = path.read_text()
-            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml", "test-e2e.yml"}:
+            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml"}:
                 self.fail(f"{path.name} names the admission DerivedData seed")
-        # E2E builds adopt the same seed but only read it.
-        e2e = (ROOT / ".github/workflows/test-e2e.yml").read_text()
-        for command in re.findall(r"seed_derived_data\.py (\w+)", e2e):
-            self.assertIn(command, {"start", "adopt"})
         self.assertNotIn("secrets.", json.dumps(adopt))
 
     def test_every_main_push_seeds_incrementally_under_the_key_admission_reads(self):
@@ -1449,25 +1445,8 @@ class Wiring(unittest.TestCase):
         # The guard reaches owned jobs at all: attempt 1 of the main lanes takes the fleet.
         owned = {(workflow, job) for workflow, job, on_fleet in checked if on_fleet}
         self.assertTrue({("ci-macos.yml", "macos-compile-admission"), ("ci-macos.yml", "cli-product-tests"),
-                         ("ci-macos.yml", "app-host-unit-tests"), ("ci.yml", "claude-wrapper"),
+                         ("ci.yml", "claude-wrapper"),
                          ("auth-refresh-tests.yml", next(iter(load("auth-refresh-tests.yml")["jobs"])))} <= owned, owned)
-
-    def test_full_suite_shards_take_the_shard_runner_on_admissions_xcode(self):
-        shards = load("ci-macos.yml")["jobs"]["app-host-unit-tests"]
-        for retry, owned, shard, runner in (
-            ("", "", "blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-26"),  # spread off 12vcpu
-            ("", "", "", "blacksmith-12vcpu-macos-26"),                          # stay with admission
-            # An owned run's shards not placed there take the retry runner.
-            ("blacksmith-12vcpu-macos-26", " admission ", "", "blacksmith-12vcpu-macos-26"),
-        ):
-            context = github_context("pull_request", ref="refs/pull/1/merge")
-            context["github"].update(repository="manaflow-ai/cmux", run_attempt="1",
-                                     event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
-            context["inputs"].update(pr_retry_runner=retry, pr_owned_jobs=owned, pr_shard_runner=shard)
-            context["matrix"] = {"shard": 3}
-            context["needs"] = {"macos-compile-admission": {"outputs": {"runner": "blacksmith-12vcpu-macos-26"}}}
-            with self.subTest(retry=retry, shard=shard):
-                self.assertEqual(evaluate(shards["runs-on"], context), runner)
 
     def test_root_jobs_take_the_root_label_when_the_picker_names_one(self):
         # glaeda refuses a canonical-root job on a mini whose root is taken, so
@@ -1495,12 +1474,8 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(admission, runner)
                 self.assertEqual(evaluate(macos["macos-compile-admission"]["env"]["CMUX_PRODUCT_RUNNER"], context),
                                  runner)
-                self.assertEqual(evaluate(macos["tests-build-and-lag"]["runs-on"], context), runner)
-                # The shards and cli-product-tests follow admission on attempt 1.
+                # cli-product-tests follows admission on attempt 1.
                 context["needs"] = {"macos-compile-admission": {"outputs": {"runner": admission}}}
-                # The evaluator has no format(): matrix shard 1 stands in.
-                shard = macos["app-host-unit-tests"]["runs-on"].replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
-                self.assertEqual(evaluate(shard, context), runner)
                 self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), runner)
 
     def test_cli_product_takes_the_gui_label_like_the_shards(self):
@@ -1556,10 +1531,8 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(admission["runs-on"], context), runner)
                 product_runner = evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context)
                 self.assertEqual(product_runner, runner[0] if isinstance(runner, list) else runner)
-                self.assertEqual(evaluate(macos["tests-build-and-lag"]["runs-on"], context), product_runner)
                 context["needs"] = {"macos-compile-admission": {"outputs": {"runner": product_runner}}}
-                shard = macos["app-host-unit-tests"]["runs-on"].replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
-                self.assertEqual(evaluate(shard, context), product_runner)
+                self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), product_runner)
 
     def test_main_full_suite_dispatch_takes_the_owned_pool_the_picker_names(self):
         # pr_runner_pool.py may put main's full-suite dispatch on an owned
@@ -1582,10 +1555,7 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(admission["runs-on"], context), runner)
                 self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
                 self.assertEqual(evaluate(admission["env"]["CMUX_CI_XCODE_APP"], context), "/Applications/Xcode-pr.app")
-                self.assertEqual(evaluate(macos["tests-build-and-lag"]["runs-on"], context), runner)
                 context["needs"] = {"macos-compile-admission": {"outputs": {"runner": runner}}}
-                shard = macos["app-host-unit-tests"]["runs-on"].replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
-                self.assertEqual(evaluate(shard, context), runner)
                 self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), runner)
                 # An owned Mac's kept build is reused on main too, starting at main's own commit.
                 context["env"] = {"CMUX_PRODUCT_RUNNER": runner}

@@ -30,7 +30,7 @@ cd "$(dirname "$0")/.." || exit 1
 # as well as the files whose name starts with it. Symlinks are followed, so a linked file or
 # directory is scanned like any other.
 # LINT_SCOPE_DIR points the scan at a fixture tree; the self-test uses it.
-if [ -n "${LINT_SCOPE_DIR:-}" ]; then SCOPE_ROOTS=("$LINT_SCOPE_DIR"); else SCOPE_ROOTS=(Sources Packages); fi
+if [ -n "${LINT_SCOPE_DIR:-}" ]; then SCOPE_ROOTS=("$LINT_SCOPE_DIR"); else SCOPE_ROOTS=(Packages); fi
 # A find that fails, or finds nothing, is a scan that did not happen. Neither may read as clean.
 if ! scope_list="$(find -L "${SCOPE_ROOTS[@]}" -type f -name '*.swift' -path '*RemoteTmux*' ! -path '*/Tests/*' | LC_ALL=C sort)"; then
   echo "lint-remote-tmux-no-polling: could not list sources under ${SCOPE_ROOTS[*]}" >&2; exit 2
@@ -69,12 +69,7 @@ BASELINE_FILE="${LINT_BASELINE_FILE:-scripts/remote-tmux-polling-baseline.txt}"
 # second wait added to the same function is new and fails, so every exception shows up in
 # review with its own reason. Only waits that exist in the tree belong here.
 # LINT_ALLOW_FILE replaces this list with a file in the same two-line form; the self-test uses it.
-ALLOW=(
-  "Sources/RemoteTmuxControlConnection.swift:scheduleReconnectAttempt:try await ContinuousClock().sleep(for: .seconds(delay))"
-  "Reconnect backoff for a host that is unreachable. The edge would be 'the host came back', which nothing local can observe; retrying IS the observation."
-  "Sources/RemoteTmuxSessionMirror+OutputRouting.swift:schedulePaneSeedDeliveryDeadline:try await ContinuousClock().sleep(for: .seconds(5))"
-  "Deadline arm on a pane's readiness wait: the task is cancelled when the surface becomes ready, and on expiry the seed is drained or gracefully deferred rather than retried"
-)
+ALLOW=()
 if [ -n "${LINT_ALLOW_FILE:-}" ]; then
   ALLOW=()
   while IFS= read -r allow_line; do ALLOW+=("$allow_line"); done < "$LINT_ALLOW_FILE" || {

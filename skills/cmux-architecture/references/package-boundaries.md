@@ -4,7 +4,7 @@ Expands the package extraction and layering rules in [../SKILL.md](../SKILL.md).
 
 ## Domain names vs slice names
 
-Good (a domain): `CmuxSettings`, `CmuxSettingsUI`, `CmuxAppearance`, `CmuxWorkspaces`, `CmuxBrowser`, `CmuxControlSocket`.
+Good (a domain): `CmuxSettings`, `CmuxSettingsUI`, `CmuxAppearance`, `CmuxControlSocket`.
 
 Weak (a slice): `CmuxAppearanceMath`, `CmuxWorkspaceModel`, `CmuxFooFormatting`, `CmuxFooLogic`, `CmuxFooState`. Slices force callers to depend on several sibling packages any time they touch the real domain.
 
@@ -18,17 +18,21 @@ The executable app target names concrete services and repositories and injects t
 
 ## Executable target boundary
 
-A lower package cannot extend a higher-owned type without inverting the dependency direction, so `AppDelegate+*` / `cmuxApp+*` extensions do not move down. Extract the behavior into a Coordinator/Service/Repository, inject it into the god object or composition root, and reduce the original extension to a one-line forward.
+A lower package cannot extend a higher-owned type without inverting the dependency direction, so `AppDelegate+*` extensions do not move down. Extract the behavior into a Coordinator/Service/Repository, inject it into the god object or composition root, and reduce the original extension to a one-line forward.
 
 ## pbxproj wiring
 
-`cmux.xcodeproj` lists package dependencies explicitly. Adding `Packages/CmuxFoo` means mirroring an existing package's entries:
+A new module inside `Packages/macOS/CmuxNext` is a target in its `Package.swift`
+and needs no project edit. `cmux.xcodeproj` lists directly linked packages
+explicitly. Linking `Packages/<Group>/CmuxFoo` into an Xcode target (`cmux-next`,
+`cmux-cli`, `cmuxCLITests`) means mirroring an existing package's entries:
 
 - one `XCLocalSwiftPackageReference` in the project's `packageReferences`
 - one `XCSwiftPackageProductDependency`
 - one `PBXBuildFile` linked in the Frameworks phase of every target that imports it
 
-App-target packages link into **both** `cmux` and `cmuxTests` (the target the `cmux-unit` scheme runs) so tests can import and inject them. A package linked by the app but not `cmuxTests` compiles the app and fails the test target. Copy a recent leaf package for the exact shape, then run:
+Link it into `cmuxCLITests` as well when those tests import it. Copy an existing
+entry for the exact shape, then run:
 
 ```bash
 scripts/normalize-pbxproj.py

@@ -64,8 +64,6 @@ from typing import Iterable, Optional
 # ---------------------------------------------------------------------------
 
 DEFAULT_ROOTS: tuple[str, ...] = (
-    "cmuxTests",
-    "cmuxUITests",
     "ios/cmuxUITests",
     "Packages",
     "tests",

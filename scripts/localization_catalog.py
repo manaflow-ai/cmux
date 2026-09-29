@@ -88,7 +88,6 @@ def catalog_entries(text: str) -> list[Member]:
 
 def discover(root: Path) -> list[Path]:
     paths = set((root / "Resources").rglob("*.xcstrings"))
-    paths.update((root / "TunnelExtension").rglob("*.xcstrings"))
     paths.update((root / "Packages/macOS").glob("*/Sources/**/*.xcstrings"))
     return sorted(paths)
 

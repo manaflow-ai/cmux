@@ -44,9 +44,6 @@ EXEMPT = {
     ("nightly.yml", "build-nightly-ghostty-cli-helper"):
         "Zig-only Ghostty CLI helper, built against the macOS 15 image's SDK 15 "
         "default like the helper in ci-macos.yml",
-    ("ci-macos-compat.yml", "compat-tests"):
-        "compatibility lane: builds with the newest Xcode each older image "
-        "carries (16.x on macos-14), below the floor on purpose",
     ("relay-tls.yml", "system-keychain"):
         "runs the relay TLS verifier under Xcode 16.2 / Swift 6, below the "
         "floor on purpose",

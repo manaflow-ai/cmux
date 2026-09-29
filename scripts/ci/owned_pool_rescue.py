@@ -224,7 +224,6 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, parse_queue_rounds, persistent  # noqa: E402
-import ui_tests_dispatch  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 E2E_WORKFLOW_PATH = ".github/workflows/test-e2e.yml"
@@ -252,11 +251,8 @@ NIGHTLY_EVENTS = frozenset({"push", "schedule"})
 # app build asks for one through this watch.
 TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 SIDE_WORKFLOW_PATHS = frozenset({
-    ".github/workflows/app-host-test-rerun.yml",
     ".github/workflows/auth-refresh-tests.yml",
-    ".github/workflows/cloud-command-deadlines.yml",
     ".github/workflows/cloud-machine-tests.yml",
-    ".github/workflows/cloud-task-local-tests.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
     ".github/workflows/relay-tls.yml",
@@ -684,29 +680,9 @@ class GitHub:
 
     def rerun(self, run_id: int, next_attempt: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun")
-        self.request_ui_tests(run_id, next_attempt)
 
     def rerun_failed(self, run_id: int, next_attempt: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs")
-        self.request_ui_tests(run_id, next_attempt)
-
-    def request_ui_tests(self, run_id: int, attempt: int) -> None:
-        """Start ci-ui-tests.yml for the attempt a re-run of a pull request's CI began.
-
-        This token's re-run may emit no workflow_run event, and that attempt's
-        ui-tests job waits for ci-ui-tests.yml (ui_tests_dispatch.rerun_dispatch()).
-        Best effort: a failure here never stops the rescue.
-        """
-        try:
-            run = self.request("GET", f"/actions/runs/{run_id}") or {}
-            if run.get("path") != CI_WORKFLOW_PATH or run.get("event") != "pull_request":
-                return
-            # The caller's attempt: a read right after the re-run may still show the old one.
-            path, body = ui_tests_dispatch.rerun_dispatch(run_id, attempt)
-            self.request("POST", f"/{path}", body=body)
-        except (urllib.error.URLError, OSError, ValueError) as error:
-            print(f"::warning::could not start {ui_tests_dispatch.DISPATCH_WORKFLOW_FILE} for run {run_id}: {error}",
-                  flush=True)
 
 
 @dataclasses.dataclass
