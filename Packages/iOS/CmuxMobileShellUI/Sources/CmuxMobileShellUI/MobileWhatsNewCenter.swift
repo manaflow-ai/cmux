@@ -27,6 +27,16 @@ public final class MobileWhatsNewCenter {
     public typealias Loader = @Sendable (URL) async throws -> Data
 
     static let markerKey = "dev.cmux.mobile.whatsNew.newestAcknowledgedEntryId"
+
+    #if DEBUG
+    /// `CMUX_UITEST_SUPPRESS_WHATS_NEW=1` (environment or launch argument)
+    /// keeps the launch sheet away during automated Debug runs. Debug-only,
+    /// mirroring the other `CMUX_UITEST_*` hooks in `UITestConfig`.
+    static var suppressedForAutomation: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_SUPPRESS_WHATS_NEW"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_SUPPRESS_WHATS_NEW=1")
+    }
+    #endif
     static let acknowledgedAnnouncementsKey = "dev.cmux.mobile.whatsNew.acknowledgedAnnouncementIds"
     static let cacheKey = "dev.cmux.mobile.whatsNew.remoteList.v1"
     static let requestPath = "/api/whats-new"
@@ -220,6 +230,14 @@ public final class MobileWhatsNewCenter {
     /// advances past a page that was skipped this way unless a newer binary
     /// page was acknowledged above it).
     var unseenPages: [MobileWhatsNewPage] {
+        #if DEBUG
+        // Automated drivers (the Iroh release gate, the iOS e2e gate) run a
+        // fresh install every time, so the launch sheet would cover the
+        // workspace UI and block their readiness probes. The knob suppresses
+        // presentation only; markers are untouched, so a normal launch of the
+        // same container still shows the pages.
+        if Self.suppressedForAutomation { return [] }
+        #endif
         let acknowledged = acknowledgedAnnouncementIDs
         let unseenAnnouncements = announcementPages.filter { !acknowledged.contains($0.id) }
         let visible = visibleBinaryEntries
