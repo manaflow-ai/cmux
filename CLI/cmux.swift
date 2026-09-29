@@ -33537,8 +33537,6 @@ function trackMessage(event) {
 }
 
 const createCMUXSessionRestore = async (ctx) => {
-  if (globalThis[CMUX_PLUGIN_INSTALLED_KEY]) return {};
-  globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
   const handleEvent = async (event) => {
       trackMessage(event);
       const props = eventProperties(event);
@@ -33574,7 +33572,14 @@ const createCMUXSessionRestore = async (ctx) => {
   return { event: async ({ event }) => handleEvent(event?.event || event) };
 };
 
-export const CMUXSessionRestore = createCMUXSessionRestore;
+// V1 callers invoke the named factory directly and need the process-global
+// duplicate guard. V2 owns each setup subscription, so cleanup can be followed
+// by a fresh setup without inheriting the V1 guard's state.
+export const CMUXSessionRestore = async (ctx) => {
+  if (globalThis[CMUX_PLUGIN_INSTALLED_KEY]) return {};
+  globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
+  return createCMUXSessionRestore(ctx);
+};
 
 export default {
   id: "cmux.session",
