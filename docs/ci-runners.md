@@ -84,6 +84,8 @@ The deliberate exceptions are listed with reasons in the guard's `EXEMPT`
 table: the Zig-only Ghostty builds, the macOS 14 compatibility lane, and
 `relay-tls.yml`'s Xcode 16.2 job.
 
+**CI routing is minis first, always. Never send a lane straight to Blacksmith.** Every CI lane tries the owned Mac minis first; Blacksmith only takes overflow. Do not set lane switches (`CI_E2E_OWNED_UI`, `CI_IOS_OWNED`, `CI_PR_POOL_OWNED`, `CI_OWNED_*`) to `0` or point `MACOS_RUNNER_*` at Blacksmith to "free up" minis. When dev builds are starved, the controller's lend drain gives them priority: after a foreground dev build waits 3 minutes, a lent mini stops taking new PR jobs for it (hq#956, hq#966; tune with `CMUX_CI_LEND_DRAIN_AFTER` / `CMUX_CI_LEND_DRAIN_PER_BUILDS`). On 2026-09-29 an agent flipped `CI_E2E_OWNED_UI` and `CI_IOS_OWNED` to 0 as a stopgap, which bypassed the minis and put UI tests onto Blacksmith macOS runners whose consoles come up locked. Fix capacity problems in the drain, disk eviction or worker supply, never by rerouting a lane.
+
 ## Lanes
 
 Not every macOS job follows the same variable, because not every macOS job has
