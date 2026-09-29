@@ -215,8 +215,10 @@ public enum JSONC {
             return
         }
         if let comma = last.commaAfter {
-            // Keep the file's trailing-comma style.
-            edits.append(Edit(range: (comma + 1)..<(comma + 1), text: "\n" + memberIndent + memberText + ","))
+            // Keep the file's trailing-comma style and any comment that
+            // follows the comma on its line.
+            let insertAt = sameLineTriviaEnd(bytes, from: comma + 1)
+            edits.append(Edit(range: insertAt..<insertAt, text: "\n" + memberIndent + memberText + ","))
             return
         }
         // Put the comma right after the value and the new member after any

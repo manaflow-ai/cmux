@@ -55,6 +55,7 @@ extension CMUXCLI {
         "__internal_flags",
         "__sidebar_footer_icon_balance",
         "__tmux-compat",
+        "action",
         "agent",
         "agent-hibernation",
         "ai-accounts",

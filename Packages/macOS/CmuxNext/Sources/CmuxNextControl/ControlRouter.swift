@@ -395,5 +395,4 @@ public final class ControlRouter: Sendable {
     static func normalizedKind(_ kind: String) -> String {
         kind.lowercased().filter { $0 != "-" && $0 != "_" }
     }
-
 }

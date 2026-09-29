@@ -58,6 +58,11 @@ import Testing
         #expect(edited == "{\n  \"a\": 1, // note\n  \"b\": 2\n}\n")
     }
 
+    @Test func insertingAfterTrailingCommaKeepsItsComment() throws {
+        let source = "{\n  \"a\": 1, // keep\n}\n"
+        #expect(try JSONC.setting(2, at: ["b"], in: source) == "{\n  \"a\": 1, // keep\n  \"b\": 2,\n}\n")
+    }
+
     @Test func creatingNestedObjects() throws {
         let edited = try JSONC.setting(240, at: ["appearance", "metrics", "sidebarWidth"], in: "{\n  \"app\": {}\n}\n")
         let parsed = try JSONC.parse(edited)
