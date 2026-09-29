@@ -155,6 +155,37 @@ private actor FakeLaneOpener {
     }
 }
 
+/// Keeps every open pending, like a native uni-stream open waiting for the
+/// phone to grant more stream credit.
+private actor PendingLaneOpener {
+    private var pending: [CheckedContinuation<Void, Never>] = []
+    private(set) var openCount = 0
+
+    func open(_ descriptor: IrxLaneDescriptor) async -> any IrxEventLaneWriting {
+        openCount += 1
+        await withCheckedContinuation { pending.append($0) }
+        return FakeEventLaneWriter(descriptor: descriptor, blocked: false)
+    }
+
+    func releaseAll() {
+        let waiters = pending
+        pending.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+}
+
+private actor SendOutcomes {
+    private(set) var successes = 0
+    private(set) var failures = 0
+
+    func record(_ result: Result<Void, any Error>) {
+        switch result {
+        case .success: successes += 1
+        case .failure: failures += 1
+        }
+    }
+}
+
 private func frame(_ text: String) -> Data {
     var length = UInt32(text.utf8.count).bigEndian
     var data = Data(bytes: &length, count: 4)
@@ -401,6 +432,38 @@ struct IrxSurfaceEventLanesTests {
         #expect(try await waitUntil {
             await stalledWriter.resetCodes == [IrxSurfaceEventLanes.stalledResetCode]
         })
+    }
+
+    /// A lane waiting for native stream credit must reserve capacity before
+    /// suspension; otherwise concurrent sends all pass the limit check.
+    @Test func pendingOpensCountTowardTheLaneLimit() async throws {
+        let opener = PendingLaneOpener()
+        let lanes = IrxSurfaceEventLanes(configuration: .init(maximumLaneCount: 2)) { descriptor in
+            await opener.open(descriptor)
+        }
+        let outcomes = SendOutcomes()
+        let surfaceIDs = (0..<5).map { "surface-\($0)" }
+        let sends = surfaceIDs.map { surfaceID in
+            Task {
+                do {
+                    try await lanes.send(frame(surfaceID), surfaceID: surfaceID, generation: 0)
+                    await outcomes.record(.success(()))
+                } catch {
+                    await outcomes.record(.failure(error))
+                }
+            }
+        }
+
+        #expect(try await waitUntil {
+            let opens = await opener.openCount
+            let failures = await outcomes.failures
+            return opens + failures == surfaceIDs.count
+        })
+        #expect(await opener.openCount == 2)
+        await opener.releaseAll()
+        for send in sends { await send.value }
+        #expect(await outcomes.successes == 2)
+        await lanes.closeAll()
     }
 
     @Test func newGenerationFinishesTheOldStreamAndOpensAFreshOne() async throws {
