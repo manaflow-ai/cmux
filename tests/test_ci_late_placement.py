@@ -65,13 +65,18 @@ class Decide(unittest.TestCase):
         # cli-product-tests holds the gui token too, so it queues behind the shards for a gui runner.
         self.assertEqual(placed, {"shard-1": gui, "shard-2": gui})
         self.assertIn(f"2 idle `{gui}`", why)
-        # No gui count yet: the GUI jobs take the root label as before.
+        # The runners decide, not CI_OWNED_POOL_SLOTS: without a gui count the gui runners still route.
         self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS='{"std": 40, "root-std": 19}'), runners)[0],
-                         {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
-        self.assertEqual(late.decide(FULL, runners)[0],
+                         {"shard-1": gui, "shard-2": gui})
+        self.assertEqual(late.decide(FULL, runners)[0], {"shard-1": gui, "shard-2": gui})
+        # No runner carries the gui label: the GUI jobs take the root label as before, whatever the slots.
+        self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), roots(idle=3))[0],
                          {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
         # No idle gui runner: the gui-token jobs stay where the picker put them.
-        self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), roots(idle=3))[0], {})
+        self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots),
+                                     [*roots(idle=3), runner("gui-busy", gui, busy=True)])[0], {})
+        # An offline gui runner (a drained mini) still keeps them off the root label.
+        self.assertEqual(late.decide(FULL, [*roots(idle=3), runner("gui-off", gui, status="offline")])[0], {})
         # Enough gui runners: cli-product-tests takes one, never the root label.
         many = [*roots(idle=3), *(runner(f"gui-{i}", "self-hosted", gui) for i in range(10))]
         self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), many)[0]["cli-product"], gui)
@@ -162,7 +167,8 @@ class GuiOverflow(unittest.TestCase):
 
     def test_no_gui_runner_online_moves_every_owned_gui_job_without_a_read(self):
         count, calls = self.backlog(queued=0, retry_queued=99)
-        placed, _ = late.decide(OWNED, roots(idle=2), count)
+        offline = [runner(f"gui-off-{i}", GUI, status="offline") for i in range(10)]
+        placed, _ = late.decide(OWNED, [*roots(idle=2), *offline], count)
         self.assertEqual(set(placed.values()), {RETRY})
         self.assertEqual(len(placed), 9)
         self.assertEqual(calls, [])
@@ -224,7 +230,7 @@ class GuiOverflow(unittest.TestCase):
         count, _ = self.backlog(queued=40)
         busy = [*roots(idle=0, busy=16), *guis(idle=0, busy=10)]
         self.assertEqual(late.decide(dict(OWNED, POOL_OWNED_GUI="0"), busy, count)[0], {})
-        self.assertEqual(late.decide(dict(OWNED, OWNED_SLOTS='{"std": 40, "root-std": 19}'), busy, count)[0], {})
+        self.assertEqual(late.decide(OWNED, roots(idle=0, busy=16), count)[0], {})
 
     def test_owned_jobs_that_stay_take_the_idle_gui_runners_before_unowned_ones(self):
         count, _ = self.backlog(queued=0)
