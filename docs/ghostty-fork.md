@@ -12,6 +12,29 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Cloud VT replay keeps the active viewport anchored
+
+- Branch: `issue-15109-preserve-replay-row-tail`
+  ([manaflow-ai/ghostty#240](https://github.com/manaflow-ai/ghostty/pull/240))
+- Commits: `3769eac63` (final-page delimiter correction), `6dae1978e`
+  (intermediate-page and styled-blank-cell corrections)
+- Summary: VT replay already emits the delimiter for the last row containing
+  cells. The trailing-row preservation path emits only the remaining blank
+  rows on the final page, while intermediate pages retain every row boundary.
+  Styled rows that contain only background cells are emitted instead of being
+  treated as text-free blank rows. This keeps Cloud Codex headers, composers,
+  status rows, and their grey background cells on the same cells after restore.
+- Coverage: cmux-tui's
+  `vt_replay_preserves_blank_tail_after_history`,
+  `vt_replay_preserves_codex_composer_before_incremental_redraw`, the
+  page-boundary formatter test, and cell-level Cloud replay tests.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-6dae1978effbd9812de1c93ea7a938dbde12532d-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `dc9b024dc8ad913ced9a80b1c8e5e8532536d98389cdececcdc8aee233541364`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: keep the trailing-row count paired with the formatter's
+  existing last-cell delimiter; adding a second delimiter reintroduces the
+  one-row scroll.
+
 ### Startup input keeps its bytes
 
 - Branch: `issue-12915-hex-escape-bytes` ([manaflow-ai/ghostty#239](https://github.com/manaflow-ai/ghostty/pull/239))
@@ -99,7 +122,10 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `edefce7785`, the unfocused surface
+The submodule pinned by this branch is `6dae1978e`, the Cloud VT replay
+viewport-anchor and styled-blank-cell fix on top of `3769eac633`, `e168fd31c0`
+and all prior fork changes. The
+previous pin was `edefce7785`, the unfocused surface
 frame pacing change on top of `0068ece733`. The previous pin was
 `0068ece733`, the CJK fallback sizing fix
 on top of `a3e9304c5d`. It keeps a primary face without an ideograph metric at
