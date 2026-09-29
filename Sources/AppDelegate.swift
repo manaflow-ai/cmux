@@ -9268,7 +9268,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func closeWorkspaces(forManagedCloudVMID vmID: String) {
         let target = vmID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !target.isEmpty else { return }
-        closeLocalWorkspaces(forCloudVMID: target)
         // The sidebar's headless link to that machine has nothing left to talk to.
         CmuxTuiSurfaceProviderRegistry.shared.machineWasDeleted(target)
     }

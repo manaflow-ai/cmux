@@ -421,6 +421,14 @@ final class CmuxTuiSurfaceProviderRegistry {
         refreshGeneration &+= 1
         unregisterMachine(rawID)
     }
+
+    /// Retires several missing machines while scanning local workspace tabs
+    /// only once. Each provider still receives its own ordered teardown.
+    func machineWasDeleted(_ rawIDs: Set<String>) {
+        AppDelegate.shared?.closeLocalWorkspaces(forCloudVMIDs: rawIDs)
+        refreshGeneration &+= 1
+        for rawID in rawIDs { unregisterMachine(rawID) }
+    }
     /// Deletion and discovery share ordered teardown without waiting for unrelated machines.
     func unregisterMachine(_ rawID: String) {
         // Match the registered casing so every ownership table is removed.
@@ -489,9 +497,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             .union(catalog.pendingRestoredMachineIDs)
             .subtracting(pendingMachineCreationIDs)
             .subtracting(seen)
-        for id in staleIDs {
-            retireMissingMachine(id)
-        }
+        if !staleIDs.isEmpty { machineWasDeleted(staleIDs) }
         await links.retainAddresses(machineIDs: seen)
         guard !isRetired, generation == refreshGeneration else { return nil }
         for summary in page.vms {

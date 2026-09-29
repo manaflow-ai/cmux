@@ -7,10 +7,7 @@ extension CmuxTuiSurfaceProviderRegistry {
         { [weak self] machineID, _ in self?.machineWasDeleted(machineID) }
     }
 
-    /// Fleet listing is authoritative only after it succeeds. A missing ID in
-    /// that page gets the same local cleanup as an attach-time `vm_not_found`.
     func retireMissingMachine(_ rawID: String) {
-        AppDelegate.shared?.closeLocalWorkspaces(forCloudVMID: rawID)
-        unregisterMachine(rawID)
+        machineWasDeleted(rawID)
     }
 }

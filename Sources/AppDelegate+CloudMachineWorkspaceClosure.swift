@@ -6,7 +6,19 @@ extension AppDelegate {
     /// terminals are unaffected, so the machine can be opened again if a
     /// delete that closed these workspaces fails.
     func closeLocalWorkspaces(forCloudVMID vmID: String) {
-        for (manager, doomed) in localWorkspaces(forCloudVMID: vmID) {
+        closeLocalWorkspaces(forCloudVMIDs: [vmID])
+    }
+
+    /// Closes all local workspaces attached to the given Cloud machines with
+    /// one manager/tab scan.
+    func closeLocalWorkspaces(forCloudVMIDs vmIDs: Set<String>) {
+        let targets = Set(vmIDs.compactMap(Self.normalizedCloudVMID))
+        guard !targets.isEmpty else { return }
+        for manager in liveWorkspaceIdentityTabManagers(preferredTabManager: tabManager) {
+            let doomed = manager.tabs.filter { workspace in
+                guard let id = Self.normalizedCloudVMID(workspace.cloudVMID) else { return false }
+                return targets.contains(id)
+            }
             for workspace in doomed {
                 workspace.disconnectRemoteConnection(clearConfiguration: true)
                 workspace.cloudVMBinding = nil
@@ -33,9 +45,14 @@ extension AppDelegate {
         Set(localWorkspaces(forCloudVMID: vmID).flatMap { $0.workspaces.map(\.id) })
     }
 
+    private static func normalizedCloudVMID(_ vmID: String?) -> String? {
+        guard let vmID else { return nil }
+        let normalized = vmID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
     private func localWorkspaces(forCloudVMID vmID: String) -> [(manager: TabManager, workspaces: [Workspace])] {
-        let target = vmID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !target.isEmpty else { return [] }
+        guard let target = Self.normalizedCloudVMID(vmID) else { return [] }
         return liveWorkspaceIdentityTabManagers(preferredTabManager: tabManager).map { manager in
             (manager, manager.tabs.filter { $0.cloudVMID?.lowercased() == target })
         }
