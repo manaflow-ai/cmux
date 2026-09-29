@@ -10,6 +10,7 @@ public enum CmuxNextApp {
         LaunchIdentity.stripInheritedEnvironment()
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
+        (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
         let delegate = AppDelegate()
         app.delegate = delegate
         app.setActivationPolicy(.regular)
