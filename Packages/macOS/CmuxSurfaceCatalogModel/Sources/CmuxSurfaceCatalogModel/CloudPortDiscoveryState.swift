@@ -22,9 +22,9 @@ public enum CloudPortDiscoveryState: Hashable, Codable, Sendable {
     /// Whether the Ports group should keep a status row after real port rows.
     public var keepsStatusAlongsideRows: Bool {
         switch self {
-        case .unavailable, .stale, .unsupported, .loopbackOnly, .loading:
+        case .unavailable, .stale, .unsupported, .loading:
             return true
-        case .notRequested, .available, .empty:
+        case .notRequested, .available, .loopbackOnly, .empty:
             return false
         }
     }

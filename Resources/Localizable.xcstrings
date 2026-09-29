@@ -564660,121 +564660,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux’s in-app forwarding works without a system VPN. Cloud VPN lets web browsers and other apps open private VM ports."
+            "value": "Ports open in cmux without setup. To use private addresses in other apps, set up Cloud VPN."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Portweiterleitung in cmux funktioniert ohne System-VPN. Mit Cloud-VPN können Webbrowser und andere Apps private VM-Ports öffnen."
+            "value": "Ports lassen sich in cmux ohne Einrichtung öffnen. Richte Cloud-VPN ein, um private Adressen in anderen Apps zu verwenden."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le transfert de ports dans cmux fonctionne sans VPN système. Le VPN Cloud permet aux navigateurs web et aux autres apps d’ouvrir les ports privés des VM."
+            "value": "Les ports s’ouvrent dans cmux sans configuration. Pour utiliser les adresses privées dans d’autres apps, configurez le VPN Cloud."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعمل إعادة توجيه المنافذ داخل cmux من دون VPN للنظام. يتيح Cloud VPN لمتصفحات الويب والتطبيقات الأخرى فتح المنافذ الخاصة للأجهزة الافتراضية."
+            "value": "تُفتح المنافذ في cmux دون إعداد. لاستخدام العناوين الخاصة في التطبيقات الأخرى، أعدّ Cloud VPN."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El reenvío de puertos dentro de cmux funciona sin una VPN del sistema. Cloud VPN permite a los navegadores web y otras apps abrir puertos privados de las VM."
+            "value": "Los puertos se abren en cmux sin configuración. Para usar direcciones privadas en otras apps, configura Cloud VPN."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 的 App 內連接埠轉送不需要系統 VPN。Cloud VPN 可讓網頁瀏覽器和其他 App 開啟 VM 的私有連接埠。"
+            "value": "無需設定即可在 cmux 中開啟連接埠。如要在其他 App 使用私有位址，請設定 Cloud VPN。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 的应用内端口转发无需系统 VPN。云 VPN 让网页浏览器和其他应用可以打开 VM 的私有端口。"
+            "value": "无需设置即可在 cmux 中打开端口。要在其他应用中使用私有地址，请设置云 VPN。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux의 앱 내 포트 전달은 시스템 VPN 없이 작동합니다. Cloud VPN을 사용하면 웹 브라우저 및 다른 앱에서 VM의 비공개 포트를 열 수 있습니다."
+            "value": "별도 설정 없이 cmux에서 포트를 열 수 있습니다. 다른 앱에서 비공개 주소를 사용하려면 Cloud VPN을 설정하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux のアプリ内ポート転送はシステム VPN なしで動作します。Cloud VPN を使うと、Web ブラウザなどのアプリから VM のプライベートポートを開けます。"
+            "value": "設定なしで cmux 内のポートを開けます。他のアプリでプライベートアドレスを使うには、Cloud VPN を設定してください。"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Prosljeđivanje portova unutar cmux-a radi bez sistemskog VPN-a. Cloud VPN omogućava web preglednicima i drugim aplikacijama otvaranje privatnih portova virtuelnih mašina."
+            "state": "needs_review",
+            "value": "Portovi se otvaraju u cmux-u bez podešavanja. Za korištenje privatnih adresa u drugim aplikacijama podesite Cloud VPN."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Portvideresendelse i cmux fungerer uden en system-VPN. Med Cloud VPN kan webbrowsere og andre apps åbne private porte på virtuelle maskiner."
+            "state": "needs_review",
+            "value": "Porte åbnes i cmux uden opsætning. Opsæt Cloud VPN for at bruge private adresser i andre apps."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "L’inoltro delle porte all’interno di cmux funziona senza una VPN di sistema. Cloud VPN consente ai browser web e ad altre app di aprire le porte private delle macchine virtuali."
+            "state": "needs_review",
+            "value": "Le porte si aprono in cmux senza configurazione. Per usare gli indirizzi privati in altre app, configura Cloud VPN."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ការបញ្ជូនបន្តច្រកនៅក្នុង cmux ដំណើរការដោយមិនត្រូវការ VPN របស់ប្រព័ន្ធ។ Cloud VPN អនុញ្ញាតឱ្យកម្មវិធីរុករកបណ្តាញ និងកម្មវិធីផ្សេងទៀតបើកច្រកឯកជនរបស់ម៉ាស៊ីននិម្មិត។"
+            "state": "needs_review",
+            "value": "ច្រកអាចបើកក្នុង cmux ដោយមិនចាំបាច់រៀបចំ។ ដើម្បីប្រើអាសយដ្ឋានឯកជនក្នុងកម្មវិធីផ្សេងទៀត សូមរៀបចំ Cloud VPN។"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Portvideresending i cmux fungerer uten en system-VPN. Cloud VPN lar nettlesere og andre apper åpne private porter på virtuelle maskiner."
+            "state": "needs_review",
+            "value": "Porter åpnes i cmux uten oppsett. Sett opp Cloud VPN for å bruke private adresser i andre apper."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Przekierowywanie portów w cmux działa bez systemowej sieci VPN. Cloud VPN pozwala przeglądarkom internetowym i innym aplikacjom otwierać prywatne porty maszyn wirtualnych."
+            "state": "needs_review",
+            "value": "Porty otwierają się w cmux bez konfiguracji. Aby używać prywatnych adresów w innych aplikacjach, skonfiguruj Cloud VPN."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "O encaminhamento de portas dentro do cmux funciona sem uma VPN do sistema. O Cloud VPN permite que navegadores e outros apps abram portas privadas de máquinas virtuais."
+            "state": "needs_review",
+            "value": "As portas abrem no cmux sem configuração. Para usar endereços privados em outros apps, configure o Cloud VPN."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Перенаправление портов внутри cmux работает без системного VPN. Cloud VPN позволяет веб-браузерам и другим приложениям открывать приватные порты виртуальных машин."
+            "state": "needs_review",
+            "value": "Порты открываются в cmux без настройки. Чтобы использовать приватные адреса в других приложениях, настройте Cloud VPN."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "การส่งต่อพอร์ตภายใน cmux ทำงานได้โดยไม่ต้องใช้ VPN ของระบบ Cloud VPN ช่วยให้เว็บเบราว์เซอร์และแอปอื่นๆ เปิดพอร์ตส่วนตัวของเครื่องเสมือนได้"
+            "state": "needs_review",
+            "value": "เปิดพอร์ตใน cmux ได้โดยไม่ต้องตั้งค่า หากต้องการใช้ที่อยู่ส่วนตัวในแอปอื่น ให้ตั้งค่า Cloud VPN"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux içindeki bağlantı noktası yönlendirme, sistem VPN’i olmadan çalışır. Cloud VPN, web tarayıcılarının ve diğer uygulamaların sanal makinelerin özel bağlantı noktalarına erişmesini sağlar."
+            "state": "needs_review",
+            "value": "Bağlantı noktaları cmux içinde kurulum gerektirmeden açılır. Diğer uygulamalarda özel adresleri kullanmak için Cloud VPN’i kurun."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Перенаправлення портів усередині cmux працює без системного VPN. Cloud VPN дає змогу веббраузерам та іншим застосункам відкривати приватні порти віртуальних машин."
+            "state": "needs_review",
+            "value": "Порти відкриваються в cmux без налаштування. Щоб використовувати приватні адреси в інших застосунках, налаштуйте Cloud VPN."
           }
         }
       }
@@ -564785,121 +564785,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VPN is off"
+            "value": "Optional: Cloud VPN"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-VPN ist deaktiviert"
+            "value": "Optional: Cloud-VPN"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le VPN Cloud est désactivé"
+            "value": "Facultatif : VPN Cloud"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "شبكة Cloud VPN متوقفة"
+            "value": "اختياري: Cloud VPN"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La VPN de Cloud está desactivada"
+            "value": "Opcional: Cloud VPN"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VPN 已關閉"
+            "value": "選用：Cloud VPN"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "云 VPN 已关闭"
+            "value": "可选：云 VPN"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VPN이 꺼져 있습니다"
+            "value": "선택 사항: Cloud VPN"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VPN はオフです"
+            "value": "任意：Cloud VPN"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VPN je isključen"
+            "state": "needs_review",
+            "value": "Opcionalno: Cloud VPN"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VPN er slået fra"
+            "state": "needs_review",
+            "value": "Valgfrit: Cloud VPN"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "La VPN Cloud è disattivata"
+            "state": "needs_review",
+            "value": "Facoltativo: Cloud VPN"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VPN ត្រូវបានបិទ"
+            "state": "needs_review",
+            "value": "ជាជម្រើស៖ Cloud VPN"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VPN er av"
+            "state": "needs_review",
+            "value": "Valgfritt: Cloud VPN"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VPN jest wyłączony"
+            "state": "needs_review",
+            "value": "Opcjonalnie: Cloud VPN"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "O Cloud VPN está desativado"
+            "state": "needs_review",
+            "value": "Opcional: Cloud VPN"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VPN выключен"
+            "state": "needs_review",
+            "value": "Необязательно: Cloud VPN"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VPN ปิดอยู่"
+            "state": "needs_review",
+            "value": "ตัวเลือกเพิ่มเติม: Cloud VPN"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VPN kapalı"
+            "state": "needs_review",
+            "value": "İsteğe bağlı: Cloud VPN"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VPN вимкнено"
+            "state": "needs_review",
+            "value": "Необов’язково: Cloud VPN"
           }
         }
       }
@@ -575023,6 +575023,242 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] cmux не підтвердив запуск SSH; повторна спроба %s через %s с."
+          }
+        }
+      }
+    },
+    "cloudTree.port.openInCmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح في cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In cmux öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir en cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir dans cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxで開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에서 열기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中開啟"
+          }
+        }
+      }
+    },
+    "cloudTree.port.openInCmux.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in cmux. No VPN setup needed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتح في cmux. لا يلزم إعداد VPN."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In cmux öffnen. Keine VPN-Einrichtung nötig."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir en cmux. No hace falta configurar una VPN."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir dans cmux. Aucune configuration VPN nécessaire."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux で開きます。VPN の設定は不要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에서 열기. VPN 설정이 필요하지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中打开。无需设置 VPN。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中開啟。無需設定 VPN。"
+          }
+        }
+      }
+    },
+    "cloudTree.port.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المنفذ %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port-Nr. %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puerto %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port n° %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポート %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포트 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連接埠 %@"
+          }
+        }
+      }
+    },
+    "cloudTree.placeholder.deviceOffline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline — its workspaces return when it does"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متصل — ستعود مساحات عمله عند اتصاله مجددًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline — die Arbeitsbereiche erscheinen wieder, sobald das Gerät online ist"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin conexión — sus espacios de trabajo volverán cuando se conecte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors ligne — ses espaces de travail réapparaîtront à sa reconnexion"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフライン — 再接続するとワークスペースが戻ります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오프라인 — 다시 연결되면 작업 공간이 돌아옵니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线 — 重新连接后会恢复工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線 — 重新連線後會恢復工作區"
           }
         }
       }

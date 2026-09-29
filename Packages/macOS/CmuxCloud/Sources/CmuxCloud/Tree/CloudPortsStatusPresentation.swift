@@ -29,7 +29,7 @@ public struct CloudPortsStatusPresentation: Equatable, Sendable {
 
     public var title: String {
         if isVPNGuidance {
-            return String(localized: "cloud.ports.vpnOff.title", defaultValue: "Cloud VPN is off")
+            return String(localized: "cloud.ports.vpnOff.title", defaultValue: "Optional: Cloud VPN")
         }
         switch state {
         case .notRequested:
@@ -63,7 +63,7 @@ public struct CloudPortsStatusPresentation: Equatable, Sendable {
         if isVPNGuidance {
             return String(
                 localized: "cloud.ports.vpnOff.explanation",
-                defaultValue: "cmux’s in-app forwarding works without a system VPN. Cloud VPN lets web browsers and other apps open private VM ports."
+                defaultValue: "Ports open in cmux without setup. To use private addresses in other apps, set up Cloud VPN."
             )
         }
         switch state {

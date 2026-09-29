@@ -33,8 +33,8 @@ extension CloudTreeNodeBuilder {
         if children.isEmpty {
             children.append(CloudMachineSurfacePresentation.emptyPorts(info: info))
         }
-        // Ports show one status row at a time. Setup guidance joins only a finished scan's
-        // rows, since loopback, loading and failure rows already explain what VPN can reach.
+        // Setup is optional for ports that other apps can reach through a private address.
+        // Loopback-only ports already open in cmux and gain nothing from VPN setup.
         // SSH ports ride the SSH link's loopback forward; the Cloud VPN never reaches them.
         let hasPortRows = children.contains { if case .port = $0.kind { true } else { false } }
         if showsCloudVPNWarning, hasPortRows, info.portDiscoveryState == .available, !machine.isSSH,
