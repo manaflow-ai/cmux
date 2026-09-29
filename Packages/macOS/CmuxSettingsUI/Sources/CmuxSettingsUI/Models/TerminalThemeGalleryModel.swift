@@ -1,6 +1,7 @@
 import CmuxFoundation
 import Foundation
 import Observation
+import SwiftUI
 
 /// Drives the Settings terminal theme gallery.
 ///
@@ -22,7 +23,34 @@ final class TerminalThemeGalleryModel {
     struct Theme: Identifiable, Equatable, Sendable {
         let name: String
         let colors: GhosttyThemeColors
+        /// Card colors resolved once at load, so scrolling the gallery never
+        /// converts hex components while cards come into view.
+        let preview: PreviewColors
         var id: String { name }
+
+        init(name: String, colors: GhosttyThemeColors) {
+            self.name = name
+            self.colors = colors
+            self.preview = PreviewColors(colors)
+        }
+    }
+
+    /// The SwiftUI colors a theme card draws.
+    struct PreviewColors: Equatable, Sendable {
+        let background: Color?
+        let foreground: Color?
+        let cursor: Color?
+        let palette: [Color?]
+
+        init(_ colors: GhosttyThemeColors) {
+            func color(_ rgb: GhosttyThemeRGB?) -> Color? {
+                rgb.map { Color(.sRGB, red: Double($0.red) / 255, green: Double($0.green) / 255, blue: Double($0.blue) / 255, opacity: 1) }
+            }
+            background = color(colors.background)
+            foreground = color(colors.foreground)
+            cursor = color(colors.cursor)
+            palette = colors.palette.map(color)
+        }
     }
 
     /// The cards shown for a query, split by appearance: themes that suit
@@ -54,6 +82,12 @@ final class TerminalThemeGalleryModel {
     private(set) var writeFailed = false
     var slot: Slot
     var query = ""
+    /// Whether light and dark appearances get separate themes. Off, a pick
+    /// sets both, so it always applies to the appearance in use. Starts on
+    /// only when the config already holds two different themes.
+    private(set) var separatesAppearances: Bool
+    /// The appearance whose theme the terminal shows now.
+    let slotInUse: Slot
 
     init(
         context: TerminalThemeGalleryContext,
@@ -61,8 +95,12 @@ final class TerminalThemeGalleryModel {
     ) {
         self.context = context
         self.reload = reload
-        selection = CmuxManagedThemeBlock().themePair(fromRawValue: context.readCurrentThemeValue())
-        slot = context.prefersDarkAppearance ? .dark : .light
+        let initialSelection = CmuxManagedThemeBlock().themePair(fromRawValue: context.readCurrentThemeValue())
+        let initialSlot: Slot = context.prefersDarkAppearance ? .dark : .light
+        selection = initialSelection
+        slot = initialSlot
+        slotInUse = initialSlot
+        separatesAppearances = Self.holdsSeparateThemes(initialSelection)
     }
 
     /// Reads and parses every theme file off the main actor, once.
@@ -94,7 +132,8 @@ final class TerminalThemeGalleryModel {
         selection = currentPair()
     }
 
-    /// Uses `name` for the current slot and live-previews it.
+    /// Uses `name` for both appearances, or only for the current slot when
+    /// ``separatesAppearances`` is on, and live-previews it.
     ///
     /// The other side comes from the config as it is now, not as it was when
     /// Settings opened. Ghostty needs both sides of a conditional theme, so an
@@ -111,11 +150,14 @@ final class TerminalThemeGalleryModel {
         }
         selection = current
         var next = current
-        switch slot {
-        case .light:
+        switch separatesAppearances ? slot : nil {
+        case nil:
+            next.light = name
+            next.dark = name
+        case .light?:
             next.light = name
             if next.dark == nil { next.dark = name }
-        case .dark:
+        case .dark?:
             next.dark = name
             if next.light == nil { next.light = name }
         }
@@ -136,6 +178,25 @@ final class TerminalThemeGalleryModel {
         hasPendingChange = true
         writeFailed = false
         reload(.preview)
+    }
+
+    /// Turns separate light and dark themes on or off. Turning them off gives
+    /// both appearances the theme in use now, so what the terminal shows does
+    /// not change; turning them on edits the appearance in use first.
+    func setSeparatesAppearances(_ separates: Bool) {
+        guard separates != separatesAppearances else { return }
+        separatesAppearances = separates
+        slot = slotInUse
+        guard !separates, let inUse = selectedName(for: slotInUse) else { return }
+        let wasSeparate = selection.light != selection.dark
+        guard wasSeparate else { return }
+        select(inUse)
+    }
+
+    /// Whether a pair names two different themes.
+    nonisolated static func holdsSeparateThemes(_ pair: CmuxTerminalThemePair) -> Bool {
+        guard let light = pair.light, let dark = pair.dark else { return false }
+        return light.caseInsensitiveCompare(dark) != .orderedSame
     }
 
     /// Puts the managed block's theme back as it was before the first pick,

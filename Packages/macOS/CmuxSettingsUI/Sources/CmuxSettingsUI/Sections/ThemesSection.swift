@@ -3,7 +3,7 @@ import CmuxSettings
 import SwiftUI
 
 /// **Themes** section: every color and appearance setting in one place.
-/// App appearance and accent color, the browser page theme, the adaptive
+/// App appearance, accent color and app icon, the browser page theme, the adaptive
 /// default theme toggle, and the terminal theme gallery with every theme
 /// Ghostty ships.
 @MainActor
@@ -12,6 +12,7 @@ public struct ThemesSection: View {
 
     @State private var appearance: DefaultsValueModel<AppearanceMode>
     @State private var accentColor: DefaultsValueModel<CmuxAccentColorMode>
+    @State private var appIcon: DefaultsValueModel<AppIconMode>
     @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var browserTheme: DefaultsValueModel<BrowserThemeMode>
 
@@ -27,6 +28,7 @@ public struct ThemesSection: View {
         self.hostActions = hostActions
         _appearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance))
         _accentColor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.accentColor))
+        _appIcon = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon))
         _adaptiveDefaultTheme = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.adaptiveDefaultTheme))
         _browserTheme = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.theme))
     }
@@ -45,7 +47,7 @@ public struct ThemesSection: View {
                 TerminalThemeSettingsRows(hostActions: hostActions)
             }
         }
-        .task { startSettingsObservation([appearance, accentColor, adaptiveDefaultTheme, browserTheme]) }
+        .task { startSettingsObservation([appearance, accentColor, appIcon, adaptiveDefaultTheme, browserTheme]) }
     }
 
     @ViewBuilder
@@ -71,6 +73,13 @@ public struct ThemesSection: View {
                 .pickerStyle(.menu)
                 .accessibilityIdentifier("SettingsAccentColorPicker")
             }
+            SettingsCardDivider()
+            // Also under App. Both rows bind the same key and update each
+            // other; search lands on the App row, so this one has no anchor.
+            AppIconPickerRow(
+                selectedMode: appIcon.current,
+                onSelect: { appIcon.set($0) }
+            )
         }
     }
 
