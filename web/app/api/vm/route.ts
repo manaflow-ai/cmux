@@ -134,7 +134,7 @@ export async function GET(request: Request): Promise<Response> {
       const entries = listed.value;
       // Converge the realtime `vms` collection on exactly what this list shows;
       // best-effort after the response, never on the request path.
-      publishVmOps(billingTeamId || user.id, [vmSyncReplaceOp(entries, listObservedAtMs)]);
+      void publishVmOps(billingTeamId || user.id, [vmSyncReplaceOp(entries, listObservedAtMs)]);
       setSpanAttributes(span, { "cmux.vm.count": entries.length });
       // REST adapter: expose `id` at the top level so existing CLI + curl users don't need to
       // learn the new `providerVmId` field name. Swift CLI reads `vm["id"]`.

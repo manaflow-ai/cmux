@@ -92,7 +92,7 @@ export async function reserveManagedPublication(input: ManagedPublicationInput):
   const { slugAssigned, ...target } = await reserveManagedPublicationTx(input);
   // A first publication assigns the machine's slug: tell the machines list
   // once the row is committed (best-effort, after the response).
-  if (slugAssigned) publishVmRowsById([target.vm.id]);
+  if (slugAssigned) void publishVmRowsById([target.vm.id]);
   return target;
 }
 

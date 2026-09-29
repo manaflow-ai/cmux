@@ -1657,8 +1657,8 @@ function publishAccountDeletionVmSync(vmSync: {
 }): void {
   const byTeam = new Map<string, VmSyncOp[]>();
   for (const { teamId, op } of vmSync.deletes) byTeam.set(teamId, [...(byTeam.get(teamId) ?? []), op]);
-  for (const [teamId, ops] of byTeam) publishVmOps(teamId, ops);
-  publishVmRowsById(vmSync.rewrittenIds);
+  for (const [teamId, ops] of byTeam) void publishVmOps(teamId, ops);
+  void publishVmRowsById(vmSync.rewrittenIds);
 }
 
 function assertNoActivePhonePushDeliveryLease(

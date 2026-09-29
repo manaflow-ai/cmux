@@ -6,6 +6,7 @@ import {
   publishVmOps,
   publishVmRowsById,
   publishVmSync,
+  scheduleVmSyncWork,
   vmSyncOpForRow,
   vmSyncRecordFromRow,
   vmSyncReplaceOp,
@@ -51,7 +52,7 @@ function recordingDeps(rows: Record<string, CloudVmRow | null>) {
   const deps: VmSyncPublisherDeps = {
     readRow: async (id) => rows[id] ?? null,
     publish: async (teamId, ops) => { published.push({ teamId, ops }); },
-    schedule: (work) => { pending.push(work()); },
+    schedule: (work) => { const p = work(); pending.push(p); return Promise.resolve(); },
   };
   return { deps, published, settle: () => Promise.all(pending) };
 }
@@ -242,6 +243,50 @@ describe("withVmSyncPublication", () => {
     expect(repo.markCreateAbandoned).toBeUndefined();
     expect(repo.resolveCreateCleanup).toBeUndefined();
     expect(repo.mergeProviderMetadata).toBeUndefined();
+  });
+});
+
+describe("cron path (no request scope) awaits the publish", () => {
+  test("scheduleVmSyncWork resolves only after the work finished and never rejects", async () => {
+    // bun test has no Next.js request scope, so `after()` throws here exactly
+    // as it does for a cron reconciler on Vercel: the work must be awaited.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let finished = false;
+    const scheduled = scheduleVmSyncWork(async () => { await gate; finished = true; });
+    let settled = false;
+    void scheduled.then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release();
+    await scheduled;
+    expect(finished).toBe(true);
+    await expect(scheduleVmSyncWork(async () => { throw new Error("worker down"); })).resolves.toBeUndefined();
+  });
+
+  test("a decorated write does not resolve before an awaited publish completes", async () => {
+    const vmId = "00000000-0000-4000-8000-000000000001";
+    let releasePublish!: () => void;
+    const publishGate = new Promise<void>((resolve) => { releasePublish = resolve; });
+    const published: string[] = [];
+    const deps: VmSyncPublisherDeps = {
+      readRow: async () => row({ id: vmId }),
+      publish: async (teamId) => { await publishGate; published.push(teamId); },
+      // The cron-path scheduler: no request scope, so it awaits the work.
+      schedule: scheduleVmSyncWork,
+    };
+    const repo = withVmSyncPublication({
+      markProviderObservedStatus: () => Effect.succeed(true),
+    } as Partial<VmRepositoryShape> as VmRepositoryShape, deps);
+    let writeSettled = false;
+    const write = Effect.runPromise(repo.markProviderObservedStatus({ id: vmId, providerVmId: "vm-1", status: "paused" }))
+      .then((value) => { writeSettled = true; return value; });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(writeSettled).toBe(false);
+    expect(published).toEqual([]);
+    releasePublish();
+    expect(await write).toBe(true);
+    expect(published).toEqual(["team-1"]);
   });
 });
 

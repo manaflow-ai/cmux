@@ -6,9 +6,11 @@
 // `cloud_vms` write (and, after every list read, the full visible list) to
 // `POST /v1/sync/vms` on the Worker (`workers/presence/src/syncVms.ts`).
 //
-// Publication is best-effort and never fails a mutation: it runs after the
-// response (`runAfterResponse`), with a short timeout, and a Worker outage only
-// delays the next list convergence (the Mac still has its REST list). The
+// Publication is best-effort and never fails a mutation: a request-scoped
+// writer publishes after the response (`after()`), a cron or reconcile writer
+// with no request scope awaits the bounded publish inline (Vercel freezes
+// detached work once the function returns), and a Worker outage only delays
+// the next list convergence (the Mac still has its REST list). The
 // Worker is service-to-service authenticated with
 // `CMUX_PRESENCE_VMS_PUBLISHER_SECRET` (no user bearer: cron reconcilers have
 // none), so the body's `teamId` is the list scope the Worker trusts. Each op
@@ -17,6 +19,7 @@
 
 import { eq } from "drizzle-orm";
 import * as Effect from "effect/Effect";
+import { after } from "next/server";
 import { env } from "../../app/env";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
@@ -24,7 +27,6 @@ import { isProviderId, vmCapabilitiesFor } from "./drivers";
 import type { VmCapabilities } from "./drivers/types";
 import { vmImageKindFor } from "./images/resolver";
 import type { CloudVmRow, VmRepositoryShape } from "./repository";
-import { runAfterResponse } from "./routeHelpers";
 
 /** Wall-clock budget for one publication. The Worker does one DO RPC. */
 export const VM_SYNC_PUBLISH_TIMEOUT_MS = 750;
@@ -201,9 +203,27 @@ export type VmSyncPublisherDeps = {
   /** Re-read one row by primary key after a write committed. */
   readonly readRow: (id: string) => Promise<CloudVmRow | null>;
   readonly publish: (teamId: string, ops: readonly VmSyncOp[]) => Promise<void>;
-  /** Runs `work` after the response (or detached outside a request). */
-  readonly schedule: (work: () => Promise<void>) => void;
+  /** Runs `work` after the response when a request scope exists (resolves at
+   * once), otherwise awaits it (resolves when the publish finished). */
+  readonly schedule: (work: () => Promise<void>) => Promise<void>;
 };
+
+/**
+ * Run best-effort publication work. Inside a request scope Vercel keeps the
+ * function alive for `after` callbacks, so the caller continues at once.
+ * Outside one (cron reconcilers, scripts) `after` throws E91 and detached
+ * work would be frozen with the function, so the work is awaited instead;
+ * `publishVmSync` bounds it to `VM_SYNC_PUBLISH_TIMEOUT_MS`. Never rejects.
+ */
+export function scheduleVmSyncWork(work: () => Promise<void>): Promise<void> {
+  const guarded = () => work().catch((err) => console.error("[VM] vms sync publish work failed", err));
+  try {
+    after(guarded);
+    return Promise.resolve();
+  } catch {
+    return guarded();
+  }
+}
 
 export async function readCloudVmRowById(id: string): Promise<CloudVmRow | null> {
   const [row] = await cloudDb().select().from(cloudVms).where(eq(cloudVms.id, id)).limit(1);
@@ -213,13 +233,17 @@ export async function readCloudVmRowById(id: string): Promise<CloudVmRow | null>
 export const liveVmSyncPublisherDeps: VmSyncPublisherDeps = {
   readRow: readCloudVmRowById,
   publish: publishVmSync,
-  schedule: runAfterResponse,
+  schedule: scheduleVmSyncWork,
 };
 
-/** Publish the current state of the rows with these ids, grouped by team. */
-export function publishVmRowsById(ids: readonly string[], deps: VmSyncPublisherDeps = liveVmSyncPublisherDeps): void {
-  if (ids.length === 0) return;
-  deps.schedule(async () => {
+/** Publish the current state of the rows with these ids, grouped by team.
+ * Resolves at once in a request scope, after the publish otherwise. */
+export function publishVmRowsById(
+  ids: readonly string[],
+  deps: VmSyncPublisherDeps = liveVmSyncPublisherDeps,
+): Promise<void> {
+  if (ids.length === 0) return Promise.resolve();
+  return deps.schedule(async () => {
     const byTeam = new Map<string, VmSyncOp[]>();
     for (const id of new Set(ids)) {
       const row = await deps.readRow(id);
@@ -233,17 +257,23 @@ export function publishVmRowsById(ids: readonly string[], deps: VmSyncPublisherD
 }
 
 /** Publish already-built ops (rows that no longer exist, or a list replace). */
-export function publishVmOps(teamId: string, ops: readonly VmSyncOp[], deps: VmSyncPublisherDeps = liveVmSyncPublisherDeps): void {
-  if (ops.length === 0) return;
-  deps.schedule(() => deps.publish(teamId, ops));
+export function publishVmOps(
+  teamId: string,
+  ops: readonly VmSyncOp[],
+  deps: VmSyncPublisherDeps = liveVmSyncPublisherDeps,
+): Promise<void> {
+  if (ops.length === 0) return Promise.resolve();
+  return deps.schedule(() => deps.publish(teamId, ops));
 }
 
+/** After the write succeeds, publish the row. The effect resolves once the
+ * publication is scheduled (request scope) or finished (cron path). */
 function tapRow<A, E>(
   effect: Effect.Effect<A, E>,
   id: string,
   deps: VmSyncPublisherDeps,
 ): Effect.Effect<A, E> {
-  return effect.pipe(Effect.tap(() => Effect.sync(() => publishVmRowsById([id], deps))));
+  return effect.pipe(Effect.tap(() => Effect.promise(() => publishVmRowsById([id], deps))));
 }
 
 /**
