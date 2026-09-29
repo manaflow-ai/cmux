@@ -6,29 +6,22 @@ import CmuxNextActions
 /// `file://` URL (the catalog gates these on `filePreviewFocused`).
 enum OpenInHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("filePreviewOpenExternally", invoke: { invocation in
-            guard let file = focusedFile(context, invocation) else { return }
-            NSWorkspace.shared.open(file)
+        registry.bind("filePreviewOpenExternally", run: { try context.open(try focusedFile(context, $0)) })
+        registry.bind("filePreviewRevealInFinder", run: { invocation in
+            NSWorkspace.shared.activateFileViewerSelecting([try focusedFile(context, invocation)])
         })
-        registry.bind("filePreviewRevealInFinder", invoke: { invocation in
-            guard let file = focusedFile(context, invocation) else { return }
-            NSWorkspace.shared.activateFileViewerSelecting([file])
-        })
-        registry.bind("filePreviewOpenWith", invoke: { invocation in
-            guard let file = focusedFile(context, invocation) else { return }
+        registry.bind("filePreviewOpenWith", run: { invocation in
+            let file = try focusedFile(context, invocation)
             let name = invocation["app"]?.stringValue ?? ""
-            guard let app = applicationURL(named: name) else { return context.fail(HandlerStrings.appNotFound(name)) }
+            guard let app = applicationURL(named: name) else { throw ActionFailure(message: HandlerStrings.appNotFound(name)) }
             NSWorkspace.shared.open([file], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
         })
     }
 
-    static func focusedFile(_ context: AppActionContext, _ invocation: ActionInvocation) -> URL? {
-        if case .browser(let entry) = context.scope(invocation).pane?.currentContent,
-           let url = entry.tab.state.url, url.isFileURL {
-            return url
-        }
-        context.fail(HandlerStrings.noFile)
-        return nil
+    static func focusedFile(_ context: AppActionContext, _ invocation: ActionInvocation) throws -> URL {
+        guard case .browser(let entry) = context.scope(invocation).pane?.currentContent,
+              let url = entry.tab.state.url, url.isFileURL else { throw ActionFailure(message: HandlerStrings.noFile) }
+        return url
     }
 
     /// Resolves a bundle identifier, an app path, or an app name

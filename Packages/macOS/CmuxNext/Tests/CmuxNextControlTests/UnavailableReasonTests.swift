@@ -4,8 +4,8 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// `action.run` reports typed "unavailable: <reason>" and "failed: <reason>"
-/// errors end to end through the real registry bridge.
+/// `action.run` reports typed "unavailable: <reason>" errors end to end
+/// through the real registry bridge, and `action.list` carries the reason.
 @MainActor
 @Suite struct UnavailableReasonTests {
     func router(for registry: ActionRegistry) -> ControlRouter {
@@ -41,29 +41,14 @@ import Testing
         #expect(entry["bound"] == true)
     }
 
-    @Test func handlerFailureIsAFailedError() async {
+    @Test func handlerRefusalIsReported() async {
         let registry = ActionRegistry.standard()
-        registry.bind("jumpToUnread") { registry.fail("nothing unread") }
+        registry.bind("jumpToUnread") { registry.refuse("nothing unread") }
         guard case .failure(let error) = await run(router(for: registry), "jumpToUnread") else {
-            Issue.record("expected failed")
+            Issue.record("expected unavailable")
             return
         }
-        #expect(error.code == "failed")
-        #expect(error.message == "jumpToUnread failed: nothing unread")
-    }
-
-    @Test func executorOutcomesWithReasonsMapToErrors() async {
-        let cases: [(ControlActionOutcome, String)] = [(.unsupported(reason: "r"), "unavailable"), (.failed(reason: "r"), "failed")]
-        for (outcome, code) in cases {
-            let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(outcome: outcome), settings: nil)
-            router.updateCatalog(sampleCatalog())
-            let result = await router.handle(ControlRequest(id: "1", method: "action.run", params: ["action": "workspace-group collapse", "target": "g"]))
-            guard case .failure(let error) = result else {
-                Issue.record("expected \(code)")
-                continue
-            }
-            #expect(error.code == code)
-            #expect(error.data?["reason"] == "r")
-        }
+        #expect(error.code == "unavailable")
+        #expect(error.message == "jumpToUnread unavailable: nothing unread")
     }
 }

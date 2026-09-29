@@ -270,6 +270,9 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
 /// same distinction Clap models with `ArgAction::SetTrue`, while retaining
 /// cmux's custom forwarding and error text.
 const BOOLEAN_FLAGS: &[&str] = &[
+    "collapse",
+    "expand",
+    "clear-color",
     "clear",
     "reply",
     "empty",
@@ -621,6 +624,7 @@ fn parse_workspace(
     argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
+        ["group", rest @ ..] => parse_workspace_group(rest, flags),
         ["list"] => request(ResourceOperation::WorkspaceList, selectors, flags, Map::new()),
         ["create"] => {
             let mut params = Map::new();
@@ -889,6 +893,7 @@ fn parse_tab_strings(
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
     match words {
+        ["group", rest @ ..] => parse_tab_group(rest, flags),
         ["list"] => request(ResourceOperation::TabList, selectors, flags, Map::new()),
         [selector, "show"] => {
             selectors.insert("tab", "tab", selector)?;
@@ -1804,6 +1809,239 @@ fn parse_provider(
         }
         _ => usage("provider action"),
     }
+}
+
+/// A numeric id stays a number; anything else (such as `tab_...`) is sent
+/// as a string for the daemon to resolve.
+fn group_id_value(value: &str) -> Value {
+    value.parse::<u64>().map(Value::from).unwrap_or_else(|_| Value::String(value.to_string()))
+}
+
+fn group_id_list(flags: &mut Flags, name: &str) -> Result<Value, UsageError> {
+    let values = flags
+        .required(name)?
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(group_id_value)
+        .collect::<Vec<_>>();
+    if values.is_empty() {
+        return Err(UsageError::new(format!("--{name} needs at least one id")));
+    }
+    Ok(Value::Array(values))
+}
+
+fn group_number(flags: &mut Flags, name: &str) -> Result<Option<Value>, UsageError> {
+    flags
+        .take(name)
+        .map(|value| {
+            value
+                .parse::<u64>()
+                .map(Value::from)
+                .map_err(|_| UsageError::new(format!("--{name} must be a non-negative integer")))
+        })
+        .transpose()
+}
+
+fn group_float(flags: &mut Flags, name: &str) -> Result<Option<Value>, UsageError> {
+    flags
+        .take(name)
+        .map(|value| {
+            value
+                .parse::<f64>()
+                .ok()
+                .filter(|value| value.is_finite())
+                .map(Value::from)
+                .ok_or_else(|| UsageError::new(format!("--{name} must be a number")))
+        })
+        .transpose()
+}
+
+fn group_collapse(flags: &mut Flags, request: &mut Map<String, Value>) -> Result<(), UsageError> {
+    match (flags.boolean("collapse"), flags.boolean("expand")) {
+        (true, true) => Err(UsageError::new("--collapse and --expand are mutually exclusive")),
+        (true, false) => {
+            request.insert("collapsed".into(), Value::Bool(true));
+            Ok(())
+        }
+        (false, true) => {
+            request.insert("collapsed".into(), Value::Bool(false));
+            Ok(())
+        }
+        (false, false) => Ok(()),
+    }
+}
+
+/// Group commands use the private control protocol, like `raw command`, so
+/// they work against a headless daemon with no app running.
+fn group_raw_plan(command: &str, mut request: Map<String, Value>) -> CommandPlan {
+    request.insert("id".into(), Value::from(1));
+    request.insert("cmd".into(), Value::String(command.to_string()));
+    CommandPlan::RawCommand(super::raw::RawCommandPlan {
+        request: Value::Object(request),
+        stream: false,
+    })
+}
+
+fn parse_tab_group(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    let mut request = Map::new();
+    insert_optional_string(&mut request, flags, "transaction", "transaction");
+    let command = match words {
+        ["list"] => "list-tab-groups",
+        ["create"] => {
+            request.insert("tabs".into(), group_id_list(flags, "tabs")?);
+            insert_optional_string(&mut request, flags, "name", "name");
+            insert_optional_string(&mut request, flags, "color", "color");
+            insert_optional_string(&mut request, flags, "id", "group");
+            "create-tab-group"
+        }
+        ["remove"] => {
+            request.insert("tabs".into(), group_id_list(flags, "tabs")?);
+            "remove-tabs-from-tab-group"
+        }
+        ["saved", "list"] => "list-saved-tab-groups",
+        ["saved", saved, "delete"] => {
+            request.insert("saved".into(), Value::String((*saved).to_string()));
+            "delete-saved-tab-group"
+        }
+        ["saved", saved, "reopen"] => {
+            request.insert("saved".into(), Value::String((*saved).to_string()));
+            request.insert("pane".into(), group_id_value(&flags.required("pane")?));
+            "reopen-saved-tab-group"
+        }
+        [group, action] => {
+            request.insert("group".into(), Value::String((*group).to_string()));
+            match *action {
+                "update" => {
+                    insert_optional_string(&mut request, flags, "name", "name");
+                    insert_optional_string(&mut request, flags, "color", "color");
+                    group_collapse(flags, &mut request)?;
+                    "update-tab-group"
+                }
+                "add" => {
+                    request.insert("tabs".into(), group_id_list(flags, "tabs")?);
+                    "add-tabs-to-tab-group"
+                }
+                "move" => {
+                    if let Some(pane) = flags.take("pane") {
+                        request.insert("pane".into(), group_id_value(&pane));
+                    }
+                    if let Some(index) = group_number(flags, "index")? {
+                        request.insert("index".into(), index);
+                    }
+                    "move-tab-group"
+                }
+                "split" => {
+                    request.insert("pane".into(), group_id_value(&flags.required("pane")?));
+                    request.insert("edge".into(), Value::String(flags.required("edge")?));
+                    if let Some(ratio) = group_float(flags, "ratio")? {
+                        request.insert("ratio".into(), ratio);
+                    }
+                    "move-tab-group-to-split"
+                }
+                "column" => {
+                    if let Some(pane) = flags.take("pane") {
+                        request.insert("pane".into(), group_id_value(&pane));
+                    }
+                    if let Some(screen) = group_number(flags, "screen")? {
+                        request.insert("screen".into(), screen);
+                    }
+                    if let Some(column) = group_number(flags, "after-column")? {
+                        request.insert("after_column".into(), column);
+                    }
+                    if let Some(width) = group_float(flags, "width")? {
+                        request.insert("width".into(), width);
+                    }
+                    "move-tab-group-to-column"
+                }
+                "new-workspace" => {
+                    insert_optional_string(
+                        &mut request,
+                        flags,
+                        "workspace-group",
+                        "workspace_group",
+                    );
+                    if let Some(index) = group_number(flags, "index")? {
+                        request.insert("index".into(), index);
+                    }
+                    "move-tab-group-to-new-workspace"
+                }
+                "ungroup" => "ungroup-tab-group",
+                "close" => "close-tab-group",
+                "save" => "save-tab-group",
+                "unsave" => "unsave-tab-group",
+                _ => return usage("tab group action"),
+            }
+        }
+        _ => return usage("tab group action"),
+    };
+    Ok(group_raw_plan(command, request))
+}
+
+fn parse_workspace_group(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    let mut request = Map::new();
+    let command = match words {
+        ["list"] => "list-workspace-groups",
+        ["create"] => {
+            request.insert("name".into(), Value::String(flags.required("name")?));
+            insert_optional_string(&mut request, flags, "color", "color");
+            insert_optional_string(&mut request, flags, "id", "group");
+            if let Some(index) = group_number(flags, "index")? {
+                request.insert("index".into(), index);
+            }
+            if flags.boolean("collapse") {
+                request.insert("collapsed".into(), Value::Bool(true));
+            }
+            "create-workspace-group"
+        }
+        ["remove"] => {
+            let workspace = flags.required("workspace")?;
+            request.insert(
+                if workspace.parse::<u64>().is_ok() { "workspace" } else { "key" }.into(),
+                group_id_value(&workspace),
+            );
+            request.insert("group".into(), Value::Null);
+            "move-workspace-to-group"
+        }
+        [group, action] => {
+            request.insert("group".into(), Value::String((*group).to_string()));
+            match *action {
+                "update" => {
+                    insert_optional_string(&mut request, flags, "name", "name");
+                    if flags.boolean("clear-color") {
+                        request.insert("color".into(), Value::Null);
+                    } else {
+                        insert_optional_string(&mut request, flags, "color", "color");
+                    }
+                    group_collapse(flags, &mut request)?;
+                    "update-workspace-group"
+                }
+                "delete" => "delete-workspace-group",
+                "move" => {
+                    request.insert(
+                        "index".into(),
+                        group_number(flags, "index")?
+                            .ok_or_else(|| UsageError::new("--index is required"))?,
+                    );
+                    "move-workspace-group"
+                }
+                "add" => {
+                    let workspace = flags.required("workspace")?;
+                    request.insert(
+                        if workspace.parse::<u64>().is_ok() { "workspace" } else { "key" }.into(),
+                        group_id_value(&workspace),
+                    );
+                    if let Some(index) = group_number(flags, "index")? {
+                        request.insert("index".into(), index);
+                    }
+                    "move-workspace-to-group"
+                }
+                _ => return usage("workspace group action"),
+            }
+        }
+        _ => return usage("workspace group action"),
+    };
+    Ok(group_raw_plan(command, request))
 }
 
 fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
@@ -3092,6 +3330,59 @@ fn reset_error_starts_with(error: &anyhow::Error, prefixes: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn raw_request(args: &[&str]) -> Value {
+        match parse(&strings(args)).unwrap() {
+            CommandPlan::RawCommand(plan) => plan.request,
+            _ => panic!("group action did not produce a raw command"),
+        }
+    }
+
+    #[test]
+    fn cmux_next_group_actions_map_to_private_group_commands() {
+        let created = raw_request(&[
+            "tab",
+            "group",
+            "create",
+            "--tabs",
+            "4,tab_0123",
+            "--name",
+            "agents",
+            "--color",
+            "green",
+        ]);
+        assert_eq!(created["cmd"], "create-tab-group");
+        assert_eq!(created["tabs"], serde_json::json!([4, "tab_0123"]));
+        assert_eq!(created["name"], "agents");
+        let collapsed = raw_request(&["tab", "group", "tgrp_1", "update", "--collapse"]);
+        assert_eq!(collapsed["cmd"], "update-tab-group");
+        assert_eq!(collapsed["collapsed"], true);
+        let split = raw_request(&[
+            "tab", "group", "tgrp_1", "split", "--pane", "pane_ab", "--edge", "right",
+        ]);
+        assert_eq!(split["cmd"], "move-tab-group-to-split");
+        assert_eq!(split["pane"], "pane_ab");
+        let reopen = raw_request(&["tab", "group", "saved", "saved_9", "reopen", "--pane", "3"]);
+        assert_eq!(reopen["cmd"], "reopen-saved-tab-group");
+        assert_eq!(reopen["pane"], 3);
+        let group = raw_request(&["workspace", "group", "create", "--name", "Work"]);
+        assert_eq!(group["cmd"], "create-workspace-group");
+        let add = raw_request(&[
+            "workspace",
+            "group",
+            "grp_1",
+            "add",
+            "--workspace",
+            "6ba7b810-9dad-41d1-80b4-00c04fd430c8",
+            "--index",
+            "0",
+        ]);
+        assert_eq!(add["cmd"], "move-workspace-to-group");
+        assert_eq!(add["key"], "6ba7b810-9dad-41d1-80b4-00c04fd430c8");
+        assert_eq!(add["index"], 0);
+        assert!(parse(&strings(&["tab", "group", "tgrp_1", "explode"])).is_err());
+        assert!(parse(&strings(&["tab", "group", "create"])).is_err());
+    }
 
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()

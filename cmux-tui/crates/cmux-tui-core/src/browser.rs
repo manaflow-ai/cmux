@@ -2754,6 +2754,20 @@ impl BrowserSurface {
         }
     }
 
+    /// Apply the location a frontend-rendered browser reports. Such a
+    /// browser has no CDP target, so this is its only source of URL and
+    /// title. Returns whether either changed.
+    pub(crate) fn set_frontend_location(&self, url: Option<String>, title: Option<String>) -> bool {
+        let mut changed = false;
+        if let Some(url) = url {
+            changed |= self.set_url(url);
+        }
+        if let Some(title) = title {
+            changed |= self.set_title(title);
+        }
+        changed
+    }
+
     fn set_title(&self, title: String) -> bool {
         let mut state = self.state.lock().unwrap();
         if state.title == title {

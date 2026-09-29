@@ -52,23 +52,6 @@
         }
       }
     },
-    "handlers.failed.frontendBrowserTabs": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The daemon does not support app-rendered browser tabs."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デーモンはアプリ描画のブラウザタブに対応していません。"
-          }
-        }
-      }
-    },
     "handlers.failed.hardReloadEngine": {
       "extractionState": "manual",
       "localizations": {
@@ -218,40 +201,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "未読の通知はありません。"
-          }
-        }
-      }
-    },
-    "handlers.failed.noWindow": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No window is open."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開いているウインドウがありません。"
-          }
-        }
-      }
-    },
-    "handlers.failed.notificationAck": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The connected cmux-tui daemon does not support notification acknowledgement (notification-ack-v1)."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続中の cmux-tui デーモンは通知の既読処理 (notification-ack-v1) に対応していません。"
           }
         }
       }

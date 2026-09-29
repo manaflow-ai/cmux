@@ -18,19 +18,15 @@ enum AgentHandlers {
             ("palette.forkAgentConversationNewTab", .newTab), ("palette.forkAgentConversationNewWorkspace", .newWorkspace),
         ]
         for (id, placement) in forks {
-            registry.bind(id, invoke: { fork(placement, invocation: $0, context: context) })
+            registry.bind(id, run: { try fork(placement, invocation: $0, context: context) })
         }
-        registry.bind("palette.computerUse.accessibility") {
-            openPrivacyPane("Privacy_Accessibility")
-        }
-        registry.bind("palette.computerUse.screenRecording") {
-            openPrivacyPane("Privacy_ScreenCapture")
-        }
-        context.unavailable(["palette.newAgentChat", "palette.openTerminalChatView"], HandlerStrings.agentChat)
-        context.unavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], HandlerStrings.agentTeams)
-        context.unavailable(
+        registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
+        registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
+        registry.bindUnavailable(["palette.newAgentChat", "palette.openTerminalChatView"], ActionFailure(message: HandlerStrings.agentChat))
+        registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: HandlerStrings.agentTeams))
+        registry.bindUnavailable(
             ["palette.computerUse.setup", "computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],
-            HandlerStrings.computerUse
+            ActionFailure(message: HandlerStrings.computerUse)
         )
     }
 
@@ -42,15 +38,15 @@ enum AgentHandlers {
         return "claude --resume \(session) --fork-session"
     }
 
-    private static func fork(_ placement: Placement, invocation: ActionInvocation, context: AppActionContext) {
+    private static func fork(_ placement: Placement, invocation: ActionInvocation, context: AppActionContext) throws {
         guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id), tab.kind == .pty else {
-            return context.fail(HandlerStrings.noTerminal)
+            throw ActionFailure(message: HandlerStrings.noTerminal)
         }
-        guard let status = tab.agent, status.session?.isEmpty == false else { return context.fail(HandlerStrings.noAgentSession) }
+        guard let status = tab.agent, status.session?.isEmpty == false else { throw ActionFailure(message: HandlerStrings.noAgentSession) }
         guard let command = forkCommand(agent: status.agent, session: status.session) else {
-            return context.fail(HandlerStrings.forkClaudeOnly)
+            throw ActionFailure(message: HandlerStrings.forkClaudeOnly)
         }
-        guard let connection = context.connection() else { return }
+        let connection = try context.connection()
         let handle = pane.pane.handle
         let options = SpawnOptions(cwd: tab.cwd)
         let line = command + "\n"
@@ -75,15 +71,15 @@ enum AgentHandlers {
                     surface = try await connection.createTerminal(in: created.key, cwd: options.cwd).surface
                 }
                 if let surface { try await connection.send(surface, text: line) }
-                if let workspace { _ = context.window(showing: workspace.rawValue) }
+                if let workspace { context.window(showing: workspace.rawValue) }
             } catch {
                 logger.error("fork-agent-conversation failed: \(String(describing: error), privacy: .public)")
             }
         }
     }
 
-    private static func openPrivacyPane(_ anchor: String) {
+    private static func openPrivacyPane(_ anchor: String, _ context: AppActionContext) throws {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") else { return }
-        NSWorkspace.shared.open(url)
+        try context.open(url)
     }
 }

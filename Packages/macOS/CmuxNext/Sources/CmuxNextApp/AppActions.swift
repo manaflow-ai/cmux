@@ -15,12 +15,21 @@ enum AppActions {
         bindLayout(services)
         bindTabGroups(services)
         bindBrowser(services)
+        let registry = services.registry
         let context = AppActionContext(services: services)
-        BrowserHandlers.bind(into: services.registry, context: context)
-        OpenInHandlers.bind(into: services.registry, context: context)
-        NotificationHandlers.bind(into: services.registry, context: context)
-        AgentHandlers.bind(into: services.registry, context: context)
-        CloudHandlers.bind(into: services.registry, context: context)
+        WindowHandlers.bind(into: registry, context: context)
+        WorkspaceHandlers.bind(into: registry, context: context)
+        WorkspaceMetadataHandlers.bind(into: registry, context: context)
+        WorkspaceGroupHandlers.bind(into: registry, context: context)
+        SidebarHandlers.bind(into: registry, context: context)
+        SavedGroupHandlers.bind(into: registry, context: context)
+        SettingsHandlers.bind(into: registry, context: context)
+        AppearanceHandlers.bind(into: registry, context: context)
+        BrowserHandlers.bind(into: registry, context: context)
+        OpenInHandlers.bind(into: registry, context: context)
+        NotificationHandlers.bind(into: registry, context: context)
+        AgentHandlers.bind(into: registry, context: context)
+        CloudHandlers.bind(into: registry, context: context)
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {
@@ -39,8 +48,6 @@ enum AppActions {
         }
         registry.bind("toggleFullScreen") { services.windows.active?.window?.toggleFullScreen(nil) }
         registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggleHidden() }
-        registry.bind("appearance.density.compact") { DesignSettings.shared.density = .compact }
-        registry.bind("appearance.density.comfortable") { DesignSettings.shared.density = .comfortable }
     }
 
     private static func bindTabs(_ services: AppServices) {

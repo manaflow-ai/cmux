@@ -318,6 +318,7 @@ impl WorkspaceRegistry {
                 reads.remove(id);
             }
         }
+        let acked = self.acked_notification_ids()?;
         let mut notifications = Vec::with_capacity(rows.len());
         for (outcome_json, idempotency_key) in rows {
             let outcome: ResourceEffectOutcome = serde_json::from_str(&outcome_json)
@@ -346,6 +347,7 @@ impl WorkspaceRegistry {
             let _ = stored.extra;
             let _ = stored.read_by;
             let read_by = reads.remove(stored.id.as_str()).unwrap_or_default();
+            let unread = stored.unread && !acked.contains(stored.id.as_str());
             notifications.push(RegistryNotificationProjection {
                 id: stored.id,
                 title: stored.title,
@@ -356,7 +358,7 @@ impl WorkspaceRegistry {
                     .terminal_id
                     .filter(|terminal_id| live_terminals.contains(terminal_id)),
                 created_at_ms: stored.created_at_ms.get(),
-                unread: stored.unread,
+                unread,
                 read_by,
             });
         }

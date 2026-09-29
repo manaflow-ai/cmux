@@ -5,58 +5,51 @@ import CmuxNextDaemon
 /// Notification actions over the daemon's retained unread markers
 /// (`TabModel.notification`) and `ack-tab-notifications`
 /// (notification-ack-v1). Acknowledging is the daemon's only transition, so
-/// "mark unread" and "clear ledger" report typed failures.
+/// "mark unread" and "clear ledger" are refused or unavailable.
 enum NotificationHandlers {
+    static let ack = DaemonCapabilities.notificationAck
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("jumpToUnread") {
-            guard let latest = unread(context).last else { return context.fail(HandlerStrings.noUnread) }
-            open(latest, context)
-        }
-        registry.bind("markOldestUnreadAndJumpNext") {
+        let daemon = context.daemon
+        registry.bind("jumpToUnread", run: { _ in try open(latestUnread(context), context) })
+        registry.bind("markOldestUnreadAndJumpNext", requires: ack, daemon: daemon, run: { _ in
             let tabs = unread(context)
-            guard let oldest = tabs.first else { return context.fail(HandlerStrings.noUnread) }
-            acknowledge([oldest.tab.surface], context)
-            if tabs.count > 1 { open(tabs[1], context) }
-        }
-        registry.bind("markAllNotificationsRead") {
+            guard let oldest = tabs.first else { throw ActionFailure(message: HandlerStrings.noUnread) }
+            try acknowledge([oldest.tab.surface], context)
+            if tabs.count > 1 { try open(tabs[1], context) }
+        })
+        registry.bind("markAllNotificationsRead", requires: ack, daemon: daemon, run: { _ in
             let tabs = unread(context)
-            guard !tabs.isEmpty else { return context.fail(HandlerStrings.noUnread) }
-            acknowledge(tabs.map(\.tab.surface), context)
-        }
-        registry.bind("toggleUnread", invoke: { invocation in
+            guard !tabs.isEmpty else { throw ActionFailure(message: HandlerStrings.noUnread) }
+            try acknowledge(tabs.map(\.tab.surface), context)
+        })
+        registry.bind("toggleUnread", requires: ack, daemon: daemon, run: { invocation in
             guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id) else {
-                return context.fail(HandlerStrings.noPane)
+                throw ActionFailure(message: HandlerStrings.noPane)
             }
-            guard tab.hasUnread else { return context.fail(HandlerStrings.markUnread) }
-            acknowledge([tab.surface], context)
+            guard tab.hasUnread else { throw ActionFailure(message: HandlerStrings.markUnread) }
+            try acknowledge([tab.surface], context)
         })
         // Per-notification verbs act on the latest unread notification until
         // the notifications panel passes a notification target.
-        registry.bind("notificationOpen") {
-            guard let latest = unread(context).last else { return context.fail(HandlerStrings.noUnread) }
-            open(latest, context)
-        }
-        registry.bind("notificationToggleRead") {
-            guard let latest = unread(context).last else { return context.fail(HandlerStrings.markUnread) }
-            acknowledge([latest.tab.surface], context)
-        }
-        registry.bind("notificationDismiss") {
-            guard let latest = unread(context).last else { return context.fail(HandlerStrings.noUnread) }
-            acknowledge([latest.tab.surface], context)
-        }
-        registry.bind("notificationCopy") {
-            guard context.connection() != nil, supportsAck(context) else { return }
+        registry.bind("notificationOpen", run: { _ in try open(latestUnread(context), context) })
+        registry.bind("notificationToggleRead", requires: ack, daemon: daemon, run: { _ in
+            guard let latest = unread(context).last else { throw ActionFailure(message: HandlerStrings.markUnread) }
+            try acknowledge([latest.tab.surface], context)
+        })
+        registry.bind("notificationDismiss", requires: ack, daemon: daemon, run: { _ in
+            try acknowledge([latestUnread(context).tab.surface], context)
+        })
+        registry.bind("notificationCopy", requires: ack, daemon: daemon, run: { _ in
+            _ = try context.connection()
             context.daemon.send("copy-notification") { connection in
                 guard let entry = try await connection.notificationLedger(limit: 1).first else { return }
                 let text = entry.body.isEmpty ? entry.title : "\(entry.title)\n\(entry.body)"
-                await MainActor.run {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
-                }
+                await MainActor.run { context.copy(text) }
             }
-        }
-        context.unavailable(["showNotifications"], HandlerStrings.notificationsPanel)
-        context.unavailable(["clearAllNotifications"], HandlerStrings.clearLedger)
+        })
+        registry.bindUnavailable(["showNotifications"], ActionFailure(message: HandlerStrings.notificationsPanel))
+        registry.bindUnavailable(["clearAllNotifications"], ActionFailure(message: HandlerStrings.clearLedger))
     }
 
     /// Tabs with an unread marker, oldest first (by notification time, then
@@ -72,26 +65,21 @@ enum NotificationHandlers {
             .map(\.element)
     }
 
+    static func latestUnread(_ context: AppActionContext) throws -> LocatedTab {
+        guard let latest = unread(context).last else { throw ActionFailure(message: HandlerStrings.noUnread) }
+        return latest
+    }
+
     /// Shows the tab and acknowledges its notification: focusing it reads it.
     /// On daemons without notification-ack-v1 the reveal still happens.
-    static func open(_ located: LocatedTab, _ context: AppActionContext) {
-        guard context.connection() != nil else { return }
-        context.reveal(tab: located.tab, pane: located.pane, workspace: located.workspace)
-        if context.daemon.supports(DaemonCapabilities.notificationAck) { acknowledge([located.tab.surface], context) }
+    static func open(_ located: LocatedTab, _ context: AppActionContext) throws {
+        _ = try context.connection()
+        context.reveal(located)
+        if context.daemon.supports(ack) { try acknowledge([located.tab.surface], context) }
     }
 
-    /// Whether the daemon can acknowledge and list notifications; reports a
-    /// failure when it cannot.
-    static func supportsAck(_ context: AppActionContext) -> Bool {
-        guard context.daemon.supports(DaemonCapabilities.notificationAck) else {
-            context.fail(HandlerStrings.notificationAck)
-            return false
-        }
-        return true
-    }
-
-    static func acknowledge(_ surfaces: [SurfaceID], _ context: AppActionContext) {
-        guard context.connection() != nil, supportsAck(context) else { return }
+    static func acknowledge(_ surfaces: [SurfaceID], _ context: AppActionContext) throws {
+        _ = try context.connection()
         context.daemon.send("ack-tab-notifications") { connection in
             for surface in surfaces { _ = try await connection.acknowledgeNotifications(of: surface) }
         }

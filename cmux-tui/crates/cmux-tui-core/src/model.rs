@@ -58,6 +58,19 @@ pub(crate) struct LayoutUndoEntry {
     pub after_revision: u64,
     pub created_panes: Vec<PaneId>,
     pub coalesce: Option<LayoutMutationKey>,
+    /// A tab drag inside one screen: undo moves the tab back to its origin
+    /// pane before restoring `before`, instead of closing anything.
+    pub tab_restore: Option<LayoutUndoTabRestore>,
+}
+
+/// Where a dragged tab came from, and the pane the drag created for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LayoutUndoTabRestore {
+    pub surface: SurfaceId,
+    pub origin_pane: PaneId,
+    pub origin_index: usize,
+    /// The pane the drag created (a new split or column), removed by undo.
+    pub created_pane: Option<PaneId>,
 }
 
 const LAYOUT_UNDO_LIMIT: usize = 32;
@@ -676,6 +689,28 @@ impl Screen {
             after_revision: self.layout_revision,
             created_panes,
             coalesce,
+            tab_restore: None,
+        });
+        while self.layout_undo.len() > LAYOUT_UNDO_LIMIT {
+            self.layout_undo.pop_front();
+        }
+    }
+
+    /// Record a same-screen tab drag. `before` is this screen's layout
+    /// before the drag; undo moves the tab back and restores it. The entry
+    /// creates no pane that undo must close, so it never needs confirmation.
+    pub(crate) fn record_tab_drag_change(
+        &mut self,
+        before: ScreenLayoutSnapshot,
+        restore: LayoutUndoTabRestore,
+    ) {
+        self.layout_revision = self.layout_revision.saturating_add(1);
+        self.layout_undo.push_back(LayoutUndoEntry {
+            before,
+            after_revision: self.layout_revision,
+            created_panes: Vec::new(),
+            coalesce: None,
+            tab_restore: Some(restore),
         });
         while self.layout_undo.len() > LAYOUT_UNDO_LIMIT {
             self.layout_undo.pop_front();

@@ -100,7 +100,7 @@ extension WorkspaceContentController {
                 ?? layoutModel.screens.first { $0.id == screen }?.layout.columns.last
             guard let anchor = column?.root.panes.last, let handle = handles.panes[anchor],
                   let paneModel = services.daemon.store.pane(handle) else { return }
-            TabMoves.toNewColumn(tab, rightOf: paneModel, services: services, completion: restore)
+            TabMoves.toNewColumn(tab, anchor: paneModel, afterColumn: column.flatMap { handles.columns[$0.id] }, services: services, completion: restore)
         }
     }
 }
