@@ -158,6 +158,13 @@ public final class PaletteModel {
 
     // MARK: Running commands
 
+    /// Records a use of `key` (an item's `frecencyKey`) from outside the
+    /// palette, so actions run by shortcut or menu also rank higher here.
+    public func recordUse(_ key: String) {
+        frecency.record(key, at: now())
+        persistence?.save(frecency)
+    }
+
     /// Runs `command` for `item`, recording usage.
     public func run(_ command: PaletteCommand, of item: PaletteItem) {
         guard item.isEnabled else { return }

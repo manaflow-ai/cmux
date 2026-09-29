@@ -58,7 +58,11 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func update(query: String, placeholder: String, breadcrumb: String?, isLoading: Bool) {
-        if field.stringValue != query { field.stringValue = query }
+        if field.stringValue != query {
+            field.stringValue = query
+            // Keep a caret at the end instead of a selection.
+            field.currentEditor()?.selectedRange = NSRange(location: query.utf16.count, length: 0)
+        }
         field.placeholderAttributedString = NSAttributedString(
             string: placeholder,
             attributes: [.font: Typography.search, .foregroundColor: NSColor.tertiaryLabelColor]
@@ -84,7 +88,7 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             magnifier.frame = NSRect(x: x, y: (bounds.height - box) / 2, width: box, height: box)
             x = magnifier.frame.maxX + Metrics.space4
         } else {
-            let labelSize = backLabel.intrinsicContentSize
+            let labelSize = NSSize(width: PaletteText.fittingWidth(backLabel), height: backLabel.intrinsicContentSize.height)
             let height = labelSize.height + Metrics.space2 * 2
             let width = min(labelSize.width + Metrics.space4 * 2, bounds.width / 3)
             backChip.frame = NSRect(x: x, y: (bounds.height - height) / 2, width: width, height: height)
@@ -174,7 +178,7 @@ final class PaletteFooterView: NSView {
     }
 
     private func layoutButton(_ button: NSView, label: NSTextField, keys: PaletteKeycapsView, right: CGFloat) -> CGFloat {
-        let labelSize = label.intrinsicContentSize
+        let labelSize = NSSize(width: PaletteText.fittingWidth(label), height: label.intrinsicContentSize.height)
         let keySize = keys.intrinsicContentSize
         let width = labelSize.width + Metrics.space3 + keySize.width
         let height = max(labelSize.height, keySize.height)

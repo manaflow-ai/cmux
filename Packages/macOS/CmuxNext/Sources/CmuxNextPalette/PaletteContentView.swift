@@ -64,6 +64,11 @@ final class PaletteContentView: NSView {
 
     func focusField() {
         window?.makeFirstResponder(searchBar.field)
+        if let editor = searchBar.field.currentEditor() as? NSTextView {
+            // Gray selection and caret; the system accent never shows.
+            editor.selectedTextAttributes = [.backgroundColor: Palette.selectionFill]
+            editor.insertionPointColor = .labelColor
+        }
         searchBar.field.currentEditor()?.selectedRange = NSRange(location: searchBar.field.stringValue.utf16.count, length: 0)
     }
 

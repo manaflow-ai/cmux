@@ -23,6 +23,10 @@ nonisolated public struct PaletteRankedSection: Sendable, Hashable {
 /// entries scored as match + frecency boost + bias, grouped by section, with
 /// sections ordered by their best row and rows by score.
 nonisolated public enum PaletteRanker {
+    /// Disabled rows (unbound actions in debug builds) sink below every
+    /// enabled match but stay visible.
+    static let disabledPenalty = 1_000
+
     public static func rank(
         index: inout PaletteSearchIndex,
         query: String,
@@ -45,7 +49,7 @@ nonisolated public enum PaletteRanker {
             let entry = entries[match.index]
             var score = match.score + entry.rankBias
             if hasHistory, let key = entry.frecencyKey { score += frecency.boost(for: key, at: now) }
-            if !entry.isEnabled { score -= 40 }
+            if !entry.isEnabled { score -= Self.disabledPenalty }
             return (match.index, score)
         }
         scored.sort { lhs, rhs in

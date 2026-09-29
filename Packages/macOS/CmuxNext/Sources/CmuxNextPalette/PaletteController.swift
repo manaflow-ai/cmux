@@ -57,6 +57,11 @@ public final class PaletteController {
         }
     }
 
+    /// Counts a run of `id` from any entrypoint toward palette ranking.
+    public func recordUse(of id: ActionID) {
+        model.recordUse("action:\(registry.canonicalID(for: id).rawValue)")
+    }
+
     // MARK: Presentation
 
     public func toggle(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {

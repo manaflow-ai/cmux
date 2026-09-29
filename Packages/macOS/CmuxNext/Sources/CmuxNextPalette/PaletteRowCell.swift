@@ -127,14 +127,14 @@ final class PaletteRowCell: NSTableCellView {
             right -= Metrics.space4
         }
         if !accessory.isHidden {
-            let width = min(accessory.intrinsicContentSize.width, bounds.width / 4)
+            let width = min(PaletteText.fittingWidth(accessory), bounds.width / 4)
             right -= width
             accessory.frame = centered(x: right, width: width, field: accessory)
             right -= Metrics.space4
         }
         let left = icon.frame.maxX + Metrics.space4
         let available = max(0, right - left)
-        let titleWidth = min(title.intrinsicContentSize.width, available)
+        let titleWidth = min(PaletteText.fittingWidth(title), available)
         title.frame = centered(x: left, width: titleWidth, field: title)
         if !subtitle.isHidden {
             let x = title.frame.maxX + Metrics.space3

@@ -49,6 +49,12 @@ enum PaletteText {
         return field
     }
 
+    /// Width that shows the whole string. `intrinsicContentSize` of a
+    /// truncating label is unreliable after its value changes.
+    static func fittingWidth(_ field: NSTextField) -> CGFloat {
+        ceil(field.attributedStringValue.size().width) + Metrics.space2
+    }
+
     static func symbol(_ name: String, size: CGFloat, color: NSColor = .secondaryLabelColor) -> NSImage? {
         let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
         return NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
