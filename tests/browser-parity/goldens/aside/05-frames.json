@@ -1,7 +1,7 @@
 [
   {
     "k": "full",
-    "v": "- title: \"Frames Fixture\" [url=PRIMARY/frames.html?peer=http%3A%2F%2F127.0.0.1%3A56559]\n- heading \"Frames\" [level=1]\n- iframe \"Same origin\" [ref=e1]:\n  - button \"Inside frame\" [ref=f2e1]\n  - textbox \"Frame field\" [ref=f2e2]\n- iframe \"Cross origin\" [ref=e2]:\n  - button \"Inside frame\" [ref=f1e1]\n  - textbox \"Frame field\" [ref=f1e2]"
+    "v": "- title: \"Frames Fixture\" [url=PRIMARY/frames.html?peer=PEER]\n- heading \"Frames\" [level=1]\n- iframe \"Same origin\" [ref=e1]:\n  - button \"Inside frame\" [ref=f1e1]\n  - textbox \"Frame field\" [ref=f1e2]\n- iframe \"Cross origin\" [ref=e2]:\n  - button \"Inside frame\" [ref=f2e1]\n  - textbox \"Frame field\" [ref=f2e2]"
   },
   {
     "k": "frame-button-count",
@@ -9,7 +9,7 @@
   },
   {
     "k": "after-clicks",
-    "v": "- title: \"Frames Fixture\" [url=PRIMARY/frames.html?peer=http%3A%2F%2F127.0.0.1%3A56559]\n- heading \"Frames\" [level=1]\n- iframe \"Same origin\" [ref=e1]:\n  - button \"Inner clicked <PRIMARY_PORT>\" [ref=f2e3]\n  - textbox \"Frame field\" [ref=f2e2]\n- iframe \"Cross origin\" [ref=e2] [focused]:\n  - button \"Inner clicked <PEER_PORT>\" [ref=f1e3] [focused]\n  - textbox \"Frame field\" [ref=f1e2]"
+    "v": "- title: \"Frames Fixture\" [url=PRIMARY/frames.html?peer=PEER]\n- heading \"Frames\" [level=1]\n- iframe \"Same origin\" [ref=e1]:\n  - button \"Inner clicked <PRIMARY_PORT>\" [ref=f1e3]\n  - textbox \"Frame field\" [ref=f1e2]\n- iframe \"Cross origin\" [ref=e2] [focused]:\n  - button \"Inner clicked <PEER_PORT>\" [ref=f2e3] [focused]\n  - textbox \"Frame field\" [ref=f2e2]"
   },
   {
     "k": "cross-fill",

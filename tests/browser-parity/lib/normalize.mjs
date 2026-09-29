@@ -20,6 +20,7 @@ function normalizeString(s, origins) {
   let out = s;
   for (const [name, origin] of [["PRIMARY", origins.primary], ["PEER", origins.peer]]) {
     out = out.split(origin).join(name);
+    out = out.split(encodeURIComponent(origin)).join(name);
     const port = new URL(origin).port;
     out = out.replace(new RegExp(`\\b${port}\\b`, "g"), `<${name}_PORT>`);
   }

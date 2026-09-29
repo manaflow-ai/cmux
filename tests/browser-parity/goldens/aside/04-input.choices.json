@@ -8,8 +8,9 @@
     "reason": "Aside right click does not reach the page."
   },
   "scrolled": {
-    "source": "playwright",
-    "reason": "Aside mouse.wheel does not scroll."
+    "source": "literal",
+    "value": true,
+    "reason": "Aside's wheel does not scroll; Playwright's Chrome run reads scrollTop before its async scroll lands. The wheel must scroll."
   },
   "untrusted-events": {
     "source": "playwright",
