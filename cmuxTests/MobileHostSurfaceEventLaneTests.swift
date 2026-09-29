@@ -191,6 +191,7 @@ struct MobileHostSurfaceEventLaneTests {
         let first = Task { await session.noteInteractiveSurface("surface-a") }
         await writer.waitForReleaseStart()
         let second = Task { await session.noteInteractiveSurface("surface-b") }
+        await writer.waitForNote("surface-b")
         await writer.releaseBlockedOperation()
         await first.value
         await second.value
@@ -403,6 +404,7 @@ actor FocusOrderingIndependentEventWriter: MobileHostIndependentEventWriting {
     private var blockNextRelease = true
     private var releaseStartedWaiter: CheckedContinuation<Void, Never>?
     private var releaseWaiter: CheckedContinuation<Void, Never>?
+    private var noteWaiters: [String: CheckedContinuation<Void, Never>] = [:]
     private var recordedNotes: [String] = []
 
     func probe(_: Data) async -> Bool { true }
@@ -426,11 +428,17 @@ actor FocusOrderingIndependentEventWriter: MobileHostIndependentEventWriting {
 
     func noteInteractiveSurface(_ surfaceID: String) async {
         recordedNotes.append(surfaceID)
+        noteWaiters.removeValue(forKey: surfaceID)?.resume()
     }
 
     func waitForReleaseStart() async {
         guard releaseWaiter == nil else { return }
         await withCheckedContinuation { releaseStartedWaiter = $0 }
+    }
+
+    func waitForNote(_ surfaceID: String) async {
+        guard !recordedNotes.contains(surfaceID) else { return }
+        await withCheckedContinuation { noteWaiters[surfaceID] = $0 }
     }
 
     func releaseBlockedOperation() { releaseWaiter?.resume(); releaseWaiter = nil }
