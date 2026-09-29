@@ -86,6 +86,9 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     /// The OpenSSH options the next carrier dials with.
     var carrierSSHOptions: [String] { connection.configuration.sshOptions }
 
+    /// The authentication agent the next carrier inherits.
+    var carrierAgentSocketPath: String? { connection.configuration.agentSocketPath }
+
     /// Applies an explicit open's SSH options to this machine's next carrier.
     ///
     /// Machine identity ignores control options on purpose: restores drop them,
@@ -100,7 +103,8 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     /// options it started with.
     func adopt(_ replacement: SSHTuiConnection) async {
         guard replacement.id == connection.id,
-              replacement.configuration.sshOptions != connection.configuration.sshOptions,
+              (replacement.configuration.sshOptions != connection.configuration.sshOptions
+               || replacement.configuration.agentSocketPath != connection.configuration.agentSocketPath),
               connecting == nil else { return }
         let observed = current
         if let observed, await observed.isConnected { return }
