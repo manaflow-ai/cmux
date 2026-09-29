@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextTabs
 
@@ -241,5 +242,40 @@ struct ModelTests {
         model.send(.select("c"))
         #expect(received == [.select("c")])
         #expect(model.selectedID == "b")
+    }
+}
+
+@MainActor
+@Suite("Design tokens", .serialized)
+struct TokenTests {
+    @Test func overridesFlowIntoStripMetricsLive() {
+        let settings = DesignSettings.shared
+        let before = TabStripMetrics()
+        settings.setOverride(.tabMaxWidth, 300)
+        defer { settings.setOverride(.tabMaxWidth, nil) }
+        let after = TabStripMetrics()
+        #expect(after.maxTabWidth == 300)
+        #expect(after.inactiveCloseMinWidth == 150)
+        #expect(before.maxTabWidth != 300)
+    }
+
+    @Test func stripHeightOverrideRecentersTabs() {
+        let settings = DesignSettings.shared
+        settings.setOverride(.tabStripHeight, 36)
+        defer { settings.setOverride(.tabStripHeight, nil) }
+        let metrics = TabStripMetrics()
+        #expect(metrics.stripHeight == 36)
+        #expect(metrics.stripVerticalPadding == (36 - metrics.tabHeight) / 2)
+    }
+
+    @Test func comfortableDensityIsRoomier() {
+        let settings = DesignSettings.shared
+        let compact = TabStripMetrics()
+        settings.density = .comfortable
+        defer { settings.density = .compact }
+        let comfortable = TabStripMetrics()
+        #expect(comfortable.tabHeight > compact.tabHeight)
+        #expect(comfortable.maxTabWidth > compact.maxTabWidth)
+        #expect(comfortable.minActiveTabWidth > compact.minActiveTabWidth)
     }
 }

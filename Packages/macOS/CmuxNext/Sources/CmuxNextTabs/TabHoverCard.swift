@@ -55,6 +55,16 @@ final class TabHoverCardController {
         }
     }
 
+    /// Design tokens changed: rebuild the card at the new sizes next time.
+    func tokensChanged() {
+        hide(allowsQuickReshow: false)
+        if let panel {
+            panel.parent?.removeChildWindow(panel)
+            panel.orderOut(nil)
+        }
+        panel = nil
+    }
+
     /// Refreshes the visible card when its tab's title or subtitle changes.
     func refresh(_ tab: TabItem) {
         guard shownID == tab.id else { return }

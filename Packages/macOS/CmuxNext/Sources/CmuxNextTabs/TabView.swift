@@ -14,7 +14,13 @@ final class TabView: NSView {
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
     var showsSeparator = false { didSet { if oldValue != showsSeparator { separatorLayer.opacity = showsSeparator ? 1 : 0 } } }
     var style: TabStripStyle = .chrome { didSet { if oldValue != style { needsLayout = true } } }
-    var metrics: TabStripMetrics = .standard { didSet { if oldValue != metrics { needsLayout = true } } }
+    var metrics: TabStripMetrics = .standard {
+        didSet {
+            guard oldValue != metrics else { return }
+            needsLayout = true
+            updateColors(animated: false)
+        }
+    }
 
     private let backgroundLayer = CALayer()
     private let iconLayer = CALayer()
@@ -26,11 +32,23 @@ final class TabView: NSView {
     private let closeGlyphLayer = CAShapeLayer()
     private let separatorLayer = CALayer()
 
+    var onAccessibilityPress: (() -> Void)?
+    var onAccessibilityClose: (() -> Void)?
+
     private(set) var visibility = TabChromeVisibility(showsIcon: true, showsTitle: true, showsClose: false, centersContent: false)
     /// Close button frame in this view's coordinates, or nil when hidden.
     private(set) var closeButtonRect: CGRect?
 
-    private let titleFont = Typography.body
+    /// Title font; the strip updates it when the chrome font size changes.
+    var titleFont = Typography.body {
+        didSet {
+            guard titleFont != oldValue else { return }
+            titleLayer.font = titleFont
+            titleLayer.fontSize = titleFont.pointSize
+            measuredTitle = nil
+            needsLayout = true
+        }
+    }
     private var measuredTitle: (String, CGFloat)?
 
     init(item: TabItem) {
@@ -122,7 +140,7 @@ final class TabView: NSView {
         needsLayout = true
     }
 
-    private var displayTitle: String {
+    var displayTitle: String {
         item.title.isEmpty ? Strings.untitled : item.title
     }
 
@@ -346,82 +364,5 @@ final class TabView: NSView {
         let width = ceil((title as NSString).size(withAttributes: [.font: titleFont]).width)
         measuredTitle = (title, width)
         return width
-    }
-
-    // MARK: - Accessibility
-
-    private func updateAccessibility() {
-        var parts = [displayTitle]
-        if item.isPinned { parts.append(Strings.axPinned) }
-        if item.isBusy { parts.append(Strings.axBusy) }
-        switch item.status {
-        case .needsInput: parts.append(Strings.axNeedsInput)
-        case .success: parts.append(Strings.axSuccess)
-        case .failure: parts.append(Strings.axFailure)
-        case .none: if item.isUnread { parts.append(Strings.axUnread) }
-        }
-        setAccessibilityLabel(parts.joined(separator: ", "))
-        setAccessibilityValue(isSelected ? 1 : 0)
-        setAccessibilityHelp(item.subtitle)
-    }
-
-    var onAccessibilityPress: (() -> Void)?
-    var onAccessibilityClose: (() -> Void)?
-
-    override func accessibilityPerformPress() -> Bool {
-        onAccessibilityPress?()
-        return true
-    }
-
-    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
-        [NSAccessibilityCustomAction(name: Strings.axClose) { [weak self] in
-            self?.onAccessibilityClose?()
-            return true
-        }]
-    }
-
-    /// Image of this tab for the drag session.
-    func snapshot() -> NSImage {
-        let image = NSImage(size: bounds.size)
-        if let rep = bitmapImageRepForCachingDisplay(in: bounds) {
-            cacheDisplay(in: bounds, to: rep)
-            image.addRepresentation(rep)
-        }
-        return image
-    }
-}
-
-/// Tinted SF Symbol images, cached per name, tint, and scale.
-final class TabSymbolCache {
-    static let shared = TabSymbolCache()
-    private var cache: [String: CGImage] = [:]
-
-    func image(named name: String, tint: NSColor, pointSize: CGFloat, size: CGFloat, scale: CGFloat) -> CGImage? {
-        let resolved = tint.usingColorSpace(.sRGB) ?? tint
-        let key = "\(name)|\(resolved.redComponent)|\(resolved.greenComponent)|\(resolved.blueComponent)|\(resolved.alphaComponent)|\(pointSize)|\(size)|\(scale)"
-        if let cached = cache[key] { return cached }
-        let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [resolved]))
-        guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config) else {
-            return nil
-        }
-        let pixels = Int((size * scale).rounded())
-        guard let context = CGContext(
-            data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
-        context.scaleBy(x: scale, y: scale)
-        let graphics = NSGraphicsContext(cgContext: context, flipped: false)
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = graphics
-        let symbolSize = symbol.size
-        let ratio = min(size / symbolSize.width, size / symbolSize.height, 1)
-        let drawSize = CGSize(width: symbolSize.width * ratio, height: symbolSize.height * ratio)
-        symbol.draw(in: CGRect(x: (size - drawSize.width) / 2, y: (size - drawSize.height) / 2, width: drawSize.width, height: drawSize.height))
-        NSGraphicsContext.restoreGraphicsState()
-        let image = context.makeImage()
-        if cache.count > 256 { cache.removeAll() }
-        cache[key] = image
-        return image
     }
 }
