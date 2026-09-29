@@ -41,8 +41,11 @@ struct CLILocalZellijLifecycleTests {
         #expect(start.status == 0, Comment(rawValue: start.stderr))
         let zellijName = try #require(try jsonObject(start.stdout)["zellij_session_name"] as? String)
         #expect(zellijName.range(of: "^work-[0-9a-f]{8}$", options: .regularExpression) != nil, "the zellij name carries the record's token")
+        // Serialization stays off: a dead session must leave nothing that a
+        // surface's `zellij attach` could resurrect into a new server that
+        // inherits the surface's CMUX_* credentials and identity.
         let created = try #require(fixture.invocations().first { $0.contains("--create-background") })
-        let expectedPrefix = "\(fixture.socketDirectory)|attach --create-background \(zellijName) options --default-cwd \(fixture.base.path) --on-force-close detach --default-layout "
+        let expectedPrefix = "\(fixture.socketDirectory)|attach --create-background \(zellijName) options --default-cwd \(fixture.base.path) --on-force-close detach --session-serialization false --default-layout "
         #expect(created.hasPrefix(expectedPrefix), Comment(rawValue: created))
         let layout = try String(contentsOf: fixture.layoutCopyURL, encoding: .utf8)
         #expect(layout.contains(#"args "-lc" "npm run \"dev\"""#), Comment(rawValue: layout))
