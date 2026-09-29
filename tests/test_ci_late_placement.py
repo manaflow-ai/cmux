@@ -282,6 +282,8 @@ class GuiOverflow(unittest.TestCase):
             def runs_since(self, workflow, since, **filters):
                 self.statuses.append((workflow, filters["status"]))
                 # GitHub lists a run with a queued job as queued even while others run.
+                if workflow != "ci.yml":
+                    return []
                 if filters["status"] == "queued":
                     return [{"id": 5, "created_at": at(30)}, {"id": 4, "created_at": at(2)}]
                 return [{"id": 9, "created_at": at(10)}, {"id": 8, "created_at": at(50)},
@@ -295,7 +297,24 @@ class GuiOverflow(unittest.TestCase):
         # Run 4 is too young to have gui jobs and 7 is this run.
         self.assertEqual(late.gui_backlog(api, [GUI, ROOT_STD], exclude_run_id=7, now=now), {GUI: 8, ROOT_STD: 4})
         self.assertEqual(sorted(api.jobs_read), [5, 6, 8, 9])
-        self.assertEqual(api.statuses, [("ci.yml", "queued"), ("ci.yml", "in_progress")])
+        self.assertEqual(sorted(api.statuses), [("ci.yml", "in_progress"), ("ci.yml", "queued"),
+                                                ("test-e2e.yml", "in_progress"), ("test-e2e.yml", "queued")])
+
+    def test_backlog_counts_queued_e2e_gui_jobs(self):
+        import datetime as dt
+        now = dt.datetime(2026, 9, 28, 1, 0, tzinfo=dt.timezone.utc)
+        e2e = {"id": 21, "created_at": "2026-09-28T00:00:00Z"}
+
+        class API:
+            def runs_since(self, workflow, since, **filters):
+                return [e2e] if workflow == "test-e2e.yml" and filters["status"] == "in_progress" else []
+
+            def get(self, path):
+                return {"jobs": [{"status": "queued", "labels": [ROOT_STD]}]}
+
+        # E2E runs request the root/pool label but consume the GUI token inside the job.
+        self.assertEqual(late.gui_backlog(API(), [GUI, RETRY], exclude_run_id=None, now=now),
+                         {GUI: 1, RETRY: 0})
 
     def test_backlog_reads_runs_concurrently(self):
         import datetime as dt
@@ -311,7 +330,7 @@ class GuiOverflow(unittest.TestCase):
                 self.jobs_read, self.lock = [], threading.Lock()
 
             def runs_since(self, workflow, since, **filters):
-                return runs if filters["status"] == "in_progress" else []
+                return runs if workflow == "ci.yml" and filters["status"] == "in_progress" else []
 
             def get(self, path):
                 together.wait()
@@ -333,7 +352,7 @@ class GuiOverflow(unittest.TestCase):
                 self.jobs_read = []
 
             def runs_since(self, workflow, since, **filters):
-                return runs if filters["status"] == "in_progress" else []
+                return runs if workflow == "ci.yml" and filters["status"] == "in_progress" else []
 
             def get(self, path):
                 self.jobs_read.append(int(path.split("/")[3]))
@@ -350,7 +369,7 @@ class GuiOverflow(unittest.TestCase):
         class API:
             def runs_since(self, workflow, since, **filters):
                 return [{"id": i, "created_at": (now - dt.timedelta(minutes=30 + i)).strftime("%Y-%m-%dT%H:%M:%SZ")}
-                        for i in range(1, 4)] if filters["status"] == "in_progress" else []
+                        for i in range(1, 4)] if workflow == "ci.yml" and filters["status"] == "in_progress" else []
 
             def get(self, path):
                 if path.split("/")[3] == "2":

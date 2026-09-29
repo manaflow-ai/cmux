@@ -1669,23 +1669,6 @@ UPSTREAM_ROUNDS_0 = (
 ).split()
 
 
-# The same for main's full-suite dispatch (#14405) over its own grid: busy
-# machines, busy root runners, committed peaks, CI_OWNED_MAIN_RESERVE, split
-# and a newer run, on 16 machines and 10 root runners.
-UPSTREAM_MAIN_ROUNDS_0 = (
-    'M9R10L- -0-0-- M9R10L- M9R5L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M7R1L- M2R0L- -0-0-- -0-0-- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- M9R8L- M9R3L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M7R1L- M2R0L- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M9R5L- M9R0L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- '
-    'M7R1L- M2R0L- -0-0-- -0-0-- -0-0-- -0-0-- M9R10L- -0-0-- M9R10L- M7R5L- -0-0-- -0-0-- -0-0-- -0-0-- '
-    '-0-0-- -0-0-- M7R1L- M2R0L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M9R8L- M7R3L- -0-0-- -0-0-- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- M7R1L- M2R0L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M9R5L- M7R0L- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M7R1L- M2R0L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- '
-    'M5R10L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M5R1L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- '
-    '-0-0-- -0-0-- M5R8L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M5R1L- -0-0-- -0-0-- -0-0-- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- M5R5L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M5R1L- -0-0-- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- '
-).split()
-
 class KillSwitchMatchesUpstream(unittest.TestCase):
     """CI_PR_POOL_QUEUE_ROUNDS=0 is a true revert: the old accounting, committed and marker peaks included."""
 
@@ -1710,24 +1693,6 @@ class KillSwitchMatchesUpstream(unittest.TestCase):
         code = self.CODES
         return (f"{code[choice.runner]}{choice.owned_budget}{code[choice.root_runner]}{choice.root_budget}"
                 f"{code[choice.retry_runner]}{code[choice.shard_runner]}")
-
-    def test_rounds_0_decides_main_dispatch_as_upstream_main_did(self):
-        plan = dataclasses.replace(pool.FULL_RUN, side=())
-        cases = list(itertools.product((0, 4, 11), (0, 2, 5), (0, 9), ("", "2"), ("", "1"), ("0", "o5")))
-        self.assertEqual(len(cases), len(UPSTREAM_MAIN_ROUNDS_0))
-        for (busy, roots_busy, committed, reserve, split, routed), expected in zip(cases, UPSTREAM_MAIN_ROUNDS_0):
-            snap = backlog(small=21, large=0, old=4)
-            snap["pools"][MINI] = {"queued": 0, "running": busy, "committed": committed}
-            snap["pools"][ROOT_MINI] = {"queued": 0, "running": roots_busy, "committed": committed}
-            choice = choose(snap, event="workflow_dispatch", head="", pins=OWNED_PINS, owned="1",
-                            owned_slots=json.dumps({MINI: 16, ROOT_MINI: 10}), jobs=pool.owned_peak(plan),
-                            root_jobs=pool.root_peak(plan), split=split, queue_rounds="0",
-                            routed={"0": 0, "o5": pool.Routed(owned={MINI: 5})}[routed],
-                            ref=pool.MAIN_REF, main_reserve=reserve)
-            code = self.CODES
-            got = (f"{code[choice.runner]}{choice.owned_budget}{code[choice.root_runner]}{choice.root_budget}"
-                   f"{code[choice.retry_runner]}{code[choice.shard_runner]}")
-            self.assertEqual(got, expected, (busy, roots_busy, committed, reserve, split, routed))
 
     def test_rounds_0_decides_as_upstream_main_did(self):
         cases = list(self.cases())
@@ -2722,7 +2687,7 @@ def sim_fleet(running=0, queued=0, committed=0, **kwargs) -> dict:
 
 
 class MainFullSuite(unittest.TestCase):
-    """Main's full-suite dispatch takes the owned pools like a pull request, or whole behind a reserve."""
+    """Main's full-suite dispatch takes the owned pools like a pull request."""
 
     SLOTS = json.dumps({MINI: 36, ROOT_MINI: 14})
     PLAN = dataclasses.replace(pool.FULL_RUN, side=())
@@ -2737,13 +2702,10 @@ class MainFullSuite(unittest.TestCase):
                   "owned_slots": self.SLOTS, "jobs": pool.owned_peak(self.PLAN),
                   "root_jobs": pool.root_peak(self.PLAN), **kwargs}
         ref = kwargs.pop("ref", pool.MAIN_REF)
-        reserve = kwargs.pop("reserve", None)
-        return choose(snap, **kwargs, ref=ref, main_reserve=reserve)
+        return choose(snap, **kwargs, ref=ref)
 
     def test_its_run_holds_nine_machines_and_nine_root_runners(self):
         self.assertEqual((pool.owned_peak(self.PLAN), pool.root_peak(self.PLAN)), (9, 9))
-        # By default main holds nothing back: it takes the minis like a pull request.
-        self.assertEqual(pool.DEFAULT_MAIN_RESERVE, 0)
 
     def test_an_idle_fleet_takes_the_whole_run(self):
         choice = self.main_choice(self.snap())
@@ -2751,25 +2713,6 @@ class MainFullSuite(unittest.TestCase):
         self.assertIn("main's full-suite dispatch", choice.reason)
         self.assertEqual(pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0],
                          ("admission", *(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
-
-    def test_the_reserve_holds_root_runners_and_machines_back_for_pull_requests(self):
-        # 14 - 2 busy = 12 root runners free: 9 for main leaves 3, under a reserve of 4.
-        for snap in (self.snap(roots_busy=2), self.snap(busy=24)):
-            choice = self.main_choice(snap, reserve="4")
-            self.assertEqual(choice.runner, "", choice.reason)
-            self.assertIn("left free for pull requests", choice.reason)
-        self.assertIn("4 kept free for pull requests", self.main_choice(self.snap(), reserve="4").reason)
-        # Behind a reserve main never splits, however many machines are free.
-        self.assertEqual(self.main_choice(self.snap(roots_busy=2), split="1", reserve="4").runner, "")
-        # With none (the default) it splits like a pull request: what fits takes the minis.
-        self.assertEqual(self.main_choice(self.snap(roots_busy=6), split="1").runner, MINI)
-        # A smaller reserve lets it in; the variable is read as a count.
-        self.assertEqual(self.main_choice(self.snap(roots_busy=2), reserve="3").runner, MINI)
-        self.assertEqual(self.main_choice(self.snap(roots_busy=5), reserve="0").runner, MINI)
-        self.assertEqual(self.main_choice(self.snap(roots_busy=6), reserve="0").runner, "")
-        # A pull request with the same load is not held to the reserve.
-        pull = owned_choice(self.snap(roots_busy=5), owned_slots=self.SLOTS, jobs=9, root_jobs=9)
-        self.assertEqual(pull.runner, MINI)
 
     def test_a_split_run_queues_whole_on_the_owned_pool(self):
         # Every root runner busy and 22 jobs queued there: 6 queue places, the
@@ -2804,32 +2747,6 @@ class MainFullSuite(unittest.TestCase):
         self.assertIn("the rest on the retry runner",
                       self.main_choice(self.snap(roots_busy=6), split="1", queue_rounds="0").reason)
 
-    def test_queues_a_round_like_a_pull_request_unless_a_reserve_is_set(self):
-        # Every mini and root runner busy, Blacksmith backed up (12vcpu's wait
-        # for 9 jobs is 15 minutes): a pull request queues its 9 root jobs
-        # within a round (14 places over 14 root runners), and so does main,
-        # which is measured against the owned rounds alone: it never takes Blacksmith.
-        full = self.snap(busy=36, roots_busy=14)
-        full["pools"][LARGE]["queued"] = 6
-        pull = owned_choice(full, owned_slots=self.SLOTS, jobs=9, root_jobs=9, queue_rounds="1")
-        self.assertEqual(pull.runner, MINI)
-        choice = self.main_choice(full, queue_rounds="1")
-        self.assertEqual((choice.runner, choice.root_runner), (MINI, ROOT_MINI), choice.reason)
-        self.assertIn("queue places", choice.reason)
-        owned_jobs = pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0]
-        self.assertEqual(len(owned_jobs), len(pool.FULL_RUN.after) + 1)  # admission and all after it
-        # Rounds 0 is the old rule for both: the run's peak must be free now.
-        self.assertEqual(self.main_choice(full, queue_rounds="0").runner, "")
-        # A reserve keeps main off the queue: it takes the pool only while its
-        # peak and the reserve are free now.
-        self.assertEqual(self.main_choice(full, queue_rounds="1", reserve="1").runner, "")
-        self.assertEqual(self.main_choice(self.snap(roots_busy=5), queue_rounds="1", reserve="1").runner, "")
-        self.assertEqual(self.main_choice(self.snap(roots_busy=4), queue_rounds="1", reserve="1").runner, MINI)
-        # Past a round and the bound, main keeps its own route.
-        jammed = self.snap(busy=36, roots_busy=14)
-        jammed["pools"][ROOT_MINI]["queued"] = 10
-        self.assertEqual(self.main_choice(jammed, queue_rounds="1").runner, "")
-
     def test_never_a_blacksmith_pick(self):
         # A pull request would overflow to 12vcpu here; main keeps MACOS_RUNNER_PR.
         self.assertEqual(owned_choice(self.snap(busy=36), owned_slots=self.SLOTS, jobs=9, root_jobs=9).runner, LARGE)
@@ -2837,7 +2754,7 @@ class MainFullSuite(unittest.TestCase):
 
     def test_anything_else_keeps_its_route(self):
         for kwargs in ({"ref": "refs/heads/topic"}, {"ref": ""}, {"owned": ""}, {"attempt": 2},
-                       {"reserve": "many"}, {"reserve": "-1"}, {"default": ""}, {"overflow": "0"},
+                       {"default": ""}, {"overflow": "0"},
                        {"event": "merge_group"}, {"event": "push"}):
             choice = self.main_choice(self.snap(), **kwargs)
             self.assertEqual((choice.runner, choice.root_runner), ("", ""), kwargs)
@@ -2890,7 +2807,6 @@ class MainFullSuite(unittest.TestCase):
         self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'", mint["if"])
         self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
                       picker["env"]["CMUX_CI_XCODE_APP_PR"])
-        self.assertEqual(picker["env"]["OWNED_MAIN_RESERVE"], "${{ vars.CI_OWNED_MAIN_RESERVE }}")
 
 
 class PullRequestAdmissionRootQueue(unittest.TestCase):
