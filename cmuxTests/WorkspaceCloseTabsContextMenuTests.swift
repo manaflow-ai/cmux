@@ -69,6 +69,8 @@ struct WorkspaceCloseTabsContextMenuTests {
         try withCleanClosedHistory {
             let fixture = try makeWorkspaceWithFourConfirmingTabs()
             let tabId = fixture.tabIds[2]
+            let panelId = try #require(fixture.workspace.panelIdFromSurfaceId(tabId))
+            fixture.workspace.panelShellActivityStates[panelId] = .commandRunning
             var promptCount = 0
             fixture.manager.confirmCloseHandler = { _, _, _ in
                 promptCount += 1
@@ -96,6 +98,8 @@ struct WorkspaceCloseTabsContextMenuTests {
             let fixture = try makeWorkspaceWithFourConfirmingTabs()
             fixture.manager.closeTabWarningDefaults.set(false, forKey: "warnBeforeClosingTabShortcut")
             let tabId = fixture.tabIds[2]
+            let panelId = try #require(fixture.workspace.panelIdFromSurfaceId(tabId))
+            fixture.workspace.panelShellActivityStates[panelId] = .commandRunning
             var promptCount = 0
             fixture.manager.confirmCloseHandler = { _, _, _ in
                 promptCount += 1
