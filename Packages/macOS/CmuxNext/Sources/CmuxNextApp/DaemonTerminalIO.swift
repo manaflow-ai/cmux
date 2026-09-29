@@ -149,7 +149,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     /// Forwards one attachment's stream. Returns why it ended.
     private func forward(_ attachment: TerminalAttachment) async -> TerminalChannelCloseReason? {
+        var outputs = 0
         for await event in attachment.events {
+            if case .output = event { outputs += 1; if outputs <= 3 || outputs % 100 == 0 { logger.notice("NXDBG surface \(self.target.attachment.surface.rawValue) output #\(outputs)") } }
+            if case .replay(let r) = event { logger.notice("NXDBG surface \(self.target.attachment.surface.rawValue) replay \(r.cols)x\(r.rows) \(r.data.count)B") }
+            if case .resized(let r) = event { logger.notice("NXDBG surface \(self.target.attachment.surface.rawValue) resized \(r.cols)x\(r.rows)") }
+            if case .closed(let reason) = event { logger.notice("NXDBG surface \(self.target.attachment.surface.rawValue) closed \(String(describing: reason), privacy: .public)") }
             switch event {
             case .replay(let replay), .resized(let replay):
                 continuation.yield(.resize(cols: replay.cols, rows: replay.rows))

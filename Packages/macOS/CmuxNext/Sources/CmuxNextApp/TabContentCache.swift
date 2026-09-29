@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextTerminal
 import Observation
+import os
 
 /// Owns every terminal surface and browser page in the process
 /// (architecture.md 4): surfaces exist for visible tabs plus an LRU of 8
@@ -31,6 +32,7 @@ final class TabContentCache {
     func terminal(for tab: TabModel) -> TerminalEntry {
         let validity = "\(tab.id)#\(daemon.store.generation?.rawValue ?? "")#\(tab.surface.rawValue)"
         if let entry = terminals[tab.id], entry.validity == validity { return entry }
+        GhosttyLog.logger.notice("NXDBG new terminal entry \(validity, privacy: .public)")
         terminals.removeValue(forKey: tab.id)?.close()
         let target = DaemonTerminalIO.Target(
             attachment: TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
@@ -71,6 +73,7 @@ final class TabContentCache {
         if let entry = browsers[key] {
             Task { await entry.tab.setOccluded(!visible) }
         }
+        GhosttyLog.logger.notice("NXDBG setVisible \(key, privacy: .public) \(visible) live=\(self.terminals[key] != nil)")
         for evicted in retention.setVisible(key, visible) {
             terminals.removeValue(forKey: evicted)?.close()
         }
@@ -101,4 +104,8 @@ final class TabContentCache {
         }
         return previews.image(for: key)
     }
+}
+
+enum GhosttyLog {
+    static let logger = os.Logger(subsystem: "com.cmuxterm.app.next", category: "app.debug")
 }
