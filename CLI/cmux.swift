@@ -3864,7 +3864,7 @@ final class SocketClient {
                 }
                 if descriptor.revents & Int16(POLLNVAL) != 0 {
                     close()
-                    let message = String(format: String(localized: "cli.socket.error.failedToWriteWithErrno", defaultValue: "Failed to write to socket (%1$@, errno %2$d)"), String(cString: strerror(EBADF)), EBADF); throw CLIError(message: message)
+                    let message = String(format: String(localized: "cli.socket.error.failedToWriteWithErrno", defaultValue: "Failed to write to socket (%1$@, errno %2$d)", bundle: .cmuxCLI), String(cString: strerror(EBADF)), EBADF); throw CLIError(message: message)
                 }
                 // Let a protected write resolve HUP/ERR to errno for telemetry.
                 guard descriptor.revents & Int16(POLLOUT | POLLHUP | POLLERR) != 0 else {
@@ -4016,7 +4016,7 @@ final class SocketClient {
             close()
             throw CLIError(message: String(localized:
                 "cli.socket.error.socketRead",
-                defaultValue: "Socket read error"
+                defaultValue: "Socket read error", bundle: .cmuxCLI
             ))
         }
     }
@@ -5826,12 +5826,12 @@ struct CMUXCLI {
                             let hours = (total % 86_400) / 3_600
                             let minutes = (total % 3_600) / 60
                             if days > 0 {
-                                return String(format: String(localized: "machines.freeAccess.countdown.daysHours", defaultValue: "%1$dd %2$dh"), days, hours)
+                                return String(format: String(localized: "machines.freeAccess.countdown.daysHours", defaultValue: "%1$dd %2$dh", bundle: .cmuxCLI), days, hours)
                             }
                             if hours > 0 {
-                                return String(format: String(localized: "machines.freeAccess.countdown.hoursMinutes", defaultValue: "%1$dh %2$dm"), hours, minutes)
+                                return String(format: String(localized: "machines.freeAccess.countdown.hoursMinutes", defaultValue: "%1$dh %2$dm", bundle: .cmuxCLI), hours, minutes)
                             }
-                            return String(format: String(localized: "machines.freeAccess.countdown.minutes", defaultValue: "%dm"), max(minutes, 1))
+                            return String(format: String(localized: "machines.freeAccess.countdown.minutes", defaultValue: "%dm", bundle: .cmuxCLI), max(minutes, 1))
                         }
                         if remaining <= 0 {
                             let format = String(
@@ -6047,7 +6047,7 @@ struct CMUXCLI {
 
                         Known flags:
                           --size <4g|8g|16g|24g|32g|64g>  4g to 24g on Pro; 32g and 64g need cmux Max
-                          --desktop, --base  \(String(localized: "cli.vm.help.legacyKindFlags", defaultValue: "accepted for older scripts; every machine has a screen"))
+                          --desktop, --base  \(String(localized: "cli.vm.help.legacyKindFlags", defaultValue: "accepted for older scripts; every machine has a screen", bundle: .cmuxCLI))
                           --name <label>    display label (the id stays the address)
                           --image <image-id>  explicit image override (normally omit)
                           --provider <provider>
@@ -6216,7 +6216,7 @@ struct CMUXCLI {
                 // and the sidebar tree: vm.desktop_open in the app.
                 guard try openVMDesktopSplit(vmId: vmId, client: client, workspaceId: desktopWorkspace, jsonOutput: jsonOutput) else {
                     throw CLIError(message: String(
-                        format: String(localized: "cli.vm.desktop.unavailable", defaultValue: "%@ has no desktop to show. New machines boot a screen; this one was created shell-only (`--base`)."),
+                        format: String(localized: "cli.vm.desktop.unavailable", defaultValue: "%@ has no desktop to show. New machines boot a screen; this one was created shell-only (`--base`).", bundle: .cmuxCLI),
                         vmId
                     ))
                 }
@@ -6386,7 +6386,7 @@ struct CMUXCLI {
                         The label is display-only; the machine id stays its address.
                         Find an id:
                           cmux vm ls
-                        """))
+                        """, bundle: .cmuxCLI))
                 }
                 let label = clear ? nil : positional.dropFirst().joined(separator: " ")
                 var renameParams: [String: Any] = ["id": vmId]
@@ -6397,10 +6397,10 @@ struct CMUXCLI {
                     break
                 }
                 if let stored = renameResponse["displayName"] as? String, !stored.isEmpty {
-                    let format = String(localized: "cli.vm.rename.set", defaultValue: "%1$@ is now labeled \u{201C}%2$@\u{201D}")
+                    let format = String(localized: "cli.vm.rename.set", defaultValue: "%1$@ is now labeled \u{201C}%2$@\u{201D}", bundle: .cmuxCLI)
                     print(String(format: format, vmId, stored))
                 } else {
-                    let format = String(localized: "cli.vm.rename.cleared", defaultValue: "%@ label cleared")
+                    let format = String(localized: "cli.vm.rename.cleared", defaultValue: "%@ label cleared", bundle: .cmuxCLI)
                     print(String(format: format, vmId))
                 }
 
@@ -6739,7 +6739,7 @@ struct CMUXCLI {
                 let stored = (response["tags"] as? [String]) ?? []
                 let delivered = (response["delivered"] as? Bool) ?? false
                 let storedList = stored.isEmpty
-                    ? String(localized: "cli.mobile.compatibleTags.none", defaultValue: "(none)")
+                    ? String(localized: "cli.mobile.compatibleTags.none", defaultValue: "(none)", bundle: .cmuxCLI)
                     : stored.joined(separator: ", ")
                 if delivered {
                     print(localizedFormat(
@@ -7808,7 +7808,7 @@ struct CMUXCLI {
             let explicitSurfaceArg = optionValue(commandArgs, name: "--surface")
             let env = ProcessInfo.processInfo.environment
             let clearing = hasFlag(commandArgs, name: "--clear")
-            let okText = String(localized: "common.ok", defaultValue: "OK")
+            let okText = String(localized: "common.ok", defaultValue: "OK", bundle: .cmuxCLI)
             let target = try resolveNotifyTarget(
                 explicitWorkspaceArg: explicitWorkspaceArg,
                 explicitSurfaceArg: explicitSurfaceArg,
@@ -7939,9 +7939,9 @@ struct CMUXCLI {
         case "dismiss-notification":
             let id = optionValue(commandArgs, name: "--id").map(normalizedNotificationIDArgument)
             let allRead = hasFlag(commandArgs, name: "--all-read")
-            let okText = String(localized: "common.ok", defaultValue: "OK")
+            let okText = String(localized: "common.ok", defaultValue: "OK", bundle: .cmuxCLI)
             guard (id != nil) != allRead else {
-                throw CLIError(message: String(localized: "cli.error.dismissNotificationSelector", defaultValue: "dismiss-notification requires exactly one of --id or --all-read"))
+                throw CLIError(message: String(localized: "cli.error.dismissNotificationSelector", defaultValue: "dismiss-notification requires exactly one of --id or --all-read", bundle: .cmuxCLI))
             }
             if let id {
                 let payload = try client.sendV2(method: "notification.dismiss", params: ["id": id])
@@ -7956,13 +7956,13 @@ struct CMUXCLI {
             let surfaceArg = optionValue(commandArgs, name: "--surface")
             let windowHandle = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
             let all = hasFlag(commandArgs, name: "--all")
-            let okText = String(localized: "common.ok", defaultValue: "OK")
+            let okText = String(localized: "common.ok", defaultValue: "OK", bundle: .cmuxCLI)
             let selectorCount = (id == nil ? 0 : 1) + (workspaceArg == nil ? 0 : 1) + (all ? 1 : 0)
             guard selectorCount == 1 else {
-                throw CLIError(message: String(localized: "cli.error.markNotificationReadSelector", defaultValue: "mark-notification-read requires exactly one selector: --id, --workspace, or --all"))
+                throw CLIError(message: String(localized: "cli.error.markNotificationReadSelector", defaultValue: "mark-notification-read requires exactly one selector: --id, --workspace, or --all", bundle: .cmuxCLI))
             }
             if surfaceArg != nil, workspaceArg == nil {
-                throw CLIError(message: String(localized: "cli.error.markNotificationReadSurfaceRequiresWorkspace", defaultValue: "--surface requires --workspace"))
+                throw CLIError(message: String(localized: "cli.error.markNotificationReadSurfaceRequiresWorkspace", defaultValue: "--surface requires --workspace", bundle: .cmuxCLI))
             }
 
             var params: [String: Any] = [:]
@@ -7981,7 +7981,7 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
         case "open-notification":
             guard let id = optionValue(commandArgs, name: "--id").map(normalizedNotificationIDArgument) else {
-                throw CLIError(message: String(localized: "cli.error.openNotificationRequiresId", defaultValue: "open-notification requires --id"))
+                throw CLIError(message: String(localized: "cli.error.openNotificationRequiresId", defaultValue: "open-notification requires --id", bundle: .cmuxCLI))
             }
             let payload = try client.sendV2(method: "notification.open", params: ["id": id])
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
@@ -8618,7 +8618,7 @@ struct CMUXCLI {
     private func openPath(_ path: String) throws {
         let directory = try directoryForPathOpen(path)
         try openDirectoryWithLaunchServices(directory)
-        print(String(localized: "common.ok", defaultValue: "OK"))
+        print(String(localized: "common.ok", defaultValue: "OK", bundle: .cmuxCLI))
     }
 
     /// Open a path through an explicitly selected socket, preserving deliberate instance routing.
@@ -8633,7 +8633,7 @@ struct CMUXCLI {
 
         let response = try client.sendV2(method: "workspace.create", params: ["cwd": directory])
         let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
-        let okText = String(localized: "common.ok", defaultValue: "OK")
+        let okText = String(localized: "common.ok", defaultValue: "OK", bundle: .cmuxCLI)
         print(wsRef.isEmpty ? okText : "\(okText) \(wsRef)")
         try activateApp()
     }
@@ -8720,7 +8720,7 @@ struct CMUXCLI {
 
         let queue = kqueue()
         guard queue >= 0 else {
-            throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit"))
+            throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit", bundle: .cmuxCLI))
         }
         defer { close(queue) }
 
@@ -8737,7 +8737,7 @@ struct CMUXCLI {
                 process.waitUntilExit()
                 return true
             }
-            throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit"))
+            throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit", bundle: .cmuxCLI))
         }
 
         let deadline = Date().addingTimeInterval(timeout)
@@ -8761,7 +8761,7 @@ struct CMUXCLI {
                 return false
             }
             if errno != EINTR {
-                throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit"))
+                throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit", bundle: .cmuxCLI))
             }
         }
     }
@@ -8998,14 +8998,14 @@ struct CMUXCLI {
         let sessions = (response[listOnly ? "sessions" : "restored"] as? [[String: Any]]) ?? []
         if sessions.isEmpty {
             if listOnly {
-                print(String(localized: "cli.session.list.empty", defaultValue: "No agent sessions to restore."))
+                print(String(localized: "cli.session.list.empty", defaultValue: "No agent sessions to restore.", bundle: .cmuxCLI))
             } else if sessionIds.isEmpty, response["previous_exit_unclean"] as? Bool == false {
                 print(String(
                     localized: "cli.session.restore.cleanQuit",
                     defaultValue: "No agent sessions restored: cmux last quit normally. To restore one anyway, pass --session <id> from --list."
                 ))
             } else {
-                print(String(localized: "cli.session.restore.empty", defaultValue: "No agent sessions restored."))
+                print(String(localized: "cli.session.restore.empty", defaultValue: "No agent sessions restored.", bundle: .cmuxCLI))
             }
             return
         }
@@ -9018,7 +9018,7 @@ struct CMUXCLI {
         }
         if !listOnly {
             print(String(
-                format: String(localized: "cli.session.restore.done", defaultValue: "Agent sessions restored: %lld"),
+                format: String(localized: "cli.session.restore.done", defaultValue: "Agent sessions restored: %lld", bundle: .cmuxCLI),
                 Int64(sessions.count)
             ))
         }
@@ -9191,14 +9191,14 @@ struct CMUXCLI {
     private func launchApp() throws {
         try runOpenTool(
             arguments: ["-a", appLaunchTarget()],
-            failureMessage: String(localized: "cli.pathOpen.error.launchFailed", defaultValue: "Failed to launch cmux")
+            failureMessage: String(localized: "cli.pathOpen.error.launchFailed", defaultValue: "Failed to launch cmux", bundle: .cmuxCLI)
         )
     }
 
     private func activateApp() throws {
         try runOpenTool(
             arguments: ["-a", appLaunchTarget()],
-            failureMessage: String(localized: "cli.pathOpen.error.activateFailed", defaultValue: "Failed to activate cmux")
+            failureMessage: String(localized: "cli.pathOpen.error.activateFailed", defaultValue: "Failed to activate cmux", bundle: .cmuxCLI)
         )
     }
 
@@ -10945,7 +10945,7 @@ struct CMUXCLI {
             formatted["env"] = displayedEnv
             print(jsonString(formatted))
         } else if envStrings.isEmpty {
-            print(String(localized: "cli.workspace.env.empty", defaultValue: "No environment variables"))
+            print(String(localized: "cli.workspace.env.empty", defaultValue: "No environment variables", bundle: .cmuxCLI))
         } else {
             for key in envStrings.keys.sorted() {
                 print("\(key)=\(displayedEnv[key] ?? "")")
@@ -11278,7 +11278,7 @@ struct CMUXCLI {
         case "new-pane":
             if let type = optionValue(rest, name: "--type")?.lowercased() {
                 guard ["terminal", "browser", "simulator"].contains(type) else {
-                    throw CLIError(message: String(localized: "cli.canvas.error.newPaneTypeUsage", defaultValue: "Usage: cmux canvas new-pane [--type terminal|browser|simulator]"))
+                    throw CLIError(message: String(localized: "cli.canvas.error.newPaneTypeUsage", defaultValue: "Usage: cmux canvas new-pane [--type terminal|browser|simulator]", bundle: .cmuxCLI))
                 }
                 params["type"] = type
             }
@@ -11520,14 +11520,14 @@ struct CMUXCLI {
         } else if response["operation"] as? String == "dissolved",
                   let count = (response["kept_workspace_count"] as? NSNumber)?.intValue {
             let format = count == 1
-                ? String(localized: "cli.workspaceGroup.response.dissolved.one", defaultValue: "OK group dissolved (kept %lld workspace)")
-                : String(localized: "cli.workspaceGroup.response.dissolved.other", defaultValue: "OK group dissolved (kept %lld workspaces)")
+                ? String(localized: "cli.workspaceGroup.response.dissolved.one", defaultValue: "OK group dissolved (kept %lld workspace)", bundle: .cmuxCLI)
+                : String(localized: "cli.workspaceGroup.response.dissolved.other", defaultValue: "OK group dissolved (kept %lld workspaces)", bundle: .cmuxCLI)
             print(String.localizedStringWithFormat(format, Int64(count)))
         } else if response["operation"] as? String == "closed_workspaces",
                   let count = (response["closed_workspace_count"] as? NSNumber)?.intValue {
             let format = count == 1
-                ? String(localized: "cli.workspaceGroup.response.closed.one", defaultValue: "OK group deleted (closed %lld workspace)")
-                : String(localized: "cli.workspaceGroup.response.closed.other", defaultValue: "OK group deleted (closed %lld workspaces)")
+                ? String(localized: "cli.workspaceGroup.response.closed.one", defaultValue: "OK group deleted (closed %lld workspace)", bundle: .cmuxCLI)
+                : String(localized: "cli.workspaceGroup.response.closed.other", defaultValue: "OK group deleted (closed %lld workspaces)", bundle: .cmuxCLI)
             print(String.localizedStringWithFormat(format, Int64(count)))
         } else {
             print("OK")
@@ -11963,7 +11963,7 @@ struct CMUXCLI {
             case "--name":
                 guard index + 1 < commandArgs.count,
                       !commandArgs[index + 1].hasPrefix("-") else {
-                    throw CLIError(message: String(localized: "cli.sshTmux.error.nameRequiresTitle", defaultValue: "ssh-tmux: --name requires a workspace title"))
+                    throw CLIError(message: String(localized: "cli.sshTmux.error.nameRequiresTitle", defaultValue: "ssh-tmux: --name requires a workspace title", bundle: .cmuxCLI))
                 }
                 workspaceName = commandArgs[index + 1]
                 index += 2
@@ -12674,11 +12674,11 @@ struct CMUXCLI {
                 index += 2
             case "--command":
                 guard index + 1 < commandArgs.count else {
-                    throw CLIError(message: String(localized: "cli.ssh.error.commandRequiresText", defaultValue: "ssh: --command requires non-empty command text"))
+                    throw CLIError(message: String(localized: "cli.ssh.error.commandRequiresText", defaultValue: "ssh: --command requires non-empty command text", bundle: .cmuxCLI))
                 }
                 let command = commandArgs[index + 1]
                 guard !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw CLIError(message: String(localized: "cli.ssh.error.commandRequiresText", defaultValue: "ssh: --command requires non-empty command text"))
+                    throw CLIError(message: String(localized: "cli.ssh.error.commandRequiresText", defaultValue: "ssh: --command requires non-empty command text", bundle: .cmuxCLI))
                 }
                 initialCommand = command
                 index += 2
@@ -12776,7 +12776,7 @@ struct CMUXCLI {
             ))
         }
         if initialCommand != nil, !remoteCommand.arguments.isEmpty {
-            throw CLIError(message: String(localized: "cli.ssh.error.commandConflict", defaultValue: "ssh: --command cannot be combined with trailing remote command arguments"))
+            throw CLIError(message: String(localized: "cli.ssh.error.commandConflict", defaultValue: "ssh: --command cannot be combined with trailing remote command arguments", bundle: .cmuxCLI))
         }
         let agentForwarding = resolvedSSHAgentForwarding(
             sshOptions: sshOptions,
@@ -13472,7 +13472,7 @@ struct CMUXCLI {
             if let terminalId = opened.terminalId, let remoteWorkspaceId = opened.remoteWorkspaceId,
                !terminalId.isEmpty, !remoteWorkspaceId.isEmpty {
                 print(String(
-                    format: String(localized: "cli.vm.agent.reattach", defaultValue: "Reattach: cmux vm open %1$@/%2$@/%3$@"),
+                    format: String(localized: "cli.vm.agent.reattach", defaultValue: "Reattach: cmux vm open %1$@/%2$@/%3$@", bundle: .cmuxCLI),
                     id, remoteWorkspaceId, terminalId
                 ))
             }
@@ -13501,7 +13501,7 @@ struct CMUXCLI {
                 Known flags:
                   --workspace <workspace-id>
                   --window <id|ref|index>
-                  --desktop, --base  \(String(localized: "cli.vm.help.legacyBaseKindFlags", defaultValue: "accepted for older scripts; Base always has a screen"))
+                  --desktop, --base  \(String(localized: "cli.vm.help.legacyBaseKindFlags", defaultValue: "accepted for older scripts; Base always has a screen", bundle: .cmuxCLI))
                   --focus, --no-focus  select Base's workspace, or open it in the background
                                     \(Self.openFocusDefaultHelp)
                   --detach, -d
@@ -13594,7 +13594,7 @@ struct CMUXCLI {
                   --reason <text>
                   --workspace <workspace-id>
                   --window <id|ref|index>
-                  --desktop, --base  \(String(localized: "cli.vm.help.legacyBaseKindFlags", defaultValue: "accepted for older scripts; Base always has a screen"))
+                  --desktop, --base  \(String(localized: "cli.vm.help.legacyBaseKindFlags", defaultValue: "accepted for older scripts; Base always has a screen", bundle: .cmuxCLI))
                   --focus, --no-focus  \(Self.openFocusDefaultHelp)
                   --detach, -d
                 """)
@@ -13762,7 +13762,7 @@ struct CMUXCLI {
         ]
         let destination = "\(username)@\(host)"
         let displayDestination = pinWorkspaceToTop
-            ? String(localized: "cli.cloud.managedDisplayTarget", defaultValue: "cloud VM")
+            ? String(localized: "cli.cloud.managedDisplayTarget", defaultValue: "cloud VM", bundle: .cmuxCLI)
             : destination
         return SSHCommandOptions(
             destination: destination,
@@ -15411,7 +15411,7 @@ struct CMUXCLI {
               !sessionID.isEmpty else {
             throw CLIError(message: "ssh-session-attach requires --session-id <id>")
         }
-        if workspaceOpt?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true { throw CLIError(message: String(localized: "cli.error.sshSessionAttachWorkspaceRequiresValue", defaultValue: "ssh-session-attach: --workspace requires a value")) }
+        if workspaceOpt?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true { throw CLIError(message: String(localized: "cli.error.sshSessionAttachWorkspaceRequiresValue", defaultValue: "ssh-session-attach: --workspace requires a value", bundle: .cmuxCLI)) }
         if paneOpt != nil, splitOpt != nil {
             throw CLIError(message: "ssh-session-attach: --pane cannot be combined with --split")
         }
@@ -17104,12 +17104,12 @@ struct CMUXCLI {
             let isDesignMode = subcommand == "design-mode"
             let mode = browserActionVerbArgs().first?.lowercased() ?? (isDesignMode ? "status" : "toggle")
             let validModes = isDesignMode ? ["enable", "disable", "toggle", "status"] : ["enter", "exit", "toggle", "on", "off"]
-            guard validModes.contains(mode) else { throw CLIError(message: isDesignMode ? String(localized: "cli.browser.designMode.expectedModes", defaultValue: "browser design-mode requires one of: enable, disable, toggle, status") : "browser focus-mode requires one of: enter, exit, toggle, on, off") }
+            guard validModes.contains(mode) else { throw CLIError(message: isDesignMode ? String(localized: "cli.browser.designMode.expectedModes", defaultValue: "browser design-mode requires one of: enable, disable, toggle, status", bundle: .cmuxCLI) : "browser focus-mode requires one of: enter, exit, toggle, on, off") }
             var params = try optionalSurfaceParams()
             params["mode"] = mode
             let method = isDesignMode ? (mode == "status" ? "browser.design_mode.status" : "browser.design_mode.set") : "browser.focus_mode.set"
             let payload = try client.sendV2(method: method, params: params)
-            let fallback = isDesignMode ? ((payload["enabled"] as? Bool) == true ? String(localized: "cli.browser.designMode.enabled", defaultValue: "enabled") : String(localized: "cli.browser.designMode.disabled", defaultValue: "disabled")) : "OK"
+            let fallback = isDesignMode ? ((payload["enabled"] as? Bool) == true ? String(localized: "cli.browser.designMode.enabled", defaultValue: "enabled", bundle: .cmuxCLI) : String(localized: "cli.browser.designMode.disabled", defaultValue: "disabled", bundle: .cmuxCLI)) : "OK"
             output(payload, fallback: fallback)
             return
         }
@@ -17344,7 +17344,7 @@ struct CMUXCLI {
             ]
             if snapshotAfter { params["snapshot_after"] = true }
             let payload = try sendBrowserAutomationRequest(method: "browser.set_input_files", params: params)
-            output(payload, fallback: String(localized: "common.ok", defaultValue: "OK"))
+            output(payload, fallback: String(localized: "common.ok", defaultValue: "OK", bundle: .cmuxCLI))
             return
         }
 
@@ -18383,7 +18383,7 @@ struct CMUXCLI {
                 // confidently-wrong error this change exists to remove.
                 guard scannedEveryWindow else { return raw }
             }
-            let notFound = String(localized: "cli.rightSidebar.error.workspaceRefNotFound", defaultValue: "Workspace ref not found")
+            let notFound = String(localized: "cli.rightSidebar.error.workspaceRefNotFound", defaultValue: "Workspace ref not found", bundle: .cmuxCLI)
             throw CLIError(message: "\(notFound): \(raw)")
         }
 
@@ -18809,7 +18809,7 @@ struct CMUXCLI {
             login    Open the sign-in popup on the cmux web app and wait for it to finish.
             logout   Clear the current session.
             team     List teams or select one (`team list|use <team-id>|create <name>`).
-            """)
+            """, bundle: .cmuxCLI)
         case "login":
             return """
             Usage: cmux login
@@ -18919,7 +18919,7 @@ struct CMUXCLI {
               base open [--workspace <id>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
                                         Open Base, your persistent cloud workspace.
                                         Reuses the same VM every time. The first
-                                        \(String(localized: "cli.vm.help.baseCreate", defaultValue: "open creates it: the devbox with a VNC screen."))
+                                        \(String(localized: "cli.vm.help.baseCreate", defaultValue: "open creates it: the devbox with a VNC screen.", bundle: .cmuxCLI))
                                         --no-focus opens it without switching
                                         to its workspace.
               base reset [--reason <text>] [--workspace <id>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
@@ -18927,10 +18927,10 @@ struct CMUXCLI {
                                         VM is retained so accidental resets are
                                         recoverable.
               new [--size <4g|8g|16g|24g|32g|64g>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
-                                        \(String(localized: "cli.vm.help.newDevbox", defaultValue: "Create a new machine: the devbox with devtools,"))
-                                        \(String(localized: "cli.vm.help.newDevboxScreen", defaultValue: "coding agents and a VNC screen. The server picks"))
-                                        \(String(localized: "cli.vm.help.newDevboxImage", defaultValue: "the image for the size; --image <id> is an"))
-                                        \(String(localized: "cli.vm.help.newDevboxOverride", defaultValue: "explicit override you normally omit."))
+                                        \(String(localized: "cli.vm.help.newDevbox", defaultValue: "Create a new machine: the devbox with devtools,", bundle: .cmuxCLI))
+                                        \(String(localized: "cli.vm.help.newDevboxScreen", defaultValue: "coding agents and a VNC screen. The server picks", bundle: .cmuxCLI))
+                                        \(String(localized: "cli.vm.help.newDevboxImage", defaultValue: "the image for the size; --image <id> is an", bundle: .cmuxCLI))
+                                        \(String(localized: "cli.vm.help.newDevboxOverride", defaultValue: "explicit override you normally omit.", bundle: .cmuxCLI))
                                         --no-focus opens the machine without
                                         switching to its workspace (what the New
                                         Machine sheet does).
@@ -19080,7 +19080,7 @@ struct CMUXCLI {
             Print whether cmux browser creation and link interception are enabled.
             """
         case "socket-status":
-            return String(localized: "cli.socketControlStatus.help", defaultValue: "Usage: cmux socket-status [--json]")
+            return String(localized: "cli.socketControlStatus.help", defaultValue: "Usage: cmux socket-status [--json]", bundle: .cmuxCLI)
         case "agent-hibernation":
             return """
             Usage: cmux agent-hibernation <on|off> [--json]
@@ -19108,7 +19108,7 @@ struct CMUXCLI {
                               existing file.
 
             --from and --export require cmux to be running.
-            """)
+            """, bundle: .cmuxCLI)
         case "restore":
             return String(localized: "cli.restore.help", defaultValue: """
             Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>
@@ -19120,7 +19120,7 @@ struct CMUXCLI {
             records preserve launch arguments and cwd as structured values;
             command-only records from older builds use a compatibility shell.
             With no id or ref, --surface uses the calling cmux surface.
-            """)
+            """, bundle: .cmuxCLI)
         case "fork":
             return forkSubcommandUsage()
         case "sessions", "session-debug": return sessionsUsage()
@@ -19287,7 +19287,7 @@ struct CMUXCLI {
               cmux claude-teams
               cmux claude-teams --continue
               cmux claude-teams --model sonnet
-            """)
+            """, bundle: .cmuxCLI)
         case "codex-teams":
             return String(localized: "cli.codex-teams.usage", defaultValue: """
             Usage: cmux codex-teams [codex-args...]
@@ -19305,7 +19305,7 @@ struct CMUXCLI {
               cmux codex-teams
               cmux codex-teams --model gpt-5.4
               cmux codex-teams resume --last
-            """)
+            """, bundle: .cmuxCLI)
         case "omo":
             return String(localized: "cli.omo.usage", defaultValue: """
             Usage: cmux omo [opencode-args...]
@@ -19328,7 +19328,7 @@ struct CMUXCLI {
               cmux omo
               cmux omo --continue
               cmux omo --model claude-sonnet-4-6
-            """)
+            """, bundle: .cmuxCLI)
         case "omx":
             return String(localized: "cli.omx.usage", defaultValue: """
             Usage: cmux omx [omx-args...]
@@ -19350,7 +19350,7 @@ struct CMUXCLI {
               cmux omx
               cmux omx --madmax --high
               cmux omx team
-            """)
+            """, bundle: .cmuxCLI)
         case "omc":
             return String(localized: "cli.omc.usage", defaultValue: """
             Usage: cmux omc [omc-args...]
@@ -19374,7 +19374,7 @@ struct CMUXCLI {
               cmux omc
               cmux omc team 3:claude "implement feature"
               cmux omc --watch
-            """)
+            """, bundle: .cmuxCLI)
         case "identify":
             return """
             Usage: cmux identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
@@ -19555,7 +19555,7 @@ struct CMUXCLI {
             Example:
               cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31
               cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run
-            """)
+            """, bundle: .cmuxCLI)
         case "simulate-sidebar-drag":
             return """
             Usage: cmux simulate-sidebar-drag --window <id|ref|index> --from <ws> --to <ws> [flags]
@@ -19820,7 +19820,7 @@ struct CMUXCLI {
               cmux ssh-tmux dev@my-host
               cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519
               cmux ssh-tmux dev@my-host --name "prod db"
-            """)
+            """, bundle: .cmuxCLI)
             let newWindowHelp = String(
                 localized: "cli.help.ssh-tmux.newWindow",
                 defaultValue: """
@@ -20024,7 +20024,7 @@ struct CMUXCLI {
               cmux memory
               cmux memory --groups 20
               cmux --json memory --all
-            """)
+            """, bundle: .cmuxCLI)
         case "focus-pane":
             return """
             Usage: cmux focus-pane [--pane <id|ref|index> | <id|ref|index>] [flags]
@@ -20055,7 +20055,7 @@ struct CMUXCLI {
               --workspace <id|ref|index>          Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>             Window context for workspace refs and indexes
               --url <url>                         URL for browser panes
-              \(String(localized: "cli.newPane.help.profileDescription", defaultValue: "--profile <name|uuid>                Browser profile name or UUID"))
+              \(String(localized: "cli.newPane.help.profileDescription", defaultValue: "--profile <name|uuid>                Browser profile name or UUID", bundle: .cmuxCLI))
               --command <text>                     \(initialCommandDescription)
               --focus <true|false>                Focus the new pane (default: false)
 
@@ -20595,7 +20595,7 @@ struct CMUXCLI {
                   cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
                   cmux notify --surface <uuid> --title "Build done"
                   cmux notify --clear
-                """)
+                """, bundle: .cmuxCLI)
         case "list-notifications":
             return """
             Usage: cmux list-notifications
@@ -20613,7 +20613,7 @@ struct CMUXCLI {
               --all-read            Remove every already-read notification
               --json                Print JSON
               --id-format <mode>    refs, uuids, or both
-            """)
+            """, bundle: .cmuxCLI)
         case "mark-notification-read":
             return String(localized: "cli.help.markNotificationRead", defaultValue: """
             Usage: cmux mark-notification-read (--id <uuid> | --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] | --all)
@@ -20628,7 +20628,7 @@ struct CMUXCLI {
               --all                 Mark every notification read
               --json                Print JSON
               --id-format <mode>    refs, uuids, or both
-            """)
+            """, bundle: .cmuxCLI)
         case "open-notification":
             return String(localized: "cli.help.openNotification", defaultValue: """
             Usage: cmux open-notification --id <uuid>
@@ -20639,7 +20639,7 @@ struct CMUXCLI {
               --id <uuid>           Notification id to open
               --json                Print JSON
               --id-format <mode>    refs, uuids, or both
-            """)
+            """, bundle: .cmuxCLI)
         case "jump-to-unread":
             return String(localized: "cli.help.jumpToUnread", defaultValue: """
             Usage: cmux jump-to-unread
@@ -20649,7 +20649,7 @@ struct CMUXCLI {
             Flags:
               --json                Print JSON
               --id-format <mode>    refs, uuids, or both
-            """)
+            """, bundle: .cmuxCLI)
         case "clear-notifications":
             return String(localized: "cli.help.clearNotifications", defaultValue: """
             Usage: cmux clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
@@ -20660,7 +20660,7 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Workspace to clear
               --surface <id|ref|index>     Narrow the clear to one surface
               --window <id|ref|index>      Window context for workspace/surface refs
-            """)
+            """, bundle: .cmuxCLI)
         case "set-status":
             return String(localized: "cli.help.setStatus", defaultValue: """
             Usage: cmux set-status <key> <value> [flags]
@@ -20680,7 +20680,7 @@ struct CMUXCLI {
             Example:
               cmux set-status build "compiling" --icon hammer --color "#ff9500" --priority 80
               cmux set-status deploy "v1.2.3" --workspace workspace:2
-            """)
+            """, bundle: .cmuxCLI)
         case "clear-status":
             return """
             Usage: cmux clear-status <key> [flags]
@@ -20826,7 +20826,7 @@ struct CMUXCLI {
               cmux right-sidebar set find
               cmux right-sidebar set custom panel-info
               cmux right-sidebar mode
-            """)
+            """, bundle: .cmuxCLI)
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
             Usage: cmux sidebar <validate|reload|select|open> [name|--all] [--json]
@@ -20836,7 +20836,7 @@ struct CMUXCLI {
               reload [name]     Validate all sidebars, then reload every valid one
               select <name>     Activate one custom sidebar
               open <name>       Open one custom sidebar as a pane
-            """)
+            """, bundle: .cmuxCLI)
         case "set-app-focus":
             return """
             Usage: cmux set-app-focus <active|inactive|clear>
@@ -20895,7 +20895,7 @@ struct CMUXCLI {
             `open`/`open-split`/`new`/`identify` can run without an explicit surface.
 
             Subcommands:
-              open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
+              open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]", bundle: .cmuxCLI))
                 open/open-split/new default to $CMUX_WORKSPACE_ID when --workspace is omitted and --window is not set
                 --focus defaults to false
               disable | enable | status
@@ -20908,8 +20908,8 @@ struct CMUXCLI {
               wait [--selector <css>] [--text <text>] [--url-contains <text>|--url <text>] [--load-state <interactive|complete>] [--function <js>] [--timeout-ms <ms>|--timeout <seconds>]
               click|dblclick|hover|focus|check|uncheck|scroll-into-view [--selector <css> | <css>] [--snapshot-after]
               type|fill [--selector <css> | <css>] [--text <text> | <text>] [--snapshot-after]
-              \(String(localized: "cli.browser.inputFiles.help", defaultValue: "set-input-files --selector <css> (--file <path> ... | --clear) [--snapshot-after]\n    Select local files (up to 128 files, 32 MiB total) or clear the selection. Directory uploads are unsupported."))
-              press|key|keydown|keyup [--key <key> | <key>] [--snapshot-after]  \(String(localized: "cli.browser.help.keyboardNaming", defaultValue: "Named keys follow Playwright/W3C names. Space, Spacebar, and space emit DOM key \" \" with code \"Space\"; --key ' ' passes the raw DOM key."))
+              \(String(localized: "cli.browser.inputFiles.help", defaultValue: "set-input-files --selector <css> (--file <path> ... | --clear) [--snapshot-after]\n    Select local files (up to 128 files, 32 MiB total) or clear the selection. Directory uploads are unsupported.", bundle: .cmuxCLI))
+              press|key|keydown|keyup [--key <key> | <key>] [--snapshot-after]  \(String(localized: "cli.browser.help.keyboardNaming", defaultValue: "Named keys follow Playwright/W3C names. Space, Spacebar, and space emit DOM key \" \" with code \"Space\"; --key ' ' passes the raw DOM key.", bundle: .cmuxCLI))
               select [--selector <css> | <css>] [--value <value> | <value>] [--snapshot-after]
               scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
               screenshot [--out <path>]
@@ -20928,7 +20928,7 @@ struct CMUXCLI {
               download list [--limit <1...25>] | download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
               profiles <list|add|rename|clear|delete> [...]
               import [--interactive|--non-interactive|-y|--yes] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--create-profile] [--domain <domain>]
-              \(String(localized: "cli.browser.cookies.help", defaultValue: "cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--http-only] [--all]"))
+              \(String(localized: "cli.browser.cookies.help", defaultValue: "cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--http-only] [--all]", bundle: .cmuxCLI))
               storage <local|session> <get|set|clear> [...]
               tab <new|list|switch|close|<index>> [...]
               console <list|clear>
@@ -21367,7 +21367,7 @@ struct CMUXCLI {
 
         guard let action = args.first?.lowercased() else {
             throw CLIError(
-                message: String(localized: "cli.sidebar.error.missingCommand", defaultValue: "sidebar requires a subcommand: validate, reload, select, or open")
+                message: String(localized: "cli.sidebar.error.missingCommand", defaultValue: "sidebar requires a subcommand: validate, reload, select, or open", bundle: .cmuxCLI)
             )
         }
 
@@ -21405,13 +21405,13 @@ struct CMUXCLI {
         case "select", "open":
             guard !explicitAll else {
                 throw CLIError(
-                    message: String(format: String(localized: "cli.sidebar.error.namedActionAll", defaultValue: "sidebar %@ does not support --all"), action)
+                    message: String(format: String(localized: "cli.sidebar.error.namedActionAll", defaultValue: "sidebar %@ does not support --all", bundle: .cmuxCLI), action)
                 )
             }
             let nameArgs = action == "open" ? parseOption(parseOption(remaining, name: "--workspace").1, name: "--window").1 : remaining
             guard nameArgs.count == 1 else {
                 throw CLIError(
-                    message: String(format: String(localized: "cli.sidebar.error.namedActionRequiresName", defaultValue: "sidebar %@ requires one sidebar name"), action)
+                    message: String(format: String(localized: "cli.sidebar.error.namedActionRequiresName", defaultValue: "sidebar %@ requires one sidebar name", bundle: .cmuxCLI), action)
                 )
             }
             params["name"] = nameArgs[0]
@@ -21452,7 +21452,7 @@ struct CMUXCLI {
     private func printSidebarReport(_ payload: [String: Any], action: String) {
         let sidebars = payload["sidebars"] as? [[String: Any]] ?? []
         if sidebars.isEmpty {
-            print(String(localized: "cli.sidebar.noSidebars", defaultValue: "No custom sidebars found."))
+            print(String(localized: "cli.sidebar.noSidebars", defaultValue: "No custom sidebars found.", bundle: .cmuxCLI))
         }
         for sidebar in sidebars {
             let name = (sidebar["name"] as? String) ?? "(unknown)"
@@ -21461,15 +21461,15 @@ struct CMUXCLI {
             let ok = boolValue(sidebar["ok"])
             if ok {
                 print(String(
-                    format: String(localized: "cli.sidebar.report.ok", defaultValue: "OK %@ [%@] %@"),
+                    format: String(localized: "cli.sidebar.report.ok", defaultValue: "OK %@ [%@] %@", bundle: .cmuxCLI),
                     name,
                     kind,
                     path
                 ))
             } else {
-                let error = (sidebar["error"] as? String) ?? String(localized: "cli.sidebar.unknownError", defaultValue: "Unknown error")
+                let error = (sidebar["error"] as? String) ?? String(localized: "cli.sidebar.unknownError", defaultValue: "Unknown error", bundle: .cmuxCLI)
                 print(String(
-                    format: String(localized: "cli.sidebar.report.error", defaultValue: "ERROR %@ [%@] %@: %@"),
+                    format: String(localized: "cli.sidebar.report.error", defaultValue: "ERROR %@ [%@] %@: %@", bundle: .cmuxCLI),
                     name,
                     kind,
                     path,
@@ -21483,26 +21483,26 @@ struct CMUXCLI {
         if action == "reload" {
             let reloadedCount = intValue(payload["reloaded_count"])
             print(String(
-                format: String(localized: "cli.sidebar.report.reloadSummary", defaultValue: "Reloaded %d valid sidebars. %d valid, %d invalid."),
+                format: String(localized: "cli.sidebar.report.reloadSummary", defaultValue: "Reloaded %d valid sidebars. %d valid, %d invalid.", bundle: .cmuxCLI),
                 reloadedCount,
                 validCount,
                 errorCount
             ))
         } else if action == "select", let selectedName = payload["selected_name"] as? String {
             print(String(
-                format: String(localized: "cli.sidebar.report.selected", defaultValue: "Selected %@."),
+                format: String(localized: "cli.sidebar.report.selected", defaultValue: "Selected %@.", bundle: .cmuxCLI),
                 selectedName
             ))
         } else if action == "open", let openedName = payload["opened_name"] as? String {
             let surface = (payload["surface_ref"] as? String) ?? (payload["surface_id"] as? String) ?? ""
             print(String(
-                format: String(localized: "cli.sidebar.report.opened", defaultValue: "Opened %@ as pane %@."),
+                format: String(localized: "cli.sidebar.report.opened", defaultValue: "Opened %@ as pane %@.", bundle: .cmuxCLI),
                 openedName,
                 surface
             ))
         } else {
             print(String(
-                format: String(localized: "cli.sidebar.report.summary", defaultValue: "%d valid, %d invalid."),
+                format: String(localized: "cli.sidebar.report.summary", defaultValue: "%d valid, %d invalid.", bundle: .cmuxCLI),
                 validCount,
                 errorCount
             ))
@@ -21531,13 +21531,13 @@ struct CMUXCLI {
             switch arg {
             case "--workspace":
                 guard index + 1 < args.count else {
-                    throw CLIError(message: String(localized: "cli.rightSidebar.error.workspaceRequiresValue", defaultValue: "right-sidebar: --workspace requires an id"))
+                    throw CLIError(message: String(localized: "cli.rightSidebar.error.workspaceRequiresValue", defaultValue: "right-sidebar: --workspace requires an id", bundle: .cmuxCLI))
                 }
                 workspace = args[index + 1]
                 index += 2
             case "--window":
                 guard index + 1 < args.count else {
-                    throw CLIError(message: String(localized: "cli.rightSidebar.error.windowRequiresValue", defaultValue: "right-sidebar: --window requires an id"))
+                    throw CLIError(message: String(localized: "cli.rightSidebar.error.windowRequiresValue", defaultValue: "right-sidebar: --window requires an id", bundle: .cmuxCLI))
                 }
                 window = args[index + 1]
                 index += 2
@@ -21552,7 +21552,7 @@ struct CMUXCLI {
                     window = String(arg.dropFirst("--window=".count))
                     index += 1
                 } else if arg.hasPrefix("--") {
-                    throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownFlag", defaultValue: "right-sidebar: unknown flag '\(arg)'"))
+                    throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownFlag", defaultValue: "right-sidebar: unknown flag '\(arg)'", bundle: .cmuxCLI))
                 } else {
                     positional.append(arg)
                     index += 1
@@ -21568,31 +21568,31 @@ struct CMUXCLI {
     }
     private func rightSidebarSocketArguments(from parsed: RightSidebarCLIArguments) throws -> [String] {
         guard let action = parsed.positional.first?.lowercased() else {
-            throw CLIError(message: String(localized: "cli.rightSidebar.error.missingCommand", defaultValue: "right-sidebar requires a subcommand"))
+            throw CLIError(message: String(localized: "cli.rightSidebar.error.missingCommand", defaultValue: "right-sidebar requires a subcommand", bundle: .cmuxCLI))
         }
 
         switch action {
         case "toggle", "show", "hide", "focus", "mode":
             guard parsed.positional.count == 1 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments", bundle: .cmuxCLI))
             }
             guard !parsed.noFocus else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set", bundle: .cmuxCLI))
             }
             return [action]
 
         case "set":
             guard parsed.positional.count == 2 || parsed.positional.count == 3 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, devices, or custom [sidebar-name]"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, devices, or custom [sidebar-name]", bundle: .cmuxCLI))
             }
             let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
             guard isRightSidebarCLIMode(mode) else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownMode", defaultValue: "Unknown right-sidebar mode '\(parsed.positional[1])'"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownMode", defaultValue: "Unknown right-sidebar mode '\(parsed.positional[1])'", bundle: .cmuxCLI))
             }
             let normalized = normalizedRightSidebarCLIArgument(mode)
             let isCustom = normalized == "custom" || normalized == "custom-sidebar"
             guard parsed.positional.count == 2 || isCustom else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments", bundle: .cmuxCLI))
             }
             var args = ["set", normalized]
             if parsed.positional.count == 3 {
@@ -21605,20 +21605,20 @@ struct CMUXCLI {
 
         case "files", "find", "vault", "sessions", "feed", "dock", "cloud", "machines", "devices", "custom", "custom-sidebar":
             guard parsed.positional.count == 1 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments", bundle: .cmuxCLI))
             }
             guard !parsed.noFocus else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set", bundle: .cmuxCLI))
             }
             return ["set", normalizedRightSidebarCLIArgument(action)]
 
         default:
             let rawAction = parsed.positional[0].trimmingCharacters(in: .whitespacesAndNewlines)
             guard parsed.positional.count == 1, isRightSidebarCLIMode(rawAction) else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownCommand", defaultValue: "Unknown right-sidebar command '\(action)'"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownCommand", defaultValue: "Unknown right-sidebar command '\(action)'", bundle: .cmuxCLI))
             }
             guard !parsed.noFocus else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set", bundle: .cmuxCLI))
             }
             return ["set", normalizedRightSidebarCLIArgument(rawAction)]
         }
@@ -21630,8 +21630,8 @@ struct CMUXCLI {
         return try resolvedRightSidebarHandleID(
             normalized,
             expectedRefKind: "window",
-            invalidMessage: String(localized: "cli.rightSidebar.error.invalidWindow", defaultValue: "Invalid window handle: \(normalized)"),
-            missingRefMessage: String(localized: "cli.rightSidebar.error.windowRefNotFound", defaultValue: "Window ref not found"),
+            invalidMessage: String(localized: "cli.rightSidebar.error.invalidWindow", defaultValue: "Invalid window handle: \(normalized)", bundle: .cmuxCLI),
+            missingRefMessage: String(localized: "cli.rightSidebar.error.windowRefNotFound", defaultValue: "Window ref not found", bundle: .cmuxCLI),
             listMethod: "window.list",
             listKey: "windows",
             client: client
@@ -21652,8 +21652,8 @@ struct CMUXCLI {
         return try resolvedRightSidebarHandleID(
             normalized,
             expectedRefKind: "workspace",
-            invalidMessage: String(localized: "cli.rightSidebar.error.invalidWorkspace", defaultValue: "Invalid workspace handle: \(normalized)"),
-            missingRefMessage: String(localized: "cli.rightSidebar.error.workspaceRefNotFound", defaultValue: "Workspace ref not found"),
+            invalidMessage: String(localized: "cli.rightSidebar.error.invalidWorkspace", defaultValue: "Invalid workspace handle: \(normalized)", bundle: .cmuxCLI),
+            missingRefMessage: String(localized: "cli.rightSidebar.error.workspaceRefNotFound", defaultValue: "Workspace ref not found", bundle: .cmuxCLI),
             listMethod: "workspace.list",
             listKey: "workspaces",
             listParams: params,
@@ -21723,7 +21723,7 @@ struct CMUXCLI {
     /// ref-shaped display is the explicit `notification:<uuid>` handle while
     /// JSON retains the additive `id` field unchanged.
     func v2NotificationSummary(_ payload: [String: Any], idFormat: CLIIDFormat) -> String {
-        let okText = String(localized: "common.ok", defaultValue: "OK")
+        let okText = String(localized: "common.ok", defaultValue: "OK", bundle: .cmuxCLI)
         guard let id = payload["id"] as? String, !id.isEmpty else { return okText }
         let ref = (payload["notification_ref"] as? String) ?? "notification:\(id)"
         let handle: String
@@ -21769,8 +21769,8 @@ struct CMUXCLI {
             parts.append(handle)
         }
         parts.append((payload["remote_tmux_operation"] as? String) == "new-window"
-            ? String(localized: "cli.creation.remoteTmux.newWindow", defaultValue: "(routed to remote tmux; the new window arrives asynchronously)")
-            : String(localized: "cli.creation.remoteTmux.newPane", defaultValue: "(routed to remote tmux; the new pane arrives asynchronously)"))
+            ? String(localized: "cli.creation.remoteTmux.newWindow", defaultValue: "(routed to remote tmux; the new window arrives asynchronously)", bundle: .cmuxCLI)
+            : String(localized: "cli.creation.remoteTmux.newPane", defaultValue: "(routed to remote tmux; the new pane arrives asynchronously)", bundle: .cmuxCLI))
         return parts.joined(separator: " ")
     }
 
@@ -22025,7 +22025,7 @@ struct CMUXCLI {
         do {
             return try client.sendV2(method: "system.top", params: params, responseTimeout: responseTimeout)
         } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
-            throw CLIError(message: String(localized: "cli.top.error.processDiagnosticsUnsupported", defaultValue: "cmux top requires a running cmux build that supports process diagnostics"))
+            throw CLIError(message: String(localized: "cli.top.error.processDiagnosticsUnsupported", defaultValue: "cmux top requires a running cmux build that supports process diagnostics", bundle: .cmuxCLI))
         }
     }
 
@@ -26244,23 +26244,23 @@ struct CMUXCLI {
     }
 
     private static func omoInstallingPluginMessage() -> String {
-        String(localized: "cli.omo.installingPlugin", defaultValue: "Installing \(Self.omoPluginName) plugin (this may take a minute on first run)...")
+        String(localized: "cli.omo.installingPlugin", defaultValue: "Installing \(Self.omoPluginName) plugin (this may take a minute on first run)...", bundle: .cmuxCLI)
     }
 
     private static func omoRetryingInstallMessage() -> String {
-        String(localized: "cli.omo.retryingInstallCleanState", defaultValue: "Retrying \(Self.omoPluginName) install with a clean shadow package state...")
+        String(localized: "cli.omo.retryingInstallCleanState", defaultValue: "Retrying \(Self.omoPluginName) install with a clean shadow package state...", bundle: .cmuxCLI)
     }
 
     private static func omoInstallFailedMessage() -> String {
-        String(localized: "cli.omo.installFailed", defaultValue: "Failed to install \(Self.omoPluginName). Try manually: npm install -g \(Self.omoPluginName)")
+        String(localized: "cli.omo.installFailed", defaultValue: "Failed to install \(Self.omoPluginName). Try manually: npm install -g \(Self.omoPluginName)", bundle: .cmuxCLI)
     }
 
     private static func omoNoPackageManagerMessage() -> String {
-        String(localized: "cli.omo.noPackageManager", defaultValue: "Neither bun nor npm found in PATH. Install \(Self.omoPluginName) manually: bunx \(Self.omoPluginName) install")
+        String(localized: "cli.omo.noPackageManager", defaultValue: "Neither bun nor npm found in PATH. Install \(Self.omoPluginName) manually: bunx \(Self.omoPluginName) install", bundle: .cmuxCLI)
     }
 
     private static func omoPluginInstalledMessage() -> String {
-        String(localized: "cli.omo.pluginInstalled", defaultValue: "\(Self.omoPluginName) plugin installed")
+        String(localized: "cli.omo.pluginInstalled", defaultValue: "\(Self.omoPluginName) plugin installed", bundle: .cmuxCLI)
     }
 
     private func omoWriteStatus(_ message: String) {
@@ -28401,7 +28401,7 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     kind: "claude",
-                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code", bundle: .cmuxCLI),
                     sessionId: acceptedSessionId,
                     cwd: hookCwd,
                     launchCommand: launchCommand,
@@ -28609,7 +28609,7 @@ struct CMUXCLI {
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         kind: "claude",
-                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code", bundle: .cmuxCLI),
                         sessionId: sessionId,
                         cwd: hookCwd ?? mappedSession?.cwd,
                         launchCommand: mappedSession?.launchCommand,
@@ -28645,7 +28645,7 @@ struct CMUXCLI {
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
+                        value: String(localized: "agent.generic.status.running", defaultValue: "Running", bundle: .cmuxCLI),
                         icon: "bolt.fill",
                         color: "#4C8DFF"
                     )
@@ -28654,7 +28654,7 @@ struct CMUXCLI {
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                        value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle", bundle: .cmuxCLI),
                         icon: "pause.circle.fill",
                         color: "#8E8E93"
                     )
@@ -28814,7 +28814,7 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     kind: "claude",
-                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code", bundle: .cmuxCLI),
                     sessionId: sessionId,
                     cwd: hookCwd ?? mappedSession?.cwd,
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
@@ -29158,7 +29158,7 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
+                    value: String(localized: "feed.status.needsInput", defaultValue: "Needs input", bundle: .cmuxCLI),
                     icon: "bell.fill",
                     color: "#4C8DFF", pid: claudePid
                 )
@@ -29474,7 +29474,7 @@ struct CMUXCLI {
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: existingSurfaceId,
-                        value: String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
+                        value: String(localized: "feed.status.needsInput", defaultValue: "Needs input", bundle: .cmuxCLI),
                         icon: "bell.fill",
                         color: "#4C8DFF",
                         pid: claudePid
@@ -30345,10 +30345,10 @@ struct CMUXCLI {
         }()
         let completedSubtitle: String = {
             guard let projectName, !projectName.isEmpty else {
-                return String(localized: "agent.claude.completion.subtitle.completed", defaultValue: "Completed")
+                return String(localized: "agent.claude.completion.subtitle.completed", defaultValue: "Completed", bundle: .cmuxCLI)
             }
             return String.localizedStringWithFormat(
-                String(localized: "agent.claude.completion.subtitle.completedInProject", defaultValue: "Completed in %@"),
+                String(localized: "agent.claude.completion.subtitle.completedInProject", defaultValue: "Completed in %@", bundle: .cmuxCLI),
                 projectName
             )
         }()
@@ -31072,15 +31072,15 @@ struct CMUXCLI {
             signal.contains("rate_limit") ||
             signal.contains("rate limit") ||
             signal.contains("credits") {
-            subtitle = String(localized: "agent.codex.error.subtitle.rateLimit", defaultValue: "Rate limit")
-            statusValue = String(localized: "agent.codex.error.status.rateLimit", defaultValue: "Codex rate limit")
+            subtitle = String(localized: "agent.codex.error.subtitle.rateLimit", defaultValue: "Rate limit", bundle: .cmuxCLI)
+            statusValue = String(localized: "agent.codex.error.status.rateLimit", defaultValue: "Codex rate limit", bundle: .cmuxCLI)
         } else if signal.contains("unauthorized") ||
                     signal.contains("auth") ||
                     signal.contains("access token") ||
                     signal.contains("sign in") ||
                     signal.contains("login") {
-            subtitle = String(localized: "agent.codex.error.subtitle.auth", defaultValue: "Auth error")
-            statusValue = String(localized: "agent.codex.error.status.auth", defaultValue: "Codex auth error")
+            subtitle = String(localized: "agent.codex.error.subtitle.auth", defaultValue: "Auth error", bundle: .cmuxCLI)
+            statusValue = String(localized: "agent.codex.error.status.auth", defaultValue: "Codex auth error", bundle: .cmuxCLI)
         } else if signal.contains("response_stream") ||
                     signal.contains("stream disconnected") ||
                     signal.contains("connection") ||
@@ -31088,11 +31088,11 @@ struct CMUXCLI {
                     signal.contains("offline") ||
                     signal.contains("timed out") ||
                     signal.contains("timeout") {
-            subtitle = String(localized: "agent.codex.error.subtitle.network", defaultValue: "Network error")
-            statusValue = String(localized: "agent.codex.error.status.network", defaultValue: "Codex network error")
+            subtitle = String(localized: "agent.codex.error.subtitle.network", defaultValue: "Network error", bundle: .cmuxCLI)
+            statusValue = String(localized: "agent.codex.error.status.network", defaultValue: "Codex network error", bundle: .cmuxCLI)
         } else {
-            subtitle = String(localized: "agent.codex.error.subtitle.generic", defaultValue: "Error")
-            statusValue = String(localized: "agent.codex.error.status.generic", defaultValue: "Codex error")
+            subtitle = String(localized: "agent.codex.error.subtitle.generic", defaultValue: "Error", bundle: .cmuxCLI)
+            statusValue = String(localized: "agent.codex.error.status.generic", defaultValue: "Codex error", bundle: .cmuxCLI)
         }
 
         let detail = candidate.additionalDetails ?? candidate.message
@@ -31535,7 +31535,7 @@ struct CMUXCLI {
         surfaceId: String?,
         client: SocketClient
     ) {
-        let subtitle = String(localized: "agent.codex.input.subtitle.waiting", defaultValue: "Waiting")
+        let subtitle = String(localized: "agent.codex.input.subtitle.waiting", defaultValue: "Waiting", bundle: .cmuxCLI)
         let body = userInput.question ?? String(
             localized: "agent.codex.input.body.needsInput",
             defaultValue: "Codex is asking a question"
@@ -31557,7 +31557,7 @@ struct CMUXCLI {
             )
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
-        let statusValue = String(localized: "agent.codex.input.status.needsInput", defaultValue: "Codex needs input")
+        let statusValue = String(localized: "agent.codex.input.status.needsInput", defaultValue: "Codex needs input", bundle: .cmuxCLI)
         _ = try? sendV1Command(
             "set_status codex \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
             client: client
@@ -31663,7 +31663,7 @@ struct CMUXCLI {
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         let normalizedMessage = message.map { normalizedSingleLine($0) } ?? ""
         if def.name == "pi", signalParts.contains(where: { $0?.lowercased().contains("questionasked") == true }) {
-            let waitingBody = String(localized: "feed.status.needsInput", defaultValue: "Needs input")
+            let waitingBody = String(localized: "feed.status.needsInput", defaultValue: "Needs input", bundle: .cmuxCLI)
             return classifyAgentHookNotification(def: def, signal: signal, message: waitingBody, isFallback: false)
         }
         if let hermesApprovalMessage = hermesAgentApprovalNotificationMessage(def: def, object: object) {
@@ -31687,8 +31687,8 @@ struct CMUXCLI {
         }
         if def.name == "grok", isGrokGenericTurnCompletion(normalizedMessage) {
             return AgentHookNotificationSummary(
-                subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
-                body: String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed"),
+                subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed", bundle: .cmuxCLI),
+                body: String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed", bundle: .cmuxCLI),
                 status: .idle,
                 isFallback: false,
                 notifyCategory: .turnComplete
@@ -31721,7 +31721,7 @@ struct CMUXCLI {
             return nil
         }
         return AgentHookNotificationSummary(
-            subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
+            subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed", bundle: .cmuxCLI),
             body: truncate(normalizedSingleLine(body), maxLength: 180),
             status: .idle,
             isFallback: false,
@@ -31926,27 +31926,27 @@ struct CMUXCLI {
             message: message,
             isFallback: isFallback,
             neutralErrorBody: def.name == "amp"
-                ? String(localized: "agent.generic.notification.body.taskReportedError", defaultValue: "The task reported an error")
+                ? String(localized: "agent.generic.notification.body.taskReportedError", defaultValue: "The task reported an error", bundle: .cmuxCLI)
                 : nil
         )
     }
 
     private func agentErrorStatusValue(for def: AgentHookDef) -> String {
         if def.name == "amp" {
-            return String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error")
+            return String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error", bundle: .cmuxCLI)
         }
         return String.localizedStringWithFormat(
-            String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
+            String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error", bundle: .cmuxCLI),
             def.displayName
         )
     }
 
     func agentNeedsInputStatusValue(for def: AgentHookDef) -> String {
         if def.name == "amp" {
-            return String(localized: "feed.status.needsInput", defaultValue: "Needs input")
+            return String(localized: "feed.status.needsInput", defaultValue: "Needs input", bundle: .cmuxCLI)
         }
         return String.localizedStringWithFormat(
-            String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
+            String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input", bundle: .cmuxCLI),
             def.displayName
         )
     }
@@ -35495,7 +35495,7 @@ export default CMUXSessionRestore;
 #endif
                 return
             }
-            let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
+            let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle", bundle: .cmuxCLI)
             if def.name == "cursor" {
                 sendCursorCriticalCommand(
                     "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
@@ -36010,7 +36010,7 @@ export default CMUXSessionRestore;
                     deadline: cursorShellDeadline
                 ), !hasOtherPending else { return }
                 let runningStatus = failureRestoresRunning
-                    ? String(localized: "agent.generic.status.running", defaultValue: "Running")
+                    ? String(localized: "agent.generic.status.running", defaultValue: "Running", bundle: .cmuxCLI)
                     : agentErrorStatusValue(for: def)
                 sendCursorCriticalCommand(
                     failureRestoresRunning
@@ -36654,7 +36654,7 @@ export default CMUXSessionRestore;
                 }
                 switch latest.runtimeStatus {
                 case .running?:
-                    let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+                    let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running", bundle: .cmuxCLI)
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
@@ -36873,7 +36873,7 @@ export default CMUXSessionRestore;
                         )
                     }
                 }
-                let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+                let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running", bundle: .cmuxCLI)
                 if def.name == "cursor", !cursorPromptShouldPreservePendingState {
                     sendCursorCriticalCommand(
                         "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
@@ -37477,7 +37477,7 @@ export default CMUXSessionRestore;
                         )
                     }
                 } else if hasActiveBackgroundWork {
-                    let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+                    let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running", bundle: .cmuxCLI)
                     if def.name == "cursor" {
                         sendCursorCriticalCommand(
                             "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
@@ -37641,7 +37641,7 @@ export default CMUXSessionRestore;
                 if idleDialogResolution {
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 } else {
-                    let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+                    let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running", bundle: .cmuxCLI)
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
@@ -41872,7 +41872,7 @@ export default CMUXSessionRestore;
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
         print("cmux hooks \(isUninstall ? "uninstall" : "setup"): \(verb) agent hooks")
-        if !isUninstall { print(String(localized: "cli.hooks.setup.wrapperNote", defaultValue: "  (Claude Code and Pi hooks are injected automatically via their cmux wrappers)")) }
+        if !isUninstall { print(String(localized: "cli.hooks.setup.wrapperNote", defaultValue: "  (Claude Code and Pi hooks are injected automatically via their cmux wrappers)", bundle: .cmuxCLI)) }
         print("")
         var count = 0
         var skipped = 0

@@ -198,8 +198,8 @@ extension CMUXCLI {
             for rule in rules {
                 let id = rule["id"] as? String ?? "?"
                 let enabled = (rule["enabled"] as? Bool) == true
-                    ? String(localized: "cli.automation.state.enabled", defaultValue: "enabled")
-                    : String(localized: "cli.automation.state.disabled", defaultValue: "disabled")
+                    ? String(localized: "cli.automation.state.enabled", defaultValue: "enabled", bundle: .cmuxCLI)
+                    : String(localized: "cli.automation.state.disabled", defaultValue: "disabled", bundle: .cmuxCLI)
                 let event = rule["event"] as? String ?? rule["category"] as? String ?? "*"
                 let format = String(
                     localized: "cli.automation.output.rule",
@@ -231,8 +231,8 @@ extension CMUXCLI {
                 return
             }
             let format = (response["enabled"] as? Bool) == true
-                ? String(localized: "cli.automation.output.enabled", defaultValue: "Enabled %@")
-                : String(localized: "cli.automation.output.disabled", defaultValue: "Disabled %@")
+                ? String(localized: "cli.automation.output.enabled", defaultValue: "Enabled %@", bundle: .cmuxCLI)
+                : String(localized: "cli.automation.output.disabled", defaultValue: "Disabled %@", bundle: .cmuxCLI)
             print(String.localizedStringWithFormat(format, id))
         default:
             print(jsonString(response))
@@ -261,15 +261,15 @@ extension CMUXCLI {
     private func automationLocalized(_ key: String, defaultValue: String) -> String {
         switch key {
         case "automation.error.ruleNotFound":
-            return String(localized: "automation.error.ruleNotFound", defaultValue: "Automation rule not found: %@")
+            return String(localized: "automation.error.ruleNotFound", defaultValue: "Automation rule not found: %@", bundle: .cmuxCLI)
         case "cli.automation.error.eventFlag":
-            return String(localized: "cli.automation.error.eventFlag", defaultValue: "automation test requires --event <json>")
+            return String(localized: "cli.automation.error.eventFlag", defaultValue: "automation test requires --event <json>", bundle: .cmuxCLI)
         case "cli.automation.error.eventObject":
-            return String(localized: "cli.automation.error.eventObject", defaultValue: "automation test event must be a JSON object")
+            return String(localized: "cli.automation.error.eventObject", defaultValue: "automation test event must be a JSON object", bundle: .cmuxCLI)
         case "cli.automation.output.noRules":
-            return String(localized: "cli.automation.output.noRules", defaultValue: "No automation rules")
+            return String(localized: "cli.automation.output.noRules", defaultValue: "No automation rules", bundle: .cmuxCLI)
         case "cli.automation.error.workspaceTagsRequired":
-            return String(localized: "cli.automation.error.workspaceTagsRequired", defaultValue: "offline automation test requires workspace tags in the event payload")
+            return String(localized: "cli.automation.error.workspaceTagsRequired", defaultValue: "offline automation test requires workspace tags in the event payload", bundle: .cmuxCLI)
         default:
             return defaultValue
         }

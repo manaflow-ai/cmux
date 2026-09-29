@@ -54,7 +54,7 @@ struct LocalTmuxInvocation {
         case "cleanup", "prune": action = .cleanup
         case "help", "--help", "-h": throw CLIError(message: usage)
         default: throw CLIError(message: String.localizedStringWithFormat(
-            String(localized: "cli.localTmux.error.unknownSubcommand", defaultValue: "Unknown local-tmux subcommand '%@'.\n%@"),
+            String(localized: "cli.localTmux.error.unknownSubcommand", defaultValue: "Unknown local-tmux subcommand '%@'.\n%@", bundle: .cmuxCLI),
             actionToken,
             usage
         ))
@@ -83,7 +83,7 @@ struct LocalTmuxInvocation {
         func readValue(_ flag: String) throws -> String {
             guard index + 1 < arguments.count else {
                 throw CLIError(message: String.localizedStringWithFormat(
-                    String(localized: "cli.localTmux.error.requiresValue", defaultValue: "local-tmux: %@ requires a value"),
+                    String(localized: "cli.localTmux.error.requiresValue", defaultValue: "local-tmux: %@ requires a value", bundle: .cmuxCLI),
                     flag
                 ))
             }
@@ -103,12 +103,12 @@ struct LocalTmuxInvocation {
             case let value where value.hasPrefix("--session="): name = String(value.dropFirst("--session=".count))
             case "--id":
                 guard let parsed = UUID(uuidString: try readValue(argument)) else {
-                    throw CLIError(message: String(localized: "cli.localTmux.error.invalidID", defaultValue: "local-tmux: --id must be a UUID"))
+                    throw CLIError(message: String(localized: "cli.localTmux.error.invalidID", defaultValue: "local-tmux: --id must be a UUID", bundle: .cmuxCLI))
                 }
                 id = parsed
             case let value where value.hasPrefix("--id="):
                 guard let parsed = UUID(uuidString: String(value.dropFirst("--id=".count))) else {
-                    throw CLIError(message: String(localized: "cli.localTmux.error.invalidID", defaultValue: "local-tmux: --id must be a UUID"))
+                    throw CLIError(message: String(localized: "cli.localTmux.error.invalidID", defaultValue: "local-tmux: --id must be a UUID", bundle: .cmuxCLI))
                 }
                 id = parsed
             case "--cwd": cwd = try readValue(argument)
@@ -125,12 +125,12 @@ struct LocalTmuxInvocation {
             case let value where value.hasPrefix("--window="): window = String(value.dropFirst("--window=".count))
             case "--focus":
                 guard let parsed = parseBoolean(try readValue(argument)) else {
-                    throw CLIError(message: String(localized: "cli.localTmux.error.invalidFocus", defaultValue: "local-tmux: --focus must be true or false"))
+                    throw CLIError(message: String(localized: "cli.localTmux.error.invalidFocus", defaultValue: "local-tmux: --focus must be true or false", bundle: .cmuxCLI))
                 }
                 focus = parsed
             case let value where value.hasPrefix("--focus="):
                 guard let parsed = parseBoolean(String(value.dropFirst("--focus=".count))) else {
-                    throw CLIError(message: String(localized: "cli.localTmux.error.invalidFocus", defaultValue: "local-tmux: --focus must be true or false"))
+                    throw CLIError(message: String(localized: "cli.localTmux.error.invalidFocus", defaultValue: "local-tmux: --focus must be true or false", bundle: .cmuxCLI))
                 }
                 focus = parsed
             case "--no-focus": focus = false
@@ -145,7 +145,7 @@ struct LocalTmuxInvocation {
             default:
                 if argument.hasPrefix("-") {
                     throw CLIError(message: String.localizedStringWithFormat(
-                        String(localized: "cli.localTmux.error.unknownFlag", defaultValue: "local-tmux: unknown flag '%@'\n%@"),
+                        String(localized: "cli.localTmux.error.unknownFlag", defaultValue: "local-tmux: unknown flag '%@'\n%@", bundle: .cmuxCLI),
                         argument,
                         usage
                     ))
@@ -157,37 +157,37 @@ struct LocalTmuxInvocation {
 
         if let positionalName = positional.first {
             guard name == nil else {
-                throw CLIError(message: String(localized: "cli.localTmux.error.duplicateName", defaultValue: "local-tmux: session name was supplied more than once"))
+                throw CLIError(message: String(localized: "cli.localTmux.error.duplicateName", defaultValue: "local-tmux: session name was supplied more than once", bundle: .cmuxCLI))
             }
             name = positionalName
         }
         guard positional.count <= 1 else {
             throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.error.unexpectedArgument", defaultValue: "local-tmux: unexpected argument '%@'"),
+                String(localized: "cli.localTmux.error.unexpectedArgument", defaultValue: "local-tmux: unexpected argument '%@'", bundle: .cmuxCLI),
                 positional[1]
             ))
         }
         if id != nil, name != nil {
-            throw CLIError(message: String(localized: "cli.localTmux.error.selectorConflict", defaultValue: "local-tmux: use either a session name or --id, not both"))
+            throw CLIError(message: String(localized: "cli.localTmux.error.selectorConflict", defaultValue: "local-tmux: use either a session name or --id, not both", bundle: .cmuxCLI))
         }
         if action == .start, id != nil {
-            throw CLIError(message: String(localized: "cli.localTmux.error.startID", defaultValue: "local-tmux start accepts a name, not --id"))
+            throw CLIError(message: String(localized: "cli.localTmux.error.startID", defaultValue: "local-tmux start accepts a name, not --id", bundle: .cmuxCLI))
         }
         if action != .list && action != .cleanup && name == nil && id == nil {
             throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.error.selectorRequired", defaultValue: "local-tmux %@ requires a session name or --id\n%@"),
+                String(localized: "cli.localTmux.error.selectorRequired", defaultValue: "local-tmux %@ requires a session name or --id\n%@", bundle: .cmuxCLI),
                 action.rawValue,
                 usage
             ))
         }
         if action == .list, name != nil || id != nil {
-            throw CLIError(message: String(localized: "cli.localTmux.error.listSelector", defaultValue: "local-tmux list does not take a session selector"))
+            throw CLIError(message: String(localized: "cli.localTmux.error.listSelector", defaultValue: "local-tmux list does not take a session selector", bundle: .cmuxCLI))
         }
         if action == .cleanup, name != nil || id != nil {
-            throw CLIError(message: String(localized: "cli.localTmux.error.cleanupSelector", defaultValue: "local-tmux cleanup does not take a session selector"))
+            throw CLIError(message: String(localized: "cli.localTmux.error.cleanupSelector", defaultValue: "local-tmux cleanup does not take a session selector", bundle: .cmuxCLI))
         }
         if action != .start, command != nil || cwd != nil {
-            throw CLIError(message: String(localized: "cli.localTmux.error.startOnly", defaultValue: "local-tmux --cwd and --command are only valid with start"))
+            throw CLIError(message: String(localized: "cli.localTmux.error.startOnly", defaultValue: "local-tmux --cwd and --command are only valid with start", bundle: .cmuxCLI))
         }
         if action != .start && action != .attach,
            workspace != nil || surface != nil || pane != nil || window != nil || focus != nil || detached {
@@ -197,19 +197,19 @@ struct LocalTmuxInvocation {
             ))
         }
         if action != .detach, clientID != nil || all {
-            throw CLIError(message: String(localized: "cli.localTmux.error.detachOnly", defaultValue: "local-tmux --client/--all are only valid with detach"))
+            throw CLIError(message: String(localized: "cli.localTmux.error.detachOnly", defaultValue: "local-tmux --client/--all are only valid with detach", bundle: .cmuxCLI))
         }
         if action == .detach, clientID != nil, all {
-            throw CLIError(message: String(localized: "cli.localTmux.error.detachSelectorConflict", defaultValue: "local-tmux detach accepts either --client or --all, not both"))
+            throw CLIError(message: String(localized: "cli.localTmux.error.detachSelectorConflict", defaultValue: "local-tmux detach accepts either --client or --all, not both", bundle: .cmuxCLI))
         }
         if action != .cleanup, prune {
-            throw CLIError(message: String(localized: "cli.localTmux.error.pruneOnly", defaultValue: "local-tmux --prune is only valid with cleanup"))
+            throw CLIError(message: String(localized: "cli.localTmux.error.pruneOnly", defaultValue: "local-tmux --prune is only valid with cleanup", bundle: .cmuxCLI))
         }
         if headless && action != .attach && action != .start {
-            throw CLIError(message: String(localized: "cli.localTmux.error.headlessOnly", defaultValue: "local-tmux --headless is only valid with attach or start"))
+            throw CLIError(message: String(localized: "cli.localTmux.error.headlessOnly", defaultValue: "local-tmux --headless is only valid with attach or start", bundle: .cmuxCLI))
         }
         if newClient && action != .attach {
-            throw CLIError(message: String(localized: "cli.localTmux.error.newClientOnly", defaultValue: "local-tmux --new-client is only valid with attach"))
+            throw CLIError(message: String(localized: "cli.localTmux.error.newClientOnly", defaultValue: "local-tmux --new-client is only valid with attach", bundle: .cmuxCLI))
         }
         return LocalTmuxInvocation(
             action: action,
@@ -249,7 +249,7 @@ struct LocalTmuxInvocation {
     The registry and tmux server socket live under ~/.cmux/local-tmux with
     user-only permissions. `attach --headless` hands the terminal directly to
     tmux for a client outside the cmux GUI.
-    """)
+    """, bundle: .cmuxCLI)
     }
 
     private static func parseBoolean(_ value: String) -> Bool? {

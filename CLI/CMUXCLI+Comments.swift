@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Strings resolve through `CMUXDiffViewerLocalization`, which reads the enclosing
 /// app bundle: the CLI executable carries no string catalog of its own, so
-/// `String(localized:)` here would always fall back to its default value.
+/// a `String(localized:)` without `bundle: .cmuxCLI` would always fall back to its default value.
 extension CMUXCLI {
     static let commentsUsage = CMUXDiffViewerLocalization.string(
         "cli.comments.usage",

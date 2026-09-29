@@ -59,7 +59,7 @@ extension CMUXCLI {
         if jsonOutput {
             print(jsonString(response))
         } else {
-            print(String(localized: "cli.vpn.revoked", defaultValue: "This Mac can no longer access your Cloud VM network."))
+            print(String(localized: "cli.vpn.revoked", defaultValue: "This Mac can no longer access your Cloud VM network.", bundle: .cmuxCLI))
         }
     }
 
@@ -68,7 +68,7 @@ extension CMUXCLI {
             ?? (response["address_v6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             ?? (response["addresses"] as? [String])?.first
         if let address {
-            let format = String(localized: "cli.vpn.address", defaultValue: "Your address on the network: %@")
+            let format = String(localized: "cli.vpn.address", defaultValue: "Your address on the network: %@", bundle: .cmuxCLI)
             print(String(format: format, address))
         }
     }

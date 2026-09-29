@@ -142,7 +142,7 @@ final class CmuxActionCLI {
         }
         guard let action = verbs.first(where: { $0.verb == verb }) else {
             let message = String(
-                format: String(localized: "cli.action.error.unknownVerb", defaultValue: "Unknown verb '%1$@' for '%2$@'."),
+                format: String(localized: "cli.action.error.unknownVerb", defaultValue: "Unknown verb '%1$@' for '%2$@'.", bundle: .cmuxCLI),
                 verb, noun
             )
             throw Failure(message + "\n\n" + Self.nounHelp(noun: noun, actions: verbs), exitCode: 2)
@@ -227,7 +227,7 @@ final class CmuxActionCLI {
     private func resolve(_ name: String) throws -> Action {
         if let action = try find(name) { return action }
         let message = String(
-            format: String(localized: "cli.action.error.unknownAction", defaultValue: "Unknown action '%@'. Run 'cmux action list' to see every action."),
+            format: String(localized: "cli.action.error.unknownAction", defaultValue: "Unknown action '%@'. Run 'cmux action list' to see every action.", bundle: .cmuxCLI),
             name
         )
         throw Failure(message, exitCode: 2)
@@ -286,7 +286,7 @@ final class CmuxActionCLI {
         var index = 0
         func value(after flag: String) throws -> String {
             guard index + 1 < tokens.count else {
-                let message = String(format: String(localized: "cli.action.error.missingValue", defaultValue: "%@ requires a value."), flag)
+                let message = String(format: String(localized: "cli.action.error.missingValue", defaultValue: "%@ requires a value.", bundle: .cmuxCLI), flag)
                 throw Failure(message + "\n\n" + usageLine(for: action), exitCode: 2)
             }
             index += 1
@@ -318,7 +318,7 @@ final class CmuxActionCLI {
             case "arg":
                 let pair = try inlineValue ?? value(after: token)
                 guard let equals = pair.firstIndex(of: "=") else {
-                    throw Failure(String(localized: "cli.action.error.argFormat", defaultValue: "--arg takes name=value."), exitCode: 2)
+                    throw Failure(String(localized: "cli.action.error.argFormat", defaultValue: "--arg takes name=value.", bundle: .cmuxCLI), exitCode: 2)
                 }
                 invocation.arguments[String(pair[..<equals])] = String(pair[pair.index(after: equals)...])
             default:
@@ -336,7 +336,7 @@ final class CmuxActionCLI {
                     let id = try inlineValue ?? value(after: token)
                     invocation.target = kind + ":" + id
                 } else {
-                    let message = String(format: String(localized: "cli.action.error.unknownFlag", defaultValue: "Unknown option %@."), "--" + flagName)
+                    let message = String(format: String(localized: "cli.action.error.unknownFlag", defaultValue: "Unknown option %@.", bundle: .cmuxCLI), "--" + flagName)
                     throw Failure(message + "\n\n" + usageLine(for: action), exitCode: 2)
                 }
             }
@@ -354,7 +354,7 @@ final class CmuxActionCLI {
         }
         if !remaining.isEmpty, !invocation.help {
             let message = String(
-                format: String(localized: "cli.action.error.extraArguments", defaultValue: "Unexpected arguments: %@."),
+                format: String(localized: "cli.action.error.extraArguments", defaultValue: "Unexpected arguments: %@.", bundle: .cmuxCLI),
                 remaining.joined(separator: " ")
             )
             throw Failure(message + "\n\n" + usageLine(for: action), exitCode: 2)
@@ -404,7 +404,7 @@ final class CmuxActionCLI {
 
         Runs any app action (the same actions as the command palette, menus, and shortcuts).
         'cmux <noun>' lists a noun's verbs; add --help to any verb for its arguments.
-        """)
+        """, bundle: .cmuxCLI)
     }
 
     static func usageLine(for action: Action) -> String {
@@ -416,7 +416,7 @@ final class CmuxActionCLI {
         if let kind = action.targets.first {
             parts.append("[--target \(kind):<id>]")
         }
-        let label = String(localized: "cli.action.help.usage", defaultValue: "Usage:")
+        let label = String(localized: "cli.action.help.usage", defaultValue: "Usage:", bundle: .cmuxCLI)
         return label + " " + parts.joined(separator: " ")
     }
 
@@ -424,45 +424,45 @@ final class CmuxActionCLI {
         var lines = [usageLine(for: action), "", "\(action.title)  (\(action.id))"]
         if !action.arguments.isEmpty {
             lines.append("")
-            lines.append(String(localized: "cli.action.help.arguments", defaultValue: "Arguments:"))
+            lines.append(String(localized: "cli.action.help.arguments", defaultValue: "Arguments:", bundle: .cmuxCLI))
             let width = action.arguments.map { ($0.flag + " " + $0.placeholder).count }.max() ?? 0
             for argument in action.arguments {
                 let head = (argument.flag + " " + argument.placeholder).padding(toLength: width, withPad: " ", startingAt: 0)
                 let requirement = argument.isRequired
-                    ? String(localized: "cli.action.help.required", defaultValue: "required")
-                    : String(localized: "cli.action.help.optional", defaultValue: "optional")
+                    ? String(localized: "cli.action.help.required", defaultValue: "required", bundle: .cmuxCLI)
+                    : String(localized: "cli.action.help.optional", defaultValue: "optional", bundle: .cmuxCLI)
                 lines.append("  \(head)  \(argument.title) (\(requirement))")
             }
         }
         if !action.targets.isEmpty {
             lines.append("")
-            lines.append(String(localized: "cli.action.help.target", defaultValue: "Target:"))
+            lines.append(String(localized: "cli.action.help.target", defaultValue: "Target:", bundle: .cmuxCLI))
             let kinds = action.targets.map { "\($0):<id>" }.joined(separator: " | ")
             let focused = String(
-                format: String(localized: "cli.action.help.targetDefault", defaultValue: "defaults to the focused %@"),
+                format: String(localized: "cli.action.help.targetDefault", defaultValue: "defaults to the focused %@", bundle: .cmuxCLI),
                 action.targets[0]
             )
             lines.append("  --target \(kinds)  \(focused)")
         }
         lines.append("")
-        let shortcutLabel = String(localized: "cli.action.help.shortcut", defaultValue: "Shortcut:")
+        let shortcutLabel = String(localized: "cli.action.help.shortcut", defaultValue: "Shortcut:", bundle: .cmuxCLI)
         lines.append("\(shortcutLabel) \(action.shortcut ?? "-")")
         if !action.isAvailable {
             let requires = action.requires.joined(separator: ", ")
             lines.append(String(
-                format: String(localized: "cli.action.help.unavailable", defaultValue: "Not available right now (needs %@)."),
+                format: String(localized: "cli.action.help.unavailable", defaultValue: "Not available right now (needs %@).", bundle: .cmuxCLI),
                 requires
             ))
         }
         if !action.isBound {
-            lines.append(String(localized: "cli.action.help.unbound", defaultValue: "This build has no handler for this action yet."))
+            lines.append(String(localized: "cli.action.help.unbound", defaultValue: "This build has no handler for this action yet.", bundle: .cmuxCLI))
         }
         return lines.joined(separator: "\n")
     }
 
     static func nounHelp(noun: String, actions: [Action]) -> String {
-        let label = String(localized: "cli.action.help.usage", defaultValue: "Usage:")
-        var lines = ["\(label) cmux \(noun) <verb> [options]", "", String(localized: "cli.action.help.verbs", defaultValue: "Verbs:")]
+        let label = String(localized: "cli.action.help.usage", defaultValue: "Usage:", bundle: .cmuxCLI)
+        var lines = ["\(label) cmux \(noun) <verb> [options]", "", String(localized: "cli.action.help.verbs", defaultValue: "Verbs:", bundle: .cmuxCLI)]
         let width = actions.map(\.verb.count).max() ?? 0
         for action in actions.sorted(by: { $0.verb < $1.verb }) {
             let shortcut = action.shortcut.map { "  " + $0 } ?? ""
@@ -484,9 +484,9 @@ final class CmuxActionCLI {
             var line = "  \(action.cliName.padding(toLength: width, withPad: " ", startingAt: 0))  \(action.title)"
             if let shortcut = action.shortcut { line += "  " + shortcut }
             if !action.isBound {
-                line += "  " + String(localized: "cli.action.list.unbound", defaultValue: "(no handler)")
+                line += "  " + String(localized: "cli.action.list.unbound", defaultValue: "(no handler)", bundle: .cmuxCLI)
             } else if !action.isAvailable {
-                line += "  " + String(localized: "cli.action.list.unavailable", defaultValue: "(unavailable)")
+                line += "  " + String(localized: "cli.action.list.unavailable", defaultValue: "(unavailable)", bundle: .cmuxCLI)
             }
             lines.append(line)
         }

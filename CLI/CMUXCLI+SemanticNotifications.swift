@@ -10,7 +10,7 @@ extension CMUXCLI {
         rawObject: [String: Any]?, payload: String, pendingWork: Bool = false
     ) throws -> String {
         let fields = payload.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
-        guard fields.count >= 3 else { throw CLIError(message: String(localized: "cli.notification.invalidPayload", defaultValue: "Invalid notification payload")) }
+        guard fields.count >= 3 else { throw CLIError(message: String(localized: "cli.notification.invalidPayload", defaultValue: "Invalid notification payload", bundle: .cmuxCLI)) }
         let meta = fields.count > 3 ? fields[3].split(separator: ";").map(String.init) : []
         let category = meta.first { $0.hasPrefix("c=") }.map { String($0.dropFirst(2)) }
             ?? (kind == .turnCompleted ? "turn-complete" : "other")

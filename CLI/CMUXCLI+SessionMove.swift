@@ -24,7 +24,7 @@ extension CMUXCLI {
         Options:
           --list            Show the sessions without restoring them.
           --session <id>    Restore only this session (repeatable).
-        """)
+        """, bundle: .cmuxCLI)
     }
 
     private func sessionMoveUsage() -> String {
@@ -58,7 +58,7 @@ extension CMUXCLI {
                 return
             }
             throw CLIError(message: String(
-                format: String(localized: "cli.session.error.unknownSubcommand", defaultValue: "Unknown session subcommand: %@. Usage: cmux session move <session-id> --to <ssh-destination|local>"),
+                format: String(localized: "cli.session.error.unknownSubcommand", defaultValue: "Unknown session subcommand: %@. Usage: cmux session move <session-id> --to <ssh-destination|local>", bundle: .cmuxCLI),
                 commandArgs.first ?? ""
             ))
         }
@@ -93,7 +93,7 @@ extension CMUXCLI {
                 switch event {
                 case .addingWorktree(let path):
                     cliWriteStderr(String(
-                        format: String(localized: "cli.session.move.progress.addingWorktree", defaultValue: "session move: adding worktree %@ on the destination"),
+                        format: String(localized: "cli.session.move.progress.addingWorktree", defaultValue: "session move: adding worktree %@ on the destination", bundle: .cmuxCLI),
                         path
                     ) + "\n")
                 }
@@ -206,33 +206,33 @@ extension CMUXCLI {
             break
         case .notGitCheckout(let path):
             lines.append(String(
-                format: String(localized: "cli.session.move.output.notGit", defaultValue: "Code: %@ is not a git checkout; no files were moved."),
+                format: String(localized: "cli.session.move.output.notGit", defaultValue: "Code: %@ is not a git checkout; no files were moved.", bundle: .cmuxCLI),
                 path
             ))
         case .synced(let checkout, let head, let branch, let snapshot, _):
             lines.append(String(
-                format: String(localized: "cli.session.move.output.code", defaultValue: "Code: %@ at %@ (%@) with working tree snapshot %@."),
+                format: String(localized: "cli.session.move.output.code", defaultValue: "Code: %@ at %@ (%@) with working tree snapshot %@.", bundle: .cmuxCLI),
                 checkout,
                 String(head.prefix(10)),
-                branch ?? String(localized: "cli.session.move.output.detached", defaultValue: "detached"),
+                branch ?? String(localized: "cli.session.move.output.detached", defaultValue: "detached", bundle: .cmuxCLI),
                 String(snapshot.prefix(10))
             ))
         }
         if outcome.pathMap.rewritesPaths {
             lines.append(String(
-                format: String(localized: "cli.session.move.output.pathsRewritten", defaultValue: "Paths were rewritten: %@ -> %@. Absolute paths inside the transcript still name the old home."),
+                format: String(localized: "cli.session.move.output.pathsRewritten", defaultValue: "Paths were rewritten: %@ -> %@. Absolute paths inside the transcript still name the old home.", bundle: .cmuxCLI),
                 outcome.pathMap.sourceHome,
                 outcome.pathMap.destinationHome
             ))
         }
         lines.append(String(
-            format: String(localized: "cli.session.move.output.moved", defaultValue: "Moved session %@ to %@ (cwd %@)."),
+            format: String(localized: "cli.session.move.output.moved", defaultValue: "Moved session %@ to %@ (cwd %@).", bundle: .cmuxCLI),
             outcome.sessionID,
             destination.displayName,
             outcome.destinationWorkingDirectory
         ))
         lines.append(String(
-            format: String(localized: "cli.session.move.output.sourceKept", defaultValue: "The copy on %@ stays; do not resume it there too."),
+            format: String(localized: "cli.session.move.output.sourceKept", defaultValue: "The copy on %@ stays; do not resume it there too.", bundle: .cmuxCLI),
             source.displayName
         ))
         return lines
@@ -241,43 +241,43 @@ extension CMUXCLI {
     private func sessionMoveErrorMessage(_ error: AgentMoveError) -> String {
         switch error {
         case .invalidSessionID(let value):
-            return String(format: String(localized: "cli.session.move.error.invalidSessionID", defaultValue: "session move: '%@' is not a session id"), value)
+            return String(format: String(localized: "cli.session.move.error.invalidSessionID", defaultValue: "session move: '%@' is not a session id", bundle: .cmuxCLI), value)
         case .sameEndpoint:
-            return String(localized: "cli.session.move.error.sameEndpoint", defaultValue: "session move: the session is already there")
+            return String(localized: "cli.session.move.error.sameEndpoint", defaultValue: "session move: the session is already there", bundle: .cmuxCLI)
         case .unsupportedRoute:
-            return String(localized: "cli.session.move.error.unsupportedRoute", defaultValue: "session move: moves go between this Mac and one host; move the session back with --to local first")
+            return String(localized: "cli.session.move.error.unsupportedRoute", defaultValue: "session move: moves go between this Mac and one host; move the session back with --to local first", bundle: .cmuxCLI)
         case .unsupportedSSHTarget(let destination):
-            return String(format: String(localized: "cli.session.move.error.unsupportedSSHTarget", defaultValue: "session move: unsupported SSH destination or option for '%@' (use user@host or an ssh_config alias, without whitespace)"), destination)
+            return String(format: String(localized: "cli.session.move.error.unsupportedSSHTarget", defaultValue: "session move: unsupported SSH destination or option for '%@' (use user@host or an ssh_config alias, without whitespace)", bundle: .cmuxCLI), destination)
         case .unreachable(let host, let detail):
-            return String(format: String(localized: "cli.session.move.error.unreachable", defaultValue: "session move: cannot reach %@: %@"), host, detail)
+            return String(format: String(localized: "cli.session.move.error.unreachable", defaultValue: "session move: cannot reach %@: %@", bundle: .cmuxCLI), host, detail)
         case .liveOnSource(let host):
-            return String(format: String(localized: "cli.session.move.error.liveOnSource", defaultValue: "session move: the session is still running on %@; exit the agent at the end of its turn, then move it"), host)
+            return String(format: String(localized: "cli.session.move.error.liveOnSource", defaultValue: "session move: the session is still running on %@; exit the agent at the end of its turn, then move it", bundle: .cmuxCLI), host)
         case .liveOnDestination(let host):
-            return String(format: String(localized: "cli.session.move.error.liveOnDestination", defaultValue: "session move: the session is already running on %@"), host)
+            return String(format: String(localized: "cli.session.move.error.liveOnDestination", defaultValue: "session move: the session is already running on %@", bundle: .cmuxCLI), host)
         case .transcriptNotFound(let host):
-            return String(format: String(localized: "cli.session.move.error.transcriptNotFound", defaultValue: "session move: no Claude transcript for this session on %@"), host)
+            return String(format: String(localized: "cli.session.move.error.transcriptNotFound", defaultValue: "session move: no Claude transcript for this session on %@", bundle: .cmuxCLI), host)
         case .workingDirectoryUnknown:
-            return String(localized: "cli.session.move.error.workingDirectoryUnknown", defaultValue: "session move: the transcript does not record the session's working directory")
+            return String(localized: "cli.session.move.error.workingDirectoryUnknown", defaultValue: "session move: the transcript does not record the session's working directory", bundle: .cmuxCLI)
         case .unsupportedPath(let path):
-            return String(format: String(localized: "cli.session.move.error.unsupportedPath", defaultValue: "session move: paths with whitespace are not supported: %@"), path)
+            return String(format: String(localized: "cli.session.move.error.unsupportedPath", defaultValue: "session move: paths with whitespace are not supported: %@", bundle: .cmuxCLI), path)
         case .destinationRepositoryMissing(let checkout, let repository):
-            return String(format: String(localized: "cli.session.move.error.repositoryMissing", defaultValue: "session move: no checkout at %@ and no repository at %@ on the destination; clone it there first"), checkout, repository)
+            return String(format: String(localized: "cli.session.move.error.repositoryMissing", defaultValue: "session move: no checkout at %@ and no repository at %@ on the destination; clone it there first", bundle: .cmuxCLI), checkout, repository)
         case .worktreeAddFailed(let path, let detail):
-            return String(format: String(localized: "cli.session.move.error.worktreeAddFailed", defaultValue: "session move: could not add a worktree at %@: %@"), path, detail)
+            return String(format: String(localized: "cli.session.move.error.worktreeAddFailed", defaultValue: "session move: could not add a worktree at %@: %@", bundle: .cmuxCLI), path, detail)
         case .destinationCheckoutDirty(let path):
-            return String(format: String(localized: "cli.session.move.error.checkoutDirty", defaultValue: "session move: %@ on the destination has changes that did not come from this session; commit or stash them there first"), path)
+            return String(format: String(localized: "cli.session.move.error.checkoutDirty", defaultValue: "session move: %@ on the destination has changes that did not come from this session; commit or stash them there first", bundle: .cmuxCLI), path)
         case .destinationBranchDiverged(let branch):
-            return String(format: String(localized: "cli.session.move.error.branchDiverged", defaultValue: "session move: branch %@ on the destination has commits the session's HEAD does not contain"), branch)
+            return String(format: String(localized: "cli.session.move.error.branchDiverged", defaultValue: "session move: branch %@ on the destination has commits the session's HEAD does not contain", bundle: .cmuxCLI), branch)
         case .gitFailed(let step, let detail):
-            return String(format: String(localized: "cli.session.move.error.gitFailed", defaultValue: "session move: git %@ failed: %@"), step, detail)
+            return String(format: String(localized: "cli.session.move.error.gitFailed", defaultValue: "session move: git %@ failed: %@", bundle: .cmuxCLI), step, detail)
         case .destinationWorkingDirectoryMissing(let path):
-            return String(format: String(localized: "cli.session.move.error.cwdMissing", defaultValue: "session move: %@ does not exist on the destination"), path)
+            return String(format: String(localized: "cli.session.move.error.cwdMissing", defaultValue: "session move: %@ does not exist on the destination", bundle: .cmuxCLI), path)
         case .destinationTranscriptNewer:
-            return String(localized: "cli.session.move.error.transcriptNewer", defaultValue: "session move: the destination transcript is newer; the session continued there, so move it the other way")
+            return String(localized: "cli.session.move.error.transcriptNewer", defaultValue: "session move: the destination transcript is newer; the session continued there, so move it the other way", bundle: .cmuxCLI)
         case .transcriptsDiverged:
-            return String(localized: "cli.session.move.error.transcriptsDiverged", defaultValue: "session move: the transcripts diverged (the destination copy is not a prefix of the source); resolve by hand")
+            return String(localized: "cli.session.move.error.transcriptsDiverged", defaultValue: "session move: the transcripts diverged (the destination copy is not a prefix of the source); resolve by hand", bundle: .cmuxCLI)
         case .copyFailed(let path, let detail):
-            return String(format: String(localized: "cli.session.move.error.copyFailed", defaultValue: "session move: copying %@ failed: %@"), path, detail)
+            return String(format: String(localized: "cli.session.move.error.copyFailed", defaultValue: "session move: copying %@ failed: %@", bundle: .cmuxCLI), path, detail)
         }
     }
 }
@@ -300,7 +300,7 @@ struct SessionMoveOptions {
         func value(_ flag: String) throws -> String {
             guard index + 1 < arguments.count, !arguments[index + 1].isEmpty else {
                 throw CLIError(message: String(
-                    format: String(localized: "cli.session.move.error.flagRequiresValue", defaultValue: "session move: %@ requires a value"),
+                    format: String(localized: "cli.session.move.error.flagRequiresValue", defaultValue: "session move: %@ requires a value", bundle: .cmuxCLI),
                     flag
                 ))
             }
@@ -321,7 +321,7 @@ struct SessionMoveOptions {
             default:
                 if argument.hasPrefix("-") {
                     throw CLIError(message: String(
-                        format: String(localized: "cli.session.move.error.unknownFlag", defaultValue: "session move: unknown flag '%@'"),
+                        format: String(localized: "cli.session.move.error.unknownFlag", defaultValue: "session move: unknown flag '%@'", bundle: .cmuxCLI),
                         argument
                     ))
                 }

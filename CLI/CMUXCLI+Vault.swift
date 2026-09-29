@@ -207,7 +207,7 @@ extension CMUXCLI {
         }
         let sessions = payload["sessions"] as? [[String: Any]] ?? []
         if sessions.isEmpty {
-            print(String(localized: "cli.vault.sessions.empty", defaultValue: "No sessions."))
+            print(String(localized: "cli.vault.sessions.empty", defaultValue: "No sessions.", bundle: .cmuxCLI))
             return
         }
         for session in sessions {
@@ -234,7 +234,7 @@ extension CMUXCLI {
         }
         let checkpoints = payload["checkpoints"] as? [[String: Any]] ?? []
         if checkpoints.isEmpty {
-            print(String(localized: "cli.vault.checkpoints.empty", defaultValue: "No checkpoints."))
+            print(String(localized: "cli.vault.checkpoints.empty", defaultValue: "No checkpoints.", bundle: .cmuxCLI))
             return
         }
         for checkpoint in checkpoints {

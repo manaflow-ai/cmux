@@ -16,15 +16,15 @@ extension CMUXCLI {
             let workspaceCount = topInt(groupAttribution["workspace_count"]) ?? 0
             if workspaceCount > 1 {
                 return String.localizedStringWithFormat(
-                    String(localized: "memory.attribution.multipleWorkspaces", defaultValue: "%lld workspaces"),
+                    String(localized: "memory.attribution.multipleWorkspaces", defaultValue: "%lld workspaces", bundle: .cmuxCLI),
                     workspaceCount
                 )
             }
-            return String(localized: "memory.attribution.multipleOwners", defaultValue: "multiple owners")
+            return String(localized: "memory.attribution.multipleOwners", defaultValue: "multiple owners", bundle: .cmuxCLI)
         case "partial":
-            return String(localized: "memory.attribution.partial", defaultValue: "partially attributed")
+            return String(localized: "memory.attribution.partial", defaultValue: "partially attributed", bundle: .cmuxCLI)
         case "unattributed":
-            return String(localized: "cli.memory.output.unattributed", defaultValue: "unattributed")
+            return String(localized: "cli.memory.output.unattributed", defaultValue: "unattributed", bundle: .cmuxCLI)
         default:
             return memoryAttributionText(group["top_attribution"], idFormat: idFormat)
         }
@@ -32,30 +32,30 @@ extension CMUXCLI {
 
     private func memoryAttributionText(_ raw: Any?, idFormat: CLIIDFormat) -> String {
         guard let attribution = raw as? [String: Any] else {
-            return String(localized: "cli.memory.output.unattributed", defaultValue: "unattributed")
+            return String(localized: "cli.memory.output.unattributed", defaultValue: "unattributed", bundle: .cmuxCLI)
         }
 
         var parts: [String] = []
         if let workspace = memoryAttributionHandle(attribution, prefix: "workspace", idFormat: idFormat) {
             parts.append(String.localizedStringWithFormat(
-                String(localized: "cli.memory.output.workspaceAttribution", defaultValue: "workspace %@"),
+                String(localized: "cli.memory.output.workspaceAttribution", defaultValue: "workspace %@", bundle: .cmuxCLI),
                 workspace
             ))
         }
         if let pane = memoryAttributionHandle(attribution, prefix: "pane", idFormat: idFormat) {
             parts.append(String.localizedStringWithFormat(
-                String(localized: "cli.memory.output.paneAttribution", defaultValue: "pane %@"),
+                String(localized: "cli.memory.output.paneAttribution", defaultValue: "pane %@", bundle: .cmuxCLI),
                 pane
             ))
         }
         if let surface = memoryAttributionHandle(attribution, prefix: "surface", idFormat: idFormat) {
             parts.append(String.localizedStringWithFormat(
-                String(localized: "cli.memory.output.surfaceAttribution", defaultValue: "surface %@"),
+                String(localized: "cli.memory.output.surfaceAttribution", defaultValue: "surface %@", bundle: .cmuxCLI),
                 surface
             ))
         }
         return parts.isEmpty
-            ? String(localized: "cli.memory.output.unattributed", defaultValue: "unattributed")
+            ? String(localized: "cli.memory.output.unattributed", defaultValue: "unattributed", bundle: .cmuxCLI)
             : parts.joined(separator: " / ")
     }
 

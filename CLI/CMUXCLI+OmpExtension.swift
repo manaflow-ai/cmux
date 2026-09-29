@@ -491,9 +491,9 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
                 newContent: Self.ompExtensionSource,
                 fallbackContent: Self.ompExtensionSource
             )
-            print(String(localized: "cli.hooks.omp.confirmProceed", defaultValue: "\nProceed? [y/N] "), terminator: "")
+            print(String(localized: "cli.hooks.omp.confirmProceed", defaultValue: "\nProceed? [y/N] ", bundle: .cmuxCLI), terminator: "")
             guard readLine()?.lowercased().hasPrefix("y") == true else {
-                print(String(localized: "cli.hooks.omp.aborted", defaultValue: "Aborted."))
+                print(String(localized: "cli.hooks.omp.aborted", defaultValue: "Aborted.", bundle: .cmuxCLI))
                 return
             }
         }

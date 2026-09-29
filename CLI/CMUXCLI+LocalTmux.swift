@@ -101,7 +101,7 @@ extension CMUXCLI {
         let invocation = try LocalTmuxInvocation.parse(effectiveArguments)
         guard invocation.canRunWithoutCmux else {
             throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.error.requiresApp", defaultValue: "local-tmux %@ requires a running cmux app; use --headless for a direct tmux client"),
+                String(localized: "cli.localTmux.error.requiresApp", defaultValue: "local-tmux %@ requires a running cmux app; use --headless for a direct tmux client", bundle: .cmuxCLI),
                 invocation.action.rawValue
             ))
         }
@@ -180,12 +180,12 @@ extension CMUXCLI {
               !FileManager.default.fileExists(atPath: path, isDirectory: &executableIsDirectory)
                 || !executableIsDirectory.boolValue,
               FileManager.default.isExecutableFile(atPath: path) else {
-            throw CLIError(message: String(localized: "cli.localTmux.error.tmuxMissing", defaultValue: "local-tmux requires tmux. Install tmux or configure an executable tmux path"), exitCode: 127)
+            throw CLIError(message: String(localized: "cli.localTmux.error.tmuxMissing", defaultValue: "local-tmux requires tmux. Install tmux or configure an executable tmux path", bundle: .cmuxCLI), exitCode: 127)
         }
         let socketPath = registry.serverSocketURL.path
         guard socketPath.utf8.count < 100 else {
             throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.error.socketPathTooLong", defaultValue: "local-tmux state directory is too long for a Unix socket: %@"),
+                String(localized: "cli.localTmux.error.socketPathTooLong", defaultValue: "local-tmux state directory is too long for a Unix socket: %@", bundle: .cmuxCLI),
                 socketPath
             ))
         }
@@ -200,7 +200,7 @@ extension CMUXCLI {
         runner: LocalTmuxProcessRunner
     ) throws -> LocalTmuxSessionIdentityResolver.LiveSession {
         guard let rawName = invocation.name else {
-            throw CLIError(message: String(localized: "cli.localTmux.error.startRequiresName", defaultValue: "local-tmux start requires a session name"))
+            throw CLIError(message: String(localized: "cli.localTmux.error.startRequiresName", defaultValue: "local-tmux start requires a session name", bundle: .cmuxCLI))
         }
         let name = try LocalTmuxSessionNameValidator().validate(rawName)
         let requestedCwd = try invocation.cwd.map { try localTmuxWorkingDirectory($0) }
@@ -219,12 +219,12 @@ extension CMUXCLI {
             )
             if let requestedCwd {
                 guard let existingPath, requestedCwd == existingPath else {
-                    throw CLIError(message: String(localized: "cli.localTmux.error.existingSessionCwd", defaultValue: "local-tmux session already exists with a different working directory; use attach or close it first"))
+                    throw CLIError(message: String(localized: "cli.localTmux.error.existingSessionCwd", defaultValue: "local-tmux session already exists with a different working directory; use attach or close it first", bundle: .cmuxCLI))
                 }
             }
             if let command = invocation.command,
                !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                throw CLIError(message: String(localized: "cli.localTmux.error.existingSessionCommand", defaultValue: "local-tmux session already exists; use attach or close it before supplying a new command"))
+                throw CLIError(message: String(localized: "cli.localTmux.error.existingSessionCommand", defaultValue: "local-tmux session already exists; use attach or close it before supplying a new command", bundle: .cmuxCLI))
             }
             let records = try registry.load()
             if var record = records.first(where: { $0.tmuxBinding == observed.binding })
@@ -278,7 +278,7 @@ extension CMUXCLI {
         var isDirectory = ObjCBool(false)
         guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory), isDirectory.boolValue else {
             throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.error.cwdInvalid", defaultValue: "local-tmux working directory is not an accessible directory: %@"),
+                String(localized: "cli.localTmux.error.cwdInvalid", defaultValue: "local-tmux working directory is not an accessible directory: %@", bundle: .cmuxCLI),
                 candidate
             ))
         }
@@ -328,7 +328,7 @@ extension CMUXCLI {
             let checked = try runner.run(arguments: builder.hasSessionArguments(validatedName))
             guard checked.succeeded else {
                 throw CLIError(message: String.localizedStringWithFormat(
-                    String(localized: "cli.localTmux.error.sessionNotFound", defaultValue: "local-tmux session not found: %@"),
+                    String(localized: "cli.localTmux.error.sessionNotFound", defaultValue: "local-tmux session not found: %@", bundle: .cmuxCLI),
                     validatedName
                 ))
             }
@@ -362,7 +362,7 @@ extension CMUXCLI {
             return record
         }
         throw CLIError(message: String.localizedStringWithFormat(
-            String(localized: "cli.localTmux.error.sessionIDNotFound", defaultValue: "local-tmux session not found for id %@"),
+            String(localized: "cli.localTmux.error.sessionIDNotFound", defaultValue: "local-tmux session not found for id %@", bundle: .cmuxCLI),
             invocation.id?.uuidString ?? "unknown"
         ))
     }

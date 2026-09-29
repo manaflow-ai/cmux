@@ -215,11 +215,11 @@ extension CMUXCLI {
     }
 
     private static func confirmPublicPublication(_ publication: [String: Any], confirmed: Bool) throws {
-        let format = String(localized: "cli.cloud.domains.confirmPublic", defaultValue: "Public access lets anyone open %@ (VM %@, port %@). Continue? [y/N]")
+        let format = String(localized: "cli.cloud.domains.confirmPublic", defaultValue: "Public access lets anyone open %@ (VM %@, port %@). Continue? [y/N]", bundle: .cmuxCLI)
         let warning = String(format: format, publication["hostname"] as? String ?? "?", publication["vmId"] as? String ?? "?", String(Self.intValue(publication["port"]) ?? 0))
         cliWriteStderr(warning + "\n")
         if !confirmed && readLine()?.lowercased() != "y" {
-            throw CLIError(message: String(localized: "cli.cloud.domains.publicCancelled", defaultValue: "Public access was not enabled."))
+            throw CLIError(message: String(localized: "cli.cloud.domains.publicCancelled", defaultValue: "Public access was not enabled.", bundle: .cmuxCLI))
         }
     }
 
@@ -449,11 +449,11 @@ extension CMUXCLI {
     private static func dnsPurposeLabel(_ purpose: String) -> String {
         switch purpose {
         case "verification":
-            return String(localized: "cli.cloud.domains.dns.ownership", defaultValue: "ownership")
+            return String(localized: "cli.cloud.domains.dns.ownership", defaultValue: "ownership", bundle: .cmuxCLI)
         case "routing":
-            return String(localized: "cli.cloud.domains.dns.routing", defaultValue: "routing")
+            return String(localized: "cli.cloud.domains.dns.routing", defaultValue: "routing", bundle: .cmuxCLI)
         case "certificate":
-            return String(localized: "cli.cloud.domains.dns.certificate", defaultValue: "certificate")
+            return String(localized: "cli.cloud.domains.dns.certificate", defaultValue: "certificate", bundle: .cmuxCLI)
         default:
             return purpose
         }

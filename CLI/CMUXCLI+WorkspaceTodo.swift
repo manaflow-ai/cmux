@@ -319,7 +319,7 @@ extension CMUXCLI {
       cmux workspace close workspace:3
       cmux workspace reconnect
       cmux workspace disconnect --workspace workspace:3
-    """)
+    """, bundle: .cmuxCLI)
 
     static let workspaceStatusUsage = String(localized: "cli.workspace.status.usage", defaultValue: """
     Usage: cmux workspace status [set <lane|auto> | cycle] [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]
@@ -345,7 +345,7 @@ extension CMUXCLI {
       cmux workspace status set review
       cmux workspace status cycle
       cmux workspace status set auto --workspace workspace:2
-    """)
+    """, bundle: .cmuxCLI)
 
     static let todoUsage = String(localized: "cli.todo.usage", defaultValue: """
     Usage: cmux todo <subcommand> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]
@@ -387,5 +387,5 @@ extension CMUXCLI {
       cmux todo open
 
     See also: cmux workspace status
-    """)
+    """, bundle: .cmuxCLI)
 }
