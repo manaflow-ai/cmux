@@ -31,7 +31,6 @@ struct TerminalPickerMenuValue: Equatable {
     init(
         liveTerminals: [MobileTerminalPreview],
         liveSurfaces: [MobileSurfacePreview] = [],
-        snapshotRows: [TerminalPickerMenuRow],
         selectedID: MobileTerminalPreview.ID?,
         selectedMacSurfaceID: MobileSurfacePreview.ID? = nil,
         canCreateWorkspace: Bool,
@@ -47,10 +46,8 @@ struct TerminalPickerMenuValue: Equatable {
         sshTabLayout: MobileSSHTabLayout? = nil,
         isSSHComputer: Bool = false
     ) {
-        let resolvedRows = snapshotRows.isEmpty
-            ? liveTerminals.map(TerminalPickerMenuRow.init)
-                + liveSurfaces.filter { !$0.kind.isTerminal }.map(TerminalPickerMenuRow.init)
-            : snapshotRows
+        let resolvedRows = liveTerminals.map(TerminalPickerMenuRow.init)
+            + liveSurfaces.filter { !$0.kind.isTerminal }.map(TerminalPickerMenuRow.init)
         rows = resolvedRows
         let selection = resolvedRows.resolvedTerminalPickerSelection(selectedID: selectedID)
         self.selectedID = selection?.id
@@ -118,8 +115,7 @@ struct TerminalPickerMenuValue: Equatable {
     /// Mac-surface rows for the "Mac Surfaces" section. Browser panes are
     /// excluded whenever the Mac supports browser streaming — they get their
     /// own "Mac Browsers" section — and only fall back to a surface row on
-    /// Macs without streaming. Filtered here (not at row construction) so
-    /// snapshot-built rows obey the same policy as live ones.
+    /// Macs without streaming.
     var macSurfaceRows: [TerminalPickerMenuRow] {
         rows.filter {
             guard case .macSurface = $0.id else { return false }
