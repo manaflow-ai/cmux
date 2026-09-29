@@ -15,6 +15,63 @@ import Testing
 
 @MainActor
 extension MobileHostAuthorizationTests {
+    @Test("Combined startup status preserves the admitted protocol identity", .timeLimit(.minutes(1)),
+          arguments: ["v2-team-installation", "legacy-physical-mac"])
+    func combinedWorkspaceStatusPreservesAdmittedIdentity(hostDeviceID: String) async throws {
+        let fixture = TerminalPortalTestWorkspace()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        fixture.bind(to: window)
+        defer {
+            fixture.tearDown()
+            window.close()
+            MobileHostPublicStatusCache.removeAll()
+        }
+        // A later publication must not rename an already-admitted connection.
+        MobileHostPublicStatusCache.updateV2DeviceID("another-installation")
+        let transport = ScriptedMobileHostByteTransport()
+        let authorization = try irohAdmissionContext()
+        let task = Task {
+            await MobileHostService.acceptTransport(
+                transport, authorization: authorization, hostDeviceID: hostDeviceID,
+                isCurrent: { true }
+            )
+        }
+        defer { task.cancel() }
+        let request = try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: [
+            "id": "combined", "method": "workspace.list",
+            "params": ["include_host_status": true, "mac_device_id": "untrusted-input"],
+        ]))
+        await transport.enqueue(request)
+        let combinedBuffers = await transport.waitForSentBufferCount(1)
+        // Close before assertions so a failed expectation cannot leak a live reader.
+        try await transport.enqueue(Self.mobileHostStatusFrame(id: "separate"))
+        let allBuffers = await transport.waitForSentBufferCount(2)
+        #expect(await transport.observedCloseCount() == 0)
+        await transport.finishReceiving()
+        await task.value
+
+        func payload(_ data: Data) throws -> [String: Any] {
+            var buffer = data
+            let frame = try #require(MobileSyncFrameCodec.decodeFrames(from: &buffer).first)
+            let envelope = try #require(JSONSerialization.jsonObject(with: frame) as? [String: Any])
+            #expect(envelope["ok"] as? Bool == true)
+            return try #require(envelope["result"] as? [String: Any])
+        }
+        let combined = try payload(#require(combinedBuffers.first))
+        let host = try #require(combined["host_status"] as? [String: Any])
+        let separate = try payload(#require(allBuffers.last))
+        #expect(host["mac_device_id"] as? String == hostDeviceID)
+        #expect(host["mac_device_id"] as? String == separate["mac_device_id"] as? String)
+        #expect(host["mac_instance_tag"] as? String == separate["mac_instance_tag"] as? String)
+        #expect(host["capabilities"] as? [String] == separate["capabilities"] as? [String])
+        let workspaces = try #require(combined["workspaces"] as? [[String: Any]])
+        #expect(workspaces.contains { $0["id"] as? String == fixture.id.uuidString })
+    }
+
     @Test("A Mac mirror receives a resized grid even when a render tick is coalesced globally", .timeLimit(.minutes(1)))
     func macGridResizeSurvivesGlobalRenderUpdate() async throws {
         let service = MobileHostService.shared
