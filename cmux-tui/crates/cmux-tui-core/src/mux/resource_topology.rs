@@ -5789,7 +5789,7 @@ fn created_identity_kind(operation: ResourceOperation) -> Option<CreatedIdentity
 /// partition the workspace order, so the position sits among the members,
 /// and after the last member when `index` is past the end. Without an index
 /// the workspace goes after the section's last member, or last overall.
-fn new_workspace_position(
+pub(super) fn new_workspace_position(
     state: &State,
     presentation: &crate::workspace_registry::PresentationSnapshot,
     group: Option<&str>,

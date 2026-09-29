@@ -54,6 +54,14 @@ every frontend, and the flag follows the tab across panes and restarts. Each
 PTY tab also reports its working directory and the git branch of the
 repository containing it, read on the machine that runs the terminal.
 
+Tabs in one pane can form Chrome-style tab groups: a name (possibly empty),
+one of nine colors, and a shared collapsed flag. Members are contiguous in
+the strip, pinned tabs cannot join, and a whole group moves as one: within a
+strip, to another pane, or into a new split, column, or workspace. A saved
+group is a session-wide record of a group's name, color, and members that
+outlives its tabs; reopening it reattaches terminals that are still running
+and starts new ones in the saved directories.
+
 Pane names still exist in the control socket through `rename-pane`. They are separate from the tab labels shown in the TUI.
 
 ## Automatic Layout

@@ -155,6 +155,26 @@ when the user has seen the tab instead of sending `select-tab`.
 `list-notifications` returns the retained ledger with `created_at_ms` and an
 `acknowledged` flag, and each workspace reports `unread_count`.
 
+`tab-groups-v1` adds Chrome-style tab groups inside a pane's strip. Panes
+report `tab_groups` (id, name, color, collapsed, saved id, start, count,
+surfaces) and tabs report `group`. Members stay contiguous. Every change is
+one command: `create-tab-group`, `update-tab-group` (rename, recolor,
+collapse), `add-tabs-to-tab-group`, `remove-tabs-from-tab-group`,
+`move-tab-group` (within or across strips), `move-tab-group-to-split`,
+`move-tab-group-to-column`, `move-tab-group-to-new-workspace`,
+`ungroup-tab-group`, and `close-tab-group`. Commands that move tabs take a
+`transaction` echoed in each member's `tab-changed`.
+
+`saved-tab-groups-v1` adds saved groups that outlive their placements:
+`save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`,
+`list-saved-tab-groups`, and `reopen-saved-tab-group`, which reattaches
+running terminals and starts the rest in their saved directories.
+
+```json
+{"id":17,"cmd":"create-tab-group","surfaces":[4,7],"name":"agents","color":"green","transaction":"g-1"}
+{"id":18,"cmd":"move-tab-group-to-split","group":"tgrp_0d4c...","pane":2,"edge":"right"}
+```
+
 ## Events
 
 `subscribe` starts event streaming:

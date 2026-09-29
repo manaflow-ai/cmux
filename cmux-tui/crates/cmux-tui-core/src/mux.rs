@@ -7,6 +7,7 @@ mod public_projections;
 mod resource_content;
 mod resource_topology;
 mod tab_drag;
+mod tab_groups;
 mod terminal_directory;
 
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
@@ -15,6 +16,8 @@ pub use presentation::{
 };
 pub(crate) use resource_content::ResourceEffectProjection;
 pub use tab_drag::{TabDragOutcome, TabDropEdge};
+pub(crate) use tab_groups::{PaneTabGroup, pane_tab_groups};
+pub use tab_groups::{TabGroupDestination, TabGroupOutcome};
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -4606,6 +4609,7 @@ impl Mux {
             &plan.result,
             &plan.deltas,
             plan.workspace_ledger.as_ref(),
+            plan.tab_groups.as_ref(),
         )?;
         plan.apply(&mut state, &commit, workspace_revision);
         drop(state);

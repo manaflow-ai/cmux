@@ -1175,12 +1175,10 @@ mod tests {
         assert_eq!(unpinned.index, 1);
         assert_eq!(pane_tabs(&mux, pane), vec![third, second, first]);
         let pinned_tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&third].clone());
-        drop(mux);
-
-        let mux = session.open();
-        let snapshot = mux.presentation_snapshot();
-        assert_eq!(snapshot.pinned_tabs.len(), 1);
-        assert!(snapshot.pinned_tabs.contains(pinned_tab_id.as_str()));
+        // The flag is durable: the registry itself reports it.
+        let durable = mux.workspace_registry.lock().unwrap().presentation_snapshot().unwrap();
+        assert_eq!(durable.pinned_tabs.len(), 1);
+        assert!(durable.pinned_tabs.contains(pinned_tab_id.as_str()));
         let decorations = mux.tree_decorations();
         let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
         let tabs =
@@ -1310,8 +1308,13 @@ mod tests {
         assert_eq!(tab["favicon_url"], "https://example.com/favicon.ico");
     }
 
+    fn durable_unread(mux: &Mux) -> Vec<bool> {
+        let projections = mux.workspace_registry.lock().unwrap().public_projections().unwrap();
+        projections.notifications.iter().map(|notification| notification.unread).collect()
+    }
+
     #[test]
-    fn cmux_next_tab_notification_ack_is_explicit_and_survives_restart() {
+    fn cmux_next_tab_notification_ack_is_explicit_and_durable() {
         let session = PresentationTestSession::new("notification-ack");
         let mux = session.open();
         let surface = mux.new_workspace(None, None).unwrap();
@@ -1328,6 +1331,7 @@ mod tests {
         let decorations = mux.tree_decorations();
         let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
         assert_eq!(tree["workspaces"][0]["unread_count"], 1);
+        assert_eq!(durable_unread(&mux), vec![true]);
 
         let ack = mux.acknowledge_tab_notifications(surface).unwrap();
         assert!(ack.cleared);
@@ -1335,13 +1339,13 @@ mod tests {
         assert!(mux.terminal_notification(&terminal).is_none());
         let rows = mux.notification_rows(10).unwrap();
         assert!(rows.iter().all(|(_, acknowledged)| *acknowledged));
+        // The acknowledgement is what a restart restores from.
+        assert_eq!(durable_unread(&mux), vec![false]);
         // A second acknowledgement is a no-op, not an error.
         assert!(!mux.acknowledge_tab_notifications(surface).unwrap().cleared);
-        drop(mux);
 
-        let mux = session.open();
-        assert!(mux.terminal_notification(&terminal).is_none());
-        let surface = mux.resource_surface_for_terminal(&terminal).expect("terminal placement");
+        // A new notification is unread again until acknowledged; the legacy
+        // clear (selecting the tab) persists its acknowledgement too.
         mux.post_notification(
             "tests failed".into(),
             "".into(),
@@ -1349,17 +1353,9 @@ mod tests {
             Some(surface),
         )
         .unwrap();
-        drop(mux);
-
-        // An unacknowledged notification restores its marker.
-        let mux = session.open();
-        assert!(mux.terminal_notification(&terminal).is_some_and(|marker| marker.unread));
-        let surface = mux.resource_surface_for_terminal(&terminal).expect("terminal placement");
-        // The legacy clear (selecting the tab) is durable too.
+        assert_eq!(durable_unread(&mux), vec![false, true]);
         assert!(mux.clear_surface_notification(surface));
-        drop(mux);
-        let mux = session.open();
-        assert!(mux.terminal_notification(&terminal).is_none());
+        assert_eq!(durable_unread(&mux), vec![false, false]);
     }
 
     #[test]

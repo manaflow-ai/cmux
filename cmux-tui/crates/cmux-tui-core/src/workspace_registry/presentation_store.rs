@@ -15,11 +15,11 @@
 //! The materialized table is authoritative for restoration, so a restore
 //! preview never counts these records as unsupported required state.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Context;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::session_journal::{JournalAppend, append_journal_record};
@@ -52,6 +52,26 @@ pub(super) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
          CREATE TABLE IF NOT EXISTS tab_presentation (
            tab_id TEXT PRIMARY KEY NOT NULL,
            pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))
+         );
+         CREATE TABLE IF NOT EXISTS tab_groups (
+           group_id TEXT PRIMARY KEY NOT NULL,
+           pane_id TEXT NOT NULL,
+           name TEXT NOT NULL DEFAULT '',
+           color TEXT NOT NULL,
+           collapsed INTEGER NOT NULL DEFAULT 0 CHECK(collapsed IN (0,1)),
+           saved_id TEXT
+         );
+         CREATE TABLE IF NOT EXISTS tab_group_members (
+           tab_id TEXT PRIMARY KEY NOT NULL,
+           group_id TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS saved_tab_groups (
+           saved_id TEXT PRIMARY KEY NOT NULL,
+           name TEXT NOT NULL DEFAULT '',
+           color TEXT NOT NULL,
+           members_json TEXT NOT NULL,
+           position INTEGER NOT NULL CHECK(position >= 0),
+           updated_at_ms INTEGER NOT NULL CHECK(updated_at_ms >= 0)
          );
          CREATE TABLE IF NOT EXISTS notification_acks (
            notification_id TEXT PRIMARY KEY NOT NULL,
@@ -150,6 +170,199 @@ pub struct PresentationSnapshot {
     /// (`browser_...`). Rows exist before their browser commits, so a
     /// pending creation is already known when its surface spawns.
     pub frontend_browsers: HashMap<String, FrontendBrowserRecord>,
+    /// Chrome-style tab groups of every pane.
+    pub tab_groups: TabGroupState,
+    /// Saved (pinned) tab groups, in bar order.
+    pub saved_tab_groups: Vec<SavedTabGroupRecord>,
+}
+
+/// Chrome's tab group colors. Frontends render them as muted tints.
+pub const TAB_GROUP_COLORS: [&str; 9] =
+    ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
+
+pub fn validate_tab_group_color(value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        TAB_GROUP_COLORS.contains(&value),
+        "bad request: tab group color must be one of {}",
+        TAB_GROUP_COLORS.join(", ")
+    );
+    Ok(())
+}
+
+/// A tab group name may be empty (Chrome shows the color dot only).
+pub fn validate_tab_group_name(value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        value.chars().count() <= MAX_PRESENTATION_TEXT_CHARS,
+        "bad request: tab group name exceeds {MAX_PRESENTATION_TEXT_CHARS} characters"
+    );
+    anyhow::ensure!(
+        !value.chars().any(char::is_control),
+        "bad request: tab group name contains a control character"
+    );
+    Ok(())
+}
+
+/// One tab group in one pane's tab strip.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TabGroupRecord {
+    pub id: String,
+    /// Public id (`pane_...`) of the pane whose strip holds the group.
+    pub pane_id: String,
+    pub name: String,
+    pub color: String,
+    pub collapsed: bool,
+    /// The saved group this live group syncs with.
+    pub saved_id: Option<String>,
+}
+
+/// All tab groups and their members. A tab belongs to a group only while
+/// it sits in that group's pane; commands keep members contiguous.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct TabGroupState {
+    pub groups: BTreeMap<String, TabGroupRecord>,
+    /// Public tab id (`tab_...`) to group id.
+    pub members: BTreeMap<String, String>,
+}
+
+/// What a saved group remembers about one member so it can reopen it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SavedTabMember {
+    Terminal {
+        /// Host id of the terminal, reattached while it is still running.
+        terminal_id: Option<String>,
+        cwd: Option<String>,
+        title: Option<String>,
+    },
+    Browser {
+        url: String,
+        /// `webkit` or `cef` for a frontend-rendered browser.
+        engine: Option<String>,
+        profile_id: Option<String>,
+        title: Option<String>,
+    },
+}
+
+/// A saved (pinned) tab group. It outlives its placements.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SavedTabGroupRecord {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    pub members: Vec<SavedTabMember>,
+    pub updated_at_ms: u64,
+}
+
+pub fn new_tab_group_id() -> String {
+    format!("tgrp_{}", new_uuid_v4().replace('-', ""))
+}
+
+pub fn new_saved_tab_group_id() -> String {
+    format!("saved_{}", new_uuid_v4().replace('-', ""))
+}
+
+/// Replace every tab group row in the caller's transaction.
+pub(super) fn write_tab_group_state(
+    transaction: &Transaction<'_>,
+    state: &TabGroupState,
+) -> anyhow::Result<()> {
+    for group in state.groups.values() {
+        validate_workspace_group_id(&group.id)?;
+        validate_tab_group_name(&group.name)?;
+        validate_tab_group_color(&group.color)?;
+    }
+    transaction.execute("DELETE FROM tab_groups", [])?;
+    transaction.execute("DELETE FROM tab_group_members", [])?;
+    for group in state.groups.values() {
+        transaction.execute(
+            "INSERT INTO tab_groups(group_id, pane_id, name, color, collapsed, saved_id)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                group.id,
+                group.pane_id,
+                group.name,
+                group.color,
+                i64::from(group.collapsed),
+                group.saved_id
+            ],
+        )?;
+    }
+    for (tab, group) in &state.members {
+        anyhow::ensure!(state.groups.contains_key(group), "tab {tab} names unknown group {group}");
+        transaction.execute(
+            "INSERT INTO tab_group_members(tab_id, group_id) VALUES(?1, ?2)",
+            params![tab, group],
+        )?;
+    }
+    append_presentation_record(
+        transaction,
+        "tab.groups.updated",
+        state
+            .groups
+            .keys()
+            .map(|id| JournalSubject { kind: "tab_group".into(), id: id.clone() })
+            .collect(),
+        &json!({"tab_groups": state}),
+    )
+}
+
+fn read_tab_group_state(connection: &Connection) -> anyhow::Result<TabGroupState> {
+    let mut state = TabGroupState::default();
+    let mut statement = connection
+        .prepare("SELECT group_id, pane_id, name, color, collapsed, saved_id FROM tab_groups")?;
+    let rows = statement.query_map([], |row| {
+        Ok(TabGroupRecord {
+            id: row.get(0)?,
+            pane_id: row.get(1)?,
+            name: row.get(2)?,
+            color: row.get(3)?,
+            collapsed: row.get::<_, i64>(4)? != 0,
+            saved_id: row.get(5)?,
+        })
+    })?;
+    for row in rows {
+        let group = row?;
+        state.groups.insert(group.id.clone(), group);
+    }
+    let mut statement = connection.prepare("SELECT tab_id, group_id FROM tab_group_members")?;
+    let rows =
+        statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    for row in rows {
+        let (tab, group) = row?;
+        if state.groups.contains_key(&group) {
+            state.members.insert(tab, group);
+        }
+    }
+    Ok(state)
+}
+
+fn read_saved_tab_groups(connection: &Connection) -> anyhow::Result<Vec<SavedTabGroupRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT saved_id, name, color, members_json, updated_at_ms FROM saved_tab_groups
+         ORDER BY position ASC, saved_id ASC",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, i64>(4)?,
+        ))
+    })?;
+    let mut saved = Vec::new();
+    for row in rows {
+        let (id, name, color, members, updated_at_ms) = row?;
+        saved.push(SavedTabGroupRecord {
+            id,
+            name,
+            color,
+            members: serde_json::from_str(&members)
+                .context("saved tab group members are invalid")?,
+            updated_at_ms: u64::try_from(updated_at_ms)?,
+        });
+    }
+    Ok(saved)
 }
 
 /// Longest accepted frontend browser URL or favicon URL, in bytes.
@@ -592,7 +805,16 @@ impl WorkspaceRegistry {
                 frontend_browsers.insert(browser_id, record);
             }
         }
-        Ok(PresentationSnapshot { groups, workspaces, pinned_tabs, frontend_browsers })
+        let tab_groups = read_tab_group_state(&self.connection)?;
+        let saved_tab_groups = read_saved_tab_groups(&self.connection)?;
+        Ok(PresentationSnapshot {
+            groups,
+            workspaces,
+            pinned_tabs,
+            frontend_browsers,
+            tab_groups,
+            saved_tab_groups,
+        })
     }
 
     /// Create a group at `index` (default: last). Creating an id that
@@ -945,5 +1167,81 @@ impl WorkspaceRegistry {
         }
         tx.commit()?;
         Ok(added)
+    }
+
+    /// Replace every tab group and membership (metadata-only changes that
+    /// leave tab order alone).
+    pub fn replace_tab_groups(&mut self, state: &TabGroupState) -> anyhow::Result<()> {
+        let tx = self.connection.transaction()?;
+        write_tab_group_state(&tx, state)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Create or replace a saved tab group, keeping its bar position (new
+    /// records go last).
+    pub fn put_saved_tab_group(&mut self, record: &SavedTabGroupRecord) -> anyhow::Result<()> {
+        validate_workspace_group_id(&record.id)?;
+        validate_tab_group_name(&record.name)?;
+        validate_tab_group_color(&record.color)?;
+        let tx = self.connection.transaction()?;
+        let position = match tx
+            .query_row(
+                "SELECT position FROM saved_tab_groups WHERE saved_id = ?1",
+                [&record.id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+        {
+            Some(position) => position,
+            None => tx.query_row(
+                "SELECT COALESCE(MAX(position) + 1, 0) FROM saved_tab_groups",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?,
+        };
+        tx.execute(
+            "INSERT INTO saved_tab_groups(saved_id, name, color, members_json, position, updated_at_ms)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(saved_id) DO UPDATE SET
+               name = excluded.name,
+               color = excluded.color,
+               members_json = excluded.members_json,
+               updated_at_ms = excluded.updated_at_ms",
+            params![
+                record.id,
+                record.name,
+                record.color,
+                serde_json::to_string(&record.members)?,
+                position,
+                i64::try_from(record.updated_at_ms)?
+            ],
+        )?;
+        append_presentation_record(
+            &tx,
+            "tab.saved_group.updated",
+            vec![JournalSubject { kind: "saved_tab_group".into(), id: record.id.clone() }],
+            &json!({"saved_group": record}),
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Delete a saved tab group. Returns whether it existed.
+    pub fn delete_saved_tab_group(&mut self, saved_id: &str) -> anyhow::Result<bool> {
+        let tx = self.connection.transaction()?;
+        let removed =
+            tx.execute("DELETE FROM saved_tab_groups WHERE saved_id = ?1", [saved_id])? > 0;
+        if removed {
+            tx.execute("UPDATE tab_groups SET saved_id = NULL WHERE saved_id = ?1", [saved_id])?;
+            append_presentation_record(
+                &tx,
+                "tab.saved_group.deleted",
+                vec![JournalSubject { kind: "saved_tab_group".into(), id: saved_id.to_string() }],
+                &json!({"saved_id": saved_id}),
+            )?;
+        }
+        tx.commit()?;
+        Ok(removed)
     }
 }

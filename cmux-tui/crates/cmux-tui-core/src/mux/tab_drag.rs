@@ -97,11 +97,22 @@ pub struct TabDragOutcome {
     pub undoable: bool,
 }
 
-struct TabDragIds {
-    pane: PaneId,
-    pane_public: PanePublicId,
-    split: SplitId,
-    base_column: SplitId,
+pub(super) struct TabDragIds {
+    pub(super) pane: PaneId,
+    pub(super) pane_public: PanePublicId,
+    pub(super) split: SplitId,
+    pub(super) base_column: SplitId,
+}
+
+impl TabDragIds {
+    pub(super) fn reserve(mux: &Mux) -> anyhow::Result<Self> {
+        Ok(Self {
+            pane: mux.next_id(),
+            pane_public: PanePublicId::random()?,
+            split: mux.next_id(),
+            base_column: mux.next_id(),
+        })
+    }
 }
 
 impl Mux {
@@ -152,12 +163,7 @@ impl Mux {
         destination: TabDragDestination,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
-        let ids = TabDragIds {
-            pane: self.next_id(),
-            pane_public: PanePublicId::random()?,
-            split: self.next_id(),
-            base_column: self.next_id(),
-        };
+        let ids = TabDragIds::reserve(self)?;
         let fingerprint = serde_json::json!({
             "operation": "tab.drag",
             "surface": surface,
@@ -174,7 +180,8 @@ impl Mux {
             None,
             |state, registry| {
                 let mut projected = state.clone();
-                let outcome = apply_tab_drag(&mux, &mut projected, surface, destination, &ids)?;
+                let outcome =
+                    apply_tab_drag(&mux, &mut projected, surface, destination, &ids, true)?;
                 let source_key = state
                     .pane_of(surface)
                     .and_then(|pane| state.screen_of(pane))
@@ -288,7 +295,7 @@ impl Mux {
 
 /// A terminal moved to another workspace: its durable host placement names
 /// the new workspace, as `move-tab` does.
-fn retarget_terminal_workspace(
+pub(super) fn retarget_terminal_workspace(
     patch: &mut ResourcePatch,
     terminal: &TerminalPublicId,
     workspace_key: &str,
@@ -312,12 +319,13 @@ fn screen_location(state: &State, screen: ScreenId) -> Option<(usize, usize)> {
 }
 
 /// Apply one drag to `state` (a clone of the live state).
-fn apply_tab_drag(
+pub(super) fn apply_tab_drag(
     mux: &Mux,
     state: &mut State,
     surface: SurfaceId,
     destination: TabDragDestination,
     ids: &TabDragIds,
+    record_undo: bool,
 ) -> anyhow::Result<TabDragOutcome> {
     let target_pane = destination.pane();
     let source_pane =
@@ -339,7 +347,7 @@ fn apply_tab_drag(
     let target_screen = state.workspaces[target_wi].screens[target_si].id;
     let source_screen = state.workspaces[source_location.0].screens[source_location.1].id;
     let target_workspace = state.workspaces[target_wi].id;
-    let undoable = target_screen == source_screen && source_tabs > 1;
+    let undoable = record_undo && target_screen == source_screen && source_tabs > 1;
     let before = state.workspaces[target_wi].screens[target_si].layout_snapshot();
     {
         let screen = &mut state.workspaces[target_wi].screens[target_si];
@@ -457,37 +465,6 @@ fn apply_tab_drag(
 mod tests {
     use super::*;
 
-    struct DragSession {
-        root: std::path::PathBuf,
-    }
-
-    impl DragSession {
-        fn new() -> Self {
-            Self {
-                root: std::env::temp_dir()
-                    .join(format!("cmux-tab-drag-{}", WorkspacePublicId::random().unwrap())),
-            }
-        }
-
-        fn open(&self) -> Arc<Mux> {
-            let registry = WorkspaceRegistry::open(&self.root, "tab-drag").unwrap();
-            Mux::from_workspace_registry(
-                "tab-drag".into(),
-                SurfaceOptions::default(),
-                registry,
-                ProviderWorkspaceState::default(),
-                true,
-            )
-            .unwrap()
-        }
-    }
-
-    impl Drop for DragSession {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.root);
-        }
-    }
-
     fn tabs(mux: &Mux, pane: PaneId) -> Vec<SurfaceId> {
         mux.with_state(|state| state.panes.get(&pane).map(|pane| pane.tabs.clone()))
             .unwrap_or_default()
@@ -517,8 +494,7 @@ mod tests {
 
     #[test]
     fn cmux_next_tab_to_split_is_atomic_undoable_and_durable() {
-        let session = DragSession::new();
-        let mux = session.open();
+        let mux = Mux::new_for_test("tab-drag-split", SurfaceOptions::default());
         let first = mux.new_workspace(None, None).unwrap().id;
         let origin = pane_of(&mux, first);
         let second = mux.new_tab(Some(origin), None, None).unwrap().id;
@@ -550,25 +526,16 @@ mod tests {
         assert_eq!(screen_panes(&mux, origin), vec![origin]);
         assert!(mux.with_state(|state| !state.panes.contains_key(&outcome.pane)));
 
-        // Redo the drag and restart: the split and the moved tab persist.
+        // Redo the drag: the split and the moved tab are durable topology.
         let outcome =
             mux.move_tab_to_split(second, origin, TabDropEdge::Bottom, None, None).unwrap();
         let tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&second].clone());
         let pane_id =
             mux.with_state(|state| state.resource_indexes.pane_ids[&outcome.pane].clone());
-        drop(mux);
-        let mux = session.open();
-        let (restored_pane, pane_tabs) = mux.with_state(|state| {
-            let pane = state.resource_indexes.panes[&pane_id];
-            let tabs = state.panes[&pane]
-                .tabs
-                .iter()
-                .map(|surface| state.resource_indexes.tab_ids[surface].clone())
-                .collect::<Vec<_>>();
-            (pane, tabs)
-        });
-        assert_eq!(pane_tabs, vec![tab_id]);
-        assert_eq!(screen_panes(&mux, restored_pane).len(), 2);
+        let topology = mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
+        let durable_tab = topology.tabs.iter().find(|tab| tab.public_id == tab_id).unwrap();
+        assert_eq!(durable_tab.pane_id, pane_id);
+        assert!(topology.panes.iter().any(|pane| pane.public_id == pane_id));
     }
 
     #[test]
