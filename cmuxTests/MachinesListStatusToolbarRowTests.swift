@@ -16,9 +16,9 @@ import Testing
 @MainActor
 @Suite("The Cloud toolbar names the failure it has and offers its fix", .serialized)
 struct MachinesListStatusToolbarRowTests {
-    /// The three list failures, in the order the panel can hit them.
+    /// The list failures, in the order the panel can hit them.
     private static let problems: [MachinesPanelViewModel.CloudListProblem] = [
-        .unreachable, .sessionRejected, .requiresPro,
+        .unreachable, .sessionRejected, .requiresPro, .cloudAccessRevoked,
     ]
 
     @Test("Each failure offers the action that can fix it")
@@ -27,6 +27,7 @@ struct MachinesListStatusToolbarRowTests {
             (.unreachable, "CloudMachinesUnavailableRetryButton"),
             (.sessionRejected, "CloudMachinesSessionRejectedSignInButton"),
             (.requiresPro, "CloudMachinesRequiresProUpgradeButton"),
+            (.cloudAccessRevoked, "CloudMachinesSessionRejectedSignInButton"),
         ]
         for (problem, identifier) in expected {
             #expect(

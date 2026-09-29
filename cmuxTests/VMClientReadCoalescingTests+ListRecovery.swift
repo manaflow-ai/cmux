@@ -331,6 +331,35 @@ extension VMClientReadCoalescingTests {
         #expect(model.listStatus == nil)
     }
 
+    /// Production, 2026-09-29: a Mac whose Cloud access grant was revoked
+    /// sent `POST /api/vm/tunnel` 134 times in an hour and showed no sign-in
+    /// action. The refusal is permanent for that login, so the client sends it
+    /// once and the panel routes to a fresh sign-in.
+    @Test("A revoked Mac login enrolls once and the panel offers a fresh sign-in")
+    func revokedTunnelLoginStopsAndOffersSignIn() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        await CloudRefreshURLProtocol.configure(.tunnelAccessRevoked)
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-revoked-tunnel-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let manager = VMTunnelManager(home: home, purpose: .terminal)
+        for _ in 0..<5 {
+            await #expect(throws: VMClientError.self) { _ = try await manager.enroll(client: fixture.client) }
+        }
+        #expect(await CloudRefreshURLProtocol.requestCounts()["/api/vm/tunnel"] == 1)
+        #expect(await fixture.client.isCloudAccessRevokedForCurrentLogin())
+
+        let model = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
+        defer { model.stopPolling() }
+        model.startPolling()
+        try await listEventually { model.hasLoadedOnce && !model.isLoading }
+        #expect(model.machines.count == 1, "The machine list itself still loads")
+        #expect(model.listStatus == .failed(.cloudAccessRevoked))
+        #expect(MachineListStatusPresentation(.failed(.cloudAccessRevoked)).action == .signInAgain)
+    }
+
     private static func listRequests() async -> Int {
         await CloudRefreshURLProtocol.requestCounts()["/api/vm"] ?? 0
     }

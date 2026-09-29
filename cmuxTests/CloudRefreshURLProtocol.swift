@@ -3,12 +3,14 @@ import Foundation
 /// URLProtocol's synchronous callbacks hand off to one actor; only that actor
 /// reads the fixture state or calls the client, including after stopLoading.
 final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
-    enum Behavior: Sendable { case normal, statsUnavailable, listUnavailable, throttled }
+    enum Behavior: Sendable { case normal, statsUnavailable, listUnavailable, throttled, tunnelAccessRevoked }
     private static let responses = Responses()
     /// Fixture state is keyed per request, not by object address: URLSession
     /// frees a finished protocol, and the next request can reuse its address,
     /// which made a fresh request look already stopped and never answer.
     private let requestID = UUID()
+    /// The server's permanent answer for a revoked Mac login (`routeHelpers.ts`).
+    static let tunnelAccessRevokedBody = #"{"phase":"network","retryable":false,"ui":{"title":"Cloud VM authentication required","message":"Cloud access for this Mac login was revoked.","phase":"network","severity":"error","retryable":false},"error":"vm_access_revoked","message":"Cloud access for this Mac login was revoked.","reason":"Cloud access for this Mac login was revoked.","action":"Sign out of cmux, then sign in again to enroll this Mac."}"#
     static func holdResponses() async { await responses.hold() }
     static func releaseResponses() async { await responses.release() }
     /// Answers the requests already waiting; requests that start later stay held.
@@ -77,11 +79,14 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
                 if self.held { await withCheckedContinuation { self.responseWaiters[key] = $0 } }
                 guard self.tasks.removeValue(forKey: key) != nil else { return }
                 let unavailable = path.hasSuffix("/stats") ? behavior == .statsUnavailable : behavior == .listUnavailable
-                let response = HTTPURLResponse(url: source.request.url!, statusCode: behavior == .throttled ? 429 : unavailable ? 503 : 200, httpVersion: nil,
+                let revoked = behavior == .tunnelAccessRevoked && path == "/api/vm/tunnel"
+                let response = HTTPURLResponse(url: source.request.url!, statusCode: revoked ? 403 : behavior == .throttled ? 429 : unavailable ? 503 : 200, httpVersion: nil,
                     headerFields: behavior == .throttled ? ["Retry-After": "60"] : nil)!
                 source.client?.urlProtocol(source, didReceive: response, cacheStoragePolicy: .notAllowed)
                 let body: String
-                if path == "/api/coderouter/vm-usage/team" {
+                if revoked {
+                    body = CloudRefreshURLProtocol.tunnelAccessRevokedBody
+                } else if path == "/api/coderouter/vm-usage/team" {
                     body = #"{"teamId":"fixture-team","kind":"ready","periodDays":30,"machines":[]}"#
                 } else if path.hasSuffix("/stats") {
                     body = #"{"state":"awake","cpus":2}"#
