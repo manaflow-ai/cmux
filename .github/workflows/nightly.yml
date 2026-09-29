@@ -527,18 +527,13 @@ jobs:
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
-      - name: Set up Go for the Cloud tunnel extension
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: '1.26.x'
-          cache: false
-
       - name: Refresh universal nightly compilation cache
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+          # The warmer only fills the Swift compilation cache; the Chromium
+          # engine is a prebuilt artifact the shipped build embeds itself.
+          CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
             -packageCachePath "$PWD/.spm-cache/.package-cache" \
@@ -1063,13 +1058,19 @@ jobs:
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
-      - name: Set up Go for the Cloud tunnel extension
+      - name: Set up Go for the SSH daemon assets
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26.x'
           cache: false
 
+      # The Embed CEF phase fetches the pinned Chromium engine from the private
+      # manaflow-ai/cef release (scripts/cmux-next/cef-manifest.json). With no
+      # readable token it builds without the engine and the app reports the
+      # browser unavailable; "Report the embedded Chromium engine" flags that.
       - name: Build nightly app (Release)
+        env:
+          GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
         run: |
           set -euo pipefail
           if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
@@ -1224,18 +1225,16 @@ jobs:
           products="build-universal/Build/Products/Release"
           ./scripts/strip-release-bundle.sh "$products/cmux.app"
 
-      - name: Verify Cloud tunnel engine before transfer
+      - name: Report the embedded Chromium engine
         run: |
           set -euo pipefail
           app="build-universal/Build/Products/Release/cmux.app"
-          sysext="$(find "$app/Contents/Library/SystemExtensions" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print -quit 2>/dev/null || true)"
-          if [[ -z "$sysext" ]]; then
-            echo "::error::Cloud tunnel system extension is missing"
-            exit 1
+          framework="$app/Contents/Frameworks/Chromium Embedded Framework.framework"
+          if [[ -d "$framework" ]]; then
+            echo "Chromium engine embedded: $(lipo -archs "$framework/Versions/A/Chromium Embedded Framework")"
+          else
+            echo "::warning title=No Chromium engine::The CEF artifact was not readable (secret CMUX_CEF_READ_TOKEN); this build ships the browser as unavailable."
           fi
-          executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$sysext/Contents/Info.plist")"
-          binary="$sysext/Contents/MacOS/$executable"
-          ./scripts/verify-tunnel-extension-engine.sh "$binary"
 
       - name: Archive unsigned nightly app
         run: |
@@ -1291,15 +1290,14 @@ jobs:
           submodules: false
 
       # The fast arm64 build bundles its own compiled client instead.
+      # The app ships the cmux-tui daemon it was built and tested against:
+      # scripts/cmux-next/cmux-tui.pin (the same pin every tagged build bundles).
       - name: Resolve cmux-tui client commit
         id: resolve
         if: needs.decide.outputs.fast_build != 'true'
         run: |
           set -euo pipefail
-          # actions/checkout is depth 1 here, so a bare `git log -1 -- cmux-tui` would answer
-          # HEAD. The resolver deepens as needed and may bundle the newest *published*
-          # client when the latest cmux-tui commit has no artifacts yet (it warns when it does).
-          cmux_tui_commit="$(./scripts/ci/resolve-cmux-tui-client-commit.sh --max-fallback 5)"
+          cmux_tui_commit="$(awk -F= '$1=="commit"{print $2}' scripts/cmux-next/cmux-tui.pin)"
           [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]]
           echo "commit=$cmux_tui_commit" >> "$GITHUB_OUTPUT"
 
@@ -1484,6 +1482,7 @@ jobs:
           # Same local-symbol strip scripts/strip-release-bundle.sh applied when
           # the client was bundled before the unsigned app was archived.
           strip -S -x "$app/Contents/Resources/bin/cmux-tui"
+          ./scripts/cmux-next/write-cmux-tui-version.sh "$app" "$cmux_tui_commit"
 
       - name: Run bundled Ghostty theme picker helper regression
         run: |
@@ -1501,10 +1500,13 @@ jobs:
       - name: Thin bundle to the variant architecture
         # The fast build is already compiled arm64, but the downloaded cmux-tui
         # client can still be universal. Thin every non-universal artifact before
-        # signing so the architecture gate remains meaningful.
+        # signing so the architecture gate remains meaningful. The Chromium
+        # engine artifact is arm64 only: an x86_64 variant drops it first and
+        # reports the browser unavailable.
         if: matrix.variant != 'universal'
         run: |
           set -euo pipefail
+          ./scripts/cmux-next/drop-cef-without-arch.sh build-universal/Build/Products/Release/cmux.app "$NIGHTLY_VARIANT"
           ./scripts/thin-app-bundle.sh build-universal/Build/Products/Release/cmux.app "$NIGHTLY_VARIANT"
 
       - name: Verify nightly binary architectures
@@ -1516,9 +1518,7 @@ jobs:
             "$APP/Contents/Resources/bin/cmux" \
             "$APP/Contents/Resources/bin/ghostty" \
             "$APP/Contents/Resources/bin/cmux-tui" \
-            "$APP/Contents/Resources/bin/cmux-cua" \
-            "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
-            "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
+            "$APP/Contents/Resources/bin/cmux-diff-sidecar"
           do
             archs="$(lipo -archs "$binary")"
             echo "$binary: $archs"
@@ -1594,18 +1594,6 @@ jobs:
             /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$app_plist"
             /usr/libexec/PlistBuddy -c "Delete :CMUXCommit" "$app_plist" >/dev/null 2>&1 || true
             /usr/libexec/PlistBuddy -c "Add :CMUXCommit string ${SHORT_SHA}" "$app_plist"
-            # The bundled Cloud tunnel extension follows the app's identity:
-            # <bundle id>.tunnel, team-prefixed mach service, same version.
-            local sysext
-            sysext="$(find "$app_dir/cmux.app/Contents/Library/SystemExtensions" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print -quit 2>/dev/null || true)"
-            if [[ -n "$sysext" ]]; then
-              local sysext_plist="$sysext/Contents/Info.plist"
-              /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${bundle_id}.tunnel" "$sysext_plist"
-              /usr/libexec/PlistBuddy -c "Set :NetworkExtension:NEMachServiceName 7WLXT3NR37.${bundle_id}.tunnel" "$sysext_plist"
-              /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${NIGHTLY_MARKETING_VERSION}" "$sysext_plist"
-              /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$sysext_plist"
-              ./scripts/normalize-system-extension-bundle.sh "$app_dir/cmux.app" "${bundle_id}.tunnel"
-            fi
             mv "$app_dir/cmux.app" "$app_dir/${CHANNEL_APP_NAME}.app"
           }
 
@@ -1660,24 +1648,8 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           security list-keychains -d user -s build.keychain
 
-      - name: Start Computer Use helper notarization
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        run: |
-          state="$RUNNER_TEMP/cmux-computer-use-notarization.state"
-          rm -f "$state"
-          ./scripts/ci/notarize-computer-use-helper.sh \
-            --start "$state" \
-            "$CHANNEL_APP_PATH" \
-            "$CHANNEL_ENTITLEMENTS" \
-            "$APPLE_SIGNING_IDENTITY"
-
-      # Each channel has its own Developer ID profiles:
-      # APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 / APPLE_RC_PROVISIONING_PROFILE_BASE64
-      # for the app and the matching *_TUNNEL_* secret for the system extension.
+      # Each channel has its own Developer ID profile:
+      # APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 / APPLE_RC_PROVISIONING_PROFILE_BASE64.
       - name: Embed channel provisioning profile
         env:
           APP_PROVISIONING_PROFILE_BASE64: ${{ secrets[format('APPLE_{0}_PROVISIONING_PROFILE_BASE64', needs.decide.outputs.channel_upper)] }}
@@ -1727,16 +1699,6 @@ jobs:
 
           cp "$TMP_PROFILE" "$PROFILE_PATH"
 
-      - name: Embed Cloud tunnel extension provisioning profile
-        env:
-          TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ secrets[format('APPLE_{0}_TUNNEL_PROVISIONING_PROFILE_BASE64', needs.decide.outputs.channel_upper)] }}
-        run: |
-          set -euo pipefail
-          ./scripts/ci/embed-tunnel-extension-profile.sh \
-            "$CHANNEL_APP_PATH" \
-            "7WLXT3NR37.${CHANNEL_BUNDLE_ID}.tunnel" \
-            "${TUNNEL_PROVISIONING_PROFILE_BASE64:-}"
-
       - name: Codesign apps
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -1745,8 +1707,7 @@ jobs:
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
-          CMUX_SIGN_MODE=all-except-computer-use \
-            ./scripts/sign-cmux-bundle.sh \
+          ./scripts/sign-cmux-bundle.sh \
             "$CHANNEL_APP_PATH" \
             "$CHANNEL_ENTITLEMENTS" \
             "$APPLE_SIGNING_IDENTITY"
@@ -1790,7 +1751,6 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
           CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
         run: |
           ./scripts/ci/notarize-nightly-dmg.sh \

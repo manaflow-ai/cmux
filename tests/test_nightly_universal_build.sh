@@ -311,12 +311,18 @@ if ! grep -Fq 'description: Build one arm64 dogfood DMG without Intel or Sparkle
   exit 1
 fi
 
+# cmux-next ships no Cloud tunnel system extension. The Chromium engine
+# artifact is arm64 only, so an x86_64 variant drops it before thinning.
+if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension|cmux-cua|Computer Use' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly still handles the legacy tunnel extension or Computer Use helper"
+  exit 1
+fi
 if ! awk '
-  /^      - name: Strip unsigned nightly app before transfer/ { strip_line=NR }
-  /^      - name: Verify Cloud tunnel engine before transfer/ { verify_line=NR }
-  END { exit !(strip_line && verify_line && strip_line < verify_line) }
+  /drop-cef-without-arch\.sh build-universal\/Build\/Products\/Release\/cmux\.app "\$NIGHTLY_VARIANT"/ { drop_line=NR }
+  /thin-app-bundle\.sh build-universal\/Build\/Products\/Release\/cmux\.app "\$NIGHTLY_VARIANT"/ { thin_line=NR }
+  END { exit !(drop_line && thin_line && drop_line < thin_line) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must reject a stub Cloud tunnel engine before the slow signing and notarization matrix"
+  echo "FAIL: nightly must drop an arm64-only Chromium engine before thinning a variant"
   exit 1
 fi
 
@@ -331,18 +337,15 @@ if ! awk '
 fi
 
 RELEASE_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/release.yml"
-if ! awk '
-  /^      - name: Strip release binaries/ { strip_line=NR }
-  /^      - name: Verify Cloud tunnel engine before signing/ { verify_line=NR }
-  END { exit !(strip_line && verify_line && strip_line < verify_line) }
-' "$RELEASE_WORKFLOW_FILE"; then
-  echo "FAIL: release must reject a stub Cloud tunnel engine before signing and notarization"
+if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension|cmux-cua|Computer Use' "$RELEASE_WORKFLOW_FILE"; then
+  echo "FAIL: release still handles the legacy tunnel extension or Computer Use helper"
   exit 1
 fi
 
 for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
-  if ! grep -Fq 'cmux_tui_commit="$(./scripts/ci/resolve-cmux-tui-client-commit.sh' "$workflow"; then
-    echo "FAIL: $(basename "$workflow") must resolve the cmux-tui client commit through scripts/ci/resolve-cmux-tui-client-commit.sh"
+  # The app ships the cmux-tui it was built against: the pinned commit.
+  if ! grep -Fq "cmux_tui_commit=\"\$(awk -F= '\$1==\"commit\"{print \$2}' scripts/cmux-next/cmux-tui.pin)\"" "$workflow"; then
+    echo "FAIL: $(basename "$workflow") must install the cmux-tui commit scripts/cmux-next/cmux-tui.pin names"
     exit 1
   fi
   if grep -Fq 'git log -1 --format=%H -- cmux-tui' "$workflow"; then
@@ -360,14 +363,14 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   fi
 done
 
-# The resolver deepens the shallow clone, which took 1.5 to 11 minutes. It runs
-# in its own job beside the Xcode compile, never after it in build-nightly-app,
-# and every sign variant installs that one commit before thinning.
+# The commit is resolved in its own job beside the Xcode compile, never in
+# build-nightly-app, and every sign variant installs that one commit before
+# thinning.
 if ! awk '
   /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
   job == "build-nightly-app:" && /resolve-cmux-tui-client-commit\.sh/ { in_app=1 }
   job == "resolve-nightly-cmux-tui-client:" && /^    needs: decide$/ { resolver_needs=1 }
-  job == "resolve-nightly-cmux-tui-client:" && /cmux_tui_commit="\$\(\.\/scripts\/ci\/resolve-cmux-tui-client-commit\.sh --max-fallback 5\)"/ { resolver=1 }
+  job == "resolve-nightly-cmux-tui-client:" && /scripts\/cmux-next\/cmux-tui\.pin/ { resolver=1 }
   job == "build-sign-notarize-nightly:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { sign_needs=1 }
   job == "build-sign-notarize-nightly:" && /^      - name: Bundle the cmux-tui client$/ { install_line=NR }
   job == "build-sign-notarize-nightly:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }

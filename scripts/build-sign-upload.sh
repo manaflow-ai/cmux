@@ -69,25 +69,34 @@ rm -rf GhosttyKit.xcframework ghostty/macos/GhosttyKit.xcframework
 cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 
 # --- Build app (Release, unsigned) ---
+# The Embed CEF phase embeds the pinned Chromium engine when the private
+# manaflow-ai/cef release is readable (gh login or GH_TOKEN), else the app
+# ships the browser as unavailable.
 echo "Building app..."
 rm -rf build/
+./scripts/cmux-next/pin-cmux-tui.sh fetch
 xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
 echo "Build succeeded"
+if [ ! -d "$APP_PATH/Contents/Frameworks/Chromium Embedded Framework.framework" ]; then
+  echo "WARNING: no Chromium engine embedded; this release ships the browser as unavailable" >&2
+fi
 
+# The universal cmux-tui client of the pinned commit, as release.yml installs it.
+CMUX_TUI_COMMIT="$(awk -F= '$1=="commit"{print $2}' scripts/cmux-next/cmux-tui.pin)"
+./scripts/install-cmux-tui-client.sh "$APP_PATH" \
+  --manifest-url "https://files.cmux.com/cmux-tui/${CMUX_TUI_COMMIT}/manifest.json" \
+  --expected-commit "$CMUX_TUI_COMMIT" \
+  --require-capability wireguard-hub
+./scripts/cmux-next/write-cmux-tui-version.sh "$APP_PATH" "$CMUX_TUI_COMMIT"
+
+# The cmux-next target does not build the Ghostty CLI helper (theme picker);
+# release.yml and nightly.yml inject a prebuilt one, this script builds it.
 HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
+./scripts/build-ghostty-cli-helper.sh --universal --output "$HELPER_PATH"
 if [ ! -x "$HELPER_PATH" ]; then
   echo "Ghostty theme picker helper not found at $HELPER_PATH" >&2
   exit 1
 fi
-
-# Submit the independently signed Computer Use helper now. Apple can process
-# its first ticket while this script finishes bundle metadata and signing.
-COMPUTER_USE_NOTARY_STATE="build/computer-use-notarization.state"
-./scripts/ci/notarize-computer-use-helper.sh \
-  --start "$COMPUTER_USE_NOTARY_STATE" \
-  "$APP_PATH" \
-  "$ENTITLEMENTS" \
-  "$SIGN_HASH"
 
 # --- Inject Sparkle keys ---
 echo "Injecting Sparkle keys..."
@@ -105,17 +114,11 @@ echo "Sparkle keys injected"
 
 # --- Codesign ---
 echo "Codesigning..."
-CMUX_SIGN_MODE=all-except-computer-use \
-  ./scripts/sign-cmux-bundle.sh "$APP_PATH" "$ENTITLEMENTS" "$SIGN_HASH"
+./scripts/sign-cmux-bundle.sh "$APP_PATH" "$ENTITLEMENTS" "$SIGN_HASH"
 echo "Codesign verified"
 
 # --- Notarize app ---
 echo "Notarizing app..."
-./scripts/ci/notarize-computer-use-helper.sh \
-  --finish "$COMPUTER_USE_NOTARY_STATE" \
-  "$APP_PATH" \
-  "$ENTITLEMENTS" \
-  "$SIGN_HASH"
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" cmux-notary.zip
 xcrun notarytool submit cmux-notary.zip \
   --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
