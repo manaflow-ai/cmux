@@ -1,6 +1,10 @@
 import Foundation
 
-/// Commits one verified setup attempt across both daemon profiles, or withdraws it.
+/// Commits one verified setup attempt as the durable completion record, or withdraws it.
+///
+/// Each `publish` republishes that profile's grant-based admission
+/// (`ComputerUseProfileAdmissionCoordinator`); the record itself is
+/// presentation history and does not open or close admission.
 @MainActor
 public struct ComputerUseOnboardingAdmissionCoordinator {
     public let store: ComputerUseOnboardingStore
