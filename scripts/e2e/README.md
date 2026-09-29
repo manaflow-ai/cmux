@@ -4,8 +4,9 @@ Driver contract for [.github/workflows/ios-e2e.yml](../../.github/workflows/ios-
 The workflow owns runner selection, tailnet join, product download, the
 backend stack, evidence upload, and the teardown signal; these scripts own
 everything on the runner between "app product on disk" and "verdict". The
-interface is environment variables only, no flags — keep it stable, the
-workflow and the scripts land from different PRs.
+scripts have separate interfaces. `mac-host.sh` is configured through
+environment variables. `ios-e2e-run.sh` requires flags for the run identity and
+uses environment variables for shared credentials and backend state.
 
 ## mac-host.sh
 
@@ -18,26 +19,32 @@ blocks until the iOS job signals completion.
 | `CMUX_E2E_TAG` | Shared dev tag for this run (`ci<PR#>` or `ci-main`). Names the app bundle (`com.cmuxterm.app.debug.<tag>`), the debug socket (`/tmp/cmux-debug-<tag>.sock`), and the backend stack. |
 | `CMUX_DEV_BACKEND_URL` | Web API origin of the ensured backend stack (private Tailscale Serve URL on the durable VM). |
 | `CMUX_E2E_DONE_FILE` | Absolute path of the teardown file. Poll for it locally (sleep loop); the iOS job touches it over Tailscale SSH. Never substitute GitHub API status polling — a ~25-minute per-PR poll loop draws down the repo-wide API rate limit, and the file needs no token. |
-| `CMUX_E2E_WAIT_TIMEOUT_SECONDS` | Optional bound on the done-file wait; default 1500 (~25m). Expiry exits nonzero. |
+| `CMUX_E2E_WAIT_TIMEOUT_SECONDS` | Optional bound on the done-file wait; default 1500 (~25m). Expiry exits 0 with phase `wait-timeout`; setup failures exit nonzero. |
 | `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD` | Dedicated CI Stack account (the pair ios-streamed-validate.yml uses; the app's dev-secrets resolution reads `CMUX_DOGFOOD_STACK_*` from the environment first). Never echo, never pass on argv, never write to disk. |
 
-Exit 0 means the app launched, signed in, advertised, and the done-file
-appeared in time. On failure exit nonzero and name the phase on the last
-stderr line: `launch`, `sign-in`, `advertise`, or `wait-timeout`.
+Exit 0 means the app launched, signed in, and either received the done-file or
+reached the bounded `wait-timeout`. On failure exit nonzero and name the phase
+on the last stderr line: `launch`, `socket`, `sign-in`, or `wait-timeout`.
 
 ## ios-e2e-run.sh
 
-Signs the simulator app in, pairs it to the remote Mac through the backend,
-connects over Iroh, and drives the 6-step terminal script against a real
-streamed terminal.
+Drives an already signed-in, paired, connected simulator through the 6-step
+terminal script against a real streamed terminal. The workflow owns sign-in,
+pairing, and connection setup; the driver receives the resulting run identity
+and simulator explicitly through flags.
+
+| Flag | Meaning |
+| --- | --- |
+| `--tag <tag>` | Shared Mac/iOS dev tag; pairing is tag-scoped. |
+| `--sim-udid <udid>` | Exact booted simulator owned by this run. The driver passes this UDID to every simctl call. |
+| `--evidence-dir <dir>` | Directory for screenshots, streamed-grid text dumps, and device logs. The workflow uploads it verbatim (`if: always()`). |
+| `--bundle-id <id>` | Optional installed bundle override. Without it, the driver discovers the isolated `dev.cmux.*` bundle on the simulator. |
+| `--step-timeout <seconds>` | Optional bounded wait per terminal step; default 45 seconds. |
 
 | Env | Meaning |
 | --- | --- |
-| `CMUX_E2E_TAG` | Same shared tag as the Mac host (bundle `dev.cmux.ios.<tag>`); pairing is tag-scoped, so a tag mismatch can never pair. |
 | `CMUX_DEV_BACKEND_URL` | Web API origin used for sign-in and pairing. |
-| `CMUX_E2E_SIM_UDID` | The freshly created, booted simulator this run owns. Pass it to every simctl/idb call; never resolve by name. |
-| `CMUX_E2E_EVIDENCE_DIR` | Directory for screenshots, streamed-grid text dumps, and device logs; the workflow uploads it verbatim (`if: always()`). Write a capture at every step boundary, pass or fail. |
-| `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD` | Same account as the Mac host — pairing's same-account RPC gate requires both ends to resolve one account. Same secrecy rules. |
+| `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD` | Same account as the Mac host; pairing's same-account RPC gate requires both ends to resolve one account. Same secrecy rules. |
 
 On failure exit nonzero and print `E2E FAIL step=<id>` as the last stderr
 line, where `<id>` is a step id below or `sign-in`, `pair`, `connect` for the
