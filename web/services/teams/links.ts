@@ -3,6 +3,7 @@ import type { TeamAccess } from "./access";
 import { TeamApiError } from "./errors";
 import { assertSeatsAvailable } from "./seats";
 import { databaseTeamInviteStore, type StoredInviteLink, type TeamInviteStore } from "./repository";
+import { defaultTeamSeatSync, type TeamSeatSync } from "./seatSync";
 import {
   defaultTeamStackApp,
   isTeamMembershipAlreadyExists,
@@ -45,6 +46,7 @@ export type LinkDependencies = {
   readonly store?: TeamInviteStore;
   readonly stack?: TeamStackApp;
   readonly now?: () => Date;
+  readonly seats?: TeamSeatSync;
 };
 
 export async function createTeamInviteLink(
@@ -147,6 +149,7 @@ export async function redeemTeamInviteLink(
       if (claim === "claimed") await store.releaseLinkClaim(link.id, userId);
       throw error;
     }
+    await (dependencies.seats ?? defaultTeamSeatSync).membershipChanged(team.id);
   }
   await withStackDeadline(async () => {
     const user = await stack.getUser(userId);

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { acceptTeamInvitationCode } from "../services/teams/accept";
 import { TeamApiError, TeamServiceUnavailableError } from "../services/teams/errors";
 import { createInvitationCodeClient, type InvitationCodeClient } from "../services/teams/invitationCode";
-import { ADMIN_ID, MemoryInviteStore, OUTSIDER_ID, standardTeam, TEAM_ID } from "./teams-fixture";
+import { ADMIN_ID, MemoryInviteStore, MemoryTeamSeatSync, OUTSIDER_ID, standardTeam, TEAM_ID } from "./teams-fixture";
 
 const INVITEE_EMAIL = "invitee@example.com";
 
@@ -72,7 +72,7 @@ describe("accepting an email invitation", () => {
     const store = await storeWithRole(INVITEE_EMAIL, "admin");
     const codes = codeClient({ onAccept: () => stack.consumeInvitation(invitation.id, OUTSIDER_ID) });
 
-    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store });
+    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store, seats: new MemoryTeamSeatSync() });
 
     expect(result).toEqual({ teamId: TEAM_ID, role: "admin" });
     expect(stack.grantsOf(TEAM_ID, OUTSIDER_ID).has("team_admin")).toBe(true);
@@ -103,7 +103,7 @@ describe("accepting an email invitation", () => {
     await store.upsertInviteRole({ stackTeamId: TEAM_ID, email: INVITEE_EMAIL, role: "member", invitedByUserId: ADMIN_ID });
     const codes = codeClient({ onAccept: () => stack.consumeInvitation(consumed.id, OUTSIDER_ID) });
 
-    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store });
+    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store, seats: new MemoryTeamSeatSync() });
 
     // The admin invitation to the other address was not the one used.
     expect(result.role).toBe("member");
@@ -121,7 +121,7 @@ describe("accepting an email invitation", () => {
         stack.teams.get(TEAM_ID)!.members.add(OUTSIDER_ID);
       },
     });
-    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store });
+    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store, seats: new MemoryTeamSeatSync() });
     expect(result.role).toBe("member");
     expect(stack.grantsOf(TEAM_ID, OUTSIDER_ID).has("team_admin")).toBe(false);
   });
@@ -137,7 +137,7 @@ describe("accepting an email invitation", () => {
       invitedByUserId: ADMIN_ID,
     });
     const codes = codeClient({ onAccept: () => stack.consumeInvitation(invitation.id, OUTSIDER_ID) });
-    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store });
+    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store, seats: new MemoryTeamSeatSync() });
     expect(result.role).toBe("member");
   });
 
@@ -145,7 +145,7 @@ describe("accepting an email invitation", () => {
     const stack = inviteeStack();
     const store = new MemoryInviteStore();
     const run = (codes: InvitationCodeClient) =>
-      failure(acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store }));
+      failure(acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store, seats: new MemoryTeamSeatSync() }));
     expect(await run(codeClient({ detailsFailure: "email_mismatch" }))).toBe("409:email_mismatch");
     expect(await run(codeClient({ detailsFailure: "invalid" }))).toBe("410:invitation_invalid");
     expect(await run(codeClient({ acceptFailure: "invalid" }))).toBe("410:invitation_invalid");
@@ -158,7 +158,7 @@ describe("accepting an email invitation", () => {
     stack.addInvitation(TEAM_ID, INVITEE_EMAIL);
     const store = await storeWithRole(INVITEE_EMAIL, "admin");
     const codes = codeClient({});
-    expect(await failure(acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store })))
+    expect(await failure(acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store, seats: new MemoryTeamSeatSync() })))
       .toBe("503:service_unavailable");
     expect(stack.grantsOf(TEAM_ID, OUTSIDER_ID).has("team_admin")).toBe(false);
   });

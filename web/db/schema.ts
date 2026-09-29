@@ -2302,3 +2302,24 @@ export const teamInviteLinkRedemptions = pgTable("team_invite_link_redemptions",
 }, (table) => [
   primaryKey({ name: "team_invite_link_redemptions_pkey", columns: [table.linkId, table.userId] }),
 ]);
+
+/**
+ * Seat reconcile queue for Team subscriptions. A membership change upserts the
+ * team's row with `dirty_at`; the reconciler compares the live member count
+ * with the Stripe quantity and clears `dirty_at` only when it is unchanged
+ * since it was read, so a change during a run keeps the team queued.
+ * `dirty_at` is millisecond precision so that comparison survives the JS Date
+ * round trip.
+ */
+export const teamSeatReconciles = pgTable("team_seat_reconciles", {
+  stackTeamId: text("stack_team_id").primaryKey(),
+  dirtyAt: timestamp("dirty_at", { withTimezone: true, precision: 3 }),
+  lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
+  lastMemberCount: integer("last_member_count"),
+  lastStripeQuantity: integer("last_stripe_quantity"),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("team_seat_reconciles_dirty_idx").on(table.dirtyAt).where(sql`${table.dirtyAt} is not null`),
+]);

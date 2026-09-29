@@ -14,6 +14,7 @@ import {
   ADMIN_ID,
   MEMBER_ID,
   MemoryInviteStore,
+  MemoryTeamSeatSync,
   OUTSIDER_ID,
   standardTeam,
   TEAM_ID,
@@ -31,7 +32,7 @@ async function setup(input: { expiresInDays?: 1 | 7 | 30 | null; maxUses?: numbe
     { expiresInDays: input.expiresInDays ?? null, maxUses: input.maxUses ?? null },
     { store, now: () => store.now },
   );
-  return { stack, store, access: access.access, ...created, deps: { store, stack: stack.app() } };
+  return { stack, store, access: access.access, ...created, deps: { store, stack: stack.app(), seats: new MemoryTeamSeatSync() } };
 }
 
 async function code(promise: Promise<unknown>): Promise<string> {

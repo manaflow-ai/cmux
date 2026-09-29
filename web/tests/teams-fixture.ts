@@ -14,6 +14,13 @@ import type {
   TeamStackApp,
 } from "../services/teams/stack";
 import type { TeamRole } from "../services/teams/types";
+import type { TeamSeatSync } from "../services/teams/seatSync";
+import {
+  TEAM_SEATS_BUSY,
+  type DirtyTeamSeatRow,
+  type TeamSeatQueue,
+  type TeamSeatReconcileOutcome,
+} from "../services/billing/teamSeatQueue";
 
 export const TEAM_ID = "11111111-1111-4111-8111-111111111111";
 export const OTHER_TEAM_ID = "22222222-2222-4222-8222-222222222222";
@@ -317,4 +324,65 @@ export class MemoryInviteStore implements TeamInviteStore {
 /** A no-op advisory lock for member mutations. */
 export async function noLock<T>(_teamId: string, operation: () => Promise<T>): Promise<T> {
   return operation();
+}
+
+/** Mirrors databaseTeamSeatQueue: an upsert to mark, compare-and-clear to record. */
+export class MemoryTeamSeatQueue implements TeamSeatQueue {
+  readonly rows = new Map<string, {
+    dirtyAt: Date | null;
+    lastReconciledAt: Date | null;
+    lastMemberCount: number | null;
+    lastStripeQuantity: number | null;
+    lastError: string | null;
+  }>();
+  readonly locked = new Set<string>();
+  readonly events: string[] = [];
+  failMark = false;
+  now = new Date("2026-09-29T12:00:00.000Z");
+
+  async markDirty(stackTeamId: string): Promise<void> {
+    if (this.failMark) throw new Error("queue down");
+    this.events.push(`dirty:${stackTeamId}`);
+    const row = this.rows.get(stackTeamId) ??
+      { dirtyAt: null, lastReconciledAt: null, lastMemberCount: null, lastStripeQuantity: null, lastError: null };
+    row.dirtyAt = this.now;
+    this.rows.set(stackTeamId, row);
+  }
+
+  async listDirty(limit: number, teamIds?: readonly string[]): Promise<readonly DirtyTeamSeatRow[]> {
+    return [...this.rows.entries()]
+      .filter(([id, row]) => row.dirtyAt !== null && (teamIds === undefined || teamIds.includes(id)))
+      .sort((left, right) => left[1].dirtyAt!.getTime() - right[1].dirtyAt!.getTime())
+      .slice(0, limit)
+      .map(([stackTeamId, row]) => ({ stackTeamId, dirtyAt: row.dirtyAt! }));
+  }
+
+  async withTeamLock<T>(stackTeamId: string, work: () => Promise<T>): Promise<T | typeof TEAM_SEATS_BUSY> {
+    if (this.locked.has(stackTeamId)) return TEAM_SEATS_BUSY;
+    this.locked.add(stackTeamId);
+    try {
+      return await work();
+    } finally {
+      this.locked.delete(stackTeamId);
+    }
+  }
+
+  async recordOutcome(stackTeamId: string, observedDirtyAt: Date, outcome: TeamSeatReconcileOutcome): Promise<void> {
+    const row = this.rows.get(stackTeamId);
+    if (!row) return;
+    row.lastReconciledAt = this.now;
+    row.lastMemberCount = outcome.memberCount;
+    row.lastStripeQuantity = outcome.stripeQuantity;
+    row.lastError = outcome.error;
+    this.events.push(`outcome:${stackTeamId}:${outcome.memberCount}:${outcome.stripeQuantity}:${outcome.error}`);
+    if (outcome.error === null && row.dirtyAt?.getTime() === observedDirtyAt.getTime()) row.dirtyAt = null;
+  }
+}
+
+/** Records membership facts without a queue or Stripe. */
+export class MemoryTeamSeatSync implements TeamSeatSync {
+  readonly changed: string[] = [];
+  async membershipChanged(stackTeamId: string): Promise<void> {
+    this.changed.push(stackTeamId);
+  }
 }

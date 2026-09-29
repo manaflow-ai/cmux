@@ -2,12 +2,14 @@ import { adminCount, loadTeamAccess, memberRole, type TeamAccess } from "./acces
 import { TeamApiError } from "./errors";
 import { TEAM_ADMIN_PERMISSION } from "./permissions";
 import { withTeamAdminLock } from "./repository";
+import { defaultTeamSeatSync, type TeamSeatSync } from "./seatSync";
 import { defaultTeamStackApp, withStackDeadline, type TeamStackApp } from "./stack";
 import type { TeamRole } from "./types";
 
 export type MemberMutationDependencies = {
   readonly stack?: TeamStackApp;
   readonly lock?: <T>(teamId: string, operation: () => Promise<T>) => Promise<T>;
+  readonly seats?: TeamSeatSync;
 };
 
 /**
@@ -82,4 +84,6 @@ export async function removeMember(
     assertNotLastAdmin(fresh, targetUserId);
     await withStackDeadline(() => fresh.team.removeUser(targetUserId));
   });
+  // Outside the admin lock: the seat fact is recorded after the membership write commits.
+  await (dependencies.seats ?? defaultTeamSeatSync).membershipChanged(access.team.id);
 }
