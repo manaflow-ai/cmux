@@ -18,7 +18,7 @@ extension LayoutRootView {
             return nil
         }
         let rect = convert(hit.highlight, from: view)
-        if highlight.show(rect, text: LayoutStrings.label(for: hit.target), animated: canAnimate) { driver.start() }
+        if highlight.show(rect, text: LayoutStrings.label(for: hit.target), cornerRadius: context.style.panelCornerRadius, animated: canAnimate) { driver.start() }
         return hit.target
     }
 

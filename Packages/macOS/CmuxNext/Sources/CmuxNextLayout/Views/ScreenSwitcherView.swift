@@ -3,6 +3,8 @@ import CmuxNextDesign
 
 /// Glass capsule listing screens. Hidden unless `LayoutModel.showsScreenSwitcher`.
 final class ScreenSwitcherView: NSView {
+    /// Inset between the capsule edge and the pills.
+    private static let inset: CGFloat = 3
     var onSelect: ((ScreenID) -> Void)?
     private let stack = NSStackView()
     private let glass: NSGlassEffectView
@@ -11,11 +13,12 @@ final class ScreenSwitcherView: NSView {
 
     override init(frame frameRect: NSRect) {
         let content = NSView()
-        glass = Glass.makePanel(content: content, cornerRadius: 14)
+        // Concentric capsule around the pills.
+        glass = Glass.makePanel(content: content, cornerRadius: ScreenPillView.height / 2 + Self.inset)
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .horizontal
-        stack.spacing = 2
+        stack.spacing = Metrics.space1
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
         addSubview(glass)
@@ -24,10 +27,10 @@ final class ScreenSwitcherView: NSView {
             glass.trailingAnchor.constraint(equalTo: trailingAnchor),
             glass.topAnchor.constraint(equalTo: topAnchor),
             glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 3),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -3),
-            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 3),
-            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -3),
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Self.inset),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Self.inset),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: Self.inset),
+            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -Self.inset),
         ])
         setAccessibilityElement(true)
         setAccessibilityRole(.tabGroup)
@@ -61,6 +64,8 @@ final class ScreenSwitcherView: NSView {
 }
 
 private final class ScreenPillView: NSView {
+    static let height: CGFloat = 22
+    private static let horizontalPadding: CGFloat = 10
     let id: ScreenID
     var onClick: ((ScreenID) -> Void)?
     private let label = NSTextField(labelWithString: "")
@@ -72,15 +77,15 @@ private final class ScreenPillView: NSView {
         self.id = id
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 11
-        label.font = .systemFont(ofSize: 12, weight: .medium)
+        layer?.cornerRadius = Self.height / 2
+        label.font = Typography.bodyEmphasized
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.horizontalPadding),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.horizontalPadding),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            heightAnchor.constraint(equalToConstant: 22),
+            heightAnchor.constraint(equalToConstant: Self.height),
         ])
         setAccessibilityElement(true)
         setAccessibilityRole(.radioButton)
@@ -93,6 +98,7 @@ private final class ScreenPillView: NSView {
 
     func update(title: String, selected: Bool) {
         label.stringValue = title
+        label.font = Typography.bodyEmphasized
         self.selected = selected
         setAccessibilityLabel(title)
         setAccessibilityValue(selected)

@@ -48,7 +48,7 @@ public final class LayoutRootView: NSView {
         addSubview(highlight)
         addSubview(switcher)
         NSLayoutConstraint.activate([
-            switcher.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            switcher.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.space4),
             switcher.centerXAnchor.constraint(equalTo: centerXAnchor),
         ])
         switcher.onSelect = { [weak self] id in self?.model.selectScreen(id) }
