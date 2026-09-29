@@ -106,12 +106,15 @@ final class CloudRestoreReplayFixture {
         #expect(input.inputBytes == bytes)
     }
 
-    func deliver(_ bytes: Data, event: String, marker: String, colors: [String: Any]? = nil) async throws {
+    func deliver(
+        _ bytes: Data, event: String, marker: String, colors: [String: Any]? = nil, pending: Data? = nil
+    ) async throws {
         var payload: [String: Any] = [
             "event": event, "surface": 17, "cols": 80, "rows": 24,
             "data": bytes.base64EncodedString()
         ]
         if let colors { payload["colors"] = colors }
+        if let pending { payload["pending"] = pending.base64EncodedString() }
         socket.send(payload)
         try await waitUntil { self.surface.readText(region: .screen)?.contains(marker) == true }
     }
