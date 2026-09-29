@@ -389,15 +389,26 @@ build_helper() {
   fi
 
   echo "Building Ghostty CLI helper with $zig_bin${target:+ for $target}"
+  local metal_toolchain
+  metal_toolchain="${CMUX_METAL_TOOLCHAIN_IDENTIFIER:-}"
+  if [[ -z "$metal_toolchain" ]]; then
+    metal_toolchain="$(xcodebuild -showComponent MetalToolchain -json 2>/dev/null \
+      | /usr/bin/python3 -c 'import json, sys; print(json.load(sys.stdin).get("toolchainIdentifier", ""))' \
+      2>/dev/null || true)"
+  fi
   (
     cd "$GHOSTTY_DIR"
     # Zig 0.15.x treats SDKROOT as a sysroot override. Xcode exports SDKROOT to
     # the macOS SDK, which makes Zig look for SDK paths under that SDK again and
     # leaves build-runner binaries unlinked against libSystem on a cold cache.
-    # Xcode also exports TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault. That
-    # selector hides the separately installed Metal Toolchain from xcrun, so
-    # let xcrun resolve Metal from the active Xcode component instead.
-    env -u SDKROOT -u TOOLCHAINS "${args[@]}"
+    # Xcode exports TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault, which
+    # hides the separately installed Metal Toolchain from xcrun. Select the
+    # installed Metal component explicitly while keeping SDKROOT unset for Zig.
+    if [[ -n "$metal_toolchain" ]]; then
+      env -u SDKROOT TOOLCHAINS="$metal_toolchain" "${args[@]}"
+    else
+      env -u SDKROOT -u TOOLCHAINS "${args[@]}"
+    fi
   )
 
   [[ -x "$prefix/bin/ghostty" ]] || {
