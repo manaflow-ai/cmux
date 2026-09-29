@@ -98,8 +98,10 @@ public struct AgentLifecycleReducer: Sendable {
         switch draft.kind {
         case .sessionStarted:
             return (.unknown, false)
-        case .turnStarted, .attentionResolved:
+        case .turnStarted:
             return (.running, false)
+        case .attentionResolved:
+            return (draft.declaredPhase ?? (draft.pendingWork ? .running : .idle), false)
         case .turnCompleted, .idleObserved:
             return (draft.pendingWork ? .running : .idle, false)
         case .approvalRequested, .questionRequested, .planReviewRequested:

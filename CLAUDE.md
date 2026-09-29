@@ -14,6 +14,9 @@ Read the matching skill before changing an area, then only the references needed
   checkouts, set `CMUX_DEV_BACKEND_MODE=local` for dev builds. Follow [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md)
   for commands and cache reuse; team fleet rules live in cmuxterm-hq.
   Never use bare `xcodebuild` or an untagged `cmux DEV.app`. Clean up only your own tags.
+- A same-repo app PR gets a fleet dogfood build and link comment only while it has the
+  `dev-build` label. Add it when someone will dogfood the PR, not by default; under load
+  the fleet builds the newest push, and the comment says how to build a skipped commit.
 - Never quit, kill, relaunch, replace or launch-profile the user's running cmux
   (`/Applications/cmux.app`, `com.cmuxterm.app`), including through a Release build or
   another bundle with that ID. Never set `CMUX_ALLOW_REPLACING_RUNNING_CMUX`; only the
@@ -39,6 +42,15 @@ only when maintainer edits are allowed, and explain the changes. If using their
 approach in your own PR, credit them in every such commit with `Co-authored-by`
 using their commit email, link your PR from theirs and thank them. Let a human
 close it; never close an outside PR without a human-written explanation.
+
+The server directories listed in [LICENSE](LICENSE) (`web/`, `workers/ci-artifacts/`,
+`workers/iroh-v2/`, `workers/presence/`, `services/iroh-relay-minter/`,
+`cmux-tui/relays/cloudflare-do/`) use the Business Source License, which needs
+every outside author's CLA grant. Do not merge a PR that changes those
+directories while CLA Assistant is red, and do not copy an outside
+contributor's work there under a `Co-authored-by` trailer unless that person
+has signed the CLA. Keep code that ships in the macOS or iOS app out of those
+directories.
 
 Read [STYLE.md](STYLE.md) before drafting or revising issues, PR descriptions,
 RFCs or progress updates. Fill the PR's `## Changelog` section with one
@@ -83,8 +95,8 @@ Use these existing owners instead of duplicating their checklists here:
 
 For v2 socket methods and remote CLI changes, read [relay authorization](skills/cmux-socket-policy/references/remote-relay-authorization.md).
 `RemoteRelayCommandPolicy` defaults to deny. Allowlist only for a needed remote
-flow, scoped to the session's objects; command-bearing params stay denied except
-for the documented audited exception. The PR must analyze local command/content
+flow, scoped to the session's objects; command-bearing params stay denied on
+every method. The PR must analyze local command/content
 execution, access to unowned objects and local-state exposure, and include the
 required policy tests and ID scoping. Unsafe local effects must be redesigned.
 Never allowlist terminal spawn/respawn without live verification that it executes

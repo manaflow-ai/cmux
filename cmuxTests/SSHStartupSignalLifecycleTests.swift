@@ -767,8 +767,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketHash = UUID().uuidString
             .replacingOccurrences(of: "-", with: "")
             .lowercased() + "01234567"
-        let staleControlPath = URL(fileURLWithPath: "/tmp", isDirectory: true)
-            .appendingPathComponent("cmux-ssh-\(getuid())-\(socketHash)")
+        let controlSocketDirectory = try XCTUnwrap(
+            SSHConnectionSharingOptions().controlSocketDirectoryPath
+        )
+        let staleControlPath = URL(fileURLWithPath: controlSocketDirectory, isDirectory: true)
+            .appendingPathComponent(socketHash)
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer {

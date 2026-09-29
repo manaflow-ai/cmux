@@ -8,7 +8,17 @@ final class FileExplorerState: ObservableObject {
     private static let customSidebarNameKey = "rightSidebar.customSidebarName"
 
     @Published var isVisible: Bool {
-        didSet { UserDefaults.standard.set(isVisible, forKey: "fileExplorer.isVisible") }
+        didSet { persistVisibility() }
+    }
+    /// Hidden because the window was too narrow (SidePanelWidthFit), not by the
+    /// person. Persisted as visible, so a narrow window neither changes the
+    /// default for new windows nor the next launch. Set it before `isVisible`.
+    var isAutoCollapsed = false {
+        didSet { persistVisibility() }
+    }
+
+    private func persistVisibility() {
+        UserDefaults.standard.set(isVisible || isAutoCollapsed, forKey: "fileExplorer.isVisible")
     }
     @Published var width: CGFloat {
         didSet { UserDefaults.standard.set(Double(width), forKey: "fileExplorer.width") }

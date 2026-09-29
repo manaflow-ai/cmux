@@ -6,7 +6,7 @@ import CmuxCore
 /// Owns one SSH carrier and shares it between native projections and control requests.
 actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     nonisolated let operations: CloudOperationRecorder? = nil
-    private let connection: SSHTuiConnection
+    private var connection: SSHTuiConnection
     private let clientURL: URL
     private let paths: CloudTuiClientPaths
     private let isEnabled: @Sendable () -> Bool
@@ -83,6 +83,32 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         }
     }
 
+    /// The OpenSSH options the next carrier dials with.
+    var carrierSSHOptions: [String] { connection.configuration.sshOptions }
+
+    /// Applies an explicit open's SSH options to this machine's next carrier.
+    ///
+    /// Machine identity ignores control options on purpose: restores drop them,
+    /// and a restored workspace must find the machine it was bound to. So
+    /// `--ssh-option ControlPath=none`, meant to leave a stale shared master,
+    /// reaches the manager an earlier open created, whose options would
+    /// otherwise win. A carrier that is not connected takes the new options;
+    /// a connected one keeps running so its terminals do not drop. Restores
+    /// never call this, because their options have already lost their controls.
+    /// The whole connection is replaced, so the open's agent socket and command
+    /// also apply to the next carrier. A carrier still connecting keeps the
+    /// options it started with.
+    func adopt(_ replacement: SSHTuiConnection) async {
+        guard replacement.id == connection.id,
+              replacement.configuration.sshOptions != connection.configuration.sshOptions,
+              connecting == nil else { return }
+        let observed = current
+        if let observed, await observed.isConnected { return }
+        // The check above suspends; a carrier started meanwhile keeps its options.
+        guard current === observed, connecting == nil else { return }
+        connection = replacement
+    }
+
     func link(machineID: String) -> CloudMachineLink? {
         machineID == connection.id ? current : nil
     }
@@ -95,6 +121,9 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     }
 
     func privateAddresses(for machineID: String) -> [String] { ["127.0.0.1"] }
+
+    /// The SSH carrier always forwards over loopback, so metadata never moves its route.
+    func setPrivateAddresses(_ addresses: [String], for machineID: String) {}
 
     func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint {
         guard machineID == connection.id else { throw CancellationError() }

@@ -35,10 +35,11 @@ extension GhosttySurfaceView {
         // Pixel scrolling exists only on the confirmed-primary screen. Alt
         // screens replay constantly (every frame is verified), and a stale
         // held anchor from earlier primary scrolling must never drive alt
-        // renders, so anything but an active primary-screen gesture clears
-        // the pixel state outright.
-        guard scrollInteractionActive,
-              delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true,
+        // renders. The held primary position remains valid after UIKit's
+        // deceleration callback, so replay can restore the exact fractional
+        // offset instead of snapping to the restored row.
+        guard scrollPresentationAuthority.appliesLocally,
+              ownsLocalPrimaryScreenScroll,
               localPixelScrollState.withLock({ $0.lastApplied }) != nil else {
             localPixelScrollState.withLock {
                 $0.epoch &+= 1
@@ -64,11 +65,14 @@ extension GhosttySurfaceView {
         pendingLocalScrollPixels = 0
         pendingLocalPixelScrollInteractionGeneration = nil
         pendingLocalPixelScrollReassert = false
-        // While the finger (or deceleration) owns the gesture, the pump is
-        // the position authority: rebase from the last applied position so a
-        // verified-replay bottom reset between batches cannot hijack the
-        // gesture. Idle batches keep trusting the live viewport.
-        let rebaseFromHeldPosition = scrollInteractionActive
+        // Once a pixel batch has applied, its exact position is the authority
+        // until an explicit snap, surface replacement, or screen-route clear.
+        // This includes the short idle window after deceleration, when a
+        // replay can otherwise restore the row while dropping the fractional
+        // pixel offset.
+        let rebaseFromHeldPosition = localPixelScrollState.withLock {
+            $0.lastApplied != nil
+        }
         localPixelScrollApplyInFlight = true
         localPixelScrollApplyInFlightGeneration = interactionGeneration
         let token = makeSurfaceOperationID()

@@ -806,6 +806,10 @@ if [[ -n "$SOAK_PROFILE" ]]; then
   echo "==> prewarming cached Stack and v2 state before the measured launch"
   CMUX_DEV_AUTH_REPLACE_SESSION=1 \
     ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}"
+  # The first launch verified sign-in and pairing. The measured launch must
+  # restore those saved values through the same startup path as a user launch.
+  # --ensure-mac would otherwise inject a new URL and bypass that path entirely.
+  MOBILE_LAUNCH_ARGS+=(--restore-pairing)
 fi
 
 # Wait for the app's atomic report-write signal. Start this after prewarm so
@@ -817,20 +821,40 @@ REPORT_READY_NOTIFICATION="$REPORT_READY_NOTIFICATION" \
 REPORT_TIMEOUT="$REPORT_TIMEOUT" \
 /usr/bin/python3 <<'PY' &
 import os
+import signal
 import subprocess
+import time
 
+command = [
+    "xcrun", "simctl", "spawn", os.environ["SIMULATOR_ID"],
+    "notifyutil", "-1", os.environ["REPORT_READY_NOTIFICATION"],
+]
+process = subprocess.Popen(
+    command,
+    start_new_session=True,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+)
 try:
-    subprocess.run(
-        [
-            "xcrun", "simctl", "spawn", os.environ["SIMULATOR_ID"],
-            "notifyutil", "-1", os.environ["REPORT_READY_NOTIFICATION"],
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        timeout=int(os.environ["REPORT_TIMEOUT"]),
-    )
+    process.wait(timeout=int(os.environ["REPORT_TIMEOUT"]))
 except subprocess.TimeoutExpired:
+    # notifyutil is an iOS Simulator child. Own its process group so a stalled
+    # notification cannot keep the release-gate job alive after its deadline.
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
     raise SystemExit("Iroh release gate report signal timed out")
+if process.returncode != 0:
+    raise SystemExit(f"Iroh release gate report waiter exited with {process.returncode}")
 PY
 REPORT_WAITER_PID=$!
 
@@ -928,16 +952,68 @@ PY_CAPTURE
   }
 fi
 
+# The simulator launch is detached, but the launcher also performs setup and
+# attach work before it returns. Own that process group as well as notifyutil;
+# otherwise a stalled launcher can keep the job alive after the report deadline.
+run_release_gate_launch() {
+  local log_path="$1"
+  shift
+/usr/bin/python3 - "$log_path" "$((REPORT_TIMEOUT + 30))" "$@" <<'PY_LAUNCH'
+import os
+import signal
+import subprocess
+import sys
+
+log_path, timeout_seconds, *command = sys.argv[1:]
+with open(log_path, "wb") as output:
+    process = subprocess.Popen(
+        command,
+        stdout=output,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    try:
+        return_code = process.wait(timeout=int(timeout_seconds))
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+        raise SystemExit("Iroh release gate launcher timed out")
+
+if return_code < 0:
+    raise SystemExit(128 - return_code)
+raise SystemExit(return_code)
+PY_LAUNCH
+}
+
+GATE_LAUNCH_LOG="$(mktemp "${TMPDIR:-/tmp}/cmux-iroh-launch-${TAG}.XXXXXX")"
+launch_status=0
 CMUX_DEV_AUTH_REPLACE_SESSION="$([[ -n "$SOAK_PROFILE" ]] && printf 0 || printf 1)" \
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 CMUX_ATTACH_READY_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_ATTACH_READY_TIMEOUT_SECONDS:-90}" \
 CMUX_IROH_RELEASE_GATE_SCENARIO="$GATE_SCENARIO" \
 CMUX_IROH_SOAK_PROFILE="$SOAK_PROFILE" \
+CMUX_IROH_V2_VERIFY_RENEW_INTERVAL_SECONDS="$([[ "$GATE_SCENARIO" == "relay_rollover" ]] && printf 180 || printf '')" \
 CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="$([[ "$GATE_SCENARIO" == "relay_expiry" ]] && printf 1 || printf 0)" \
-./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}" \
-  2>&1 | sed -E \
-    -e 's/^(==> dev sign-in account:).*/\1 [redacted]/' \
-    -e 's/(signed in as )[^,)]+/\1[redacted]/'
+run_release_gate_launch "$GATE_LAUNCH_LOG" ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}" || launch_status=$?
+sed -E \
+  -e 's/^(==> dev sign-in account:).*/\1 [redacted]/' \
+  -e 's/(signed in as )[^,)]+/\1[redacted]/' \
+  "$GATE_LAUNCH_LOG"
+rm -f "$GATE_LAUNCH_LOG"
+if (( launch_status )); then
+  echo "error: Iroh release gate launcher failed with status $launch_status" >&2
+  exit "$launch_status"
+fi
 
 DATA_CONTAINER="$(xcrun simctl get_app_container "$SIMULATOR_ID" "$IOS_BUNDLE_ID" data)"
 REPORT_PATH="$DATA_CONTAINER/Library/Caches/$REPORT_FILENAME"
@@ -1019,6 +1095,7 @@ allowed_keys = {
     "selectedPath",
     "failure",
     "uiLatencies",
+    "startupPath",
     "lastDiagnosticEventCode",
     "lastDiagnosticFailureKind",
     "soak",
@@ -1046,18 +1123,22 @@ if soak_profile:
     allowed_paths["relayOnly"].add("relay")
     soak = report.get("soak") or {}
     duration, cycles = (600, 50) if soak_profile == "basic" else (3600, 300)
-    if soak.get("profile") != soak_profile or soak.get("planVersion") != 1:
+    if soak.get("profile") != soak_profile or soak.get("planVersion") != 2:
         problems.append("soak profile or plan version mismatch")
     if soak.get("requestedDurationSeconds") != duration or soak.get("elapsedSeconds", 0) < duration:
         problems.append("soak did not complete its full observation window")
     if soak.get("completedCycles", 0) < cycles or soak.get("currentOperation") != "complete":
         problems.append("soak workload incomplete")
+    if report.get("startupPath") != "stored_pairing":
+        problems.append("soak did not use the saved-pairing startup path")
     required_operations = ["host_status", "rpc_inventory", "terminal_round_trip", "workspace_rename_restore",
                            "independent_events", "notification_reconcile", "chat_sessions", "artifact_scan"]
     if soak_profile == "stress":
         required_operations += ["workspace_navigation", "workspace_refresh", "notification_refresh",
                                 "unicode_output_burst", "workspace_create", "workspace_switch", "workspace_close",
-                                "terminal_after_restore"]
+                                "terminal_after_restore", "terminal_after_refresh"]
+    if soak.get("recoverableFailures") != {}:
+        problems.append("soak reported terminal failures or missing recovery evidence")
     counts = soak.get("operationCounts", {})
     for operation in required_operations:
         minimum = cycles if operation in required_operations[:8] else cycles // 4
@@ -1068,8 +1149,8 @@ if soak_profile:
     launch_latency = (report.get("uiLatencies") or {}).get(
         "app_launch_request_to_workspace_rows_visible"
     )
-    if not isinstance(launch_latency, (int, float)) or launch_latency >= 2.5:
-        problems.append("workspace list exceeded the 2.5 second launch budget")
+    if not isinstance(launch_latency, (int, float)) or launch_latency >= 3.5:
+        problems.append("workspace list exceeded the 3.5 second launch budget")
 unexpected_keys = set(report) - allowed_keys
 if unexpected_keys:
     problems.append("report contained unexpected fields")

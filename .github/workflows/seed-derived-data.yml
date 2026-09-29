@@ -445,6 +445,20 @@ jobs:
         id: bound
         run: python3 scripts/ci/seed_derived_data.py prune "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
+      # Before the R2 upload, and before the product steps below rewrite
+      # Build/Products: the copy is the seed exactly as "Save seed" uploads it
+      # (keep only clones the tree). An APFS clone, so seconds. The LAN seed
+      # archive reads kept seeds from this Mac within a minute, so keeping
+      # first hands them to the owned minis about 160 s sooner, the length of
+      # the upload (cmuxterm-hq#658).
+      - name: Keep the seed on this Mac
+        if: steps.bound.outputs.save == 'true' && env.CMUX_SEED_LOCAL_CACHE != ''
+        continue-on-error: true
+        env:
+          SEED_KEY: ${{ steps.key.outputs.scoped }}${{ github.sha }}
+          SEED_PREFIX: ${{ steps.key.outputs.prefix }}
+        run: python3 scripts/ci/seed_derived_data.py keep "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_KEY" "$SEED_PREFIX"
+
       - name: Save seed
         if: steps.bound.outputs.save == 'true'
         uses: ./.github/actions/cache-save
@@ -457,16 +471,6 @@ jobs:
           backend: r2
           path: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
           key: ${{ steps.key.outputs.scoped }}${{ github.sha }}
-
-      # Before the product steps below rewrite Build/Products: the copy must
-      # be the seed exactly as saved. An APFS clone, so seconds.
-      - name: Keep the seed on this Mac
-        if: steps.bound.outputs.save == 'true' && env.CMUX_SEED_LOCAL_CACHE != ''
-        continue-on-error: true
-        env:
-          SEED_KEY: ${{ steps.key.outputs.scoped }}${{ github.sha }}
-          SEED_PREFIX: ${{ steps.key.outputs.prefix }}
-        run: python3 scripts/ci/seed_derived_data.py keep "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_KEY" "$SEED_PREFIX"
 
       # Publish the product exactly as ci-macos.yml compile admission does
       # (tests/test_seed_derived_data.py pins the copy). Staging and relocation

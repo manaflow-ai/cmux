@@ -144,9 +144,35 @@ extension CMUXCLI {
             environment.merge(capturedEnvironment) { _, captured in captured }
         }
         environment.merge(record.environment) { _, restored in restored }
+        func clearCodexForkParentBinding() throws {
+            guard record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex",
+                  let checkpointID = normalizedHookValue(record.checkpointID) else {
+                return
+            }
+            let clearOutcome = clearAgentSurfaceResumeBindingOutcome(
+                client: client,
+                workspaceId: payload["workspace_id"] as? String
+                    ?? processEnvironment["CMUX_WORKSPACE_ID"]
+                    ?? "",
+                surfaceId: surfaceID,
+                sessionId: checkpointID,
+                sessionDidEnd: true
+            )
+            guard clearOutcome == .cleared else {
+                let errorKind: ForkErrorKind = clearOutcome == .checkpointDidNotOwnBinding
+                    ? .checkpointMismatch
+                    : .codexCheckpointUnavailable
+                throw loggedForkError(
+                    errorKind,
+                    stage: "binding.clear",
+                    detail: String(describing: clearOutcome)
+                )
+            }
+        }
         if record.forkArguments == nil,
            record.launchCommand == nil,
            let legacyCommand {
+            try clearCodexForkParentBinding()
             try execLegacyForkRecord(
                 legacyCommand,
                 record: record,
@@ -177,13 +203,14 @@ extension CMUXCLI {
             ),
             observedPermissionMode: record.permissionMode
         )
-        guard let invocation = AgentRestorePlanner(
+        guard var invocation = AgentRestorePlanner(
             executableFileResolver: AgentRestoreExecutableFileResolver()
         ).invocation(
             for: request,
             ambientEnvironment: processEnvironment
         ) else {
             if let legacyCommand {
+                try clearCodexForkParentBinding()
                 try execLegacyForkRecord(
                     legacyCommand,
                     record: record,
@@ -203,6 +230,21 @@ extension CMUXCLI {
                 .incompleteData,
                 stage: "record.incomplete",
                 detail: "mode=\(record.mode) kind=\(record.kind)"
+            )
+        }
+
+        if record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex",
+           let parentSessionID = normalizedHookValue(record.checkpointID) {
+            var forkEnvironment = invocation.environment
+            forkEnvironment[CodexForkSessionWatcher.parentSessionEnvironmentKey] = parentSessionID
+            forkEnvironment[CodexForkSessionWatcher.launchAtEnvironmentKey] = String(Date.now.timeIntervalSince1970)
+            forkEnvironment[CodexForkSessionWatcher.launchIDEnvironmentKey] = UUID().uuidString.lowercased()
+            invocation = AgentRestoreInvocation(
+                arguments: invocation.arguments,
+                workingDirectory: invocation.workingDirectory,
+                environment: forkEnvironment,
+                preflightInvocations: invocation.preflightInvocations,
+                codexResumeSessionID: invocation.codexResumeSessionID
             )
         }
 
@@ -239,6 +281,7 @@ extension CMUXCLI {
             )
             return
         }
+        try clearCodexForkParentBinding()
         client.close()
         try execForkInvocation(
             invocation,

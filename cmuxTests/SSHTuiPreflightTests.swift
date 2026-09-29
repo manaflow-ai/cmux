@@ -20,9 +20,12 @@ struct SSHTuiPreflightTests {
         let call = try #require(await commands.calls.first)
         #expect(call.executable == "/usr/bin/ssh")
         #expect(call.timeout == 7)
+        // The caller's ControlPath wins; cmux fills in the rest of its
+        // shared-master defaults, as the carrier does.
         #expect(call.arguments == ["-T", "-o", "BatchMode=yes", "-o", "RemoteCommand=none", "-o", "RequestTTY=no",
                                    "-p", "2222", "-i", "/tmp/key", "-o", "ControlPath=/tmp/cm", "-o", "ConnectTimeout=5",
-                                   "-o", "ConnectTimeout=15", "alice@example.invalid", "true"])
+                                   "-o", "ControlMaster=auto", "-o", "ControlPersist=600",
+                                   "-o", "ConnectTimeout=15", "--", "alice@example.invalid", "true"])
     }
 
     @Test("Passes the configured agent socket like the carrier")

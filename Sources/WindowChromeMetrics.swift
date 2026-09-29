@@ -54,9 +54,10 @@ enum RightSidebarChromeMetrics {
     static var contentIconCenter: CGFloat {
         contentIconLeadingPadding + contentIconFrameSize / 2
     }
-    static var controlCornerRadius: CGFloat {
-        min(10, max(5, controlHeight * 0.25))
-    }
+    /// Corner radius for every right-sidebar button: header icon buttons,
+    /// mode and grouping pills, panel action buttons, and system bordered
+    /// buttons (via `rightSidebarButtonBorderShape()`).
+    static let buttonCornerRadius: CGFloat = HeaderChromeControlMetrics.cornerRadius
     static let headerControlSize: CGFloat = HeaderChromeControlMetrics.buttonSize
     static let headerIconSize: CGFloat = 10
     static let headerIconFrameSize: CGFloat = headerIconSize
@@ -66,7 +67,7 @@ enum RightSidebarChromeMetrics {
     /// controls share one leading column and one trailing column.
     static let headerLeadingPadding: CGFloat = HeaderChromeControlMetrics.titlebarControlsLeadingPadding
     static let headerTrailingPadding: CGFloat = 6
-    static let headerControlCornerRadius: CGFloat = HeaderChromeControlMetrics.cornerRadius
+    static let headerControlCornerRadius: CGFloat = buttonCornerRadius
     static let headerControlCenterAlignmentAdjustment: CGFloat = 0
 }
 

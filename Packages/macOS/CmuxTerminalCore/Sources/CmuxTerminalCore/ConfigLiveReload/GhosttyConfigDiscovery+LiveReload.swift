@@ -9,20 +9,29 @@ extension GhosttyConfigDiscovery {
     /// ``loadedGhosttyConfigScanPaths(currentBundleIdentifier:appSupportDirectory:)``:
     /// that list drops a legacy `config` or an empty cmux config file, but
     /// writing to one of those can change which file cmux loads, so the watcher
-    /// still observes it.
+    /// still observes it. It also adds the `ghostty/config` files under
+    /// `configHomeDirectory`, which Ghostty loads instead of `~/.config` when
+    /// `$XDG_CONFIG_HOME` is set.
     ///
     /// - Parameters:
     ///   - currentBundleIdentifier: The running app's bundle identifier.
     ///   - appSupportDirectory: The user's Application Support directory.
+    ///   - configHomeDirectory: The XDG config home (`$XDG_CONFIG_HOME`, or
+    ///     `~/.config`) Ghostty reads `ghostty/config` from.
     /// - Returns: Absolute, de-duplicated paths.
     public func liveReloadTopLevelPaths(
         currentBundleIdentifier: String?,
-        appSupportDirectory: URL?
+        appSupportDirectory: URL?,
+        configHomeDirectory: String = "~/.config"
     ) -> [String] {
         var paths = loadedGhosttyConfigScanPaths(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupportDirectory
         )
+        let xdgGhosttyDirectory = (Self.standardizedPath(configHomeDirectory) as NSString)
+            .appendingPathComponent("ghostty")
+        paths.append((xdgGhosttyDirectory as NSString).appendingPathComponent("config"))
+        paths.append((xdgGhosttyDirectory as NSString).appendingPathComponent("config.ghostty"))
         if let appSupportDirectory {
             let nativeDirectory = appSupportDirectory
                 .appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
@@ -59,12 +68,13 @@ extension GhosttyConfigDiscovery {
     /// their resolved target, so dotfile setups that replace the target file
     /// are noticed.
     ///
-    /// Performs file I/O through the injected ``GhosttyConfigFileReading``;
-    /// call it off the main thread.
+    /// Performs file I/O through the injected ``GhosttyConfigFileReading``.
+    /// Call it off the main thread, except alongside Ghostty's own read of the
+    /// same files when a reload records its baseline.
     ///
     /// - Parameters:
     ///   - topLevelPaths: The top-level config candidates, typically
-    ///     ``liveReloadTopLevelPaths(currentBundleIdentifier:appSupportDirectory:)``.
+    ///     ``liveReloadTopLevelPaths(currentBundleIdentifier:appSupportDirectory:configHomeDirectory:)``.
     ///   - configHomeDirectory: The XDG config home (`$XDG_CONFIG_HOME`, or
     ///     `~/.config`) whose `ghostty/themes` directory holds user themes.
     ///   - resolvesSymlinks: Whether to add each file's resolved symlink

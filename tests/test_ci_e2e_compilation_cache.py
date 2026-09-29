@@ -252,7 +252,7 @@ exit 97
         # Left to the `test` job, the tests still find the product: the late
         # upload runs whenever the early one stood aside.
         self.assertEqual(by_id('late-upload-check')['if'],
-                         "${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' }}")
+                         "${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' && (steps.reuse.outputs.hit != 'true' || steps.test-here.outputs.tested != 'true') }}")
 
     def test_the_fallback_test_job_waits_for_the_gui_token_in_a_step(self):
         # The `test` job runs only when build could not get the gui token, so
@@ -290,7 +290,7 @@ exit 97
         check = by_id('late-upload-check')
         self.assertEqual(
             check['if'],
-            "${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' }}")
+            "${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' && (steps.reuse.outputs.hit != 'true' || steps.test-here.outputs.tested != 'true') }}")
         self.assertIn('shasum -a 256 -c', check['run'])
         self.assertEqual(check['env']['EXPECTED_SHA256'], '${{ steps.package.outputs.sha256 }}')
         self.assertEqual(after['if'], "${{ always() && steps.late-upload-check.outcome == 'success' }}")

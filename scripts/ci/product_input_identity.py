@@ -62,6 +62,8 @@ PRODUCT_CI_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/compile-app-host-test-product.sh",
     "scripts/ci/canonical-build-root.sh",
+    # canonical-build-root.sh copies the source tree the product compiles from with it.
+    "scripts/ci/apfs_clone.py",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
 })
 
@@ -90,6 +92,7 @@ NON_PRODUCT_TOOLING = frozenset({
     "scripts/check-test-determinism.py",
     "scripts/dev-fleet-warm-slot.py",
     "scripts/install-git-hooks.sh",
+    "scripts/merge-pbxproj.py",
     "scripts/merge-xcstrings.py",
     "scripts/normalize-pbxproj.py",
     "scripts/prune_nightly_release_assets.py",
@@ -187,6 +190,7 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     "Report evidence collection outcomes",
     # A changed-suites run tests the product after it is packaged and
     # uploaded; nothing here can change its bytes.
+    "Take this Mac's gui token for the changed suites",
     "Prepare isolated DerivedData",
     "Restore compiled app-host test product",
     "Prepare isolated app-host home",

@@ -725,7 +725,7 @@ mod tests {
     fn claude_wrapper_hook_commands_match_the_installed_hooks_or_fall_back_to_emit() {
         let installed = session_hook_settings(None).unwrap();
         let command = installed["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
-        assert!(command.starts_with("\"${CMUX_TUI_HOOK:-:}\" 'claude' 'Stop'"), "{command}");
+        assert!(command.contains("\"${h:-:}\" 'claude' 'Stop'"), "{command}");
         assert_eq!(installed["hooks"]["Stop"][0]["hooks"][0]["async"], true);
 
         let emit = session_hook_settings(Some(Path::new("/opt/cmux tui/cmux-tui"))).unwrap();

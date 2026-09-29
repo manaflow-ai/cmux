@@ -58,6 +58,7 @@ from guard_attribution import (  # noqa: E402
     pr_number,
     upsert_comment,
 )
+import ui_tests_dispatch  # noqa: E402
 
 MACHINE, CODE, DERIVED, UNKNOWN = "machine", "code", "derived", "unknown"
 MARKER = "<!-- cmux-ci-failure-attribution -->"
@@ -309,6 +310,14 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: Mapping) -> dict:
         except RuntimeError as error:
             # GitHub refuses to re-run a run another re-run already started.
             rerun, line = False, f"Every failure is a machine failure; the re-run request failed: {code(error)}"
+        else:
+            # This token's re-run may emit no workflow_run event; start the UI
+            # test dispatch the new attempt's ui-tests job waits for.
+            path, body = ui_tests_dispatch.rerun_dispatch(report["run_id"], int(report.get("attempt") or 1) + 1)
+            try:
+                writer.call("POST", f"repos/{gh.repo}/{path}", body)
+            except RuntimeError as error:
+                print(f"::warning::could not start {ui_tests_dispatch.DISPATCH_WORKFLOW_FILE}: {code(error)}", flush=True)
     body = render_comment(report, line)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:

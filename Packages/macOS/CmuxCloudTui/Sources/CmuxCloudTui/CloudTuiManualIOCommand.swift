@@ -106,13 +106,15 @@ public struct CloudTuiManualIOCommand: Sendable {
         return command
     }
 
-    /// Writes raw input bytes to the remote PTY.
+    /// Writes raw input bytes to the remote PTY. Input asks for no reply, so a
+    /// relay can carry it as compact one-way input.
     public func input(surfaceID: UInt64, bytes: Data, requestID: UInt64 = 1) -> [String: Any] {
         [
             "id": requestID,
             "cmd": "send",
             "surface": surfaceID,
             "bytes": bytes.base64EncodedString(),
+            "no_reply": true,
         ]
     }
 

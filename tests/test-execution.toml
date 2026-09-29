@@ -40,6 +40,10 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_tmux_wait_for_private_dir.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_cli_layout_focus_contract.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -57,12 +61,22 @@ requirements = ["cmux-cli"]
 serial = true
 
 [[test]]
+path = "tests/test_cli_hook_enqueue_wall_clock.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_simulator_contract.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
 path = "tests/test_browser_profile_cli.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_browser_input_files_cli.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
@@ -144,12 +158,22 @@ path = "tests/test_claude_wrapper_node_options_survives_tmpdir_purge.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_issue_7028_claude_shim_persistence.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["fish"]
+
+[[test]]
 path = "tests/test_claude_wrapper_user_binary_resolution.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_claude_wrapper_subrouter_resume_marker.py"
 lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_claude_wrapper_generated_settings_fast_path.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
 
 [[test]]
 path = "tests/test_claude_teams_test_utils.py"
@@ -241,6 +265,12 @@ path = "tests/test_issue_10926_watcher_pid_reuse_guard.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_issue_15066_zsh_watcher_sleep.py"
+lane = "macos-cli-no-socket"
+# This test starts disowned watcher processes and verifies their teardown; run it alone.
+serial = true
+
+[[test]]
 path = "tests/test_issue_15067_bash_watcher_churn.py"
 lane = "linux-guard"
 
@@ -281,6 +311,18 @@ path = "tests/test_shell_no_git_watch.py"
 lane = "macos-shell"
 
 [[test]]
+path = "tests/test_shell_cli_shim_private_dir.py"
+lane = "macos-shell"
+
+[[test]]
+path = "tests/test_workspace_initial_command_shim_root_owner.py"
+lane = "macos-shell"
+
+[[test]]
+path = "tests/test_shell_pr_watch_private_state.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_claude_hook_stop_last_assistant.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
@@ -304,6 +346,10 @@ requirements = ["cmux-cli"]
 path = "tests/test_pi_extension_dispatch.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_pi_wrapper.py"
+lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_pi_compacted_feed.py"
@@ -489,6 +535,10 @@ path = "tests/test_ci_warm_distance.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_owned_spm_scratch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_owned_pool_rescue.py"
 lane = "linux-guard"
 
@@ -498,6 +548,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_runner_pool.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ui_fuzzer_engine.py"
 lane = "linux-guard"
 
 [[test]]
@@ -682,6 +736,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_package_resolved_policy_remote_inputs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_media.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1169,6 +1227,10 @@ path = "tests/test_triage_radar.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_triage_rules.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_tui_focused_filter_guard.py"
 lane = "linux-guard"
 
@@ -1278,6 +1340,10 @@ path = "tests/test_r2_cache_prune.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_prune_pr_media.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_install_git_hooks.py"
 lane = "linux-guard"
 
@@ -1380,4 +1446,28 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_config_schema_embed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ui_tests_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_media.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_guard_tests_emit_no_workflow_commands.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_merge_pbxproj.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_btop_agents_sidebar.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_package_interface_fingerprint.py"
 lane = "linux-guard"

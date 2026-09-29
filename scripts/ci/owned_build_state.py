@@ -104,6 +104,10 @@ to one that does not, and when both the kept DerivedData and the kept seed
 would, a nearer bucket seed wins at any distance if GitHub's compare of its
 commit with the checkout shows no package source change: its download (about
 250 s on a mini) costs less than recompiling the app (365 to 1,053 s).
+When both recompile the app and no such download applies, the kept
+DerivedData stays, however many fewer inputs the kept seed changes: from
+2026-09-27 17:45Z to 2026-09-28, 269 local-seed starts with a package interface
+change compiled in 515 s at the median, kept builds with one in 408 to 429 s.
 
 `keep` also stamps MERGED_ONTO, the main commit the kept build merged onto,
 and `warm-keys` prints the main commits this Mac starts from cheaply, for the
@@ -169,6 +173,8 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import apfs_clone  # noqa: E402
+import owned_spm_scratch  # noqa: E402
 import seed_derived_data as seed  # noqa: E402
 
 STAMP = "stamp.json"
@@ -259,6 +265,8 @@ def clone(source: Path, destination: Path) -> None:
     """An APFS clone of a directory tree, falling back to a copy."""
     clear(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if apfs_clone.clone_directory(source, destination):
+        return
     if subprocess.run(["cp", "-cR", str(source), str(destination)], capture_output=True).returncode != 0:
         remove(destination)
         shutil.copytree(source, destination, symlinks=True)
@@ -283,7 +291,8 @@ def sweep_discarded(store: Path) -> None:
 # `warm-keys` publishes it (`parked`) for pr_runner_pool.py's distance routing. A root keeps at most
 # PR_SLOTS parked builds, each for PR_SLOT_HOURS. There is no free-disk floor: parked builds are the
 # first thing given up when space runs out. `keep` that hits ENOSPC evicts every parked build on the
-# mini, oldest first, and retries, and `evict-parked` does the same for disk tooling (glaeda-disk).
+# mini, oldest first, with the SwiftPM package builds no job holds (owned_spm_scratch.py evict), and
+# retries, and `evict-parked` does the same for parked builds for disk tooling (glaeda-disk).
 # A main build is never parked, so eviction never touches one.
 PR_BUILDS = "pr-builds"
 PR_SLOTS = 2
@@ -620,10 +629,11 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
         try:
             clone(derived, incoming)
         except OSError as error:
-            # Out of space: parked builds go first (oldest first), then the clone gets one more try.
+            # Out of space: parked builds go first (oldest first), and the SwiftPM package builds no job
+            # holds (owned_spm_scratch.py), then the clone gets one more try.
             # copytree's shutil.Error carries its per-file errors as text, without an errno.
             full = error.errno == errno.ENOSPC or "No space left on device" in str(error)
-            if not full or not evict_parked(store):
+            if not full or not (evict_parked(store) + owned_spm_scratch.evict(mini_store(store))):
                 raise
             remove(incoming)
             clone(derived, incoming)
@@ -716,12 +726,20 @@ def stamp_keys(store: Path, fingerprint: str) -> list[str]:
     return [warm_key(str(stamp.get("merged_onto") or "")), pr_key(stamp.get("pr"))]
 
 
+def is_root_store(path: Path) -> bool:
+    suffix = path.name[len(ROOT_STORE_PREFIX):]
+    return path.name.startswith(ROOT_STORE_PREFIX) and suffix.isdigit() and len(suffix) <= 2
+
+
+def mini_store(store: Path) -> Path:
+    """Root 1's store, which also holds the mini's SwiftPM scratch (STORE is it, or STORE/../cmux-ci-<k>)."""
+    return store.parent if is_root_store(store) else store
+
+
 def other_root_stores(store: Path) -> list[Path]:
     """The mini's other canonical roots' stores (STORE is root 1's, or STORE/../cmux-ci-<k>)."""
-    def is_root(path: Path) -> bool:
-        suffix = path.name[len(ROOT_STORE_PREFIX):]
-        return path.name.startswith(ROOT_STORE_PREFIX) and suffix.isdigit() and len(suffix) <= 2
-    base = store.parent if is_root(store) else store
+    is_root = is_root_store
+    base = mini_store(store)
     try:
         roots = [base, *sorted(path for path in base.iterdir() if is_root(path))]
     except OSError:
@@ -1002,7 +1020,12 @@ def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distanc
             result.update(prefer="true", reason="kept DerivedData has no input record")
             return result
         result.update(seed_changed=str(seed_cost[1]), seed_rebuilds_app=str(seed_cost[0]).lower())
-        if seed_cost < kept_cost:
+        if seed_cost[0] and kept_cost[0]:
+            # Both recompile the whole app, so the seed's fewer changed inputs save nothing, and the kept
+            # build recompiles it faster: from 2026-09-27 17:45Z to 2026-09-28, 269 local-seed starts with a
+            # package interface change compiled in 515 s at the median, kept builds with one in 408 to 429 s.
+            result["reason"] = "the kept DerivedData and the seed this Mac keeps both recompile the app"
+        elif seed_cost < kept_cost:
             touch_kept_seed(key)
             result.update(prefer="true", reason="this Mac keeps a seed with fewer changed inputs")
             best, local_distance = seed_cost, distance
