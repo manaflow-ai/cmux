@@ -112,3 +112,61 @@ Every event carries `targetId`.
 `cdp`, `route` (request interception), `history` (browser history search),
 `tabGroups`. The runtime exposes capability-gated APIs only when present and
 otherwise throws the reference's own unsupported error text.
+
+## Proposed changes (Swift driver)
+
+### Native host contract (JavaScriptCore)
+
+The app runs each REPL session in its own `JSContext` on a dedicated thread.
+Before loading the runtime it installs one global, `__cmuxNative`. The runtime
+(`repl-host.js`) builds `host`, timers, `fs`, `fetch` and `driver` on it. All
+structured values cross the boundary as JSON strings.
+
+| Member | Contract |
+| --- | --- |
+| `version` | `1` |
+| `sessionId`, `cwd` | session name; absolute fs root (the CLI caller's cwd) |
+| `capabilities` | array of driver capability names (`[]` on WebKit) |
+| `print(level, text)` | append one output line; `level` is `log`, `info`, `warn`, `error` or `debug`; `text` is already formatted |
+| `setTimer(id, delayMs, repeat)` / `clearTimer(id)` | on fire the app calls `globalThis.__cmuxHostOnTimer(id)`; repeating timers keep firing until cleared |
+| `driverCall(callId, method, paramsJSON)` | the app later calls `globalThis.__cmuxHostOnResult(callId, errorJSON, resultJSON)`; exactly one of the two is `null`; `errorJSON` is `{ code, message }` |
+| `fetch(callId, requestJSON)` | request `{ url, method, headers: [[k, v]], bodyBase64? }`; result via `__cmuxHostOnResult`: `{ url, status, statusText, headers: [[k, v]], bodyBase64, redirected }`. Cookies come from, and `Set-Cookie` goes back to, the attached tab's cookie store (`params.targetId` optional in the request) |
+| `fs(op, argsJSON)` | synchronous; returns `{"ok": value}` or `{"error": {"code": "ENOENT"\|"EACCES"\|"EEXIST"\|"ENOTDIR"\|"EISDIR"\|"ENOTEMPTY"\|"EINVAL", "message"}}` |
+| `readResource(relativePath)` | text of a bundled `Resources/browser-repl/` file, or `null` |
+
+`fs` ops, paths relative to `cwd` (absolute paths must stay inside `cwd`,
+except files the driver reported through `download.finished`, which are
+readable): `readFile {path}` → base64, `writeFile {path, base64, append?}`,
+`mkdir {path, recursive?}`, `readdir {path}` → `[{ name, type }]`,
+`stat {path}` → `{ size, type: "file"|"directory"|"symlink"|"other", mtimeMs, birthtimeMs }`,
+`rm {path, recursive?, force?}`, `rename {from, to}`, `copyFile {from, to}`,
+`exists {path}` → boolean, `resolve {path}` → absolute path.
+
+Entry points the runtime defines, called by the app:
+
+- `__cmuxReplEval(code, dialect)` returns a Promise; the app awaits it with
+  the eval timeout (120 s, as in Aside). Rejection is an uncaught error; the
+  app formats it with `__cmuxFormatError(error)` when defined, else
+  `error.stack ?? String(error)`, and the CLI exits 1.
+- `__cmuxHostOnEvent(name, payloadJSON)` delivers every driver event.
+- `__cmuxHostOnTimer(id)`, `__cmuxHostOnResult(callId, errorJSON, resultJSON)`.
+
+Script load order: `manifest.json` in `Resources/browser-repl/` when present
+(`{ "repl": [...], "agent": [...] }`, paths relative to that directory),
+otherwise `runtime-core.js`, `dialect-aside.js`, `dialect-chatgpt.js`,
+`repl-host.js` for the REPL context and `vendor/playwright-injected.js`,
+`page-agent.js` for the agent world. Missing files are skipped.
+
+### Agent world
+
+- The world is `WKContentWorld.world(name: "cmux-agent")`. Scripts are added to
+  a tab's `WKUserContentController` (document start, all frames) when a
+  session first touches the tab; frames that loaded earlier get the scripts on
+  the first `frame.evaluate`.
+- `frame.evaluate` sends `source` as `(<source>)(...args)` through
+  `callAsyncJavaScript`, so `awaitPromise` is always true on WebKit.
+- `frameId` values are opaque strings. `null`/omitted means the main frame.
+- `input.setFiles` needs the element: the page agent must expose
+  `globalThis.__cmuxPageAgent.resolveHandle(id) -> Element | null`. The
+  driver assigns files with `DataTransfer` and dispatches `input` and
+  `change`.
