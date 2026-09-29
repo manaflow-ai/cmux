@@ -37,6 +37,9 @@ public final class RegistryControlBridge: ControlActionExecutor {
             _ = registry.descriptors
             _ = registry.actions
             _ = registry.shortcutOverrides
+            // Reasons read observable app state (daemon capabilities), so a
+            // change there republishes `unavailable_reason` too.
+            for action in registry.actions { _ = action.unavailableReason?() }
         } onChange: { [weak self] in
             // onChange runs before the new value is stored; publish after.
             Task { @MainActor in
