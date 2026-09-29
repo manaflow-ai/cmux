@@ -4,18 +4,34 @@ import Foundation
 import Observation
 import os
 
-/// Process-wide connection to the cmux-tui daemon: launches or finds the
-/// owner, keeps the mirror (`store`) current once per frame, and runs
-/// commands off the main actor with logging.
+/// One machine's cmux-tui daemon connection: the local daemon (launched or
+/// found by `start(launch:)`) or a Cloud machine reached through its link
+/// socket (`start(remote:)`). Keeps the mirror (`store`) current once per
+/// frame and runs commands off the main actor with logging.
 @Observable
 final class DaemonService {
+    /// `local`, or the Cloud machine id (`vm-…`).
+    let machineID: String
     let store = DaemonStore()
     private(set) var connection: DaemonConnection?
     private(set) var windowState: WindowStateStore?
     private(set) var identity: DaemonIdentity?
     @ObservationIgnored private var runTask: Task<Void, Never>?
+    @ObservationIgnored private var reconciling: Task<Void, Never>?
+    @ObservationIgnored private var queuedReconcile: Task<Void, Never>?
     @ObservationIgnored private let scheduler = DisplayLinkFrameScheduler()
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
+
+    init(machineID: String = "local") {
+        self.machineID = machineID
+    }
+
+    var isLocal: Bool { machineID == "local" }
+
+    /// Directory new terminals start in: the Mac's home for the local
+    /// daemon; nil (the machine's own default) on a Cloud machine, where a
+    /// Mac path does not exist.
+    var defaultCwd: String? { isLocal ? NSHomeDirectory() : nil }
 
     func start(launch: LaunchIdentity) {
         guard runTask == nil else { return }
@@ -35,6 +51,42 @@ final class DaemonService {
             } catch {
                 logger.error("cmux-tui daemon unavailable: \(String(describing: error), privacy: .public)")
                 store.markFailed(String(describing: error))
+            }
+        }
+    }
+
+    /// Connects to a remote daemon through `endpoint` (a Cloud machine's link
+    /// socket). The first connect is retried with capped backoff until it
+    /// succeeds or `shutdownConnection()` runs; afterwards the connection
+    /// reconnects by itself, re-asking `endpoint` (which restarts a dead
+    /// link). A connection that ends for good is replaced the same way.
+    func start(remote endpoint: @escaping @Sendable () async throws -> String) {
+        guard runTask == nil else { return }
+        let store = store
+        let machineID = machineID
+        runTask = Task { [weak self, scheduler, logger] in
+            let delays: [Duration] = [.seconds(1), .seconds(2), .seconds(5), .seconds(10), .seconds(30)]
+            var attempt = 0
+            while !Task.isCancelled {
+                let configuration = DaemonConnection.Configuration(terminalEnvironment: nil)
+                let connection = DaemonConnection(configuration: configuration) { DaemonEndpoint(socketPath: try await endpoint()) }
+                do {
+                    let identity = try await connection.start()
+                    attempt = 0
+                    self?.connection = connection
+                    self?.identity = identity
+                    logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
+                    await store.run(connection: connection, scheduler: scheduler)
+                } catch {
+                    await connection.close()
+                    if Task.isCancelled { return }
+                    logger.error("\(machineID, privacy: .public): daemon unavailable: \(String(describing: error), privacy: .public)")
+                    store.markFailed(String(describing: error))
+                }
+                if Task.isCancelled { return }
+                let delay = delays[min(attempt, delays.count - 1)]
+                attempt += 1
+                do { try await ContinuousClock().sleep(for: delay) } catch { return }
             }
         }
     }
@@ -65,10 +117,85 @@ final class DaemonService {
         }
     }
 
+    /// Outcome of a command whose reply may miss its deadline.
+    enum CommandOutcome {
+        case succeeded
+        case failed
+        /// The deadline passed: the daemon may still apply the command.
+        case unknown
+    }
+
+    /// Like ``run(_:_:)``, but tells a deadline miss (outcome unknown) apart
+    /// from a failure, so callers can reconcile instead of reverting.
+    func runReportingTimeout(_ label: String, _ body: @Sendable (DaemonConnection) async throws -> Void) async -> CommandOutcome {
+        guard let connection else {
+            logger.error("\(label, privacy: .public): not connected")
+            return .failed
+        }
+        do {
+            try await body(connection)
+            return .succeeded
+        } catch DaemonError.timedOut(let what) {
+            logger.info("\(label, privacy: .public) outcome unknown: \(what, privacy: .public)")
+            return .unknown
+        } catch {
+            logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            return .failed
+        }
+    }
+
+    /// Fetches and applies a snapshot. Requests on the control connection
+    /// are answered in order, so the snapshot reflects every command sent
+    /// before it, including ones whose replies missed their deadline.
+    /// Concurrent callers share snapshots: a caller joins the snapshot
+    /// queued behind the one in flight (so it is ordered after the caller's
+    /// commands), and at most one is queued.
+    func reconcile() async {
+        if let queuedReconcile {
+            await queuedReconcile.value
+            return
+        }
+        let previous = reconciling
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            self.queuedReconcile = nil
+            if let connection = self.connection, let (tree, _) = try? await connection.snapshot() {
+                self.store.apply(snapshot: tree)
+            }
+        }
+        if previous != nil { queuedReconcile = task }
+        reconciling = task
+        await task.value
+        if reconciling == task { reconciling = nil }
+    }
+
     /// Fire-and-forget variant for UI handlers.
     func send(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
-        Task { await run(label, body) }
+        // Always start the task; `workTracker?(Task {...})` would skip
+        // creating it (and drop the command) when no tracker is set.
+        let task = Task { await failure(label, body) }
+        workTracker?(task)
     }
+
+    /// Runs a command; returns nil on success, else the failure (logged).
+    func failure(_ label: String, _ body: @Sendable (DaemonConnection) async throws -> Void) async -> String? {
+        guard let connection else {
+            logger.error("\(label, privacy: .public): not connected")
+            return "\(label): not connected to cmux-tui"
+        }
+        do {
+            try await body(connection)
+            return nil
+        } catch {
+            logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            return "\(label): \(error)"
+        }
+    }
+
+    /// Receives every command task `send` starts, so an action run from the
+    /// control socket can await it (`ActionRegistry.track`).
+    @ObservationIgnored var workTracker: ((Task<String?, Never>) -> Void)?
 
     /// Runs an intent with an optimistic store patch settled by the daemon's
     /// transaction echo (or reverted on failure).
@@ -118,6 +245,8 @@ final class DaemonService {
 
     func shutdownConnection() {
         runTask?.cancel()
+        runTask = nil
         if let connection { Task { await connection.close() } }
+        connection = nil
     }
 }

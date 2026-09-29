@@ -43,13 +43,13 @@ extension WorkspaceContentController {
 
     /// Runs a pane-creating command and focuses the new pane when it lands.
     private func spawnPane(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> SurfaceCreated) {
-        guard let connection = services.daemon.connection else { return }
+        guard let connection = daemon.connection else { return }
         Task {
             do {
                 pendingFocusSurface = try await body(connection).surface
                 applyCurrent()
             } catch {
-                services.daemon.logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                daemon.logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
         }
     }
@@ -70,7 +70,7 @@ extension WorkspaceContentController {
     private func sendGesture(_ transaction: LayoutTransactionID, phase: LayoutGesturePhase, label: String,
                              _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
         Task {
-            let ok = await services.daemon.run(label, body)
+            let ok = await daemon.run(label, body)
             guard phase == .ended || !ok else { return }
             if ok {
                 layoutModel.settleTransaction(transaction)
@@ -87,7 +87,7 @@ extension WorkspaceContentController {
         let restore: @MainActor (Bool) -> Void = { [services] ok in if !ok { services.restoreDetachedTab(tabID.rawValue) } }
         switch target {
         case .pane(let pane, let zone):
-            guard let handle = handles.panes[pane], let paneModel = services.daemon.store.pane(handle) else { return }
+            guard let handle = handles.panes[pane], let paneModel = daemon.store.pane(handle) else { return }
             switch zone {
             case .center:
                 TabMoves.move(tab, to: paneModel, index: paneModel.tabs.count, services: services, completion: restore)
@@ -100,7 +100,7 @@ extension WorkspaceContentController {
             let column = after.flatMap { id in layoutModel.screens.first { $0.id == screen }?.layout.columns.first { $0.id == id } }
                 ?? layoutModel.screens.first { $0.id == screen }?.layout.columns.last
             guard let anchor = column?.root.panes.last, let handle = handles.panes[anchor],
-                  let paneModel = services.daemon.store.pane(handle) else { return }
+                  let paneModel = daemon.store.pane(handle) else { return }
             TabMoves.toNewColumn(tab, anchor: paneModel, afterColumn: column.flatMap { handles.columns[$0.id] }, services: services, completion: restore)
         }
     }

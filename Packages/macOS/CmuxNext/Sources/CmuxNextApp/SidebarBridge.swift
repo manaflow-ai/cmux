@@ -33,17 +33,9 @@ final class SidebarBridge {
     }
 
     private func observe() {
-        let store = services.daemon.store
-        let machine = { () -> SidebarMachine in
-            let status: SidebarMachine.Status = switch store.connectionState {
-            case .connected: .connected
-            case .connecting, .disconnected: .connecting
-            case .failed: .offline
-            }
-            return SidebarMachine(id: .local, name: Strings.localMachine, kind: .local, status: status)
-        }
+        let machines = services.machines
         observation = Task { [weak self] in
-            for await sections in Observations({ SidebarMapping.sections(store.sidebarSections, machine: machine()) }) {
+            for await sections in Observations({ Self.sections(machines) }) {
                 self?.model.sections = sections
             }
         }
@@ -67,6 +59,27 @@ final class SidebarBridge {
         }
     }
 
+    /// One section per machine: the local daemon, then each Cloud machine
+    /// (empty while it connects).
+    static func sections(_ machines: MachineRegistry) -> [SidebarRowSection] {
+        var sections = SidebarMapping.sections(machines.local.store.sidebarSections,
+                                               machine: machine(for: machines.local, name: Strings.localMachine, kind: .local))
+        for session in machines.cloud {
+            let header = machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive)
+            sections += SidebarMapping.sections(session.daemon.store.sidebarSections, machine: header)
+        }
+        return sections
+    }
+
+    static func machine(for daemon: DaemonService, name: String, kind: SidebarMachine.Kind, live: Bool = true) -> SidebarMachine {
+        let status: SidebarMachine.Status = switch daemon.store.connectionState {
+        case .connected: .connected
+        case .connecting, .disconnected: live ? .connecting : .offline
+        case .failed: live ? .connecting : .offline
+        }
+        return SidebarMachine(id: MachineID(daemon.machineID), name: name, kind: kind, status: status)
+    }
+
     func contextMenu(for target: SidebarContextTarget) -> NSMenu? {
         let registry = services.registry
         switch target {
@@ -75,6 +88,8 @@ final class SidebarBridge {
             return registry.makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: first.rawValue))
         case .group(let id):
             return registry.makeContextMenu(for: .workspaceGroup, target: ActionTargetRef(kind: .workspaceGroup, id: id.rawValue))
+        case .section(.machine(let machine)) where machine.rawValue != MachineRegistry.localID:
+            return registry.makeContextMenu(for: .cloudMachine, target: ActionTargetRef(kind: .machine, id: machine.rawValue))
         case .section, .background:
             return registry.makeContextMenu(for: .sidebarBackground)
         }

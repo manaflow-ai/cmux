@@ -3,9 +3,11 @@ import CmuxNextDaemon
 import CmuxNextSidebar
 
 // Sidebar intents -> daemon commands, applied optimistically to the
-// sidebar model first. The store mapping overwrites the model with daemon
-// truth on the next change, so a rejected command reverts by itself; a
-// rejection also forces one re-map.
+// sidebar model first. Each command goes to the machine daemon that owns
+// the workspace or group; workspaces never move between machines (a drop
+// into another machine's section is refused and re-synced). The store
+// mapping overwrites the model with daemon truth on the next change, so a
+// rejected command reverts by itself; a rejection also forces one re-map.
 extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         switch intent {
@@ -18,60 +20,60 @@ extension SidebarBridge {
             reorder(ids, to: position, in: before)
         case .rename(let id, let name):
             model.apply(intent)
-            guard let key = services.daemon.store.workspaces.first(where: { $0.id == id.rawValue })?.key else { return }
-            command("rename-workspace", patch: .renameWorkspace(key: key, name: name)) { c, _ in _ = try await c.renameWorkspace(key, to: name) }
+            guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue), let key = workspace.key else { return }
+            command("rename-workspace", on: daemon, patch: .renameWorkspace(key: key, name: name)) { c, _ in _ = try await c.renameWorkspace(key, to: name) }
         case .close(let ids):
             model.apply(intent)
-            for key in keys(ids) {
-                command("close-workspace") { c, _ in _ = try await c.closeWorkspace(key) }
+            for (daemon, key) in keys(ids) {
+                command("close-workspace", on: daemon) { c, _ in _ = try await c.closeWorkspace(key) }
             }
-        case .newWorkspace:
-            services.windows.newWorkspace(in: state)
+        case .newWorkspace(let machine, _):
+            let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
+                ?? services.machines.daemon(machine: state.machineID)
+            services.windows.newWorkspace(in: state, on: daemon)
         case .setColor(let ids, let color):
             model.apply(intent)
-            for key in keys(ids) {
+            for (daemon, key) in keys(ids) {
                 let update: FieldUpdate<String> = color.map { .set($0.rawValue) } ?? .clear
-                command("set-workspace-metadata") { c, _ in _ = try await c.setWorkspaceMetadata(key, color: update) }
+                command("set-workspace-metadata", on: daemon) { c, _ in _ = try await c.setWorkspaceMetadata(key, color: update) }
             }
         case .toggleCollapse(let target):
             model.apply(intent)
-            if case .group(let group) = target, let current = model.group(group) {
+            if case .group(let group) = target, let current = model.group(group), let daemon = daemon(ofGroup: group) {
                 let id = WorkspaceGroupID(rawValue: group.rawValue), collapsed = current.isCollapsed
-                command("update-workspace-group", patch: .setWorkspaceGroupCollapsed(id, collapsed: collapsed)) { c, _ in
+                command("update-workspace-group", on: daemon, patch: .setWorkspaceGroupCollapsed(id, collapsed: collapsed)) { c, _ in
                     _ = try await c.updateGroup(id, collapsed: collapsed)
                 }
             }
         case .createGroup(let group, let name, let color, let ids):
             model.apply(intent)
-            let id = WorkspaceGroupID(rawValue: group.rawValue), members = keys(ids)
-            command("create-workspace-group") { c, _ in
+            let id = WorkspaceGroupID(rawValue: group.rawValue)
+            guard let (daemon, members) = sameMachine(ids) else { return resync() }
+            command("create-workspace-group", on: daemon) { c, _ in
                 _ = try await c.createGroup(name: name, id: id, color: color.rawValue)
                 for key in members { _ = try await c.moveWorkspace(key, toGroup: id) }
             }
         case .move(let ids, let group):
             model.apply(intent)
             let id = WorkspaceGroupID(rawValue: group.rawValue)
-            for key in keys(ids) { command("move-workspace-to-group") { c, _ in _ = try await c.moveWorkspace(key, toGroup: id) } }
+            guard let target = daemon(ofGroup: group), let (daemon, members) = sameMachine(ids), daemon === target else { return resync() }
+            for key in members { command("move-workspace-to-group", on: daemon) { c, _ in _ = try await c.moveWorkspace(key, toGroup: id) } }
         case .renameGroup(let group, let name):
             model.apply(intent)
-            let id = WorkspaceGroupID(rawValue: group.rawValue)
-            command("update-workspace-group") { c, _ in _ = try await c.updateGroup(id, name: name) }
+            groupCommand("update-workspace-group", group) { c, id in _ = try await c.updateGroup(id, name: name) }
         case .setGroupColor(let group, let color):
             model.apply(intent)
-            let id = WorkspaceGroupID(rawValue: group.rawValue)
-            command("update-workspace-group") { c, _ in _ = try await c.updateGroup(id, color: .set(color.rawValue)) }
+            groupCommand("update-workspace-group", group) { c, id in _ = try await c.updateGroup(id, color: .set(color.rawValue)) }
         case .ungroup(let group):
             model.apply(intent)
-            let id = WorkspaceGroupID(rawValue: group.rawValue)
-            command("delete-workspace-group") { c, _ in try await c.deleteGroup(id) }
+            groupCommand("delete-workspace-group", group) { c, id in try await c.deleteGroup(id) }
         case .reorderGroup(let group, let index):
             model.apply(intent)
-            let id = WorkspaceGroupID(rawValue: group.rawValue)
-            command("move-workspace-group") { c, _ in try await c.moveGroup(id, to: index) }
+            groupCommand("move-workspace-group", group) { c, id in try await c.moveGroup(id, to: index) }
         case .closeGroup(let group):
             let members = keys(model.group(group)?.workspaces.map(\.id) ?? [])
             model.apply(intent)
-            for key in members { command("close-workspace") { c, _ in _ = try await c.closeWorkspace(key) } }
+            for (daemon, key) in members { command("close-workspace", on: daemon) { c, _ in _ = try await c.closeWorkspace(key) } }
         case .setIcon, .setPinned, .setGroupPinned, .openGroup:
             // Needs daemon fields this build does not map yet; apply locally
             // so the UI responds, the next store change restores truth.
@@ -79,32 +81,58 @@ extension SidebarBridge {
         }
     }
 
-    private func keys(_ ids: [SidebarWorkspaceID]) -> [WorkspaceKey] {
-        let wanted = Set(ids.map(\.rawValue))
-        return services.daemon.store.workspaces.filter { wanted.contains($0.id) }.compactMap(\.key)
+    /// Each workspace's owning daemon and durable key, in order.
+    private func keys(_ ids: [SidebarWorkspaceID]) -> [(DaemonService, WorkspaceKey)] {
+        ids.compactMap { id in
+            guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue), let key = workspace.key else { return nil }
+            return (daemon, key)
+        }
+    }
+
+    /// The one daemon owning every workspace in `ids`, or nil when they span machines.
+    private func sameMachine(_ ids: [SidebarWorkspaceID]) -> (DaemonService, [WorkspaceKey])? {
+        let pairs = keys(ids)
+        guard let daemon = pairs.first?.0, pairs.allSatisfy({ $0.0 === daemon }) else { return nil }
+        return (daemon, pairs.map(\.1))
+    }
+
+    private func daemon(ofGroup group: GroupID) -> DaemonService? {
+        let id = WorkspaceGroupID(rawValue: group.rawValue)
+        return services.machines.daemons.first { $0.store.group(id) != nil }
+    }
+
+    private func groupCommand(_ label: String, _ group: GroupID,
+                              _ body: @escaping @Sendable (DaemonConnection, WorkspaceGroupID) async throws -> Void) {
+        guard let daemon = daemon(ofGroup: group) else { return }
+        let id = WorkspaceGroupID(rawValue: group.rawValue)
+        command(label, on: daemon) { c, _ in try await body(c, id) }
     }
 
     private func reorder(_ ids: [SidebarWorkspaceID], to position: DropPosition, in sections: [SidebarRowSection]) {
-        guard let root = WorkspaceOrdering.rootIndex(for: position, moving: ids, in: sections) else { return }
-        for (offset, key) in keys(ids).enumerated() {
+        guard case .machine(let machine) = position.section, let target = services.machines.daemon(machine: machine.rawValue),
+              let (daemon, members) = sameMachine(ids), daemon === target,
+              let root = WorkspaceOrdering.rootIndex(for: position, moving: ids, in: sections.filter { $0.id == position.section })
+        else { return resync() }
+        for (offset, key) in members.enumerated() {
             let index = root + offset
             if let group = position.group {
                 let groupID = WorkspaceGroupID(rawValue: group.rawValue)
-                command("move-workspace-to-group") { c, _ in _ = try await c.moveWorkspace(key, toGroup: groupID, index: index) }
+                command("move-workspace-to-group", on: daemon) { c, _ in _ = try await c.moveWorkspace(key, toGroup: groupID, index: index) }
             } else {
-                command("move-workspace", patch: .moveWorkspace(key: key, index: index)) { c, _ in _ = try await c.moveWorkspace(key, to: index) }
+                command("move-workspace", on: daemon, patch: .moveWorkspace(key: key, index: index)) { c, _ in _ = try await c.moveWorkspace(key, to: index) }
             }
         }
     }
 
-    private func command(_ label: String, patch: OptimisticPatch = .custom { _ in },
+    /// Puts daemon truth back after a refused or rejected intent.
+    private func resync() {
+        model.sections = Self.sections(services.machines)
+    }
+
+    private func command(_ label: String, on daemon: DaemonService, patch: OptimisticPatch = .custom { _ in },
                          _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
         Task {
-            let ok = await services.daemon.perform(label, patch: patch, body)
-            if !ok {
-                model.sections = SidebarMapping.sections(services.daemon.store.sidebarSections, machine: model.sections.first?.machine
-                    ?? SidebarMachine(id: .local, name: Strings.localMachine, kind: .local))
-            }
+            if !(await daemon.perform(label, patch: patch, body)) { resync() }
         }
     }
 }

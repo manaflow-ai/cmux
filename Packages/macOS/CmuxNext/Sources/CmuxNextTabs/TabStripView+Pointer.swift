@@ -55,6 +55,7 @@ extension TabStripView {
             if let closeID { cells[closeID]?.isCloseHovered = true }
         }
         newTabButton.isHovered = !dragging && isInNewTabButton(point)
+        buttonGroup.hoveredIndex = dragging ? nil : trailingButtonIndex(at: point)
 
         guard !hoverCardSuppressed, !groupEditor.isVisible else { return }
         if let chip {
@@ -82,6 +83,7 @@ extension TabStripView {
         if let closeHoveredID { cells[closeHoveredID]?.isCloseHovered = false }
         closeHoveredID = nil
         newTabButton.isHovered = false
+        buttonGroup.hoveredIndex = nil
         hoverCard.hide()
         hoverCardSuppressed = false
         if closingModeWidth != nil, drag == nil {
@@ -100,6 +102,11 @@ extension TabStripView {
         if isInNewTabButton(point) {
             pressedNewTab = true
             newTabButton.isPressed = true
+            return
+        }
+        if let index = trailingButtonIndex(at: point) {
+            pendingTrailingPress = index
+            buttonGroup.pressedIndex = index
             return
         }
         if let group = chipGroup(at: point) {
@@ -136,6 +143,7 @@ extension TabStripView {
             newTabButton.isPressed = isInNewTabButton(point)
             return
         }
+        if trackTrailingButtonDrag(at: point) { return }
         if drag != nil {
             updateDrag(at: point, event: event)
             return
@@ -169,6 +177,7 @@ extension TabStripView {
             if isInNewTabButton(point) { model.send(.newTab(after: nil)) }
             return
         }
+        if endTrailingButtonPress(at: point) { return }
         if drag != nil { endDrag() }
         press = nil
         if groups.drag != nil {
@@ -200,6 +209,7 @@ extension TabStripView {
     public override func menu(for event: NSEvent) -> NSMenu? {
         hoverCard.hide(allowsQuickReshow: false)
         let point = convert(event.locationInWindow, from: nil)
+        if trailingButtonIndex(at: point) != nil { return nil }
         if let group = chipGroup(at: point) {
             if let menu = contextMenuProvider?(.group(group)) { return menu }
             showGroupEditor(for: group)

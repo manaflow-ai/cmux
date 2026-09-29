@@ -21,99 +21,99 @@ extension ActionCatalog {
                 id: "palette.cloud.fork",
                 title: String(localized: "action.palette.cloud.fork", defaultValue: "Fork Cloud Machine", bundle: .module),
                 keywords: ["vm", "clone"], category: .cloud, symbol: "arrow.triangle.branch", surfaces: [.palette],
-                requires: [.cloudWorkspace], cliName: "cloud fork-machine"
+                requires: [.cloudWorkspace], targets: [.machine], cliName: "cloud fork-machine"
             ),
             ActionDescriptor(
                 id: "palette.cloud.snapshot",
                 title: String(localized: "action.palette.cloud.snapshot", defaultValue: "Snapshot Cloud Machine", bundle: .module),
                 keywords: ["vm", "backup"], category: .cloud, symbol: "camera.aperture", surfaces: [.palette],
-                requires: [.cloudWorkspace], cliName: "cloud snapshot-machine"
+                requires: [.cloudWorkspace], targets: [.machine], cliName: "cloud snapshot-machine"
             ),
             ActionDescriptor(
                 id: "palette.cloud.restore",
                 title: String(localized: "action.palette.cloud.restore", defaultValue: "Restore Cloud Machine…", bundle: .module),
                 keywords: ["vm", "snapshot"], category: .cloud, symbol: "clock.arrow.2.circlepath",
                 surfaces: [.palette], requires: [.cloudWorkspace], arguments: [CatalogArgument.snapshotString],
-                cliName: "cloud restore-machine"
+                targets: [.machine], cliName: "cloud restore-machine"
             ),
             ActionDescriptor(
                 id: "palette.cloud.promoteTemplate",
                 title: String(localized: "action.palette.cloud.promoteTemplate", defaultValue: "Promote Machine to Template", bundle: .module),
                 keywords: ["vm", "template"], category: .cloud, symbol: "star.square", surfaces: [.palette],
-                requires: [.cloudWorkspace], cliName: "cloud promote-machine-to-template"
+                requires: [.cloudWorkspace], targets: [.machine], cliName: "cloud promote-machine-to-template"
             ),
             ActionDescriptor(
                 id: "palette.cloud.status",
                 title: String(localized: "action.palette.cloud.status", defaultValue: "Cloud Machine Status", bundle: .module),
                 keywords: ["vm", "health"], category: .cloud, symbol: "waveform.path.ecg", surfaces: [.palette],
-                requires: [.cloudWorkspace], cliName: "cloud machine-status"
+                requires: [.cloudWorkspace], targets: [.machine], cliName: "cloud machine-status"
             ),
             ActionDescriptor(
                 id: "palette.cloud.ports",
                 title: String(localized: "action.palette.cloud.ports", defaultValue: "Cloud Machine Ports", bundle: .module),
                 keywords: ["vm", "forward"], category: .cloud, symbol: "network", surfaces: [.palette],
-                requires: [.cloudWorkspace], cliName: "cloud machine-ports"
+                requires: [.cloudWorkspace], targets: [.machine], cliName: "cloud machine-ports"
             ),
             ActionDescriptor(
                 id: "palette.cloud.tools",
                 title: String(localized: "action.palette.cloud.tools", defaultValue: "Cloud Machine Tools", bundle: .module),
                 keywords: ["vm"], category: .cloud, symbol: "wrench.and.screwdriver", surfaces: [.palette],
-                requires: [.cloudWorkspace], cliName: "cloud machine-tools"
+                requires: [.cloudWorkspace], targets: [.machine], cliName: "cloud machine-tools"
             ),
             ActionDescriptor(
                 id: "palette.cloud.handoff",
                 title: String(localized: "action.palette.cloud.handoff", defaultValue: "Hand Off Cloud Machine", bundle: .module),
                 keywords: ["vm", "share"], category: .cloud, symbol: "hand.raised", surfaces: [.palette],
-                requires: [.cloudWorkspace], cliName: "cloud hand-off-machine"
+                requires: [.cloudWorkspace], targets: [.machine], cliName: "cloud hand-off-machine"
             ),
             ActionDescriptor(
                 id: "cloudNewTerminal",
                 title: String(localized: "action.cloudNewTerminal", defaultValue: "New Terminal on Machine", bundle: .module),
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "apple.terminal", surfaces: [.contextMenu],
-                cliName: "cloud new-terminal-on-machine"
+                targets: [.machine], cliName: "cloud new-terminal-on-machine"
             ),
             ActionDescriptor(
                 id: "cloudOpenMachine",
                 title: String(localized: "action.cloudOpenMachine", defaultValue: "Open Machine", bundle: .module),
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "server.rack", surfaces: [.contextMenu],
-                cliName: "cloud open-machine"
+                targets: [.machine], cliName: "cloud open-machine"
             ),
             ActionDescriptor(
                 id: "cloudRenameMachine",
                 title: String(localized: "action.cloudRenameMachine", defaultValue: "Rename Machine…", bundle: .module),
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "pencil", surfaces: [.contextMenu],
-                arguments: [CatalogArgument.nameString], cliName: "cloud rename-machine"
+                arguments: [CatalogArgument.nameString], targets: [.machine], cliName: "cloud rename-machine"
             ),
             ActionDescriptor(
                 id: "cloudKillMachine",
                 title: String(localized: "action.cloudKillMachine", defaultValue: "Kill Machine", bundle: .module),
                 keywords: ["vm", "cloud tree", "delete"], category: .cloud, symbol: "xmark.octagon",
-                surfaces: [.contextMenu], cliName: "cloud kill-machine"
+                surfaces: [.contextMenu], targets: [.machine], cliName: "cloud kill-machine"
             ),
             ActionDescriptor(
                 id: "cloudCopyLink",
                 title: String(localized: "action.cloudCopyLink", defaultValue: "Copy Machine Link", bundle: .module),
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "link", surfaces: [.contextMenu],
-                cliName: "cloud copy-machine-link"
+                arguments: [CatalogArgument.portInt], targets: [.machine], cliName: "cloud copy-machine-link"
             ),
             ActionDescriptor(
                 id: "cloudCopyPort",
                 title: String(localized: "action.cloudCopyPort", defaultValue: "Copy Machine Port", bundle: .module),
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "number", surfaces: [.contextMenu],
-                cliName: "cloud copy-machine-port"
+                arguments: [CatalogArgument.portInt], targets: [.machine], cliName: "cloud copy-machine-port"
             ),
             ActionDescriptor(
                 id: "cloudCopyMachineID",
                 title: String(localized: "action.cloudCopyMachineID", defaultValue: "Copy Machine ID", bundle: .module),
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "doc.on.doc", surfaces: [.contextMenu],
-                cliName: "cloud copy-machine-id"
+                targets: [.machine], cliName: "cloud copy-machine-id"
             ),
             ActionDescriptor(
                 id: "cloudResizeMachine",
                 title: String(localized: "action.cloudResizeMachine", defaultValue: "Resize Machine…", bundle: .module),
                 keywords: ["vm", "cloud tree", "cpu", "memory"], category: .cloud,
                 symbol: "arrow.up.left.and.arrow.down.right", surfaces: [.contextMenu],
-                arguments: [CatalogArgument.sizeChoice], cliName: "cloud resize-machine"
+                arguments: [CatalogArgument.sizeChoice], targets: [.machine], cliName: "cloud resize-machine"
             ),
             ActionDescriptor(
                 id: "cloudDiagnostics",

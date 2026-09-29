@@ -30,7 +30,7 @@ extension PaneHandlers {
         registry.bind("palette.swapWithSession", invoke: { invocation in
             guard let source = ctx.paneController(ActionInvocation(target: invocation.target))?.pane else { return }
             guard let ref = invocation["pane"]?.targetValue ?? ctx.refuse(RefusalStrings.paneArgumentRequired) else { return }
-            let panes = ctx.services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
+            let panes = ctx.services.activeDaemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
             guard let target = panes.first(where: { $0.id == ref.id }) ?? ctx.refuse(RefusalStrings.noPaneID(ref.id)) else { return }
             guard target !== source else { return ctx.refuse(RefusalStrings.paneCannotSwapWithItself) }
             let from = source.handle, to = target.handle

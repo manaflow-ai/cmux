@@ -34,6 +34,8 @@ final class CEFRuntime {
     var nextRequest: Int32 = 1
     var devToolsCalls: [CEFDevToolsKey: CheckedContinuation<String, any Error>] = [:]
     var shutdownSequence: CEFShutdownSequence?
+    var shutdownWaiter: CheckedContinuation<Void, Never>?
+    var shutdownTimeout: Task<Void, Never>?
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -133,7 +135,14 @@ final class CEFRuntime {
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in
-            MainActor.assumeIsolated { CEFRuntime.shared.shutdownBlocking(timeout: 3) }
+            MainActor.assumeIsolated {
+                // The App shuts CEF down from applicationShouldTerminate. Reaching
+                // willTerminate with CEF live means that path was skipped; never
+                // spin the run loop here (architecture.md 5a), just let helpers
+                // exit with the parent.
+                guard CEFRuntime.shared.state == .ready else { return }
+                CEFRuntime.shared.logger.error("CEF still running at willTerminate; skipping CefShutdown")
+            }
         }
     }
 

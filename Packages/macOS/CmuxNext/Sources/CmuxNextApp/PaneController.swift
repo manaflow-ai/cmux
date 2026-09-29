@@ -13,6 +13,8 @@ final class PaneController {
     let paneKey: String
     let layoutPaneID: LayoutPaneID
     let pane: PaneModel
+    /// The machine daemon that owns `pane`.
+    let daemon: DaemonService
     let stripModel = TabStripModel()
     let view: PaneContentView
     unowned let services: AppServices
@@ -29,6 +31,7 @@ final class PaneController {
     /// focus once its page exists (CEF pages arrive asynchronously).
     var pendingAddressBarFocus: SurfaceID?
     private var observation: Task<Void, Never>?
+    private var buttonsObservation: Task<Void, Never>?
 
     struct Snapshot: Equatable {
         var items: [StripTabItem]
@@ -39,8 +42,9 @@ final class PaneController {
         var surfaces: [UInt64]
     }
 
-    init(pane: PaneModel, layoutPaneID: LayoutPaneID, services: AppServices, state: WindowState) {
+    init(pane: PaneModel, daemon: DaemonService, layoutPaneID: LayoutPaneID, services: AppServices, state: WindowState) {
         self.pane = pane
+        self.daemon = daemon
         paneKey = pane.id
         self.layoutPaneID = layoutPaneID
         self.services = services
@@ -59,6 +63,8 @@ final class PaneController {
 
     func teardown() {
         observation?.cancel()
+        buttonsObservation?.cancel()
+        services.presentation.cancel(self)
         if let currentTabKey { services.cache.setVisible(currentTabKey, false) }
         currentTabKey = nil
         view.show(nil)
@@ -75,10 +81,17 @@ final class PaneController {
             }
         }
         apply(snapshot())
+        let buttons = services.tabBarButtons!
+        buttonsObservation = Task { [weak self] in
+            for await list in Observations({ buttons.buttons }) {
+                guard let self else { return }
+                if self.stripModel.trailingButtons != list { self.stripModel.trailingButtons = list }
+            }
+        }
     }
 
     func snapshot() -> Snapshot {
-        let store = services.daemon.store
+        let store = daemon.store
         let fallback = Strings.untitledTerminal
         var items = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab -> StripTabItem in
             var item = TabItemMapping.item(tab, fallbackTitle: tab.kind == .browser ? Strings.untitledBrowser : fallback)
@@ -117,8 +130,13 @@ final class PaneController {
         let selected = state.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex)
         let selectedID = selected.map { StripTabID($0) }
         if stripModel.selectedID != selectedID { stripModel.selectedID = selectedID }
-        showSelected()
-        if focusNew { focusContent() }
+        if focusNew {
+            showSelected()
+            focusContent()
+        } else {
+            // Model-driven: show on the next frame, coalescing transient selections.
+            services.presentation.setNeedsShowSelected(self)
+        }
     }
 
     /// Re-pushes daemon truth after a rejection.
@@ -157,7 +175,7 @@ final class PaneController {
         guard let tab = pane.tabs.first(where: { $0.id == key }) else { return nil }
         switch tab.kind {
         case .pty:
-            return .terminal(services.cache.terminal(for: tab))
+            return .terminal(services.cache.terminal(for: tab, daemon: daemon))
         case .browser where tab.isFrontendOwned:
             return services.cache.browser(for: tab).map(TabContent.browser)
         default:
@@ -166,6 +184,12 @@ final class PaneController {
     }
 
     var currentContent: TabContent? { currentTabKey.flatMap(content(for:)) }
+
+    /// True when showing the selection needs no new surface or page.
+    var selectedContentIsAlive: Bool {
+        guard let key = stripModel.selectedID?.rawValue else { return true }
+        return key == currentTabKey || services.cache.hasContent(for: key)
+    }
 
     /// The layout reported this pane on or off screen.
     func setVisible(_ visible: Bool) {

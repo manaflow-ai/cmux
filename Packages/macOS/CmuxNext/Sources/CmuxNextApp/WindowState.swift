@@ -23,14 +23,17 @@ final class WindowState {
     let id: String
     /// `WorkspaceModel.id` of the workspace shown.
     var workspaceID: String?
+    /// Machine that holds `workspaceID` (`local` or a Cloud machine id).
+    var machineID: String = MachineRegistry.localID
     var selection = TabSelectionMemory()
     /// Focused layout pane per workspace.
     var focusedPane: [String: LayoutPaneID] = [:]
     /// Session-only browser tabs per pane (`PaneModel.id`).
     var localBrowserTabs: [String: [LocalBrowserTab]] = [:]
 
-    init(id: String = UUID().uuidString.lowercased(), workspaceID: String? = nil) {
+    init(id: String = UUID().uuidString.lowercased(), workspaceID: String? = nil, machineID: String? = nil) {
         self.id = id
         self.workspaceID = workspaceID
+        self.machineID = machineID ?? MachineRegistry.localID
     }
 }

@@ -31,11 +31,15 @@ final class TabContentCache {
 
     var liveTerminalCount: Int { terminals.count }
 
+    /// True when `key` has a live surface or page (showing it is cheap).
+    func hasContent(for key: String) -> Bool { terminals[key] != nil || browsers[key] != nil }
+
     // MARK: Terminals
 
-    /// The surface for a daemon terminal tab, created (attached) on demand.
-    func terminal(for tab: TabModel) -> TerminalEntry {
-        let validity = "\(tab.id)#\(daemon.store.generation?.rawValue ?? "")#\(tab.surface.rawValue)"
+    /// The surface for a daemon terminal tab, created (attached) on demand
+    /// over `daemon`'s socket (the local daemon, or a Cloud machine's link).
+    func terminal(for tab: TabModel, daemon: DaemonService) -> TerminalEntry {
+        let validity = "\(daemon.machineID)#\(tab.id)#\(daemon.store.generation?.rawValue ?? "")#\(tab.surface.rawValue)"
         if let entry = terminals[tab.id], entry.validity == validity { return entry }
         terminals.removeValue(forKey: tab.id)?.close()
         let target = DaemonTerminalIO.Target(
@@ -43,13 +47,17 @@ final class TabContentCache {
                                                   generation: daemon.store.generation),
             initialSize: tab.size ?? CellSize(cols: 80, rows: 24)
         )
-        let daemon = daemon
         let io = DaemonTerminalIO(target: target, endpoint: { try await daemon.endpoint() })
         let session = TerminalSession(io: io, ownsGeometry: true)
         session.delegate = sessionDelegate
         let entry = TerminalEntry(validity: validity, session: session, io: io)
         terminals[tab.id] = entry
         return entry
+    }
+
+    /// The tab id whose surface is `session`.
+    func tabKey(for session: TerminalSession) -> String? {
+        terminals.first { $0.value.session === session }?.key
     }
 
     // MARK: Browsers
@@ -96,7 +104,15 @@ final class TabContentCache {
         if let entry = terminals[key] {
             entry.session.isRenderingSuspended = !visible
             entry.io.setVisible(visible)
-            if !visible, let image = entry.session.snapshot(maxPixelSize: 480) { previews.insert(image, for: key) }
+            if !visible {
+                // Rendered off the main thread: the GPU readback used to block it.
+                Task { [weak self] in
+                    guard let image = await entry.session.snapshotInBackground(maxPixelSize: 480) else { return }
+                    // The tab may have closed while the preview rendered.
+                    guard let self, self.terminals[key] != nil else { return }
+                    self.previews.insert(image, for: key)
+                }
+            }
         }
         if let entry = browsers[key] {
             Task { await entry.tab.setOccluded(!visible) }
@@ -123,7 +139,8 @@ final class TabContentCache {
     // MARK: Previews
 
     func previewImage(for key: String, maxPixelSize: CGSize) async -> CGImage? {
-        if let entry = terminals[key], let image = entry.session.snapshot(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) {
+        if let entry = terminals[key],
+           let image = await entry.session.snapshotInBackground(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) {
             previews.insert(image, for: key)
             return image
         }

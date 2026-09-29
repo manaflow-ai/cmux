@@ -49,7 +49,7 @@ struct BrowserTabTests {
         }
         let workspace = try #require(store.workspaces.first)
         let state = WindowState(workspaceID: workspace.id)
-        let content = WorkspaceContentController(workspace: workspace, services: services, state: state)
+        let content = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
         let paneModel = try #require(workspace.screens.first?.panes.first)
         let paneID = LayoutPaneIDFixture.id(paneModel)
         await Self.settle { content.panes[paneID] != nil }

@@ -120,6 +120,11 @@ public final class TerminalSession {
         surfaceView.snapshot(maxPixelSize: maxPixelSize)
     }
 
+    /// ``snapshot(maxPixelSize:)`` rendered off the main thread (it waits on the GPU).
+    public func snapshotInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
+        await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
+    }
+
     /// A live, zero-copy scaled mirror for hover previews. See
     /// ``TerminalMirrorView``.
     public func makeMirrorView() -> TerminalMirrorView {

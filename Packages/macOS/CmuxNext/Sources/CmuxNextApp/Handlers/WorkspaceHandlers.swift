@@ -9,13 +9,13 @@ import CmuxNextDaemon
 enum WorkspaceHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("openFolder", run: { _ in openFolder(context) })
-        registry.bind("newBrowserWorkspace", requires: DaemonCapabilities.frontendBrowserTabs, daemon: context.services.daemon, run: { _ in try newBrowserWorkspace(context) })
+        registry.bind("newBrowserWorkspace", requires: DaemonCapabilities.frontendBrowserTabs, daemon: context.services.activeDaemon, run: { _ in try newBrowserWorkspace(context) })
         registry.bind("nextSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: 1) })
         registry.bind("prevSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: -1) })
         registry.bind("palette.moveWorkspaceToTop", run: { invocation in
             let key = try context.workspace(invocation).key
             Task {
-                await context.services.daemon.perform("move-workspace", patch: .moveWorkspace(key: key, index: 0)) { connection, _ in
+                await context.services.activeDaemon.perform("move-workspace", patch: .moveWorkspace(key: key, index: 0)) { connection, _ in
                     _ = try await connection.moveWorkspace(key, to: 0)
                 }
             }
@@ -61,7 +61,7 @@ enum WorkspaceHandlers {
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
         let services = context.services
         Task {
-            guard let connection = services.daemon.connection else { return }
+            guard let connection = services.activeDaemon.connection else { return }
             let created: String
             do {
                 let key = WorkspaceKey.generate()
@@ -130,7 +130,7 @@ enum WorkspaceHandlers {
 
     static func close(_ workspaces: [WorkspaceModel], _ context: AppActionContext) {
         for key in workspaces.compactMap(\.key) {
-            context.services.daemon.send("close-workspace") { _ = try await $0.closeWorkspace(key) }
+            context.services.activeDaemon.send("close-workspace") { _ = try await $0.closeWorkspace(key) }
         }
     }
 }

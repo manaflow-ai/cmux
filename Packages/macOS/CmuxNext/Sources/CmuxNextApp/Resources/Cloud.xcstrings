@@ -1,0 +1,550 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "cloud.button.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "cloud.button.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー"
+          }
+        }
+      }
+    },
+    "cloud.button.kill": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kill Machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンを削除"
+          }
+        }
+      }
+    },
+    "cloud.button.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "cloud.button.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を変更"
+          }
+        }
+      }
+    },
+    "cloud.button.select": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択"
+          }
+        }
+      }
+    },
+    "cloud.failed.alreadySignedIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Already signed in."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでにサインインしています。"
+          }
+        }
+      }
+    },
+    "cloud.failed.invalidPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port must be between 1 and 65535."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポートは 1 から 65535 の範囲で指定してください。"
+          }
+        }
+      }
+    },
+    "cloud.failed.noAddress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine has no private address yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンにはまだプライベートアドレスがありません。"
+          }
+        }
+      }
+    },
+    "cloud.failed.noMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Cloud machine is selected. Right-click a machine or pass --target machine:<id>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンが選択されていません。マシンを右クリックするか、--target machine:<id> を指定してください。"
+          }
+        }
+      }
+    },
+    "cloud.failed.noTeams": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account has no teams."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントにはチームがありません。"
+          }
+        }
+      }
+    },
+    "cloud.failed.notConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud machine is not connected yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンはまだ接続されていません。"
+          }
+        }
+      }
+    },
+    "cloud.failed.signInFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud machines."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンを使うにはサインインしてください。"
+          }
+        }
+      }
+    },
+    "cloud.failed.sizeMustBeOneOf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size must be one of: %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイズは次のいずれかにしてください: %@。"
+          }
+        }
+      }
+    },
+    "cloud.failed.snapshotRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass the snapshot id to restore (--snapshot <id>)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元するスナップショット ID を指定してください (--snapshot <id>)。"
+          }
+        }
+      }
+    },
+    "cloud.prompt.killMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kill this Cloud machine?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンを削除しますか?"
+          }
+        }
+      }
+    },
+    "cloud.prompt.killMachineBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine and every terminal on it are deleted. This cannot be undone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンとその上のすべてのターミナルが削除されます。この操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "cloud.prompt.renameMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン名を変更"
+          }
+        }
+      }
+    },
+    "cloud.prompt.teamPicker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a Team"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームを選択"
+          }
+        }
+      }
+    },
+    "cloud.result.diagnosticsTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Diagnostics"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 診断"
+          }
+        }
+      }
+    },
+    "cloud.result.failedTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Action Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud の操作に失敗しました"
+          }
+        }
+      }
+    },
+    "cloud.result.noPorts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No TCP ports are listening on this machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンで待ち受け中の TCP ポートはありません。"
+          }
+        }
+      }
+    },
+    "cloud.result.portsTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listening Ports"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待ち受け中のポート"
+          }
+        }
+      }
+    },
+    "cloud.result.snapshotBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snapshot %@ is ready. Restore it with Restore Cloud Machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スナップショット %@ の準備ができました。「Cloud マシンを復元」で復元できます。"
+          }
+        }
+      }
+    },
+    "cloud.result.snapshotTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snapshot Created"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スナップショットを作成しました"
+          }
+        }
+      }
+    },
+    "cloud.result.statusTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine Status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの状態"
+          }
+        }
+      }
+    },
+    "cloud.unavailable.handoff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handing off a machine needs the session sharing flow, which is not ported to cmux-next yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの引き渡しにはセッション共有フローが必要ですが、cmux-next にはまだ移植されていません。"
+          }
+        }
+      }
+    },
+    "cloud.unavailable.localBackend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build has no Cloud backend. Rebuild it with ./scripts/reload.sh --tag <tag> --direct-backend."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドには Cloud バックエンドがありません。./scripts/reload.sh --tag <tag> --direct-backend で再ビルドしてください。"
+          }
+        }
+      }
+    },
+    "cloud.unavailable.mobilePairing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile pairing arrives with the iOS phase of cmux-next (plans/cmux-next/cloud-ios.md)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイルのペアリングは cmux-next の iOS フェーズで対応します (plans/cmux-next/cloud-ios.md)。"
+          }
+        }
+      }
+    },
+    "cloud.unavailable.noClient": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The bundled cmux-tui client is missing, so Cloud machines cannot connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同梱の cmux-tui クライアントがないため、Cloud マシンに接続できません。"
+          }
+        }
+      }
+    },
+    "cloud.unavailable.promoteTemplate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The web API has no route to promote a machine to a template yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンをテンプレートに昇格する Web API のルートはまだありません。"
+          }
+        }
+      }
+    },
+    "cloud.unavailable.tools": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine tools panel is not ported to cmux-next yet; use Machine Status, Ports, or Diagnostics."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンツールパネルは cmux-next にまだ移植されていません。マシンの状態、ポート、診断を使ってください。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

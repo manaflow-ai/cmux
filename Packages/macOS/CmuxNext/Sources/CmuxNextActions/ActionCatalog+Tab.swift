@@ -7,8 +7,8 @@ extension ActionCatalog {
                 id: "newSurface",
                 title: String(localized: "action.newSurface", defaultValue: "New Terminal Tab", bundle: .module),
                 keywords: ["tab", "terminal", "create"], defaultShortcut: Shortcut("t", modifiers: [.command]),
-                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard, .contextMenu], targets: [.tab],
-                cliName: "tab new-terminal"
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard, .contextMenu],
+                arguments: [CatalogArgument.cwdString.optional], targets: [.tab], cliName: "tab new-terminal"
             ),
             ActionDescriptor(
                 id: "openBrowser",

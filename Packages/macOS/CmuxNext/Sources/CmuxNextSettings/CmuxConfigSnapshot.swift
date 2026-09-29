@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A problem found while reading cmux.json. Loading never fails on a bad
 /// entry: the entry is skipped and reported here.
@@ -42,6 +42,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// Shortcut bindings by action ID: `shortcuts.bindings.<id>` merged with
     /// direct `shortcuts.<id>` keys (direct keys win, as in the old loader).
     public var shortcuts: [String: ShortcutBinding]
+    /// `ui.surfaceTabBar.buttons`, resolved; the defaults when unset.
+    public var tabBar: SurfaceTabBarConfig = .defaults
+    /// Runnable `actions.<name>` entries plus inline command buttons.
+    public var commandActions: [ConfigCommandAction] = []
     public var diagnostics: [SettingsDiagnostic]
 
     public static let empty = CmuxConfigSnapshot(root: .object([:]), density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
@@ -54,13 +58,18 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public static func parse(
         _ root: JSONValue,
         validDensities: Set<String>,
-        validMetrics: Set<String>
+        validMetrics: Set<String>,
+        configDirectory: URL = CmuxConfigFile.defaultURL().deletingLastPathComponent()
     ) -> CmuxConfigSnapshot {
         var snapshot = CmuxConfigSnapshot(root: root, density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
         guard case .object = root else {
             snapshot.diagnostics.append(SettingsDiagnostic(kind: .unreadableFile, path: "", message: "root is not an object"))
             return snapshot
         }
+        let tabBar = SurfaceTabBarParser.parse(root, configDirectory: configDirectory)
+        snapshot.tabBar = tabBar.tabBar
+        snapshot.commandActions = tabBar.actions
+        snapshot.diagnostics += tabBar.diagnostics
 
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {

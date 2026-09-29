@@ -22,6 +22,7 @@ public enum ContextMenuCatalog {
         case .terminalSelection: terminalSelection
         case .browserPage: browserPage
         case .link: link
+        case .cloudMachine: cloudMachine
         }
     }
 
@@ -86,6 +87,12 @@ public enum ContextMenuCatalog {
         + [.separator]
         + actions("palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove", "closeWorkspace")
 
+    static let cloudMachine: [ContextMenuEntry] =
+        actions("cloudNewTerminal", "cloudOpenMachine", "cloudRenameMachine") + [.separator]
+        + actions("cloudCopyMachineID", "cloudCopyLink", "cloudCopyPort") + [.separator]
+        + actions("cloudResizeMachine", "palette.cloud.status", "palette.cloud.snapshot", "palette.cloud.fork") + [.separator]
+        + actions("cloudKillMachine")
+
     static let workspaceGroup: [ContextMenuEntry] =
         actions("workspaceGroup.newWorkspace", "workspaceGroup.rename")
         + [.submenu("workspaceGroup.setColor", colors("workspaceGroup"))]
@@ -101,7 +108,8 @@ public enum ContextMenuCatalog {
         + actions("newCloudWorkspace") + [.separator] + actions("toggleSidebar")
 
     static let terminalSelection: [ContextMenuEntry] =
-        actions("terminalCopy", "terminalPaste", "useSelectionForFind") + [.separator]
+        actions("terminalCopy", "terminalPaste", "terminal.selectAll", "useSelectionForFind") + [.separator]
+        + actions("splitRight", "splitDown", "splitLeft", "splitUp", "toggleSplitZoom") + [.separator]
         + actions("palette.forkAgentConversationRight", "palette.forkAgentConversationNewTab") + [.separator]
         + actions("clearScreenKeepScrollback", "resetTerminal")
 

@@ -50,11 +50,11 @@ public final class CEFEngine: BrowserEngine {
         return tab
     }
 
-    /// Quit ordering for a live CEF: closes every browser, waits until the
-    /// fork reports no Chromium windows, then calls CefShutdown. The App may
-    /// call this from `applicationShouldTerminate`; otherwise it runs from
-    /// `NSApplication.willTerminateNotification`. No-op when CEF never started.
-    public func shutdown(timeout: TimeInterval = 3) {
-        CEFRuntime.shared.shutdownBlocking(timeout: timeout)
+    /// Quit ordering for a live CEF: closes every browser, waits (async, the
+    /// run loop keeps pumping) until the fork reports no Chromium windows or
+    /// `timeout` passes, then calls CefShutdown. The App awaits this from
+    /// `applicationShouldTerminate`. No-op when CEF never started.
+    public func shutdown(timeout: Duration = .seconds(3)) async {
+        await CEFRuntime.shared.shutdown(timeout: timeout)
     }
 }

@@ -35,11 +35,13 @@ extension TabHandlers {
         })
         registry.bind("palette.moveTabToNewWorkspace", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
-            Task {
-                guard let key = await TabMoves.toNewWorkspace(tab, services: ctx.services),
-                      let state = ctx.services.windows.active?.state else { return }
-                ctx.services.windows.show(workspaceID: key.rawValue, in: state)
-            }
+            ctx.registry.track(Task {
+                guard let key = await TabMoves.toNewWorkspace(tab, services: ctx.services) else {
+                    return "move-tab-to-new-workspace failed (see the app log)"
+                }
+                if let state = ctx.services.windows.active?.state { ctx.services.windows.show(workspaceID: key.rawValue, in: state) }
+                return nil
+            })
         })
         registry.bind("tab.moveToNewWindow", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
@@ -72,7 +74,7 @@ extension TabHandlers {
     private static func bindIdentifiers(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("palette.copyIdentifiers", invoke: { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
-            let workspace = ctx.services.daemon.store.workspaces.first { $0.screens.contains { $0.panes.contains { $0 === pane } } }
+            let workspace = ctx.services.activeDaemon.store.workspaces.first { $0.screens.contains { $0.panes.contains { $0 === pane } } }
             var lines: [String] = []
             if let workspace { lines.append("workspace_id=\(workspace.id)") }
             lines.append("pane_id=\(pane.id)")

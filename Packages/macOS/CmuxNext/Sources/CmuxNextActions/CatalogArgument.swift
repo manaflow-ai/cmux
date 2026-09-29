@@ -79,12 +79,28 @@ enum CatalogArgument {
         ActionArgument(name: "snapshot", title: String(localized: "argument.snapshot", defaultValue: "Snapshot", bundle: .module), kind: .string)
     }
 
+    static var portInt: ActionArgument {
+        ActionArgument(name: "port", title: String(localized: "argument.port", defaultValue: "Port", bundle: .module), kind: .int(1...65535))
+    }
+
     static var sizeChoice: ActionArgument {
         ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .enumeration([choice("small"), choice("medium"), choice("large"), choice("xlarge")]))
     }
 
     static var settingString: ActionArgument {
         ActionArgument(name: "setting", title: String(localized: "argument.setting", defaultValue: "Setting", bundle: .module), kind: .string)
+    }
+
+    static var cwdString: ActionArgument {
+        ActionArgument(name: "cwd", title: String(localized: "argument.cwd", defaultValue: "Working Directory", bundle: .module), kind: .string)
+    }
+
+    static var envString: ActionArgument {
+        ActionArgument(name: "env", title: String(localized: "argument.env", defaultValue: "Environment (JSON)", bundle: .module), kind: .string)
+    }
+
+    static var focusBool: ActionArgument {
+        ActionArgument(name: "focus", title: String(localized: "argument.focus", defaultValue: "Focus", bundle: .module), kind: .bool)
     }
 
     static var onBool: ActionArgument {
