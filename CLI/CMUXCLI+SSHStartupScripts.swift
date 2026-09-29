@@ -146,7 +146,6 @@ extension CMUXCLI {
             "exit \"$cmux_ssh_status\"",
         ].joined(separator: "\n")
     }
-
     func sshAskpassExecShellScript(passwordFilePath: String, cleanupDirectory: String) -> String {
         [
             "set -e",
@@ -239,7 +238,6 @@ extension CMUXCLI {
             "exit \"$cmux_ssh_status\"",
         ].joined(separator: "\n")
     }
-
     private func buildSSHStartupScriptBody(
         sshCommand: String,
         shellFeatures: String,
@@ -323,7 +321,9 @@ extension CMUXCLI {
             "CMUX_SSH_SESSION_ENDED=0",
             "CMUX_SSH_STARTUP_PID=$$",
             "export CMUX_SSH_STARTUP_PID",
-        ] + reconnectConfiguration + [
+        ]
+        scriptLines += reconnectConfiguration
+        scriptLines += [
             "cmux_ssh_retry=0",
             "cmux_ssh_auth_retry_limit=\(authRetryPolicy.maximumConsecutiveTransientFailures); cmux_ssh_auth_retry=0",
             "cmux_ssh_auth_succeeded=0",
