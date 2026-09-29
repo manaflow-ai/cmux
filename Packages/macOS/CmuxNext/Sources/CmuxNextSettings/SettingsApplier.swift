@@ -67,8 +67,20 @@ public final class SettingsApplier {
         }
         appliedShortcutIDs = applied
 
+        diagnostics += tabBarDiagnostics(snapshot.tabBar)
         diagnostics += Self.conflictDiagnostics(in: registry)
         return diagnostics
+    }
+
+    /// Buttons whose action is neither a cmux.json action nor in the registry.
+    private func tabBarDiagnostics(_ tabBar: SurfaceTabBarConfig) -> [SettingsDiagnostic] {
+        tabBar.buttons.compactMap { button in
+            let id = ActionID(rawValue: button.actionID)
+            if button.actionID.hasPrefix(ConfigCommandAction.actionIDPrefix)
+                || registry.descriptor(for: id) != nil || registry.isBound(id) { return nil }
+            return SettingsDiagnostic(kind: .unknownAction, path: "ui.surfaceTabBar.buttons",
+                                      message: "no action '\(button.actionID)' for button '\(button.id)'")
+        }
     }
 
     private func setOverride(_ shortcut: Shortcut?, for id: ActionID) {

@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.settings = settings
         services.settings = settings
         settings.start()
+        services.tabBarButtons.start(settings: settings)
         Task {
             await settings.waitForLoad(atLeast: 1)
             do {
@@ -54,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         control?.stop()
+        services?.tabBarButtons.stop()
         settings?.stop()
         services?.daemon.shutdownConnection()
     }

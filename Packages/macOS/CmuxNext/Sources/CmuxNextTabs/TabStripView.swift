@@ -56,6 +56,7 @@ public final class TabStripView: NSView {
     let tabsClip = FlippedView()
     let fadeMask = CAGradientLayer()
     let newTabButton = NewTabButtonView()
+    let buttonGroup = TabStripButtonGroupView()
     let hoverCard = TabHoverCardController()
     let groupEditor = TabGroupEditorController()
     var trackingArea: NSTrackingArea?
@@ -110,6 +111,8 @@ public final class TabStripView: NSView {
     var pressedCloseID: TabID?
     var middlePressID: TabID?
     var pressedNewTab = false
+    /// Trailing button under the mouse-down, while the press lasts.
+    var pendingTrailingPress: Int?
     var hoverCardSuppressed = false
 
     struct Press {
@@ -173,6 +176,8 @@ public final class TabStripView: NSView {
         contentView.addSubview(tabsClip)
         contentView.addSubview(newTabButton)
         newTabButton.onPress = { [weak self] in self?.model.send(.newTab(after: nil)) }
+        contentView.addSubview(buttonGroup)
+        buttonGroup.onPress = { [weak self] id in self?.model.send(.trailingButton(id)) }
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }
 
         setAccessibilityElement(true)
@@ -209,6 +214,7 @@ public final class TabStripView: NSView {
             }
         }
         if !newTabButton.isHidden { children.append(newTabButton) }
+        if !buttonGroup.isHidden { children.append(buttonGroup) }
         return children
     }
 
@@ -272,7 +278,8 @@ public final class TabStripView: NSView {
                     groups: model.groups,
                     selectedID: model.selectedID,
                     style: model.style,
-                    showsNewTabButton: model.showsNewTabButton
+                    showsNewTabButton: model.showsNewTabButton,
+                    trailingButtons: model.trailingButtons
                 )
             }
             for await _ in changes {
@@ -321,6 +328,7 @@ public final class TabStripView: NSView {
         }
         groupEditor.hide()
         newTabButton.needsLayout = true
+        buttonGroup.metrics = metrics
         glassView?.cornerRadius = metrics.cornerRadius + metrics.stripVerticalPadding
         invalidateIntrinsicContentSize()
         lastViewportWidth = -1
@@ -335,6 +343,7 @@ public final class TabStripView: NSView {
         var selectedID: TabID?
         var style: TabStripStyle
         var showsNewTabButton: Bool
+        var trailingButtons: [TabStripButton]
     }
 
     public override func layout() {
@@ -343,8 +352,10 @@ public final class TabStripView: NSView {
         if glassView == nil { contentView.frame = bounds }
         let showsButton = model.showsNewTabButton
         let padding = metrics.stripHorizontalPadding
-        let viewport = max(0, bounds.width - 2 * padding - (showsButton ? metrics.newTabButtonWidth : 0))
+        let groupWidth = trailingGroupWidth
+        let viewport = max(0, bounds.width - 2 * padding - (showsButton ? metrics.newTabButtonWidth : 0) - groupWidth)
         tabsClip.frame = CGRect(x: padding, y: 0, width: viewport, height: bounds.height)
+        layoutButtonGroup(width: groupWidth)
         if viewport != lastViewportWidth {
             lastViewportWidth = viewport
             // Chrome resizes tabs with the window instantly.

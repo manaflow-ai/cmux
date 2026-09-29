@@ -139,12 +139,15 @@ public final class SettingsController {
         let file = self.file
         let validDensities = SettingsApplier.validDensities
         let validMetrics = SettingsApplier.validMetrics
+        let configDirectory = file.url.deletingLastPathComponent()
         let loaded: (source: String, snapshot: CmuxConfigSnapshot) = await Task.detached {
             do {
                 let source = try await file.source()
                 do {
                     let root = try JSONC.parse(source)
-                    return (source, CmuxConfigSnapshot.parse(root, validDensities: validDensities, validMetrics: validMetrics))
+                    return (source, CmuxConfigSnapshot.parse(
+                        root, validDensities: validDensities, validMetrics: validMetrics, configDirectory: configDirectory
+                    ))
                 } catch {
                     var snapshot = CmuxConfigSnapshot.empty
                     snapshot.diagnostics = [SettingsDiagnostic(kind: .unreadableFile, path: "", message: String(describing: error))]
