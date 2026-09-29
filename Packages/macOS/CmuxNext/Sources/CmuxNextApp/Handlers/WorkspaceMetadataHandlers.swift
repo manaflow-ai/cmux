@@ -18,7 +18,7 @@ enum WorkspaceMetadataHandlers {
         })
         registry.bind("palette.workspaceColor", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.daemon, run: { invocation in
             guard let raw = invocation["color"]?.stringValue, let color = GroupColor(rawValue: raw) else {
-                throw ActionFailure.invalidTarget("color must be one of \(GroupColor.allCases.map(\.rawValue).joined(separator: ", "))")
+                throw ActionFailure.invalidTarget(RefusalStrings.colorMustBeOneOf(GroupColor.allCases.map(\.rawValue).joined(separator: ", ")))
             }
             try setColor(color, invocation, context)
         })
@@ -30,7 +30,7 @@ enum WorkspaceMetadataHandlers {
         }
         registry.bind("revealWorkspaceInFinder", run: { invocation in
             let workspace = try context.workspace(invocation).model
-            guard let cwd = directory(of: workspace, context) else { throw ActionFailure.invalidTarget("the workspace has no working directory") }
+            guard let cwd = directory(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceHasNoDirectory) }
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: cwd)])
         })
         registry.bind("palette.copyWorkspaceID", run: { invocation in context.copy(try context.workspace(invocation).key.rawValue) })

@@ -33,9 +33,9 @@ struct TabPaneTerminalBindingTests {
 
     @Test func missingTargetsAreRefusedNotSilentlyIgnored() {
         let services = Coverage.boundServices()
-        #expect(Coverage.run(services, "closeTab") == .refused("no pane is focused"))
-        #expect(Coverage.run(services, "splitRight") == .refused("no pane is focused"))
-        #expect(Coverage.run(services, "column.center") == .refused("no pane is focused"))
+        #expect(Coverage.run(services, "closeTab") == .refused(MiscHandlerStrings.noPane))
+        #expect(Coverage.run(services, "splitRight") == .refused(MiscHandlerStrings.noPane))
+        #expect(Coverage.run(services, "column.center") == .refused(MiscHandlerStrings.noPane))
         #expect(Coverage.run(services, "column.center", target: ActionTargetRef(kind: .column, id: "c9")) == .refused("no column c9 is shown"))
         let missing = ActionTargetRef(kind: .tab, id: "missing")
         #expect(Coverage.run(services, "tab.moveToNewColumn", target: missing) == .refused("no tab missing"))

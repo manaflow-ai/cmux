@@ -113,7 +113,7 @@ enum WorkspaceHandlers {
 
     private static func selectInGroup(_ context: AppActionContext, _ invocation: ActionInvocation, offset: Int) throws {
         let current = try context.workspace(invocation).model
-        guard let state = context.activeWindow?.state else { throw ActionFailure.invalidTarget("no window is open") }
+        guard let state = context.activeWindow?.state else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
         let peers = context.sidebarOrder.filter { $0.group == current.group }
         guard let index = peers.firstIndex(where: { $0 === current }), peers.count > 1 else { return }
         context.services.windows.show(workspaceID: peers[(index + offset + peers.count) % peers.count].id, in: state)
@@ -124,7 +124,7 @@ enum WorkspaceHandlers {
     private static func position(_ context: AppActionContext, _ invocation: ActionInvocation) throws -> ([WorkspaceModel], Int) {
         let target = try context.workspace(invocation).model
         let order = context.sidebarOrder
-        guard let index = order.firstIndex(where: { $0 === target }) else { throw ActionFailure.invalidTarget("the workspace is not in the sidebar") }
+        guard let index = order.firstIndex(where: { $0 === target }) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
         return (order, index)
     }
 

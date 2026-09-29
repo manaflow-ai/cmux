@@ -58,7 +58,7 @@ enum TabHandlers {
         })
         let history = ClosedTabTracker(services: ctx.services)
         registry.bind("reopenClosedBrowserPanel", invoke: { _ in
-            guard let record = history.popLast() ?? ctx.refuse("no recently closed tab") else { return }
+            guard let record = history.popLast() ?? ctx.refuse(RefusalStrings.noRecentlyClosedTab) else { return }
             history.reopen(record, fallback: ctx.services.windows.active?.focusedPane)
         })
     }
@@ -68,27 +68,27 @@ enum TabHandlers {
         registry.bind("prevSurface", invoke: { ctx.paneController($0)?.selectAdjacent(-1) })
         registry.bind("selectSurfaceByNumber", invoke: { invocation in
             guard let pane = ctx.paneController(invocation) else { return }
-            guard let number = invocation["index"]?.intValue ?? ctx.refuse("an index 1-9 is required") else { return }
+            guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
             let ids = pane.orderedIDs
-            guard !ids.isEmpty else { return ctx.refuse("the pane has no tabs") }
+            guard !ids.isEmpty else { return ctx.refuse(RefusalStrings.paneHasNoTabs) }
             // Chrome: 9 always selects the last tab.
             pane.select(number >= 9 ? ids[ids.count - 1] : ids[min(number - 1, ids.count - 1)])
         })
         registry.bind("palette.goToTab", invoke: { invocation in
-            guard let ref = invocation["tab"]?.targetValue ?? invocation.target ?? ctx.refuse("a tab argument is required") else { return }
+            guard let ref = invocation["tab"]?.targetValue ?? invocation.target ?? ctx.refuse(RefusalStrings.tabArgumentRequired) else { return }
             reveal(tabID: ref.id, ctx: ctx)
         })
     }
 
     /// Shows the tab's workspace in the active window, then selects and focuses it.
     static func reveal(tabID: String, ctx: AppActionContext) {
-        guard let (_, paneModel) = ctx.services.locateTab(tabID) ?? ctx.refuse("no tab \(tabID)") else { return }
+        guard let (_, paneModel) = ctx.services.locateTab(tabID) ?? ctx.refuse(RefusalStrings.noTab(tabID)) else { return }
         if let pane = ctx.services.paneController(for: paneModel) {
             pane.select(StripTabID(tabID))
             pane.view.window?.makeKeyAndOrderFront(nil)
             return
         }
-        guard let window = ctx.services.windows.active ?? ctx.refuse("no window is open") else { return }
+        guard let window = ctx.services.windows.active ?? ctx.refuse(RefusalStrings.noWindowOpen) else { return }
         let workspace = ctx.services.daemon.store.workspaces.first { $0.screens.contains { $0.panes.contains { $0 === paneModel } } }
         guard let workspace else { return }
         window.state.selection.select(tabID, in: paneModel.id)
@@ -115,7 +115,7 @@ enum TabHandlers {
         let ids = pane.orderedIDs
         guard let index = ids.firstIndex(of: id) else { return }
         let target = min(max(index + offset, 0), ids.count - 1)
-        guard target != index else { return ctx.refuse("the tab is already at the edge") }
+        guard target != index else { return ctx.refuse(RefusalStrings.tabAtEdge) }
         pane.move(id, toPane: pane, index: target)
     }
 
@@ -125,7 +125,7 @@ enum TabHandlers {
         guard let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
         let order = screen.layout.panes
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
-            return ctx.refuse("the screen has no other pane")
+            return ctx.refuse(RefusalStrings.screenHasNoOtherPane)
         }
         let next = order[(index + offset + order.count) % order.count]
         guard let target = content.panes[next] else { return }
@@ -136,7 +136,7 @@ enum TabHandlers {
         guard let (pane, id) = ctx.tab(invocation), let content = pane.workspace else { return }
         guard let neighbor = PaneHandlers.neighbor(of: pane.layoutPaneID, direction: direction, in: content),
               let target = content.panes[neighbor] else {
-            return ctx.refuse("no pane \(direction) of the tab")
+            return ctx.refuse(RefusalStrings.noPaneInDirectionOfTab(RefusalStrings.direction(direction)))
         }
         pane.move(id, toPane: target, index: target.pane.tabs.count)
     }
@@ -145,17 +145,17 @@ enum TabHandlers {
         registry.bind("renameTab", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }
             guard let name = invocation["name"]?.stringValue, !name.isEmpty else { return pane.rename(id) }
-            guard let surface = pane.tab(id)?.surface ?? ctx.refuse("session-local tabs cannot be renamed") else { return }
+            guard let surface = pane.tab(id)?.surface ?? ctx.refuse(RefusalStrings.sessionLocalCannotRename) else { return }
             rename(surface, to: name, ctx: ctx, pane: pane)
         })
         registry.bind("palette.clearTabName", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }
-            guard let surface = pane.tab(id)?.surface ?? ctx.refuse("session-local tabs have no name") else { return }
+            guard let surface = pane.tab(id)?.surface ?? ctx.refuse(RefusalStrings.sessionLocalHasNoName) else { return }
             rename(surface, to: nil, ctx: ctx, pane: pane)
         })
         registry.bind("palette.toggleTabPin", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }
-            guard let tab = pane.tab(id) ?? ctx.refuse("session-local tabs cannot be pinned") else { return }
+            guard let tab = pane.tab(id) ?? ctx.refuse(RefusalStrings.sessionLocalCannotPin) else { return }
             pane.setPinned(id, pinned: !tab.pinned)
         })
     }
