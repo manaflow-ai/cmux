@@ -49,6 +49,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxGhosttyKit"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxIrxTransport"),
+        // Test-only: the shipped iOS app's own RPC decoders verify the compat adapter.
+        .package(path: "../../iOS/CmuxMobileRPC"),
     ],
     targets: [
         .target(
@@ -221,6 +223,7 @@ let package = Package(
                 "CmuxNextMobile",
                 "CmuxNextDaemon",
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+                .product(name: "CmuxMobileRPC", package: "CmuxMobileRPC"),
             ],
             resources: [
                 .copy("Fixtures"),
