@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextUpdater
 
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
@@ -19,6 +20,9 @@ final class AppServices {
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
     let registry = ActionRegistry.standard()
+    /// Sparkle updates (release builds) or read-only feed probes (DEV).
+    let updater = UpdaterService()
+    private(set) var updateSheet: UpdateSheetController!
     /// cmux.json controller; set by `AppDelegate` once it starts.
     var settings: SettingsController?
     private(set) var cache: TabContentCache!
@@ -50,6 +54,9 @@ final class AppServices {
         palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))
         terminalDelegate.services = self
         tabBarButtons = TabBarButtonsController(context: AppActionContext(services: self))
+        let updateSheet = UpdateSheetController(source: UpdateSheetModel(service: updater))
+        self.updateSheet = updateSheet
+        updater.presentUpdateUI = { [weak self] in updateSheet.present(in: self?.windows.active?.window) }
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }

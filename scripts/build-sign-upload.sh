@@ -138,6 +138,11 @@ echo "DMG notarized"
 
 # --- Generate Sparkle appcast ---
 echo "Generating appcast..."
+SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 ./scripts/ci/appcast_minimum_system_version.py floor "$APP_PATH")"
+export SPARKLE_MINIMUM_SYSTEM_VERSION
+if [[ -f scripts/cmux-next/legacy-appcast-item.xml ]]; then
+  export SPARKLE_LEGACY_APPCAST_ITEM_FILE=scripts/cmux-next/legacy-appcast-item.xml
+fi
 ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$TAG" appcast.xml
 
 # --- Create GitHub release (if needed) and upload ---
