@@ -314,7 +314,7 @@ Params:
 
 Result: `object{accepted:true,pid:uint32,generation:string,ended_terminals?:uint64|null}`.
 
-A normal shutdown keeps terminal hosts alive for the next owner. With `end_terminals`, the daemon ends every terminal through the `close-terminal` path, waits for their hosts to exit, and reports the count in `ended_terminals`. Test harnesses use it so a run leaves no terminal host or PTY behind. A failure to end a terminal cancels the handoff and the daemon keeps serving.
+A normal shutdown keeps terminal hosts alive for the next owner. With `end_terminals`, the daemon ends every terminal through the `close-terminal` path, waits for their hosts to exit, and reports the count in `ended_terminals`. A host still running after its close deadline (it ignored termination) is killed, and the call succeeds only once every terminal host of the session is provably dead; otherwise it fails and the daemon keeps serving. Test harnesses use it so a run leaves no terminal host or PTY behind. A failure to end a terminal cancels the handoff and the daemon keeps serving.
 
 Until the response is sent the handoff can still fail, so the daemon keeps every connection open. A request that arrives meanwhile, on the requester's own connection (for example a subscriber's snapshot refresh triggered by the ended terminals) or another one, gets an error response (`daemon shutdown is in progress; request was not executed`, or `operation.failed` with reason `daemon_handoff_pending` on the resource protocol) and is not executed. After the successful response, further messages close the connection.
 
