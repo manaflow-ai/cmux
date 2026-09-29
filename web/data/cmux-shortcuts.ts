@@ -644,6 +644,13 @@ export const shortcutCategories: ShortcutCategory[] = [
         note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
         configValue: '"p"',
       },
+      {
+        id: "diffViewerToggleViewed",
+        combos: [["V"]],
+        description: { en: "Toggle viewed on the current file", ja: "現在のファイルの確認済みを切り替え" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+        configValue: '"v"',
+      },
     ],
   },
   {

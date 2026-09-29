@@ -231,6 +231,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.diffViewerNextHunk.label", defaultValue: "Diff Viewer: Next Hunk")
         case .diffViewerPreviousHunk:
             return String(localized: "shortcut.diffViewerPreviousHunk.label", defaultValue: "Diff Viewer: Previous Hunk")
+        case .diffViewerToggleViewed:
+            return String(localized: "shortcut.diffViewerToggleViewed.label", defaultValue: "Diff Viewer: Toggle Viewed")
         case .simulatorHome:
             return String(localized: "shortcut.simulatorHome.label", defaultValue: "Simulator: Home")
         case .simulatorRotateLeft:
