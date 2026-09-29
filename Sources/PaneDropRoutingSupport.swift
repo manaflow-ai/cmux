@@ -215,6 +215,7 @@ enum PaneDropRouting {
             return CGRect(x: bounds.minX + padding, y: bounds.minY + padding, width: max(0, bounds.width - padding * 2), height: max(0, midY - bounds.minY - padding))
         }
     }
+
 }
 
 typealias TerminalPaneDropRouting = PaneDropRouting
