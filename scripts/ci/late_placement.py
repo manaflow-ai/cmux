@@ -16,8 +16,8 @@ up to that many idle runners. The shards and friends then run
 test-without-building on the mini against admission's uploaded products, as
 they do after an owned admission; they never compile.
 
-When OWNED_SLOTS (vars.CI_OWNED_POOL_SLOTS) gives the pool's gui label a count
-(pr_runner_pool.gui_label(): one gui runner per mini), the jobs that hold the
+When a runner carries the pool's gui label (pr_runner_pool.gui_label(): one
+gui runner per mini), the jobs that hold the
 gui token (pr_runner_pool.gui_token_job(): the shards, tests-build-and-lag,
 cli-product-tests) take that label instead, one per idle gui runner, and the other jobs the root
 label, one per idle root runner: each mini runs one GUI job at a time.
@@ -208,10 +208,12 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
         return {}, f"no owned pool runs admission's Xcode ({env.get('ADMISSION_XCODE_APP') or 'unknown'})"
     if runners is None:
         return {}, "owned runners could not be read live"
-    # From the slots, not the picker's gui_runner: a run the picker sent to Blacksmith has none,
-    # and its GUI jobs must still never take the root label once the minis have gui runners.
+    # From the runners, not the picker's gui_runner: a run the picker sent to Blacksmith has none,
+    # and its GUI jobs must still never take the root label once the minis have gui runners. Any
+    # runner carrying the label counts, online or not (drained minis' runners go offline), so the
+    # jobs never fall back to the root label; CI_OWNED_POOL_SLOTS no longer decides it.
     gui_label = pool.gui_label(pool.pool_label(root))
-    if pool.slots(env.get("OWNED_SLOTS"), env.get("ADMISSION_XCODE_APP")).get(gui_label, 0) <= 0:
+    if not any(gui_label in pool.runner_labels(runner) for runner in runners):
         gui_label = ""
     free = pool.live_owned_free(runners, [root, *([gui_label] if gui_label else [])])
     idle, gui_idle = free[root], free.get(gui_label, 0)
