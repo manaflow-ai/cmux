@@ -192,6 +192,8 @@ struct SettingsRowAnchorResolutionTests {
         "setting:betaFeatures:customSidebars",
         "setting:betaFeatures:remoteTmux",
         "setting:betaFeatures:predictedEcho",
+        "setting:betaFeatures:remoteTmuxOriginColors",
+        "setting:betaFeatures:remoteTmuxOriginHostTitles",
         "setting:customSidebars:enabled",
         "setting:computerUse:permissions",
         "setting:browser:history",
