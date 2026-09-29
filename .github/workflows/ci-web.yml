@@ -380,13 +380,11 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
 
-      - name: Build and test Agent Session web resources
+      - name: Test Agent Session web sources
         run: |
           set -euo pipefail
           bun install --frozen-lockfile
-          bun run agent-session-web:build
           bun run agent-session-web:test
-          git diff --exit-code -- Resources/agent-session-react Resources/agent-session-solid
 
   web-status:
     name: Web status

@@ -25,7 +25,7 @@ def package_step(name: str) -> str:
 
 class SwiftPackageExecutionTests(unittest.TestCase):
     def run_step(
-        self, output: str, status: int = 0, package: str = "CmuxComputerUse",
+        self, output: str, status: int = 0, package: str = "CmuxSudoBroker",
         step: str = "Run Swift package unit tests",
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory(prefix="swift-package-execution-") as directory:

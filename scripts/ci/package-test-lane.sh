@@ -65,7 +65,6 @@ ensure_parent() {
 select_packages() {
   PACKAGES=(
     CMUXAuthCore
-    CmuxComputerUse
     CmuxCore
     CmuxAgentChat
     CmuxAuthRuntime
@@ -74,12 +73,9 @@ select_packages() {
     CmuxIrxTransport
     CmuxControlSocket
     CmuxFoundation
-    CmuxGit
     CmuxMobileTerminalKit
     CmuxMobileWorkspace
-    CmuxNotifications
     CmuxSettings
-    CmuxSidebarGit
     CmuxSurfaceCatalogModel
     CmuxSudoBroker
     CmuxTerminalCore
@@ -88,10 +84,8 @@ select_packages() {
     CMUXAgentLaunch
     CmuxAgentJournal
     CMUXDebugLog
-    CmuxFeedback
     CmuxPhonePush
     CmuxSimulator
-    CmuxUpdaterUI
   )
 
   changed="$work/changed-files.txt"

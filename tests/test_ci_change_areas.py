@@ -385,14 +385,14 @@ def test_routed_lane_names_the_packages_the_job_would_run() -> None:
     # The area is the job's own selection, so routing and the job's package
     # list cannot disagree about what a change affects.
     assert module.swift_package_test_selection(
-        ["Packages/macOS/CmuxSidebarGit/Tests/CmuxSidebarGitTests/Probe.swift"]
-    ) == ("CmuxSidebarGit",)
+        ["Packages/macOS/CmuxSudoBroker/Tests/CmuxSudoBrokerTests/Probe.swift"]
+    ) == ("CmuxSudoBroker",)
     # A dependency pulls in its dependents, and nothing else.
     settings = module.swift_package_test_selection(["Packages/macOS/CmuxSettings/Package.swift"])
     assert "CmuxSettings" in settings
-    # CmuxControlSocket depends on CmuxSettings, so it is a dependent; CmuxGit is not.
+    # CmuxControlSocket depends on CmuxSettings, so it is a dependent; CmuxSudoBroker is not.
     assert "CmuxControlSocket" in settings
-    assert "CmuxGit" not in settings
+    assert "CmuxSudoBroker" not in settings
     assert module.swift_package_test_selection(["CLI/cmux.swift"]) == ()
 
 
@@ -453,10 +453,8 @@ def test_package_lane_reads_the_job_package_list_from_the_workflow() -> None:
     # These macOS packages had test targets but were missing from the list once.
     for name in (
         "CMUXDebugLog",
-        "CmuxFeedback",
         "CmuxPhonePush",
         "CmuxSimulator",
-        "CmuxUpdaterUI",
     ):
         assert name in packages, name
     for name in packages:
@@ -974,18 +972,9 @@ def test_agent_session_webview_sources_run_bundled_asset_check() -> None:
     )
 
 
-def test_markdown_viewer_resources_run_webviews_asset_guard() -> None:
-    assert_areas(
-        ["Resources/markdown-viewer/webviews-app/index.js", "Resources/markdown-viewer/marked.min.js"],
-        macos=True,
-        web=True,
-        agent_session_web=True,
-    )
-
-
 def test_markdown_viewer_webview_app_does_not_run_agent_session_resource_check() -> None:
     assert_areas(
-        ["Resources/markdown-viewer/webviews-app/index.js"],
+        ["Resources/markdown-viewer/webviews-app/index.js", "Resources/markdown-viewer/marked.min.js"],
         macos=True,
         web=True,
         agent_session_web=False,
@@ -999,22 +988,6 @@ def test_root_agent_web_dependencies_run_web_and_macos() -> None:
         web=True,
         agent_session_web=True,
     )
-
-
-def test_agent_session_resources_run_web_and_macos() -> None:
-    assert_areas(
-        ["Resources/agent-session-react/index.js"],
-        macos=True,
-        web=True,
-        agent_session_web=True,
-    )
-    assert_areas(
-        ["Resources/agent-session-solid/index.js"],
-        macos=True,
-        web=True,
-        agent_session_web=True,
-    )
-    assert_areas(["Resources/agent-session-backup/index.js"], macos=True, web=False)
 
 
 def test_ios_only_skips_main_macos_ci() -> None:

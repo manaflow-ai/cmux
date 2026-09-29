@@ -1079,7 +1079,6 @@ def is_web_change(path: str) -> bool:
         "scripts/ci/web_validation.py",
         "scripts/ci/web_subareas.py",
         "tests/test_web_validation.py",
-        "scripts/build-agent-session-web.sh",
         "scripts/build-webviews-app.sh",
         "scripts/check-webviews-react-compiler.mjs",
     }
@@ -1089,8 +1088,6 @@ def is_agent_session_web_change(path: str) -> bool:
     if path.startswith(
         (
             "webviews/src/agent-session/",
-            "Resources/agent-session-react/",
-            "Resources/agent-session-solid/",
         )
     ):
         return True
@@ -1099,8 +1096,6 @@ def is_agent_session_web_change(path: str) -> bool:
         "bun.lock",
         "webviews/package.json",
         "webviews/bun.lock",
-        "scripts/build-agent-session-web.sh",
-        "Resources/markdown-viewer/marked.min.js",
     }
 
 
