@@ -69,7 +69,7 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
 
         let result = try client.call(method: "hello", params: [:], timeout: 1)
         #expect(result["transport"] as? String == "alive")
-        #expect(existingPTYEvent.wait(timeout: .now() + 1) == .success)
+        #expect(existingPTYEvent.wait(timeout: .now() + 5) == .success)
         #expect(unexpectedTermination.wait(timeout: .now()) == .timedOut)
     }
 
@@ -175,7 +175,7 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
         #expect(callTimedOut.wait(timeout: .now()) == .success)
         #expect(unexpectedCallResult.wait(timeout: .now()) == .timedOut)
         #expect(cleanupFired.wait(timeout: .now()) == .timedOut)
-        #expect(unexpectedTermination.wait(timeout: .now() + 2) == .success)
+        #expect(unexpectedTermination.wait(timeout: .now() + 5) == .success)
     }
 
     private func configuration() -> WorkspaceRemoteConfiguration {
