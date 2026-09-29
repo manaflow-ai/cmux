@@ -1,0 +1,130 @@
+import Foundation
+import Testing
+@testable import CmuxNextBrowser
+
+@Suite struct CEFSwitchesTests {
+    @Test func forkBuildGetsTabbedWindowsAndNoFieldTrials() {
+        let switches = CEFSwitches(forkAPIVersion: 2, useMockKeychain: false, loadExtensions: [])
+        #expect(switches.arguments == ["cmux-tabbed-windows", "disable-field-trial-config"])
+    }
+
+    @Test func stockCEFHasNoTabbedWindows() {
+        let switches = CEFSwitches(forkAPIVersion: 0, useMockKeychain: false, loadExtensions: [])
+        #expect(!switches.arguments.contains("cmux-tabbed-windows"))
+    }
+
+    @Test func devBundleUsesMockKeychainAndExtensionsList() {
+        let switches = CEFSwitches.current(
+            forkAPIVersion: 2,
+            bundleIdentifier: "com.cmuxterm.app.debug.cefnx",
+            environment: ["CMUX_NEXT_CEF_LOAD_EXTENSIONS": "/tmp/a::/tmp/b"]
+        )
+        #expect(switches.useMockKeychain)
+        #expect(switches.loadExtensions == ["/tmp/a", "/tmp/b"])
+        #expect(switches.arguments.contains("load-extension=/tmp/a,/tmp/b"))
+        // Passing --disable-features would replace Chromium's own default
+        // list (GlicActorUi, ...) and crash in ActorUiContentsContainerController.
+        #expect(!switches.arguments.contains { $0.hasPrefix("disable-features") })
+    }
+
+    @Test func releaseBundleUsesRealKeychain() {
+        let switches = CEFSwitches.current(forkAPIVersion: 2, bundleIdentifier: "com.cmuxterm.app", environment: [:])
+        #expect(!switches.useMockKeychain)
+        #expect(switches.loadExtensions.isEmpty)
+    }
+}
+
+@Suite struct CEFZoomAndPumpTests {
+    @Test func zoomLevelRoundTrips() {
+        #expect(CEFZoom.level(forFactor: 1) == 0)
+        #expect(abs(CEFZoom.level(forFactor: 1.2) - 1) < 1e-9)
+        #expect(abs(CEFZoom.factor(forLevel: CEFZoom.level(forFactor: 1.5)) - 1.5) < 1e-9)
+        #expect(CEFZoom.level(forFactor: 0) == 0)
+    }
+
+    @Test func pumpDelayIsClampedToMax() {
+        #expect(CEFPumpPolicy.delay(forRequestedMilliseconds: 0) == 0)
+        #expect(CEFPumpPolicy.delay(forRequestedMilliseconds: -5) == 0)
+        #expect(CEFPumpPolicy.delay(forRequestedMilliseconds: 10) == 0.01)
+        #expect(CEFPumpPolicy.delay(forRequestedMilliseconds: 5000) == CEFPumpPolicy.maxDelay)
+    }
+
+    @Test func pumpFallbackIsSlowWhenIdle() {
+        #expect(CEFPumpPolicy.fallback(liveBrowsers: 0) == CEFPumpPolicy.idleFallback)
+        #expect(CEFPumpPolicy.fallback(liveBrowsers: 3) == CEFPumpPolicy.busyFallback)
+        #expect(CEFPumpPolicy.idleFallback > CEFPumpPolicy.busyFallback)
+    }
+}
+
+@Suite struct CEFShimEventTests {
+    private func event(_ kind: Int32, browser: Int32 = 7, request: Int32 = 0, a: Int64 = 0, b: Int64 = 0,
+                       s1: String = "", s2: String = "") -> CEFShimEvent {
+        CEFShimEvent(kind: kind, browser: browser, request: request, a: a, b: b, s1: s1, s2: s2)
+    }
+
+    @Test func decodesLifetimeEvents() {
+        #expect(event(1) == .contextInitialized)
+        #expect(event(2, request: 4, a: 99) == .afterCreated(browser: 7, request: 4, window: 99))
+        #expect(event(3) == .beforeClose(browser: 7))
+    }
+
+    @Test func decodesLoadingStateBits() {
+        #expect(event(7, a: 0b101) == .loadingState(browser: 7, loading: true, canGoBack: false, canGoForward: true))
+        #expect(event(7, a: 0b010) == .loadingState(browser: 7, loading: false, canGoBack: true, canGoForward: false))
+    }
+
+    @Test func decodesProgressAndFind() {
+        #expect(event(11, a: 450) == .progress(browser: 7, value: 0.45))
+        #expect(event(11, a: 5000) == .progress(browser: 7, value: 1))
+        let packed = Int64(3) | (Int64(1) << 32)
+        #expect(event(14, a: 9, b: packed) == .findResult(browser: 7, count: 9, activeOrdinal: 3, isFinal: true))
+        #expect(event(14, a: 9, b: 3) == .findResult(browser: 7, count: 9, activeOrdinal: 3, isFinal: false))
+    }
+
+    @Test func decodesForkTabEvents() {
+        #expect(event(16, browser: 0, request: 6, a: 11, b: 0) == .tab(.windowDestroyed, browser: 0, window: 11, value: 0))
+        #expect(event(16, request: 42) == .tab(.unknown, browser: 7, window: 0, value: 0))
+        #expect(event(99) == .unknown(kind: 99))
+    }
+
+    @Test func eventsCarryTheirBrowser() {
+        #expect(event(5, s1: "t").browserID == 7)
+        #expect(event(1).browserID == nil)
+    }
+}
+
+@Suite struct CEFShutdownSequenceTests {
+    @Test func waitsForBrowsersThenWindows() {
+        var sequence = CEFShutdownSequence(liveBrowsers: 2, windows: 1)
+        sequence.begin()
+        #expect(sequence.phase == .closingBrowsers)
+        sequence.browserClosed(remaining: 1)
+        #expect(sequence.phase == .closingBrowsers)
+        sequence.browserClosed(remaining: 0)
+        #expect(sequence.phase == .waitingForWindows)
+        sequence.windowDestroyed(remaining: 0)
+        #expect(sequence.phase == .readyToShutdown)
+    }
+
+    @Test func windowDestroyedBeforeLastCloseStillWaitsForBrowsers() {
+        var sequence = CEFShutdownSequence(liveBrowsers: 1, windows: 1)
+        sequence.begin()
+        sequence.windowDestroyed(remaining: 0)
+        #expect(sequence.phase == .closingBrowsers)
+        sequence.browserClosed(remaining: 0)
+        #expect(sequence.phase == .readyToShutdown)
+    }
+
+    @Test func nothingLiveIsReadyAtOnce() {
+        var sequence = CEFShutdownSequence(liveBrowsers: 0, windows: 0)
+        sequence.begin()
+        #expect(sequence.phase == .readyToShutdown)
+    }
+
+    @Test func stockCEFSkipsTheWindowWait() {
+        var sequence = CEFShutdownSequence(liveBrowsers: 1, windows: -1)
+        sequence.begin()
+        sequence.browserClosed(remaining: 0)
+        #expect(sequence.phase == .readyToShutdown)
+    }
+}

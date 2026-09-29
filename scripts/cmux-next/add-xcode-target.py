@@ -51,6 +51,7 @@ PKG_REF = oid(19)
 PRODUCT_DEP = oid(20)
 BF_ASSETS = oid(21)
 PHASE_BUNDLE_TUI = oid(22)
+PHASE_EMBED_CEF = oid(23)
 
 # Existing objects reused by reference.
 LEGACY_DEBUG = "A5001082"
@@ -136,17 +137,54 @@ def add_bundle_tui_phase(text: str) -> str:
     )
 
 
+def add_embed_cef_phase(text: str) -> str:
+    """Add the "Embed CEF" script phase (scripts/cmux-next/embed-cef.sh).
+
+    Idempotent. The phase embeds the Chromium framework, the CEF shim, and
+    the helper apps only when the pinned artifact is available.
+    """
+    if PHASE_EMBED_CEF in text:
+        return text
+    text = insert_before(text, "/* End PBXShellScriptBuildPhase section */", (
+        f"\t\t{PHASE_EMBED_CEF} /* Embed CEF */ = {{\n"
+        "\t\t\tisa = PBXShellScriptBuildPhase;\n"
+        "\t\t\talwaysOutOfDate = 1;\n"
+        "\t\t\tbuildActionMask = 2147483647;\n"
+        "\t\t\tfiles = (\n"
+        "\t\t\t);\n"
+        "\t\t\tinputFileListPaths = (\n"
+        "\t\t\t);\n"
+        "\t\t\tinputPaths = (\n"
+        "\t\t\t);\n"
+        "\t\t\tname = \"Embed CEF\";\n"
+        "\t\t\toutputFileListPaths = (\n"
+        "\t\t\t);\n"
+        "\t\t\toutputPaths = (\n"
+        "\t\t\t);\n"
+        "\t\t\trunOnlyForDeploymentPostprocessing = 0;\n"
+        "\t\t\tshellPath = /bin/sh;\n"
+        "\t\t\tshellScript = \"exec \\\"${SRCROOT}/scripts/cmux-next/embed-cef.sh\\\"\\n\";\n"
+        "\t\t};\n"
+    ))
+    return append_to_list(
+        text,
+        f"\t\t{TARGET} /* cmux-next */ = {{\n",
+        "buildPhases",
+        f"\t\t\t\t{PHASE_EMBED_CEF} /* Embed CEF */,\n",
+    )
+
+
 def main() -> int:
     text = PBXPROJ.read_text()
     if TARGET in text:
-        upgraded = add_bundle_tui_phase(text)
+        upgraded = add_embed_cef_phase(add_bundle_tui_phase(text))
         if upgraded == text:
             print("cmux-next target already present; nothing to do")
         else:
             PBXPROJ.write_text(upgraded)
-            print(f"added Bundle cmux-tui phase {PHASE_BUNDLE_TUI}")
+            print("upgraded cmux-next target phases (Bundle cmux-tui, Embed CEF)")
         return 0
-    for n in range(1, 23):
+    for n in range(1, 24):
         assert oid(n) not in text, f"ID collision: {oid(n)}"
 
     text = insert_before(text, "/* End PBXBuildFile section */", "".join([
@@ -313,7 +351,7 @@ def main() -> int:
         "\t\t};\n"
     ))
 
-    text = add_bundle_tui_phase(text)
+    text = add_embed_cef_phase(add_bundle_tui_phase(text))
     PBXPROJ.write_text(text)
     print(f"added cmux-next target {TARGET}")
     return 0

@@ -1,0 +1,143 @@
+// Per-browser commands: window creation, fork tab API, navigation, find,
+// zoom, DevTools methods, extension actions.
+
+#import <AppKit/AppKit.h>
+
+#include "include/cef_parser.h"
+#include "shim_internal.h"
+
+using namespace cmux_shim;
+
+namespace {
+
+CefRefPtr<CefBrowserHost> HostOf(int browser_id) {
+  CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
+  return browser ? browser->GetHost() : nullptr;
+}
+
+}  // namespace
+
+extern "C" {
+
+int cmux_shim_create_window(int request, void* parent_view, int width, int height, const char* url,
+                            const char* profile_cache_path) {
+  if (!parent_view) {
+    return 0;
+  }
+  CefWindowInfo info;
+  info.SetAsChild((__bridge CefWindowHandle)(__bridge NSView*)parent_view, CefRect(0, 0, width, height));
+  info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
+  CefBrowserSettings settings;
+  CefRefPtr<CefRequestContext> context = RequestContextFor(profile_cache_path ? profile_cache_path : "");
+  return CefBrowserHost::CreateBrowser(info, MakeClient(request), url ? url : "", settings, nullptr, context) ? 1 : 0;
+}
+
+int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int activate) {
+  return fork_api().tab_add ? fork_api().tab_add(window_browser_id, url ? url : "", index, activate) : 0;
+}
+
+int cmux_shim_tab_activate(int browser_id) {
+  return fork_api().tab_activate ? fork_api().tab_activate(browser_id) : 0;
+}
+
+int cmux_shim_tab_window_id(int browser_id) {
+  return fork_api().tab_window_id ? fork_api().tab_window_id(browser_id) : 0;
+}
+
+void cmux_shim_load_url(int browser_id, const char* url) {
+  if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) {
+    browser->GetMainFrame()->LoadURL(url ? url : "");
+  }
+}
+
+void cmux_shim_go_back(int browser_id) {
+  if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) browser->GoBack();
+}
+
+void cmux_shim_go_forward(int browser_id) {
+  if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) browser->GoForward();
+}
+
+void cmux_shim_reload(int browser_id) {
+  if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) browser->Reload();
+}
+
+void cmux_shim_stop(int browser_id) {
+  if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) browser->StopLoad();
+}
+
+void cmux_shim_set_focus(int browser_id, int focus) {
+  if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetFocus(focus != 0);
+}
+
+void cmux_shim_set_zoom_level(int browser_id, double level) {
+  if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetZoomLevel(level);
+}
+
+void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next) {
+  // CEF reports its own identifier in OnFindResult; this build ignores the
+  // caller's, so Swift matches results by browser and the latest request.
+  (void)find_id;
+  if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) {
+    host->Find(text ? text : "", forward != 0, match_case != 0, find_next != 0);
+  }
+}
+
+void cmux_shim_stop_finding(int browser_id, int clear_selection) {
+  if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->StopFinding(clear_selection != 0);
+}
+
+void cmux_shim_show_devtools(int browser_id) {
+  if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) {
+    CefWindowInfo info;
+    info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
+    host->ShowDevTools(info, nullptr, CefBrowserSettings(), CefPoint());
+  }
+}
+
+void cmux_shim_close(int browser_id) {
+  if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) {
+    MarkHostClose(browser_id);
+    host->CloseBrowser(true);
+  }
+}
+
+int cmux_shim_devtools_call(int browser_id, const char* method, const char* params_json) {
+  CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
+  if (!host || !method) {
+    return 0;
+  }
+  CefRefPtr<CefDictionaryValue> params;
+  if (params_json && *params_json) {
+    CefRefPtr<CefValue> value = CefParseJSON(params_json, JSON_PARSER_RFC);
+    if (!value || value->GetType() != VTYPE_DICTIONARY) {
+      return 0;
+    }
+    params = value->GetDictionary();
+  }
+  return host->ExecuteDevToolsMethod(0, method, params);
+}
+
+char* cmux_shim_ext_actions(int browser_id, int icon_px) {
+  return fork_api().ext_actions ? fork_api().ext_actions(browser_id, icon_px) : nullptr;
+}
+
+int cmux_shim_ext_action_run(int browser_id, const char* extension_id, int x, int width) {
+  return fork_api().ext_action_run && extension_id ? fork_api().ext_action_run(browser_id, extension_id, x, width) : 0;
+}
+
+void cmux_shim_ext_action_hide_popup(int browser_id, const char* extension_id) {
+  if (fork_api().ext_action_hide_popup && extension_id) fork_api().ext_action_hide_popup(browser_id, extension_id);
+}
+
+void cmux_shim_ext_action_context_menu(int browser_id, const char* extension_id, int screen_x, int screen_y) {
+  if (fork_api().ext_action_context_menu && extension_id) {
+    fork_api().ext_action_context_menu(browser_id, extension_id, screen_x, screen_y);
+  }
+}
+
+void cmux_shim_free(char* s) {
+  if (s && fork_api().free_string) fork_api().free_string(s);
+}
+
+}  // extern "C"

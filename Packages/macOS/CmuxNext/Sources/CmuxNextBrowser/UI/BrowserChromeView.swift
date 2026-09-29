@@ -36,6 +36,7 @@ public final class BrowserChromeView: NSView {
     private var showsStop = false
     private var isToolbarHidden = false
     private let density = DensityBinding()
+    private lazy var extensionToolbar = ExtensionActionToolbar(slot: extensionSlot)
 
     public static var toolbarHeight: CGFloat { BrowserMetrics.toolbarHeight }
 
@@ -79,6 +80,7 @@ public final class BrowserChromeView: NSView {
             findBar.isHidden = false
             findBar.alphaValue = 0
             Motion.animate(duration: 0.14) { self.findBar.animator().alphaValue = 1 }
+            updateOcclusion()
         }
         findBar.focus()
     }
@@ -87,6 +89,7 @@ public final class BrowserChromeView: NSView {
         guard !findBar.isHidden else { return }
         Motion.animate(duration: 0.12, { self.findBar.animator().alphaValue = 0 }) {
             self.findBar.isHidden = true
+            self.updateOcclusion()
         }
         tab.setFocused(true)
     }
@@ -229,6 +232,7 @@ public final class BrowserChromeView: NSView {
             content.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
         ])
         findBar.tab = tab
+        extensionToolbar.bind(tab)
         if !findBar.isHidden {
             old?.clearFind()
             findBar.isHidden = true
@@ -263,6 +267,23 @@ public final class BrowserChromeView: NSView {
         }
 
         setToolbarHidden(state.isContentFullscreen)
+        updateOcclusion()
+    }
+
+    public override func layout() {
+        super.layout()
+        updateOcclusion()
+    }
+
+    /// Child-window pages draw above this view; tell them where the find
+    /// bar, prompt bar, and error page cover them.
+    private func updateOcclusion() {
+        guard let occluded = tab as? any BrowserOcclusionHosting else { return }
+        let content = tab.contentView
+        let rects = [findBar, promptBar, errorView as NSView]
+            .filter { !$0.isHidden && $0.superview != nil }
+            .map { convert($0.frame, to: content) }
+        if occluded.occlusionRects != rects { occluded.occlusionRects = rects }
     }
 
     private func setToolbarHidden(_ hidden: Bool) {
