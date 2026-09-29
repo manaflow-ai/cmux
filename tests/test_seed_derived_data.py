@@ -570,6 +570,18 @@ class SeedDerivedData(unittest.TestCase):
             published.clear()
             self.assertEqual(seed.locate("p-", "c4"), ("p-j6-c4", None))
 
+    def test_probe_can_require_a_seed_of_its_own_width(self):
+        os.environ["CMUX_SEED_SWIFT_JOBS"] = "6"
+        os.environ["CMUX_SEED_REQUIRE_OWN_WIDTH"] = "1"
+        published = {"p-j12-c4"}
+        with mock.patch.object(seed, "lineage", return_value=["c4"]), \
+                mock.patch.object(seed, "seed_exists", side_effect=lambda key: key in published):
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j6-c4", None))
+        published.add("p-j6-c4")
+        with mock.patch.object(seed, "lineage", return_value=["c4"]), \
+                mock.patch.object(seed, "seed_exists", side_effect=lambda key: key in published):
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j6-c4", 0))
+
     def test_adopt_falls_back_to_a_j14_seed_and_a_j14_runner_prefers_it(self):
         self.assertIn(14, seed.SEEDED_JOB_WIDTHS)
         published = set()
