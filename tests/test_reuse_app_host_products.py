@@ -786,6 +786,15 @@ class ReuseProducts(TestProductHandoff):
             ["only_sealed", "only_wanted", "tools.zig"],
         )
 
+    def test_contract_differences_names_missing_field_when_other_value_is_none(self):
+        self.assertEqual(
+            reuse.contract_differences(
+                {"tools": {"zig": None}},
+                {"tools": {}},
+            ),
+            ["tools.zig"],
+        )
+
     def test_pull_request_producer_sealed_at_its_merge_commit_is_reusable(self):
         """A pull request producer seals the merge commit it checked out.
 

@@ -351,9 +351,13 @@ def contract_differences(sealed, wanted, prefix=""):
     fields = []
     for name in sorted(set(sealed) | set(wanted)):
         path = f"{prefix}{name}"
-        if sealed.get(name) == wanted.get(name):
+        sealed_has = name in sealed
+        wanted_has = name in wanted
+        if sealed_has and wanted_has and sealed[name] == wanted[name]:
             continue
-        if isinstance(sealed.get(name), dict) and isinstance(wanted.get(name), dict):
+        if (sealed_has and wanted_has
+                and isinstance(sealed[name], dict)
+                and isinstance(wanted[name], dict)):
             fields.extend(contract_differences(sealed[name], wanted[name], f"{path}."))
         else:
             fields.append(path)
