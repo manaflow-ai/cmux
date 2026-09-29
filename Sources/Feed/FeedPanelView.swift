@@ -1851,7 +1851,7 @@ struct FeedButton: View {
             ? CGFloat(FeedButtonDebugSettings.compactCornerRadius)
             : CGFloat(FeedButtonDebugSettings.mediumCornerRadius)
 #else
-        return size == .compact ? 5 : 6
+        return RightSidebarChromeMetrics.buttonCornerRadius
 #endif
     }
     private var horizontalPadding: CGFloat {
