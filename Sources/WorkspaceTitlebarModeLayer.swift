@@ -6,12 +6,18 @@ struct WorkspaceTitlebarModeLayer<Titlebar: View>: View {
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
 
-    private var isMinimalMode: Bool {
-        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+    @AppStorage(WorkspaceTitlebarSettings.showTitlebarKey)
+    private var showWorkspaceTitlebar = WorkspaceTitlebarSettings.defaultShowTitlebar
+
+    private var hasHiddenTitlebar: Bool {
+        WorkspaceTitlebarSettings.isHidden(
+            showTitlebar: showWorkspaceTitlebar,
+            presentationMode: workspacePresentationMode
+        )
     }
 
     var body: some View {
-        if !isMinimalMode {
+        if !hasHiddenTitlebar {
             titlebar()
         }
     }

@@ -6,11 +6,17 @@ struct WorkspaceContentMinimalModeSafeAreaModifier: ViewModifier {
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
 
-    private var isMinimalMode: Bool {
-        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+    @AppStorage(WorkspaceTitlebarSettings.showTitlebarKey)
+    private var showWorkspaceTitlebar = WorkspaceTitlebarSettings.defaultShowTitlebar
+
+    private var hasHiddenTitlebar: Bool {
+        WorkspaceTitlebarSettings.isHidden(
+            showTitlebar: showWorkspaceTitlebar,
+            presentationMode: workspacePresentationMode
+        )
     }
 
     func body(content: Content) -> some View {
-        content.ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
+        content.ignoresSafeArea(.container, edges: (hasHiddenTitlebar && !isFullScreen) ? .top : [])
     }
 }

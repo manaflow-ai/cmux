@@ -14,7 +14,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     private var layoutModeControls: [ObjectIdentifier: NSSegmentedControl] = [:]
     private var observers: [NSObjectProtocol] = []
     private let focusedCommandUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
-    private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
+    private var lastKnownTitlebarHidden = WorkspaceTitlebarSettings.isHidden()
 
     override init() {
         super.init()
@@ -131,10 +131,9 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     }
 
     private func updateToolbarVisibilityIfNeeded() {
-        let currentMode = WorkspacePresentationModeSettings.mode()
-        guard currentMode != lastKnownPresentationMode else { return }
-        lastKnownPresentationMode = currentMode
-        let isMinimal = currentMode == .minimal
+        let isMinimal = WorkspaceTitlebarSettings.isHidden()
+        guard isMinimal != lastKnownTitlebarHidden else { return }
+        lastKnownTitlebarHidden = isMinimal
         for window in NSApp.windows {
             if isMinimal {
                 window.toolbar = nil
@@ -170,7 +169,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
 
     private func attach(to window: NSWindow) {
         guard window.toolbar == nil else { return }
-        guard !WorkspacePresentationModeSettings.isMinimal() else { return }
+        guard !WorkspaceTitlebarSettings.isHidden() else { return }
         let toolbar = NSToolbar(identifier: NSToolbar.Identifier("cmux.toolbar"))
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly

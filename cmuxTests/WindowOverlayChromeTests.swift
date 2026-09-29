@@ -128,6 +128,10 @@ struct WindowOverlayChromeTests {
             glassEffect.apply(to: window)
         }
         let windowRoot = try #require(window.contentView)
+        // Reduce Transparency deliberately resolves the window backdrop to an
+        // opaque fill. The terminal surface applies that resolved plan when it
+        // mounts, so it is expected to remove a manually installed glass root
+        // even though this test starts with `useGlass == true`.
         let backdropKeepsGlassRoot = installsGlass && glassEffect.isAvailable
         if backdropKeepsGlassRoot {
             #expect(windowRoot !== content)

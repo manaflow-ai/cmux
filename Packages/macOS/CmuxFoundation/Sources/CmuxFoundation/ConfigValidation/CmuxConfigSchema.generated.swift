@@ -599,6 +599,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": false,
           "description": "Hide the workspace title bar and move controls into the sidebar."
         },
+        "workspaceTitlebarVisibility": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.app.workspaceTitlebarVisibility",
+          "description": "Show the folder and active workspace title above pane tabs."
+        },
         "keepWorkspaceOpenWhenClosingLastSurface": {
           "type": "boolean",
           "default": false,
