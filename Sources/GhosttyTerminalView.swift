@@ -290,12 +290,12 @@ class GhosttyApp {
         capacity: Int = 64
     ) -> (entries: [ExternalHoverDiagEntryValue], droppedCountCumulative: UInt64) {
         guard capacity > 0 else { return (entries: [], droppedCountCumulative: 0) }
-        var buffer = [ghostty_external_hover_diag_entry_s](
-            repeating: ghostty_external_hover_diag_entry_s(), count: capacity
+        var buffer = [cmux_external_hover_diag_entry_s](
+            repeating: cmux_external_hover_diag_entry_s(), count: capacity
         )
         var droppedCountCumulative: UInt64 = 0
         let count: Int = buffer.withUnsafeMutableBufferPointer { buffer in
-            Int(ghostty_surface_drain_external_hover_diagnostics(
+            Int(cmux_ghostty_surface_drain_external_hover_diagnostics(
                 surface, buffer.baseAddress, buffer.count, &droppedCountCumulative
             ))
         }
