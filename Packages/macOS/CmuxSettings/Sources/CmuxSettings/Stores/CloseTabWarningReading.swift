@@ -62,4 +62,13 @@ extension CloseTabWarningReading {
             source: source
         )
     }
+
+    public func warningKindsIncludingSafety(
+        requiresConfirmation: Bool,
+        source: CloseTabCloseSource
+    ) -> CloseWarningKinds {
+        var kinds = warningKinds(requiresConfirmation: requiresConfirmation, source: source)
+        if requiresConfirmation { kinds.insert(.safety) }
+        return kinds
+    }
 }
