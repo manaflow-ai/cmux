@@ -382,11 +382,22 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         } else {
             preconnectTask = nil
         }
-        defer { preconnectTask?.cancel() }
-        let authorized = try await sendRequestOperation(
-            requestData,
-            timeoutNanoseconds: timeoutNanoseconds
-        )
+        let authorized: AuthenticatedRequestResult
+        do {
+            authorized = try await sendRequestOperation(
+                requestData,
+                timeoutNanoseconds: timeoutNanoseconds
+            )
+        } catch {
+            preconnectTask?.cancel()
+            _ = await preconnectTask?.result
+            throw error
+        }
+        // ``beginSend`` shares the session's connection task, so a successful
+        // request normally leaves this task already complete. Await it anyway
+        // to drain the rare race where authentication finished first and the
+        // transport is still settling.
+        _ = await preconnectTask?.result
         if acceptCombinedHostStatus,
            let combinedHostStatus = Self.combinedHostStatusResponse(
                in: authorized.response
