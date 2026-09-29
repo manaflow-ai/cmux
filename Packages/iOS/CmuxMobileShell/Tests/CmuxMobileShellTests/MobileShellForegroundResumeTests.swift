@@ -52,6 +52,7 @@ import Testing
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
 
     let collector = OutputCollector()
+    await router.enqueueReplayPayload(text: "initial", sequence: 1)
     collector.mount(store: store, surfaceID: "live-terminal")
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     try await waitForReplayResponsesServed(
@@ -67,6 +68,9 @@ import Testing
     store.resumeForegroundRefresh()
 
     await router.waitForCount(of: "mobile.events.subscribe", atLeast: subscribeCount + 1)
+    #expect(try await pollUntil {
+        (await router.requests(for: "mobile.terminal.replay").last?.maxScrollbackRows) == 0
+    })
     collector.unmount()
 }
 

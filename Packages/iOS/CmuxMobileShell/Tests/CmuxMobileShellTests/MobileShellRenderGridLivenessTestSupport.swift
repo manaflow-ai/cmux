@@ -26,6 +26,7 @@ actor LivenessHostRouter {
         var viewportColumns: Int?
         var viewportRows: Int?
         var viewportGeneration: Int?
+        var maxScrollbackRows: Int?
         var clearsViewport: Bool
         var groupID: String?
         var action: String?
@@ -128,6 +129,7 @@ actor LivenessHostRouter {
         viewportColumns: Int? = nil,
         viewportRows: Int? = nil,
         viewportGeneration: Int? = nil,
+        maxScrollbackRows: Int? = nil,
         clearsViewport: Bool = false,
         groupID: String? = nil,
         action: String? = nil,
@@ -143,6 +145,7 @@ actor LivenessHostRouter {
             viewportColumns: viewportColumns,
             viewportRows: viewportRows,
             viewportGeneration: viewportGeneration,
+            maxScrollbackRows: maxScrollbackRows,
             clearsViewport: clearsViewport,
             groupID: groupID,
             action: action,
@@ -885,6 +888,7 @@ actor LivenessTransport: CmxByteTransport, CmxByteTransportLivenessObserving {
                 viewportColumns: (params?["viewport_columns"] as? NSNumber)?.intValue,
                 viewportRows: (params?["viewport_rows"] as? NSNumber)?.intValue,
                 viewportGeneration: (params?["viewport_generation"] as? NSNumber)?.intValue,
+                maxScrollbackRows: (params?["max_scrollback_rows"] as? NSNumber)?.intValue,
                 clearsViewport: params?["clear"] as? Bool == true,
                 groupID: params?["group_id"] as? String,
                 action: params?["action"] as? String,
