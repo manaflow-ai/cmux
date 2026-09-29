@@ -102,6 +102,22 @@ export async function vmArtifactUnavailableCopy(locale: Locale): Promise<VmRequi
   };
 }
 
+/** Localized guidance for a machine whose persisted state requires recreation. */
+export type VmRecreateRequiredCopy = VmRequiresProCopy & { readonly reason: string };
+export async function vmRecreateRequiredCopy(locale: Locale): Promise<VmRecreateRequiredCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.recreateRequired",
+  }) as unknown as (key: string) => string;
+  return {
+    title: translator("title"),
+    reason: translator("reason"),
+    message: translator("message"),
+    action: translator("action"),
+  };
+}
+
 /** Localized, user-safe guidance when guest Cloud VM setup does not complete. */
 export type VmGuestInstallCopy = VmRequiresProCopy & { readonly reason: string };
 export async function vmGuestInstallCopy(locale: Locale): Promise<VmGuestInstallCopy> {

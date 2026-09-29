@@ -14,6 +14,12 @@
     "benefitSuperpowers": "Planiranje, TDD, podagenti i pregled"
   },
   "vmErrors": {
+    "recreateRequired": {
+      "title": "Ponovo kreirajte ovu Cloud mašinu",
+      "reason": "Ova mašina je kreirana u starijem formatu Cloud mašina.",
+      "message": "Ova Cloud mašina koristi stariji format i više se ne može otvoriti. Kreirajte novu mašinu da nastavite rad.",
+      "action": "Izbrišite ovu mašinu, a zatim kreirajte novu. Ponovni pokušaj neće riješiti problem. Ako možete, prvo kopirajte datoteke koje vam još trebaju."
+    },
     "guestInstall": {
       "title": "Postavljanje Cloud VM-a nije završeno",
       "reason": "Postavljanje gosta za Cloud VM nije završeno.",

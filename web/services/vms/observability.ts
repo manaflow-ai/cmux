@@ -58,7 +58,21 @@ const CLIENT_STATE_VM_ERROR_CODES: ReadonlySet<string> = new Set([
   "vm_access_grant_not_found",
   "vm_attach_transport_unsupported",
   "vm_memory_size_unknown",
+  "vm_requires_recreate",
 ]);
+
+/**
+ * Permanent machine-state outcomes are counted in `cloud_vm_request` and the
+ * active span, but must not create one Sentry event per client poll. The
+ * response still carries its stable error code for aggregation.
+ */
+const PER_REQUEST_SENTRY_SUPPRESSED_VM_ERROR_CODES: ReadonlySet<string> = new Set([
+  "vm_requires_recreate",
+]);
+
+export function isVmErrorSentryReportable(error: string | undefined): boolean {
+  return error === undefined || !PER_REQUEST_SENTRY_SUPPRESSED_VM_ERROR_CODES.has(error);
+}
 
 export function isOperatorFaultVmError(input: {
   readonly error: string;
@@ -110,32 +124,34 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
   const diagnostics = input.diagnostics ?? {};
   const provider = stringOrUndefined(diagnostics.provider);
   const operatorFault = isOperatorFaultVmError(input);
-  reportError(
-    new Error(`cloud VM ${input.error}: ${input.message}`),
-    {
-      subsystem: "cloud_vm_api",
-      code: input.error,
-      status: input.status,
-      phase: input.phase ?? "unknown",
-      operator_fault: operatorFault,
-      reason: input.reason ?? input.message,
-      ...vmErrorRequestContext(context),
-      ...(input.details ?? {}),
-      ...diagnostics,
-    },
-    {
-      fingerprint: ["cmux-vm-error", input.error, provider ?? "unknown"],
-      level: operatorFault ? "error" : "warning",
-      tags: {
-        "vm.error_code": input.error,
-        "vm.phase": input.phase ?? "unknown",
-        "vm.status": input.status,
-        "vm.operator_fault": operatorFault,
-        "vm.provider": provider,
-        ...vmErrorRequestTags(context),
+  if (isVmErrorSentryReportable(input.error)) {
+    reportError(
+      new Error(`cloud VM ${input.error}: ${input.message}`),
+      {
+        subsystem: "cloud_vm_api",
+        code: input.error,
+        status: input.status,
+        phase: input.phase ?? "unknown",
+        operator_fault: operatorFault,
+        reason: input.reason ?? input.message,
+        ...vmErrorRequestContext(context),
+        ...(input.details ?? {}),
+        ...diagnostics,
       },
-    },
-  );
+      {
+        fingerprint: ["cmux-vm-error", input.error, provider ?? "unknown"],
+        level: operatorFault ? "error" : "warning",
+        tags: {
+          "vm.error_code": input.error,
+          "vm.phase": input.phase ?? "unknown",
+          "vm.status": input.status,
+          "vm.operator_fault": operatorFault,
+          "vm.provider": provider,
+          ...vmErrorRequestTags(context),
+        },
+      },
+    );
+  }
 }
 
 function vmErrorRequestContext(context: VmRequestContext | undefined): Record<string, unknown> {

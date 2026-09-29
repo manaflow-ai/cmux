@@ -69,6 +69,7 @@ export async function GET(
           caller: user,
         })),
         address: { ipv4: vm.addressIpv4 ?? null, ipv6: vm.addressIpv6 ?? null },
+        cmuxTuiContract: vm.cmuxTuiContract,
       });
     },
   );

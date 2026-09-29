@@ -58,6 +58,7 @@ import {
   vmDisplayNameCopy,
   vmCreateCleanupPendingCopy,
   vmGuestInstallCopy,
+  vmRecreateRequiredCopy,
   vmRequestLocale,
   vmRequiresProCopy,
   vmMemoryErrorCopy,
@@ -66,7 +67,11 @@ import {
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
 import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
-import { ProviderArtifactUnavailableError } from "./drivers/types";
+import {
+  ProviderArtifactUnavailableError,
+  ProviderMachineRequiresRecreateError,
+  type ProviderMachineRecreateReason,
+} from "./drivers/types";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import { PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE } from "./repository";
 import type { Locale } from "../../i18n/routing";
@@ -813,7 +818,7 @@ export const vmWorkflowErrorResponders = {
     if (guestInstall) {
       return vmGuestInstallFailureResponse(error, context.locale, guestInstall);
     }
-    return vmProviderOperationErrorResponse(error);
+    return vmProviderOperationErrorResponse(error, context.locale);
   },
   VmAccountDeletionInProgressError: (error) =>
     vmErrorResponse({
@@ -1145,7 +1150,9 @@ async function vmCreateCleanupPendingResponse(locale: Locale): Promise<Response>
   });
 }
 
-function vmProviderOperationErrorResponse(error: VmProviderOperationError): Response {
+async function vmProviderOperationErrorResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const recreateReason = providerMachineRequiresRecreate(error.cause);
+  if (recreateReason) return vmRequiresRecreateResponse(error, locale, recreateReason);
   const providerCause = providerCauseSummary(error.cause);
   const phase = vmPhaseForOperation(error.operation);
   if (providerImageNotFound(error.cause)) {
@@ -1204,6 +1211,39 @@ function vmProviderOperationErrorResponse(error: VmProviderOperationError): Resp
       ...(providerCode ? { providerCode } : {}),
       ...(providerMessage ? { providerMessage } : {}),
     },
+  });
+}
+
+/** Match the driver's permanent machine-state error without parsing diagnostics. */
+function providerMachineRequiresRecreate(cause: unknown): ProviderMachineRecreateReason | null {
+  let current = cause;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderMachineRequiresRecreateError) return current.reason;
+    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return null;
+}
+
+/** Answer a localized, non-retryable state conflict for an unattachable machine. */
+async function vmRequiresRecreateResponse(
+  error: VmProviderOperationError,
+  locale: Locale,
+  reason: ProviderMachineRecreateReason,
+): Promise<Response> {
+  const copy = await vmRecreateRequiredCopy(locale);
+  return vmErrorResponse({
+    error: "vm_requires_recreate",
+    status: 409,
+    message: copy.message,
+    reason: copy.reason,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    severity: "error",
+    diagnostics: { provider: error.provider, recreateReason: reason },
+    details: { operation: error.operation, retryable: false, requiresRecreate: true },
   });
 }
 

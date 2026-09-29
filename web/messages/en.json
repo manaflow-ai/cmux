@@ -150,6 +150,12 @@
     "expiredBody": "{machine} and everything on it are fine — only this link's session ended. Reopen the desktop from cmux (right-click the machine, then Open Desktop) to get a fresh one."
   },
   "vmErrors": {
+    "recreateRequired": {
+      "title": "Recreate this Cloud machine",
+      "reason": "This machine was created with an older Cloud machine format.",
+      "message": "This Cloud machine uses an older format and can no longer be opened. Create a new machine to keep working.",
+      "action": "Delete this machine, then create a new one. Retrying will not fix it. Copy any files you still need first if you can."
+    },
     "guestInstall": {
       "title": "Cloud VM setup did not finish.",
       "reason": "The Cloud VM guest setup did not complete.",

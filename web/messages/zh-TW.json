@@ -14,6 +14,12 @@
     "benefitSuperpowers": "規劃、TDD、子代理與審查"
   },
   "vmErrors": {
+    "recreateRequired": {
+      "title": "請重新建立此 Cloud 機器",
+      "reason": "此機器使用舊版 Cloud 機器格式建立。",
+      "message": "此 Cloud 機器使用舊格式，已無法開啟。請建立新機器以繼續工作。",
+      "action": "請刪除此機器，然後建立新機器。重試無法解決此問題。如果可以，請先複製仍需要的檔案。"
+    },
     "guestInstall": {
       "title": "Cloud VM 設定未完成",
       "reason": "Cloud VM 的來賓環境設定未完成。",

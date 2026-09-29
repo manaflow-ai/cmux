@@ -18,6 +18,7 @@ import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
 import {
   ProviderError,
+  ProviderMachineRequiresRecreateError,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -322,15 +323,19 @@ export function freestyleCmuxRemoteRoute(addresses: FreestyleRouteAddresses, vmI
     if (ipv6) return `ws://[${ipv6}]:${CMUX_TUI_PORT}/v1/link`;
   }
   if (networks.length > 0) {
-    throw new ProviderError(
+    throw new ProviderMachineRequiresRecreateError(
       "freestyle",
+      vmId,
+      "legacy_private_network",
       `VM ${vmId} is attached to a private network but holds no address on it, so its cmux-tui daemon is unreachable`,
     );
   }
   const ipv6 = addresses.publicIpv6?.trim();
   if (!ipv6) {
-    throw new ProviderError(
+    throw new ProviderMachineRequiresRecreateError(
       "freestyle",
+      vmId,
+      "legacy_private_network",
       `VM ${vmId} has no private network address and no public IPv6 address, so its cmux-tui daemon is unreachable (the platform has no HTTP ingress to arbitrary ports)`,
     );
   }
@@ -355,8 +360,10 @@ export function freestylePortAddress(addresses: FreestyleRouteAddresses, vmId: s
     const ipv6 = network.ipv6?.trim();
     if (ipv6) return ipv6;
   }
-  throw new ProviderError(
+  throw new ProviderMachineRequiresRecreateError(
     "freestyle",
+    vmId,
+    "legacy_private_network",
     networks.length > 0
       ? `VM ${vmId} is attached to a private network but holds no address on it, so its ports cannot be opened`
       : `VM ${vmId} is not on a private network: its desktop and ports are reachable only over the owner's private network (a machine created before private networking must be recreated), and the platform has no ingress to arbitrary ports`,
@@ -1369,10 +1376,7 @@ export class FreestyleProvider implements VMProvider {
           // the upgrade and backfill in docs/cloud-guest-upgrades.md.
           const routeAddresses = freestyleRouteAddressesFromMetadata(options?.providerMetadata);
           if (options?.providerMetadata?.cmuxTuiContract !== "snapshot-v2" || !routeAddresses) {
-            throw new ProviderError(
-              "freestyle",
-              `VM ${vmId} predates the snapshot-v2 machine contract (no recorded contract or private address); recreate the machine`,
-            );
+            throw new ProviderMachineRequiresRecreateError("freestyle", vmId, "legacy_machine_contract");
           }
           span.setAttribute("cmux.vm.cmux_tui_contract", "snapshot-v2");
           const route = freestyleCmuxRemoteRoute(routeAddresses, vmId);

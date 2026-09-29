@@ -290,6 +290,40 @@ describe("cloud_vm_request capture", () => {
     expect(attributes["cmux.client.request_id"]).toBe("req-1");
   });
 
+  test("a recreate-required state is counted without per-request Sentry reporting", () => {
+    const ctx = context({ route: "/api/vm/[id]/attach-endpoint", operation: "open_attach", vmId: "vm-legacy" });
+    const { span, attributes } = fakeSpan();
+    const reported = spyOn(report, "reportError").mockImplementation(() => undefined);
+    let response: Response;
+    try {
+      response = runWithVmRequestContext(ctx, () => vmErrorResponse({
+        error: "vm_requires_recreate",
+        status: 409,
+        message: "This Cloud machine must be recreated.",
+        action: "Delete this machine, then create a new one.",
+        phase: "attach",
+        retryable: false,
+        severity: "error",
+      }));
+      expect(reported).not.toHaveBeenCalled();
+    } finally {
+      reported.mockRestore();
+    }
+    const { body } = capture(ctx, response!, span);
+    expect(body?.batch).toHaveLength(2);
+    expect(body?.batch[0]?.event).toBe(VM_REQUEST_POSTHOG_EVENT);
+    expect(body?.batch[1]?.event).toBe("$exception");
+    expect(body?.batch[0]?.properties).toMatchObject({
+      operation: "open_attach",
+      vm_id: "vm-legacy",
+      status: 409,
+      error_code: "vm_requires_recreate",
+      retryable: false,
+      operator_fault: false,
+    });
+    expect(attributes["cmux.vm.request_error_code"]).toBe("vm_requires_recreate");
+  });
+
   test("a user-fault failure is a warning-level exception", () => {
     const ctx = context({ operation: "status", method: "GET", route: "/api/vm/[id]" });
     const response = runWithVmRequestContext(ctx, () => vmErrorResponse({
@@ -370,6 +404,7 @@ describe("cmux-vm-error attribution", () => {
       "vm_access_grant_not_found",
       "vm_attach_transport_unsupported",
       "vm_memory_size_unknown",
+      "vm_requires_recreate",
       "vm_operation_unsupported",
     ]) {
       expect({ error, fault: isOperatorFaultVmError({ error, status: 503 }) }).toEqual({ error, fault: false });

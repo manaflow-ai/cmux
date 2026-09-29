@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { getProvider, vmCapabilitiesFor } from "../services/vms/drivers";
+import { ProviderMachineRequiresRecreateError } from "../services/vms/drivers/types";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "../services/vms/errors";
 import { isOperatorFaultVmError } from "../services/vms/observability";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
@@ -14,6 +15,27 @@ import { parseCmuxTuiManifest } from "../services/vms/drivers/cmuxTuiDaemon";
 // perform. `fork` is the live case today: no driver implements it; the port
 // capability uses the same contract for older deployments.
 describe("unsupported provider operations", () => {
+  test("a typed legacy machine state answers a non-retryable attach conflict", async () => {
+    const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "openCmuxRemote",
+      cause: new ProviderMachineRequiresRecreateError("freestyle", "vm-legacy", "legacy_machine_contract"),
+    }));
+    expect(response).not.toBeNull();
+    expect(response!.status).toBe(409);
+    expect(response!.headers.get("retry-after")).toBeNull();
+    const payload = await response!.json() as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      error: "vm_requires_recreate",
+      phase: "attach",
+      retryable: false,
+      details: { operation: "openCmuxRemote", requiresRecreate: true, retryable: false },
+      ui: { severity: "error", retryable: false },
+    });
+    expect(isOperatorFaultVmError({ error: "vm_requires_recreate", status: 409 })).toBe(false);
+    expect(isOperatorFaultVmError({ error: "vm_requires_recreate", status: 502 })).toBe(false);
+  });
+
   test("missing hook artifacts return localized setup guidance without manifest diagnostics", async () => {
     let cause: unknown;
     try {

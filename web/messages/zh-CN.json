@@ -14,6 +14,12 @@
     "benefitSuperpowers": "规划、TDD、子代理和审查"
   },
   "vmErrors": {
+    "recreateRequired": {
+      "title": "请重新创建此 Cloud 机器",
+      "reason": "此机器使用旧版 Cloud 机器格式创建。",
+      "message": "此 Cloud 机器使用旧格式，已无法打开。请创建新机器以继续工作。",
+      "action": "请删除此机器，然后创建新机器。重试无法解决此问题。如果可以，请先复制仍需要的文件。"
+    },
     "guestInstall": {
       "title": "云端虚拟机设置未完成",
       "reason": "云端虚拟机的来宾设置未完成。",

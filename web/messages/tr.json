@@ -14,6 +14,12 @@
     "benefitSuperpowers": "Planlama, TDD, alt aracılar ve inceleme"
   },
   "vmErrors": {
+    "recreateRequired": {
+      "title": "Bu Cloud makinesini yeniden oluşturun",
+      "reason": "Bu makine eski bir Cloud makine biçimiyle oluşturuldu.",
+      "message": "Bu Cloud makinesi eski bir biçim kullanıyor ve artık açılamıyor. Çalışmaya devam etmek için yeni bir makine oluşturun.",
+      "action": "Bu makineyi silin, ardından yeni bir makine oluşturun. Yeniden denemek sorunu çözmez. Mümkünse önce hâlâ ihtiyaç duyduğunuz dosyaları kopyalayın."
+    },
     "guestInstall": {
       "title": "Cloud VM kurulumu tamamlanamadı",
       "reason": "Cloud VM konuk kurulumu tamamlanmadı.",

@@ -720,8 +720,8 @@ describe("VM REST auth", () => {
   test("lists the kinds the default provider can serve alongside plan limits", async () => {
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue([
-      { providerVmId: "devbox", provider: "freestyle", image: "sh-unlisted-shell", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000 },
-      { providerVmId: "base", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: null, status: "running", createdAt: 1_777_000_000_000 },
+      { providerVmId: "devbox", provider: "freestyle", image: "sh-unlisted-shell", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000, cmuxTuiContract: null },
+      { providerVmId: "base", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: null, status: "running", createdAt: 1_777_000_000_000, cmuxTuiContract: "snapshot-v2" },
     ]);
 
     const response = await GET(new Request("https://cmux.test/api/vm"));
@@ -731,7 +731,10 @@ describe("VM REST auth", () => {
       limits: { imageKinds: Array<{ kind: string; image: string }> };
     };
     // Neither stored image is a manifest desktop image, so both echo kind "base".
-    expect(payload.vms).toMatchObject([{ id: "devbox", kind: "base" }, { id: "base", kind: "base" }]);
+    expect(payload.vms).toMatchObject([
+      { id: "devbox", kind: "base", cmuxTuiContract: null },
+      { id: "base", kind: "base", cmuxTuiContract: "snapshot-v2" },
+    ]);
     const { listVmImageKinds } = await import("../services/vms/images/resolver");
     const { defaultProviderId } = await import("../services/vms/drivers");
     const { defaultMemoryMbForPlan } = await import("../services/vms/entitlements");
@@ -2077,6 +2080,7 @@ describe("VM REST auth", () => {
       slug: "giddy-cherry-emu",
       addressIpv4: "10.16.170.11",
       addressIpv6: null,
+      cmuxTuiContract: "snapshot-v2",
     });
     const response = await vmIdRoute.GET(
       new Request("https://cmux.test/api/vm/provider-vm-status"),
@@ -2089,6 +2093,7 @@ describe("VM REST auth", () => {
       kind: "desktop",
       capabilities: vmCapabilitiesFor("freestyle"),
       address: { ipv4: "10.16.170.11", ipv6: null },
+      cmuxTuiContract: "snapshot-v2",
     });
   });
 

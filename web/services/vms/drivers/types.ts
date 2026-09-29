@@ -587,6 +587,30 @@ export class ProviderError extends Error {
   }
 }
 
+export type ProviderMachineRecreateReason = "legacy_machine_contract" | "legacy_private_network";
+
+/**
+ * The persisted machine state cannot satisfy the current Cloud contract.
+ * Retrying the provider call cannot repair it; the user must recreate the VM.
+ * Route responders use this discriminant instead of parsing provider messages.
+ */
+export class ProviderMachineRequiresRecreateError extends ProviderError {
+  constructor(
+    provider: ProviderId,
+    public readonly vmId: string,
+    public readonly reason: ProviderMachineRecreateReason,
+    message?: string,
+  ) {
+    super(
+      provider,
+      message ?? (reason === "legacy_machine_contract"
+        ? `VM ${vmId} predates the snapshot-v2 machine contract (no recorded contract or private address); recreate the machine`
+        : `VM ${vmId} has no private network address required by the current Cloud machine contract; recreate the machine`),
+    );
+    this.name = "ProviderMachineRequiresRecreateError";
+  }
+}
+
 /** An unpublished runtime artifact; diagnostics stay server-side while routes localize the failure. */
 export class ProviderArtifactUnavailableError extends ProviderError {
   constructor(provider: ProviderId, diagnostic: { readonly manifestUrl: string; readonly target: string }) {
