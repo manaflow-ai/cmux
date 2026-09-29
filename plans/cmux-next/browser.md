@@ -313,3 +313,43 @@ With `--cmux-tabbed-windows`, each `browser_host_create_browser` call with its o
 - The `hide` and `mask` rows in the logs show `max|child-host|=600pt`. This is a bug in the spike's child-to-host matching when one child is hidden, not a real offset. Use the screenshots for those rows.
 - I did not record video, so the frame-level lag between the parent content and the child window is estimated from WindowServer bounds only. Each case ran once.
 - The child windows show rounded bottom corners (visible in every screenshot). This is cosmetic, and the fork should remove it.
+
+## Fork clip patches
+
+Fork branch `cmux/8037-clip` in `~/fun/cef-cmux` (pushed to `manaflow` only), head `909710c`. Dist: `~/fun/cef-cmux-dist-clip` (`archive.json` names `909710c`). `~/fun/cef-cmux-dist` is not changed. Re-test code: `~/fun/cmux2-spike` branch `spike/lazy-cef-clip`, commit `3ceaee7` (not pushed). Evidence: `docs/spike-2026-09-28-clip/` (screenshots `NN-*.png`, logs `logs/f1..f3-*.log`).
+
+Commits on top of `cmux/8037`:
+
+1. `9750b78` Tracking. The tracker observes `NSViewBoundsDidChangeNotification` on the parent view and every ancestor (clip-view scrolling), and frame changes as before. A zero-size probe subview of the parent view receives `viewDidMoveToWindow`, `viewDidMoveToSuperview`, `viewDidHide` and `viewDidUnhide` for any ancestor change (this replaces the per-ancestor `hidden` KVO). The embedder can post `CmuxParentViewGeometryDidChange` (object = parent view) for moves that AppKit does not report.
+2. `3e0e4b3` Clip and mouse. A `CAShapeLayer` mask on the page window's content view clips the page to the visible part of the parent view (intersection with `NSClipView`, content view, frame view, and `clipsToBounds` or `masksToBounds` ancestors). The page window keeps its full size, so the page does not relayout. The window is borderless, not opaque. In masked parts the page window sets `ignoresMouseEvents`, so the WindowServer sends clicks, hover, scrolling and drags to the parent window. The state follows the pointer (geometry updates, page mouse events through a new `CefNSWindow` event filter, a tracking area on the parent view) and never changes while a button is down. A press that still reaches the page at a masked point is sent again to the parent window with its gesture.
+3. `bd9de19` Lifetime. `cmux_browser_window_count()` and the observer event `CMUX_BROWSER_WINDOW_DESTROYED` (6, `a` = remaining count). The fork counts every Chromium `Browser` that held a CEF browser until `~Browser` destroys its `TabStripModel`, and sends the event from a posted task after the destructor returns. `CMUX_CEF_API_VERSION` is now 2 (additive).
+4. `d7b6e4b` Z-order. The parent view can implement `-cmuxOcclusionRects` (NSArray of NSValue NSRect, parent view coordinates). The mask gets holes there (even-odd) and the mouse goes to the parent window. Native UI in the parent view hierarchy then shows above the page. The page window stays above all parent views everywhere else. Child windows that the embedder adds to the parent window after the page (popovers, panels) are already above the page. A translucent overlay cannot blur the live page, because the page is not below it in the parent window (that needs a snapshot).
+5. `909710c` Square corners (does not work, see below), and route again on page mouse moves at visible points.
+6. `fe1054a` `CMUX.md` rewritten for the fork as built.
+
+Build: incremental `nice -n 19 scripts/build-cmux-cef.sh build`, 819 s (patches 1-4), then 254 s (patch 5). No errors.
+
+Re-test results (final dist, one run each case):
+
+| Case | Result | Evidence |
+| --- | --- | --- |
+| Frame-origin scroll, no host mitigation | **Pass.** The page follows (AppKit child frame within 1 pt, WindowServer 4-10 pt behind at speed, as before) and is clipped exactly at the viewport edge. It does not cover the sidebar, during the animation and at rest. | `02`, `03` |
+| `NSScrollView` clip-view scroll, no mitigation | **Pass.** The page follows the bounds scroll within 1 pt and is clipped. Before, it stayed 300 pt off. | `21`, `22` |
+| Vertical clip (host 200 pt below the viewport bottom) | **Pass.** Top part shows, bottom part is clipped at the viewport edge. The mask is in the correct coordinate direction. | `04` |
+| Synthetic press at a masked point (over the sidebar) | **Pass.** The sidebar view gets mouseDown and mouseUp. The page gets nothing. | `logs/f1-frame-spike.log` (`HIT[masked-over-sidebar]`) |
+| Synthetic press at a visible page point | **Pass.** The page gets `mousedown`. The sidebar gets nothing. | `HIT[visible-pageA]` |
+| Occlusion rect on host 0 | **Pass.** The yellow parent view shows above the page in the hole. A press there does not reach the page and goes to the parent window. | `09`, `HIT[occluded]` |
+| Quit with the signal: close all, wait for all `OnBeforeClose`, wait for count 0, `CefShutdown` | **Pass**, tabbed and non-tabbed. Count reaches 0 about 140-150 ms after the last `OnBeforeClose`; `CefShutdown` returns in 350-400 ms; no crash report. | `f1`, `f3` logs |
+| Quit without waiting (`shutdown 0`, old path) | Still fails: the process dies in `CefShutdown`. This time the report is a DCHECK in `CefDoMessageLoopWork` from the spike's pump timer that is still armed, not the `TabDragServiceImpl` CHECK. | `logs/f2-shutdown-0-crash.ips` |
+| Rounded page corners | **Not fixed.** The corners stay rounded in tabbed and non-tabbed mode. The window is borderless and reports corner radius 0, so the rounding comes from Chromium's content drawing (not found). Cosmetic. | `02`, `31` |
+
+Items I did not verify, or did out of laziness:
+
+- The mouse routing was tested with synthetic `NSEvent`s sent to the page window only. That tests the event filter and the forward to the parent window, but not WindowServer routing through `ignoresMouseEvents`, because a real test would move the user's pointer. `NSWindow.windowNumber(at:)` returned another app's window above the spike window, so it gave no evidence. The `ignoresMouseEvents` state was correct in the logs (true where the real pointer was outside the visible rect).
+- A press forwarded to the parent in the race case (pointer moved and pressed before the first move event) goes through `-[NSWindow sendEvent:]`. A parent control that runs its own tracking loop gets the following drag and up events with page-window coordinates. This case is rare, but a native control can misbehave in it.
+- The tracking area uses `NSTrackingInVisibleRect`. If an embedder relies on ancestors with `clipsToBounds = NO` on macOS 14+, AppKit's visible rect can be smaller than the fork's visible rect, and the page can stay mouse-blind in the difference until the next geometry update.
+- The probe is a subview of the embedder's host view. An embedder that removes all subviews of the host view removes the probe too (tracking then continues only through notifications).
+- `CMUX_CEF_API_VERSION` went from 1 to 2. cmux2 `crates/engine/src/fork.rs` on main rejects any version other than 1, so cmux2 main disables the fork API with the new dist. The spike branch changes the check to `< 1`; cmux2 main needs the same one-line change.
+- Commit `909710c` keeps a private-API override (`-_getCachedWindowCornerRadius`) that had no visible effect. I kept it because the dist was built from it; it can be removed in the next fork change.
+- The spike's GhosttyKit symlink target (ghostty `e168fd3`) was pruned from the cache. I built the spike with ghostty `72ff13a` (a descendant) and restored the symlink after.
+- Each case ran once. No video.
