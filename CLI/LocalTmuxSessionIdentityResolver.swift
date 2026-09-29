@@ -119,7 +119,7 @@ struct LocalTmuxSessionIdentityResolver {
             return session
         case .stopped:
             throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.error.sessionNotRunning", defaultValue: "local-tmux session is no longer running: %@"),
+                String(localized: "cli.localTmux.error.sessionNotRunning", defaultValue: "local-tmux session is no longer running: %@", bundle: .cmuxCLI),
                 record.name
             ))
         }
@@ -176,14 +176,14 @@ struct LocalTmuxSessionIdentityResolver {
 
     private func identityChangedError(sessionName: String) -> CLIError {
         CLIError(message: String.localizedStringWithFormat(
-            String(localized: "cli.localTmux.error.sessionIdentityChanged", defaultValue: "local-tmux session identity changed; refusing to operate on replacement session: %@"),
+            String(localized: "cli.localTmux.error.sessionIdentityChanged", defaultValue: "local-tmux session identity changed; refusing to operate on replacement session: %@", bundle: .cmuxCLI),
             sessionName
         ))
     }
 
     private func identityUnavailableError(sessionName: String) -> CLIError {
         CLIError(message: String.localizedStringWithFormat(
-            String(localized: "cli.localTmux.error.sessionIdentityUnavailable", defaultValue: "local-tmux could not verify the tmux session identity: %@"),
+            String(localized: "cli.localTmux.error.sessionIdentityUnavailable", defaultValue: "local-tmux could not verify the tmux session identity: %@", bundle: .cmuxCLI),
             sessionName
         ))
     }

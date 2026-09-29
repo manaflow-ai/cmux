@@ -7,7 +7,7 @@ import Testing
 /// `CMUX_NEXT_TUI_BIN`. Release clients lack these commands, so the suite is
 /// disabled for them.
 @Suite(.enabled(if: RealBinary.isBranchBuild, "needs the pinned branch cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
-       .timeLimit(.minutes(2)))
+       .timeLimit(.minutes(2)), .liveDaemon)
 struct BranchDaemonTests {
     @Test func advertisesEveryCmuxNextCapability() async throws {
         try await BranchDaemonHarness.with { h in
@@ -39,11 +39,9 @@ struct BranchDaemonTests {
             #expect(tree.workspaces.filter { $0.group == agents.id }.map(\.name) == ["a", "b"])
 
             // The store mirrors groups and sections through the event stream.
-            try await h.waitUntil("store sees the collapsed group") {
-                await MainActor.run {
-                    h.store.group(agents.id)?.collapsed == true
-                        && h.store.sidebarSections.last?.workspaces.map(\.name) == ["a", "b"]
-                }
+            try await h.store.waitUntil("store sees the collapsed group") {
+                h.store.group(agents.id)?.collapsed == true
+                    && h.store.sidebarSections.last?.workspaces.map(\.name) == ["a", "b"]
             }
 
             _ = try await h.connection.moveWorkspace(a.key, toGroup: nil)
@@ -67,11 +65,13 @@ struct BranchDaemonTests {
             let order = try #require(try await h.pane(of: first)).tabs
             #expect(order.map(\.surface) == [second, first])
             #expect(order.first?.pinned == true)
-            #expect(order.first?.cwd != nil)
+            // The shell reports its directory after it starts; `tab-changed`
+            // carries it.
+            try await h.store.waitUntil("pinned tab reports its cwd") { h.store.tab(surface: second)?.cwd != nil }
             let workspace = try #require(try await h.tree().workspaces.first { $0.key == key })
             #expect(workspace.displayName == "Build")
             #expect(workspace.icon == "terminal")
-            try await h.waitUntil("store sees the pin") { await MainActor.run { h.store.tab(surface: second)?.pinned == true } }
+            try await h.store.waitUntil("store sees the pin") { h.store.tab(surface: second)?.pinned == true }
         }
     }
 
@@ -105,8 +105,8 @@ struct BranchDaemonTests {
             #expect(saved.name == "API")
             #expect(saved.tabs.count == 3)
             #expect(saved.tabs.allSatisfy { $0.kind == .pty && $0.terminalID != nil })
-            try await h.waitUntil("store links the saved group") {
-                await MainActor.run { h.store.savedTabGroups.first { $0.id == saved.id }?.openGroup == group.id }
+            try await h.store.waitUntil("store links the saved group") {
+                h.store.savedTabGroups.first { $0.id == saved.id }?.openGroup == group.id
             }
 
             let closed = try await h.connection.closeTabGroup(group.id)
@@ -149,8 +149,8 @@ struct BranchDaemonTests {
             tab = try #require(try await h.tab(created.surface))
             #expect(tab.url == "https://example.org/")
             #expect(tab.faviconURL == "https://example.org/favicon.ico")
-            try await h.waitUntil("store sees the navigation") {
-                await MainActor.run { h.store.tab(surface: created.surface)?.url == "https://example.org/" }
+            try await h.store.waitUntil("store sees the navigation") {
+                h.store.tab(surface: created.surface)?.url == "https://example.org/"
             }
         }
     }
@@ -177,8 +177,8 @@ struct BranchDaemonTests {
             #expect(moved.key != nil)
             #expect(try await h.tree().workspaces.first { $0.key == moved.key }?.screens.first?.panes.first?.tabs.map(\.surface) == [a])
 
-            try await h.waitUntil("every drag echoed its transaction") {
-                await MainActor.run { Set([toSplit, toColumn, toWorkspace]).isSubset(of: Set(h.store.confirmedTransactions)) }
+            try await h.store.waitUntil("every drag echoed its transaction") {
+                Set([toSplit, toColumn, toWorkspace]).isSubset(of: Set(h.store.confirmedTransactions))
             }
         }
     }
@@ -187,7 +187,7 @@ struct BranchDaemonTests {
         try await BranchDaemonHarness.with { h in
             let (key, _, surface) = try await h.workspaceWithTerminal("ack")
             _ = try await h.connection.notify(title: "Build finished", body: "ok", surface: surface)
-            try await h.waitUntil("marker is unread") { try await h.tab(surface)?.notification?.unread == true }
+            try await h.store.waitUntil("marker is unread") { h.store.tab(surface: surface)?.notification?.unread == true }
             #expect(try await h.tree().workspaces.first { $0.key == key }?.unreadCount == 1)
 
             let ack = try await h.connection.acknowledgeNotifications(of: surface)

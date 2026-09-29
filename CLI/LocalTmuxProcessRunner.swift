@@ -52,7 +52,7 @@ struct LocalTmuxProcessRunner {
         do {
             try process.run()
         } catch {
-            let message = String(localized: "cli.localTmux.error.runFailed", defaultValue: "local-tmux could not run tmux")
+            let message = String(localized: "cli.localTmux.error.runFailed", defaultValue: "local-tmux could not run tmux", bundle: .cmuxCLI)
             throw CLIError(message: message, exitCode: 127)
         }
 
@@ -164,7 +164,7 @@ struct LocalTmuxProcessRunner {
             )
         }
         if didTimeout {
-            let timeoutMessage = String(localized: "cli.localTmux.error.timedOut", defaultValue: "local-tmux command timed out")
+            let timeoutMessage = String(localized: "cli.localTmux.error.timedOut", defaultValue: "local-tmux command timed out", bundle: .cmuxCLI)
             stderrData.append(contentsOf: Data("\n\(timeoutMessage)\n".utf8))
         }
 
@@ -181,7 +181,7 @@ struct LocalTmuxProcessRunner {
         let result = try run(arguments: arguments)
         guard result.succeeded else {
             let message = String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.error.operationFailed", defaultValue: "local-tmux %@ failed (exit %d)"),
+                String(localized: "cli.localTmux.error.operationFailed", defaultValue: "local-tmux %@ failed (exit %d)", bundle: .cmuxCLI),
                 context,
                 result.status
             )

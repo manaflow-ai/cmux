@@ -333,7 +333,7 @@ extension CMUXCLI {
           cmux send "echo hello"
           cmux send --surface surface:2 "ls -la\\n"
           cmux send --paste --surface surface:2 "$(cat notes.md)"
-        """)
+        """, bundle: .cmuxCLI)
     }
 
     static var pasteHelp: String {
@@ -352,7 +352,7 @@ extension CMUXCLI {
           git diff | cmux paste --surface surface:2
           cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2
           cmux paste --surface surface:2 --submit "Review this change"
-        """)
+        """, bundle: .cmuxCLI)
     }
 }
 

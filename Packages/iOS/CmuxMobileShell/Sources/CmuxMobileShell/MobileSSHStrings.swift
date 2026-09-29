@@ -30,6 +30,11 @@ struct L10nSSH {
     var noKey: String {
         L10n.string("mobile.ssh.error.noKey", defaultValue: "Choose a key for this computer first.")
     }
+    /// Why tmux and shells cannot be created on a paired Mac reached
+    /// through its cmux-tui daemon.
+    var laneKindUnavailable: String {
+        L10n.string("mobile.ssh.error.laneKindUnavailable", defaultValue: "This Mac serves cmux workspaces only.")
+    }
     var tmuxMissing: String {
         L10n.string("mobile.ssh.error.tmuxMissing", defaultValue: "tmux is not installed on this computer.")
     }

@@ -19,17 +19,17 @@ extension CMUXCLI {
         let localized: String
         switch value {
         case "__cmux_amp_status_idle":
-            localized = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
+            localized = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle", bundle: .cmuxCLI)
         case "__cmux_amp_status_thinking":
-            localized = String(localized: "agent.generic.status.running", defaultValue: "Running")
+            localized = String(localized: "agent.generic.status.running", defaultValue: "Running", bundle: .cmuxCLI)
         case "__cmux_amp_status_needs_input":
-            localized = String(localized: "feed.status.needsInput", defaultValue: "Needs input")
+            localized = String(localized: "feed.status.needsInput", defaultValue: "Needs input", bundle: .cmuxCLI)
         case "__cmux_amp_status_done":
-            localized = String(localized: "sidebar.status.done", defaultValue: "Done")
+            localized = String(localized: "sidebar.status.done", defaultValue: "Done", bundle: .cmuxCLI)
         case "__cmux_amp_status_error":
-            localized = String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error")
+            localized = String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error", bundle: .cmuxCLI)
         case "__cmux_amp_status_interrupted":
-            localized = String(localized: "agent.generic.notification.status.interrupted", defaultValue: "Interrupted")
+            localized = String(localized: "agent.generic.notification.status.interrupted", defaultValue: "Interrupted", bundle: .cmuxCLI)
         default:
             return arguments
         }

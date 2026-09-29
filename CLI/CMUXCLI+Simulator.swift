@@ -545,7 +545,7 @@ extension CMUXCLI {
 
     private func printIOSTargets(_ targets: [[String: Any]]) {
         guard !targets.isEmpty else {
-            print(String(localized: "cli.ios.output.noTargets", defaultValue: "No iOS Simulator panes"))
+            print(String(localized: "cli.ios.output.noTargets", defaultValue: "No iOS Simulator panes", bundle: .cmuxCLI))
             return
         }
         for target in targets {

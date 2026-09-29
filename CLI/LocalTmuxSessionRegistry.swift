@@ -53,7 +53,7 @@ enum LocalTmuxRegistryError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .insecurePath, .cannotLock, .invalidState, .fileSystem:
-            return String(localized: "cli.localTmux.error.stateOperationFailed", defaultValue: "local-tmux state could not be accessed safely")
+            return String(localized: "cli.localTmux.error.stateOperationFailed", defaultValue: "local-tmux state could not be accessed safely", bundle: .cmuxCLI)
         }
     }
 }
@@ -160,7 +160,7 @@ struct LocalTmuxSessionRegistry {
                 ofItemAtPath: rootURL.path
             )
         } catch {
-            let message = String(localized: "cli.localTmux.error.createDirectory", defaultValue: "could not create local-tmux state directory")
+            let message = String(localized: "cli.localTmux.error.createDirectory", defaultValue: "could not create local-tmux state directory", bundle: .cmuxCLI)
             throw LocalTmuxRegistryError.fileSystem("\(message): \(error)")
         }
         try validateSecurePath(rootURL.path, expectedDirectory: true)
@@ -269,7 +269,7 @@ struct LocalTmuxSessionRegistry {
                 attributes: [.posixPermissions: NSNumber(value: Int16(0o600))]
             ) else {
                 let message = String.localizedStringWithFormat(
-                    String(localized: "cli.localTmux.error.writeState", defaultValue: "could not write %@"),
+                    String(localized: "cli.localTmux.error.writeState", defaultValue: "could not write %@", bundle: .cmuxCLI),
                     sessionsURL.path
                 )
                 throw LocalTmuxRegistryError.fileSystem(message)
@@ -287,7 +287,7 @@ struct LocalTmuxSessionRegistry {
             throw error
         } catch {
             let message = String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.error.persistState", defaultValue: "could not persist %@"),
+                String(localized: "cli.localTmux.error.persistState", defaultValue: "could not persist %@", bundle: .cmuxCLI),
                 sessionsURL.path
             )
             throw LocalTmuxRegistryError.fileSystem("\(message): \(error)")

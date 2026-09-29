@@ -20,7 +20,7 @@ extension CMUXCLI {
 
         Start a fork from the saved session on the selected surface.
         With no id or ref, --surface uses the calling cmux surface.
-        """)
+        """, bundle: .cmuxCLI)
     }
 
     /// Resolves a surface restore record and replaces this CLI process with the

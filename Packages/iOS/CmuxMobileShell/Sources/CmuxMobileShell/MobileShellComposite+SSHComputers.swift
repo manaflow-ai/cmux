@@ -16,6 +16,7 @@ extension MobileShellComposite: MobileSSHComputersSink {
         if workspacesByMac[key] != state {
             workspacesByMac[key] = state
         }
+        openDaemonLaneDogfoodWorkspaceIfListed()
     }
 
     func sshRemoveWorkspaceState(computerID: String) {
@@ -23,6 +24,7 @@ extension MobileShellComposite: MobileSSHComputersSink {
     }
 
     func sshDeliver(_ bytes: Data, surfaceID: String) {
+        deliverDaemonLaneDogfoodInputIfAttaching(surfaceID: surfaceID)
         // SSH bytes are raw PTY output emulated by the phone's own Ghostty;
         // they never take part in a Mac's verified render-grid replay.
         _ = deliverTerminalOutput(

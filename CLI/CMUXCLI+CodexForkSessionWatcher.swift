@@ -362,7 +362,7 @@ extension CMUXCLI {
                 clearStatus = "cleared"
             }
         }
-        let title = String(localized: "agent.codex.fork.notice.title", defaultValue: "Agent fork")
+        let title = String(localized: "agent.codex.fork.notice.title", defaultValue: "Agent fork", bundle: .cmuxCLI)
         let body: String
         if clearStatus == "cleared" {
             body = String(
@@ -379,7 +379,7 @@ extension CMUXCLI {
             "workspace_id": workspaceID,
             "surface_id": surfaceID,
             "title": title,
-            "subtitle": String(localized: "agent.codex.fork.notice.subtitle", defaultValue: "Fork unavailable"),
+            "subtitle": String(localized: "agent.codex.fork.notice.subtitle", defaultValue: "Fork unavailable", bundle: .cmuxCLI),
             "body": body,
         ])
     }

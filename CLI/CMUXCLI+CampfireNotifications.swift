@@ -26,7 +26,7 @@ extension CMUXCLI {
                 name
             )
             return AgentHookNotificationSummary(
-                subtitle: String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting"),
+                subtitle: String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting", bundle: .cmuxCLI),
                 body: truncate(body, maxLength: 180),
                 status: .needsInput,
                 isFallback: false,
@@ -48,7 +48,7 @@ extension CMUXCLI {
                 campfireCapabilityLabel(capability)
             )
             return AgentHookNotificationSummary(
-                subtitle: String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission"),
+                subtitle: String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission", bundle: .cmuxCLI),
                 body: truncate(body, maxLength: 180),
                 status: .needsInput,
                 isFallback: false,
@@ -56,7 +56,7 @@ extension CMUXCLI {
             )
         case "relay.error":
             return AgentHookNotificationSummary(
-                subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error"),
+                subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error", bundle: .cmuxCLI),
                 body: String(
                     localized: "agent.campfire.notification.body.relayError",
                     defaultValue: "Campfire relay connection failed"
@@ -73,19 +73,19 @@ extension CMUXCLI {
     private func campfireCapabilityLabel(_ capability: String?) -> String {
         switch capability {
         case "queue:add":
-            return String(localized: "agent.campfire.capability.queueAdd", defaultValue: "queue a prompt")
+            return String(localized: "agent.campfire.capability.queueAdd", defaultValue: "queue a prompt", bundle: .cmuxCLI)
         case "queue:run-now":
-            return String(localized: "agent.campfire.capability.queueRunNow", defaultValue: "run a prompt now")
+            return String(localized: "agent.campfire.capability.queueRunNow", defaultValue: "run a prompt now", bundle: .cmuxCLI)
         case "session:interrupt":
-            return String(localized: "agent.campfire.capability.sessionInterrupt", defaultValue: "interrupt the agent")
+            return String(localized: "agent.campfire.capability.sessionInterrupt", defaultValue: "interrupt the agent", bundle: .cmuxCLI)
         case "shell:exec":
-            return String(localized: "agent.campfire.capability.shellExec", defaultValue: "run a shell command")
+            return String(localized: "agent.campfire.capability.shellExec", defaultValue: "run a shell command", bundle: .cmuxCLI)
         case "tools:contribute":
-            return String(localized: "agent.campfire.capability.toolsContribute", defaultValue: "add tools or skills")
+            return String(localized: "agent.campfire.capability.toolsContribute", defaultValue: "add tools or skills", bundle: .cmuxCLI)
         case "files:list":
-            return String(localized: "agent.campfire.capability.filesList", defaultValue: "browse files")
+            return String(localized: "agent.campfire.capability.filesList", defaultValue: "browse files", bundle: .cmuxCLI)
         default:
-            return String(localized: "agent.campfire.capability.fallback", defaultValue: "do something")
+            return String(localized: "agent.campfire.capability.fallback", defaultValue: "do something", bundle: .cmuxCLI)
         }
     }
 }

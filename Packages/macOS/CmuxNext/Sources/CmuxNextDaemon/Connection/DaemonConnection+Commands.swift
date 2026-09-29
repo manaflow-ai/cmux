@@ -281,9 +281,15 @@ extension DaemonConnection {
     /// (`terminal-reap-v1`) it first ends every terminal and waits for their
     /// hosts, so no PTY outlives it; returns the ended count then.
     ///
-    /// The end-terminals form runs on its own short-lived socket: it takes
-    /// seconds (each host is awaited), and on the subscribed control socket
-    /// the daemon closed the connection before replying (cmux-tui d1aa608).
+    /// The end-terminals form runs on its own short-lived socket, for two
+    /// reasons. Callers (test teardown) must `close()` this connection
+    /// first: otherwise the daemon's exit reads as EOF and the reconnect
+    /// runs `server ensure`, starting a fresh daemon that outlives them. And
+    /// it takes seconds (each host is awaited), longer than the control
+    /// request deadline. (The subscribed socket itself is safe: during a
+    /// pending handoff the daemon answers a pipelined request, such as a
+    /// store resync, with an error. d1aa608 and older closed the socket
+    /// instead, losing the shutdown reply.)
     @discardableResult
     public func shutdownDaemon(endTerminals: Bool = false) async throws -> ShutdownDaemonRequest.Response {
         guard let identity else { throw DaemonError.notConnected }

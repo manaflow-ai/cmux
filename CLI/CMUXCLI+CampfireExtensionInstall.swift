@@ -74,9 +74,9 @@ extension CMUXCLI {
                 newContent: Self.campfireExtensionSource,
                 fallbackContent: Self.campfireExtensionSource
             )
-            print(String(localized: "cli.hooks.campfire.confirmProceed", defaultValue: "\nProceed? [y/N] "), terminator: "")
+            print(String(localized: "cli.hooks.campfire.confirmProceed", defaultValue: "\nProceed? [y/N] ", bundle: .cmuxCLI), terminator: "")
             guard readLine()?.lowercased().hasPrefix("y") == true else {
-                print(String(localized: "cli.hooks.campfire.aborted", defaultValue: "Aborted."))
+                print(String(localized: "cli.hooks.campfire.aborted", defaultValue: "Aborted.", bundle: .cmuxCLI))
                 return
             }
         }

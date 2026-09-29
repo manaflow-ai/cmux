@@ -62,7 +62,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [ -n "$COMPUTER_USE_NOTARY_SUBMISSION_FILE" ]; then
+# cmux-next ships no nested Computer Use helper; only a bundle that carries
+# one needs its separate notarization and host reseal.
+if [ ! -d "$APP_PATH/Contents/Library/cmux Computer Use.app" ]; then
+  echo "No nested cmux Computer Use app; skipping its notarization"
+elif [ -n "$COMPUTER_USE_NOTARY_SUBMISSION_FILE" ]; then
   "$NOTARIZE_COMPUTER_USE_HELPER_TOOL" \
     --finish "$COMPUTER_USE_NOTARY_SUBMISSION_FILE" \
     "$APP_PATH" \

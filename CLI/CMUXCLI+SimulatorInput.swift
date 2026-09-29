@@ -14,7 +14,7 @@ extension CMUXCLI {
                 guard index + 1 < args.count else {
                     throw CLIError(message: String.localizedStringWithFormat(
                         String(localized: "cli.simulator.error.missingOptionValue",
-                               defaultValue: "simulator: %@ requires a value"), argument
+                               defaultValue: "simulator: %@ requires a value", bundle: .cmuxCLI), argument
                     ))
                 }
                 index += 1
@@ -26,14 +26,14 @@ extension CMUXCLI {
                 guard !value.isEmpty else {
                     throw CLIError(message: String.localizedStringWithFormat(
                         String(localized: "cli.simulator.error.missingOptionValue",
-                               defaultValue: "simulator: %@ requires a value"), "--value"
+                               defaultValue: "simulator: %@ requires a value", bundle: .cmuxCLI), "--value"
                     ))
                 }
                 result.optionValue = value
             } else if argument.hasPrefix("--") {
                 throw CLIError(message: String.localizedStringWithFormat(
                     String(localized: "cli.simulator.error.unknownFlag",
-                           defaultValue: "simulator: unknown flag '%@'"), argument
+                           defaultValue: "simulator: unknown flag '%@'", bundle: .cmuxCLI), argument
                 ))
             } else { result.positionals.append(argument) }
             index += 1
@@ -103,7 +103,7 @@ extension CMUXCLI {
               arguments.optionValue == nil else {
             throw CLIError(message: String.localizedStringWithFormat(
                 String(localized: "cli.simulator.error.unexpectedArgumentForCommand",
-                       defaultValue: "simulator %@ does not accept input"), subcommand
+                       defaultValue: "simulator %@ does not accept input", bundle: .cmuxCLI), subcommand
             ))
         }
     }
@@ -112,7 +112,7 @@ extension CMUXCLI {
         let targets = payload["targets"] as? [[String: Any]] ?? []
         guard !targets.isEmpty else {
             print(String(localized: "cli.simulator.output.noTargets",
-                         defaultValue: "No Web Inspector targets"))
+                         defaultValue: "No Web Inspector targets", bundle: .cmuxCLI))
             return
         }
         for target in targets {
@@ -148,7 +148,7 @@ extension CMUXCLI {
     private func simulatorInputTooLarge(_ maximumBytes: Int) -> CLIError {
         CLIError(message: String.localizedStringWithFormat(
             String(localized: "cli.simulator.error.inputTooLarge",
-                   defaultValue: "simulator input exceeds the %lld-byte UTF-8 limit"), maximumBytes
+                   defaultValue: "simulator input exceeds the %lld-byte UTF-8 limit", bundle: .cmuxCLI), maximumBytes
         ))
     }
 }

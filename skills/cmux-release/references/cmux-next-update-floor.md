@@ -32,4 +32,4 @@ The file is not committed yet because the final legacy release does not exist. S
 
 ## Homebrew
 
-The cask in `manaflow-ai/homebrew-cmux` needs `depends_on macos: ">= :tahoe"` for the first cmux-next release. `update-homebrew.yml` does not set it.
+`update-homebrew.yml` and `scripts/build-sign-upload.sh` write `depends_on macos: :tahoe` into the cask. The symbol form means "this macOS or newer"; Homebrew deprecated the `">= :tahoe"` comparison string (issue 5877), and `tests/test_ci_homebrew_cask_macos_dependency.sh` derives the symbol from the app target's deployment target.

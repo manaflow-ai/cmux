@@ -484,7 +484,7 @@ extension CMUXCLI {
                     if let remoteWorkspaceID { params["remote_workspace_id"] = remoteWorkspaceID }
                     opened = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 180)
                 case .unavailable:
-                    throw CLIError(message: String(localized: "cli.vm.open.sessionsUnavailable", defaultValue: "The machine’s sessions are unavailable. Refresh and retry."))
+                    throw CLIError(message: String(localized: "cli.vm.open.sessionsUnavailable", defaultValue: "The machine’s sessions are unavailable. Refresh and retry.", bundle: .cmuxCLI))
                 }
                 terminalId = opened["terminal_id"] as? String
                 remoteWorkspaceId = opened["remote_workspace_id"] as? String
@@ -635,17 +635,17 @@ extension CMUXCLI {
             preconditionFailure("resolved terminal placement cannot produce an error")
         case .notFound:
             return CLIError(message: String(
-                format: String(localized: "cli.vm.open.terminalNotFound", defaultValue: "%1$@ has no terminal '%2$@' in workspace '%3$@'. See: cmux vm tree %1$@"),
+                format: String(localized: "cli.vm.open.terminalNotFound", defaultValue: "%1$@ has no terminal '%2$@' in workspace '%3$@'. See: cmux vm tree %1$@", bundle: .cmuxCLI),
                 machine, selector, workspace
             ))
         case .ambiguous:
             return CLIError(message: String(
-                format: String(localized: "cli.vm.open.terminalAmbiguous", defaultValue: "Terminal '%2$@' on %1$@ has no unique tab in workspace '%3$@'. Use cmux vm tree %1$@ and choose an exact placement."),
+                format: String(localized: "cli.vm.open.terminalAmbiguous", defaultValue: "Terminal '%2$@' on %1$@ has no unique tab in workspace '%3$@'. Use cmux vm tree %1$@ and choose an exact placement.", bundle: .cmuxCLI),
                 machine, selector, workspace
             ))
         case .unavailable:
             return CLIError(message: String(
-                format: String(localized: "cli.vm.open.terminalUnavailable", defaultValue: "Terminal placement for %1$@ is unavailable. Reconnect and retry."),
+                format: String(localized: "cli.vm.open.terminalUnavailable", defaultValue: "Terminal placement for %1$@ is unavailable. Reconnect and retry.", bundle: .cmuxCLI),
                 machine
             ))
         }
@@ -661,17 +661,17 @@ extension CMUXCLI {
             preconditionFailure("resolved workspace cannot produce an error")
         case .notFound:
             return CLIError(message: String(
-                format: String(localized: "cli.vm.open.workspaceNotFound", defaultValue: "%1$@ has no workspace '%2$@'. See: cmux vm tree %1$@"),
+                format: String(localized: "cli.vm.open.workspaceNotFound", defaultValue: "%1$@ has no workspace '%2$@'. See: cmux vm tree %1$@", bundle: .cmuxCLI),
                 machine, selector
             ))
         case .ambiguous:
             return CLIError(message: String(
-                format: String(localized: "cli.vm.open.workspaceAmbiguous", defaultValue: "%1$@ has multiple workspaces named '%2$@'. Use a workspace ID from cmux vm tree %1$@."),
+                format: String(localized: "cli.vm.open.workspaceAmbiguous", defaultValue: "%1$@ has multiple workspaces named '%2$@'. Use a workspace ID from cmux vm tree %1$@.", bundle: .cmuxCLI),
                 machine, selector
             ))
         case .unavailable:
             return CLIError(message: String(
-                format: String(localized: "cli.vm.open.workspaceUnavailable", defaultValue: "Workspace state for %1$@ is unavailable. Reconnect and retry."),
+                format: String(localized: "cli.vm.open.workspaceUnavailable", defaultValue: "Workspace state for %1$@ is unavailable. Reconnect and retry.", bundle: .cmuxCLI),
                 machine
             ))
         }
@@ -684,7 +684,7 @@ extension CMUXCLI {
     ) throws -> String {
         guard let machinePayload = VMRemoteWorkspaceResolver().vmMachinePayload(machine, from: catalog) else {
             throw CLIError(message: String(
-                format: String(localized: "cli.vm.open.workspaceUnavailable", defaultValue: "Workspace state for %1$@ is unavailable. Reconnect and retry."),
+                format: String(localized: "cli.vm.open.workspaceUnavailable", defaultValue: "Workspace state for %1$@ is unavailable. Reconnect and retry.", bundle: .cmuxCLI),
                 machine
             ))
         }
@@ -1433,7 +1433,7 @@ extension CMUXCLI {
         let machines = (response["machines"] as? [[String: Any]]) ?? []
         let resources = (response["resources"] as? [[String: Any]]) ?? []
         guard !machines.isEmpty else {
-            print(String(localized: "cli.vm.tree.empty", defaultValue: "No cloud machines. Try: cmux vm new"))
+            print(String(localized: "cli.vm.tree.empty", defaultValue: "No cloud machines. Try: cmux vm new", bundle: .cmuxCLI))
             return
         }
         // Local terminals group by the workspace that shows them; titles come from the
@@ -1480,16 +1480,16 @@ extension CMUXCLI {
 
         if isLocal {
             let name = (machine["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            var header = String(localized: "cli.vm.tree.thisMac", defaultValue: "This Mac")
+            var header = String(localized: "cli.vm.tree.thisMac", defaultValue: "This Mac", bundle: .cmuxCLI)
             if let name { header += "  \(name)" }
             header += "  · " + String(
-                format: String(localized: "cli.vm.tree.localSummary", defaultValue: "%1$d terminals · %2$d browsers"),
+                format: String(localized: "cli.vm.tree.localSummary", defaultValue: "%1$d terminals · %2$d browsers", bundle: .cmuxCLI),
                 terminals.count, browsers.count
             )
             lines.append(header)
-            lines.append("  " + String(localized: "cli.vm.tree.terminals", defaultValue: "terminals/"))
+            lines.append("  " + String(localized: "cli.vm.tree.terminals", defaultValue: "terminals/", bundle: .cmuxCLI))
             if terminals.isEmpty {
-                lines.append("    " + String(localized: "cli.vm.tree.noLocal", defaultValue: "(no terminals open)"))
+                lines.append("    " + String(localized: "cli.vm.tree.noLocal", defaultValue: "(no terminals open)", bundle: .cmuxCLI))
             }
             // Group by the local workspace that projects each terminal, keeping first-seen order.
             var groups: [(key: String, label: String, items: [[String: Any]])] = []
@@ -1497,7 +1497,7 @@ extension CMUXCLI {
                 let workspaceId = ((terminal["open_workspace_ids"] as? [String])?.first ?? "").uppercased()
                 let label = workspaceTitles[workspaceId]
                     ?? (workspaceId.isEmpty
-                        ? String(localized: "cli.vm.tree.unknownWorkspace", defaultValue: "(not in a workspace)")
+                        ? String(localized: "cli.vm.tree.unknownWorkspace", defaultValue: "(not in a workspace)", bundle: .cmuxCLI)
                         : String(workspaceId.prefix(8)))
                 if let index = groups.firstIndex(where: { $0.key == workspaceId }) {
                     groups[index].items.append(terminal)
@@ -1512,7 +1512,7 @@ extension CMUXCLI {
                 }
             }
             if !browsers.isEmpty {
-                lines.append("  " + String(localized: "cli.vm.tree.browsers", defaultValue: "browsers/"))
+                lines.append("  " + String(localized: "cli.vm.tree.browsers", defaultValue: "browsers/", bundle: .cmuxCLI))
                 for browser in browsers {
                     let resourceId = (browser["id"] as? String) ?? "?"
                     let title = (browser["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1529,17 +1529,17 @@ extension CMUXCLI {
             facts.append(String(format: "%.0f GB", memoryMb / 1024))
         }
         if let diskMb = vmTreeNumber(machine["disk_mb"]), diskMb > 0 {
-            facts.append(String(format: String(localized: "cli.vm.tree.disk", defaultValue: "%.0f GB disk"), diskMb / 1024))
+            facts.append(String(format: String(localized: "cli.vm.tree.disk", defaultValue: "%.0f GB disk", bundle: .cmuxCLI), diskMb / 1024))
         }
         let linkState = (machine["link_state"] as? String) ?? ((machine["link"] as? [String: Any])?["state"] as? String) ?? ""
         let linkError = ((machine["link_error"] as? String) ?? ((machine["link"] as? [String: Any])?["error"] as? String))
             .flatMap { $0.isEmpty ? nil : $0 }
         if !linkState.isEmpty, linkState != "n/a" {
-            facts.append(String(format: String(localized: "cli.vm.tree.link", defaultValue: "link %@"), linkState))
+            facts.append(String(format: String(localized: "cli.vm.tree.link", defaultValue: "link %@", bundle: .cmuxCLI), linkState))
         }
         lines.append(facts.isEmpty ? "\(id)  \(status)" : "\(id)  \(status)  · " + facts.joined(separator: " · "))
 
-        lines.append("  " + String(localized: "cli.vm.tree.workspaces", defaultValue: "workspaces/"))
+        lines.append("  " + String(localized: "cli.vm.tree.workspaces", defaultValue: "workspaces/", bundle: .cmuxCLI))
         // Remote workspaces, in cmux-tui index order: the machine payload lists them all
         // (so an empty workspace still shows), and resource views fill their layout.
         var workspaces: [(
@@ -1612,26 +1612,26 @@ extension CMUXCLI {
         // cannot see yet, and hiding that behind "none yet" hides the failure.
         switch linkState {
         case "connecting":
-            lines.append("    " + String(localized: "cli.vm.tree.link.connecting", defaultValue: "connecting…"))
+            lines.append("    " + String(localized: "cli.vm.tree.link.connecting", defaultValue: "connecting…", bundle: .cmuxCLI))
         case "asleep":
             lines.append("    " + String(
-                format: String(localized: "cli.vm.tree.link.asleep", defaultValue: "asleep — cmux vm open %@ wakes it"),
+                format: String(localized: "cli.vm.tree.link.asleep", defaultValue: "asleep — cmux vm open %@ wakes it", bundle: .cmuxCLI),
                 id
             ))
         case "error", "unavailable":
             lines.append("    " + String(
-                format: String(localized: "cli.vm.tree.link.error", defaultValue: "⚠ link %@: %@"),
+                format: String(localized: "cli.vm.tree.link.error", defaultValue: "⚠ link %@: %@", bundle: .cmuxCLI),
                 linkState,
                 linkError ?? linkState
             ))
             lines.append("    " + String(
-                format: String(localized: "cli.vm.tree.link.retry", defaultValue: "retry: cmux vm tree %@ --refresh"),
+                format: String(localized: "cli.vm.tree.link.retry", defaultValue: "retry: cmux vm tree %@ --refresh", bundle: .cmuxCLI),
                 id
             ))
         default:
             if workspaces.isEmpty {
                 lines.append("    " + String(
-                    format: String(localized: "cli.vm.tree.noWorkspaces", defaultValue: "(none yet — cmux vm open %@ starts one)"),
+                    format: String(localized: "cli.vm.tree.noWorkspaces", defaultValue: "(none yet — cmux vm open %@ starts one)", bundle: .cmuxCLI),
                     id
                 ))
             }
@@ -1661,21 +1661,21 @@ extension CMUXCLI {
             lhs.0 != rhs.0 ? lhs.0 < rhs.0 : lhs.1 < rhs.1
         }
         if !ports.isEmpty {
-            lines.append("  " + String(localized: "cli.vm.tree.ports", defaultValue: "ports/"))
+            lines.append("  " + String(localized: "cli.vm.tree.ports", defaultValue: "ports/", bundle: .cmuxCLI))
             for (port, _, browser) in ports {
                 let label = (browser["detail"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 let open = (browser["open"] as? Bool) == true
                 var cell = "    \(port)\(label.map { "  \($0)" } ?? "")  (cmux vm open \(id):port/\(port))"
-                if open { cell += "  " + String(localized: "cli.vm.tree.openMarker", defaultValue: "(open)") }
+                if open { cell += "  " + String(localized: "cli.vm.tree.openMarker", defaultValue: "(open)", bundle: .cmuxCLI) }
                 lines.append(cell)
             }
         }
 
         // Displays are catalog resources, so emit one addressable row per
         // screen instead of collapsing several screens into one synthetic desktop.
-        lines.append("  " + String(localized: "cli.vm.tree.displays", defaultValue: "Displays/"))
+        lines.append("  " + String(localized: "cli.vm.tree.displays", defaultValue: "Displays/", bundle: .cmuxCLI))
         if displays.isEmpty {
-            lines.append("    " + String(localized: "cli.vm.tree.noDisplays", defaultValue: "(none available)"))
+            lines.append("    " + String(localized: "cli.vm.tree.noDisplays", defaultValue: "(none available)", bundle: .cmuxCLI))
         } else {
             for display in displays {
                 lines.append("    " + vmTreeResourceCell(display, openHint: "cmux surface open", showFullKey: true))
@@ -1711,7 +1711,7 @@ extension CMUXCLI {
                 lines.append("    " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
             }
             if !detached.isEmpty {
-                lines.append("    " + String(localized: "cli.vm.tree.detached", defaultValue: "(detached — no tab on the machine shows these)"))
+                lines.append("    " + String(localized: "cli.vm.tree.detached", defaultValue: "(detached — no tab on the machine shows these)", bundle: .cmuxCLI))
                 for terminal in detached {
                     lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
                 }
@@ -1810,10 +1810,10 @@ extension CMUXCLI {
         if let agent = terminal["agent"] as? [String: Any], let state = agent["state"] as? String, !state.isEmpty {
             let source = (agent["source"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let label = source.map { "\($0) \(state)" } ?? state
-            cell += "  " + String(format: String(localized: "cli.vm.tree.agent", defaultValue: "[agent %@]"), label)
+            cell += "  " + String(format: String(localized: "cli.vm.tree.agent", defaultValue: "[agent %@]", bundle: .cmuxCLI), label)
         }
         if let open = (terminal["open_surface_ids"] as? [String])?.first, !open.isEmpty {
-            cell += "  " + String(format: String(localized: "cli.vm.tree.open", defaultValue: "(open: %@)"), String(open.prefix(8)))
+            cell += "  " + String(format: String(localized: "cli.vm.tree.open", defaultValue: "(open: %@)", bundle: .cmuxCLI), String(open.prefix(8)))
         }
         let address = command ?? (addressKey == "key" ? "\(openHint)/\(key)" : "\(openHint) \(resourceId)")
         cell += "  (\(address))"
@@ -1844,7 +1844,7 @@ extension CMUXCLI {
             )
             guard opened else {
                 throw CLIError(message: String(
-                    format: String(localized: "cli.vm.desktop.unavailable", defaultValue: "%@ has no desktop to show. New machines boot a screen; this one was created shell-only (`--base`)."),
+                    format: String(localized: "cli.vm.desktop.unavailable", defaultValue: "%@ has no desktop to show. New machines boot a screen; this one was created shell-only (`--base`).", bundle: .cmuxCLI),
                     machine
                 ))
             }
@@ -2057,7 +2057,7 @@ extension CMUXCLI {
                 response = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
             } catch let error as CLIError where error.message.contains("Unknown surface") {
                 throw CLIError(message: String(
-                    format: String(localized: "cli.surface.open.unknownResource", defaultValue: "Unknown surface '%@'. See: cmux surface ls --json"),
+                    format: String(localized: "cli.surface.open.unknownResource", defaultValue: "Unknown surface '%@'. See: cmux surface ls --json", bundle: .cmuxCLI),
                     resource
                 ))
             }

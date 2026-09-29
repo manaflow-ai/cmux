@@ -81,9 +81,9 @@ extension CMUXCLI {
             return
         }
         if wasUp {
-            print(String(localized: "cli.vpn.alreadyUp", defaultValue: "Tunnel is already up."))
+            print(String(localized: "cli.vpn.alreadyUp", defaultValue: "Tunnel is already up.", bundle: .cmuxCLI))
         } else {
-            print(String(localized: "cli.vpn.up", defaultValue: "Tunnel is up."))
+            print(String(localized: "cli.vpn.up", defaultValue: "Tunnel is up.", bundle: .cmuxCLI))
         }
         printVPNAddresses(status)
         print(String(
@@ -99,9 +99,9 @@ extension CMUXCLI {
         if jsonOutput {
             print(jsonString(["status": "down", "backend": Self.appManagedTunnelBackend, "changed": wasUp]))
         } else if wasUp {
-            print(String(localized: "cli.vpn.down", defaultValue: "Tunnel is down."))
+            print(String(localized: "cli.vpn.down", defaultValue: "Tunnel is down.", bundle: .cmuxCLI))
         } else {
-            print(String(localized: "cli.vpn.notUp", defaultValue: "Tunnel is not up."))
+            print(String(localized: "cli.vpn.notUp", defaultValue: "Tunnel is not up.", bundle: .cmuxCLI))
         }
     }
 
@@ -112,22 +112,22 @@ extension CMUXCLI {
         // The app refuses to start (Cloud Machines off, or no machine yet):
         // say why instead of promising an automatic start.
         if state == "off", let refusal = response["start_refusal_message"] as? String, !refusal.isEmpty {
-            let format = String(localized: "cli.vpn.status.unavailable", defaultValue: "Tunnel: unavailable (%@)")
+            let format = String(localized: "cli.vpn.status.unavailable", defaultValue: "Tunnel: unavailable (%@)", bundle: .cmuxCLI)
             print(String(format: format, refusal))
             return
         }
         switch state {
         case "up":
-            print(String(localized: "cli.vpn.status.up", defaultValue: "Tunnel: up"))
+            print(String(localized: "cli.vpn.status.up", defaultValue: "Tunnel: up", bundle: .cmuxCLI))
         case "starting", "stopping":
-            print(String(localized: "cli.vpn.status.state.starting", defaultValue: "Tunnel: starting"))
+            print(String(localized: "cli.vpn.status.state.starting", defaultValue: "Tunnel: starting", bundle: .cmuxCLI))
         case "awaiting-approval":
             print(String(
                 localized: "cli.vpn.status.state.awaitingApproval",
                 defaultValue: "Tunnel: waiting for approval in System Settings › General › Login Items & Extensions"
             ))
         case "failed":
-            let format = String(localized: "cli.vpn.status.state.failed", defaultValue: "Tunnel: failed (%@)")
+            let format = String(localized: "cli.vpn.status.state.failed", defaultValue: "Tunnel: failed (%@)", bundle: .cmuxCLI)
             print(String(format: format, (response["tunnel_error"] as? String) ?? "unknown"))
         default:
             if configPresent {

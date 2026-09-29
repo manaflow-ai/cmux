@@ -17,7 +17,7 @@ extension CMUXCLI {
         // fail opaquely, so refuse early with an actionable message.
         guard isatty(STDIN_FILENO) == 1 || passwordCredential != nil else {
             throw CLIError(
-                message: String(localized: "cli.ssh.authenticationNeedsTerminal", defaultValue: "SSH authentication requires a terminal. Run this command from an interactive shell.")
+                message: String(localized: "cli.ssh.authenticationNeedsTerminal", defaultValue: "SSH authentication requires a terminal. Run this command from an interactive shell.", bundle: .cmuxCLI)
             )
         }
         // The app builds this argv with a hardcoded /usr/bin/ssh; require exactly
@@ -25,7 +25,7 @@ extension CMUXCLI {
         // path so the CLI never execs an arbitrary command returned over the socket.
         let allowedSSHPaths: Set<String> = ["/usr/bin/ssh"]
         guard let executable = sshArgv.first, allowedSSHPaths.contains(executable) else {
-            throw CLIError(message: String(localized: "cli.ssh.authenticationSystemExecutableRequired", defaultValue: "SSH authentication requires the system SSH executable."))
+            throw CLIError(message: String(localized: "cli.ssh.authenticationSystemExecutableRequired", defaultValue: "SSH authentication requires the system SSH executable.", bundle: .cmuxCLI))
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -62,7 +62,7 @@ extension CMUXCLI {
         do {
             try cliRunProcess(process)
         } catch {
-            throw CLIError(message: String(format: String(localized: "cli.ssh.authenticationLaunchFailed", defaultValue: "Could not launch SSH: %@"), String(describing: error)))
+            throw CLIError(message: String(format: String(localized: "cli.ssh.authenticationLaunchFailed", defaultValue: "Could not launch SSH: %@", bundle: .cmuxCLI), String(describing: error)))
         }
         if originalForegroundProcessGroup > 0 {
             let childProcessGroup = getpgid(process.processIdentifier)
@@ -77,7 +77,7 @@ extension CMUXCLI {
                     _ = Darwin.kill(-childProcessGroup, SIGCONT)
                     process.terminate()
                     throw CLIError(
-                        message: String(format: String(localized: "cli.ssh.authenticationForegroundFailed", defaultValue: "Could not hand the terminal to SSH for %@. Authentication was cancelled to avoid a hang (%@)."), destination, String(describing: error))
+                        message: String(format: String(localized: "cli.ssh.authenticationForegroundFailed", defaultValue: "Could not hand the terminal to SSH for %@. Authentication was cancelled to avoid a hang (%@).", bundle: .cmuxCLI), destination, String(describing: error))
                     )
                 }
                 _ = Darwin.kill(-childProcessGroup, SIGCONT)
@@ -92,7 +92,7 @@ extension CMUXCLI {
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             throw CLIError(
-                message: String(format: String(localized: "cli.ssh.authenticationExitFailed", defaultValue: "SSH authentication to %@ failed (exit %@)."), destination, String(process.terminationStatus))
+                message: String(format: String(localized: "cli.ssh.authenticationExitFailed", defaultValue: "SSH authentication to %@ failed (exit %@).", bundle: .cmuxCLI), destination, String(process.terminationStatus))
             )
         }
     }

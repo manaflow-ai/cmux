@@ -1401,9 +1401,7 @@ struct WorkspaceShellView: View {
         }
         // After the build-scope mapping: the dev tag suffix names a cmux Mac
         // build, and an SSH host is not one.
-        for host in store.sshComputers.hosts {
-            names[store.sshComputerDeviceID(hostID: host.id)] = host.name
-        }
+        names.merge(store.sshComputers.locallyServedComputerNames) { _, local in local }
 
         let buildLabelsByID = WorkspaceMacBuildLabelResolver().labels(
             workspaces: store.workspaces,
@@ -1799,7 +1797,7 @@ struct WorkspaceShellView: View {
             notificationFeedItems: store.notificationFeedItems,
             foregroundMacDeviceID: store.connectedMacDeviceID ?? store.activeTicket?.macDeviceID,
             foregroundInstanceTag: store.connectedMacInstanceTag,
-            locallyServedMachineIDs: Set(store.sshComputers.hosts.map { store.sshComputerDeviceID(hostID: $0.id) }),
+            locallyServedMachineIDs: store.sshComputers.locallyServedComputerIDs,
             aliasesFor: {
                 store.pairedMacAliasIDs(for: $0, instanceTag: $1)
             }

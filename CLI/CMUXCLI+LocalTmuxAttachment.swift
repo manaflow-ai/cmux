@@ -18,7 +18,7 @@ extension CMUXCLI {
         )
         let attachCommand = builder.attachCommand(binding: session.binding)
         guard workspace.id != nil || (originalRecord.workspaceID == nil && originalRecord.workspaceTitle == nil) else {
-            throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found"))
+            throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found", bundle: .cmuxCLI))
         }
         let existingSurface: String? = if !invocation.newClient,
             invocation.surface == nil,
@@ -86,8 +86,8 @@ extension CMUXCLI {
                 params["pane_id"] = paneID
             } else if let paneRaw = invocation.pane {
                 throw CLIError(message: String.localizedStringWithFormat(
-                    String(localized: "cli.localTmux.error.targetNotFound", defaultValue: "local-tmux could not resolve %@ target %@"),
-                    String(localized: "cli.localTmux.target.pane", defaultValue: "pane"),
+                    String(localized: "cli.localTmux.error.targetNotFound", defaultValue: "local-tmux could not resolve %@ target %@", bundle: .cmuxCLI),
+                    String(localized: "cli.localTmux.target.pane", defaultValue: "pane", bundle: .cmuxCLI),
                     paneRaw
                 ))
             }
@@ -100,8 +100,8 @@ extension CMUXCLI {
                 payload = try client.sendV2(method: "surface.respawn", params: params)
             } else if let surfaceRaw = invocation.surface {
                 throw CLIError(message: String.localizedStringWithFormat(
-                    String(localized: "cli.localTmux.error.targetNotFound", defaultValue: "local-tmux could not resolve %@ target %@"),
-                    String(localized: "cli.localTmux.target.surface", defaultValue: "surface"),
+                    String(localized: "cli.localTmux.error.targetNotFound", defaultValue: "local-tmux could not resolve %@ target %@", bundle: .cmuxCLI),
+                    String(localized: "cli.localTmux.target.surface", defaultValue: "surface", bundle: .cmuxCLI),
                     surfaceRaw
                 ))
             } else {
@@ -109,7 +109,7 @@ extension CMUXCLI {
             }
         } else {
             guard invocation.pane == nil, invocation.surface == nil else {
-                throw CLIError(message: String(localized: "cli.localTmux.error.workspaceRequiredForTarget", defaultValue: "local-tmux pane or surface targets require a workspace"))
+                throw CLIError(message: String(localized: "cli.localTmux.error.workspaceRequiredForTarget", defaultValue: "local-tmux pane or surface targets require a workspace", bundle: .cmuxCLI))
             }
             var createParams: [String: Any] = [
                 "title": workspace.title ?? "tmux:\(originalRecord.name)",
@@ -124,7 +124,7 @@ extension CMUXCLI {
             guard let workspaceID = created["workspace_id"] as? String,
                   let surfaceID = created["surface_id"] as? String else {
                 throw CLIError(message: String.localizedStringWithFormat(
-                    String(localized: "cli.localTmux.error.workspaceCreateFailed", defaultValue: "local-tmux could not create a workspace for %@"),
+                    String(localized: "cli.localTmux.error.workspaceCreateFailed", defaultValue: "local-tmux could not create a workspace for %@", bundle: .cmuxCLI),
                     originalRecord.name
                 ))
             }
@@ -156,9 +156,9 @@ extension CMUXCLI {
         payload["socket_path"] = builder.socketPath
         payload["mode"] = "local-tmux"
         let fallback = String.localizedStringWithFormat(
-            String(localized: "cli.localTmux.output.attached", defaultValue: "OK session=%@ surface=%@ mode=local-tmux"),
+            String(localized: "cli.localTmux.output.attached", defaultValue: "OK session=%@ surface=%@ mode=local-tmux", bundle: .cmuxCLI),
             updated.name,
-            surfaceID ?? String(localized: "cli.localTmux.state.unknown", defaultValue: "unknown")
+            surfaceID ?? String(localized: "cli.localTmux.state.unknown", defaultValue: "unknown", bundle: .cmuxCLI)
         )
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: fallback)
     }
@@ -172,7 +172,7 @@ extension CMUXCLI {
         if let rawWorkspace = invocation.workspace {
             let summary = try workspaceSummary(workspaceSelector: rawWorkspace, windowID: windowID, client: client, fallbackTitle: record.workspaceTitle, fallbackCwd: record.cwd)
             guard summary.id != nil else {
-                throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found"))
+                throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found", bundle: .cmuxCLI))
             }
             return summary
         }
@@ -180,7 +180,7 @@ extension CMUXCLI {
            let caller = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] {
             let summary = try workspaceSummary(workspaceSelector: caller, windowID: nil, client: client, fallbackTitle: record.workspaceTitle, fallbackCwd: record.cwd)
             guard summary.id != nil else {
-                throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found"))
+                throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found", bundle: .cmuxCLI))
             }
             return summary
         }
@@ -310,7 +310,7 @@ extension CMUXCLI {
             responseTimeout: 2.0
         )
         guard let windows = payload["windows"] as? [[String: Any]] else {
-            throw CLIError(message: String(localized: "cli.localTmux.error.livenessUnavailable", defaultValue: "local-tmux could not verify the existing surface; no new client was created"))
+            throw CLIError(message: String(localized: "cli.localTmux.error.livenessUnavailable", defaultValue: "local-tmux could not verify the existing surface; no new client was created", bundle: .cmuxCLI))
         }
         var surfaceProcesses: [[String: Any]]?
         for window in windows {

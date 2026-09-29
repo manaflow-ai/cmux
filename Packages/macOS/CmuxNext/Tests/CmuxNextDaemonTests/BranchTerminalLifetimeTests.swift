@@ -6,7 +6,7 @@ import Testing
 /// their own terminal in the shell environment, a closed tab's terminal can
 /// be shown again while it lives, and `keep` is settable.
 @Suite(.enabled(if: RealBinary.isBranchBuild, "needs the pinned branch cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
-       .timeLimit(.minutes(2)))
+       .timeLimit(.minutes(2)), .liveDaemon)
 struct BranchTerminalLifetimeTests {
     /// Every placement starts its shell with `CMUX_SURFACE_ID` naming the
     /// terminal the reply returns, and the tab lands in the target pane.

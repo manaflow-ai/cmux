@@ -62,7 +62,7 @@ extension CMUXCLI {
         Memory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.
         The server enforces plan limits and returns the provider-confirmed resources.
         Add --json for the structured result.
-        """)
+        """, bundle: .cmuxCLI)
     }
 
     /// Execute the CLI's one-machine resource resize contract after validating every argument.
@@ -104,7 +104,7 @@ extension CMUXCLI {
         let disk = (response["disk_total_mb"] as? Int) ?? (response["diskTotalMb"] as? Int)
         let memory = (response["memory_total_mb"] as? Int) ?? (response["memoryTotalMb"] as? Int)
         let cpus = (response["cpus"] as? Int)
-        let format = String(localized: "cli.vm.resize.success", defaultValue: "OK %@ cpu=%@ memory=%@ GiB disk=%@ GiB")
+        let format = String(localized: "cli.vm.resize.success", defaultValue: "OK %@ cpu=%@ memory=%@ GiB disk=%@ GiB", bundle: .cmuxCLI)
         print(String(format: format, vmId, cpus.map(String.init) ?? "-", memory.map { String($0 / 1024) } ?? "-", disk.map { String($0 / 1024) } ?? "-"))
     }
 

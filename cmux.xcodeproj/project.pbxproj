@@ -43,6 +43,7 @@
 		C1175700000000000000002E /* CLIExplicitSurfaceRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000015 /* CLIExplicitSurfaceRoutingTests.swift */; };
 		C1175700000000000000002F /* CLIHookNoResponseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000016 /* CLIHookNoResponseTests.swift */; };
 		C11757000000000000000044 /* CLIHookProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000051 /* CLIHookProcessRunner.swift */; };
+		C1C10CA10000000000000001 /* CLILocalizationBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1C10CA10000000000000002 /* CLILocalizationBundle.swift */; };
 		C11757000000000000000030 /* CLIOmpSupersededCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000017 /* CLIOmpSupersededCleanupTests.swift */; };
 		C117570000000000000000A2 /* CLIPasteCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C117570000000000000000A1 /* CLIPasteCommandTests.swift */; };
 		C11757000000000000000031 /* CLIRelayQueuedHookRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000018 /* CLIRelayQueuedHookRegressionTests.swift */; };
@@ -276,6 +277,8 @@
 		A5FB1312 /* JSONCObjectEditor+Set.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1310 /* JSONCObjectEditor+Set.swift */; };
 		C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		C1175700000000000000003E /* KimiHookConfigLocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000025 /* KimiHookConfigLocationTests.swift */; };
+		CE7A0000000000000000001D /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
+		CE7A0000000000000000001A /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
 		C0DE10651000000000000002 /* LocalTmuxCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000012 /* LocalTmuxCommandBuilder.swift */; };
 		C0DE10651000000000000004 /* LocalTmuxInvocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000014 /* LocalTmuxInvocation.swift */; };
 		C0DE10651000000000000003 /* LocalTmuxProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000013 /* LocalTmuxProcessRunner.swift */; };
@@ -308,6 +311,7 @@
 		9A6800000000000000000002 /* SSHPTYTerminalReadinessReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6800000000000000000001 /* SSHPTYTerminalReadinessReport.swift */; };
         C12681010000000000000001 /* TerminalPortalGeometryFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12681010000000000000002 /* TerminalPortalGeometryFixture.swift */; };
 		D0F101000000000000000003 /* TerminalRawMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F101000000000000000013 /* TerminalRawMode.swift */; };
+		CE7A0000000000000000001E /* THIRD_PARTY_LICENSES.md in Resources */ = {isa = PBXBuildFile; fileRef = A5002001 /* THIRD_PARTY_LICENSES.md */; };
 		9009A0029009A0029009A001 /* TmuxCompatLaunchContextError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9009A0029009A0029009A002 /* TmuxCompatLaunchContextError.swift */; };
 		B81607322100000000000002 /* VMMachineTerminalResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81607322100000000000004 /* VMMachineTerminalResolution.swift */; };
 		65F8FEC592CFA22BD1F4FA29 /* VMRemoteWorkspaceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2691D26BF6676FF32FBC54 /* VMRemoteWorkspaceResolver.swift */; };
@@ -390,6 +394,7 @@
 		C11757000000000000000015 /* CLIExplicitSurfaceRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIExplicitSurfaceRoutingTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000016 /* CLIHookNoResponseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIHookNoResponseTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000051 /* CLIHookProcessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIHookProcessRunner.swift; sourceTree = "<group>"; };
+		C1C10CA10000000000000002 /* CLILocalizationBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILocalizationBundle.swift; sourceTree = "<group>"; };
 		C11757000000000000000017 /* CLIOmpSupersededCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIOmpSupersededCleanupTests.swift; sourceTree = "<group>"; };
 		C117570000000000000000A1 /* CLIPasteCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIPasteCommandTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000018 /* CLIRelayQueuedHookRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRelayQueuedHookRegressionTests.swift; sourceTree = "<group>"; };
@@ -886,6 +891,7 @@
 				11AE8B73B8979F37F85EB754 /* CMUXCLI+SemanticNotifications.swift */,
 				FEEDC1A50000000000000002 /* FeedEventClassifier.swift */,
 				B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */,
+				C1C10CA10000000000000002 /* CLILocalizationBundle.swift */,
 				A10052000000000000000001 /* SocketClient+StartupWait.swift */,
 				A6AC720A0000000000000002 /* WorkspaceLoadingArguments.swift */,
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
@@ -1159,6 +1165,8 @@
 				CE7A0000000000000000000B /* Resources */,
 				CE7A0000000000000000000C /* Copy CLI */,
 				CE7A0000000000000000000D /* Reject Bundled Provider Binaries */,
+				CE7A0000000000000000001B /* Bundle CLI resources */,
+				CE7A0000000000000000001C /* Build Diff Sidecar */,
 				CE7A00000000000000000016 /* Bundle cmux-tui */,
 				CE7A00000000000000000017 /* Embed CEF */,
 				CE7A00000000000000000018 /* Bundle Ghostty resources */,
@@ -1256,12 +1264,53 @@
 			files = (
 				CE7A00000000000000000015 /* Assets.xcassets in Resources */,
 				CE7A00000000000000000019 /* InfoPlist.xcstrings in Resources */,
+				CE7A0000000000000000001D /* LICENSE in Resources */,
+				CE7A0000000000000000001A /* Localizable.xcstrings in Resources */,
+				CE7A0000000000000000001E /* THIRD_PARTY_LICENSES.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		CE7A0000000000000000001B /* Bundle CLI resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle CLI resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-cli-resources.sh\"\n";
+		};
+		CE7A0000000000000000001C /* Build Diff Sidecar */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Diff Sidecar";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# The sidecar keeps its own macOS 14.0 floor (verify-diff-sidecar-artifact.sh), not the app deployment target.\nrm -f \"${TARGET_TEMP_DIR}\"/cmux-diff-sidecar.arch-*.min-*.stamp\nCMUX_DIFF_SIDECAR_ARCHS=\"${ARCHS}\" CMUX_DIFF_SIDECAR_MIN_MACOS=14.0 CMUX_DIFF_SIDECAR_STAMP=\"${TARGET_TEMP_DIR}/cmux-diff-sidecar.arch-${ARCHS}.min-14.0.stamp\" exec \"${SRCROOT}/scripts/build-diff-sidecar.sh\"\n";
+		};
 		CE7A0000000000000000000D /* Reject Bundled Provider Binaries */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -1413,6 +1462,7 @@
 				89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */,
 				89930004AABBCCDDEEFF0001 /* ClaudeHookSessionStoreFile.swift in Sources */,
 				C11218000000000000000052 /* CLIError.swift in Sources */,
+				C1C10CA10000000000000001 /* CLILocalizationBundle.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
 				C12985000000000000000002 /* CLISocketSentryTelemetry.swift in Sources */,
 					575000010000000000000001 /* CLIWriteDescriptor.swift in Sources */,

@@ -1,0 +1,99 @@
+name: cmux-next
+
+# Package tests and merge-gate checks for the cmux-next app package
+# (Packages/macOS/CmuxNext). `swift test` runs the package's Swift Testing
+# suites in-process; it never builds or launches a cmux DEV app. The checks
+# are the AGENT-BRIEF merge gate: god files, main-thread concurrency and the
+# string tables (the CmuxNext catalogs, InfoPlist and the CLI table).
+
+on:
+  pull_request:
+    paths:
+      - Packages/macOS/CmuxNext/**
+      - Packages/Shared/**
+      - Packages/iOS/**
+      - scripts/ghosttykit-checksums.txt
+      - ghostty
+      - Resources/InfoPlist.xcstrings
+      - Resources/Localizable.xcstrings
+      - scripts/cmux-next/check-*.sh
+      - scripts/download-prebuilt-ghosttykit.sh
+      - .github/workflows/cmux-next.yml
+  push:
+    branches: [main, feat-cmux-next]
+    paths:
+      - Packages/macOS/CmuxNext/**
+      - Packages/Shared/**
+      - Packages/iOS/**
+      - Resources/InfoPlist.xcstrings
+      - Resources/Localizable.xcstrings
+      - scripts/cmux-next/check-*.sh
+      - .github/workflows/cmux-next.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  checks:
+    name: cmux-next checks (god files, concurrency, l10n)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: God files
+        run: scripts/cmux-next/check-no-godfiles.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+
+      - name: Main-thread concurrency
+        run: scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+
+      - name: String tables (21 languages)
+        run: scripts/cmux-next/check-l10n.sh "$GITHUB_WORKSPACE"
+
+  swift-test:
+    name: cmux-next swift test
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # A cold build of the package graph (CmuxNext plus its Shared and iOS test
+    # dependencies) and the whole suite.
+    timeout-minutes: 60
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      # The package deploys to macOS 26, so the test runner needs a macOS 26
+      # host and SDK.
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # The package graph reads no submodule; the GhosttyKit download only
+          # needs the ghostty commit recorded in this tree.
+          submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download pre-built GhosttyKit.xcframework
+        run: |
+          set -euo pipefail
+          GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Build package and tests
+        working-directory: Packages/macOS/CmuxNext
+        run: swift build --build-tests
+
+      - name: Run package tests
+        working-directory: Packages/macOS/CmuxNext
+        run: swift test --skip-build

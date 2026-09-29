@@ -7,7 +7,8 @@
 #   Contents/Frameworks/<PRODUCT_NAME> Helper.app               (+ GPU, Renderer, Plugin, Alerts)
 #
 # then signs them inside out with the build's identity (ad hoc for dev
-# builds). Xcode signs the outer app afterwards.
+# builds) through sign-cef.sh. Xcode signs the outer app afterwards; release
+# signing (scripts/sign-cmux-bundle.sh) re-signs them with sign-cef.sh.
 #
 # The artifact ships CEF's flat framework (binary, Libraries/, Resources/ at
 # the top). Xcode's product validation rejects that layout ("did not contain
@@ -183,33 +184,6 @@ if [[ -f "$stamp" && "$(cat "$stamp")" == "$stamp_value" ]] &&
   exit 0
 fi
 
-sign_flags=(--force --sign "$identity")
-if [[ "$identity" != "-" ]]; then
-  sign_flags+=(--timestamp --options runtime)
-fi
-jit_entitlements="${DERIVED_FILE_DIR:-${TMPDIR:-/tmp}}/cmux-cef-helper-jit.entitlements"
-mkdir -p "$(dirname "$jit_entitlements")"
-cat > "$jit_entitlements" <<'ENT'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>com.apple.security.cs.allow-jit</key><true/>
-</dict>
-</plist>
-ENT
-
-for lib in "$frameworks/$FW_NAME/Versions/A/Libraries/"*.dylib; do
-  codesign "${sign_flags[@]}" "$lib"
-done
-codesign "${sign_flags[@]}" "$frameworks/$FW_NAME"
-codesign "${sign_flags[@]}" "$frameworks/libcmux_cef_shim.dylib"
-for i in "${!kinds[@]}"; do
-  helper="$frameworks/$product Helper${kinds[$i]}.app"
-  case "${kinds[$i]}" in
-    " (GPU)"|" (Renderer)") codesign "${sign_flags[@]}" --entitlements "$jit_entitlements" "$helper" ;;
-    *) codesign "${sign_flags[@]}" "$helper" ;;
-  esac
-done
+"$SCRIPT_DIR/sign-cef.sh" "$app" "$identity"
 printf '%s' "$stamp_value" > "$stamp"
 echo "==> embedded CEF $(basename "$cef_dir") into $app"
