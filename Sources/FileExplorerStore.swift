@@ -19,10 +19,10 @@ import Foundation
 @MainActor
 final class FileExplorerStore: ObservableObject {
     @Published var rootPath: String = ""
-    @Published private(set) var isRootLoading: Bool = false
+    @Published internal(set) var isRootLoading: Bool = false
     /// Bumped when the root reloads or a filesystem change batch lands. Find
     /// uses it to refresh searches.
-    @Published private(set) var contentRevision = 0
+    @Published internal(set) var contentRevision = 0
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
 
