@@ -2,22 +2,18 @@ import Foundation
 
 enum BrowserWebAuthnRequestParser {
     static let maximumKindUTF8Bytes = 64
-    static let maximumPayloadJSONUTF8Bytes = 512 * 1024
-    // WebAuthn sets no challenge maximum; Google's re-authentication sends ~11 KB.
-    static let maximumChallengeBytes = 64 * 1024
-    static let maximumInboundBinaryBytes = maximumChallengeBytes
+    // The payload size is the bridge's only resource bound. Per-field limits
+    // match Chromium, Firefox and WebKit: none caps challenges, credential IDs,
+    // strings, transports or algorithms; all reject user IDs over 64 bytes.
+    static let maximumPayloadJSONUTF8Bytes = 16 * 1024 * 1024
+    static let maximumInboundBinaryBytes = maximumPayloadJSONUTF8Bytes
     static let maximumInboundBase64URLCharacters = ((maximumInboundBinaryBytes + 2) / 3) * 4
-    static let challengeByteRange = 1 ... maximumChallengeBytes
+    static let challengeByteRange = 1 ... maximumInboundBinaryBytes
     static let userIDByteRange = 1 ... 64
-    // WebAuthn caps credential IDs at 1023 bytes.
-    static let credentialIDByteRange = 1 ... 1023
+    static let credentialIDByteRange = 1 ... maximumInboundBinaryBytes
+    // Chromium rejects more than 64 and Firefox more than 20.
     static let maximumCredentialDescriptors = 128
-    static let maximumCredentialTransports = 8
-    static let maximumCredentialParameters = 32
-    static let maximumShortStringUTF8Bytes = 64
     static let maximumRelyingPartyIDUTF8Bytes = 253
-    static let maximumDisplayStringUTF8Bytes = 1024
-    static let maximumAppIDUTF8Bytes = 2048
 
     static func parseEnvelope(from body: Any) throws -> BrowserWebAuthnMessageEnvelope {
         guard let root = body as? [String: Any],

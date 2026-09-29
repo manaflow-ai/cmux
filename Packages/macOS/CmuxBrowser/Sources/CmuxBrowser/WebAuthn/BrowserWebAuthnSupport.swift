@@ -40,7 +40,7 @@ public enum BrowserWebAuthnBridgeContract {
           const responseEventName = "\#(responseEventName)";
           const maximumIDLength = 128;
           const maximumKindLength = 64;
-          const maximumPayloadBytes = 512 * 1024;
+          const maximumPayloadBytes = 16 * 1024 * 1024;
           const textEncoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
 
           const nativeHandler = () => {
@@ -185,7 +185,7 @@ public enum BrowserWebAuthnBridgeContract {
           const requestEventName = "\#(requestEventName)";
           const acknowledgeEventName = "\#(acknowledgeEventName)";
           const responseEventName = "\#(responseEventName)";
-          const maximumPayloadBytes = 512 * 1024;
+          const maximumPayloadBytes = 16 * 1024 * 1024;
           const textEncoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
           let nextRequestID = 0;
 
