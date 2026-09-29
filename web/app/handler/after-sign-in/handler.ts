@@ -481,11 +481,15 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
       return NextResponse.redirect(new URL("/", requestOrigin(request)));
     }
 
-    const afterAuth = sameOriginAfterAuthURL(
-      request.nextUrl.searchParams.get("after_auth_return_to"),
-      requestOrigin(request),
-    );
-    if (afterAuth) return NextResponse.redirect(afterAuth);
+    const afterAuth = request.nextUrl.searchParams.get("after_auth_return_to");
+    const afterAuthURL = afterAuth ? relativeAfterAuthURL(afterAuth, requestOrigin(request)) : null;
+    // Decide on the parsed origin, never on the raw string: the URL parser
+    // reads a backslash as `/` and drops tabs and newlines, so a value such as
+    // `/\evil.example` passes a "starts with one slash" check yet resolves to
+    // another host.
+    if (afterAuthURL && afterAuthURL.origin === requestOrigin(request)) {
+      return NextResponse.redirect(afterAuthURL);
+    }
 
     if (refreshToken && accessCookie) {
       const fallback = buildNativeHref(null, refreshToken, accessCookie);
@@ -496,17 +500,11 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
   };
 }
 
-/**
- * A post-sign-in return path may only name a page on this origin. A raw
- * prefix check is not enough: the URL parser reads a backslash as `/` and
- * drops tabs and newlines, so `/\evil.example` resolves to another host. Decide on
- * the parsed origin instead.
- */
-function sameOriginAfterAuthURL(value: string | null, origin: string): URL | null {
-  if (!value?.startsWith("/")) return null;
+/** Resolve a path-relative post-sign-in return value, or null if it is not one. */
+function relativeAfterAuthURL(value: string, origin: string): URL | null {
+  if (!value.startsWith("/")) return null;
   try {
-    const target = new URL(value, origin);
-    return target.origin === origin ? target : null;
+    return new URL(value, origin);
   } catch {
     return null;
   }
