@@ -163,9 +163,6 @@ extension TerminalController: ControlPaneContext {
         if case .invalid(let raw) = placement {
             return .invalidPlacement(rawValue: raw)
         }
-        if case .dock = placement, !RightSidebarMode.dock.isAvailable() {
-            return .dockUnavailable(message: dockUnavailableMessage())
-        }
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
         if case .dock = placement, let invalid = validateDockPaneCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
             return invalid
