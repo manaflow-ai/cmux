@@ -561,7 +561,8 @@ assert ident["data"]["protocol"] == expected_protocol(), ident
 print("identify ok:", ident["data"])
 
 ws0 = initial_tree[0]
-assert ws0["name"] == "0", ws0
+# Default names follow the daemon's workspace-N sequence (PR 12227).
+assert ws0["name"] == "workspace-1", ws0
 screen0 = active_screen(ws0)
 panes = screen0["panes"]
 assert len(panes) == 1, ws0
@@ -935,7 +936,9 @@ drain(1.0)
 workspaces = tree()
 assert len(workspaces) == 2, workspaces
 assert workspaces[1]["active"], workspaces
-assert workspaces[1]["name"] == "1", workspaces
+# The first workspace was renamed, so the sequence continues from the
+# workspace count instead of reusing workspace-1.
+assert workspaces[1]["name"] == "workspace-2", workspaces
 print("prefix-W new workspace ok")
 
 # Drag the original workspace below the new one. Layout: row 0 header,
