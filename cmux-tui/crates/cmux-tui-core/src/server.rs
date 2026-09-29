@@ -4493,6 +4493,13 @@ impl ClientRegistry {
         self.state.lock().unwrap().daemon_handoff.is_some()
     }
 
+    pub(crate) fn daemon_handoff_committed(&self) -> bool {
+        matches!(
+            self.state.lock().unwrap().daemon_handoff,
+            Some(DaemonHandoffReservation::Committed(_))
+        )
+    }
+
     fn is_unix(&self, client: u64) -> bool {
         self.state
             .lock()
@@ -9770,8 +9777,17 @@ fn handle_connection_message(
     // the transport, so lifecycle clients receive authoritative completion.
     // A pipelined message after the acknowledgement must not reach parsing or
     // dispatch; returning false makes the connection loop close that client.
-    if mux.daemon_shutdown_requested() || mux.daemon_handoff_in_progress() {
+    if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
         return false;
+    }
+    // Before the acknowledgement the handoff can still fail (for example
+    // while `end_terminals` awaits every host) and this daemon keeps
+    // serving. Closing here would drop the requester's pending
+    // `shutdown-daemon` reply along with its connection, so a message that
+    // arrives meanwhile (a subscriber's snapshot refresh) is refused
+    // without being executed and the connection stays open.
+    if mux.daemon_handoff_in_progress() {
+        return reject_message_during_pending_handoff(message, writer);
     }
     if crate::resource_router::is_resource_protocol_message(message) {
         return handle_resource_connection_message(mux, client, message, writer);
@@ -9784,6 +9800,50 @@ fn handle_connection_message(
     match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
         Some(keep_open) => keep_open,
         None => handle_request(mux, client, pending.take().unwrap(), writer),
+    }
+}
+
+const PENDING_HANDOFF_ERROR: &str = "daemon shutdown is in progress; request was not executed";
+
+/// Refuses one message received while a daemon handoff is reserved but not
+/// yet acknowledged. Nothing is parsed into a command or dispatched.
+fn reject_message_during_pending_handoff(message: &str, writer: &MessageWriter) -> bool {
+    if crate::resource_router::is_resource_protocol_message(message) {
+        return match crate::resource_router::parse_resource_request(message) {
+            Ok(request) => {
+                let operation = request.envelope.operation;
+                send_resource_response(
+                    writer,
+                    request.envelope.id.clone(),
+                    operation,
+                    Err(ResourceError::new(
+                        "operation.failed",
+                        PENDING_HANDOFF_ERROR,
+                        json!({
+                            "operation": operation.wire_name(),
+                            "reason": "daemon_handoff_pending",
+                        }),
+                        false,
+                    )),
+                )
+            }
+            Err(error) => {
+                let response = crate::resource_router::malformed_resource_response(message, error);
+                writer.send_control(&response).is_ok()
+            }
+        };
+    }
+    match serde_json::from_str::<Request>(message) {
+        Ok(request) => {
+            let is_clear_history = request.cmd.is_clear_history();
+            send_request_error_with_delivery(
+                writer,
+                request.id,
+                PENDING_HANDOFF_ERROR,
+                is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
+            )
+        }
+        Err(error) => send_request_error(writer, None, &format!("bad request: {error}")),
     }
 }
 
