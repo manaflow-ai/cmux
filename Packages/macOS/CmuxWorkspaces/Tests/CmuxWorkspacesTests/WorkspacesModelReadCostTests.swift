@@ -16,12 +16,6 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WorkspacesModelReadCostTests {
-    enum Member: String, CaseIterable, Sendable {
-        case tabs
-        case workspaceGroups
-        case selectedTabId
-    }
-
     /// Before #15439 the generic reads cost about 1 µs each in the debug
     /// package lane, 6.7x to 10.6x the control, and 70x to 150x in an
     /// optimized build. The benchmark prints the paired measurements; it
@@ -30,8 +24,8 @@ struct WorkspacesModelReadCostTests {
     private static let readsPerTrial = 4_000
     private static let trials = 9
 
-    @Test(arguments: Member.allCases, [true, false])
-    func readCostMatchesNonGenericObservableControl(_ member: Member, tracked: Bool) {
+    @Test(arguments: WorkspacesModelReadCostMember.allCases, [true, false])
+    func readCostMatchesNonGenericObservableControl(_ member: WorkspacesModelReadCostMember, tracked: Bool) {
         let model = WorkspacesModel<ReadCostStubTab>()
         let control = NonGenericWorkspacesControl()
         let tab = ReadCostStubTab()

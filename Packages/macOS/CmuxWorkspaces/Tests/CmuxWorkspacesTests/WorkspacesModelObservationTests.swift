@@ -10,54 +10,6 @@ import Testing
 /// hook runs, and equal assignments of `Equatable` members invalidate nothing.
 @MainActor
 @Suite struct WorkspacesModelObservationTests {
-    enum Member: String, CaseIterable, Sendable {
-        case tabs
-        case workspaceGroups
-        case selectedTabId
-
-        /// The host events one changing assignment to this member produces.
-        var hookEvents: [String] {
-            switch self {
-            case .tabs: ["tabs.willSet"]
-            case .workspaceGroups: ["groups.willSet"]
-            case .selectedTabId: ["selection.willSet", "selection.didSet"]
-            }
-        }
-
-        @MainActor
-        fileprivate func read(_ model: WorkspacesModel<ObservedStubTab>) {
-            switch self {
-            case .tabs: _ = model.tabs
-            case .workspaceGroups: _ = model.workspaceGroups
-            case .selectedTabId: _ = model.selectedTabId
-            }
-        }
-
-        @MainActor
-        fileprivate func change(_ model: WorkspacesModel<ObservedStubTab>) {
-            switch self {
-            case .tabs:
-                model.tabs = [ObservedStubTab()]
-            case .workspaceGroups:
-                model.workspaceGroups = [Self.group(named: "changed")]
-            case .selectedTabId:
-                model.selectedTabId = UUID()
-            }
-        }
-
-        static func group(named name: String) -> WorkspaceGroup {
-            WorkspaceGroup(
-                id: UUID(),
-                name: name,
-                isCollapsed: false,
-                isPinned: false,
-                anchorWorkspaceId: UUID(),
-                customColor: nil,
-                iconSymbol: nil
-            )
-        }
-    }
-
     private let log = OSAllocatedUnfairLock<[String]>(initialState: [])
 
     private func makeModel() -> (WorkspacesModel<ObservedStubTab>, EventLogHost) {
@@ -81,8 +33,8 @@ import Testing
         }
     }
 
-    @Test(arguments: Member.allCases)
-    func changingAMemberInvalidatesItsTrackedReadBeforeTheHostHookRuns(_ member: Member) {
+    @Test(arguments: WorkspacesModelObservationMember.allCases)
+    func changingAMemberInvalidatesItsTrackedReadBeforeTheHostHookRuns(_ member: WorkspacesModelObservationMember) {
         let (model, host) = makeModel()
         track(member.rawValue) { member.read(model) }
 
@@ -92,10 +44,10 @@ import Testing
         withExtendedLifetime(host) {}
     }
 
-    @Test(arguments: Member.allCases)
-    func changingAMemberLeavesTrackedReadsOfOtherMembersValid(_ member: Member) {
+    @Test(arguments: WorkspacesModelObservationMember.allCases)
+    func changingAMemberLeavesTrackedReadsOfOtherMembersValid(_ member: WorkspacesModelObservationMember) {
         let (model, host) = makeModel()
-        let others = Member.allCases.filter { $0 != member }
+        let others = WorkspacesModelObservationMember.allCases.filter { $0 != member }
         track("others") {
             for other in others { other.read(model) }
         }
@@ -121,7 +73,7 @@ import Testing
     @Test
     func equalGroupsAndSelectionAssignmentsRunHostHooksWithoutInvalidating() {
         let (model, host) = makeModel()
-        let group = Member.group(named: "group")
+        let group = WorkspacesModelObservationMember.group(named: "group")
         let selection = UUID()
         model.workspaceGroups = [group]
         model.selectedTabId = selection
@@ -150,7 +102,7 @@ import Testing
         // selectedWorkspace reads through tab(id:): selection and group
         // changes don't invalidate it, a tabs change does.
         model.selectedTabId = tab.id
-        model.workspaceGroups = [Member.group(named: "group")]
+        model.workspaceGroups = [WorkspacesModelObservationMember.group(named: "group")]
         model.tabs.removeAll()
 
         #expect(drainLog() == [
