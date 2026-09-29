@@ -94,6 +94,17 @@ struct TerminalHoverIndicatorStateTests {
         #expect(stateWithEmptyString.displayedOwner == .none)
     }
 
+    @Test("A newer native nil clears an external owner")
+    func newerNativeNilClearsExternalOwner() {
+        var state = TerminalHoverIndicatorState()
+        state.receiveExternalActive(event: 1, token: Self.token(1), path: "/external/path")
+
+        state.receiveNative(event: 2, url: nil)
+
+        #expect(state.displayedOwner == .none)
+        #expect(state.displayedURL == nil)
+    }
+
     // 5. B0-3 (the ORIGINAL race this reducer must still prevent):
     // external(N2,T2) -> a late native answering an OLDER event N1 ->
     // external T2 stays, and the stale native isn't even held in
