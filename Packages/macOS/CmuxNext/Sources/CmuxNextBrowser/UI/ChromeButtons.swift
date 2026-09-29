@@ -21,8 +21,8 @@ final class ChromeIconButton: NSButton {
         wantsLayer = true
         layer?.cornerRadius = Metrics.itemCornerRadius
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 28),
-            heightAnchor.constraint(equalToConstant: 28),
+            widthAnchor.constraint(equalToConstant: BrowserMetrics.controlHeight),
+            heightAnchor.constraint(equalToConstant: BrowserMetrics.controlHeight),
         ])
     }
 
@@ -30,7 +30,7 @@ final class ChromeIconButton: NSButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func setSymbol(_ symbol: String, label: String) {
-        let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        let configuration = NSImage.SymbolConfiguration(pointSize: BrowserMetrics.symbolPointSize, weight: .medium)
         image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
             .withSymbolConfiguration(configuration)
         toolTip = label
@@ -93,12 +93,12 @@ class ChromeTextButton: NSButton {
         self.action = action
         self.target = target
         wantsLayer = true
-        layer?.cornerRadius = 6
-        attributedTitle = NSAttributedString(string: "  \(title)  ", attributes: [
+        layer?.cornerRadius = BrowserMetrics.controlCornerRadius
+        attributedTitle = NSAttributedString(string: title, attributes: [
             .foregroundColor: Palette.textPrimary,
-            .font: NSFont.systemFont(ofSize: 12, weight: prominent ? .semibold : .regular),
+            .font: prominent ? BrowserMetrics.emphasizedFont : BrowserMetrics.bodyFont,
         ])
-        heightAnchor.constraint(equalToConstant: 24).isActive = true
+        heightAnchor.constraint(equalToConstant: BrowserMetrics.controlHeight).isActive = true
         updateFill()
     }
 
@@ -106,6 +106,11 @@ class ChromeTextButton: NSButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override var isHighlighted: Bool { didSet { updateFill() } }
+
+    override var intrinsicContentSize: NSSize {
+        let size = attributedTitle.size()
+        return NSSize(width: ceil(size.width) + BrowserMetrics.overlayPadding * 2, height: BrowserMetrics.controlHeight)
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -148,7 +153,7 @@ class ChromeTextField: NSTextField {
         lineBreakMode = .byTruncatingTail
         cell?.isScrollable = true
         cell?.wraps = false
-        font = .systemFont(ofSize: 13)
+        font = BrowserMetrics.bodyFont
         textColor = Palette.textPrimary
     }
 
@@ -158,7 +163,7 @@ class ChromeTextField: NSTextField {
     func setPlaceholder(_ text: String) {
         placeholderAttributedString = NSAttributedString(string: text, attributes: [
             .foregroundColor: Palette.textSecondary,
-            .font: font ?? .systemFont(ofSize: 13),
+            .font: font ?? BrowserMetrics.bodyFont,
         ])
     }
 

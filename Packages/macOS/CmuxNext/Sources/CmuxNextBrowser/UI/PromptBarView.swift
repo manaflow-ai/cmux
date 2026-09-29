@@ -14,23 +14,23 @@ final class PromptBarView: NSView {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
 
-        messageLabel.font = .systemFont(ofSize: 13)
+        messageLabel.font = BrowserMetrics.bodyFont
         messageLabel.textColor = Palette.textPrimary
         messageLabel.maximumNumberOfLines = 6
-        messageLabel.preferredMaxLayoutWidth = 440
+        messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth - BrowserMetrics.overlayPadding * 2
 
         inputField.wantsLayer = true
-        inputField.layer?.cornerRadius = 5
+        inputField.layer?.cornerRadius = BrowserMetrics.controlCornerRadius
         inputField.layer?.backgroundColor = NSColor(white: 0.5, alpha: 0.12).cgColor
         inputField.delegate = self
 
-        buttons.spacing = 8
+        buttons.spacing = BrowserMetrics.itemSpacing
         buttons.setHuggingPriority(.required, for: .horizontal)
 
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
+        stack.spacing = BrowserMetrics.overlayPadding
+        stack.edgeInsets = NSEdgeInsets(top: BrowserMetrics.overlayPadding, left: BrowserMetrics.overlayPadding, bottom: BrowserMetrics.overlayPadding, right: BrowserMetrics.overlayPadding)
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(messageLabel)
         stack.addArrangedSubview(inputField)
@@ -38,7 +38,7 @@ final class PromptBarView: NSView {
 
         let content = OverlayBackingView()
         content.addSubview(stack)
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: 12)
+        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.overlayCornerRadius)
         addSubview(glass)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
@@ -49,10 +49,10 @@ final class PromptBarView: NSView {
             glass.trailingAnchor.constraint(equalTo: trailingAnchor),
             glass.topAnchor.constraint(equalTo: topAnchor),
             glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            widthAnchor.constraint(lessThanOrEqualToConstant: 480),
-            widthAnchor.constraint(greaterThanOrEqualToConstant: 300),
-            inputField.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -28),
-            inputField.heightAnchor.constraint(equalToConstant: 24),
+            widthAnchor.constraint(lessThanOrEqualToConstant: BrowserMetrics.promptMaxWidth),
+            widthAnchor.constraint(greaterThanOrEqualToConstant: BrowserMetrics.promptMinWidth),
+            inputField.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -BrowserMetrics.overlayPadding * 2),
+            inputField.heightAnchor.constraint(equalToConstant: BrowserMetrics.controlHeight),
         ])
     }
 

@@ -26,8 +26,8 @@ final class OmniboxSuggestionPanel {
 
         let anchorRect = anchor.convert(anchor.bounds, to: nil)
         let screenRect = window.convertToScreen(anchorRect)
-        let height = CGFloat(rows.count) * SuggestionRowView.height + 12
-        let frame = NSRect(x: screenRect.minX, y: screenRect.minY - 6 - height, width: screenRect.width, height: height)
+        let height = CGFloat(rows.count) * SuggestionRowView.height + BrowserMetrics.suggestionGap * 2
+        let frame = NSRect(x: screenRect.minX, y: screenRect.minY - BrowserMetrics.suggestionGap - height, width: screenRect.width, height: height)
 
         panel.appearance = window.effectiveAppearance
         let wasVisible = panel.isVisible
@@ -76,11 +76,11 @@ final class OmniboxSuggestionPanel {
         let content = OverlayBackingView()
         content.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 6),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -6),
-            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 6),
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: BrowserMetrics.suggestionGap),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -BrowserMetrics.suggestionGap),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: BrowserMetrics.suggestionGap),
         ])
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: 12)
+        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.overlayCornerRadius)
         glass.translatesAutoresizingMaskIntoConstraints = true
         glass.autoresizingMask = [.width, .height]
         window.contentView = glass
@@ -95,7 +95,7 @@ final class SuggestionWindow: NSPanel {
 }
 
 final class SuggestionRowView: NSView {
-    static let height: CGFloat = 32
+    static var height: CGFloat { BrowserMetrics.suggestionRowHeight }
 
     var onClick: (() -> Void)?
     var isSelected = false { didSet { updateFill() } }
@@ -114,31 +114,31 @@ final class SuggestionRowView: NSView {
         case .history: "clock"
         }
         let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 12, weight: .medium)) ?? NSImage())
+            .withSymbolConfiguration(.init(pointSize: BrowserMetrics.symbolPointSize, weight: .medium)) ?? NSImage())
         icon.contentTintColor = Palette.textSecondary
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         let title = NSTextField(labelWithString: suggestion.title)
-        title.font = .systemFont(ofSize: 13)
+        title.font = BrowserMetrics.bodyFont
         title.textColor = Palette.textPrimary
         title.lineBreakMode = .byTruncatingTail
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let detail = NSTextField(labelWithString: suggestion.detail.isEmpty ? "" : "— \(suggestion.detail)")
-        detail.font = .systemFont(ofSize: 12)
+        detail.font = BrowserMetrics.captionFont
         detail.textColor = Palette.textSecondary
         detail.lineBreakMode = .byTruncatingTail
         detail.setContentCompressionResistancePriority(.defaultLow - 1, for: .horizontal)
 
         let stack = NSStackView(views: [icon, title, detail])
-        stack.spacing = 8
+        stack.spacing = BrowserMetrics.itemSpacing
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: Self.height),
-            icon.widthAnchor.constraint(equalToConstant: 16),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
+            icon.widthAnchor.constraint(equalToConstant: BrowserMetrics.glyphSize),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: BrowserMetrics.overlayPadding),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -BrowserMetrics.overlayPadding),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         setAccessibilityRole(.button)

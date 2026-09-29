@@ -16,14 +16,14 @@ final class FindBarView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
 
         let icon = NSImageView(image: NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold)) ?? NSImage())
+            .withSymbolConfiguration(.init(pointSize: BrowserMetrics.symbolPointSize - 1, weight: .semibold)) ?? NSImage())
         icon.contentTintColor = Palette.textSecondary
 
         field.setPlaceholder(Strings.findPlaceholder)
         field.delegate = self
         field.setAccessibilityLabel(Strings.findPlaceholder)
 
-        countLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        countLabel.font = BrowserMetrics.countFont
         countLabel.textColor = Palette.textSecondary
         countLabel.alignment = .right
         countLabel.setContentHuggingPriority(.required, for: .horizontal)
@@ -33,15 +33,15 @@ final class FindBarView: NSView {
         let done = ChromeIconButton(symbol: "xmark", label: Strings.findDone, action: #selector(close), target: self)
 
         let stack = NSStackView(views: [icon, field, countLabel, previous, next, done])
-        stack.spacing = 4
-        stack.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 4)
-        stack.setCustomSpacing(8, after: icon)
-        stack.setCustomSpacing(8, after: countLabel)
+        stack.spacing = BrowserMetrics.buttonSpacing
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: BrowserMetrics.overlayPadding, bottom: 0, right: BrowserMetrics.buttonSpacing)
+        stack.setCustomSpacing(BrowserMetrics.itemSpacing, after: icon)
+        stack.setCustomSpacing(BrowserMetrics.itemSpacing, after: countLabel)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         let content = OverlayBackingView()
         content.addSubview(stack)
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: 12)
+        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.overlayCornerRadius)
         addSubview(glass)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
@@ -51,9 +51,9 @@ final class FindBarView: NSView {
             glass.trailingAnchor.constraint(equalTo: trailingAnchor),
             glass.topAnchor.constraint(equalTo: topAnchor),
             glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: 36),
-            field.widthAnchor.constraint(equalToConstant: 180),
-            countLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 64),
+            heightAnchor.constraint(equalToConstant: BrowserMetrics.findBarHeight),
+            field.widthAnchor.constraint(equalToConstant: BrowserMetrics.findFieldWidth),
+            countLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: BrowserMetrics.findCountWidth),
         ])
     }
 

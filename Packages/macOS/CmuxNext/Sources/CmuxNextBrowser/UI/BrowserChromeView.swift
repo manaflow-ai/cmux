@@ -35,7 +35,7 @@ public final class BrowserChromeView: NSView {
     private var observation: ObservationLoop?
     private var showsStop = false
 
-    public static let toolbarHeight: CGFloat = 40
+    public static var toolbarHeight: CGFloat { BrowserMetrics.toolbarHeight }
 
     public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine()) {
         self.tab = tab
@@ -110,11 +110,11 @@ public final class BrowserChromeView: NSView {
         contentContainer.layer?.masksToBounds = true
 
         extensionSlot.orientation = .horizontal
-        extensionSlot.spacing = 2
+        extensionSlot.spacing = BrowserMetrics.buttonSpacing
         extensionSlot.setAccessibilityLabel(Strings.extensions)
 
         let navigation = NSStackView(views: [backButton, forwardButton, reloadButton])
-        navigation.spacing = 2
+        navigation.spacing = BrowserMetrics.buttonSpacing
         navigation.translatesAutoresizingMaskIntoConstraints = false
         // NSStackView hugs through its own API, not content hugging. The
         // address bar has no intrinsic width and takes the remaining space.
@@ -140,26 +140,25 @@ public final class BrowserChromeView: NSView {
             toolbar.leadingAnchor.constraint(equalTo: leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: trailingAnchor),
             toolbarHeight,
-            navigation.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor, constant: 8),
+            navigation.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor, constant: BrowserMetrics.toolbarInset),
             navigation.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor, constant: 8),
+            addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor, constant: BrowserMetrics.itemSpacing),
             addressBar.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor, constant: 6),
-            extensionSlot.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor, constant: -8),
+            extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor, constant: BrowserMetrics.itemSpacing),
+            extensionSlot.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor, constant: -BrowserMetrics.toolbarInset),
             extensionSlot.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            extensionSlot.heightAnchor.constraint(equalToConstant: 28),
-            addressBar.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),
-            addressBar.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),
+            extensionSlot.heightAnchor.constraint(equalToConstant: BrowserMetrics.controlHeight),
+            addressBar.widthAnchor.constraint(greaterThanOrEqualToConstant: BrowserMetrics.minimumAddressWidth),
 
             separator.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1),
+            separator.heightAnchor.constraint(equalToConstant: BrowserMetrics.separatorThickness),
 
             progressLine.bottomAnchor.constraint(equalTo: separator.bottomAnchor),
             progressLine.leadingAnchor.constraint(equalTo: leadingAnchor),
             progressLine.trailingAnchor.constraint(equalTo: trailingAnchor),
-            progressLine.heightAnchor.constraint(equalToConstant: 2),
+            progressLine.heightAnchor.constraint(equalToConstant: BrowserMetrics.progressThickness),
 
             contentContainer.topAnchor.constraint(equalTo: separator.bottomAnchor),
             contentContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -171,12 +170,12 @@ public final class BrowserChromeView: NSView {
             errorView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
             errorView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
 
-            findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: 8),
-            findBar.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -10),
+            findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: BrowserMetrics.overlayInset),
+            findBar.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -BrowserMetrics.overlayInset),
 
-            promptBar.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: 10),
+            promptBar.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: BrowserMetrics.overlayInset),
             promptBar.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor),
-            promptBar.leadingAnchor.constraint(greaterThanOrEqualTo: contentContainer.leadingAnchor, constant: 12),
+            promptBar.leadingAnchor.constraint(greaterThanOrEqualTo: contentContainer.leadingAnchor, constant: BrowserMetrics.overlayInset),
         ])
 
         findBar.isHidden = true
@@ -364,22 +363,22 @@ final class LoadErrorView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        titleLabel.font = BrowserMetrics.errorTitleFont
         titleLabel.textColor = Palette.textPrimary
-        messageLabel.font = .systemFont(ofSize: 13)
+        messageLabel.font = BrowserMetrics.bodyFont
         messageLabel.textColor = Palette.textSecondary
         messageLabel.alignment = .center
-        messageLabel.preferredMaxLayoutWidth = 420
+        messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth
         let retry = ChromeTextButton(title: Strings.tryAgain, prominent: true, action: #selector(retry), target: self)
         let stack = NSStackView(views: [titleLabel, messageLabel, retry])
         stack.orientation = .vertical
-        stack.spacing = 10
+        stack.spacing = BrowserMetrics.overlayPadding
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -30),
-            stack.widthAnchor.constraint(lessThanOrEqualToConstant: 440),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -BrowserMetrics.toolbarHeight),
+            stack.widthAnchor.constraint(lessThanOrEqualToConstant: BrowserMetrics.promptMaxWidth),
         ])
     }
 

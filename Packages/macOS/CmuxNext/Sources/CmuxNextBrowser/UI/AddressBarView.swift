@@ -27,7 +27,7 @@ public final class AddressBarView: NSView {
     public init(suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine()) {
         self.suggestionEngine = suggestionEngine
         let content = NSView()
-        glass = Glass.makePanel(content: content, style: .regular, cornerRadius: 9)
+        glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.controlCornerRadius)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
@@ -42,7 +42,7 @@ public final class AddressBarView: NSView {
 
         focusOutline.translatesAutoresizingMaskIntoConstraints = false
         focusOutline.wantsLayer = true
-        focusOutline.layer?.cornerRadius = 9
+        focusOutline.layer?.cornerRadius = BrowserMetrics.controlCornerRadius
         focusOutline.layer?.borderWidth = 1
         focusOutline.alphaValue = 0
 
@@ -59,14 +59,14 @@ public final class AddressBarView: NSView {
             focusOutline.trailingAnchor.constraint(equalTo: trailingAnchor),
             focusOutline.topAnchor.constraint(equalTo: topAnchor),
             focusOutline.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: 28),
+            heightAnchor.constraint(equalToConstant: BrowserMetrics.controlHeight),
 
-            iconView.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 9),
+            iconView.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: BrowserMetrics.toolbarInset),
             iconView.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 14),
-            iconView.heightAnchor.constraint(equalToConstant: 14),
-            field.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 7),
-            field.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
+            iconView.widthAnchor.constraint(equalToConstant: BrowserMetrics.glyphSize),
+            iconView.heightAnchor.constraint(equalToConstant: BrowserMetrics.glyphSize),
+            field.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: BrowserMetrics.itemSpacing),
+            field.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -BrowserMetrics.toolbarInset),
             field.centerYAnchor.constraint(equalTo: content.centerYAnchor),
         ])
         panel.onPick = { [weak self] index in self?.pick(index) }
@@ -182,7 +182,7 @@ public final class AddressBarView: NSView {
             }
         }
         iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+            .withSymbolConfiguration(.init(pointSize: BrowserMetrics.symbolPointSize - 1, weight: .semibold))
         iconView.setAccessibilityLabel(security == .insecure && !isEditing ? Strings.notSecure : nil)
     }
 
