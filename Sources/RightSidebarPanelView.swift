@@ -173,6 +173,7 @@ struct RightSidebarPanelView: View {
             contentForMode
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .rightSidebarButtonBorderShape()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Keep every mode (including Dock and AppKit-backed file rows) on the
         // same resolved cmux scheme as the window and left sidebar.

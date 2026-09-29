@@ -367,7 +367,7 @@ cmux безкоштовний та з відкритим кодом, і завж
 
 ### У мене є запит на функцію або я знайшов помилку?
 
-Ми хочемо про це почути. Відкрийте [issue](https://github.com/manaflow-ai/cmux/issues) або [pull request](https://github.com/manaflow-ai/cmux/pulls) на GitHub, або [напишіть нам](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Ми хочемо про це почути. Відкрийте [issue](https://github.com/manaflow-ai/cmux/issues) або [pull request](https://github.com/manaflow-ai/cmux/pulls) на GitHub, або [напишіть нам](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Історія зірок
 
@@ -418,6 +418,6 @@ cmux є безкоштовним, з відкритим кодом і завжд
 
 ## Ліцензія
 
-cmux є відкритим програмним забезпеченням під ліцензією [GPL-3.0-or-later](LICENSE).
+cmux є відкритим програмним забезпеченням під ліцензією [GPL-3.0-or-later](LICENSE). Серверне програмне забезпечення cmux (`web/`, воркери Cloudflare та relay-сервіси, перелічені в [LICENSE](LICENSE)) натомість розповсюджується за [Business Source License 1.1](web/LICENSE): його можна читати, змінювати й запускати для невиробничого використання, а виробниче використання чи власний хостинг потребують комерційної ліцензії.
 
-Якщо ваша організація не може дотримуватися GPL, доступна комерційна ліцензія. Зв'яжіться з [founders@manaflow.com](mailto:founders@manaflow.com) для деталей.
+Якщо ваша організація не може дотримуватися GPL, доступна комерційна ліцензія. Зв'яжіться з [founders@cmux.com](mailto:founders@cmux.com) для деталей.

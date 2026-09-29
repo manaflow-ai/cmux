@@ -25,7 +25,11 @@ public final class MobileIrxSettingsController: CmxIrohSettingsControlling {
         )
         let irxTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            // Yield the current snapshot first: a subscriber that arrives after
+            // the transport settled (the release-gate runner waiting for its
+            // path-policy check) must not hang until the next settings change.
             let changes = await irx.settingsUpdates()
+            continuation.yield(await irohSettingsSnapshot())
             for await _ in changes {
                 guard !Task.isCancelled else { return }
                 continuation.yield(await irohSettingsSnapshot())
