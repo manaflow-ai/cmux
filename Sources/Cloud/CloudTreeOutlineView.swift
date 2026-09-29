@@ -459,8 +459,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
         /// One place decides what "open" means per row. Every surface row is
         /// `SurfaceCatalog.project` (focusing an open pane first); machine and
-        /// group rows toggle. Creation is never an open side effect: the hover
-        /// "+" and the context menu own it (an expired machine still prompts,
+        /// group rows toggle. Persistent create rows use this same open path;
+        /// the hover "+" and context menu remain alternate entrypoints (an expired machine still prompts,
         /// and the asleep placeholder still wakes, because those rows advertise
         /// exactly that).
         func open(_ node: CloudTreeNode) {

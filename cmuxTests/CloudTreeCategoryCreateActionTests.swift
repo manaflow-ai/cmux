@@ -20,11 +20,20 @@ struct CloudTreeCategoryCreateActionTests {
         fixture.apply(machines: [])
 
         let section = try #require(fixture.cloudSection)
-        let action = try #require(section.children.last)
+        let action = try #require(section.children.first { node in
+            if case .createAction(.newCloudVM) = node.kind { return true }
+            return false
+        })
         #expect(action.kind == .createAction(.newCloudVM))
         #expect(fixture.row(for: action) >= 0)
         #expect(try fixture.cell(for: action).accessibilityLabel() == CloudTreeCreateAction.newCloudVM.title)
         #expect(try fixture.createHost(for: action).passesThrough == false)
+        let fallback = try #require(section.children.first { node in
+            if case .createAction(.newWorkspaceOnResolvedMachine) = node.kind { return true }
+            return false
+        })
+        fixture.coordinator.open(fallback)
+        #expect(fixture.events.resolvedWorkspaceActionCalled)
     }
 
     @Test("Each Cloud machine's Workspaces category ends with New Workspace")
@@ -51,7 +60,10 @@ struct CloudTreeCategoryCreateActionTests {
 
         fixture.apply(machines: [])
         let cloudSection = try #require(fixture.cloudSection)
-        let newVM = try #require(cloudSection.children.last)
+        let newVM = try #require(cloudSection.children.first { node in
+            if case .createAction(.newCloudVM) = node.kind { return true }
+            return false
+        })
         let outline = try #require(fixture.coordinator.outlineView)
         let newVMRow = outline.row(forItem: newVM)
         #expect(newVM.kind.isSelectable)
@@ -85,7 +97,10 @@ struct CloudTreeCategoryCreateActionTests {
         defer { fixture.close() }
 
         fixture.apply(machines: [])
-        let newVM = try #require(fixture.cloudSection?.children.last)
+        let newVM = try #require(fixture.cloudSection?.children.first { node in
+            if case .createAction(.newCloudVM) = node.kind { return true }
+            return false
+        })
         fixture.coordinator.open(newVM)
         #expect(fixture.events.cloudVMActionCalled)
 
@@ -136,7 +151,8 @@ struct CloudTreeCategoryCreateActionTests {
                 closeTerminal: { _ in }, closeWorkspace: { _, _ in },
                 renameWorkspace: { _, _ in }, renameTerminal: { _, _ in },
                 selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in }, copyPortLink: { _ in }, refresh: {},
-                newMachine: { eventBox.cloudVMActionCalled = true }
+                newMachine: { eventBox.cloudVMActionCalled = true },
+                newWorkspaceOnResolvedMachine: { eventBox.resolvedWorkspaceActionCalled = true }
             )
             coordinator = CloudTreeOutlineView.Coordinator(
                 machineActions: MachineRowActions(
@@ -197,6 +213,7 @@ struct CloudTreeCategoryCreateActionTests {
         final class Events {
             var workspaceMachine: SurfaceMachineID?
             var cloudVMActionCalled = false
+            var resolvedWorkspaceActionCalled = false
         }
     }
 }
