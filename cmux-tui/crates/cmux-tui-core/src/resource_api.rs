@@ -1102,7 +1102,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn cloud_cwd_live_osc7_reaches_snapshot_and_event_feed() {
-        let mux = Mux::new_for_test(
+        // A real PTY: the test runtime's placeholder surfaces never run
+        // their command, so no OSC 7 would reach the parser.
+        let mux = Mux::new(
             "cloud-cwd-osc",
             SurfaceOptions {
                 command: Some(vec![
@@ -1139,7 +1141,9 @@ mod tests {
         // A shell that reports a directory and later reports none (an empty
         // OSC 7, as when it leaves the host it described) must clear the
         // published cwd through the same incremental parser path.
-        let mux = Mux::new_for_test(
+        // A real PTY: the test runtime's placeholder surfaces never run
+        // their command, so no OSC 7 would reach the parser.
+        let mux = Mux::new(
             "cloud-cwd-osc-clear",
             SurfaceOptions {
                 command: Some(vec![

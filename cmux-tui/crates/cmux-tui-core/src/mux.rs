@@ -4747,6 +4747,9 @@ impl Mux {
         drop(registry);
         if !commit.replayed {
             self.publish_resource_event();
+            // A commit can create the resource row that a shell's first
+            // directory report was waiting for.
+            self.publish_pending_terminal_directories();
         }
         Ok(commit)
     }
@@ -5531,6 +5534,7 @@ impl Mux {
         drop(state);
         drop(registry);
         self.publish_resource_event();
+        self.publish_pending_terminal_directories();
         Ok(commit)
     }
 
