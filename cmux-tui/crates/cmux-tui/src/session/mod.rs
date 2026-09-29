@@ -19,7 +19,7 @@ use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
     CLIENT_FOCUS_CAPABILITY, CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
     FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MACHINE_USAGE_CAPABILITY,
-    MAX_CREATION_SELECTOR_FALLBACKS, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+    MAX_CREATION_SELECTOR_FALLBACKS, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, SHARED_SIZING_CAPABILITY,
     VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
 use cmux_tui_core::sizing_policy::{TerminalSizingPolicy, TerminalSizingState};
@@ -634,12 +634,19 @@ impl Session {
         self.set_client_sizing(surface, client, true, true)
     }
 
+    /// Focus on a terminal. Under shared sizing this is activity only
+    /// (`note-size-activity`): the legacy `set-client-sizing` would clear a
+    /// counts choice another participant made for this view. Daemons without
+    /// `shared-sizing-v1` keep the legacy exclusive claim.
     pub fn claim_terminal_geometry(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
                 .claim_terminal_geometry(surface, 0)
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface}")),
+            Session::Remote(remote) if remote.supports_capability(SHARED_SIZING_CAPABILITY) => {
+                remote.request(json!({"cmd": "note-size-activity", "surface": surface})).map(|_| ())
+            }
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",
