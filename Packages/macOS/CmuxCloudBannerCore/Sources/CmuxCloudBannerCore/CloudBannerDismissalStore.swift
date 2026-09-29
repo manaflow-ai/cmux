@@ -1,12 +1,14 @@
 public import Foundation
+public import Combine
 
 /// Persists signature-based Cloud banner dismissals in user defaults.
 @MainActor
-public final class CloudBannerDismissalStore {
+public final class CloudBannerDismissalStore: ObservableObject {
     private static let defaultsKey = "cmux.cloud.banner.dismissed"
 
     private let defaults: UserDefaults
-    private var dismissedSignatures: [String: String]
+    @Published public private(set) var dismissedSignatures: [String: String]
+    private nonisolated(unsafe) var defaultsObserver: (any NSObjectProtocol)?
 
     /// Creates a dismissal repository backed by the supplied defaults store.
     ///
@@ -15,6 +17,21 @@ public final class CloudBannerDismissalStore {
     public init(defaults: UserDefaults) {
         self.defaults = defaults
         dismissedSignatures = Self.load(from: defaults)
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.reloadFromDefaults()
+            }
+        }
+    }
+
+    deinit {
+        if let defaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
+        }
     }
 
     /// Returns whether the current signature was dismissed for the identifier.
@@ -27,8 +44,7 @@ public final class CloudBannerDismissalStore {
     ///   - signature: State-and-copy signature for the current banner.
     /// - Returns: `true` only when the stored signature exactly matches.
     public func isDismissed(id: String, signature: String) -> Bool {
-        dismissedSignatures = Self.load(from: defaults)
-        return dismissedSignatures[id] == signature
+        Self.load(from: defaults)[id] == signature
     }
 
     /// Records a dismissal without overwriting newer entries from another client.
@@ -37,8 +53,9 @@ public final class CloudBannerDismissalStore {
     ///   - id: Stable identifier for the banner instance.
     ///   - signature: State-and-copy signature to suppress.
     public func dismiss(id: String, signature: String) {
-        dismissedSignatures = Self.load(from: defaults)
-        dismissedSignatures[id] = signature
+        var next = Self.load(from: defaults)
+        next[id] = signature
+        dismissedSignatures = next
         persist()
     }
 
@@ -46,13 +63,18 @@ public final class CloudBannerDismissalStore {
     ///
     /// - Parameter id: Stable identifier whose dismissal should be cleared.
     public func clear(id: String) {
-        dismissedSignatures = Self.load(from: defaults)
-        dismissedSignatures.removeValue(forKey: id)
+        var next = Self.load(from: defaults)
+        next.removeValue(forKey: id)
+        dismissedSignatures = next
         persist()
     }
 
     private static func load(from defaults: UserDefaults) -> [String: String] {
         defaults.dictionary(forKey: Self.defaultsKey) as? [String: String] ?? [:]
+    }
+
+    private func reloadFromDefaults() {
+        dismissedSignatures = Self.load(from: defaults)
     }
 
     private func persist() {
