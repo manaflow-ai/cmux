@@ -24,6 +24,7 @@ public final class CloudSystemVPNController {
     private let deviceName: String
     private let routePolicy = CloudVPNRoutePolicy()
     private let timeout: CloudSystemVPNTaskTimeout
+    private let revocationWorker: CloudSystemVPNRevocationWorker
     private let operationTimeout: Duration
     private let operationGate = CloudSystemVPNOperationGate()
     private let cleanupRetryCount: Int
@@ -84,6 +85,10 @@ public final class CloudSystemVPNController {
         self.pendingRevocationStore = pendingRevocationStore
         let boundedTimeout = max(.milliseconds(1), operationTimeout)
         timeout = CloudSystemVPNTaskTimeout(timeout: boundedTimeout)
+        revocationWorker = CloudSystemVPNRevocationWorker(
+            service: service,
+            timeout: timeout
+        )
         self.operationTimeout = boundedTimeout
         self.cleanupRetryCount = max(1, cleanupRetryCount)
         manager.onPhaseChange = { [weak self] phase in
@@ -132,9 +137,9 @@ public final class CloudSystemVPNController {
         enqueue { [self] generation in
             var remoteCleanupError: (any Error)?
             do {
-                if let newScope {
-                    await loadPersistedBrowserTunnelRevocations(scope: newScope)
-                }
+                await loadPersistedBrowserTunnelRevocations(
+                    scopes: [previousScope, newScope]
+                )
                 if !pendingBrowserTunnelRevocations.isEmpty {
                     do {
                         try await revokePendingBrowserTunnel()
@@ -549,13 +554,16 @@ public final class CloudSystemVPNController {
         }
     }
 
-    private func loadPersistedBrowserTunnelRevocations(scope: String) async {
-        for fingerprint in await pendingRevocationStore.load(scope: scope) {
-            rememberPendingBrowserTunnelRevocation((
-                scope: scope,
-                deviceFingerprint: fingerprint,
-                credentials: nil
-            ))
+    private func loadPersistedBrowserTunnelRevocations(scopes: [String?]) async {
+        var loadedScopes = Set<String>()
+        for scope in scopes.compactMap({ $0 }) where loadedScopes.insert(scope).inserted {
+            for fingerprint in await pendingRevocationStore.load(scope: scope) {
+                rememberPendingBrowserTunnelRevocation((
+                    scope: scope,
+                    deviceFingerprint: fingerprint,
+                    credentials: nil
+                ))
+            }
         }
     }
 
@@ -638,7 +646,7 @@ public final class CloudSystemVPNController {
         let credentials = tunnel.credentials ?? fallbackCredentials
         for _ in 0..<attempts {
             do {
-                try await boundedRevokeBrowserTunnel(
+                try await revocationWorker.revoke(
                     deviceFingerprint: tunnel.deviceFingerprint,
                     credentials: credentials
                 )
@@ -666,22 +674,16 @@ public final class CloudSystemVPNController {
         )
         rememberPendingBrowserTunnelRevocation(tunnel)
         await persistPendingBrowserTunnelRevocation(tunnel)
-        let service = self.service
-        let timeout = self.timeout
-        let fingerprint = enrollment.deviceFingerprint
-        let revoked = await Task.detached(priority: .utility) {
-            do {
-                try await Self.boundedRevokeBrowserTunnel(
-                    service: service,
-                    timeout: timeout,
-                    deviceFingerprint: fingerprint,
-                    credentials: credentials
-                )
-                return true
-            } catch {
-                return false
-            }
-        }.value
+        let revoked: Bool
+        do {
+            try await revocationWorker.revoke(
+                deviceFingerprint: enrollment.deviceFingerprint,
+                credentials: credentials
+            )
+            revoked = true
+        } catch {
+            revoked = false
+        }
         if revoked {
             removePendingBrowserTunnelRevocation(tunnel)
             await clearPersistedBrowserTunnelRevocation(tunnel)
@@ -693,58 +695,10 @@ public final class CloudSystemVPNController {
         deviceFingerprint: String,
         credentials: CloudAPITokenSource.TokenPair?
     )) async throws {
-        try await boundedRevokeBrowserTunnel(
+        try await revocationWorker.revoke(
             deviceFingerprint: tunnel.deviceFingerprint,
             credentials: tunnel.credentials
         )
-    }
-
-    private func boundedRevokeBrowserTunnel(
-        deviceFingerprint: String,
-        credentials: CloudAPITokenSource.TokenPair?
-    ) async throws {
-        try await Self.boundedRevokeBrowserTunnel(
-            service: service,
-            timeout: timeout,
-            deviceFingerprint: deviceFingerprint,
-            credentials: credentials
-        )
-    }
-
-    private static func boundedRevokeBrowserTunnel(
-        service: any CloudVMServing,
-        timeout: CloudSystemVPNTaskTimeout,
-        deviceFingerprint: String,
-        credentials: CloudAPITokenSource.TokenPair?
-    ) async throws {
-        let request = Task.detached(priority: .utility) {
-            try await Self.revokeBrowserTunnel(
-                service: service,
-                deviceFingerprint: deviceFingerprint,
-                credentials: credentials
-            )
-        }
-        try await timeout.value(request)
-    }
-
-    private static func revokeBrowserTunnel(
-        service: any CloudVMServing,
-        deviceFingerprint: String,
-        credentials: CloudAPITokenSource.TokenPair?
-    ) async throws {
-        if let credentials {
-            try await service.revokeTunnel(
-                deviceFingerprint: deviceFingerprint,
-                tunnelPurpose: .browser,
-                accessToken: credentials.accessToken,
-                refreshToken: credentials.refreshToken
-            )
-        } else {
-            try await service.revokeTunnel(
-                deviceFingerprint: deviceFingerprint,
-                tunnelPurpose: .browser
-            )
-        }
     }
 
     private func retryPendingCleanup() {

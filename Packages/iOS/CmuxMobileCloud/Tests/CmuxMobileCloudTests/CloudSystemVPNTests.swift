@@ -551,6 +551,23 @@ import Testing
         #expect(rig.manager.refreshedScopes == ["user-1/team-1", "user-2/team-9"])
     }
 
+    @Test func switchingAccountsLoadsPendingRevocationsForTheKnownPreviousScope() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        await pendingStore.save(["ios-abc"], scope: "user-1/team-1")
+        let rig = Rig(pendingRevocationStore: pendingStore)
+        rig.manager.isAvailable = false
+
+        rig.controller.setScope("user-1/team-1")
+        rig.manager.isAvailable = true
+        rig.controller.setScope("user-2/team-9")
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.service.calls.revoke.count == 1)
+        #expect(rig.service.calls.revoke.first?.fingerprint == "ios-abc")
+        #expect(await pendingStore.load(scope: "user-1/team-1").isEmpty)
+        #expect(rig.manager.refreshedScopes == ["user-2/team-9"])
+    }
+
     @Test func switchingAccountsRevokesTheOldBrowserPeer() async {
         let rig = Rig(credentials: {
             (accessToken: "old-access", refreshToken: "old-refresh")
