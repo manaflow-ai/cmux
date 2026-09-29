@@ -33,6 +33,7 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
         var create: [(options: CloudMachineCreateOptions, idempotencyKey: String)] = []
         var enroll: [(publicKey: String, fingerprint: String, purpose: CloudTunnelPurpose, deviceName: String?)] = []
         var revoke: [(fingerprint: String, purpose: CloudTunnelPurpose)] = []
+        var revokeCredentials: [(accessToken: String, refreshToken: String)] = []
         var attach: [(machineID: String, fingerprint: String)] = []
         var approve: [(machineID: String, invitationId: String)] = []
         var pause: [String] = []
@@ -90,8 +91,9 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
         accessToken: String,
         refreshToken: String
     ) async throws {
-        _ = accessToken
-        _ = refreshToken
+        lock.withLock {
+            $0.revokeCredentials.append((accessToken, refreshToken))
+        }
         try await revokeTunnel(deviceFingerprint: deviceFingerprint, tunnelPurpose: tunnelPurpose)
     }
 

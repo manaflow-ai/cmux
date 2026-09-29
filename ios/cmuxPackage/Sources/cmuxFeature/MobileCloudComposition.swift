@@ -57,6 +57,7 @@ struct MobileCloudComposition {
               let plugIns = bundle.builtInPlugInsURL,
               let provider = Bundle(url: plugIns.appendingPathComponent("CloudVPN.appex")),
               provider.bundleIdentifier == providerID else { return nil }
+        let coordinator = auth.coordinator
         return CloudSystemVPNController(
             service: service,
             identityStore: identityStore,
@@ -65,7 +66,10 @@ struct MobileCloudComposition {
                 keychainService: appNamespace.keychainService(base: Self.systemVPNKeychainServiceBase),
                 keychainAccessGroup: auth.keychainAccessGroup
             ),
-            deviceName: UIDevice.current.name
+            deviceName: UIDevice.current.name,
+            credentials: {
+                try? await coordinator.coherentTokenPair()
+            }
         )
     }
 

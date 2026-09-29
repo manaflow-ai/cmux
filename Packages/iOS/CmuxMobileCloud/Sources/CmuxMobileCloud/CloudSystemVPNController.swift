@@ -27,11 +27,20 @@ public final class CloudSystemVPNController {
     private let operationTimeout: Duration
     private let operationGate = CloudSystemVPNOperationGate()
     private let cleanupRetryCount: Int
+    private let credentials: @Sendable () async -> CloudAPITokenSource.TokenPair?
     private var scope: String?
     private var hasLoadedScope = false
     private var cleanupPending = false
-    private var browserTunnel: (scope: String, deviceFingerprint: String)?
-    private var pendingBrowserTunnelRevocations: [(scope: String, deviceFingerprint: String)] = []
+    private var browserTunnel: (
+        scope: String,
+        deviceFingerprint: String,
+        credentials: CloudAPITokenSource.TokenPair?
+    )?
+    private var pendingBrowserTunnelRevocations: [(
+        scope: String,
+        deviceFingerprint: String,
+        credentials: CloudAPITokenSource.TokenPair?
+    )] = []
     private var needsPlatformReconciliation = false
     private var generation: UInt64 = 0
     private var operation: Task<Void, Never>?
@@ -52,18 +61,22 @@ public final class CloudSystemVPNController {
     ///     Extension operation.
     ///   - cleanupRetryCount: Number of attempts made to remove an old VPN
     ///     profile before leaving cleanup pending for a later retry.
+    ///   - credentials: Captures the active account's token pair so a peer
+    ///     enrolled before an account switch can be revoked with its owner.
     public init(
         service: any CloudVMServing,
         identityStore: any CloudDeviceIdentityStoring,
         manager: any CloudSystemVPNManaging,
         deviceName: String,
         operationTimeout: Duration = .seconds(30),
-        cleanupRetryCount: Int = 3
+        cleanupRetryCount: Int = 3,
+        credentials: @escaping @Sendable () async -> CloudAPITokenSource.TokenPair? = { nil }
     ) {
         self.service = service
         self.identityResolver = CloudDeviceIdentityResolver(store: identityStore)
         self.manager = manager
         self.deviceName = deviceName
+        self.credentials = credentials
         let boundedTimeout = max(.milliseconds(1), operationTimeout)
         timeout = CloudSystemVPNTaskTimeout(timeout: boundedTimeout)
         self.operationTimeout = boundedTimeout
@@ -232,6 +245,7 @@ public final class CloudSystemVPNController {
                 }
                 let keyPair = WireGuardKeyPair()
                 try await performBounded(reconcilePlatformOnTimeout: true) {
+                    let credentials = await self.credentials()
                     let identity: CloudDeviceIdentity
                     do {
                         identity = try await self.identityResolver.resolve()
@@ -254,15 +268,32 @@ public final class CloudSystemVPNController {
                         throw CloudSystemVPNError.enrollment
                     }
                     guard self.isCurrent(generation), self.scope == scope else {
-                        await self.revokeEnrollmentIfOwned(enrollment, scope: scope)
+                        await self.revokeEnrollmentIfOwned(
+                            enrollment,
+                            scope: scope,
+                            credentials: credentials
+                        )
                         throw CancellationError()
                     }
-                    try await self.install(enrollment: enrollment, privateKey: keyPair.privateKey, scope: scope)
+                    try await self.install(
+                        enrollment: enrollment,
+                        privateKey: keyPair.privateKey,
+                        scope: scope,
+                        credentials: credentials
+                    )
                     guard self.isCurrent(generation), self.scope == scope else {
-                        await self.revokeEnrollmentIfOwned(enrollment, scope: scope)
+                        await self.revokeEnrollmentIfOwned(
+                            enrollment,
+                            scope: scope,
+                            credentials: credentials
+                        )
                         throw CancellationError()
                     }
-                    self.browserTunnel = (scope: scope, deviceFingerprint: enrollment.deviceFingerprint)
+                    self.browserTunnel = (
+                        scope: scope,
+                        deviceFingerprint: enrollment.deviceFingerprint,
+                        credentials: credentials
+                    )
                 }
                 guard self.isCurrent(generation) else { return }
                 publish(manager.phase == .off ? .connecting : manager.phase)
@@ -276,7 +307,8 @@ public final class CloudSystemVPNController {
     private func install(
         enrollment: CloudTunnelEnrollment,
         privateKey: String,
-        scope: String
+        scope: String,
+        credentials: CloudAPITokenSource.TokenPair?
     ) async throws {
         do {
             guard permitsOnlyPrivateRoutes(enrollment) else {
@@ -301,10 +333,19 @@ public final class CloudSystemVPNController {
         } catch {
             guard enrollment.created || enrollment.rotated else { throw error }
             do {
-                try await service.revokeTunnel(
-                    deviceFingerprint: enrollment.deviceFingerprint,
-                    tunnelPurpose: .browser
-                )
+                if let credentials {
+                    try await service.revokeTunnel(
+                        deviceFingerprint: enrollment.deviceFingerprint,
+                        tunnelPurpose: .browser,
+                        accessToken: credentials.accessToken,
+                        refreshToken: credentials.refreshToken
+                    )
+                } else {
+                    try await service.revokeTunnel(
+                        deviceFingerprint: enrollment.deviceFingerprint,
+                        tunnelPurpose: .browser
+                    )
+                }
             } catch {
                 throw CloudSystemVPNError.configuration
             }
@@ -322,18 +363,28 @@ public final class CloudSystemVPNController {
         return { accessToken, refreshToken in
             guard let accessToken, let refreshToken else { return }
             let enrolled = await controller.browserTunnelsForTeardown()
-            let fingerprints: [String]
             if enrolled.isEmpty {
                 guard let fingerprint = try? await identityResolver.stored()?.fingerprint else { return }
-                fingerprints = [fingerprint]
-            } else {
-                fingerprints = enrolled.map(\.deviceFingerprint)
-            }
-            for fingerprint in fingerprints {
                 for _ in 0..<attempts {
                     do {
                         try await service.revokeTunnel(
                             deviceFingerprint: fingerprint,
+                            tunnelPurpose: .browser,
+                            accessToken: accessToken,
+                            refreshToken: refreshToken
+                        )
+                        break
+                    } catch {
+                        continue
+                    }
+                }
+                return
+            }
+            for tunnel in enrolled {
+                for _ in 0..<attempts {
+                    do {
+                        try await service.revokeTunnel(
+                            deviceFingerprint: tunnel.deviceFingerprint,
                             tunnelPurpose: .browser,
                             accessToken: accessToken,
                             refreshToken: refreshToken
@@ -449,27 +500,42 @@ public final class CloudSystemVPNController {
     }
 
     private func rememberPendingBrowserTunnelRevocation(
-        _ tunnel: (scope: String, deviceFingerprint: String)
+        _ tunnel: (
+            scope: String,
+            deviceFingerprint: String,
+            credentials: CloudAPITokenSource.TokenPair?
+        )
     ) {
         guard !pendingBrowserTunnelRevocations.contains(where: {
-            $0.scope == tunnel.scope && $0.deviceFingerprint == tunnel.deviceFingerprint
+            $0.scope == tunnel.scope
+                && $0.deviceFingerprint == tunnel.deviceFingerprint
         }) else { return }
         pendingBrowserTunnelRevocations.append(tunnel)
     }
 
     private func removePendingBrowserTunnelRevocation(
-        _ tunnel: (scope: String, deviceFingerprint: String)
+        _ tunnel: (
+            scope: String,
+            deviceFingerprint: String,
+            credentials: CloudAPITokenSource.TokenPair?
+        )
     ) {
         pendingBrowserTunnelRevocations.removeAll {
-            $0.scope == tunnel.scope && $0.deviceFingerprint == tunnel.deviceFingerprint
+            $0.scope == tunnel.scope
+                && $0.deviceFingerprint == tunnel.deviceFingerprint
         }
     }
 
-    private func browserTunnelsForTeardown() -> [(scope: String, deviceFingerprint: String)] {
+    private func browserTunnelsForTeardown() -> [(
+        scope: String,
+        deviceFingerprint: String,
+        credentials: CloudAPITokenSource.TokenPair?
+    )] {
         var tunnels = pendingBrowserTunnelRevocations
         if let browserTunnel,
            !tunnels.contains(where: {
-               $0.scope == browserTunnel.scope && $0.deviceFingerprint == browserTunnel.deviceFingerprint
+               $0.scope == browserTunnel.scope
+                   && $0.deviceFingerprint == browserTunnel.deviceFingerprint
            }) {
             tunnels.append(browserTunnel)
         }
@@ -481,10 +547,7 @@ public final class CloudSystemVPNController {
             var lastError: (any Error)?
             for _ in 0..<cleanupRetryCount {
                 do {
-                    try await service.revokeTunnel(
-                        deviceFingerprint: tunnel.deviceFingerprint,
-                        tunnelPurpose: .browser
-                    )
+                    try await revokeBrowserTunnel(tunnel)
                     removePendingBrowserTunnelRevocation(tunnel)
                     lastError = nil
                     break
@@ -502,19 +565,33 @@ public final class CloudSystemVPNController {
 
     private func revokeEnrollmentIfOwned(
         _ enrollment: CloudTunnelEnrollment,
-        scope: String
+        scope: String,
+        credentials: CloudAPITokenSource.TokenPair?
     ) async {
         guard enrollment.created || enrollment.rotated else { return }
-        let tunnel = (scope: scope, deviceFingerprint: enrollment.deviceFingerprint)
+        let tunnel = (
+            scope: scope,
+            deviceFingerprint: enrollment.deviceFingerprint,
+            credentials: credentials
+        )
         rememberPendingBrowserTunnelRevocation(tunnel)
         let service = self.service
         let fingerprint = enrollment.deviceFingerprint
         let revoked = await Task.detached(priority: .utility) {
             do {
-                try await service.revokeTunnel(
-                    deviceFingerprint: fingerprint,
-                    tunnelPurpose: .browser
-                )
+                if let credentials {
+                    try await service.revokeTunnel(
+                        deviceFingerprint: fingerprint,
+                        tunnelPurpose: .browser,
+                        accessToken: credentials.accessToken,
+                        refreshToken: credentials.refreshToken
+                    )
+                } else {
+                    try await service.revokeTunnel(
+                        deviceFingerprint: fingerprint,
+                        tunnelPurpose: .browser
+                    )
+                }
                 return true
             } catch {
                 return false
@@ -522,6 +599,26 @@ public final class CloudSystemVPNController {
         }.value
         if revoked {
             removePendingBrowserTunnelRevocation(tunnel)
+        }
+    }
+
+    private func revokeBrowserTunnel(_ tunnel: (
+        scope: String,
+        deviceFingerprint: String,
+        credentials: CloudAPITokenSource.TokenPair?
+    )) async throws {
+        if let credentials = tunnel.credentials {
+            try await service.revokeTunnel(
+                deviceFingerprint: tunnel.deviceFingerprint,
+                tunnelPurpose: .browser,
+                accessToken: credentials.accessToken,
+                refreshToken: credentials.refreshToken
+            )
+        } else {
+            try await service.revokeTunnel(
+                deviceFingerprint: tunnel.deviceFingerprint,
+                tunnelPurpose: .browser
+            )
         }
     }
 

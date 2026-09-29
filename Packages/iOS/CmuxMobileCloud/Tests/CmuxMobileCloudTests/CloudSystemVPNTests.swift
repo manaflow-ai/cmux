@@ -118,7 +118,8 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
 
         @MainActor init(
             operationTimeout: Duration = .seconds(30),
-            cleanupRetryCount: Int = 3
+            cleanupRetryCount: Int = 3,
+            credentials: @escaping @Sendable () async -> CloudAPITokenSource.TokenPair? = { nil }
         ) {
             controller = CloudSystemVPNController(
                 service: service,
@@ -126,7 +127,8 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
                 manager: manager,
                 deviceName: "Aziz's iPhone",
                 operationTimeout: operationTimeout,
-                cleanupRetryCount: cleanupRetryCount
+                cleanupRetryCount: cleanupRetryCount,
+                credentials: credentials
             )
         }
 
@@ -608,7 +610,9 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
     }
 
     @Test func switchingAccountsRevokesTheOldBrowserPeer() async {
-        let rig = Rig()
+        let rig = Rig(credentials: {
+            (accessToken: "old-access", refreshToken: "old-refresh")
+        })
         await signedIn(rig, scope: "user-1/team-1")
         rig.controller.enable()
         await rig.controller.waitForPendingOperation()
@@ -619,6 +623,9 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.service.calls.revoke.count == 1)
         #expect(rig.service.calls.revoke.first?.fingerprint == "ios-abc")
         #expect(rig.service.calls.revoke.first?.purpose == .browser)
+        #expect(rig.service.calls.revokeCredentials.count == 1)
+        #expect(rig.service.calls.revokeCredentials.first?.accessToken == "old-access")
+        #expect(rig.service.calls.revokeCredentials.first?.refreshToken == "old-refresh")
     }
 
     @Test func theFirstSignedInScopeDoesNotRemoveAnything() async {
