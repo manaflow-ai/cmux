@@ -481,10 +481,11 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
       return NextResponse.redirect(new URL("/", requestOrigin(request)));
     }
 
-    const afterAuth = request.nextUrl.searchParams.get("after_auth_return_to");
-    if (afterAuth && afterAuth.startsWith("/") && !afterAuth.startsWith("//")) {
-      return NextResponse.redirect(new URL(afterAuth, requestOrigin(request)));
-    }
+    const afterAuth = sameOriginAfterAuthURL(
+      request.nextUrl.searchParams.get("after_auth_return_to"),
+      requestOrigin(request),
+    );
+    if (afterAuth) return NextResponse.redirect(afterAuth);
 
     if (refreshToken && accessCookie) {
       const fallback = buildNativeHref(null, refreshToken, accessCookie);
@@ -493,4 +494,20 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
 
     return NextResponse.redirect(new URL("/", requestOrigin(request)));
   };
+}
+
+/**
+ * A post-sign-in return path may only name a page on this origin. A raw
+ * prefix check is not enough: the URL parser reads a backslash as `/` and
+ * drops tabs and newlines, so `/\evil.example` resolves to another host. Decide on
+ * the parsed origin instead.
+ */
+function sameOriginAfterAuthURL(value: string | null, origin: string): URL | null {
+  if (!value?.startsWith("/")) return null;
+  try {
+    const target = new URL(value, origin);
+    return target.origin === origin ? target : null;
+  } catch {
+    return null;
+  }
 }
