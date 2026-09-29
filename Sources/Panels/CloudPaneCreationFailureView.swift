@@ -293,6 +293,7 @@ struct CloudFailureCard: View {
         CloudFailureCardBody(
             title: title, detail: detail, copyableText: copyableText,
             style: style, onRetry: onRetry, onDismiss: onDismiss,
+            actionTitle: actionTitle, onRecreate: onRecreate,
             theme: themeObserver.theme
         )
         .ghosttyDialogTheme()
@@ -306,6 +307,8 @@ private struct CloudFailureCardBody: View {
     let copyableText: String
     let style: Style
     let onRetry: (() -> Void)?
+    let actionTitle: String?
+    let onRecreate: (() -> Void)?
     let onDismiss: () -> Void
     let theme: GhosttyDialogTheme
 
