@@ -9,6 +9,61 @@ The vocabulary lives in [`.github/labels.json`](../.github/labels.json). The
 rules live in [`scripts/ci/triage_rules.py`](../scripts/ci/triage_rules.py).
 If this page and the code disagree, the code is what ran; fix the page.
 
+## Contributor difficulty
+
+Difficulty answers "how much context and coordination does a contributor need
+to make a safe change?" It is separate from severity and area. A low-impact
+RFC can be difficult, and a small fix can be urgent. Apply one `difficulty:1`
+through `difficulty:4` label after a maintainer has checked the scope.
+
+| Level | Use it when | Typical assignment |
+|---|---|---|
+| `difficulty:1` | One file or small named surface; reproduction and acceptance are explicit. | Docs, copy, a deterministic test, or a one-line configuration/UI correction. |
+| `difficulty:2` | One package or feature boundary; an existing pattern explains the shape. | A regression fix, small CLI/API addition, or contained UI behavior change. |
+| `difficulty:3` | Several components or a runtime lifecycle are involved; a design note is needed first. | Persistence/restore, agent hooks, remote transport, or a cross-package behavior change. |
+| `difficulty:4` | Security, authority, protocol, migration, release, or broad architecture is involved. | New transport semantics, auth/permissions, durable identity, or major orchestration. |
+
+Difficulty is not an estimate of intelligence or hours. When uncertain, choose
+the higher level and state what evidence would lower it. Keep `good first issue`
+for Level 1 work that names a code or document starting point and can be
+verified without maintainer-only access. `help wanted` says that a patch is
+welcome; it makes no promise about size.
+
+### Contributor-ready issue brief
+
+Before advertising an issue to a class or outside contributor, its body should
+name the user outcome, owning boundary, starting point, acceptance condition,
+verification command, and dependencies such as credentials, hardware, or a
+pending product decision. This compact block is useful when refining an issue:
+
+```markdown
+## Contributor brief
+- Difficulty: Level _
+- Area: `area: ...`
+- User outcome: ...
+- Starting point: `path/to/file:line`, command, or test ...
+- Acceptance condition: ...
+- Verification: `...`
+- Dependencies or maintainer decisions: ...
+```
+
+### Current starter candidates
+
+Recheck ownership and current-main behavior before assigning any issue. These
+examples show the intended mix for a course queue:
+
+| Issue | Level | Why it is teachable |
+|---|---:|---|
+| [#15408](https://github.com/manaflow-ai/cmux/issues/15408) — titlebar shortcut hint alignment | 1 | A failing UI assertion gives a precise acceptance condition and narrow layout owner. |
+| [#15286](https://github.com/manaflow-ai/cmux/issues/15286) — window geometry observer cleanup | 2 | A contained lifecycle bug with a clear owner and a regression seam. |
+| [#15300](https://github.com/manaflow-ai/cmux/issues/15300) — Ctrl+Tab with Caps Lock | 2 | Focused input behavior with a reproducible modifier-state boundary. |
+| [#15481](https://github.com/manaflow-ai/cmux/issues/15481) — SQL/Jinja preview highlighting | 2 | A deterministic file-preview/parser edge case with a suggested owner. |
+| [#15611](https://github.com/manaflow-ai/cmux/issues/15611) — progressive command discovery RFC | 3 | Good small-group design work; it needs information-architecture agreement before implementation. |
+
+Do not advertise auth, cloud infrastructure, remote transport, data migration,
+or release-signing work as independent student assignments until a maintainer
+has split out a bounded slice and named the required environment.
+
 ## Severity
 
 Severity answers "what does a person lose while this is open". It is not
