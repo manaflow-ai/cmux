@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextTerminal
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -21,6 +22,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
 
         startDaemon()
+        showDebugTerminalIfRequested()
+    }
+
+    /// Temporary dev hook until the App maps daemon terminals into panes:
+    /// `CMUX_NEXT_DEBUG_TERMINAL=1` opens a Ghostty surface on a local shell.
+    private func showDebugTerminalIfRequested() {
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["CMUX_NEXT_DEBUG_TERMINAL"] == "1" else { return }
+        TerminalDebugWindow.showLocalShell(initialInput: environment["CMUX_NEXT_DEBUG_TERMINAL_INPUT"])
+        TerminalDebugWindow.showScriptedFollower()
+        #endif
     }
 
     func applicationWillTerminate(_ notification: Notification) {
