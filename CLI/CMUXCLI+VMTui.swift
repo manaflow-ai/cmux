@@ -168,7 +168,7 @@ extension CMUXCLI {
         var seen = Set<String>()
         return entries.compactMap { entry -> String? in
             guard let token = (entry as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  token.range(of: "^[a-z0-9-]{1,64}$", options: .regularExpression) != nil,
+                  token.range(of: "^[a-z0-9-]{1,64}\\z", options: .regularExpression) != nil,
                   seen.insert(token).inserted else { return nil }
             return token
         }

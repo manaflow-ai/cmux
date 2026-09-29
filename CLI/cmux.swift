@@ -59,14 +59,10 @@ private func agentHookDebugLog(
     let logPath = agentHookDebugLogPath(socketPath: socketPath, env: env)
     let timestamp = String(format: "%.3f", Date().timeIntervalSince1970)
     let line = "\(timestamp) \(message())\n"
-    guard let data = line.data(using: .utf8) else { return }
-    if let handle = FileHandle(forWritingAtPath: logPath) {
-        defer { try? handle.close() }
-        guard (try? handle.seekToEnd()) != nil else { return }
-        try? handle.write(contentsOf: data)
-    } else {
-        FileManager.default.createFile(atPath: logPath, contents: data)
-    }
+    guard let data = line.data(using: .utf8),
+          let handle = OwnedFileAppendOpener().fileHandle(atPath: logPath) else { return }
+    defer { try? handle.close() }
+    try? handle.write(contentsOf: data)
 }
 private func agentHookDebugLogPath(socketPath: String?, env: [String: String]) -> String {
     if let explicit = agentHookDebugNonEmpty(env["CMUX_DEBUG_LOG"]) {
@@ -81,7 +77,7 @@ private func agentHookDebugLogPath(socketPath: String?, env: [String: String]) -
                 .path
         }
     }
-    if let lastPath = try? String(contentsOfFile: "/tmp/cmux-last-debug-log-path", encoding: .utf8),
+    if let lastPath = OwnedMarkerFileReader().trimmedContents(atPath: "/tmp/cmux-last-debug-log-path"),
        let normalized = agentHookDebugNonEmpty(lastPath) {
         return NSString(string: normalized).expandingTildeInPath
     }
@@ -3442,15 +3438,29 @@ final class SocketClient {
         }
 
         // Verify socket is owned by the current user to prevent fake-socket attacks.
-        var st = stat()
-        guard stat(path, &st) == 0 else {
+        // lstat first so a link someone else planted is never followed; a link
+        // this user owns is followed to its socket. Neither check can see a
+        // swap between here and connect, so the listener's credentials are
+        // checked again once connected.
+        func inspectionFailure() -> CLIError {
             let failureKind: CLIError.SocketFailureKind = errno == ENOENT
                 ? .pathMissing
                 : .pathInspectionFailed
-            throw CLIError(
+            return CLIError(
                 message: "Socket not found at \(path)",
                 socketFailureKind: failureKind
             )
+        }
+        var st = stat()
+        guard lstat(path, &st) == 0 else { throw inspectionFailure() }
+        if (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFLNK) {
+            guard st.st_uid == geteuid() else {
+                throw CLIError(
+                    message: "Socket link at \(path) is not owned by the current user — refusing to connect",
+                    socketFailureKind: .pathOwnershipConflict
+                )
+            }
+            guard stat(path, &st) == 0 else { throw inspectionFailure() }
         }
         guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
             throw CLIError(
@@ -3458,7 +3468,7 @@ final class SocketClient {
                 socketFailureKind: .pathTypeConflict
             )
         }
-        guard st.st_uid == getuid() else {
+        guard st.st_uid == geteuid() else {
             throw CLIError(
                 message: "Socket at \(path) is not owned by the current user — refusing to connect",
                 socketFailureKind: .pathOwnershipConflict
@@ -3506,6 +3516,15 @@ final class SocketClient {
             connectErrno = result == 0 ? 0 : errno
         }
         if connectErrno == 0 {
+            // Nothing, including the socket password, is written until the
+            // process listening on the other end is known to run as this user.
+            guard UnixSocketPeerCheck().isTrustedPeer(socketFD) else {
+                close()
+                throw CLIError(
+                    message: "Socket at \(path) is served by another user — refusing to connect",
+                    socketFailureKind: .pathOwnershipConflict
+                )
+            }
             return
         }
 
@@ -4019,73 +4038,6 @@ final class SocketClient {
                 defaultValue: "Socket read error"
             ))
         }
-    }
-
-    static func waitForFilesystemPath(_ path: String, timeout: TimeInterval) throws {
-        if FileManager.default.fileExists(atPath: path) {
-            return
-        }
-
-        guard let watchDirectory = existingWatchDirectory(forPath: path) else {
-            throw CLIError(message: "Timed out waiting for \(path)")
-        }
-        let watchFD = open(watchDirectory, O_EVTONLY)
-        guard watchFD >= 0 else {
-            throw CLIError(message: "Timed out waiting for \(path)")
-        }
-
-        let queue = DispatchQueue(label: "com.cmux.cli.path-watch.\(UUID().uuidString)")
-        let semaphore = DispatchSemaphore(value: 0)
-        var found = false
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: watchFD,
-            eventMask: [.write, .rename, .delete, .attrib, .extend, .link],
-            queue: queue
-        )
-
-        func checkPath() {
-            guard !found else { return }
-            if FileManager.default.fileExists(atPath: path) {
-                found = true
-                semaphore.signal()
-            }
-        }
-
-        source.setEventHandler {
-            checkPath()
-        }
-        source.setCancelHandler {
-            Darwin.close(watchFD)
-        }
-        source.resume()
-        queue.async {
-            checkPath()
-        }
-
-        guard semaphore.wait(timeout: .now() + timeout) == .success else {
-            source.cancel()
-            throw CLIError(message: "Timed out waiting for \(path)")
-        }
-
-        source.cancel()
-    }
-
-    private static func existingWatchDirectory(forPath path: String) -> String? {
-        let fileManager = FileManager.default
-        var candidate = URL(fileURLWithPath: (path as NSString).deletingLastPathComponent, isDirectory: true)
-
-        while !candidate.path.isEmpty {
-            var isDirectory: ObjCBool = false
-            if fileManager.fileExists(atPath: candidate.path, isDirectory: &isDirectory), isDirectory.boolValue {
-                return candidate.path
-            }
-            let parent = candidate.deletingLastPathComponent()
-            if parent.path == candidate.path {
-                break
-            }
-            candidate = parent
-        }
-        return nil
     }
 
     func streamV2(
@@ -12182,7 +12134,8 @@ struct CMUXCLI {
                     baselineSSHConfigOutput: resolvedOpenSSHDefaults,
                     explicitOptions: inputSSHOptions.sshOptions
                 )
-            }
+            },
+            routeSensitiveOptions: inputSSHOptions.identityFile.map { ["IdentityFile=\($0)"] } ?? []
         )
         if resolvedUserSSHConfiguration != nil {
             sshOptions.sshOptions = resolvedCmuxControlPathOptions(for: sshOptions)
@@ -12424,11 +12377,21 @@ struct CMUXCLI {
         } else {
             var workspaceCreateParams: [String: Any] = [
                 "initial_command": initialSSHStartupCommand,
+                "initial_terminal_is_remote": true,
             ]
+            var initialEnvironment: [String: String] = [:]
             if let agentSocketPath = sshOptions.agentSocketPath {
-                workspaceCreateParams["initial_env"] = [
-                    "SSH_AUTH_SOCK": agentSocketPath,
-                ]
+                initialEnvironment["SSH_AUTH_SOCK"] = agentSocketPath
+            }
+            if let configuredForegroundAuthToken {
+                // The first terminal can start before the remote configuration
+                // exists, so hand it the token that configuration will carry.
+                initialEnvironment.merge(
+                    SSHForegroundAuthenticationLaunch(token: configuredForegroundAuthToken).environment
+                ) { _, token in token }
+            }
+            if !initialEnvironment.isEmpty {
+                workspaceCreateParams["initial_env"] = initialEnvironment
             }
             try applyWindowOrCallerContext(to: &workspaceCreateParams, client: client, windowRaw: sshOptions.windowRaw)
 
@@ -13757,6 +13720,8 @@ struct CMUXCLI {
               let host = response["host"] as? String,
               let port = response["port"] as? Int,
               let username = response["username"] as? String,
+              // The interactive ssh argv has no `--`: the destination must not read as an option.
+              !username.isOptionLikeSSHDestination,
               let cred = response["credential"] as? [String: Any],
               let kind = cred["kind"] as? String
         else {
@@ -16345,8 +16310,8 @@ struct CMUXCLI {
     ) -> String? {
         guard shouldDeferRemoteReconnect(in: options) else { return nil }
         let preferredCLIPath = localCLIPath?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let quotedForegroundAuthToken = shellQuote(foregroundAuthToken)
-        return [
+        let launch = SSHForegroundAuthenticationLaunch(token: foregroundAuthToken)
+        var lines: [String] = [
             preferredCLIPath.map { "cmux_reconnect_cli=\(shellQuote($0));" } ?? "cmux_reconnect_cli=\"\";",
             "cmux_reconnect_socket=\"${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}\";",
             "if [ -z \"$cmux_reconnect_cli\" ] && [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]; then cmux_reconnect_cli=\"$CMUX_BUNDLED_CLI_PATH\"; fi;",
@@ -16355,14 +16320,21 @@ struct CMUXCLI {
             "if [ -z \"$cmux_reconnect_socket\" ]; then printf '%s\\n' 'cmux: deferred SSH reconnect skipped, local cmux socket not found' >&2;",
             "elif [ -z \"$cmux_reconnect_cli\" ] || [ ! -x \"$cmux_reconnect_cli\" ]; then printf '%s\\n' 'cmux: deferred SSH reconnect skipped, local cmux CLI not found' >&2;",
             "else",
-            "cmux_reconnect_token=\(quotedForegroundAuthToken);",
-            "cmux_reconnect_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"foreground_auth_token\\\":\\\"$cmux_reconnect_token\\\"}\";",
-            "\"$cmux_reconnect_cli\" --socket \"$cmux_reconnect_socket\" rpc workspace.remote.foreground_auth_ready \"$cmux_reconnect_payload\" >/dev/null 2>&1 || true;",
-            "unset cmux_reconnect_payload cmux_reconnect_token;",
+        ]
+        lines += launch.tokenLoadShellLines(into: "cmux_reconnect_token")
+        lines += SSHForegroundAuthenticationLaunch.readyShellLines(
+            tokenVariable: "cmux_reconnect_token",
+            payloadVariable: "cmux_reconnect_payload",
+            cliVariable: "cmux_reconnect_cli",
+            socketVariable: "cmux_reconnect_socket",
+            requireSuccess: false
+        )
+        lines += [
             "fi;",
             "fi;",
             "unset cmux_reconnect_socket cmux_reconnect_cli;",
-        ].joined(separator: " ")
+        ]
+        return lines.joined(separator: " ")
     }
 
     private func shouldDeferRemoteReconnect(in options: [String]) -> Bool {
@@ -16415,11 +16387,7 @@ struct CMUXCLI {
     }
 
     func shellQuote(_ value: String) -> String {
-        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
-        if value.range(of: safePattern, options: .regularExpression) != nil {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        value.posixShellWord
     }
 
     func execInteractiveProgram(
@@ -16456,27 +16424,15 @@ struct CMUXCLI {
             if let trimmedExplicit, !trimmedExplicit.isEmpty {
                 return trimmedExplicit
             }
-            guard let marker = try? String(contentsOfFile: "/tmp/cmux-last-debug-log-path", encoding: .utf8) else {
-                return nil
-            }
-            let trimmedMarker = marker.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmedMarker.isEmpty ? nil : trimmedMarker
+            return OwnedMarkerFileReader().trimmedContents(atPath: "/tmp/cmux-last-debug-log-path")
         }()
         guard let path else { return }
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let line = "\(timestamp) [cmux-cli] \(message())\n"
-        guard let data = line.data(using: .utf8) else { return }
-        if !FileManager.default.fileExists(atPath: path) {
-            FileManager.default.createFile(atPath: path, contents: nil)
-        }
-        guard let handle = FileHandle(forWritingAtPath: path) else { return }
+        guard let data = line.data(using: .utf8),
+              let handle = OwnedFileAppendOpener().fileHandle(atPath: path) else { return }
         defer { try? handle.close() }
-        do {
-            try handle.seekToEnd()
-            try handle.write(contentsOf: data)
-        } catch {
-            return
-        }
+        try? handle.write(contentsOf: data)
 #endif
     }
 
@@ -19107,6 +19063,8 @@ struct CMUXCLI {
             Usage: cmux rpc <method> [json-params]
 
             Call a raw v2 method with an optional JSON object for params.
+            Pass - to read the params from stdin, which keeps them out of the
+            process arguments.
             Example: cmux rpc surface.report_tty '{"workspace_id":"...","surface_id":"...","tty_name":"ttys001"}'
             """
         case "help":
@@ -23336,7 +23294,15 @@ struct CMUXCLI {
 
     private func parseRPCParams(_ args: [String]) throws -> [String: Any] {
         guard !args.isEmpty else { return [:] }
-        let raw = args.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawArgument: String
+        if args == ["-"] {
+            // Params can carry secrets, such as an SSH foreground-auth token,
+            // that must not appear in the process arguments.
+            rawArgument = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
+        } else {
+            rawArgument = args.joined(separator: " ")
+        }
+        let raw = rawArgument.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return [:] }
         guard let data = raw.data(using: .utf8) else {
             throw CLIError(message: "rpc params must be valid UTF-8 JSON")
@@ -27777,12 +27743,6 @@ struct CMUXCLI {
         return (process.terminationStatus, stdout, stderr)
     }
 
-    private func tmuxWaitForSignalURL(name: String) -> URL {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-        let sanitized = name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" }
-        return URL(fileURLWithPath: "/tmp/cmux-wait-for-\(String(sanitized)).sig")
-    }
-
     private func runTmuxCompatCommand(
         command: String,
         commandArgs: [String],
@@ -27906,24 +27866,15 @@ struct CMUXCLI {
             guard !name.isEmpty else {
                 throw CLIError(message: "wait-for requires a name")
             }
-            let signalURL = tmuxWaitForSignalURL(name: name)
+            let waitForSignal = TmuxWaitForSignal(name: name)
             if signal {
-                FileManager.default.createFile(atPath: signalURL.path, contents: Data())
+                try waitForSignal.signal()
                 print("OK")
                 return
             }
-            let deadline = Date().addingTimeInterval(timeout)
-            do {
-                try SocketClient.waitForFilesystemPath(signalURL.path, timeout: max(0, deadline.timeIntervalSinceNow))
-                try? FileManager.default.removeItem(at: signalURL)
+            if try waitForSignal.wait(timeout: timeout) {
                 print("OK")
                 return
-            } catch {
-                if FileManager.default.fileExists(atPath: signalURL.path) {
-                    try? FileManager.default.removeItem(at: signalURL)
-                    print("OK")
-                    return
-                }
             }
             throw CLIError(message: "wait-for timed out waiting for '\(name)'")
 

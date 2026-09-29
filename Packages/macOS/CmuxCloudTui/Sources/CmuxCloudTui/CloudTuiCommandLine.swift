@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -396,7 +397,7 @@ public struct CloudTuiCommandLine: Sendable {
 
     public static func shellQuote(_ value: String) -> String {
         if value.isEmpty { return "''" }
-        if value.range(of: "^[A-Za-z0-9_./:@%+=,-]+$", options: .regularExpression) != nil {
+        if value.isPOSIXShellBareWord(punctuation: "_./:@%+=,-") {
             return value
         }
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
