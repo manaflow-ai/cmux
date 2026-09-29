@@ -42,15 +42,16 @@ export function CliAuthConfirmation({ fullPage = true, identityMessages }: {
   );
 }
 
-// A signed-out browser has no account to show or switch away from. Stack's
-// authorize action already sends it to sign-in and finishes the CLI login on
-// return, so only the idle prompt changes.
+// A signed-out browser has no account to show. Stack's authorize action
+// already sends it to sign-in and finishes the CLI login on return, so only
+// the idle prompt changes.
 function signedOutMessage(cliAuth: CliAuthConfirmationState, messages: CliAuthIdentityMessages) {
-  if (cliAuth.status !== "idle") return cliAuthMessage(cliAuth, messages.switchAccountButton, false);
+  if (cliAuth.status !== "idle") return cliAuthMessage(cliAuth, messages.switchAccountButton);
   return {
     title: messages.signedOutTitle,
     primaryButtonText: messages.signInButton,
     primaryAction: cliAuth.authorize,
+    ...switchAccountProps(cliAuth.loginCode, messages.switchAccountButton),
     children: <p>{messages.signedOutBody}</p>,
   };
 }
@@ -76,8 +77,11 @@ function switchAccountProps(loginCode: string | null, label: string) {
   };
 }
 
-function cliAuthMessage(cliAuth: CliAuthConfirmationState, switchAccountButton: string, canSwitchAccount = true) {
-  const accountSwitch = canSwitchAccount ? switchAccountProps(cliAuth.loginCode, switchAccountButton) : {};
+// Every screen that still has a usable login code offers the account switch.
+// Success is the exception: Stack has consumed the code, so a switch would
+// return to a confirmation that can only fail.
+function cliAuthMessage(cliAuth: CliAuthConfirmationState, switchAccountButton: string) {
+  const accountSwitch = switchAccountProps(cliAuth.loginCode, switchAccountButton);
 
   if (cliAuth.status === "success") {
     return {
@@ -105,6 +109,7 @@ function cliAuthMessage(cliAuth: CliAuthConfirmationState, switchAccountButton: 
   if (cliAuth.status === "authorizing" || cliAuth.status === "redirecting") {
     return {
       title: "Completing Authorization...",
+      ...accountSwitch,
       children: <p>{"Finishing up the CLI authorization..."}</p>,
     };
   }

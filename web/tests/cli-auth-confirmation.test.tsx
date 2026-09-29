@@ -103,6 +103,22 @@ describe("CLI authorization account identity", () => {
     expect(html).not.toContain("email unavailable");
     expect(html).not.toContain("personal account");
     expect(html).not.toContain('<button type="button">Authorize</button>');
+  });
+
+  for (const signedIn of [true, false]) {
+    for (const status of ["idle", "authorizing", "redirecting", "error"] as const) {
+      test(`offers a different account on the ${status} screen when ${signedIn ? "signed in" : "signed out"}`, () => {
+        if (!signedIn) user = null;
+        auth.status = status;
+        const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
+        expect(html).toContain(`<button type="button">${en.cliAuthIdentity.switchAccountButton}</button>`);
+      });
+    }
+  }
+
+  test("does not offer a different account after the login code is consumed", () => {
+    auth.status = "success";
+    const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
     expect(html).not.toContain(en.cliAuthIdentity.switchAccountButton);
   });
 
