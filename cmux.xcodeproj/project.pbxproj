@@ -951,6 +951,7 @@
 		C7F29A7CD7C6410F87BB8536 /* CloudVMLoadingPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0581DFBCDBEE482A8D4CDB6C /* CloudVMLoadingPanelView.swift */; };
 		C75740010000000000000001 /* CloudVMMenuItemMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75740010000000000000002 /* CloudVMMenuItemMetricsTests.swift */; };
 		2D7F228001C24ABD865AFD66 /* CloudVMStateSnapshotComparisonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EFB9C9E7B5D4F39873871A1 /* CloudVMStateSnapshotComparisonTests.swift */; };
+		CB40AA1959A518141679F524 /* CloudVMSyncSubscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 746CCE87386AD47A813D5070 /* CloudVMSyncSubscriber.swift */; };
 		C12093000000000000000002 /* CloudVPNExplicitActivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12093000000000000000001 /* CloudVPNExplicitActivationTests.swift */; };
 		2CDEFA3DEE2C33025EAC4223 /* CloudVPNSetupModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5EC244BC074AE6469235568 /* CloudVPNSetupModel.swift */; };
 		549C9947A81C58B3F6402500 /* CloudVPNSetupPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EB75F0FF57EE985A8E4DD5 /* CloudVPNSetupPanel.swift */; };
@@ -5196,6 +5197,7 @@
 		0581DFBCDBEE482A8D4CDB6C /* CloudVMLoadingPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CloudVMLoadingPanelView.swift; sourceTree = "<group>"; };
 		C75740010000000000000002 /* CloudVMMenuItemMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMMenuItemMetricsTests.swift; sourceTree = "<group>"; };
 		7EFB9C9E7B5D4F39873871A1 /* CloudVMStateSnapshotComparisonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMStateSnapshotComparisonTests.swift; sourceTree = "<group>"; };
+		746CCE87386AD47A813D5070 /* CloudVMSyncSubscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMSyncSubscriber.swift; sourceTree = "<group>"; };
 		C12093000000000000000001 /* CloudVPNExplicitActivationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVPNExplicitActivationTests.swift; sourceTree = "<group>"; };
 		D5EC244BC074AE6469235568 /* CloudVPNSetupModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVPNSetupModel.swift; sourceTree = "<group>"; };
 		62EB75F0FF57EE985A8E4DD5 /* CloudVPNSetupPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVPNSetupPanel.swift; sourceTree = "<group>"; };
@@ -9015,6 +9017,7 @@
 				ED2C0C087F0298473CB156E7 /* MachinesPanelViewModel+MachineDeletion.swift */,
 				E3AF26EAE918E646929A4B58 /* CloudTreeOutlineView+RestoreState.swift */,
 				276B8742C711D7E718A5DC5A /* CloudTreePortPresentation.swift */,
+				746CCE87386AD47A813D5070 /* CloudVMSyncSubscriber.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -13819,6 +13822,7 @@
 				CFSF00000000000000000003 /* CloudVMFileExplorerProvider.swift in Sources */,
 				C7F29A7CD7C6410F87BB8537 /* CloudVMLoadingPanel.swift in Sources */,
 				C7F29A7CD7C6410F87BB8536 /* CloudVMLoadingPanelView.swift in Sources */,
+				CB40AA1959A518141679F524 /* CloudVMSyncSubscriber.swift in Sources */,
 			2CDEFA3DEE2C33025EAC4223 /* CloudVPNSetupModel.swift in Sources */,
 			549C9947A81C58B3F6402500 /* CloudVPNSetupPanel.swift in Sources */,
 			C8783B458C963A34D5A93FF3 /* CloudVPNSetupPanelView.swift in Sources */,

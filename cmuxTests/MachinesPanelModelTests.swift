@@ -1343,4 +1343,105 @@ struct MachineUsageReadoutTests {
         #expect(CloudTreeMachineRowContent(machine: withUsage).toolTip.contains(line), "spend stays available on hover")
     }
 
+    // MARK: - Realtime `vms` stream
+
+    /// A panel with no client, no pin store and Cloud enabled: the stream's
+    /// merge path with nothing to fetch.
+    @MainActor
+    private func makeStreamingModel(pollingClock: any Clock<Duration> = ContinuousClock()) -> MachinesPanelViewModel {
+        let model = MachinesPanelViewModel(
+            createCoordinator: MachineCreateCoordinator(notifier: { _ in }, notificationCenter: NotificationCenter()),
+            pollingClock: pollingClock,
+            isCloudEnabled: { true },
+            catalogProvider: { .empty }
+        )
+        model.localWorkspacesProvider = { [] }
+        return model
+    }
+
+    /// Stats-less so a merge never samples the shared client.
+    private func streamSummary(_ id: String, status: String = "running", createdAt: Int64, label: String? = nil) -> VMSummary {
+        VMSummary(
+            id: id, provider: "freestyle", status: status, image: "cmux-devbox:devbox-20260828b", createdAt: createdAt,
+            capabilities: VMCapabilities(snapshot: true, restore: true, fork: true, stats: false), displayName: label
+        )
+    }
+
+    @MainActor
+    func testStreamUpsertReplacesTheRowInPlace() {
+        let model = makeStreamingModel()
+        model.applyVMChanges(
+            upserts: [streamSummary("c", createdAt: 3_000), streamSummary("b", createdAt: 2_000), streamSummary("a", createdAt: 1_000)],
+            deletions: [], authoritative: true
+        )
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
+        XCTAssertTrue(model.hasLoadedOnce, "a complete fleet is a loaded list")
+
+        model.applyVMChanges(upserts: [streamSummary("b", status: "paused", createdAt: 2_000, label: "dev box")], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"], "an update keeps the row's slot")
+        XCTAssertEqual(model.machines[1].activity, .ready)
+        XCTAssertEqual(model.machines[1].label, "dev box")
+        XCTAssertEqual(model.machineIndexByID, ["c": 0, "b": 1, "a": 2])
+    }
+
+    @MainActor
+    func testStreamInsertKeepsCreatedAtDescendingOrder() {
+        let model = makeStreamingModel()
+        model.applyVMChanges(
+            upserts: [streamSummary("c", createdAt: 3_000), streamSummary("a", createdAt: 1_000)],
+            deletions: [], authoritative: true
+        )
+        model.applyVMChanges(upserts: [streamSummary("b", createdAt: 2_000)], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
+        model.applyVMChanges(upserts: [streamSummary("d", createdAt: 4_000)], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["d", "c", "b", "a"], "the newest machine leads, as the list endpoint orders it")
+        model.applyVMChanges(upserts: [streamSummary("z", createdAt: 0)], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["d", "c", "b", "a", "z"], "an unknown creation time sorts last")
+        XCTAssertEqual(model.machineIndexByID, ["d": 0, "c": 1, "b": 2, "a": 3, "z": 4])
+        XCTAssertNil(model.plan, "limits only arrive with a REST list")
+    }
+
+    @MainActor
+    func testStreamDeleteRemovesTheRow() {
+        let model = makeStreamingModel()
+        model.applyVMChanges(
+            upserts: [streamSummary("c", createdAt: 3_000), streamSummary("b", createdAt: 2_000), streamSummary("a", createdAt: 1_000)],
+            deletions: [], authoritative: true
+        )
+        model.applyVMChanges(upserts: [], deletions: ["b", "never-listed"], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "a"])
+        XCTAssertEqual(model.machineIndexByID, ["c": 0, "a": 1])
+
+        // A backfilled snapshot is the complete fleet: rows it lacks are gone.
+        model.applyVMChanges(upserts: [streamSummary("a", createdAt: 1_000)], deletions: [], authoritative: true)
+        XCTAssertEqual(model.machines.map(\.id), ["a"])
+    }
+
+    @MainActor
+    func testUnbackfilledSnapshotNeverDeletes() {
+        let model = makeStreamingModel()
+        model.applyVMChanges(
+            upserts: [streamSummary("c", createdAt: 3_000), streamSummary("a", createdAt: 1_000)],
+            deletions: [], authoritative: true
+        )
+        // The worker has only seen `b` since the collection shipped: it may
+        // add and update, but `c` and `a` stay until a REST list says otherwise.
+        model.applyVMChanges(upserts: [streamSummary("b", createdAt: 2_000)], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
+        model.applyVMChanges(upserts: [], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
+    }
+
+    @MainActor
+    func testRoutinePollIntervalFollowsTheStream() {
+        let clock = CloudReadManualClock()
+        let model = makeStreamingModel(pollingClock: clock)
+        XCTAssertEqual(model.routinePollInterval, MachinesPanelViewModel.pollInterval)
+        XCTAssertEqual(MachinesPanelViewModel.pollInterval, .seconds(45))
+        XCTAssertEqual(MachinesPanelViewModel.streamingPollInterval, .seconds(300))
+        XCTAssertFalse(model.isVMSyncConnected)
+        XCTAssertNil(model.vmSync, "no auth coordinator, no stream")
+        model.stopVMSync()
+        XCTAssertEqual(model.routinePollInterval, .seconds(45), "stopping an absent stream keeps the polling cadence")
+    }
 }

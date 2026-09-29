@@ -6,9 +6,11 @@ import Foundation
 import SwiftUI
 
 /// Loads the machine fleet for the right-sidebar Machines tab. Refreshes on
-/// demand plus a slow poll while the panel is visible; machine mutations go
-/// through the shared Cloud VM action path (`CloudVMActionLauncher`), never
-/// through this store.
+/// demand plus a slow poll while the panel is visible, and merges single
+/// machine changes pushed by the presence worker's `vms` sync collection
+/// (``CloudVMSyncSubscriber``) between polls; machine mutations go through
+/// the shared Cloud VM action path (`CloudVMActionLauncher`), never through
+/// this store.
 @MainActor
 final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var machines: [MachineSnapshot] = []
@@ -103,6 +105,17 @@ final class MachinesPanelViewModel: ObservableObject {
     var refreshTask: Task<Void, Never>?
     var statsID: UUID?
     let client: VMClient?
+    /// The realtime `vms` stream for this panel; nil when the composition root
+    /// has no auth coordinator (tests), in which case the list only polls.
+    let vmSync: CloudVMSyncSubscriber?
+    /// True while the `vms` socket is delivering frames. The routine poll
+    /// stretches to ``streamingPollInterval`` because the stream carries
+    /// changes; the poll then only covers `limits` and anything the stream lost.
+    private(set) var isVMSyncConnected = false
+    /// The refresh generation and pin scope the running stream was started
+    /// under; a frame from an older start is dropped like a stale list read.
+    var vmSyncGeneration: UInt64 = 0
+    var vmSyncScope: String?
     let isCloudEnabled: @MainActor () -> Bool
     let pollingClock: any Clock<Duration>
     /// Posts `NSWorkspace.didWakeNotification`; injectable for tests.
@@ -150,6 +163,7 @@ final class MachinesPanelViewModel: ObservableObject {
         machinePinStore: CloudMachinePinStore? = nil,
         resourceStats: VMResourceStatsStore? = nil,
         client: VMClient? = nil,
+        vmSync: CloudVMSyncSubscriber? = nil,
         pollingClock: any Clock<Duration> = ContinuousClock(),
         wakeNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
         lifecycleNotificationCenter: NotificationCenter = .default,
@@ -159,6 +173,7 @@ final class MachinesPanelViewModel: ObservableObject {
     ) {
         let networkClient = client ?? VMClient.shared
         self.client = networkClient
+        self.vmSync = vmSync
         self.pollingClock = pollingClock
         self.wakeNotificationCenter = wakeNotificationCenter
         self.lifecycleNotificationCenter = lifecycleNotificationCenter
@@ -221,6 +236,9 @@ final class MachinesPanelViewModel: ObservableObject {
             MainActor.assumeIsolated { self?.readUnreadTerminalIDs() }
         }
         readUnreadTerminalIDs()
+        vmSync?.setEventHandler { [weak self] event in
+            self?.vmSyncDidEmit(event)
+        }
         if let networkClient {
             networkTask = Task { [weak self, networkClient] in
                 let changes = await networkClient.networkChanges()
@@ -362,6 +380,14 @@ final class MachinesPanelViewModel: ObservableObject {
         machines = MachineSnapshotBuilder.applyingUsage(to: machines, usage: usage)
     }
     static let pollInterval: Duration = .seconds(45)
+    /// The routine cadence while the `vms` stream is connected: the stream
+    /// carries machine changes, so the poll only reconciles `limits` and any
+    /// change the stream lost.
+    static let streamingPollInterval: Duration = .seconds(300)
+    /// The cadence the poll loop sleeps for next; re-read on every iteration.
+    var routinePollInterval: Duration {
+        isVMSyncConnected ? Self.streamingPollInterval : Self.pollInterval
+    }
     /// A refresh asked for while one is in flight runs again afterwards: a
     /// create that lands mid-poll must still replace its pending row with the
     /// real machine now, not on the next 45 s sweep.
@@ -473,6 +499,7 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     func pausePolling() {
+        stopVMSync()
         pollTask?.cancel(); pollTask = nil
         refreshTask?.cancel(); refreshTask = nil
         refreshRequestedWhileLoading = false
@@ -562,6 +589,117 @@ final class MachinesPanelViewModel: ObservableObject {
         hasLoadedOnce = true
         #if DEBUG
         cmuxDebugLog("cloud.machines.list settled count=\(machines.count) problem=\(String(describing: listProblem))")
+        #endif
+    }
+
+    // MARK: - Realtime `vms` stream
+
+    /// Starts (or keeps) the stream under the current account and team, fenced
+    /// to this refresh generation and pin scope. Polling owns the lifecycle:
+    /// the stream lives exactly while the panel polls.
+    func startVMSync() {
+        guard let vmSync else { return }
+        vmSyncGeneration = refreshGeneration
+        vmSyncScope = machinePinStore?.scopeIdentifier
+        vmSync.start()
+    }
+
+    func stopVMSync() {
+        vmSync?.stop()
+        isVMSyncConnected = false
+    }
+
+    private func vmSyncDidEmit(_ event: CloudVMSyncSubscriber.Event) {
+        guard vmSyncGeneration == refreshGeneration, vmSyncScope == machinePinStore?.scopeIdentifier,
+              isCloudEnabled() else { return }
+        switch event {
+        case .connected:
+            setVMSyncConnected(true)
+            // Changes during the gap are not replayed in full, and the REST
+            // list is the only source of `limits`: read it on every (re)connect.
+            refresh(routinePoll: true)
+        case .disconnected:
+            setVMSyncConnected(false)
+        case .snapshot(let records, let backfilled):
+            // An unbackfilled snapshot holds only rows written since the
+            // collection shipped: it may add and update, never remove.
+            applyVMChanges(
+                upserts: records.compactMap(\.summary),
+                deletions: backfilled ? Set(records.filter(\.deleted).map(\.id)) : [],
+                authoritative: backfilled
+            )
+        case .delta(let records):
+            applyVMChanges(
+                upserts: records.compactMap(\.summary),
+                deletions: Set(records.filter(\.deleted).map(\.id)),
+                authoritative: false
+            )
+        }
+    }
+
+    private func setVMSyncConnected(_ connected: Bool) {
+        guard isVMSyncConnected != connected else { return }
+        isVMSyncConnected = connected
+        // The routine cadence changed: re-arm the sleeping poll so the new
+        // interval applies now instead of after the old one elapses.
+        guard pollTask != nil else { return }
+        pollTask?.cancel(); pollTask = nil
+        armPollLoop()
+    }
+
+    /// Merges pushed machine changes into the rows in place. `upserts` replace
+    /// their row by id or insert in createdAt-descending order (the list
+    /// endpoint's order); `deletions` remove rows; `authoritative` means
+    /// `upserts` is the complete fleet, so every other row is removed too.
+    /// Rows rebuild through ``MachineSnapshotBuilder`` with the last list's
+    /// free-access window, the shared stats store and the last usage, then the
+    /// same post-list reconcile runs as after a REST read. `limits` never
+    /// change here; only ``refresh(routinePoll:)`` carries them.
+    func applyVMChanges(upserts: [VMSummary], deletions: Set<String>, authoritative: Bool) {
+        guard isCloudEnabled() else { return }
+        let previous = resourceStats?.snapshot ?? [:]
+        var rows = machines
+        var index = machineIndexByID
+        var upsertedIDs = Set<String>()
+        for summary in upserts {
+            var snapshot = MachineSnapshotBuilder.snapshot(
+                from: summary,
+                freeAccessWindowDays: freeAccessWindowDays,
+                previousStats: previous[summary.id]
+            )
+            snapshot.usage = usageByMachineID[summary.id]
+            upsertedIDs.insert(summary.id)
+            if let position = index[summary.id], rows.indices.contains(position), rows[position].id == summary.id {
+                rows[position] = snapshot
+            } else {
+                let createdAt = snapshot.createdAt ?? .distantPast
+                let position = rows.firstIndex { ($0.createdAt ?? .distantPast) < createdAt } ?? rows.endIndex
+                rows.insert(snapshot, at: position)
+                index = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($0.element.id, $0.offset) })
+            }
+        }
+        var removed = deletions
+        if authoritative {
+            removed.formUnion(rows.map(\.id).filter { !upsertedIDs.contains($0) })
+        }
+        if !removed.isEmpty {
+            rows.removeAll { removed.contains($0.id) }
+        }
+        machineIndexByID = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($0.element.id, $0.offset) })
+        machines = rows
+        if authoritative {
+            // A complete fleet prunes pins the same way a list read does; a
+            // partial change only remembers order (readCatalog below).
+            machinePinStore?.reconcile(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(rows, catalog: scopedCatalogSnapshot()).map(\.id))
+            hasLoadedOnce = true
+        }
+        scheduleFreeAccessTransition()
+        refreshStats()
+        refreshUsage()
+        readCatalog()
+        plan = MachineSnapshotBuilder.planSnapshot(activeCount: rows.count, limits: lastLimits, machines: rows)
+        #if DEBUG
+        cmuxDebugLog("cloud.machines.list stream upserts=\(upserts.count) deletions=\(deletions.count) authoritative=\(authoritative) count=\(rows.count)")
         #endif
     }
 }

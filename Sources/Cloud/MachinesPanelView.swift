@@ -44,6 +44,7 @@ struct MachinesPanelView: View {
         self.teamPickerPresentation = teamPickerPresentation
         _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
             machinePinStore: machinePinStore,
+            vmSync: AppDelegate.shared?.auth.map { CloudVMSyncSubscriber(auth: $0.coordinator) },
             localWorkspacesProvider: { [weak tabManager] in
                 guard let tabManager else { return [] }
                 return tabManager.tabs.map {
