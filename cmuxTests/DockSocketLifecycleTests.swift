@@ -421,9 +421,9 @@ struct DockSocketLifecycleTests {
         }
     }
 
-    @Test("Dock browser creation reports browser-disabled after graduation")
+    @Test("Dock browser creation uses browser-disabled external fallback after graduation")
     @MainActor
-    func dockBrowserCreationReportsBrowserDisabledAfterGraduation() throws {
+    func dockBrowserCreationUsesBrowserDisabledExternalFallbackAfterGraduation() throws {
         try withBrowserDisabled {
             try withSocketAppContext { _, workspace, _ in
                 for method in ["surface.create", "pane.create"] {
@@ -433,10 +433,11 @@ struct DockSocketLifecycleTests {
                     }
                     let envelope = try v2Envelope(method: method, params: params)
 
-                    #expect(envelope["ok"] as? Bool == false)
-                    let error = try #require(envelope["error"] as? [String: Any])
-                    #expect(error["code"] as? String == "invalid_params")
-                    #expect(error["message"] as? String != "Dock placement is disabled")
+                    #expect(envelope["ok"] as? Bool == true)
+                    let result = try #require(envelope["result"] as? [String: Any])
+                    #expect(result["opened_externally"] as? Bool == true)
+                    #expect(result["browser_disabled"] as? Bool == true)
+                    #expect(result["placement_strategy"] as? String == "external_browser_disabled")
                     #expect(AppDelegate.shared?.existingWindowDocks.isEmpty ?? true)
                     #expect(workspace._dockSplit?.bonsplitController.allTabIds.isEmpty ?? true)
                 }
