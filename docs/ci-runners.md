@@ -853,11 +853,59 @@ caller.
 Hosted/isolated fallback remains available when the shared host refuses local
 admission or is draining, pressured, or unavailable.
 
+## Blacksmith outage: the overflow switch
+
+Blacksmith is overflow, so when it stops starting jobs the fix is to stop
+sending overflow there, not to reroute a lane. `ci-cloud-overflow-probe.yml`
+does that automatically (`scripts/ci/cloud_overflow_switch.py`). Every 10
+minutes its `probe` job asks for one Blacksmith label and prints a line, and
+its `watch` job, on GitHub-hosted Linux, waits for the probe:
+
+- **The probe waits `CI_CLOUD_PROBE_MINUTES` (default 5, 2 to 20) with no
+  runner.** Overflow goes off. The switch first writes the
+  `CI_CLOUD_OVERFLOW_SAVED` record (each variable's value before, its
+  failover, when and which run), then points the variables at their
+  failovers: `LINUX_RUNNER` to `ubuntu-24.04`, `MACOS_RUNNER_15`, `_26`,
+  `_26_LARGE`, `_PR` and `_DUAL_XCODE` to the std owned pool of the lane's
+  Xcode pin (`glaeda-std-xcode-<version>` from `CMUX_CI_XCODE_APP_PR`),
+  `MACOS_RUNNER_DISPLAY` to its gui label, `MACOS_RUNNER_IOS` to
+  `glaeda-ios-sim`, and `CI_PAID_MACOS_OVERFLOW` to `1` so the gated ones are
+  read. That is the lever pulled by hand on 2026-09-29. Only a variable that
+  is unset or names a `blacksmith-*` label changes; one someone pointed
+  elsewhere is left alone. Then up to 25 runs holding a job queued 5 minutes
+  or more on a `blacksmith-*` label are force-cancelled (a plain cancel did
+  nothing on 2026-09-29) and re-run, so they pick their runners again; merge
+  queue, release and publish runs, and runs already on attempt 3, are only
+  listed. The run then force-cancels itself, since its probe will not start.
+- **The probe starts.** If the record exists, each variable it changed is put
+  back (a variable changed by hand since is left alone and named) and the
+  record is deleted. While the record exists the probe asks for the label it
+  names, not `LINUX_RUNNER`, which is GitHub-hosted then.
+
+The lane switches (`CI_PR_POOL_OWNED`, `CI_E2E_OWNED_UI`, `CI_IOS_OWNED` and
+the other `CI_OWNED_*`) are never touched: minis first does not change, only
+where overflow lands. `CI_CLOUD_FAILOVER` (JSON, variable name to value, `""`
+to leave one alone) overrides a failover, for example
+`{"MACOS_RUNNER_15": "macos-15"}`; it may name only the variables above and
+`MACOS_RUNNER_TESTS`, never a `blacksmith-*` label. While the record exists,
+`check_repo_variables.py` accepts exactly the failover values it lists.
+
+Writing variables needs a token no workflow permission grants: a GitHub App
+with the repository permission "Variables: Read and write" and nothing else,
+its ID in `CI_OVERFLOW_SWITCH_APP_ID` and its key in the
+`CI_OVERFLOW_SWITCH_APP_KEY` secret of the `ci-overflow-switch` environment
+(deployment branch `main`). Without it the watch still probes, names each
+value to set by hand, and fails. A manual dispatch is a dry run by default.
+
+One Linux probe decides for macOS too: on 2026-09-29 both went at once. A
+probe can start on a pool that is only partly back; the next probe, 10
+minutes later, turns overflow off again if that pool still starts nothing.
+
 ## Break-glass: switch a runner type to a paid provider
 
-There is no automatic overflow for the runner variables. If a pool is
-unavailable or its queue is too long, set the affected variable to a paid
-provider.
+Outside a Blacksmith outage (above) there is no automatic overflow for the
+runner variables. If a pool is unavailable or its queue is too long, set the
+affected variable to a paid provider.
 
 Four runner variables exist to name **metered WarpBuild capacity**, so they are
 read through a second switch that lives in this repository rather than in
