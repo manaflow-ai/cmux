@@ -352,9 +352,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             catalog.replaceResources(displayResources, on: machine, info: info, from: self)
         }
         let statsRead = Task { try? await vmClient?.stats(id: machineID) }
-        var linkState: SurfaceLinkState = .connected
-        var linkError: String?
-        var linkFailure: SurfaceMachineLinkFailure?
+        var linkState: SurfaceLinkState = .connected; var linkError: String?; var linkFailure: SurfaceMachineLinkFailure?
         // A decoded snapshot is not automatically an authorization boundary. It
         // can lose an install race, or be older than the graph already accepted.
         // Callers must use only a graph established by this refresh as mutation
@@ -436,10 +434,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         } catch {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             portDiscovery.linkFailed()
-            if let typed = (error as? VMClientError)?.cloudHTTPError {
-                if typed.requiresRecreate { linkFailure = .recreateRequired; attachmentRetry.stop() }
-                else if typed.rejectsSession { linkFailure = .sessionRejected; attachmentRetry.stop() }
-            }
+            if let typed = (error as? VMClientError)?.cloudHTTPError { linkFailure = typed.requiresRecreate ? .recreateRequired : (typed.rejectsSession ? .sessionRejected : nil); if typed.requiresRecreate || typed.rejectsSession { attachmentRetry.stop() } }
             let status = await links.status(machineID: machineID)
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             let text = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
@@ -1685,16 +1680,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         stateRecoveryRefreshQueued = false
         stateRecoveryCount = 0
     }
-    func resetLinkFailureAfterRouteChange() {
-        guard info.linkFailure != nil else { return }
-        info.linkFailure = nil
-        info.linkError = nil
-        info.linkState = .connecting
-        attachmentRetry.reset()
-        catalog.updateMachine(info, from: self)
-    }
-    /// Mutations also request a snapshot as a safety check. One main-actor yield
-    /// coalesces calls made in the same transaction without adding a time guess.
+    func resetLinkFailureAfterRouteChange() { guard info.linkFailure != nil else { return }; info.linkFailure = nil; info.linkError = nil; info.linkState = .connecting; attachmentRetry.reset(); catalog.updateMachine(info, from: self) }
     func reconcileRemovedRemoteWorkspace(_ id: String) { info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }; catalog.updateMachine(info, from: self) }
     func scheduleRefresh() {
         let lifecycle = lifecycleGeneration
