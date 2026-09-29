@@ -1582,8 +1582,10 @@ jobs:
   # Dispatching takes actions: write, which no job in this file holds: a
   # pull_request run takes this file from the pull request. This job validates
   # the selectors and uploads them as a request; ci-ui-tests.yml, which always
-  # runs from the default branch, picks the request up, runs main's dispatcher
-  # on it, and cancels the dispatched run if this run ends first. This job then
+  # runs from the default branch and which the build controller dispatches when
+  # this job starts (it matches the job name `ui-tests`: keep this id and add
+  # no `name:`), picks the request up, runs main's dispatcher on it, and
+  # cancels the dispatched run if this run ends first. This job then
   # reports that run's verdict, so the result stays on the pull request and
   # under ci-status. A fork's request is refused here: ci-ui-tests.yml serves
   # only same-repository pull requests, so a maintainer runs its classes with
