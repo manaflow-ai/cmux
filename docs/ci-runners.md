@@ -1,5 +1,18 @@
 # CI runners
 
+> **Fleet route:** start at the hq [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md), then return here for CI runner selection, Xcode pins, repository variables, and the Blacksmith overflow switch. This file is the owner for those CI procedures.
+
+## Rules that must never be broken
+
+- CI is minis first. Blacksmith is overflow; do not disable an owned lane to
+  make room for a dev build.
+- Every mini must have every pinned Xcode from
+  `scripts/ci/xcode-pins.txt` and the matching `CMUX_CI_XCODE_APP_*` variable
+  before it receives that pool's job.
+- A dead Blacksmith pool uses the one probe-and-switch path below. Queued runs
+  move only by force-cancel plus rerun; GitHub cannot rerun one job until its
+  whole run finishes.
+
 Every CI/CD job picks its runner from a repository variable instead of a
 hardcoded label. Changing a runner type is a single repository-variable update
 that takes effect on the next workflow run.
@@ -856,6 +869,14 @@ Hosted/isolated fallback remains available when the shared host refuses local
 admission or is draining, pressured, or unavailable.
 
 ## Blacksmith outage: the overflow switch
+
+This is the only Blacksmith-outage lever. The 2026-09-29 manual variable
+changes are recorded in the hq
+[lever log](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/observations/2026-09-29-ci-lever-log.txt),
+but the probe-and-switch workflow below owns current recovery. Do not lower
+`CI_PR_POOL_OWNED`, `CI_E2E_OWNED_UI`, `CI_IOS_OWNED`, or another lane switch.
+GitHub cannot rerun one job while its parent run is still active; a run stuck
+on a dead pool needs force-cancel and then rerun.
 
 Blacksmith is overflow, so when it stops starting jobs the fix is to stop
 sending overflow there, not to reroute a lane. `ci-cloud-overflow-probe.yml`
