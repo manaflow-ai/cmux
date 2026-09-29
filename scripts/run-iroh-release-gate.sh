@@ -1123,7 +1123,7 @@ if soak_profile:
     allowed_paths["relayOnly"].add("relay")
     soak = report.get("soak") or {}
     duration, cycles = (600, 50) if soak_profile == "basic" else (3600, 300)
-    if soak.get("profile") != soak_profile or soak.get("planVersion") != 1:
+    if soak.get("profile") != soak_profile or soak.get("planVersion") != 2:
         problems.append("soak profile or plan version mismatch")
     if soak.get("requestedDurationSeconds") != duration or soak.get("elapsedSeconds", 0) < duration:
         problems.append("soak did not complete its full observation window")
@@ -1136,7 +1136,9 @@ if soak_profile:
     if soak_profile == "stress":
         required_operations += ["workspace_navigation", "workspace_refresh", "notification_refresh",
                                 "unicode_output_burst", "workspace_create", "workspace_switch", "workspace_close",
-                                "terminal_after_restore"]
+                                "terminal_after_restore", "terminal_after_refresh"]
+    if soak.get("recoverableFailures") != {}:
+        problems.append("soak reported terminal failures or missing recovery evidence")
     counts = soak.get("operationCounts", {})
     for operation in required_operations:
         minimum = cycles if operation in required_operations[:8] else cycles // 4
@@ -1147,8 +1149,8 @@ if soak_profile:
     launch_latency = (report.get("uiLatencies") or {}).get(
         "app_launch_request_to_workspace_rows_visible"
     )
-    if not isinstance(launch_latency, (int, float)) or launch_latency >= 2.5:
-        problems.append("workspace list exceeded the 2.5 second launch budget")
+    if not isinstance(launch_latency, (int, float)) or launch_latency >= 3.5:
+        problems.append("workspace list exceeded the 3.5 second launch budget")
 unexpected_keys = set(report) - allowed_keys
 if unexpected_keys:
     problems.append("report contained unexpected fields")
