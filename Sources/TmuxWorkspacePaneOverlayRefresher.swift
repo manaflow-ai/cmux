@@ -28,6 +28,9 @@ struct TmuxWorkspacePaneOverlayRefresher: View {
             .onChange(of: builder.experiment.target) { _, _ in
                 refreshRevision &+= 1
             }
+            .onChange(of: builder.settings) { _, _ in
+                refreshRevision &+= 1
+            }
             .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
                 guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                       tabId == builder.tabManager.selectedTabId else { return }

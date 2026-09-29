@@ -1066,7 +1066,7 @@ struct ContentView: View {
             sidebarUnread: sidebarUnread,
             experiment: tmuxOverlayExperiment,
             notificationStore: notificationStore,
-            settings: TmuxWorkspacePaneOverlayStateBuilder.Settings(
+            settings: TmuxWorkspacePaneOverlaySettings(
                 activePaneBorderColorHex: WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex),
                 rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
                 workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: cmuxAccent)

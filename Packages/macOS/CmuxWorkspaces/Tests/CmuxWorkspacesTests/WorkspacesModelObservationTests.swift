@@ -4,66 +4,6 @@ import os
 import Testing
 @testable import CmuxWorkspaces
 
-@MainActor
-private final class ObservedStubTab: WorkspaceTabRepresenting {
-    let id = UUID()
-    var groupId: UUID?
-    var isPinned = false
-    var currentDirectory = "/tmp"
-}
-
-/// Appends host hook events to the same log the tracking `onChange` writes,
-/// so a test can assert the order SwiftUI and the host see a change in.
-@MainActor
-private final class EventLogHost: WorkspacesHosting {
-    typealias Tab = ObservedStubTab
-
-    let log: OSAllocatedUnfairLock<[String]>
-
-    init(log: OSAllocatedUnfairLock<[String]>) {
-        self.log = log
-    }
-
-    func workspaceTabsWillChange(to newValue: [ObservedStubTab]) {
-        log.withLock { $0.append("tabs.willSet") }
-    }
-
-    func workspaceGroupsWillChange(to newValue: [WorkspaceGroup]) {
-        log.withLock { $0.append("groups.willSet") }
-    }
-
-    func selectedWorkspaceIdWillChange(to newValue: UUID?) {
-        log.withLock { $0.append("selection.willSet") }
-    }
-
-    func selectedWorkspaceIdDidChange(from oldValue: UUID?) {
-        log.withLock { $0.append("selection.didSet") }
-    }
-}
-
-/// Records, from inside the host's tabs hook, whether the model's id index
-/// already matches the incoming list.
-@MainActor
-private final class IndexProbeHost: WorkspacesHosting {
-    typealias Tab = ObservedStubTab
-
-    weak var model: WorkspacesModel<ObservedStubTab>?
-    private(set) var indexMatchedIncomingTabs: [Bool] = []
-
-    func workspaceTabsWillChange(to newValue: [ObservedStubTab]) {
-        guard let model else { return }
-        let incoming = Set(newValue.map(\.id))
-        indexMatchedIncomingTabs.append(
-            Set(model.tabsById.keys) == incoming
-                && newValue.allSatisfy { model.tabsById[$0.id] === $0 }
-        )
-    }
-
-    func workspaceGroupsWillChange(to newValue: [WorkspaceGroup]) {}
-    func selectedWorkspaceIdWillChange(to newValue: UUID?) {}
-    func selectedWorkspaceIdDidChange(from oldValue: UUID?) {}
-}
-
 /// The observation contract sidebar, right sidebar and command palette views
 /// rely on when their bodies read `WorkspacesModel` through `TabManager`:
 /// each stored member invalidates only its own tracked reads, before the host

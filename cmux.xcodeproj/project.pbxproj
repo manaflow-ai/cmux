@@ -3754,6 +3754,7 @@
 		E30760060000000000000002 /* TmuxWorkspacePaneOverlayModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760060000000000000001 /* TmuxWorkspacePaneOverlayModelTests.swift */; };
 		6B43BE542D2BD40CE60074BE /* TmuxWorkspacePaneOverlayRefresher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F7183D122B3E639EC88F6E6 /* TmuxWorkspacePaneOverlayRefresher.swift */; };
 		E30760050000000000000002 /* TmuxWorkspacePaneOverlayRenderState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760050000000000000001 /* TmuxWorkspacePaneOverlayRenderState.swift */; };
+		EA1DAABBB3A018504F2D84AD /* TmuxWorkspacePaneOverlaySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67473EBDD345482D34C76097 /* TmuxWorkspacePaneOverlaySettings.swift */; };
 		2266CBB107FE4621370B99A4 /* TmuxWorkspacePaneOverlayStateBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F9E6E0EA230D9166AB417 /* TmuxWorkspacePaneOverlayStateBuilder.swift */; };
 		E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */; };
 		C01E00020000000000000001 /* TokenTheme+AppKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01E00020000000000000002 /* TokenTheme+AppKit.swift */; };
@@ -7799,6 +7800,7 @@
 		E30760060000000000000001 /* TmuxWorkspacePaneOverlayModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayModelTests.swift; sourceTree = "<group>"; };
 		5F7183D122B3E639EC88F6E6 /* TmuxWorkspacePaneOverlayRefresher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayRefresher.swift; sourceTree = "<group>"; };
 		E30760050000000000000001 /* TmuxWorkspacePaneOverlayRenderState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayRenderState.swift; sourceTree = "<group>"; };
+		67473EBDD345482D34C76097 /* TmuxWorkspacePaneOverlaySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlaySettings.swift; sourceTree = "<group>"; };
 		DA5F9E6E0EA230D9166AB417 /* TmuxWorkspacePaneOverlayStateBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayStateBuilder.swift; sourceTree = "<group>"; };
 		E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayView.swift; sourceTree = "<group>"; };
 		C01E00020000000000000002 /* TokenTheme+AppKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TokenTheme+AppKit.swift"; sourceTree = "<group>"; };
@@ -10998,6 +11000,7 @@
 				5F7183D122B3E639EC88F6E6 /* TmuxWorkspacePaneOverlayRefresher.swift */,
 				DA5F9E6E0EA230D9166AB417 /* TmuxWorkspacePaneOverlayStateBuilder.swift */,
 				6EE9AA5853CDDFC7B74F3B07 /* WorkspacePaneFlashModel.swift */,
+				67473EBDD345482D34C76097 /* TmuxWorkspacePaneOverlaySettings.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15346,6 +15349,7 @@
 				B35751000000000000000002 /* TmuxResumeParser.swift in Sources */,
 				6B43BE542D2BD40CE60074BE /* TmuxWorkspacePaneOverlayRefresher.swift in Sources */,
 				E30760050000000000000002 /* TmuxWorkspacePaneOverlayRenderState.swift in Sources */,
+				EA1DAABBB3A018504F2D84AD /* TmuxWorkspacePaneOverlaySettings.swift in Sources */,
 				2266CBB107FE4621370B99A4 /* TmuxWorkspacePaneOverlayStateBuilder.swift in Sources */,
 				E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */,
 					C01E00020000000000000001 /* TokenTheme+AppKit.swift in Sources */,

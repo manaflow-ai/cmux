@@ -16,42 +16,11 @@ import CmuxNotifications
 /// mode changes and glass root swaps.
 @MainActor
 struct TmuxWorkspacePaneOverlayStateBuilder {
-    /// The inputs the build reads from plain values rather than observable
-    /// models, compared by ``TmuxWorkspacePaneOverlayRefresher`` to decide
-    /// whether a parent update changed the overlay.
-    struct Settings: Equatable, Sendable {
-        /// The normalized active pane border color; `nil` hides the border.
-        var activePaneBorderColorHex: String?
-        /// The right sidebar owns input focus, which hides the border.
-        var rightSidebarOwnsInputFocus: Bool
-        /// The unread ring and flash color.
-        var workspaceAttentionColor: WorkspaceAttentionColor
-    }
-
-    /// Equal identities build equal overlays from the same model state.
-    struct Identity: Equatable, Sendable {
-        let settings: Settings
-        let tabManager: ObjectIdentifier
-        let sidebarUnread: ObjectIdentifier
-        let experiment: ObjectIdentifier
-        let notificationStore: ObjectIdentifier
-    }
-
     let tabManager: TabManager
     let sidebarUnread: SidebarUnreadModel
     let experiment: TmuxOverlayExperimentTargetObserver
     let notificationStore: TerminalNotificationStore
-    let settings: Settings
-
-    var identity: Identity {
-        Identity(
-            settings: settings,
-            tabManager: ObjectIdentifier(tabManager),
-            sidebarUnread: ObjectIdentifier(sidebarUnread),
-            experiment: ObjectIdentifier(experiment),
-            notificationStore: ObjectIdentifier(notificationStore)
-        )
-    }
+    let settings: TmuxWorkspacePaneOverlaySettings
 
     /// Builds the overlay for `window` and hands it to the window's overlay
     /// controller, which skips a state equal to the one it last rendered.

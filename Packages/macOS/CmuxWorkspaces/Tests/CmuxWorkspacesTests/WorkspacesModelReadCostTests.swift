@@ -3,24 +3,6 @@ import Observation
 import Testing
 @testable import CmuxWorkspaces
 
-@MainActor
-private final class ReadCostStubTab: WorkspaceTabRepresenting {
-    let id = UUID()
-    var groupId: UUID?
-    var isPinned = false
-    var currentDirectory = "/tmp"
-}
-
-/// The same three stored members on a non-generic `@Observable` class: the
-/// per-read cost SwiftUI pays for an ordinary observable property.
-@MainActor
-@Observable
-private final class NonGenericWorkspacesControl {
-    var tabs: [ReadCostStubTab] = []
-    var workspaceGroups: [WorkspaceGroup] = []
-    var selectedTabId: UUID?
-}
-
 /// #15439: reading `WorkspacesModel` members must cost about what reading a
 /// non-generic `@Observable` property costs, tracked or not.
 ///
