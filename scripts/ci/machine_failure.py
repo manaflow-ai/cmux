@@ -22,6 +22,9 @@ SIGNATURES = (
     ("screen frame capture failed to start", "screen capture could not start"),
     # Homebrew's refusal when the runner user does not own its prefix.
     ("The following directories are not writable by your user", "the Mac's Homebrew prefix is not writable by the runner user"),
+    # scripts/select-ci-xcode.sh, before any build, on a Mac without the pinned Xcode.
+    ("[cmux-ci machine: xcode-pin-missing]", "the Mac does not have the Xcode the job pins"),
+    ("Pinned Xcode developer dir does not exist", "the Mac does not have the Xcode the job pins"),
 )
 
 # XCTest and Swift Testing lines for a test that began. One of these means the
