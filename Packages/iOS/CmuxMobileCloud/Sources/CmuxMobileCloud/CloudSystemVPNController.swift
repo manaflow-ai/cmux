@@ -413,12 +413,14 @@ public final class CloudSystemVPNController {
         let attempts = cleanupRetryCount
         let creationScope = scope
         let creationTeamID = scopeTeamID
+        let creationTunnels = browserTunnelsForTeardown()
         return { accessToken, refreshToken in
             await controller.waitForPendingOperationAndGate()
-            var enrolled = await controller.browserTunnelsForTeardown()
+            var enrolled = creationTunnels.filter { tunnel in
+                tunnel.scope == creationScope
+            }
             if enrolled.isEmpty {
-                let fallbackScope = await controller.currentScopeForTeardown() ?? creationScope
-                guard let scope = fallbackScope,
+                guard let scope = creationScope,
                       let fingerprint = try? await identityResolver.stored()?.fingerprint
                 else { return }
                 enrolled = [(
@@ -638,10 +640,6 @@ public final class CloudSystemVPNController {
                 ))
             }
         }
-    }
-
-    private func currentScopeForTeardown() -> String? {
-        scope
     }
 
     private func persistPendingBrowserTunnelRevocation(

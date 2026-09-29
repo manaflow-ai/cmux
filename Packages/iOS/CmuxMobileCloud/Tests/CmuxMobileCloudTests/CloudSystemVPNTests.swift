@@ -214,6 +214,26 @@ import Testing
         #expect(rig.service.calls.revoke.last?.fingerprint == "ios-def")
     }
 
+    @Test func aDelayedSignOutTeardownDoesNotRevokeAReplacementBrowserPeer() async {
+        let rig = Rig()
+        var replacement = Fixtures.enrollment
+        replacement.deviceFingerprint = "ios-def"
+        rig.service.enrollmentSequence = [Fixtures.enrollment, replacement]
+        await signedIn(rig)
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        let teardown = rig.controller.serverTeardown()
+        rig.manager.report(.off)
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        await teardown("captured-access", "captured-refresh")
+
+        #expect(rig.service.calls.revoke.count == 1)
+        #expect(rig.service.calls.revoke.first?.fingerprint == "ios-abc")
+    }
+
     @Test func signOutWithoutCapturedCredentialsPersistsBrowserRevocation() async {
         let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
         let rig = Rig(pendingRevocationStore: pendingStore)
