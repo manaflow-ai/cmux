@@ -12,6 +12,12 @@ struct DarwinProcessInfoReader {
         // Its memory remains unavailable unless the resource APIs can read it.
         return fallbackBSDInfo(pid)
     }
+    /// Whether no process with this PID exists anymore. A PID that exited
+    /// after it was listed holds nothing, so it is absent rather than unreadable.
+    func processHasExited(_ pid: pid_t) -> Bool {
+        errno = 0
+        return kill(pid, 0) != 0 && errno == ESRCH
+    }
     /// Reads only the public topology and generation fields needed by the index.
     func fallbackBSDInfo(_ pid: pid_t) -> proc_bsdinfo? {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]

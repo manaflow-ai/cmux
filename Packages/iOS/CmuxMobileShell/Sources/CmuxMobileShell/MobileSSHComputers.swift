@@ -5,6 +5,7 @@ internal import LocalAuthentication
 internal import Network
 internal import CmuxMobileSupport
 public import CmuxMobileSSH
+public import CmuxMobileTunnel
 public import CmuxMobileShellModel
 public import Foundation
 public import Observation
@@ -152,7 +153,16 @@ public final class MobileSSHComputers {
     @ObservationIgnored private var autoConnectPauseGeneration: [UUID: Int] = [:]
     static let replayCap = 4 * 1_024 * 1_024
 
-    public init(directory: URL) {
+    /// Owners of the phone's loopback ports across every computer. The
+    /// composite hands the same registry to paired Macs' browser networks.
+    @ObservationIgnored public let loopbackPorts: LoopbackPortRegistry
+
+    /// - Parameters:
+    ///   - directory: Where hosts and keys persist.
+    ///   - loopbackPorts: The phone-wide loopback port registry; a fresh one
+    ///     by default, so tests and previews never share ports.
+    public init(directory: URL, loopbackPorts: LoopbackPortRegistry = LoopbackPortRegistry()) {
+        self.loopbackPorts = loopbackPorts
         hostStore = SSHHostStore(directory: directory)
         keyStore = SSHKeyStore(directory: directory)
         Task { await reload() }

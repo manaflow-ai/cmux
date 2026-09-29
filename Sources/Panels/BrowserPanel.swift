@@ -2083,6 +2083,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     var webView: WKWebView
+    private(set) var localFileEncodingPolicy: BrowserLocalFileEncodingPolicy
     private let surfaceSelectionReader = WebSurfaceSelectionReader()
     let viewportHostView = BrowserViewportHostView(frame: .zero)
     let viewportModel = BrowserViewportModel()
@@ -3184,6 +3185,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func bindWebView(_ webView: CmuxWebView) {
+        localFileEncodingPolicy = BrowserLocalFileEncodingPolicy(
+            preferences: webView.configuration.preferences
+        )
         webViewObservationGeneration &+= 1
         browserViewportHostRestorationTask?.cancel()
         browserViewportHostRestorationTask = nil
@@ -3688,6 +3692,9 @@ final class BrowserPanel: Panel, ObservableObject {
             )
         }
         self.webView = webView
+        self.localFileEncodingPolicy = BrowserLocalFileEncodingPolicy(
+            preferences: webView.configuration.preferences
+        )
         self.insecureHTTPAlertFactory = { NSAlert() }
         mobileBrowserDialogBroker.onPresented = { [weak self] dialog in
             guard let self, !self.mobileBrowserStreamSignalHandlers.isEmpty else { return }
