@@ -3604,7 +3604,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         poller.resume()
     }
 
-#if DEBUG
     /// UI-test harness for issue #8810's exact repro: a hard wrap that
     /// splits an absolute path mid-word, with no punctuation before the
     /// break. Deliberately separate from `setupTerminalCmdClickUITestIfNeeded`
@@ -3934,7 +3933,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxDebugLog("cmdclick.wrap.ui.setup poller_started manifest=\(manifestPath)")
         poller.resume()
     }
-#endif
 
     private func writeTerminalCmdClickUITestData(at path: String, updates: [String: Any]) {
         let url = URL(fileURLWithPath: path)

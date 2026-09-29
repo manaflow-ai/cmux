@@ -970,7 +970,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         _ = try runSSHPreviewFixtureTool("/usr/bin/ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", hostKey])
         _ = try runSSHPreviewFixtureTool("/usr/bin/ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", clientKey])
         let port = try XCTUnwrap(Int(try runSSHPreviewFixtureTool("/usr/bin/perl", [
-            "-MSocket", "-e", "my $s = IO::Socket::INET->new(LocalAddr => '127.0.0.1', LocalPort => 0, Listen => 1); die $! unless $s; print $s->sockport"
+            "-MIO::Socket::INET", "-e", "my $s = IO::Socket::INET->new(LocalAddr => '127.0.0.1', LocalPort => 0, Listen => 1); die $! unless $s; print $s->sockport"
         ]).trimmingCharacters(in: .whitespacesAndNewlines)))
         let config = harnessDirectoryURL.appendingPathComponent("sshd-config")
         try """

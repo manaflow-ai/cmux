@@ -8838,9 +8838,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// trigger (Cmd release, selection, remote, cwd/scroll/resize,
     /// visibility loss, surface replacement/teardown) calls — review
     /// Blocking 7. Builds a minimal `ExternalHoverWorkRequest` at the
-    /// CURRENT `hoverEventID` (already bumped/published by the caller)
-    /// purely to satisfy `withdrawCurrentCandidate`'s acceptance-boundary
-    /// check; `cwd`/`cell`/`viewportRowCount` are unused by withdrawal.
+    /// CURRENT `hoverEventID` purely to satisfy
+    /// `withdrawCurrentCandidate`'s acceptance-boundary check;
+    /// `cwd`/`cell`/`viewportRowCount` are unused by withdrawal. The helper
+    /// advances and publishes the event itself so an in-flight resolve is
+    /// fenced even when no mailbox request has been recorded yet.
     // `fileprivate`: `GhosttyApp.handleAction`'s
     // `GHOSTTY_ACTION_EXTERNAL_LINK_HOVER` case calls this for `active ==
     // false`, and the `GHOSTTY_ACTION_PWD`/`_SCROLLBAR`/`_CELL_SIZE` cases
@@ -8848,6 +8850,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // same file.
     fileprivate func clearExternalHoverCandidate(reason: String) {
         guard let surface, let terminalSurface else { return }
+        // Fence any in-flight resolve before checking the mailbox. A resolve
+        // can be suspended before recording its request, so checking first
+        // would let stale work pass the unchanged event-id guard.
+        // Preserve eligibility published by pointer exit or visibility loss.
+        noteHoverAffectingEventAndPublish(commandHeld: hoverCallbackMirror.captureHoverCallbackSnapshot().eligible)
         let mailbox = externalHoverOwnerCoordinator.currentMailbox
         let hasDisplayedExternalOwner: Bool = {
             if case .external = hoverIndicatorState.displayedOwner { return true }
@@ -11561,7 +11568,7 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingOverlayView.layer?.masksToBounds = false
         notificationRingOverlayView.autoresizingMask = [.width, .height]
         let notificationRingStyle = WorkspaceAttentionCoordinator.notificationRingStyle
-        let notificationRingColor = NSColor.systemBlue
+        let notificationRingColor = workspaceAttentionNSColor
         notificationRingLayer.fillColor = NSColor.clear.cgColor
         notificationRingLayer.strokeColor = notificationRingColor.cgColor
         notificationRingLayer.lineWidth = NotificationRingMetrics.lineWidth
@@ -11580,7 +11587,7 @@ final class GhosttySurfaceScrollView: NSView {
         flashOverlayView.layer?.masksToBounds = false
         flashOverlayView.autoresizingMask = [.width, .height]
         let flashStyle = WorkspaceAttentionCoordinator.flashStyle(for: .navigation)
-        let flashColor = NSColor.systemBlue
+        let flashColor = workspaceAttentionNSColor
         flashLayer.fillColor = NSColor.clear.cgColor
         flashLayer.strokeColor = flashColor.cgColor
         flashLayer.lineWidth = NotificationRingMetrics.lineWidth
@@ -14242,7 +14249,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard let view = resolvedKeyboardFocusOwnerView(for: responder) else { return false }
         var current: NSView? = view
         while let v = current {
-            if v is NSHostingView<SurfaceSearchOverlay> { return true }
+            if v is NSHostingView<SurfaceSearchOverlayRoot> { return true }
             let typeName = String(describing: type(of: v))
             if typeName.contains("BrowserSearchOverlay") { return true }
             current = v.superview

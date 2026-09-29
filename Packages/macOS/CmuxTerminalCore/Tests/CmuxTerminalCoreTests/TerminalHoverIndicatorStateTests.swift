@@ -94,15 +94,38 @@ struct TerminalHoverIndicatorStateTests {
         #expect(stateWithEmptyString.displayedOwner == .none)
     }
 
-    @Test("A newer native nil clears an external owner")
-    func newerNativeNilClearsExternalOwner() {
+    @Test("A newer native nil clears an older native owner")
+    func newerNativeNilClearsNativeOwner() {
         var state = TerminalHoverIndicatorState()
-        state.receiveExternalActive(event: 1, token: Self.token(1), path: "/external/path")
+        state.receiveNative(event: 1, url: "https://example.com/old")
 
         state.receiveNative(event: 2, url: nil)
 
         #expect(state.displayedOwner == .none)
         #expect(state.displayedURL == nil)
+    }
+
+    @Test("An older native nil cannot clear a newer native owner")
+    func olderNativeNilPreservesNativeOwner() {
+        var state = TerminalHoverIndicatorState()
+        state.receiveNative(event: 2, url: "https://example.com/new")
+
+        state.receiveNative(event: 1, url: nil)
+
+        #expect(state.displayedOwner == .native(hoverEventID: 2))
+        #expect(state.displayedURL == "https://example.com/new")
+    }
+
+    @Test("A newer native nil is deferred under an active external owner")
+    func newerNativeNilIsDeferredUnderExternalOwner() {
+        var state = TerminalHoverIndicatorState()
+        state.receiveExternalActive(event: 1, token: Self.token(1), path: "/external/path")
+
+        state.receiveNative(event: 2, url: nil)
+
+        #expect(state.displayedOwner == .external(hoverEventID: 1, token: Self.token(1)))
+        #expect(state.displayedURL == "/external/path")
+        #expect(state.deferredNative == .init(event: 2, url: nil))
     }
 
     // 5. B0-3 (the ORIGINAL race this reducer must still prevent):
