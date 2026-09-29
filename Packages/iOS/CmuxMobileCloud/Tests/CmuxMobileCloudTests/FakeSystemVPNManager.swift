@@ -12,9 +12,11 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
     var refreshedScopes: [String] = []
     var installFailure: CloudSystemVPNError?
     var installDelay: Duration?
+    var stopDelay: Duration?
     var stopFailuresRemaining = 0
     var stopAttempts: [Bool] = []
     private var installDelayTask: Task<Void, Never>?
+    private var stopDelayTask: Task<Void, Never>?
     private var installWasCancelled = false
     private let installCompletion = TestSignal()
     private let cancellation = TestSignal()
@@ -62,6 +64,8 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         installWasCancelled = true
         installDelayTask?.cancel()
         installDelay = nil
+        stopDelayTask?.cancel()
+        stopDelay = nil
         phase = .off
         Task { await cancellation.signal() }
     }
@@ -73,6 +77,15 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         if stopFailuresRemaining > 0 {
             stopFailuresRemaining -= 1
             throw CloudSystemVPNError.configuration
+        }
+        if let stopDelay {
+            let delayTask = Task<Void, Never> {
+                try? await ContinuousClock().sleep(for: stopDelay)
+            }
+            stopDelayTask = delayTask
+            defer { stopDelayTask = nil }
+            await delayTask.value
+            try Task.checkCancellation()
         }
         stops.append(removeConfiguration)
         await stopCompletion.signal()

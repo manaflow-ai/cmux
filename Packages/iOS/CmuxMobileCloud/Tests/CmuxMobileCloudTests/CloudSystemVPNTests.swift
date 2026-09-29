@@ -152,6 +152,24 @@ import Testing
         #expect(rig.service.calls.revoke.first?.purpose == .browser)
     }
 
+    @Test func timedOutCleanupReconcilesAfterRetainedStopCompletes() async {
+        let rig = Rig(operationTimeout: .milliseconds(50))
+        rig.manager.stopDelay = .milliseconds(80)
+        await signedIn(rig)
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        rig.controller.setScope(nil)
+        await rig.controller.waitForPendingOperation()
+        await rig.manager.waitForStopCompletion()
+
+        for _ in 0..<50 where rig.controller.phase != .off {
+            try? await ContinuousClock().sleep(for: .milliseconds(5))
+        }
+        #expect(rig.manager.stops == [true])
+        #expect(rig.controller.phase == .off)
+    }
+
     @Test func signOutTeardownRevokesTheBrowserPeerWithCapturedCredentials() async {
         let rig = Rig()
         await signedIn(rig)
@@ -164,6 +182,19 @@ import Testing
         #expect(rig.service.calls.revoke.count == 1)
         #expect(rig.service.calls.revoke.first?.fingerprint == "ios-abc")
         #expect(rig.service.calls.revoke.first?.purpose == .browser)
+    }
+
+    @Test func signOutWithoutCapturedCredentialsPersistsBrowserRevocation() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        let rig = Rig(pendingRevocationStore: pendingStore)
+        await signedIn(rig)
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        let teardown = rig.controller.serverTeardown()
+        await teardown(nil, nil)
+
+        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
     }
 
     @Test func failedSignOutRevocationIsRetriedAfterControllerRecreation() async {
