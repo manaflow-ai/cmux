@@ -26,6 +26,7 @@ extension CmuxSettingsFileStore {
         "app.preferredEditor",
         "app.defaultWorkspacePath",
         "app.openSupportedFilesInCmux",
+        "app.filePreviewVimKeys",
         "app.openMarkdownInCmuxViewer",
         "app.iMessageMode",
         "app.reorderOnNotification",

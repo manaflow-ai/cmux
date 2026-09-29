@@ -78,6 +78,7 @@ extension CmuxSettingsFileStore {
                     "preferredEditor": "",
                     "defaultWorkspacePath": AppCatalogSection().defaultWorkspacePath.defaultValue,
                     "openSupportedFilesInCmux": AppCatalogSection().openSupportedFilesInCmux.defaultValue,
+                    "filePreviewVimKeys": AppCatalogSection().filePreviewVimKeys.defaultValue,
                     "openMarkdownInCmuxViewer": AppCatalogSection().openMarkdownInCmuxViewer.defaultValue,
                     "reorderOnNotification": SettingCatalog().app.reorderOnNotification.defaultValue.encodeForJSON(),
                     "iMessageMode": IMessageModeSettings.defaultValue,

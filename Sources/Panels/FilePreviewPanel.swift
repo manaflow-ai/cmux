@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSettings
 import AppKit
 import Bonsplit
 import Combine
@@ -1739,6 +1740,8 @@ struct FilePreviewPanelView: View {
     @State private var focusFlashOpacity = 0.0
     @State private var focusFlashAnimationGeneration = 0
     @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
+    @AppStorage(AppCatalogSection().filePreviewVimKeys.userDefaultsKey)
+    private var filePreviewVimKeys = AppCatalogSection().filePreviewVimKeys.defaultValue
 
     private var themeForegroundColor: NSColor {
         appearance.foregroundColor
@@ -1818,7 +1821,8 @@ struct FilePreviewPanelView: View {
                     drawsBackground: appearance.drawsContentBackground,
                     gutterBackgroundColor: appearance.backgroundColor,
                     wordWrap: fileEditorWordWrap,
-                    filePath: panel.filePath
+                    filePath: panel.filePath,
+                    filePreviewVimKeys: filePreviewVimKeys
                 )
             case .pdf:
                 FilePreviewPDFView(
