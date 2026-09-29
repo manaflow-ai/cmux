@@ -21705,6 +21705,65 @@ mod tests {
         assert!(outbound.try_pop().is_none());
     }
 
+    /// While `shutdown-daemon` is still running (for example awaiting hosts
+    /// under `end_terminals`), a pipelined message from a subscriber must not
+    /// close the connection: that drops the pending shutdown reply and, if
+    /// the handoff then fails, leaves the client disconnected from a daemon
+    /// that keeps serving. The message is refused unexecuted instead.
+    #[test]
+    fn daemon_shutdown_pending_handoff_refuses_pipelined_messages_and_keeps_the_connection() {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let (writer, outbound) = captured_writer();
+        let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+        assert!(mux.control_clients.daemon_handoff_pending());
+
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let workspace_count = mux.with_state(|state| state.workspaces.len());
+        let pipelined = json!({
+            "id": 99,
+            "cmd": "new-workspace",
+            "name": "must-not-exist",
+        })
+        .to_string();
+        assert!(handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler));
+        let refused = pop_json(&outbound);
+        assert_eq!(refused["id"], 99);
+        assert_eq!(refused["ok"], false);
+        assert!(refused["error"].as_str().unwrap().contains("shutdown is in progress"));
+        assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
+
+        let resource = resource_request(
+            "pending-get",
+            "session.get",
+            json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, requester, &resource, &writer, &scheduler));
+        let refused = pop_json(&outbound);
+        assert_eq!(refused["id"], "pending-get");
+        assert_eq!(refused["ok"], false);
+        assert_eq!(refused["error"]["code"], "operation.failed");
+        assert_eq!(refused["error"]["details"]["reason"], "daemon_handoff_pending");
+
+        assert!(writer.is_open());
+        assert!(mux.control_clients.contains(requester));
+        assert!(outbound.try_pop().is_none());
+
+        // A failed handoff leaves the same connection fully usable.
+        mux.cancel_daemon_handoff(requester);
+        let ping = json!({"id": 100, "cmd": "ping"}).to_string();
+        assert!(handle_request(
+            &mux,
+            requester,
+            serde_json::from_str::<Request>(&ping).unwrap(),
+            &writer
+        ));
+        assert_eq!(pop_json(&outbound)["ok"], true);
+    }
+
     #[test]
     fn daemon_shutdown_force_preserves_the_identity_fence() {
         let mux = test_mux();
