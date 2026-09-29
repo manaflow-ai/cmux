@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "bun:test";
 import {
+  annotateVmSnapshotPages,
   applyVmOps,
   MAX_VM_PUBLISH_OPS,
   MAX_VM_REPLACE_RECORDS,
@@ -274,6 +275,32 @@ describe("hello: snapshot then delta", () => {
     expect(second.delta?.rev).toBe(4);
     expect(second.delta?.records.map((r) => [r.id, r.deleted])).toEqual([["vm-2", false], ["vm-1", true]]);
     expect(second.delta?.records[0]?.payload).toMatchObject({ status: "paused" });
+  });
+});
+
+describe("hello: backfilled flag", () => {
+  it("is false until the first replace lands, then true; deltas carry no flag", async () => {
+    const storage = new FakeStorage();
+    await applyVmOps(storage, [{ kind: "upsert", record: vm("vm-1") }], T0);
+    const before = await resolveHelloFrames<VmRecord>(storage, VMS_COLLECTION, 0, undefined, 0, T0);
+    expect(before.mode).toBe("snapshot");
+    if (before.mode !== "snapshot") return;
+    expect(before.pages[0]?.backfilled).toBeUndefined();
+    const unbackfilled = await annotateVmSnapshotPages(storage, before.pages);
+    expect(unbackfilled.map((p) => p.backfilled)).toEqual([false]);
+    expect(unbackfilled[0]?.records.map((r) => r.id)).toEqual(["vm-1"]);
+
+    await applyVmOps(storage, [{ kind: "replace", records: [vm("vm-1"), vm("vm-2")], observedAtMs: T0 + 1 }], T0 + 1);
+    const after = await resolveHelloFrames<VmRecord>(storage, VMS_COLLECTION, 0, undefined, 0, T0 + 2);
+    if (after.mode !== "snapshot") throw new Error("expected snapshot");
+    const backfilled = await annotateVmSnapshotPages(storage, after.pages);
+    expect(backfilled.map((p) => p.backfilled)).toEqual([true]);
+    expect(backfilled[0]?.complete).toBe(true);
+    // A catch-up delta is unaffected: the flag lives on snapshot frames only.
+    const delta = await resolveHelloFrames<VmRecord>(storage, VMS_COLLECTION, 1, undefined, backfilled[0]!.epoch, T0 + 3);
+    expect(delta.mode).toBe("delta");
+    if (delta.mode !== "delta") return;
+    expect("backfilled" in (delta.delta ?? {})).toBe(false);
   });
 });
 

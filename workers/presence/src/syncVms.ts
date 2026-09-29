@@ -23,10 +23,11 @@
 // Pure + storage-bound so it unit-tests against the Map-backed fake, same
 // posture as sync.ts / syncStorage.ts / syncPairedMacs.ts.
 
-import type { SyncDeltaFrame } from "./sync";
+import type { SyncDeltaFrame, SyncSnapshotFrame } from "./sync";
 import {
   listRecords,
   markBackfillDone,
+  readBackfillDone,
   readRecord,
   tombstoneRecord,
   upsertRecord,
@@ -223,6 +224,17 @@ export function parseVmPublish(body: Record<string, unknown>): VmPublishParse {
     ops.push(parsed.op);
   }
   return { ok: true, teamId, ops };
+}
+
+/** Stamp `vms` snapshot pages with whether a full `replace` has ever landed.
+ * Before that the DO holds only rows written since the collection shipped,
+ * and the client must not drop machines missing from the snapshot. */
+export async function annotateVmSnapshotPages<P>(
+  storage: SyncStorage,
+  pages: readonly SyncSnapshotFrame<P>[],
+): Promise<SyncSnapshotFrame<P>[]> {
+  const backfilled = await readBackfillDone(storage, VMS_COLLECTION);
+  return pages.map((page) => ({ ...page, backfilled }));
 }
 
 /** List-shape equality: everything the list renders, ignoring the freshness

@@ -71,7 +71,13 @@ import {
   type PairedMacBackupOp,
   type PairedMacBackupRecord,
 } from "./syncPairedMacs";
-import { applyVmOps, VMS_COLLECTION, type VmPublishOp, type VmRecord } from "./syncVms";
+import {
+  annotateVmSnapshotPages,
+  applyVmOps,
+  VMS_COLLECTION,
+  type VmPublishOp,
+  type VmRecord,
+} from "./syncVms";
 import { sanitizePublishedRoutes } from "./routePrivacy";
 import {
   ackPhoneReplies,
@@ -812,8 +818,8 @@ export class TeamPresence extends DurableObject<SentryEnv> {
         // `vms`: team-wide like `devices`, but there is no local source to
         // backfill from (Postgres owns the list); the web backend publishes a
         // full `replace` after every list read, which marks the backfill. A
-        // snapshot before that carries only rows written since this shipped,
-        // and the client keeps its REST list as the initial truth.
+        // snapshot before that carries only rows written since this shipped;
+        // its `backfilled: false` tells the client to apply it upsert-only.
         subscribed.push(name);
         const resolved = await resolveHelloFrames<VmRecord>(
           this.syncStorage(),
@@ -823,7 +829,9 @@ export class TeamPresence extends DurableObject<SentryEnv> {
           epoch ?? 0,
         );
         if (resolved.mode === "snapshot") {
-          for (const page of resolved.pages) this.sendSync(ws, page);
+          for (const page of await annotateVmSnapshotPages(this.syncStorage(), resolved.pages)) {
+            this.sendSync(ws, page);
+          }
         } else if (resolved.delta !== null) {
           this.sendSync(ws, resolved.delta);
         }

@@ -139,10 +139,18 @@ truth: each op carries the row's `updated_at` as `sourceUpdatedAtMs`, the DO
 rejects older ops, and every list read publishes a full `replace` (with its
 observation time) that tombstones ids missing from the list, so the DO
 converges without a backfill job and a machine created after the observation
-survives. A republish of an unchanged row mints no rev. The publisher on the
-web side is `web/services/vms/presencePublisher.ts`: a decorator around the VM
-repository re-reads a row after each list-relevant write and publishes it
-best-effort after the response (750 ms timeout, never failing the mutation).
+survives. A republish of an unchanged row mints no rev. Until the first
+`replace` lands, a DO holds only rows written since the collection shipped;
+its `sync.snapshot` frames for `vms` carry `backfilled: false` (true after),
+so the client applies such a snapshot upsert-only and keeps its REST list as
+the initial truth instead of dropping machines the snapshot lacks. Other
+collections never carry the field. The publisher on the web side is
+`web/services/vms/presencePublisher.ts`: a decorator around the VM repository
+re-reads a row after each list-relevant write and publishes it best-effort
+(750 ms timeout, never failing the mutation). Request-scoped writers publish
+after the response with `after()`; cron and reconcile writers, which run with
+no request scope where Vercel would freeze detached work, await the bounded
+publish inline before the write resolves.
 The route is service-to-service only: Worker secret `VMS_PUBLISHER_SECRET`
 must equal web `CMUX_PRESENCE_VMS_PUBLISHER_SECRET` (set once per Worker with
 `wrangler secret put VMS_PUBLISHER_SECRET` on production and on the dev
