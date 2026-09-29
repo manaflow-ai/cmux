@@ -144,7 +144,8 @@ fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
         Ok(Some(termination)) => Some(termination),
         Ok(None) => {
             close.runtime.kill();
-            if let (Some(identity), Some(root)) = (close.identity.as_ref(), close.host_root.as_ref())
+            if let (Some(identity), Some(root)) =
+                (close.identity.as_ref(), close.host_root.as_ref())
             {
                 terminate_discovered_terminal_host_in(
                     root,
