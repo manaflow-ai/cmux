@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 
 /// Runs bounded filesystem operations on one Cloud VM.
