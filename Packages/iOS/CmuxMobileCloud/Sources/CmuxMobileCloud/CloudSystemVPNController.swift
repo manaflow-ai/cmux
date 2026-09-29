@@ -138,7 +138,6 @@ public final class CloudSystemVPNController {
                 guard manager.isAvailable else {
                     guard self.isCurrent(generation) else { return }
                     browserTunnel = nil
-                    cleanupPending = false
                     return
                 }
                 if !pendingBrowserTunnelRevocations.isEmpty {
