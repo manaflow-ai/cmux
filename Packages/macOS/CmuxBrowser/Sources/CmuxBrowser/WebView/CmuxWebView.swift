@@ -1871,18 +1871,12 @@ public final class CmuxWebView: CmuxUndoableWebView {
 
         let cookieStore = configuration.websiteDataStore.httpCookieStore
         cookieStore.getAllCookies { cookies in
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            let cookieHeaders = HTTPCookie.requestHeaderFields(with: Self.cookiesForDownloadRequest(cookies, url: url))
-            for (key, value) in cookieHeaders {
-                request.setValue(value, forHTTPHeaderField: key)
-            }
-            if let referer = self.url?.absoluteString, !referer.isEmpty {
-                request.setValue(referer, forHTTPHeaderField: "Referer")
-            }
-            if let ua = self.customUserAgent, !ua.isEmpty {
-                request.setValue(ua, forHTTPHeaderField: "User-Agent")
-            }
+            let request = BrowserContextMenuFetch.request(
+                url: url,
+                profileCookies: cookies,
+                referer: self.url?.absoluteString,
+                userAgent: self.customUserAgent
+            )
             self.debugContextDownload(
                 "browser.ctxdl.request trace=\(traceID) stage=dispatch method=\(request.httpMethod ?? "GET") cookies=\(cookies.count) referer=\(request.value(forHTTPHeaderField: "Referer") ?? "nil") uaSet=\(request.value(forHTTPHeaderField: "User-Agent") == nil ? 0 : 1)"
             )
@@ -1890,7 +1884,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
             // URLSession delivers off the main actor; these values are only used after hopping back to main.
             nonisolated(unsafe) let fallbackTarget = fallbackTarget
             nonisolated(unsafe) let sender = sender
-            URLSession.shared.dataTask(with: request) { data, response, error in
+            let task = URLSession.shared.dataTask(with: request) { data, response, error in
                 DispatchQueue.main.async {
                     guard let data, error == nil else {
                         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -1933,7 +1927,10 @@ public final class CmuxWebView: CmuxUndoableWebView {
                         failureFallbackReason: "save_write_error"
                     )
                 }
-            }.resume()
+            }
+            // Re-scope cookies on redirect; URLSession would copy the Cookie header.
+            task.delegate = BrowserContextMenuFetchRedirectDelegate(profileCookies: cookies)
+            task.resume()
         }
     }
 
@@ -2067,18 +2064,12 @@ public final class CmuxWebView: CmuxUndoableWebView {
 
         let cookieStore = configuration.websiteDataStore.httpCookieStore
         cookieStore.getAllCookies { cookies in
-            var request = URLRequest(url: sourceURL)
-            request.httpMethod = "GET"
-            let cookieHeaders = HTTPCookie.requestHeaderFields(with: cookies)
-            for (key, value) in cookieHeaders {
-                request.setValue(value, forHTTPHeaderField: key)
-            }
-            if let referer = self.url?.absoluteString, !referer.isEmpty {
-                request.setValue(referer, forHTTPHeaderField: "Referer")
-            }
-            if let ua = self.customUserAgent, !ua.isEmpty {
-                request.setValue(ua, forHTTPHeaderField: "User-Agent")
-            }
+            let request = BrowserContextMenuFetch.request(
+                url: sourceURL,
+                profileCookies: cookies,
+                referer: self.url?.absoluteString,
+                userAgent: self.customUserAgent
+            )
 
             self.debugContextDownload(
                 "browser.ctxcopy.fetch trace=\(traceID) stage=dispatch cookies=\(cookies.count) referer=\(request.value(forHTTPHeaderField: "Referer") ?? "nil") uaSet=\(request.value(forHTTPHeaderField: "User-Agent") == nil ? 0 : 1)"
@@ -2086,7 +2077,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
 
             // URLSession delivers off the main actor; the completion only runs after hopping back to main.
             nonisolated(unsafe) let completion = completion
-            URLSession.shared.dataTask(with: request) { data, response, error in
+            let task = URLSession.shared.dataTask(with: request) { data, response, error in
                 DispatchQueue.main.async {
                     guard let data, !data.isEmpty, error == nil else {
                         self.debugContextDownload(
@@ -2112,7 +2103,10 @@ public final class CmuxWebView: CmuxUndoableWebView {
                         )
                     )
                 }
-            }.resume()
+            }
+            // Re-scope cookies on redirect; URLSession would copy the Cookie header.
+            task.delegate = BrowserContextMenuFetchRedirectDelegate(profileCookies: cookies)
+            task.resume()
         }
     }
 
