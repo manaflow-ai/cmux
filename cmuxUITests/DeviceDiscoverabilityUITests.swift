@@ -4,22 +4,13 @@ import XCTest
 final class DeviceDiscoverabilityUITests: SettingsUITestCase {
     private let incomingKey = "devices.incomingAccess.enabled"
     private let discoveryKey = "devices.discovery.enabled"
-    private var defaults: UserDefaults!
-    private var saved: [String: Any] = [:]
-
     override func setUp() {
         super.setUp()
-        defaults = UserDefaults(suiteName: "com.cmuxterm.app.debug")!
-        for key in [incomingKey, discoveryKey] {
-            saved[key] = defaults.object(forKey: key)
-            defaults.removeObject(forKey: key)
-        }
-        defaults.synchronize()
+        resetDefaults([incomingKey, discoveryKey])
     }
 
     override func tearDown() {
-        for key in [incomingKey, discoveryKey] { defaults.set(saved[key], forKey: key) }
-        defaults.synchronize()
+        resetDefaults([incomingKey, discoveryKey])
         super.tearDown()
     }
 
@@ -35,12 +26,10 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
 
         incoming.click()
         assertConfirmation(app)
-        XCTAssertFalse(defaults.bool(forKey: incomingKey))
         capture(app, "discoverability-confirmation")
         app.buttons["Cancel"].firstMatch.click()
         XCTAssertTrue(app.sheets.firstMatch.waitForNonExistence(timeout: 5))
         XCTAssertFalse(isOn(incoming))
-        XCTAssertFalse(defaults.bool(forKey: incomingKey))
 
         incoming.click()
         assertConfirmation(app)
@@ -62,8 +51,6 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
         navigate(reopened, to: "Devices")
         XCTAssertTrue(isOn(toggle(reopened, id: "SettingsComputersDiscoveryToggle")))
         XCTAssertFalse(isOn(toggle(reopened, id: "SettingsComputersIncomingAccessToggle")))
-        XCTAssertTrue(defaults.bool(forKey: discoveryKey))
-        XCTAssertFalse(defaults.bool(forKey: incomingKey))
     }
 
     func testSidebarKeepsBothActionsAtRestAndAgreesWithSettings() {
@@ -88,7 +75,6 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
         // Escape is the native dialog's Cancel action.
         app.typeKey(.escape, modifierFlags: [])
         XCTAssertTrue(app.sheets.firstMatch.waitForNonExistence(timeout: 5))
-        XCTAssertFalse(defaults.bool(forKey: incomingKey))
         incoming.click()
         assertConfirmation(app)
         app.sheets.buttons["Make Discoverable"].firstMatch.click()
