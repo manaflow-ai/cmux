@@ -186,6 +186,17 @@ struct SSHConnectionSharingOptionsTests {
         #expect(!merged.contains("ControlPath=\(socketDirectory)/%C"))
     }
 
+    @Test("Legacy route-sensitive paths disable sharing without an identity")
+    func legacyRouteSensitivePathWithoutIdentifierIsDisabled() {
+        let merged = options.mergingDefaults(
+            into: ["ProxyJump=bastion", "ControlPath=/tmp/cmux-ssh-501-%C"],
+            routeSensitiveOptions: ["IdentityFile=/Users/alice/.ssh/route-key"]
+        )
+        #expect(merged.contains("ControlMaster=no"))
+        #expect(merged.contains("ControlPath=none"))
+        #expect(!merged.contains("ControlPath=\(socketDirectory)/%C"))
+    }
+
     @Test("Host-key policy options disable default sharing")
     func hostKeyPolicyOptionsDoNotShareAHostStableSocket() {
         for option in [

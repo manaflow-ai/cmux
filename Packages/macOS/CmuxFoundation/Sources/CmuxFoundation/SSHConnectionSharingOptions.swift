@@ -178,7 +178,13 @@ public struct SSHConnectionSharingOptions: Sendable {
             // and the next merge would install the shared `%C` socket.
             let controlMaster = resolver.optionValue(named: "ControlMaster", in: merged)
             if isDisabled(controlMaster) {
-                if !resolver.hasOptionKey(merged, key: "ControlPath") {
+                if migratedSharedTemporaryControlPath {
+                    merged = merged.map { option in
+                        resolver.optionKey(option) == "controlpath"
+                            ? "ControlPath=none"
+                            : option
+                    }
+                } else if !resolver.hasOptionKey(merged, key: "ControlPath") {
                     merged.append("ControlPath=none")
                 }
                 return merged
@@ -204,7 +210,13 @@ public struct SSHConnectionSharingOptions: Sendable {
                 if controlMaster == nil {
                     merged.append("ControlMaster=no")
                 }
-                if !resolver.hasOptionKey(merged, key: "ControlPath") {
+                if migratedSharedTemporaryControlPath {
+                    merged = merged.map { option in
+                        resolver.optionKey(option) == "controlpath"
+                            ? "ControlPath=none"
+                            : option
+                    }
+                } else if !resolver.hasOptionKey(merged, key: "ControlPath") {
                     merged.append("ControlPath=none")
                 }
             }
