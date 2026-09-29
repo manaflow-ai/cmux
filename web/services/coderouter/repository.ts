@@ -24,7 +24,7 @@ import {
   type CodeRouterProvider,
 } from "./types";
 
-import { accountAccessPredicate, scopedSessionKey, type CoderouterAccountAccess } from "./accountAccess";
+import { accountAccessPredicate, accountMutationPredicate, scopedSessionKey, type CoderouterAccountAccess } from "./accountAccess";
 import { signVmAuthorization, verifyVmAuthorization, type VmAuthorizationClaims } from "./vmAuthorization";
 import { createLastUsedWriter } from "./lastUsedWriter";
 import { refreshCompletionRegistry } from "./refreshSignal";
@@ -476,7 +476,7 @@ export async function deleteAccount(input: {
       .delete(coderouterAccounts)
       .where(and(
         eq(coderouterAccounts.id, input.accountId),
-        nativeAccess(input.access ?? (input.stackUserId ? { kind: "user", userId: input.stackUserId } : undefined)),
+        nativeMutationAccess(input.access ?? (input.stackUserId ? { kind: "user", userId: input.stackUserId } : undefined)),
         eq(coderouterAccounts.teamId, input.teamId),
       ))
       .returning({ id: coderouterAccounts.id });
@@ -1583,6 +1583,13 @@ function encryptedCredentialRow(row: {
     ...row,
     algorithm: "aes-256-gcm",
   };
+}
+
+function nativeMutationAccess(access?: CoderouterAccountAccess) {
+  return accountMutationPredicate({
+    id: sql`${coderouterAccounts.id}`, teamId: sql`${coderouterAccounts.teamId}`,
+    visibility: sql`${coderouterAccounts.visibility}`, createdBy: sql`${coderouterAccounts.createdBy}`,
+  }, "native", access);
 }
 
 function nativeAccess(access?: CoderouterAccountAccess, alias = false) {

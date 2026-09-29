@@ -210,7 +210,7 @@ dbTest("personal VMs can use their owner's private pool without granting organiz
     values (${USER}, ${USER}, 'freestyle', 'test', 'running') returning id, coderouter_pool_id`;
   const [personalAccount] = await db`insert into coderouter_accounts (team_id, provider, provider_account_id, label, visibility, created_by)
     values (${USER}, 'openai-apikey', 'personal', 'Personal', 'private', ${USER}) returning id`;
-  const personal = { kind: 'vm' as const, vmId: personalVm.id as string, poolId: personalVm.coderouter_pool_id as string };
+  const personal = { kind: 'vm' as const, vmId: personalVm.id as string, poolId: personalVm.coderouter_pool_id as string, creatorUserId: USER };
   expect((await listAccounts(USER, personal)).map(a => a.id)).toEqual([personalAccount.id]);
   expect((await selectAccountForRequest(USER, 'openai-apikey', [], undefined, personal))?.id).toBe(personalAccount.id);
   expect(await listAccounts(USER, access())).toEqual([]);
