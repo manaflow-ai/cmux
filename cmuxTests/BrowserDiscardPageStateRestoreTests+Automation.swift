@@ -29,10 +29,8 @@ extension BrowserDiscardPageStateRestoreTests {
         terminatedWebView.removeFromSuperview()
 
         let context = try resolveAutomationContext(for: panel, in: workspace, manager: manager)
-        XCTAssertEqual(
-            await awaitAutomationDocumentReadiness(of: panel, driving: context.webView),
-            .committed
-        )
+        let readiness = await awaitAutomationDocumentReadiness(of: panel, driving: context.webView)
+        XCTAssertEqual(readiness, .committed)
         XCTAssertTrue(panel.webView === context.webView, "The command must drive the restored web view")
         XCTAssertFalse(panel.isWebViewVisibleInUI, "The restore must not show the pane")
 
@@ -105,10 +103,8 @@ extension BrowserDiscardPageStateRestoreTests {
             await waitForRelease("web view dropped in cycle \(cycle)") { dropped }
 
             let context = try resolveAutomationContext(for: panel, in: workspace, manager: manager)
-            XCTAssertEqual(
-                await awaitAutomationDocumentReadiness(of: panel, driving: context.webView),
-                .committed
-            )
+            let readiness = await awaitAutomationDocumentReadiness(of: panel, driving: context.webView)
+            XCTAssertEqual(readiness, .committed)
             waitForPage(panel, url: page, timeout: 10)
             waitUntil("cycle \(cycle) capture released") { panel.pageRestoration.discardedCapture == nil }
         }
@@ -128,10 +124,8 @@ extension BrowserDiscardPageStateRestoreTests {
         terminated = try terminateWebContent(of: panel)
         let context = try resolveAutomationContext(for: panel, in: workspace, manager: manager)
         XCTAssertFalse(context.webView === terminated)
-        XCTAssertEqual(
-            await awaitAutomationDocumentReadiness(of: panel, driving: context.webView),
-            .committed
-        )
+        let readiness = await awaitAutomationDocumentReadiness(of: panel, driving: context.webView)
+        XCTAssertEqual(readiness, .committed)
         if let terminated { assertDetached(terminated) }
         await waitForRelease("web view whose content process died") { terminated }
     }
