@@ -88,7 +88,8 @@ final class TerminalSizeBoundsOverlayView: NSView {
         let key = snapshot.map { "\($0.state.cols)x\($0.state.rows)" }
         if let key, let lastGridKey, key != lastGridKey { animateNextBorderChange = true }
         lastGridKey = key
-        isHidden = !(snapshot?.showsSizingChrome ?? false)
+        // Visible for the bounds (a mismatch) or the detached card.
+        isHidden = !(snapshot.map { $0.showsBoundsChrome || $0.detachment != nil } ?? false)
         needsDisplay = true
         needsLayout = true
     }
@@ -139,7 +140,7 @@ final class TerminalSizeBoundsOverlayView: NSView {
 
     private func layoutBoundsChrome() {
         borderLayer.frame = layer?.bounds ?? bounds
-        guard let snapshot, snapshot.showsSizingChrome, snapshot.detachment == nil,
+        guard let snapshot, snapshot.showsBoundsChrome,
               let geometry = currentGeometry(for: snapshot), geometry.needsDecoration else {
             borderLayer.isHidden = true
             chip.isHidden = true
@@ -230,7 +231,7 @@ final class TerminalSizeBoundsOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard let snapshot, snapshot.showsSizingChrome, snapshot.detachment == nil,
+        guard let snapshot, snapshot.showsBoundsChrome,
               let geometry = currentGeometry(for: snapshot) else { return }
         if geometry.showsBounds { drawHatch(outside: geometry.gridRect) }
         if geometry.hiddenColumns > 0 { drawCropFade(edge: .maxX, in: geometry.gridRect) }
