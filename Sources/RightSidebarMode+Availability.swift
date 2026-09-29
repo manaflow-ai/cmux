@@ -31,7 +31,6 @@ extension RightSidebarMode {
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
         availableModes(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
             machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
             devicesEnabled: false
         )
@@ -39,14 +38,12 @@ extension RightSidebarMode {
 
     static func availableModes(
         feedEnabled: Bool,
-        dockEnabled: Bool,
         machinesEnabled: Bool,
         devicesEnabled: Bool = false
     ) -> [RightSidebarMode] {
         allCases.filter {
             $0.isAvailable(
                 feedEnabled: feedEnabled,
-                dockEnabled: dockEnabled,
                 machinesEnabled: machinesEnabled,
                 devicesEnabled: devicesEnabled
             )
@@ -56,7 +53,6 @@ extension RightSidebarMode {
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
         isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
             machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
             devicesEnabled: false
         )
@@ -90,7 +86,6 @@ extension RightSidebarMode {
 
     func isAvailable(
         feedEnabled: Bool,
-        dockEnabled: Bool,
         machinesEnabled: Bool,
         devicesEnabled: Bool = false
     ) -> Bool {
@@ -100,7 +95,7 @@ extension RightSidebarMode {
         case .feed:
             return feedEnabled
         case .dock:
-            return dockEnabled
+            return true
         case .machines:
             return machinesEnabled
         case .customSidebar:

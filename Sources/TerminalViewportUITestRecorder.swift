@@ -213,8 +213,8 @@ final class TerminalViewportUITestRecorder {
 
         return [
             "terminalViewportPanelId": terminalPanel.id.uuidString,
-            // The portal's superview spans the window. Measure the layout
-            // anchor independently so a wrongly sized terminal still fails.
+            // The portal spans the window; measure its independent layout anchor
+            // so a wrongly sized terminal still fails.
             "terminalViewportPanelWidth": format(panelSize.width),
             "terminalViewportPanelHeight": format(panelSize.height),
             "terminalViewportHostedFrameMinX": format(hostedFrame.minX),

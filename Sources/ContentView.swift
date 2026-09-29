@@ -10992,31 +10992,6 @@ struct ContentView: View {
 #endif
 }
 
-private struct SidebarResizerAccessibilityModifier: ViewModifier {
-    let accessibilityIdentifier: String?
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if let accessibilityIdentifier {
-            content
-                // A clear shape with a gesture is otherwise omitted from the
-                // accessibility tree. Expose each divider as one element while
-                // preserving the existing drag handling.
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(accessibilityLabel)
-                .accessibilityIdentifier(accessibilityIdentifier)
-        } else {
-            content
-        }
-    }
-    private var accessibilityLabel: String {
-        if accessibilityIdentifier == "RightSidebarResizer" {
-            return String(localized: "rightSidebar.resizer.accessibilityLabel", defaultValue: "Resize right sidebar")
-        }
-        return String(localized: "sidebar.resizer.accessibilityLabel", defaultValue: "Resize sidebar")
-    }
-}
-
 private enum SidebarFontSizeProvider {
     static func loadFromGhosttyConfig() async -> CGFloat {
         await Task.detached(priority: .utility) {

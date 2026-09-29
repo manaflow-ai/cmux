@@ -4387,7 +4387,10 @@
     "emailUnavailable": "email non disponibile",
     "organization": "Organizzazione",
     "personalAccount": "account personale",
-    "switchAccountButton": "Usa un altro account"
+    "switchAccountButton": "Usa un altro account",
+    "signedOutTitle": "Accedi per autorizzare coderouter",
+    "signedOutBody": "Un'applicazione a riga di comando è in attesa del tuo accesso. Accedi con il tuo account cmux per completare il collegamento di questo terminale. Se non hai avviato questa richiesta, chiudi questa pagina.",
+    "signInButton": "Accedi"
   },
   "MobileRelease106": {
     "title": "Novità di 1.0.6",
