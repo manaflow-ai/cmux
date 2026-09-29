@@ -9,6 +9,7 @@ import {
   CloudVmPublicationRepository,
   CloudVmPublicationRepositoryLive,
   PublicationConflictError,
+  publicationAudienceFitsVm,
   PublicationNotFoundError,
   type CloudVmDomainRow,
   type CloudVmPublicationAccessMode,
@@ -654,7 +655,7 @@ export function updatePublicationAccess(input: {
       input.principal.teamIds,
     );
     const publication = target.publication;
-    if (access.accessMode === "team" && target.vm.billingTeamId && access.teamId !== target.vm.billingTeamId) {
+    if (!publicationAudienceFitsVm(access.accessMode, access.teamId, target.vm)) {
       return yield* new PublicationConflictError({ reason: "invalid_access_policy" });
     }
     if (publication.state !== "active") {

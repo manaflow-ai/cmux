@@ -4,7 +4,7 @@ import { cloudOrganizations, cloudVmPublicationVmGuards, cloudVmPublications, cl
 import { assertAccountDeletionUserMutationAllowed } from "../account/deletionLock";
 import { allocateVmSlug } from "../vms/vmNaming";
 import { managedPublicationHostname, organizationSlugCandidate, validOrganizationSlug } from "./managedHostnames";
-import { PublicationConflictError, PublicationNotFoundError, type CloudVmPublicationTarget } from "./repository";
+import { publicationAudienceFitsVm, PublicationConflictError, PublicationNotFoundError, type CloudVmPublicationTarget } from "./repository";
 
 type Tx = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
@@ -89,7 +89,7 @@ export async function reserveManagedPublication(input: ManagedPublicationInput):
   return cloudDb().transaction(async (tx) => {
     await assertAccountDeletionUserMutationAllowed(tx, input.ownerUserId);
     const { vm, scopeId } = await requireManagedVm(tx, input);
-    if (input.accessMode === "team" && input.teamId !== vm.billingTeamId) {
+    if (!publicationAudienceFitsVm(input.accessMode, input.teamId, vm)) {
       throw new PublicationConflictError({ reason: "invalid_access_policy" });
     }
     const orgSlug = await reserveOrganization(tx, input, scopeId);
