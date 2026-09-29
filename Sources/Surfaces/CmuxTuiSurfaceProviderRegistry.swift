@@ -422,7 +422,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         unregisterMachine(rawID)
     }
     /// Deletion and discovery share ordered teardown without waiting for unrelated machines.
-    fileprivate func unregisterMachine(_ rawID: String) {
+    func unregisterMachine(_ rawID: String) {
         // Match the registered casing so every ownership table is removed.
         let id = registeredMachineID(matching: rawID)
         pendingMachineCreationIDs.remove(id); refreshedMachineIDs.remove(.cloud(id))
