@@ -446,10 +446,10 @@ QUEUE_ROUND_MINUTES = 15
 # macOS 15 ran 1 to 5 of its 10.
 COLD_ROUNDS = 1
 # Blacksmith's macOS pools share the account concurrency budget. Fleet
-# observations on 2026-09-25 through 2026-09-27 reached 17 concurrent jobs
-# account-wide (the weekly p90 was 15), so queue estimates use that measured
-# account limit instead of treating each label as an independent pool.
-BLACKSMITH_ACCOUNT_CAPACITY = 17
+# observations on 2026-09-27 found queue-to-start remained low until about
+# 24 concurrent macOS jobs account-wide (#15569). Queue estimates use that
+# measured account threshold, rather than independent label capacities.
+BLACKSMITH_ACCOUNT_CAPACITY = 24
 POOL_CAPACITY = BLACKSMITH_ACCOUNT_CAPACITY
 
 ARTIFACT_NAME = "macos-pool-load"
@@ -1022,8 +1022,9 @@ def pool(snapshot: Mapping[str, Any], label: str, owned_slots: Mapping[str, int]
     return counts
 
 
-def blacksmith_load(load: Mapping[str, Mapping[str, int]], labels: Sequence[str]) -> dict[str, int]:
-    """The shared Blacksmith account queue represented by the selected labels."""
+def blacksmith_load(load: Mapping[str, Mapping[str, int]]) -> dict[str, int]:
+    """The shared Blacksmith account queue across every observed macOS label."""
+    labels = [label for label in load if not persistent(label)]
     return {
         "queued": sum(max(0, int(load[label].get("queued", 0))) for label in labels),
         "running": sum(max(0, int(load[label].get("running", 0))) for label in labels),
@@ -1051,9 +1052,9 @@ def effective_queue(counts: Mapping[str, int], added: int,
     A pool with jobs queued is already full, so everything added queues. One
     with none queued has capacity - running idle slots to fill first.
     """
-    counts = account or counts
-    idle = 0 if counts["queued"] else max(0, counts.get("capacity", POOL_CAPACITY) - counts["running"])
-    return counts["queued"] + max(0, added - idle)
+    base = account or counts
+    idle = 0 if base["queued"] else max(0, base.get("capacity", POOL_CAPACITY) - base["running"])
+    return base["queued"] + max(0, added - idle)
 
 
 def cold(label: str) -> bool:
@@ -1438,8 +1439,8 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
     root_taken = taken if root_taken is None else root_taken
     root_taken_now = taken_now if root_taken_now is None else root_taken_now
     blacksmith = [label for label in usable if not persistent(label)]
-    account = blacksmith_load(load, blacksmith) if blacksmith else None
-    account_added = sum(added.get(label, 0) for label in blacksmith)
+    account = blacksmith_load(load) if blacksmith else None
+    account_added = sum(added.get(label, 0) for label in load if not persistent(label))
     # Which Blacksmith pool: by its wait for this run's admission, since the
     # shards may take another pool on the lane's Xcode (spread_shards()).
     waits = {label: expected_wait(label, load[label], account_added + 1, account) for label in blacksmith}
@@ -1681,11 +1682,9 @@ def decide(
         why = f"the only pool this run may take{replay}"
     else:
         why = f"every pool is full{replay}; shortest queue in rounds"
-        account_labels = [pool_label for pool_label in candidates if not persistent(pool_label)]
-        account = blacksmith_load(load, account_labels) if account_labels else None
-        account_added = sum(added.get(pool_label, 0) for pool_label in account_labels)
-        waits = {pool_label: rounds(load[pool_label],
-                                    effective_queue(load[pool_label], account_added + 1, account), account=account)
+        account = blacksmith_load(load)
+        account_added = sum(added.get(pool_label, 0) for pool_label in load if not persistent(pool_label))
+        waits = {pool_label: expected_wait(pool_label, load[pool_label], account_added + 1, account)
                  for pool_label in candidates}
         # Name the extra round only where it counted: the winner is cold, or
         # a cold pool had a shorter queue than the winner and lost for it.
@@ -1730,12 +1729,12 @@ def spread_shards(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int
     if label not in lane or len(lane) < 2:
         return ""
     after = {**added, label: added.get(label, 0) + 1}  # this run's admission
-    account = blacksmith_load(load, lane)
-    account_added = sum(after.get(pool_label, 0) for pool_label in lane)
+    account = blacksmith_load(load)
+    account_added = sum(after.get(pool_label, 0) for pool_label in load if not persistent(pool_label))
 
     def wait(pool_label: str) -> tuple[float, int]:
-        queued = effective_queue(load[pool_label], account_added + shards, account)
-        return rounds(load[pool_label], queued, account), 0 if pool_label == label else 1 + lane.index(pool_label)
+        return (expected_wait(pool_label, load[pool_label], account_added + shards, account),
+                0 if pool_label == label else 1 + lane.index(pool_label))
 
     best = min(lane, key=wait)
     return "" if best == label else best

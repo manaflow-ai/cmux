@@ -144,8 +144,9 @@ minutes; without them, everything the runs holding the pool will need at
 their peak. With live runners, a missing or stale snapshot no longer skips
 the fleet: the owned pools are decided live, and a run none takes keeps its
 default route. A pool's
-capacity is the measured Blacksmith account limit: 17 concurrent macOS jobs
-(the 2026-09-25 through 2026-09-27 fleet observations had a weekly p90 of 15).
+capacity is the measured Blacksmith account limit: queue-to-start stayed low
+until about 24 concurrent macOS jobs account-wide (the 2026-09-25 through
+2026-09-27 fleet observations had a weekly p90 of 15).
 The pools share that account-wide queue, so a run takes the shortest expected
 wait after all Blacksmith queued and running jobs are counted together. The
 macOS 15 pool counts one round more
