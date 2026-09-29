@@ -3607,7 +3607,8 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         contentView.addSubview(surfaceView)
         surfaceView.autoresizingMask = [.width, .height]
         surfaceView.attachSurface(surface)
-        surface.runtimeSurfaceSuspendedForAgentHibernation = true
+        surface.beginPortalCloseLifecycle(reason: "test.unavailableInput")
+        surface.teardownSurface()
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
