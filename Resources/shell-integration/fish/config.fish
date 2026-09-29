@@ -461,20 +461,22 @@ if test "$_cmux_integration_enabled" != 0
         if set -q CMUX_CLAUDE_WRAPPER_SHIM_ROOT
             set shim_root (string trim -r -c / -- "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT")
         end
+        set -l tmp_root /tmp
+        if set -q TMPDIR; and test -n "$TMPDIR"
+            set tmp_root (string trim -r -c / -- "$TMPDIR")
+        end
+        set -l legacy_shim_root "$tmp_root/cmux-cli-shims/$surface_component"
+        set -l shim_state "$HOME/.cmuxterm"
         set -l rejected_root ""
         # An inherited root is reused only while it is still private.
         # Otherwise the shell makes its own, and skips the shim if it can't.
-        if test -z "$shim_root"; or not string match -q "*/cmux-cli-shims/$surface_component" -- "$shim_root"; or not _cmux_private_dirs 0 (string replace -r '/[^/]*$' '' -- "$shim_root") "$shim_root"
+        if test -z "$shim_root"; or not string match -q "*/cmux-cli-shims/$surface_component" -- "$shim_root"; or test "$shim_root" = "$legacy_shim_root"; or not _cmux_private_dirs 0 (string replace -r '/[^/]*$' '' -- "$shim_root") "$shim_root"
             # Keep a shim root this shell did not accept off PATH.
             if string match -qr '/cmux-cli-shims/[^/]+$' -- "$shim_root"
                 set rejected_root "$shim_root"
             end
-            set -l tmp_root /tmp
-            if set -q TMPDIR; and test -n "$TMPDIR"
-                set tmp_root (string trim -r -c / -- "$TMPDIR")
-            end
-            set shim_root "$tmp_root/cmux-cli-shims/$surface_component"
-            if not _cmux_private_dirs 1 "$tmp_root/cmux-cli-shims" "$shim_root"
+            set shim_root "$shim_state/cmux-cli-shims/$surface_component"
+            if not string match -q '/*' -- "$HOME"; or not _cmux_private_dirs 1 "$shim_state" "$shim_state/cmux-cli-shims" "$shim_root"
                 if test "$command_name" = claude
                     set -e CMUX_CLAUDE_WRAPPER_SHIM
                     set -e CMUX_CLAUDE_WRAPPER_SHIM_ROOT

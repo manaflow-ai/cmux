@@ -59,6 +59,13 @@ extension CMUXCLI {
             }
             return rawPath
         }
+        if let home = environment["HOME"], home.hasPrefix("/") {
+            shimRoots.append(
+                URL(fileURLWithPath: home, isDirectory: true)
+                    .appendingPathComponent(".cmuxterm/cmux-cli-shims", isDirectory: true)
+                    .standardizedFileURL.path
+            )
+        }
         shimRoots.append(contentsOf: [
             URL(fileURLWithPath: environment["TMPDIR"] ?? NSTemporaryDirectory(), isDirectory: true)
                 .appendingPathComponent("cmux-cli-shims", isDirectory: true)

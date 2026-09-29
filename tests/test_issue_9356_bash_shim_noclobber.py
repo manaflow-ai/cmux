@@ -69,6 +69,7 @@ def _run_driver(tmp: Path) -> subprocess.CompletedProcess[str]:
             "LANG": "C",
             "CMUX_BASH_INTEGRATION": str(INTEGRATION),
             "CMUX_TEST_TMPDIR": str(tmp),
+            "HOME": str(tmp / "home"),
             "CMUX_TEST_SURFACE_ID": "issue-9356-shim",
             "CMUX_TEST_WRAPPER_A": str(wrapper_a),
             "CMUX_TEST_WRAPPER_B": str(wrapper_b),
@@ -110,7 +111,7 @@ def test_bash_shim_refresh_is_silent_and_refreshes_under_noclobber() -> None:
             + debug
         )
 
-        shim_path = tmp / "cmux-cli-shims" / "issue-9356-shim" / "claude"
+        shim_path = tmp / "home" / ".cmuxterm" / "cmux-cli-shims" / "issue-9356-shim" / "claude"
         assert shim_path.exists(), f"shim was not created at {shim_path}" + debug
         assert os.access(shim_path, os.X_OK), (
             f"shim is not executable: {shim_path}" + debug

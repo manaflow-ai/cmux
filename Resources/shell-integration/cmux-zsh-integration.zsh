@@ -455,19 +455,22 @@ _cmux_install_cli_command_shim() {
     local wrapper_path="$2"
     local surface_component="${CMUX_SURFACE_ID:-$$}"
     local shim_root="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"
+    shim_root="${shim_root%/}"
     local shim_parent="${shim_root%/*}"
+    local tmp_root="${TMPDIR:-/tmp}"
+    local legacy_shim_root="${tmp_root%/}/cmux-cli-shims/$surface_component"
+    local shim_state="${HOME:-}/.cmuxterm"
     local rejected_root=""
     local REPLY
     # An inherited root is reused only while it is still private. Otherwise
     # the shell makes its own, and skips the shim if it can't.
-    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" ]] \
+    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" || "$shim_root" == "$legacy_shim_root" ]] \
         || ! _cmux_private_dirs 0 "$shim_parent" "$shim_root"; then
         # Keep a shim root this shell did not accept off PATH.
         [[ "${shim_parent##*/}" == "cmux-cli-shims" ]] && rejected_root="$shim_root"
-        shim_parent="${TMPDIR:-/tmp}"
-        shim_parent="${shim_parent%/}/cmux-cli-shims"
+        shim_parent="$shim_state/cmux-cli-shims"
         shim_root="$shim_parent/$surface_component"
-        if ! _cmux_private_dirs 1 "$shim_parent" "$shim_root"; then
+        if [[ "${HOME:-}" != /* ]] || ! _cmux_private_dirs 1 "$shim_state" "$shim_parent" "$shim_root"; then
             if [[ "$command_name" == "claude" ]]; then
                 unset CMUX_CLAUDE_WRAPPER_SHIM CMUX_CLAUDE_WRAPPER_SHIM_ROOT
                 _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED=""
@@ -509,8 +512,8 @@ _cmux_install_cli_command_shim() {
             printf '%s\n' '        fi'
             printf '%s\n' '    fi'
             printf '%s\n' 'fi'
-            printf 'export CMUX_CLAUDE_WRAPPER_SHIM="%s"\n' "$shim_path"
-            printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="%s"\n' "$shim_root"
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM=%q\n' "$shim_path"
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT=%q\n' "$shim_root"
             printf '%s\n' 'if [[ -x "$cmux_wrapper" ]]; then'
             printf '%s\n' '    exec "$cmux_wrapper" "$@"'
             printf '%s\n' 'fi'
