@@ -22,10 +22,9 @@ public struct CloudTreeDevicesSection: Equatable, Sendable {
     public var discoveryManaged: Bool = false
     public var incomingAccessManaged: Bool = false
 
-    /// Rows the section's inline controls show: "No other Macs yet" while no
-    /// other Mac is listed, then one action per opt-in that is still off.
-    /// Zero means the controls row has nothing to show and is omitted.
+    /// Both independent actions stay visible below the devices, preceded by
+    /// "No other Macs yet" when the list is empty.
     public var inlineRowCount: Int {
-        (count == 0 ? 1 : 0) + (discoveryEnabled ? 0 : 1) + (incomingAccessEnabled ? 0 : 1)
+        (count == 0 ? 1 : 0) + 2
     }
 }

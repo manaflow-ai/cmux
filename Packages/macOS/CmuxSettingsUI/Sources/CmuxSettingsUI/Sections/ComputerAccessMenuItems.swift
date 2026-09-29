@@ -40,23 +40,23 @@ public struct ComputerAccessMenuItems: View {
 
     /// The two checkmarked preferences, with details available as help text.
     public var body: some View {
-        Toggle(String(localized: "devices.incoming.toggle", defaultValue: "Make this Mac discoverable"), isOn: Binding(
-            get: { incomingAccessEnabled && !incomingAccessManaged },
+        let incoming = DeviceAccessControl(.incomingAccess, enabled: incomingAccessEnabled, managed: incomingAccessManaged)
+        let discovery = DeviceAccessControl(.discovery, enabled: discoveryEnabled, managed: discoveryManaged)
+        Toggle(incoming.title, isOn: Binding(
+            get: { incoming.isOn },
             set: setIncomingAccess
         ))
-        .disabled(incomingAccessManaged)
-        .help(incomingAccessManaged
-            ? String(localized: "devices.managed", defaultValue: "Disabled by your administrator.")
-            : String(localized: "devices.incoming.help", defaultValue: "Turning this off removes this Mac from discovery and disconnects incoming sessions. You can still connect to your other Macs."))
+        .disabled(!incoming.isEnabled)
+        .help(incoming.help)
+        .accessibilityLabel(incoming.title)
         .accessibilityIdentifier(identifierPrefix + "IncomingAccessToggle")
-        Toggle(String(localized: "devices.discovery.toggle", defaultValue: "Discover other Macs"), isOn: Binding(
-            get: { discoveryEnabled && !discoveryManaged },
+        Toggle(discovery.title, isOn: Binding(
+            get: { discovery.isOn },
             set: setDiscovery
         ))
-        .disabled(discoveryManaged)
-        .help(discoveryManaged
-            ? String(localized: "devices.managed", defaultValue: "Disabled by your administrator.")
-            : String(localized: "devices.discovery.help", defaultValue: "Find and connect to other Macs signed in to your account. Turning this off disconnects their panes without closing their terminals."))
+        .disabled(!discovery.isEnabled)
+        .help(discovery.help)
+        .accessibilityLabel(discovery.title)
         .accessibilityIdentifier(identifierPrefix + "DiscoveryToggle")
     }
 }
