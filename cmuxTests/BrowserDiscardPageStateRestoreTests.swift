@@ -183,7 +183,11 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
     /// the workspace's proxy is reconnecting. The typed input must still come
     /// back once that queued load runs.
     func testRemotePaneRestoreQueuedForProxyRefillsTypedInput() throws {
-        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 9876)
+        let endpoint = BrowserProxyEndpoint(
+            host: "127.0.0.1",
+            port: 9876,
+            credential: .random()
+        )
         let (panel, _, pageB) = try loadScrolledFormPage { url in
             let workspaceId = UUID()
             return BrowserPanel(
