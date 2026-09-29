@@ -721,15 +721,22 @@ impl AttachFrame {
         size_of::<Self>()
             + match self {
                 Self::Output(bytes) => bytes.capacity(),
-                Self::Resized { replay, kitty_image_aliases, .. } => {
+                Self::Resized { replay, pending_sequence, kitty_image_aliases, .. } => {
                     replay.len()
+                        + pending_sequence.len()
                         + kitty_image_aliases.capacity() * size_of::<ghostty_vt::KittyImageAlias>()
                 }
                 Self::OutputWithColors { output, .. } => {
                     output.capacity() + size_of::<TerminalColors>()
                 }
-                Self::ResizedWithColors { replay, kitty_image_aliases, .. } => {
+                Self::ResizedWithColors {
+                    replay,
+                    pending_sequence,
+                    kitty_image_aliases,
+                    ..
+                } => {
                     replay.len()
+                        + pending_sequence.len()
                         + kitty_image_aliases.capacity() * size_of::<ghostty_vt::KittyImageAlias>()
                         + size_of::<TerminalColors>()
                 }
@@ -8315,6 +8322,58 @@ mod tests {
 
         assert!(tap.try_send(AttachFrame::Output(vec![1])));
         assert!(!tap.try_send(AttachFrame::Output(vec![2])));
+        assert!(lifecycle.overflowed());
+    }
+
+    #[test]
+    fn resized_attach_frames_charge_pending_sequence_bytes() {
+        let replay: Arc<[u8]> = Arc::from(&b"replay"[..]);
+        let pending_sequence: Arc<[u8]> = Arc::from(&b"\x1b[<35;"[..]);
+        let without_pending = AttachFrame::Resized {
+            cols: 80,
+            rows: 24,
+            replay: replay.clone(),
+            kitty_image_aliases: Vec::new(),
+            kitty_state: KittyReplayState::disabled(),
+            pending_sequence: Arc::from([]),
+        };
+        let with_pending = AttachFrame::Resized {
+            cols: 80,
+            rows: 24,
+            replay,
+            kitty_image_aliases: Vec::new(),
+            kitty_state: KittyReplayState::disabled(),
+            pending_sequence: pending_sequence.clone(),
+        };
+        assert_eq!(
+            with_pending.retained_bytes(),
+            without_pending.retained_bytes() + pending_sequence.len()
+        );
+        let colored_without_pending = AttachFrame::ResizedWithColors {
+            cols: 80,
+            rows: 24,
+            replay: Arc::from(&b"replay"[..]),
+            kitty_image_aliases: Vec::new(),
+            kitty_state: KittyReplayState::disabled(),
+            colors: Box::new(TerminalColors::default()),
+            pending_sequence: Arc::from([]),
+        };
+        let colored_pending: Arc<[u8]> = Arc::from(&b"\x1b[<35;"[..]);
+        let colored_pending_len = colored_pending.len();
+        let colored_with_pending = AttachFrame::ResizedWithColors {
+            pending_sequence: colored_pending,
+            ..colored_without_pending.clone()
+        };
+        assert_eq!(
+            colored_with_pending.retained_bytes(),
+            colored_without_pending.retained_bytes() + colored_pending_len
+        );
+
+        let lifecycle = AttachLifecycle::default();
+        let max_bytes = with_pending.retained_bytes();
+        let (tap, _receiver) = AttachTap::pair(lifecycle.clone(), 2, max_bytes);
+        assert!(tap.try_send(with_pending.clone()));
+        assert!(!tap.try_send(with_pending));
         assert!(lifecycle.overflowed());
     }
 
