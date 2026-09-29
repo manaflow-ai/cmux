@@ -72,12 +72,16 @@ public final class RegistryControlBridge: ControlActionExecutor {
         guard registry.descriptor(for: id) != nil || registry.isBound(id) else { return .unknownAction }
         guard let action = registry.action(for: id) else { return .notBound }
         guard registry.isAvailable(id) else { return .unavailable }
+        if let reason = registry.unavailableReason(for: id) { return .refused(reason) }
         guard action.isEnabled() else { return .disabled }
         let invocation = ActionInvocation(
             target: request.target.flatMap(Self.actionTarget),
             arguments: request.arguments.compactMapValues(Self.actionValue)
         )
-        return registry.perform(id, invocation: invocation) ? .ran : .disabled
+        var ran = false
+        let refusal = registry.capturingRefusal { ran = registry.perform(id, invocation: invocation) }
+        if let refusal { return .refused(refusal) }
+        return ran ? .ran : .disabled
     }
 
     static func actionTarget(_ ref: ControlTargetRef) -> ActionTargetRef? {
