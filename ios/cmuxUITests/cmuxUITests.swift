@@ -113,6 +113,7 @@ final class cmuxUITests: XCTestCase {
         scopedSearch.name = "feed-scoped-search-and-toolbar"
         scopedSearch.lifetime = .keepAlways
         add(scopedSearch)
+    }
 
     func testForegroundRemovesOnlyReadDeliveredNotifications() async throws {
         let server = try MobileSyncMockHostServer()
