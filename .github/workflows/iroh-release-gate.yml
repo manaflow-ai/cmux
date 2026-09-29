@@ -391,6 +391,8 @@ jobs:
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-mac.cmuxdiag
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-ios-failure.log
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-ios-failure.png
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-ios-*.jsonl
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-ios-*.log
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-mac-failure.cmuxdiag
           if-no-files-found: warn
           retention-days: 7
