@@ -12,6 +12,13 @@ import protocol CmuxWorkspaces.FileOpening
 
 @Suite("Terminal link open coordinator", .serialized)
 struct TerminalLinkOpenCoordinatorTests {
+    @Test("Only text and HTML Ghostty actions authorize local export files")
+    func ghosttyOpenURLKindProvenance() {
+        #expect(TerminalLinkOpenRequest.isLocalExportActionKind(GHOSTTY_ACTION_OPEN_URL_KIND_TEXT))
+        #expect(TerminalLinkOpenRequest.isLocalExportActionKind(GHOSTTY_ACTION_OPEN_URL_KIND_HTML))
+        #expect(!TerminalLinkOpenRequest.isLocalExportActionKind(GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN))
+    }
+
     @Test("SSH file links use the remote preview route even when the same path exists locally")
     @MainActor
     func remoteFileLinkNeverOpensLocalShadow() throws {

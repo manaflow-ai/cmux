@@ -3553,7 +3553,8 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_OPEN_URL:
             let openUrl = action.action.open_url
-            let isTerminalLink = openUrl.kind == GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN
+            let isLocalExport = TerminalLinkOpenRequest.isLocalExportActionKind(openUrl.kind)
+            let isTerminalLink = !isLocalExport
             guard let cstr = openUrl.url else { return false }
             let urlString = String(
                 data: Data(bytes: cstr, count: Int(openUrl.len)),
@@ -3567,7 +3568,7 @@ class GhosttyApp {
             )
             // Text/HTML exports are files Ghostty wrote on this Mac, even for
             // a remote terminal.
-            request.isLocalExport = !isTerminalLink
+            request.isLocalExport = isLocalExport
             return performOnMain {
                 // Link callbacks must belong to one intentional pointer
                 // release. Text/HTML exports carry their own explicit action

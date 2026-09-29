@@ -39,7 +39,8 @@ public struct OwnedLogFile: Sendable {
         guard Darwin.fstat(fd, &info) == 0,
               (info.st_mode & S_IFMT) == S_IFREG,
               info.st_uid == owner,
-              info.st_nlink == 1 else {
+              info.st_nlink == 1,
+              Darwin.fchmod(fd, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
             Darwin.close(fd)
             return nil
         }
