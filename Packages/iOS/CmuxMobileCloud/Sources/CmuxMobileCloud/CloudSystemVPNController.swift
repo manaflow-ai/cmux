@@ -31,6 +31,8 @@ public final class CloudSystemVPNController {
     private var cleanupPending = false
     private var generation: UInt64 = 0
     private var operation: Task<Void, Never>?
+    private var enableRetryTask: Task<Void, Never>?
+    private var enableRetryRequested = false
 
     /// - Parameters:
     ///   - service: The `/api/vm` client, for enrollment.
@@ -76,6 +78,9 @@ public final class CloudSystemVPNController {
     public func setScope(_ newScope: String?) {
         guard !hasLoadedScope || scope != newScope || cleanupPending else { return }
         hasLoadedScope = true
+        enableRetryRequested = false
+        enableRetryTask?.cancel()
+        enableRetryTask = nil
         let previousScope = scope
         scope = newScope
         // A device that cannot run the VPN never saved one, so there is
@@ -166,7 +171,11 @@ public final class CloudSystemVPNController {
             phase = .failed(.configuration)
             return
         }
-        guard !operationGate.hasPendingOperation else { return }
+        if operationGate.hasPendingOperation {
+            phase = .preparing
+            scheduleEnableRetry()
+            return
+        }
         switch phase {
         case .preparing, .connecting, .connected, .disconnecting: return
         case .off, .failed: break
@@ -287,12 +296,17 @@ public final class CloudSystemVPNController {
         var lastError: (any Error)?
         for _ in 0..<cleanupRetryCount {
             do {
-                try await performBounded(reconcilePlatformOnTimeout: true) {
+                try await performBounded(
+                    reconcileCleanupOnTimeout: true,
+                    retainPendingOperationOnTimeout: true
+                ) {
                     try await self.manager.stop(removeConfiguration: true)
                 }
                 return
             } catch is CancellationError {
                 throw CancellationError()
+            } catch is CloudSystemVPNTaskTimeout.Failure {
+                throw CloudSystemVPNTaskTimeout.Failure.timedOut
             } catch {
                 lastError = error
             }
@@ -303,6 +317,7 @@ public final class CloudSystemVPNController {
     private func retryPendingCleanup() {
         guard manager.isAvailable, scope == nil, cleanupPending else { return }
         phase = .disconnecting
+        guard !operationGate.hasPendingOperation else { return }
         enqueue { [self] generation in
             do {
                 try await removeConfigurationWithRetry()
@@ -316,8 +331,32 @@ public final class CloudSystemVPNController {
         }
     }
 
+    private func scheduleEnableRetry() {
+        enableRetryRequested = true
+        guard enableRetryTask == nil else { return }
+        enableRetryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.operationGate.waitForIdle()
+            guard self.scope != nil, self.enableRetryRequested else { return }
+            self.enableRetryTask = nil
+            self.enableRetryRequested = false
+            guard !self.operationGate.hasPendingOperation else {
+                self.scheduleEnableRetry()
+                return
+            }
+            guard !self.manager.phase.isRequestedOn else {
+                self.accept(self.manager.phase)
+                return
+            }
+            self.phase = .off
+            self.enable()
+        }
+    }
+
     private func performBounded<T: Sendable>(
         reconcilePlatformOnTimeout: Bool = false,
+        reconcileCleanupOnTimeout: Bool = false,
+        retainPendingOperationOnTimeout: Bool = false,
         _ action: @escaping @MainActor () async throws -> T
     ) async throws -> T {
         let operation = operationGate.start(action)
@@ -331,7 +370,12 @@ public final class CloudSystemVPNController {
             if reconcilePlatformOnTimeout, error is CloudSystemVPNTaskTimeout.Failure {
                 watchPlatformCompletion(completion)
             }
-            operation.cancelIfPending()
+            if reconcileCleanupOnTimeout, error is CloudSystemVPNTaskTimeout.Failure {
+                watchCleanupCompletion(completion)
+            }
+            if !retainPendingOperationOnTimeout {
+                operation.cancelIfPending()
+            }
             throw error
         }
     }
@@ -347,6 +391,29 @@ public final class CloudSystemVPNController {
                   self.operation == nil,
                   !self.operationGate.hasPendingOperation else { return }
             self.accept(self.manager.phase)
+        }
+    }
+
+    private func watchCleanupCompletion<T: Sendable>(
+        _ completion: Task<T, any Error>
+    ) {
+        Task { @MainActor [weak self] in
+            let result = await completion.result
+            guard let self else { return }
+            await self.operationGate.waitForIdle()
+            guard self.operation == nil,
+                  !self.operationGate.hasPendingOperation else { return }
+            switch result {
+            case .success:
+                self.cleanupPending = false
+                if self.scope == nil {
+                    self.phase = self.manager.phase
+                } else {
+                    await self.refresh()
+                }
+            case .failure:
+                self.phase = .failed(.configuration)
+            }
         }
     }
 

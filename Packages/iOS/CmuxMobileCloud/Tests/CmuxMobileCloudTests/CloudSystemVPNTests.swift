@@ -272,6 +272,24 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.controller.phase == .off)
     }
 
+    @Test func signOutCleanupStaysQueuedBehindALateInstall() async {
+        let rig = Rig(operationTimeout: .milliseconds(100))
+        rig.manager.installDelay = .milliseconds(500)
+        await signedIn(rig)
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+        #expect(rig.controller.phase == .failed(.configuration))
+
+        rig.controller.setScope(nil)
+        await rig.controller.waitForPendingOperation()
+        #expect(rig.manager.stops.isEmpty)
+
+        try? await Task.sleep(for: .milliseconds(450))
+        #expect(rig.manager.stops == [true])
+        #expect(rig.controller.phase == .off)
+    }
+
     @Test func aDeclinedConsentKeepsItsRecoveryState() async {
         let rig = Rig()
         rig.manager.installFailure = .permissionRequired
