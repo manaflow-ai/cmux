@@ -883,6 +883,14 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
         let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        // createMainWindow copies the size of the current main window, and
+        // earlier tests in the host can leave a narrow window behind.
+        // Give split admission a realistic geometry before exercising a
+        // local side-by-side split.
+        let contentSize = CGSize(width: 1_000, height: 700)
+        window.setContentSize(contentSize)
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: contentSize))
         let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
         let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false))
         let leftTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(leftPanelId))

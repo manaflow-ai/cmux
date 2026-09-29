@@ -8,6 +8,8 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var splitResolution: ControlSurfaceSplitResolution = .tabManagerUnavailable
     var splitInputs: ControlSurfaceSplitInputs?
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
+    var pipResolution: ControlSurfacePipResolution = .surfaceNotFound
+    var pipRequest: (routing: ControlRoutingSelectors, surfaceID: UUID?, actionRawValue: String)?
     var createInputs: ControlSurfaceCreateInputs?
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var closeResolution: ControlSurfaceCloseResolution = .tabManagerUnavailable
@@ -135,6 +137,15 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         resumeClearAgentSessionEnded = agentSessionEnded
         resumeClearExpectedUpdatedAt = expectedUpdatedAt
         return resumeResolution
+    }
+
+    func controlSurfacePip(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        actionRawValue: String
+    ) -> ControlSurfacePipResolution {
+        pipRequest = (routing, surfaceID, actionRawValue)
+        return pipResolution
     }
 
     func controlSurfaceReportPWD(

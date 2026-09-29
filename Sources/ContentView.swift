@@ -7409,6 +7409,7 @@ struct ContentView: View {
                 CommandPaletteContextKeys.panelHasUnread,
                 workspace.panelIsUnread(panelId)
             )
+            snapshot.setSurfacePipContext(panelId: panelId)
 
             if panelIsTerminal {
                 let availableTargets = terminalOpenTargets ?? TerminalDirectoryOpenTarget.availableTargets()

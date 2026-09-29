@@ -9768,6 +9768,14 @@ struct CMUXCLI {
             throw CLIError(message: "surface requires a subcommand. Try: cmux surface ls, cmux surface open <resource>, cmux surface resume show --json")
         }
         switch subcommand {
+        case "pip":
+            try runSurfacePipCommand(
+                commandArgs: Array(commandArgs.dropFirst()),
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
         case "resume":
             try runSurfaceResumeCommand(
                 commandArgs: Array(commandArgs.dropFirst()),
@@ -9788,6 +9796,83 @@ struct CMUXCLI {
         default:
             throw CLIError(message: "Unsupported surface subcommand: \(subcommand)\n\n\(Self.surfaceUsage)")
         }
+    }
+
+    private func runSurfacePipCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let (surfaceArg, rem0) = parseOption(commandArgs, name: "--surface")
+        let (actionArg, rem1) = parseOption(rem0, name: "--action")
+        let (windowArg, rem2) = parseOption(rem1, name: "--window")
+        if let unknown = rem2.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: String(format: String(localized: "cli.surfacePip.error.unknownFlag", defaultValue: "surface pip: unknown flag '%@'"), unknown))
+        }
+        if let unexpected = rem2.first {
+            throw CLIError(message: String(format: String(localized: "cli.surfacePip.error.unexpectedArgument", defaultValue: "surface pip: unexpected argument '%@'"), unexpected))
+        }
+        let action = actionArg ?? "toggle"
+        guard ["pop", "return", "toggle"].contains(action) else {
+            throw CLIError(message: String(localized: "cli.surfacePip.error.action", defaultValue: #"surface pip --action must be "pop", "return", or "toggle""#))
+        }
+
+        var params: [String: Any] = ["action": action]
+        let windowID = try normalizeWindowHandle(windowArg ?? windowOverride, client: client)
+        if let windowID { params["window_id"] = windowID }
+
+        // Let the socket's shared resolver choose the focused surface or the
+        // routed PiP floater when no explicit surface context is supplied.
+        let hasExplicitWindow = windowArg != nil || windowOverride != nil
+        let environment = ProcessInfo.processInfo.environment
+        let surfaceRaw: String?
+        if let surfaceArg {
+            surfaceRaw = surfaceArg
+        } else if actionArg == nil || action == "return" || hasExplicitWindow {
+            // A return resolves the detached PiP panel through the socket's
+            // routed window state. An implicit toggle uses the same resolver;
+            // do not let the caller's surface context pin either operation to
+            // an unrelated surface.
+            surfaceRaw = nil
+        } else {
+            surfaceRaw = environment["CMUX_SURFACE_ID"]
+        }
+        if surfaceArg != nil || surfaceRaw != nil {
+            let workspaceID = try normalizeWorkspaceHandle(
+                hasExplicitWindow ? nil : environment["CMUX_WORKSPACE_ID"],
+                client: client,
+                windowHandle: windowID
+            )
+            guard let surfaceID = try normalizeSurfaceHandle(
+                surfaceRaw,
+                client: client,
+                workspaceHandle: workspaceID,
+                windowHandle: windowID
+            ) else {
+                throw CLIError(message: String(localized: "cli.surfacePip.error.invalidSurface", defaultValue: "surface pip: invalid surface handle"))
+            }
+            params["surface_id"] = surfaceID
+        }
+
+        let payload = try client.sendV2(method: "surface.pip", params: params)
+        let formattedSurface = formatTabHandle(payload, idFormat: idFormat) ?? "surface"
+        let inPip = (payload["in_picture_in_picture"] as? Bool) == true
+        let fallbackFormat: String
+        if inPip {
+            fallbackFormat = String(
+                localized: "cli.surfacePip.result.popped",
+                defaultValue: "Popped out %@ into Picture in Picture"
+            )
+        } else {
+            fallbackFormat = String(
+                localized: "cli.surfacePip.result.returned",
+                defaultValue: "Returned %@ from Picture in Picture"
+            )
+        }
+        let fallback = String(format: fallbackFormat, formattedSurface)
+        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: fallback)
     }
 
     private func runSurfaceResumeCommand(
@@ -20129,6 +20214,7 @@ struct CMUXCLI {
                    cmux surface resume show [--json] [flags]
                    cmux surface resume get [--json] [flags]
                    cmux surface resume clear [flags]
+                   cmux surface pip [--action <pop|return|toggle>] [--surface <id|ref|index>] [--window <id|ref|index>]
 
             ls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers
             on This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,
@@ -20141,6 +20227,8 @@ struct CMUXCLI {
 
             resume: attach restart command metadata to a terminal surface.
             Public CLI bindings are stored for inspection and manual restore.
+            pip: pop out, return, or toggle a terminal/browser surface. Without
+            --surface, the socket resolves the focused surface or routed PiP floater.
 
             Flags:
               --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)
@@ -31369,14 +31457,6 @@ struct CMUXCLI {
         client: SocketClient
     ) -> CodexTranscriptMonitorStopReplay? {
         let env = ProcessInfo.processInfo.environment
-        if let forkParentSessionID = optionValue(commandArgs, name: "--fork-parent") {
-            runCodexForkSessionWatch(
-                commandArgs: commandArgs,
-                parentSessionID: forkParentSessionID,
-                client: client
-            )
-            return nil
-        }
         let workspaceId = optionValue(commandArgs, name: "--workspace") ?? env["CMUX_WORKSPACE_ID"] ?? ""
         let surfaceId = optionValue(commandArgs, name: "--surface") ?? env["CMUX_SURFACE_ID"]
         let sessionId = optionValue(commandArgs, name: "--session")
@@ -31408,6 +31488,15 @@ struct CMUXCLI {
                     return nil
                 }
             }
+
+            // Register before parsing or publishing any result. The transcript
+            // and lease can change while a socket notification is in flight;
+            // installing the source only after parsing leaves that change
+            // between the read and the wait, where it can sleep for 30 seconds.
+            let changeWatcher = CodexTranscriptChangeWatcher(
+                transcriptPath: transcriptPath,
+                leasePath: leasePath
+            )
 
             if transcriptPath == nil {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
@@ -31460,7 +31549,7 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return nil }
-            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
+            changeWatcher.wait(timeout: min(30, remaining))
         }
         return nil
     }
@@ -31529,6 +31618,64 @@ struct CMUXCLI {
             "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
             client: client
         )
+    }
+
+    /// Watches monitor inputs from before parsing until the next wait.
+    ///
+    /// The monitor publishes socket commands while parsing a transcript. Keeping
+    /// the sources alive across that work prevents a write during the command
+    /// reply from falling into the gap between parsing and watcher registration.
+    private final class CodexTranscriptChangeWatcher {
+        private let semaphore = DispatchSemaphore(value: 0)
+        private var sources: [DispatchSourceFileSystemObject] = []
+
+        init(transcriptPath: String?, leasePath: String?) {
+            addFileSource(
+                path: transcriptPath,
+                eventMask: [.write, .extend, .delete, .rename]
+            )
+            addFileSource(
+                path: leasePath,
+                eventMask: [.write, .delete, .rename]
+            )
+        }
+
+        func wait(timeout: TimeInterval) {
+            guard timeout > 0 else { return }
+            if sources.isEmpty {
+                _ = semaphore.wait(timeout: .now() + timeout)
+            } else {
+                _ = semaphore.wait(timeout: .now() + timeout)
+            }
+        }
+
+        deinit {
+            sources.forEach { $0.cancel() }
+        }
+
+        private func addFileSource(
+            path: String?,
+            eventMask: DispatchSource.FileSystemEvent
+        ) {
+            guard let path, !path.isEmpty else { return }
+            let expandedPath = NSString(string: path).expandingTildeInPath
+            let fd = open(expandedPath, O_EVTONLY)
+            guard fd >= 0 else { return }
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: eventMask,
+                queue: DispatchQueue.global(qos: .utility)
+            )
+            let signal = semaphore
+            source.setEventHandler { [signal] in
+                signal.signal()
+            }
+            source.setCancelHandler {
+                close(fd)
+            }
+            source.resume()
+            sources.append(source)
+        }
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
@@ -32549,7 +32696,6 @@ struct CMUXCLI {
         )
     }
 
-    @discardableResult
     private func publishAgentSurfaceResumeBinding(
         client: SocketClient,
         workspaceId: String,
@@ -32564,9 +32710,9 @@ struct CMUXCLI {
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil,
         telemetry: CLISocketSentryTelemetry? = nil
-    ) -> Bool {
+    ) {
         guard ProcessInfo.processInfo.environment[agentHookRelayOriginEnvironmentKey] != "1" else {
-            return false
+            return
         }
         if kind == "hermes-agent" {
             var stateEnvironment = ProcessInfo.processInfo.environment
@@ -32589,11 +32735,11 @@ struct CMUXCLI {
                     responseTimeout: responseTimeout,
                     deadline: deadline
                 )
-                return false
+                return
             case .unavailable:
                 // A temporary snapshot failure must not replace or clear a
                 // previously verified durable Hermes checkpoint.
-                return false
+                return
             }
         }
         var codexEvidenceProvenance: AgentResumeEvidenceProvenance?
@@ -32609,7 +32755,7 @@ struct CMUXCLI {
                     existing: nil,
                     telemetry: telemetry
                 )
-                return false
+                return
             }
             switch codexResumeBindingVerification(
                 sessionId: sessionId,
@@ -32625,7 +32771,7 @@ struct CMUXCLI {
                         existing: nil,
                         telemetry: telemetry
                     )
-                    return false
+                    return
                 }
                 codexEvidenceProvenance = evidence.provenance
             case .missing:
@@ -32644,7 +32790,7 @@ struct CMUXCLI {
                     responseTimeout: responseTimeout,
                     deadline: deadline
                 )
-                return false
+                return
             case .unavailable:
                 logCodexResumeBindingRejection(
                     reason: "rollout-store-unavailable",
@@ -32653,7 +32799,7 @@ struct CMUXCLI {
                     existing: nil,
                     telemetry: telemetry
                 )
-                return false
+                return
             }
         } else if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
             clearAgentSurfaceResumeBinding(
@@ -32664,7 +32810,7 @@ struct CMUXCLI {
                 responseTimeout: responseTimeout,
                 deadline: deadline
             )
-            return false
+            return
         }
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, launchCommand: launchCommand)
         // Pin to the launch directory, not drift-prone runtime cwd.
@@ -32698,7 +32844,7 @@ struct CMUXCLI {
                     responseTimeout: responseTimeout
                 )
             }
-            return false
+            return
         }
         var params: [String: Any] = [
             "workspace_id": workspaceId,
@@ -32727,17 +32873,12 @@ struct CMUXCLI {
             // store mutation; no client-side get/set preflight can close that race.
             params["resume_evidence_provenance"] = codexEvidenceProvenance.logValue
         }
-        do {
-            _ = try client.sendV2(
-                method: "surface.resume.set",
-                params: params,
-                responseTimeout: responseTimeout,
-                deadline: deadline
-            )
-            return true
-        } catch {
-            return false
-        }
+        _ = try? client.sendV2(
+            method: "surface.resume.set",
+            params: params,
+            responseTimeout: responseTimeout,
+            deadline: deadline
+        )
     }
 
     @discardableResult
@@ -35188,7 +35329,7 @@ export default CMUXSessionRestore;
                 allowedShellCommands: cursorApprovalSettings.allowedShellCommands,
                 deniedShellCommands: cursorApprovalSettings.deniedShellCommands
             )
-        var hookResponse = cursorShellNeedsApproval
+        let hookResponse = cursorShellNeedsApproval
             ? AgentHookNotificationPolicy.cursorNativeApprovalResponse
             : "{}"
         let lifecycleRoute = AgentHookLifecycleReconciler().route(
@@ -36248,27 +36389,12 @@ export default CMUXSessionRestore;
             }
 
         case .sessionStart:
-            let isCodexForkSession = def.name == "codex"
-                && env[CodexHookInvocation.forkSessionEnvironmentKey] == "1"
-            func printCodexForkSessionStartResult(bound: Bool) {
-                if isCodexForkSession {
-                    if bound { hookResponse = "{\"cmux_fork_binding\":\"bound\"}" } else {
-                        let result = ["cmux_fork_binding": "failed"]
-                        if let data = try? JSONSerialization.data(withJSONObject: result),
-                           let line = String(data: data, encoding: .utf8) {
-                            print(line)
-                        }
-                    }
-                } else if !bound {
-                    print("{}")
-                }
-            }
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
                 emitJournal(.sessionStarted, workspaceId: nil, surfaceId: nil, unattributedReason: "target-unresolved")
                 didSendFeedTelemetry = true
-                printCodexForkSessionStartResult(bound: false)
+                print("{}")
                 return
             }
             let workspaceId = target.workspaceId
@@ -36289,7 +36415,7 @@ export default CMUXSessionRestore;
                         isSubagent: true,
                         detail: "nested-session-start"
                     )
-                    printCodexForkSessionStartResult(bound: false)
+                    print("{}")
                     return
                 }
             }
@@ -36352,14 +36478,14 @@ export default CMUXSessionRestore;
                 if !acceptedSessionStart {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                     didSendFeedTelemetry = true
-                    printCodexForkSessionStartResult(bound: false)
+                    print("{}")
                     return
                 }
             }
             if codexSessionStartWentStaleAfterAccept() {
                 telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                 didSendFeedTelemetry = true
-                printCodexForkSessionStartResult(bound: false)
+                print("{}")
                 return
             }
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
@@ -36367,7 +36493,7 @@ export default CMUXSessionRestore;
                 if codexSessionStartWentStaleAfterAccept() {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                     didSendFeedTelemetry = true
-                    printCodexForkSessionStartResult(bound: false)
+                    print("{}")
                     return
                 }
                 try? recordAgentTurnDiffBaseline(
@@ -36384,21 +36510,17 @@ export default CMUXSessionRestore;
             if !sessionId.isEmpty {
                 if suppressVisibleMutations {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.nested-suppressed")
-                    if isCodexForkSession {
-                        printCodexForkSessionStartResult(bound: false)
-                        return
-                    }
                 } else {
                     if codexSessionStartWentStaleAfterAccept() {
                         telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                         didSendFeedTelemetry = true
-                        printCodexForkSessionStartResult(bound: false)
+                        print("{}")
                         return
                     }
                     if !AgentHookNotificationPolicy.preservesDedupeAcrossSessionStart(agentName: def.name) {
                         try? store.clearNotificationEmission(sessionId: sessionId)
                     }
-                    let didPublishBinding = publishAgentSurfaceResumeBinding(
+                    publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -36410,16 +36532,12 @@ export default CMUXSessionRestore;
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         telemetry: telemetry
                     )
-                    if isCodexForkSession && !didPublishBinding {
-                        printCodexForkSessionStartResult(bound: false)
-                        return
-                    }
                 }
             }
             if codexSessionStartWentStaleAfterAccept() {
                 telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                 didSendFeedTelemetry = true
-                printCodexForkSessionStartResult(bound: false)
+                print("{}")
                 return
             }
             if !relayOrigin, let pid, !suppressVisibleMutations {
@@ -36445,7 +36563,6 @@ export default CMUXSessionRestore;
                     )
                 }
             }
-            printCodexForkSessionStartResult(bound: true)
 
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))

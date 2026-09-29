@@ -819,7 +819,7 @@ final class WindowTerminalPortal: NSObject {
 
     weak var window: NSWindow?
     let hostView = WindowTerminalHostView(frame: .zero)
-    private let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
+    let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
     private let paneSwapOverlayView = PaneSwapSelectionOverlayView(frame: .zero)
 
 #if DEBUG
@@ -832,7 +832,7 @@ final class WindowTerminalPortal: NSObject {
     private var paneSwapSelectionObservers: [NSObjectProtocol] = []
     private var paneSwapSourceWorkspaceID: UUID?
     private weak var paneSwapPreviousFirstResponder: NSResponder?
-    private weak var installedContainerView: NSView?
+    weak var installedContainerView: NSView?
     weak var installedReferenceView: NSView?
     private var referenceGeometryObservers: [NSObjectProtocol] = []
     private var hasDeferredFullSyncScheduled = false
@@ -1417,7 +1417,7 @@ final class WindowTerminalPortal: NSObject {
     /// of mirrored tmux windows carries dozens of surfaces. The geometry
     /// comparison lives in `refreshDividerOverlayIfGeometryChanged`, which the
     /// batch calls once at its boundary.
-    private func ensureDividerOverlayOnTop() {
+    func ensureDividerOverlayOnTop() {
         var placementChanged = false
 
         if dividerOverlayView.superview !== hostView {
@@ -1537,7 +1537,7 @@ final class WindowTerminalPortal: NSObject {
             installedContainerView !== container ||
             installedReferenceView !== reference {
             hostView.removeFromSuperview()
-            if let browserHost {
+            if let browserHost, !hasRaisedVisibleEntries {
                 container.addSubview(hostView, positioned: .below, relativeTo: browserHost)
             } else {
                 container.addSubview(hostView, positioned: .above, relativeTo: reference)
@@ -1562,7 +1562,7 @@ final class WindowTerminalPortal: NSObject {
             installedContainerView = container
             installedReferenceView = reference
             installReferenceGeometryObservers(reference: reference)
-        } else if let browserHost {
+        } else if let browserHost, !hasRaisedVisibleEntries {
             if !Self.isView(browserHost, above: hostView, in: container) {
                 container.addSubview(hostView, positioned: .below, relativeTo: browserHost)
             }
@@ -1581,6 +1581,7 @@ final class WindowTerminalPortal: NSObject {
             synchronizeLayoutHierarchy()
         }
         _ = synchronizeHostFrameToReference()
+        refreshHostPlacementForRaisedEntries()
         ensureDividerOverlayOnTop()
 
         return true
@@ -1645,7 +1646,7 @@ final class WindowTerminalPortal: NSObject {
         )
     }
 
-    private static func isView(_ view: NSView, above reference: NSView?, in container: NSView) -> Bool {
+    static func isView(_ view: NSView, above reference: NSView?, in container: NSView) -> Bool {
         guard let reference else { return true }
         guard let viewIndex = container.subviews.firstIndex(of: view),
               let referenceIndex = container.subviews.firstIndex(of: reference) else {
@@ -1654,7 +1655,7 @@ final class WindowTerminalPortal: NSObject {
         return viewIndex > referenceIndex
     }
 
-    private func preferredBrowserHost(in container: NSView) -> WindowBrowserHostView? {
+    func preferredBrowserHost(in container: NSView) -> WindowBrowserHostView? {
         container.subviews.last(where: { $0 is WindowBrowserHostView }) as? WindowBrowserHostView
     }
 
@@ -1845,6 +1846,8 @@ final class WindowTerminalPortal: NSObject {
         if becameVisible || becameHidden {
             scheduleExternalGeometrySynchronize(forceImmediate: false)
         }
+        refreshHostPlacementForRaisedEntries()
+        refreshPortalZOrder()
         return needsReattach
     }
 
@@ -2028,6 +2031,8 @@ final class WindowTerminalPortal: NSObject {
             hostView.addSubview(hostedView, positioned: .above, relativeTo: nil)
         }
 
+        refreshHostPlacementForRaisedEntries()
+        refreshPortalZOrder()
         ensureDividerOverlayOnTop()
 
         synchronizeHostedView(withId: hostedId, syncLayout: syncLayout)

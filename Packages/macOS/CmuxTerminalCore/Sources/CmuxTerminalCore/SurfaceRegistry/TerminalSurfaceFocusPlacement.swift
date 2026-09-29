@@ -8,4 +8,7 @@ public enum TerminalSurfaceFocusPlacement: Equatable, Sendable {
 
     /// The surface is hosted in the right-sidebar dock.
     case rightSidebarDock
+
+    /// The surface is hosted in a floating picture-in-picture panel.
+    case pictureInPicture
 }

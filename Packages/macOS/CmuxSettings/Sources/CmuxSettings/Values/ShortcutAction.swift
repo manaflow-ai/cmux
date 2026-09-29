@@ -105,6 +105,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case reopenClosedWorkspace
     case reopenClosedBrowserPanel
     case newSurface
+    /// Toggles the focused surface's Picture in Picture presentation.
+    case toggleSurfacePip
     case toggleTerminalCopyMode
     case focusTextBoxInput
     /// Cycles the TextBox submit button to the next configured action.

@@ -394,19 +394,29 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
             windowID = appDelegate.createMainWindow()
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowID))
             workspace = try #require(manager.selectedWorkspace)
+            // createMainWindow copies the size of the current main window, and
+            // earlier tests in the host can leave a narrow window behind.
+            // Give split admission a realistic geometry before exercising a
+            // local side-by-side split.
+            let window = try #require(appDelegate.mainWindow(for: windowID))
+            let contentSize = CGSize(width: 1_000, height: 700)
+            window.setContentSize(contentSize)
+            window.contentView?.layoutSubtreeIfNeeded()
+            workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: contentSize))
             outerPanelID = try #require(workspace.focusedPanelId)
             if focusAwayFromMirror {
-                nonMirrorPanelID = try #require({
-                    switch workspace.newTerminalSplitOutcome(
-                        from: outerPanelID,
-                        orientation: .horizontal,
-                        focus: true,
-                        autoLayout: true
-                    ) {
-                    case .created(let panel): return panel.id
-                    default: return nil
-                    }
-                }())
+                let splitPanelID: UUID?
+                if case .created(let panel) = workspace.newTerminalSplitOutcome(
+                    from: outerPanelID,
+                    orientation: .horizontal,
+                    focus: true,
+                    autoLayout: true
+                ) {
+                    splitPanelID = panel.id
+                } else {
+                    splitPanelID = nil
+                }
+                nonMirrorPanelID = try #require(splitPanelID)
             } else {
                 nonMirrorPanelID = nil
             }

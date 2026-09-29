@@ -823,7 +823,7 @@ clear_inherited_claude_session_identity_env() {
 # `cmux hooks claude inject-settings` prints a fixed document and never
 # touches the app socket, so it can run while the socket ping below decides
 # whether this launch gets hooks at all. A background job runs the generator
-# under its 1 s watchdog and writes its output to a private file; the wrapper
+# under its 2 s watchdog and writes its output to a private file; the wrapper
 # either collects it (hook injection) or discards it (every passthrough). An
 # unexpected `exit` in between discards it via the EXIT trap; exec does not run
 # that trap.
@@ -849,7 +849,7 @@ cmux_claude_run_hook_settings_generator() {
         cmux_generator_timer_pid=""
         trap 'if [[ -n "$cmux_generator_timer_pid" ]]; then kill "$cmux_generator_timer_pid" 2>/dev/null || true; fi' EXIT
         trap 'exit 0' HUP INT TERM
-        /bin/sleep 1 &
+        /bin/sleep 2 &
         cmux_generator_timer_pid=$!
         wait "$cmux_generator_timer_pid" 2>/dev/null || exit 0
         cmux_generator_timer_pid=""
@@ -1554,7 +1554,10 @@ $SIG{TERM} = sub { $stop_probe->(); exit 143; };
 my $output = "";
 my $success = eval {
     local $SIG{ALRM} = sub { die "help deadline\n" };
-    alarm(0.75);
+    # Cold-started launchers may need more than a scheduler slice to exec on a
+    # busy host. Keep discovery bounded, but leave enough time for the
+    # launcher to start and emit its help before treating it as unavailable.
+    alarm(2.0);
     while (1) {
         my $read = sysread($reader, my $chunk, 8192);
         die "help read\n" unless defined $read;

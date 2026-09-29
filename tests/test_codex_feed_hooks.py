@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import patch
 
@@ -88,6 +89,7 @@ class FakeCmuxSocket:
         method_errors: dict[str, tuple[str, str]] | None = None,
         single_batch_item_id: bool = False,
         method_delays: dict[str, float] | None = None,
+        raw_response_hook: Callable[[str], None] | None = None,
     ):
         self.path = path
         self.decision = decision
@@ -102,6 +104,7 @@ class FakeCmuxSocket:
         self.method_errors = method_errors or {}
         self.single_batch_item_id = single_batch_item_id
         self.method_delays = method_delays or {}
+        self.raw_response_hook = raw_response_hook
         self._dropped_surface_list = False
         self.frames: list[dict] = []
         self.frames_with_connection: list[tuple[int, dict]] = []
@@ -174,6 +177,8 @@ class FakeCmuxSocket:
                         frame = json.loads(raw_line)
                     except json.JSONDecodeError:
                         self.frames.append({"raw": raw_line})
+                        if self.raw_response_hook is not None:
+                            self.raw_response_hook(raw_line)
                         if self.raw_response_delay > 0:
                             time.sleep(self.raw_response_delay)
                         reply(b"OK\n")
@@ -274,7 +279,7 @@ def monitor_pids_for_session(session_id: str) -> list[int]:
         pid_text, _, command = stripped.partition(" ")
         if (
             " hooks codex monitor " in f" {command} "
-            and f"--session {session_id}" in command
+            and f" --session {session_id} " in f" {command} "
         ):
             pids.append(int(pid_text))
     return pids

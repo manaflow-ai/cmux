@@ -182,6 +182,7 @@ extension ShortcutAction {
         case .moveWorkspaceUp: return ShortcutStroke(key: "[", command: true, option: true, control: true)
         case .moveWorkspaceDown: return ShortcutStroke(key: "]", command: true, option: true, control: true)
         case .newSurface: return ShortcutStroke(key: "t", command: true)
+        case .toggleSurfacePip: return ShortcutStroke(key: "p", command: true, control: true)
         case .toggleTerminalCopyMode: return ShortcutStroke(key: "m", command: true, shift: true)
         case .focusTextBoxInput: return ShortcutStroke(key: "a", command: true, shift: true)
         case .cycleTextBoxSubmitAction: return ShortcutStroke(key: "\t", shift: true)

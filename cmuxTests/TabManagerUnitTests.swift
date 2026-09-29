@@ -1280,6 +1280,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             gitProbeLimiter: WorkspaceGitMetadataProbeLimiter(limit: 1),
             settings: UserDefaultsSettingsClient(defaults: settingsDefaults)
         )
+        defer { manager.finalizeAllWorkspacesForWindowClose() }
         guard let workspace = manager.selectedWorkspace else {
             XCTFail("Expected selected workspace")
             return
@@ -1293,6 +1294,10 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         }
 
         XCTAssertNotEqual(manager.selectedTabId, backgroundWorkspace.id)
+        XCTAssertEqual(
+            URL(fileURLWithPath: backgroundWorkspace.currentDirectory).resolvingSymlinksInPath().path,
+            repoURL.resolvingSymlinksInPath().path
+        )
         XCTAssertTrue(
             waitForCondition {
                 backgroundWorkspace.panelGitBranches[backgroundPanelId]?.branch == "main"
