@@ -1593,8 +1593,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         stateRecoveryRefreshQueued = false
         stateRecoveryCount = 0
     }
-    /// Mutations also request a snapshot as a safety check. One main-actor yield
-    /// coalesces calls made in the same transaction without adding a time guess.
+    func resetLinkFailureAfterRouteChange() { guard info.linkFailure != nil else { return }; info.linkFailure = nil; info.linkError = nil; info.linkState = .connecting; attachmentRetry.reset(); catalog.updateMachine(info, from: self) }
+    /// Mutations also request a snapshot as a safety check; one main-actor yield coalesces calls in the same transaction.
     func reconcileRemovedRemoteWorkspace(_ id: String) { info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }; catalog.updateMachine(info, from: self) }
     func scheduleRefresh() {
         let lifecycle = lifecycleGeneration
