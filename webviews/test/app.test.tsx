@@ -190,8 +190,10 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   await waitFor(() => dom?.window.document.body.dataset.streamFileCount === "0");
   await waitFor(() => dom?.window.document.title === "Branch diff — repo");
   expect(requests.filter((request) => request.method === "sessionOpen")).toHaveLength(1);
-  await waitFor(() => commentRequests.length === 1);
-  expect(commentRequests[0].params.repoRoot).toBe("/tmp/repo");
+  // The comments bridge also carries the viewerPrefs.get boot request.
+  const commentLists = () => commentRequests.filter((request) => request.method === "comments.list");
+  await waitFor(() => commentLists().length === 1);
+  expect(commentLists()[0].params.repoRoot).toBe("/tmp/repo");
   expect(requests[0].params.source).toEqual({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" });
   expect(fetched).toEqual(["cmux-diff-viewer://0123456789abcdef/diff-session.patch"]);
   expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(0);
@@ -737,7 +739,6 @@ test("viewer preferences sync from the native bridge and persist option changes"
   await waitFor(() => prefsRequests.some((request) => request.method === "viewerPrefs.set"));
   expect(prefsRequests.find((request) => request.method === "viewerPrefs.set").params)
     .toEqual({ preferences: { lineNumbers: false } });
-  expect(JSON.parse(dom.window.localStorage.getItem("cmux.diffViewer.options")!)).toEqual({ lineNumbers: false });
 
   // Collapse state stays session-local.
   menuButton("Collapse all diffs")?.click();
