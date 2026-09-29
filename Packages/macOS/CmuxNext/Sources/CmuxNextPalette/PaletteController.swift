@@ -1,0 +1,195 @@
+public import AppKit
+public import CmuxNextActions
+
+/// Which page the palette opens on.
+public enum PaletteMode: Sendable, Hashable {
+    case commands
+    case keyboardShortcuts
+    case workspaces
+    case tabs
+}
+
+/// Owns the floating palette panel and wires the model to the registry and
+/// the App's data sources.
+///
+/// Usage from the App:
+/// ```swift
+/// let palette = PaletteController(registry: registry, sources: sources)
+/// palette.bindRegistryActions()   // Cmd-Shift-P, Cmd-P, shortcut search
+/// ```
+public final class PaletteController {
+    public let registry: ActionRegistry
+    public let model: PaletteModel
+    public var sources: PaletteSources
+
+    public private(set) var isVisible = false
+
+    private var panel: PalettePanel?
+    private weak var parentWindow: NSWindow?
+    private var presentationGeneration = 0
+
+    public init(
+        registry: ActionRegistry,
+        sources: PaletteSources = PaletteSources(),
+        frecencyPersistence: (any FrecencyPersisting)? = UserDefaultsFrecencyPersistence()
+    ) {
+        self.registry = registry
+        self.sources = sources
+        self.model = PaletteModel(persistence: frecencyPersistence)
+        model.onDismiss = { [weak self] in self?.hide() }
+    }
+
+    // MARK: Registry wiring
+
+    /// Binds the palette's own catalog actions: Command Palette (toggle),
+    /// Go to Workspace, Go to Tab, and Search Keyboard Shortcuts.
+    public func bindRegistryActions() {
+        registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
+        registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
+        if sources.workspaces != nil {
+            registry.bind("goToWorkspace") { [weak self] in self?.show(.workspaces) }
+        }
+        if sources.tabs != nil {
+            registry.bind("palette.goToTab") { [weak self] in self?.show(.tabs) }
+        }
+        registry.argumentCollector = { [weak self] id, invocation in
+            self?.collectArguments(for: id, invocation: invocation)
+        }
+    }
+
+    /// Counts a run of `id` from any entrypoint toward palette ranking.
+    public func recordUse(of id: ActionID) {
+        model.recordUse("action:\(registry.canonicalID(for: id).rawValue)")
+    }
+
+    // MARK: Presentation
+
+    public func toggle(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
+        if isVisible {
+            hide()
+        } else {
+            show(mode, relativeTo: window)
+        }
+    }
+
+    /// Opens the palette over `window` (default: the key or main window).
+    public func show(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
+        model.reset(to: page(for: mode))
+        present(relativeTo: window)
+    }
+
+    /// Opens the palette to collect the missing arguments of `id`, then runs
+    /// it. Installed as the registry's `argumentCollector`, so a menu item or
+    /// shortcut for an argument-taking action asks inline.
+    public func collectArguments(for id: ActionID, invocation: ActionInvocation, relativeTo window: NSWindow? = nil) {
+        guard let descriptor = registry.descriptor(for: id) else { return }
+        let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets)
+        let effect = flow.effect(collected: invocation)
+        if case .perform(let handler) = effect {
+            // Nothing left to ask.
+            handler()
+            return
+        }
+        model.reset(to: effect, fallback: commandsPage())
+        present(relativeTo: window)
+    }
+
+    private func present(relativeTo window: NSWindow?) {
+        let parent = window ?? NSApp.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? NSApp.mainWindow
+        let panel = self.panel ?? makePanel()
+        presentationGeneration += 1
+        registry.context.insert(.paletteOpen)
+        if isVisible {
+            // Already open: switch pages in place.
+            panel.makeKey()
+            return
+        }
+        isVisible = true
+        parentWindow = parent
+        panel.setFrame(frame(for: parent, size: PaletteLayout.windowSize), display: false)
+        if let parent, panel.parent !== parent {
+            panel.parent?.removeChildWindow(panel)
+            parent.addChildWindow(panel, ordered: .above)
+        }
+        contentView?.resetAnimations()
+        panel.makeKeyAndOrderFront(nil)
+        contentView?.focusField()
+        contentView?.animateIn()
+    }
+
+    /// Closes the palette. The parent window becomes key immediately so a
+    /// command that runs right after sees the right focus; the panel fades
+    /// out, then orders out.
+    public func hide() {
+        guard isVisible, let panel else { return }
+        isVisible = false
+        registry.context.remove(.paletteOpen)
+        model.closeActionsMenu()
+        model.hover(nil)
+        presentationGeneration += 1
+        let generation = presentationGeneration
+        if let parentWindow, parentWindow.isVisible {
+            parentWindow.makeKey()
+        }
+        contentView?.animateOut { [weak self, weak panel] in
+            guard let self, let panel, self.presentationGeneration == generation else { return }
+            panel.parent?.removeChildWindow(panel)
+            panel.orderOut(nil)
+            self.contentView?.resetAnimations()
+        }
+    }
+
+    private var contentView: PaletteContentView? { panel?.contentView as? PaletteContentView }
+
+    private func makePanel() -> PalettePanel {
+        let panel = PalettePanel(size: PaletteLayout.windowSize)
+        let content = PaletteContentView(model: model)
+        content.autoresizingMask = [.width, .height]
+        content.onPreferredSizeChange = { [weak self, weak panel] size in
+            guard let self, let panel, self.isVisible else { return }
+            // Keep the top edge fixed when density changes while open.
+            var frame = panel.frame
+            frame.origin.y += frame.height - size.height
+            frame.origin.x += (frame.width - size.width) / 2
+            frame.size = size
+            panel.setFrame(frame, display: true)
+        }
+        panel.contentView = content
+        panel.keyHandler = { [weak self] event in self?.handleKeyDown(event) ?? false }
+        panel.onResignKey = { [weak self] in
+            // Clicking elsewhere closes the palette, like Spotlight.
+            self?.hide()
+        }
+        self.panel = panel
+        return panel
+    }
+
+    /// Top-centered over the parent window at about a sixth of its height,
+    /// clamped to the visible screen.
+    private func frame(for parent: NSWindow?, size: CGSize) -> NSRect {
+        let screen = parent?.screen ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? NSRect(origin: .zero, size: size)
+        let anchor = parent?.frame ?? visible
+        var origin = NSPoint(
+            x: anchor.midX - size.width / 2,
+            y: anchor.maxY - anchor.height / 6 - size.height + PaletteLayout.shadowMargin
+        )
+        origin.x = min(max(origin.x, visible.minX), visible.maxX - size.width)
+        origin.y = min(max(origin.y, visible.minY), visible.maxY - size.height)
+        return NSRect(origin: origin, size: size)
+    }
+
+    // MARK: Keys
+
+    /// Maps a key-down in the panel to a palette command. Returns true when
+    /// the event was consumed (so the text field never sees it).
+    func handleKeyDown(_ event: NSEvent) -> Bool {
+        guard let command = PaletteKeyMap.command(
+            for: event,
+            actionsMenuOpen: model.actionsMenu != nil,
+            queryIsEmpty: model.query.isEmpty,
+            registry: registry
+        ) else { return false }
+        return model.handle(command)
+    }
+}
