@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0";
+pub const ir_sha256 = "e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -36,11 +36,13 @@ pub const AgentReportSource = enum {
 };
 
 pub const AgentSource = enum {
+    plugin,
     detected,
     socket,
     hook,
 
     pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "plugin")) return .plugin;
         if (std.mem.eql(u8, value, "detected")) return .detected;
         if (std.mem.eql(u8, value, "socket")) return .socket;
         if (std.mem.eql(u8, value, "hook")) return .hook;
@@ -49,6 +51,7 @@ pub const AgentSource = enum {
 
     pub fn toWire(self: @This()) []const u8 {
         return switch (self) {
+            .plugin => "plugin",
             .detected => "detected",
             .socket => "socket",
             .hook => "hook",
@@ -795,6 +798,8 @@ pub const ProcessInfoResult = struct {
     cwd: wire.Nullable([]const u8),
     /// Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
     foreground_cwd: wire.Field([]const u8) = .absent,
+    /// Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
+    foreground_executable: wire.Field([]const u8) = .absent,
     pid: wire.Nullable(u32),
 };
 
@@ -1116,6 +1121,11 @@ pub const ServerStatsWriterPhase = enum {
 pub const SetCellPixelsResult = struct {
     failures: []const CellPixelFailure,
     resizes: []const CellPixelResize,
+};
+
+pub const SetTerminalIdlePolicyResult = struct {
+    idle_close_seconds: wire.Nullable(u64),
+    terminal_id: []const u8,
 };
 
 pub const ShutdownDaemonResult = struct {
@@ -4028,6 +4038,25 @@ pub fn setSplitRatio(client: anytype, request: SetSplitRatioRequest) !wire.Decod
     );
 }
 
+pub const SetTerminalIdlePolicyRequest = struct {
+    idle_close_seconds: wire.Field(u64) = .absent,
+    surface: wire.Field(Id) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+};
+
+pub fn setTerminalIdlePolicy(client: anytype, request: SetTerminalIdlePolicyRequest) !wire.Decoded(SetTerminalIdlePolicyResult) {
+    return client.callTyped(
+        SetTerminalIdlePolicyResult,
+        .{
+            .name = "set-terminal-idle-policy",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-idle-close-v1",
+        },
+        request,
+    );
+}
+
 pub const SetViewportPaneWidthRequest = struct {
     pane: Id,
     transaction: wire.Field(u64) = .absent,
@@ -4423,6 +4452,8 @@ pub fn zoomPane(client: anytype, request: ZoomPaneRequest) !wire.Decoded(ZoomPan
 }
 
 pub const AgentChangedEvent = struct {
+    /// Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.
+    agent: wire.Field([]const u8) = .absent,
     event: []const u8,
     session: wire.Nullable([]const u8),
     source: AgentSource,
@@ -5304,7 +5335,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 112;
+pub const command_count: usize = 113;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -5401,6 +5432,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "set-ratio", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "set-split-ratio", .authority = "control", .since = 8, .capability = null, .stream = null },
+    .{ .name = "set-terminal-idle-policy", .authority = "control", .since = 12, .capability = "terminal-idle-close-v1", .stream = null },
     .{ .name = "set-viewport-pane-width", .authority = "control", .since = 9, .capability = "viewport-column-resize-v1", .stream = null },
     .{ .name = "set-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "shutdown-daemon", .authority = "local-admin", .since = 9, .capability = null, .stream = null },

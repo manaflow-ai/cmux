@@ -29,6 +29,9 @@ IGNORED_IDENTIFIERS = {
     "cmux.bootstrap",
     # Cursor-anchored textbox completion popup; it never becomes key/main.
     "cmux.textbox.mentionCompletionPanel",
+    # Ghostty config-error notice: a non-activating child panel of a main
+    # window that never becomes key/main; Cmd+W belongs to the main window.
+    "cmux.ghosttyConfigDiagnosticsNotice",
     # Full-screen Sleepy Mode screensaver overlay: it intentionally consumes
     # every key (including Cmd+W, via performKeyEquivalent) to wake/dismiss the
     # cover, so it must not own a standard Close-window shortcut.

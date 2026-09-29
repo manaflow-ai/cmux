@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -100,7 +102,7 @@ struct CloudSidebarConsistencyTests {
         var titles: [String] = []
         let workspaceID = live.id()
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { title in titles.append(title); return (workspaceID, nil) },
+            create: { title, _ in titles.append(title); return (workspaceID, nil) },
             paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }
         )
         let opened = try await catalog.projectGroupAsNewLocalWorkspace(
@@ -122,7 +124,7 @@ struct CloudSidebarConsistencyTests {
         let selection = SurfaceResourceGroup(title: "Selection", placements: [all.placements[0]], remoteWorkspaceID: "ws_main")
         let workspaceID = live.id()
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }
+            create: { _, _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }
         )
         let opened = try await catalog.projectGroupAsNewLocalWorkspace(selection, title: selection.title, focus: false, host: host)
         #expect(opened.projections.map(\.resource.key) == ["term_a"])
@@ -228,6 +230,26 @@ struct CloudSidebarConsistencyTests {
         catalog.reconcileCloudRemoteState(machine: machine, state: graph)
         #expect(workspace.effectiveCustomTitleSource == .user)
         #expect(workspace.panelCustomTitleSources[panelID] == .user)
+    }
+
+    @Test("Supported Cloud providers resolve their bundled marks")
+    func supportedCloudProviderMarks() {
+        let expected = [
+            "claude": "AgentIcons/Claude", "codex": "AgentIcons/Codex",
+            "opencode": "AgentIcons/OpenCode", "pi": "AgentIcons/Pi",
+            "amp": "AgentIcons/Amp", "cursor": "AgentIcons/Cursor",
+            "gemini": "AgentIcons/Gemini", "kiro": "AgentIcons/Kiro",
+            "copilot": "AgentIcons/Copilot", "codebuddy": "AgentIcons/CodeBuddy",
+            "factory": "AgentIcons/Factory", "qoder": "AgentIcons/Qoder",
+            "kimi": "AgentIcons/Kimi", "ollama": "AgentIcons/Ollama"
+        ]
+        for (provider, asset) in expected {
+            let badge = SurfaceAgentBadge(state: "working", source: "hook", agent: provider)
+            #expect(badge.agent == provider)
+            #expect(CmuxTaskManagerCodingAgentDefinition.builtIns.first(where: { $0.id == provider })?.assetName == asset)
+        }
+        #expect(TerminalTabAgentIconResolver().assetName(forStatusKey: "codex") == "AgentIcons/Codex")
+        #expect(TerminalTabAgentIconResolver().assetName(forStatusKey: "gemini") == "AgentIcons/Gemini")
     }
 
     @Test("A bound native tab receives canonical names, process titles, and ignores delayed graph callbacks", arguments: [false, true])

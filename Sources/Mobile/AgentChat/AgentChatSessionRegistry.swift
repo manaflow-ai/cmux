@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
+import CmuxMobileHost
 import Foundation
 
 /// Main-actor registry of chat-capable agent sessions, built from agent

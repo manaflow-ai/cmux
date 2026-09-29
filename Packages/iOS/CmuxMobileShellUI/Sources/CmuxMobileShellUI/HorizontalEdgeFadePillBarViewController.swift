@@ -20,6 +20,7 @@ final class HorizontalEdgeFadePillBarViewController<Leading: View, Pills: View, 
 
     init(
         contentInsets: UIEdgeInsets,
+        fadesLeadingEdge: Bool = true,
         accessibilityIdentifier: String,
         leading: Leading,
         pills: Pills,
@@ -34,6 +35,7 @@ final class HorizontalEdgeFadePillBarViewController<Leading: View, Pills: View, 
         pillsHost.sizingOptions = .intrinsicContentSize
         trailingHost.sizingOptions = .intrinsicContentSize
         super.init(nibName: nil, bundle: nil)
+        scrollView.fadesLeadingEdge = fadesLeadingEdge
     }
 
     @available(*, unavailable)
@@ -73,6 +75,17 @@ final class HorizontalEdgeFadePillBarViewController<Leading: View, Pills: View, 
         configureHostingView(trailingHost.view)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
+        // UIHostingController proposes a 10-point ideal width for EmptyView.
+        // An absent fixed control must reserve no space at the sheet edge.
+        if Leading.self == EmptyView.self {
+            leadingHost.view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            leadingHost.view.widthAnchor.constraint(equalToConstant: 0).isActive = true
+        }
+        if Trailing.self == EmptyView.self {
+            trailingHost.view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            trailingHost.view.widthAnchor.constraint(equalToConstant: 0).isActive = true
+        }
+
         NSLayoutConstraint.activate([
             // Keep the scroll viewport flush between the fixed controls. The
             // pills never render underneath either control, and the inset
@@ -104,7 +117,8 @@ final class HorizontalEdgeFadePillBarViewController<Leading: View, Pills: View, 
         scrollView.contentOffset = CGPoint(x: -contentInsets.left, y: 0)
     }
 
-    func update(leading: Leading, pills: Pills, trailing: Trailing) {
+    func update(fadesLeadingEdge: Bool = true, leading: Leading, pills: Pills, trailing: Trailing) {
+        scrollView.fadesLeadingEdge = fadesLeadingEdge
         leadingHost.rootView = leading
         pillsHost.rootView = pills
         trailingHost.rootView = trailing

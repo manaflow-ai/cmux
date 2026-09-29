@@ -37,12 +37,30 @@ REUSE_RECEIPT = "Build/Products/cmux-product-reuse.json"
 PRODUCT_RECEIPT = "Build/Products/cmux-test-products.json"
 DEFAULT_BUDGET_BYTES = 24 * 1024**3
 DEFAULT_WAIT_SECONDS = 180.0
+# How long a consumer in CI waits for another job's fill on the same node
+# unless CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS says otherwise. A filler only
+# publishes from its finalize step, after its whole download and restore
+# (about 130 s of download alone on a mini, plus extraction and the
+# canonical-root lock), so a waiter would usually time out and then download
+# anyway. Until the fill publishes right after its checksum, a waiter
+# downloads at once; the producing mini's seeded object still hits.
+CI_WAIT_SECONDS = 0.0
 DEFAULT_FILL_LEASE_SECONDS = 360.0
 DEFAULT_RESTORE_LEASE_SECONDS = 2 * 60 * 60
 MAX_RECEIPT_BYTES = 1024 * 1024
 MAX_TAR_MEMBERS = 250_000
 MAX_WAITERS_PER_FILL = 64
+# glaeda names its runners `<mini>-glaeda` and `<mini>-glaeda-<n>`.
+OWNED_RUNNER = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]*-glaeda(?:-[0-9]+)?")
+OWNED_DEFAULT_ROOT = "/Users/Shared/cmux-build-fleet/node-products"
 _HEX64 = re.compile(r"[a-f0-9]{64}")
+# Where a published object came from, as stored in its metadata. Consumers on an
+# older revision delete entries whose class they do not know, so a LAN fetch
+# (glaeda's helper, peer_product_source.lan_fetch_exact) is stored as "peer"; "lan"
+# is only a finalize input (it verifies against GitHub's artifact metadata, not the
+# same-run shortcut) and a metrics value.
+SOURCE_CLASSES = frozenset({"github", "r2", "peer", "producer-local"})
+FINALIZE_SOURCE_CLASSES = SOURCE_CLASSES | {"lan"}
 _REVISION = re.compile(r"[a-f0-9]{6,64}")
 
 
@@ -227,8 +245,27 @@ class Store:
                 os.close(fd)
 
 
-def configured_store(env=os.environ) -> Store | None:
+def configured_root(env=os.environ) -> str | None:
+    """The store root: CMUX_NODE_PRODUCT_CACHE_ROOT, else OWNED_DEFAULT_ROOT on an owned Mac.
+
+    Every owned runner is persistent and named `<mini>-glaeda[-N]`, all as one
+    user, so one store per mini serves each of its runners. Until 2026-09-25 the
+    root came only from a repository variable that was never set, so every
+    owned consumer downloaded the ~830 MB product from GitHub (7 MiB/s, about
+    130 s) even on the mini whose admission had just built it. A disposable
+    runner (Blacksmith, GitHub-hosted) keeps no store unless the variable names
+    one; `off` turns the store off everywhere.
+    """
     raw = env.get("CMUX_NODE_PRODUCT_CACHE_ROOT", "").strip()
+    if raw.lower() == "off":
+        return None
+    if raw:
+        return raw
+    return OWNED_DEFAULT_ROOT if OWNED_RUNNER.fullmatch(env.get("RUNNER_NAME", "").strip()) else None
+
+
+def configured_store(env=os.environ) -> Store | None:
+    raw = configured_root(env)
     if not raw:
         return None
     try:
@@ -251,11 +288,11 @@ def budget_bytes(env=os.environ) -> int:
 def wait_seconds(env=os.environ) -> float:
     raw = env.get("CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS", "").strip()
     if not raw:
-        return DEFAULT_WAIT_SECONDS
+        return CI_WAIT_SECONDS
     try:
         value = float(raw)
     except ValueError:
-        return DEFAULT_WAIT_SECONDS
+        return CI_WAIT_SECONDS
     return min(max(value, 0.0), 600.0)
 
 
@@ -267,7 +304,7 @@ def _metadata_matches(metadata: dict, identity: Identity) -> bool:
         and metadata.get("object_digest") == identity.archive_digest
         and isinstance(metadata.get("size"), int)
         and metadata["size"] > 0
-        and metadata.get("source_class") in {"github", "r2", "peer", "producer-local"}
+        and metadata.get("source_class") in SOURCE_CLASSES
     )
 
 
@@ -343,6 +380,21 @@ def _validate_entry_locked(store: Store, identity: Identity) -> tuple[dict, Path
     return metadata, obj
 
 
+def _clonefile(source: Path, target: Path) -> bool:
+    """APFS copy-on-write clone of source at target; False where cloning is unavailable."""
+    if sys.platform != "darwin":
+        return False
+    import ctypes
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.clonefile(os.fsencode(source), os.fsencode(target), 0) == 0:
+        return True
+    code = ctypes.get_errno()
+    if code in {errno.EXDEV, errno.ENOTSUP, errno.EPERM, errno.EACCES}:
+        return False
+    raise OSError(code, os.strerror(code), os.fspath(target))
+
+
 def _materialize(obj: Path, destination: Path) -> None:
     if destination.exists():
         raise FileExistsError("product destination already exists")
@@ -350,11 +402,10 @@ def _materialize(obj: Path, destination: Path) -> None:
     staging = Path(tempfile.mkdtemp(prefix=".cmux-node-product-", dir=destination.parent))
     try:
         target = staging / ARCHIVE_NAME
-        try:
-            os.link(obj, target)
-        except OSError as error:
-            if error.errno not in {errno.EXDEV, errno.EPERM, errno.EACCES, errno.EMLINK}:
-                raise
+        # A clone, not a hard link: the cached object keeps one link, so the job cannot
+        # write through to it and glaeda's LAN server (single-link objects only) still
+        # serves it to peers while this job holds its lease.
+        if not _clonefile(obj, target):
             with obj.open("rb") as source, target.open("xb") as output:
                 shutil.copyfileobj(source, output, 1024 * 1024)
                 output.flush()
@@ -855,7 +906,7 @@ def finalize(
 ) -> dict:
     if store is None:
         return {"status": "disabled"}
-    if source_class not in {"github", "r2", "peer", "producer-local"}:
+    if source_class not in FINALIZE_SOURCE_CLASSES:
         source_class = "github"
     key = identity.key()
     if not restore_succeeded:
@@ -875,7 +926,8 @@ def finalize(
                 if not fill or fill.get("token") != token:
                     return {"status": "lost-fill"}
                 metadata = _publish_locked(
-                    store, identity, archive, source_class, provider_created_at
+                    store, identity, archive, "peer" if source_class == "lan" else source_class,
+                    provider_created_at,
                 )
                 state = _state_update_locked(store, key, verified_restore_count=1)
                 fill_started = fill.get("created_epoch")

@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
@@ -70,7 +72,7 @@ extension SurfaceCatalog {
         }
         // Upgrade legacy projections before admitting the name. No display text
         // participates in either identity resolution or the remote payload.
-        if target.machine.cloudMachineID != nil, workspace.cloudVMBinding?.remoteWorkspaceID != target.remoteWorkspaceID {
+        if target.machine.tuiMachineID != nil, workspace.cloudVMBinding?.remoteWorkspaceID != target.remoteWorkspaceID {
             let previous = workspace.cloudVMBinding
             workspace.cloudVMBinding = WorkspaceCloudVMBinding(
                 vmID: target.machine.rawValue,

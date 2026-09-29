@@ -14,17 +14,13 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+LANE = ROOT / "scripts/ci/package-test-lane.sh"
+# The workflow step names, and the lane script phase each one's code lives in.
+PHASES = {"Run Swift package unit tests": "packages", "Run Bonsplit package tests": "bonsplit"}
+
+
 def package_step(name: str) -> str:
-    workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text()
-    job = workflow.split("\n  swift-package-tests:\n", 1)[1].split("\n  tests-build-and-lag:\n", 1)[0]
-    step = job.split(f"      - name: {name}\n", 1)[1]
-    body = step.split("        run: |\n", 1)[1]
-    lines = []
-    for line in body.splitlines():
-        if line.strip() and not line.startswith("          "):
-            break
-        lines.append(line[10:] if line else "")
-    return "\n".join(lines) + "\n"
+    return f"bash '{LANE}' {PHASES[name]}\n"
 
 
 class SwiftPackageExecutionTests(unittest.TestCase):

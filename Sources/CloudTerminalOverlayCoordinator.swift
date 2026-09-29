@@ -1,3 +1,5 @@
+import CmuxCloudBannerCore
+import CmuxCloud
 import AppKit
 import CmuxTerminal
 import os

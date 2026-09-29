@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The workspace's side of the surface catalog: the single seams through which a pane

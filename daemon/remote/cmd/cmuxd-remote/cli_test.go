@@ -570,7 +570,10 @@ func TestCLIUnknownCommand(t *testing.T) {
 }
 
 func TestCLINoSocket(t *testing.T) {
-	// Without CMUX_SOCKET_PATH set, should fail
+	// Without CMUX_SOCKET_PATH set, should fail. An isolated HOME keeps the
+	// ~/.cmux/socket_addr fallback from reaching a live relay on a dev host.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CMUX_SOCKET_PATH", "")
 	os.Unsetenv("CMUX_SOCKET_PATH")
 	code := runCLI([]string{"ping"})
 	if code != 1 {

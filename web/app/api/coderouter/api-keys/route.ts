@@ -10,6 +10,7 @@ import {
   type CoderouterApiKeyUsage,
 } from "../../../../services/coderouter/apiKeyMetrics";
 import { resolveCodeRouterRequestContext } from "../../../../services/coderouter/requestContext";
+import { apiKeyAdministrationRefusal, canManageCoderouterApiKeys } from "../../../../services/coderouter/permissions";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import { reportCoderouterFailure } from "../../../../services/coderouter/observability";
 import { readBoundedJsonRecord } from "../../../../services/subrouter/boundedJson";
@@ -22,6 +23,7 @@ export type ApiKeyRouteDependencies = {
   readonly list: typeof listApiKeys;
   readonly create: typeof createApiKey;
   readonly usage: typeof loadCoderouterApiKeyUsage;
+  readonly canManageApiKeys: typeof canManageCoderouterApiKeys;
 };
 
 const defaultDependencies: ApiKeyRouteDependencies = {
@@ -29,6 +31,7 @@ const defaultDependencies: ApiKeyRouteDependencies = {
   list: listApiKeys,
   create: createApiKey,
   usage: loadCoderouterApiKeyUsage,
+  canManageApiKeys: canManageCoderouterApiKeys,
 };
 
 export function makeApiKeyHandlers(dependencies: ApiKeyRouteDependencies = defaultDependencies) {
@@ -92,9 +95,12 @@ function emptyUsage(): CoderouterApiKeyUsage {
 async function handlePost(dependencies: ApiKeyRouteDependencies, request: Request): Promise<Response> {
   const resolved = await dependencies.resolve(request);
   if (!resolved.ok) return resolved.response;
-  if (!resolved.value.team.manageAccounts) {
-    return Response.json({ error: "forbidden" }, { status: 403 });
-  }
+  const refusal = await apiKeyAdministrationRefusal(
+    resolved.value.user.id,
+    resolved.value.team.teamId,
+    dependencies.canManageApiKeys,
+  );
+  if (refusal) return refusal;
   const body = await readBoundedJsonRecord(request, MAX_BODY_BYTES);
   if (!body.ok) return new Response(null, { status: body.status });
   const parsed = labelSchema.safeParse(body.value);

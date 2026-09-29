@@ -21,9 +21,20 @@ struct cmuxApp: App {
     @UIApplicationDelegateAdaptor(CmuxAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
+    #if DEBUG && targetEnvironment(simulator)
+    private let notificationCleanupFixture = MobileNotificationCleanupUITestFixture()
+    #endif
+
+    /// Erases this device's cmux data for Settings > Reset.
+    private static let localDataEraser = MobileLocalDataEraser.current()
+
     /// The de-singletonized composition root: built once, injected down.
     @MainActor
     private static let root: AppCompositionRoot = {
+        // Finish a Settings reset before anything below reads the keychain,
+        // defaults, or container files, so the objects built here see a fresh
+        // install.
+        localDataEraser.completePendingEraseIfNeeded()
         let reachability = ReachabilityService()
         let diagnosticLog = DiagnosticLog(
             buildStamp: AppCompositionRoot.diagnosticBuildStamp,
@@ -43,8 +54,18 @@ struct cmuxApp: App {
         let v2Configuration = MobileIrohV2Configuration.current(projectID: auth.config.stack.projectId)
         let irx = MobileIrxRuntimeComposition(configuration: v2Configuration,
             macListAuthState: MobileMacListAuthState(),
-            keychainAccessGroup: auth.keychainAccessGroup)
+            keychainAccessGroup: auth.keychainAccessGroup,
+            diagnosticLog: diagnosticLog)
         Task { await irx.configure(auth: auth.coordinator) }
+        // iroh cannot observe every iOS network change on its own; forward
+        // each one so the transport drops dead paths now instead of after
+        // its heartbeat and path-idle timeouts (multi-second terminal stalls
+        // measured on Wi-Fi to cellular handoffs).
+        Task {
+            for await _ in reachability.allPathUpdates() {
+                await irx.notifyNetworkChange()
+            }
+        }
 
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can
@@ -97,6 +118,14 @@ struct cmuxApp: App {
             simulatorStreamLaneProvider: { request, panelID in
                 guard let panelUUID = UUID(uuidString: panelID) else { throw MobileIrohSimulatorStreamLaneError.invalidPanelID }
                 return try await irx.openSimulatorStreamLane(for: request, panelID: panelUUID)
+            },
+            // irx.serverEventByteStream merges every per-surface event lane.
+            independentEventsMergeSurfaceLanes: true,
+            tunnelConnectProvider: { request, host, port in
+                try await irx.openTunnelConnection(for: request, host: host, port: port)
+            },
+            tunnelListeningPortsProvider: { request in
+                try await irx.tunnelListeningPorts(for: request)
             }
         )
 
@@ -144,7 +173,15 @@ struct cmuxApp: App {
                 // background-and-return.
                 .onChange(of: scenePhase, initial: true) { _, newPhase in
                     Self.root.handleScenePhase(newPhase)
+                    #if DEBUG && targetEnvironment(simulator)
+                    if newPhase == .background {
+                        Task { await notificationCleanupFixture.scheduleOnBackground() }
+                    }
+                    #endif
                 }
+                #if DEBUG && targetEnvironment(simulator)
+                .task { await notificationCleanupFixture.prepare() }
+                #endif
         }
     }
 
@@ -163,7 +200,9 @@ struct cmuxApp: App {
             #endif
         }
         .environment(\.irohSettingsController, Self.root.irohSettingsController)
+        .environment(\.mobileLocalDataEraser, Self.localDataEraser)
         .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
+        .environment(\.scrollInteractionReporter, Self.root.scrollInteractionReporter)
         .environment(
             \.dogfoodAttachPreparation,
             DogfoodAttachPreparation {

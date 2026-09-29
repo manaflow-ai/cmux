@@ -539,7 +539,9 @@ class CmuxSettingsJSONCTests(unittest.TestCase):
                     check=False,
                 )
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("another cmux config write is in progress", result.stderr)
+                conflict = json.loads(result.stderr)
+                self.assertEqual(conflict["status"], "conflict")
+                self.assertEqual(conflict["code"], "writer_busy")
                 self.assertEqual(config.read_text(encoding="utf-8"), source)
             finally:
                 fcntl.flock(fd, fcntl.LOCK_UN)

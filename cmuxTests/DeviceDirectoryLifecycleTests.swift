@@ -1,7 +1,9 @@
 import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxIrxTransport
 import CmuxMobileRPC
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -14,6 +16,30 @@ import Testing
 @MainActor
 @Suite("Devices: presence lifecycle", .timeLimit(.minutes(5)))
 struct DeviceDirectoryLifecycleTests {
+    @Test("My Devices never falls back to presence or pairing without authenticated opt-in", arguments: [false, true], [false, true])
+    func undiscoverablePresenceStaysHidden(savedPairing: Bool, hasDiscoveryClient: Bool) async throws {
+        let suite = "DeviceDirectoryOptIn-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let peer = SurfaceDeviceInstanceID(deviceID: "peer", tag: "test")
+        let pairing = UnpairedDevices()
+        if savedPairing {
+            pairing.pairedDevices = [.init(instance: peer, displayName: "Studio", routes: [], lastSeenAt: nil)]
+        }
+        let automaticClient = DeviceIrxClient(context: { throw DeviceLinkError.notConnected },
+            journal: IrxJournal(subsystem: "dev.cmux.tests", category: "discovery-opt-in"))
+        let directory = makeDirectory(defaults: defaults, clock: SidebarTestManualClock(),
+            pairing: pairing, automaticClient: hasDiscoveryClient ? automaticClient : nil, serviceURL: { nil })
+        defer { directory.stop() }
+        directory.apply(.snapshot(devices: [DevicePresenceDevice(deviceId: peer.deviceID, instances: [
+            DevicePresenceInstance(deviceId: peer.deviceID, tag: peer.tag, platform: "mac",
+                displayName: "Studio", online: true, lastSeenAt: 1)
+        ])]))
+        #expect(directory.records.isEmpty, "Presence is not evidence that this Mac allows incoming connections")
+        await directory.refreshRegistry().value
+        #expect(directory.records.isEmpty, "An unavailable authenticated directory must not fall back to presence or pairing")
+    }
+
     @Test("A missing service URL retries and subscribes when configuration becomes available")
     func unavailableServiceRecovers() async throws {
         let suite = "DeviceDirectoryLifecycle-\(UUID().uuidString)"
@@ -162,8 +188,8 @@ struct DeviceDirectoryLifecycleTests {
         #expect(!directory.isRefreshingRegistry)
     }
 
-    @Test("A reconnect discards interrupted owner pages and commits only the new snapshot", arguments: [false, true])
-    func reconnectReplacesIncompleteOwnershipSnapshot(includeNewOwner: Bool) throws {
+    @Test("Ownership snapshots cannot admit Macs without discovery consent, including after reconnect", arguments: [false, true])
+    func ownershipSnapshotsCannotAdmitUndiscoverablePeers(includeNewOwner: Bool) throws {
         let suite = "DeviceDirectoryReconnect-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -184,7 +210,7 @@ struct DeviceDirectoryLifecycleTests {
         )
         directory.apply(.snapshot(devices: devices))
         directory.apply(.syncSnapshot(records: [staleOwner], complete: false))
-        #expect(directory.records.allSatisfy { $0.accountTrust == .unknown })
+        #expect(directory.records.isEmpty)
 
         // Every new socket starts with presence's snapshot, even when the
         // previous socket closed halfway through the ownership page set.
@@ -194,17 +220,11 @@ struct DeviceDirectoryLifecycleTests {
                 id: currentID, deleted: false,
                 device: DeviceSyncDeviceRecord(deviceId: currentID, ownerUserId: "test")
             )], complete: false))
-            #expect(directory.records.allSatisfy { $0.accountTrust == .unknown })
+            #expect(directory.records.isEmpty)
         }
         directory.apply(.syncSnapshot(records: [], complete: true))
 
-        let stale = try #require(directory.records.first { $0.instance.deviceID == staleID })
-        #expect(stale.ownerUserID == nil)
-        #expect(stale.accountTrust == .unknown)
-        #expect(!stale.isDialable)
-        let current = try #require(directory.records.first { $0.instance.deviceID == currentID })
-        #expect(current.ownerUserID == (includeNewOwner ? "test" : nil))
-        #expect(current.accountTrust == (includeNewOwner ? .sameAccount : .unknown))
+        #expect(directory.records.isEmpty, "Owning a Mac does not mean it has enabled Mac-to-Mac discovery")
     }
 
     private func makeDirectory(
@@ -212,6 +232,8 @@ struct DeviceDirectoryLifecycleTests {
         clock: SidebarTestManualClock,
         teamID: String? = nil,
         registryClient: DeviceRegistryDirectoryClient? = nil,
+        pairing: (any DeviceLinkAuthorizationSource)? = nil,
+        automaticClient: DeviceIrxClient? = nil,
         serviceURL: @escaping @MainActor @Sendable () -> URL?,
         makeSubscriber: @escaping @Sendable (URL, @escaping @Sendable () async throws -> DevicePresenceSubscriber.Credentials?) -> DevicePresenceSubscriber = {
             DevicePresenceSubscriber(serviceBaseURL: $0, credentials: $1)
@@ -220,8 +242,9 @@ struct DeviceDirectoryLifecycleTests {
         let auth = makeAuth(defaults: defaults)
         return DeviceDirectory(
             auth: auth, identity: AuthenticatedSessionIdentity(generation: 0, accountID: "test"),
-            teamID: teamID, pairing: UnpairedDevices(),
+            teamID: teamID, pairing: pairing ?? UnpairedDevices(),
             registryClient: registryClient ?? DeviceRegistryDirectoryClient(session: { throw DeviceRegistryDirectoryClient.ListError.notSignedIn }, teamID: nil),
+            automaticClient: automaticClient,
             serviceURL: serviceURL, makeSubscriber: makeSubscriber,
             selfInstance: SurfaceDeviceInstanceID(deviceID: "self", tag: "test"), clock: clock
         )
@@ -287,7 +310,7 @@ struct DeviceDirectoryLifecycleTests {
     }
 
     private final class UnpairedDevices: DeviceLinkAuthorizationSource {
-        var pairedDevices: [DevicePairedDevice] { [] }
+        var pairedDevices: [DevicePairedDevice] = []
         let authorizationDidChangeNotification = Notification.Name("DeviceDirectoryLifecycle-\(UUID().uuidString)")
         func authorization(for instance: SurfaceDeviceInstanceID, route: CmxAttachRoute) -> CmxLegacyTailscaleAuthorizationEvidence? { nil }
     }

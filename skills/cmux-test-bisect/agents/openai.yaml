@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Test Bisect"
+  short_description: "Find which commit broke a package test suite on main and whether the test or the code is wrong."
+  default_prompt: "Use this skill when a Swift package test suite is red on main, when asked which PR broke a test, or when filtered PR CI hid full-suite failures."

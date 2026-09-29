@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0. */
+/* cmux-tui mux protocol 12, IR e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -16,7 +16,7 @@ export type AgentRecord = {
 
 export type AgentReportSource = "socket" | "hook";
 
-export type AgentSource = "detected" | "socket" | "hook";
+export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
 export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
 
@@ -406,6 +406,8 @@ export type ProcessInfoResult = {
   "cwd": (string) | null;
   /** Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
   "foreground_cwd"?: (string) | null;
+  /** Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
+  "foreground_executable"?: (string) | null;
   "pid": (number) | null;
 };
 
@@ -642,6 +644,11 @@ export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";
 export type SetCellPixelsResult = {
   "failures": Array<CellPixelFailure>;
   "resizes": Array<CellPixelResize>;
+};
+
+export type SetTerminalIdlePolicyResult = {
+  "idle_close_seconds": (bigint) | null;
+  "terminal_id": string;
 };
 
 export type ShutdownDaemonResult = {

@@ -872,6 +872,14 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     case authBootstrapCompleted = 664
     /// A DEBUG launch attach route was admitted by the startup coordinator.
     case dogfoodAttachStarted = 665
+    /// A visible task model result records its provider, source, and total
+    /// effort count for root-cause queries. `b` is the provider,
+    /// `c` is the source, and `ms` is the effort count.
+    case taskModelListResultObserved = 666
+    /// Launch dialed the saved Mac with the cached account while auth restore
+    /// was still validating it. Pairs with ``authBootstrapCompleted`` to show
+    /// how much of restore the dial overlapped.
+    case storedMacReconnectStartedDuringAuthRestore = 667
 }
 
 /// The user's configured connection method, mirrored from the settings picker
@@ -880,6 +888,21 @@ public enum DiagnosticConnectionMethod: Int, Sendable, Codable, CaseIterable {
     case automatic = 0
     case tailscale = 1
     case direct = 2
+}
+
+/// Provider identifier carried by task model discovery diagnostics.
+public enum DiagnosticTaskModelProvider: Int, Sendable, Codable, CaseIterable {
+    case claude = 1
+    case codex = 2
+    case openCode = 3
+}
+
+/// Source identifier carried by task model discovery diagnostics.
+public enum DiagnosticTaskModelSource: Int, Sendable, Codable, CaseIterable {
+    case discovered = 1
+    case backend = 2
+    case augmented = 3
+    case fallback = 4
 }
 
 /// High-level lifecycle state for one phone-controlled Simulator stream.

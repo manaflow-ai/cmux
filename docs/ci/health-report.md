@@ -33,6 +33,9 @@ Related: #13095 (CI cost and capacity) and #13325 (CI waste).
 Minutes are `completed_at - started_at` per job, summed, and split by
 conclusion into success / failure / cancelled / skipped. `timed_out` and
 `startup_failure` count as failure, because they cost what a failure costs.
+A job cancelled before any runner picked it up (`runner_id: 0`, no steps) has
+zero minutes; the API stamps its `started_at` at creation, so its whole wait
+until the cancel counts as queue wait instead.
 
 These tables are **sampled**: job listings are the expensive API call, so the
 report reads jobs for a bounded number of runs spread across workflows (macOS-
@@ -41,11 +44,18 @@ which workflow, which job, which pool, which conclusion is eating the minutes �
 not as a billing total. The header states how many runs were sampled.
 
 Failure and cancelled minutes are the interesting columns. Success minutes are
-the price of CI; the rest is the price of CI not working.
+the price of CI; the rest is the price of CI not working. One exception:
+`cmux-tui-testbox-warmup.yml` holds a Testbox VM for a maintainer session, and
+the session's cleanup (`scripts/blacksmith-testbox-demo.sh`) cancels the run on
+purpose, so its cancelled minutes are the session itself.
 
 ### Queue wait (created → started) per runner label
 
 `started_at - created_at` per job, as p50 / p90 / p99 / worst, per runner label.
+A job cancelled while still queued counts with its wait up to the cancel, a
+lower bound on what it would have waited. These used to count as zero, so the
+first reports after that change show a higher macOS p90 without any real
+regression.
 Labels are joined when a job asks for several, so `self-hosted+macos` is not
 silently pooled with `macos`.
 
@@ -73,6 +83,14 @@ them wait. When p90 climbs while minutes-per-job stay flat, no build regressed
 - **Fork pull requests.** Fork PRs cannot read the repository's Actions cache,
   so their minutes are cache misses somebody pays for twice. The line reports
   sampled fork jobs and their minutes.
+- **Paid runner capacity.** Minutes on metered third-party labels (`warp-*`,
+  `depot-*`), split by label. Blacksmith is sponsored for this organization and
+  GitHub-hosted runners are free on a public repo, so neither appears here.
+  The runner label is the only place the difference shows: a lane that drifts
+  onto metered capacity reads as an ordinary row everywhere else in the report.
+  Check any entry against the intended steady state in `docs/ci-runners.md` —
+  minutes that are not a deliberate, temporary overflow mean a
+  `MACOS_RUNNER_*` variable has drifted.
 
 ### Comparison against the previous window
 

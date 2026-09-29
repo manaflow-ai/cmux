@@ -48,6 +48,7 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment[SSHForegroundAuthenticationLaunch.environmentKey] = "foreground-auth-token"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_AUTH_CHILD_PID"] = childPIDFile.path
@@ -80,19 +81,25 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         defer {
             Darwin.kill(childPID, SIGKILL)
         }
+        let signaledAt = Date()
         Darwin.kill(process.processIdentifier, SIGINT)
 
-        let exitDeadline = Date().addingTimeInterval(3)
+        // Cleanup gets a 2s discovery window plus a bounded force pass. The
+        // child's TERM handler runs promptly, but the post-TERM process-table
+        // snapshots can outlast 3s on a loaded runner. 15s matches the
+        // tolerance of the policy's own cleanup-deadline regression test.
+        let exitDeadline = signaledAt.addingTimeInterval(15)
         while process.isRunning, Date() < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
         let exited = !process.isRunning
+        let elapsed = Date().timeIntervalSince(signaledAt)
         if process.isRunning {
             Darwin.kill(process.processIdentifier, SIGKILL)
         }
         process.waitUntilExit()
 
-        #expect(exited)
+        #expect(exited, "Restored attach did not exit \(elapsed)s after SIGINT")
         if exited {
             #expect(process.terminationStatus == 130)
         }
@@ -146,6 +153,7 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment[SSHForegroundAuthenticationLaunch.environmentKey] = "foreground-auth-token"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
@@ -186,7 +194,9 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
             .replacingOccurrences(of: "-", with: "")
             .lowercased() + "01234567"
         let destination = "cleanup-\(socketHash.prefix(8)).example.test"
-        let controlPath = "/tmp/cmux-ssh-\(getuid())-\(socketHash)"
+        let controlPath = try #require(
+            SSHConnectionSharingOptions().controlSocketDirectoryPath
+        ) + "/" + socketHash
         let sshOptions = [
             "ControlMaster=auto",
             "ControlPersist=600",
@@ -218,7 +228,7 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
             "case \" $* \" in",
             "  *\" workspace.remote.foreground_auth_ready \"*)",
             "    for argument in \"$@\"; do cmux_test_last_argument=\"$argument\"; done",
-            "    printf '%s\\n' \"$cmux_test_last_argument\" > \"$CMUX_TEST_AUTH_PAYLOAD_LOG\"",
+            "    if [ \"$cmux_test_last_argument\" = - ]; then /bin/cat > \"$CMUX_TEST_AUTH_PAYLOAD_LOG\"; else printf '%s\\n' \"$cmux_test_last_argument\" > \"$CMUX_TEST_AUTH_PAYLOAD_LOG\"; fi",
             "    /bin/zsh -fc 'zmodload zsh/system || exit 2; : >> \"$CMUX_TEST_RESOLVED_AUTH_LOCK\" || exit 2; if zsystem flock -t 0 -e -f cmux_test_lock_fd \"$CMUX_TEST_RESOLVED_AUTH_LOCK\"; then exit 1; fi; exit 0'",
             "    exit $?",
             "    ;;",
@@ -244,6 +254,7 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment[SSHForegroundAuthenticationLaunch.environmentKey] = "foreground-auth-token"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_CONTROL_PATH"] = controlPath
@@ -313,6 +324,7 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment[SSHForegroundAuthenticationLaunch.environmentKey] = "foreground-auth-token"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path

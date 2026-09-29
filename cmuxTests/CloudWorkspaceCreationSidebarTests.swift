@@ -1,7 +1,9 @@
+import CmuxCloud
 import AppKit
 import CmuxSettings
 import Foundation
 import Testing
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -12,6 +14,45 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CloudWorkspaceCreationSidebarTests {
+    @Test("Replacing a reservation preserves the committed remote workspace", arguments: [false, true])
+    func successfulCreationDoesNotCancelWhenTheProviderReplacesItsPane(adoptsReservation: Bool) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            // Native pane teardown reports through the live catalog. A private
+            // fixture catalog would miss the cancellation that deleted the Mac workspace.
+            let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true)
+            defer { fixture.close() }
+            fixture.provider.adoptsReservation = adoptsReservation
+            let unexpectedClose = XCTestExpectation(description: "Successful creation must preserve remote resources")
+            unexpectedClose.isInverted = true
+            fixture.provider.onRemoteClose = { unexpectedClose.fulfill() }
+            var operation: CloudWorkspaceCreationOperation?
+            var reservedPanelID: UUID?
+            fixture.provider.beforeMaterialize = { _, reservation in
+                reservedPanelID = try #require(reservation).panelID
+                operation = try #require(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.values.first {
+                    $0.machine == fixture.provider.machine
+                })
+            }
+            let result = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                name: nil, focus: false
+            )
+            let opened = try #require(result.opened)
+            let workspace = try #require(fixture.manager.workspacesById[opened.workspaceID])
+            let completed = try #require(operation)
+            // Cleanup is scheduled asynchronously by native pane teardown.
+            // Observe that negative event explicitly rather than sampling before it runs.
+            let closeResult = await XCTWaiter.fulfillment(of: [unexpectedClose], timeout: 0.2)
+            #expect(closeResult == .completed)
+            #expect(completed.isComplete)
+            #expect(!completed.remoteCleanupStarted)
+            #expect(fixture.provider.closedWorkspaceIDs.isEmpty)
+            #expect(fixture.provider.closedTerminalIDs.isEmpty)
+            #expect(workspace.panels.count == 1)
+            #expect((opened.projections.first?.panelID == reservedPanelID) == adoptsReservation)
+        }
+    }
+
     @Test("Both workspace sidebars share the create receipt before daemon refresh", arguments: [false, true])
     func receiptAppearsBeforeRefresh(focus: Bool) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {

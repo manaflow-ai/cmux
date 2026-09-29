@@ -13,6 +13,19 @@ cmux hooks uninstall <agent>
 
 Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kimi`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
 
+## Remote hosts
+
+In a `cmux ssh` or `cmux mosh-tmux` workspace that uses the CLI relay, Claude Code on the remote host reports running state, notifications, and its session ID for resume through the relay. The remote `claude` shim adds the hooks with `--settings`, so it also covers launchers that pick `claude` from `PATH` with their own config directory. Permission prompts stay in Claude on the remote host. Details are in [daemon/remote/README.md](../daemon/remote/README.md#claude-code-hooks).
+
+Claude sessions that did not start from a cmux shell, for example inside a tmux server that was already running before cmux attached to it, need the hooks in Claude's user settings instead. Run this once on the remote host, then restart those sessions:
+
+```bash
+~/.cmux/bin/cmux claude-hook install     # writes ${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json
+~/.cmux/bin/cmux claude-hook uninstall   # removes only the cmux entries
+```
+
+Inside tmux, these hooks report to the cmux workspace attached to the tmux session.
+
 ## Integrations
 
 | Agent | Binary checked | Installed file | Session restore | Feed bridge |
@@ -22,7 +35,7 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, 
 | Grok | `grok` | `~/.grok/hooks/cmux-session.json` | `grok -r <id>` | PreToolUse |
 | OpenCode | `opencode` | `~/.config/opencode/plugins/cmux-session.js`, `~/.config/opencode/plugins/cmux-feed.js` | `opencode --session <id>` | plugin event bus |
 | Pi | `pi` | `~/.pi/agent/extensions/cmux-session.ts` | `pi --session <id>` | tool_execution_start / tool_execution_end telemetry |
-| OMP | `omp` | `~/.omp/agent/extensions/cmux-omp-session.ts` or `$PI_CODING_AGENT_DIR/extensions/cmux-omp-session.ts` | `omp --session <id>` | none |
+| OMP | `omp` | `~/.omp/agent/extensions/cmux-omp-session.ts`, or `$OMP_AGENT_DIR`/`$PI_CODING_AGENT_DIR` when set | `omp --session <id>` | none |
 | Campfire | `campfire` | `~/.campfire/agent/extensions/cmux-campfire-session.ts` or `$CAMPFIRE_CODING_AGENT_DIR/extensions/cmux-campfire-session.ts` | `campfire --session <id>` | none |
 | Amp | `amp` | `~/.config/amp/plugins/cmux-session.ts` | `amp threads continue <id>` | none |
 | Cursor CLI | `cursor-agent` | `~/.cursor/hooks.json` | `cursor-agent --resume <id>` | beforeShellExecution |
@@ -60,7 +73,7 @@ When the opt-in `automation.workspaceAutoNaming` setting is enabled, turn-end ho
 
 ## Agent Hibernation
 
-Agent Hibernation kills idle background agent processes to free their RAM and CPU, then resumes each one with its saved session when you return to its tab. Routine hibernation based on the live-terminal limit is opt-in and off by default. A separate bounded safety path remains active for critical system memory pressure. cmux knows which process belongs to which terminal because the agent hooks associate each session ID with its surface (see the session-restore section above), so it can terminate the right process and bring back the right session.
+Agent Hibernation kills idle background agent processes to free their RAM and CPU, then resumes each one with its saved session when you return to its tab. Routine hibernation based on the live-terminal limit is opt-in and off by default. A separate safety path remains active under memory pressure, even when routine hibernation is off. cmux knows which process belongs to which terminal because the agent hooks associate each session ID with its surface (see the session-restore section above), so it can terminate the right process and bring back the right session.
 
 ### When a terminal hibernates
 
@@ -78,9 +91,9 @@ Before killing, cmux watches the terminal tail. It samples the last lines of out
 
 So with the defaults, routine hibernation only affects power users running more than 12 agents at once, and even then only ~1 minute after an agent has gone quiet off-screen.
 
-### Critical memory pressure
+### Memory pressure
 
-When macOS reports critical memory pressure, cmux can run the same protected teardown path independently of the `enabled` setting and live-terminal limit. Each pass selects at most two of the oldest eligible background agents. The agent must still be restorable, off-screen, explicitly idle, free of unconfirmed input, stable through the confirmation window, and backed by a transcript cmux can protect. Visible, running, needs-input, recently changed, or unprotectable agents are never selected. Before signaling anything, cmux revalidates the exact process generation and workspace/surface scope.
+Under memory pressure, cmux can run the same protected teardown path independently of the `enabled` setting and live-terminal limit. It runs on critical memory pressure (macOS reports critical pressure, which cmux holds for 120 s, or the cmux app process's own footprint reaches 16 GiB), and when cmux's total memory use (the cmux process and its descendants) passes its aggregate warning threshold, 50% of physical memory (see [configuration.md](configuration.md#aggregate-memory-pressure-safety-policy)). Each pass considers every eligible background agent; the live-terminal limit does not apply. The agent must still be restorable, off-screen, explicitly idle, free of unconfirmed input, stable through the confirmation window, and backed by a transcript cmux can protect. Visible, running, needs-input, recently changed, or unprotectable agents are never selected. Before signaling anything, cmux revalidates the exact process generation and workspace/surface scope.
 
 ### What gets killed and how it comes back
 
@@ -181,7 +194,7 @@ notification bridge, rebinding, and hibernation integration for that process.
 | Grok | `GROK_HOME` | `CMUX_GROK_HOOKS_DISABLED=1` |
 | OpenCode | `OPENCODE_CONFIG_DIR` | `CMUX_OPENCODE_HOOKS_DISABLED=1` |
 | Pi | `PI_CODING_AGENT_DIR` | `CMUX_PI_HOOKS_DISABLED=1` |
-| OMP | `PI_CODING_AGENT_DIR` for the full agent directory; otherwise `PI_CONFIG_DIR` for the config root | `CMUX_OMP_HOOKS_DISABLED=1` |
+| OMP | `OMP_AGENT_DIR` for the full agent directory, then `PI_CODING_AGENT_DIR`; otherwise `PI_CONFIG_DIR` for the config root | `CMUX_OMP_HOOKS_DISABLED=1` |
 | Campfire | `CAMPFIRE_CODING_AGENT_DIR` | `CMUX_CAMPFIRE_HOOKS_DISABLED=1` |
 | Amp | none | `CMUX_AMP_HOOKS_DISABLED=1` |
 | Cursor CLI | none | `CMUX_CURSOR_HOOKS_DISABLED=1` |

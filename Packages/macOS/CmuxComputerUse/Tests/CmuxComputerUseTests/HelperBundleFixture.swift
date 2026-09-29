@@ -71,7 +71,25 @@ struct HelperBundleFixture {
 
     /// Deletes the temporary directory.
     func remove() {
+        for entry in (try? entries(of: root)) ?? [] {
+            var metadata = stat()
+            if lstat(entry.path, &metadata) == 0,
+               metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR) {
+                _ = chmod(entry.path, 0o755)
+            }
+        }
         try? fileManager.removeItem(at: root)
+    }
+
+    /// Models the read-only directory permissions carried by a Nix bundle.
+    func makeReadOnly(_ bundleURL: URL) throws {
+        for entry in try entries(of: bundleURL) {
+            var metadata = stat()
+            if lstat(entry.path, &metadata) == 0,
+               metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR) {
+                try fileManager.setAttributes([.posixPermissions: 0o555], ofItemAtPath: entry.path)
+            }
+        }
     }
 
     /// The temporary directory with `/var` resolved to `/private/var`.

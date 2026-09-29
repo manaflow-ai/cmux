@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxCloudMachines
 import Foundation
 
@@ -7,8 +8,9 @@ import Foundation
 extension MachinesPanelViewModel {
     /// Every visible machine uses the same pin state and remembered order, including
     /// catalog discoveries that have not reached the list endpoint yet.
+    /// Machines being deleted are left out; their pins survive a failed delete.
     var sidebarMachines: [MachineSnapshot] {
-        orderedMachines(MachineSnapshotBuilder.includingCatalogMachines(machines, catalog: catalog))
+        orderedMachines(MachineSnapshotBuilder.includingCatalogMachines(visibleMachines, catalog: visibleCatalog))
     }
 
     @discardableResult
@@ -49,15 +51,18 @@ extension MachinesPanelViewModel {
                 // directly; the ObservableObject adapter needs no broadcast.
                 // Catalog reads are frozen while dragging; membership validation
                 // must still use the latest scoped catalog, never frozen rows.
-                return self.orderedMachines(
-                    MachineSnapshotBuilder.includingCatalogMachines(self.machines, catalog: self.scopedCatalogSnapshot())
-                )
+                return self.orderedMachines(MachineSnapshotBuilder.includingCatalogMachines(
+                    self.visibleMachines, catalog: self.catalogHidingDeletedMachines(self.scopedCatalogSnapshot())
+                ))
             }
         )
     }
 
+    /// The rows the person can see and move; the store keeps a hidden machine's slot.
     private var currentMachineOrderIDs: [String] {
-        MachineSnapshotBuilder.includingCatalogMachines(machines, catalog: scopedCatalogSnapshot()).map(\.id)
+        MachineSnapshotBuilder.includingCatalogMachines(
+            visibleMachines, catalog: catalogHidingDeletedMachines(scopedCatalogSnapshot())
+        ).map(\.id)
     }
 
     private func orderedMachines(_ snapshots: [MachineSnapshot]) -> [MachineSnapshot] {

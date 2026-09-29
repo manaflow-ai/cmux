@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Catalog capabilities consumed by terminal navigation, without owning a catalog or its stores.

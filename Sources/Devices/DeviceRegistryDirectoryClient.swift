@@ -1,5 +1,7 @@
+import CmuxCloud
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Reads the team's durable device registry (`GET /api/devices`), the source

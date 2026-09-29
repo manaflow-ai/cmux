@@ -9,6 +9,23 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "appearanceMode"
     )
 
+    /// Accent for cmux-drawn chrome: cmux's fixed blue or the macOS accent.
+    /// See ``CmuxAccentColorMode``.
+    public let accentColor = DefaultsKey<CmuxAccentColorMode>(
+        id: "app.accentColor",
+        defaultValue: CmuxAccentColorMode.defaultValue,
+        userDefaultsKey: CmuxAccentColorMode.userDefaultsKey
+    )
+
+    /// `#RRGGBB` color drawn when ``accentColor`` is
+    /// ``CmuxAccentColorMode/custom``. cmux.json sets it through a hex
+    /// `app.accentColor` value.
+    public let accentColorCustomHex = DefaultsKey<String>(
+        id: "app.accentColorCustomHex",
+        defaultValue: "",
+        userDefaultsKey: CmuxAccentColorMode.customHexUserDefaultsKey
+    )
+
     public let language = DefaultsKey<AppLanguage>(
         id: "app.language",
         defaultValue: .system,
@@ -39,6 +56,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         id: "app.newWorkspacePlacement",
         defaultValue: .afterCurrent,
         userDefaultsKey: "newWorkspacePlacement"
+    )
+
+    /// Folder the Open Folder panel starts in. Empty keeps the active
+    /// workspace's directory. Supports a leading `~`.
+    public let defaultWorkspacePath = DefaultsKey<String>(
+        id: "app.defaultWorkspacePath",
+        defaultValue: "",
+        userDefaultsKey: "defaultWorkspacePath"
     )
 
     public let workspaceInheritWorkingDirectory = DefaultsKey<Bool>(
@@ -85,6 +110,15 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "focusHistoryIncludesPanesAndTabs"
     )
 
+    /// Whether creating a split rebalances the panes along the new split's
+    /// axis so they share the space evenly. Defaults to off, which keeps the
+    /// halve-the-source-pane behavior.
+    public let equalizeSplitsOnCreate = DefaultsKey<Bool>(
+        id: "app.equalizeSplitsOnCreate",
+        defaultValue: false,
+        userDefaultsKey: "equalizeSplitsOnCreate"
+    )
+
     public let preferredEditor = DefaultsKey<String>(
         id: "app.preferredEditor",
         defaultValue: "",
@@ -120,9 +154,11 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "app.iMessageMode"
     )
 
-    public let reorderOnNotification = DefaultsKey<Bool>(
+    /// Automatic workspace reordering. Legacy Bool values decode as
+    /// ``WorkspaceAutoReorderMode/off`` and ``WorkspaceAutoReorderMode/notifications``.
+    public let reorderOnNotification = DefaultsKey<WorkspaceAutoReorderMode>(
         id: "app.reorderOnNotification",
-        defaultValue: true,
+        defaultValue: .notifications,
         userDefaultsKey: "workspaceAutoReorderOnNotification"
     )
 
@@ -165,6 +201,52 @@ public struct AppCatalogSection: SettingCatalogSection {
         )
     )
 
+    /// Gates the "Close workspace?" prompts (running processes, multi-workspace
+    /// close). The "Close pinned workspace?" prompt is not gated by it.
+    public let warnBeforeClosingWorkspace = DefaultsKey<Bool>(
+        id: "app.warnBeforeClosingWorkspace",
+        defaultValue: true,
+        userDefaultsKey: "warnBeforeClosingWorkspace",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.warnBeforeClosingWorkspace",
+                defaultValue: "Warn Before Closing Workspace"
+            ),
+            section: .app,
+            searchID: "warn-before-closing-workspace",
+            searchKeywords: ["close", "workspace", "confirmation", "command-shift-w", "cmd-shift-w", "agent", "running"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "warnBeforeClosingWorkspace",
+                    keywords: ["warn", "close", "workspace", "confirmation", "cmd-shift-w"]
+                )
+            ))
+        )
+    )
+
+    /// Gates the "Close window?" prompts (the Close Window command, and closing
+    /// every workspace in a window at once).
+    public let warnBeforeClosingWindow = DefaultsKey<Bool>(
+        id: "app.warnBeforeClosingWindow",
+        defaultValue: true,
+        userDefaultsKey: "warnBeforeClosingWindow",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.warnBeforeClosingWindow",
+                defaultValue: "Warn Before Closing Window"
+            ),
+            section: .app,
+            searchID: "warn-before-closing-window",
+            searchKeywords: ["close", "window", "confirmation", "command-control-w", "cmd-ctrl-w", "running"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "warnBeforeClosingWindow",
+                    keywords: ["warn", "close", "window", "confirmation", "cmd-ctrl-w"]
+                )
+            ))
+        )
+    )
+
     public let warnBeforeClosingTabXButton = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingTabXButton",
         defaultValue: false,
@@ -190,6 +272,15 @@ public struct AppCatalogSection: SettingCatalogSection {
                 )
             ))
         )
+    )
+
+    /// Pane tab bar visibility. Maps to bonsplit's `TabBarVisibility` at
+    /// the split-controller boundary; `.multipleTabs` hides the bar until a
+    /// pane has two or more tabs.
+    public let tabBarVisibility = DefaultsKey<PaneTabBarVisibility>(
+        id: "app.tabBarVisibility",
+        defaultValue: .always,
+        userDefaultsKey: "paneTabBarVisibility"
     )
 
     public let renameSelectsExistingName = DefaultsKey<Bool>(

@@ -8,41 +8,84 @@ internal import Foundation
 /// OpenSSH's `%C` expansion to separate effective `(user, host, port)`
 /// endpoints. Workspace relay ports deliberately do not participate in the
 /// path: reverse forwards are individual channels on the shared master.
+///
+/// The sockets live in `~/.cmux/ssh`. OpenSSH trusts whatever socket is at
+/// `ControlPath`, so when no directory only this user can write to is
+/// available, cmux adds no sharing defaults and the user's SSH configuration
+/// applies as is.
 public struct SSHConnectionSharingOptions: Sendable {
-    /// Local uid used to namespace cmux-owned control sockets in `/tmp`.
+    /// Local uid that names cmux's authentication lock files.
     public let userID: Int
+    /// Directory holding cmux's control sockets, or `nil` when cmux shares
+    /// no connections because no private directory is available.
+    public let controlSocketDirectoryPath: String?
     private let authenticationLockDirectory: URL
+    private static let routeSensitiveMarker = "__cmux_route_sensitive=true"
+    private static let routeSensitiveKeys: Set<String> = [
+        "proxycommand", "proxyjump", "identityfile", "certificatefile",
+        "hostkeyalias", "hostkeyalgorithms", "hostbasedacceptedalgorithms",
+        "pubkeyacceptedalgorithms", "userknownhostsfile", "globalknownhostsfile",
+        "stricthostkeychecking", "checkhostip", "verifyhostkeydns",
+        "updatehostkeys", "nohostauthenticationforlocalhost", "knownhostscommand",
+        "revokedhostkeys", "visualhostkey", "hashknownhosts",
+        "casignaturealgorithms", "requiredrsasize", "kexalgorithms", "ciphers", "macs",
+        "preferredauthentications", "canonicalizehostname", "canonicalizemaxdots",
+        "canonicalizepermittedcnames", "remotecommand", "localcommand",
+        "permitlocalcommand", "matchfinal", "sendenv", "setenv",
+        "addressfamily", "bindaddress", "bindinterface", "localaddress",
+        "gssapiauthentication", "gssapikexalgorithms", "gssapiserveridentity",
+        "gssapidelegatecredentials", "kerberosauthentication", "kerberosorlocalpasswd",
+    ]
 
-    /// Creates an option merger for the current local user.
+    /// Creates an option merger for the current local user, creating
+    /// `~/.cmux/ssh` if needed.
     public init() {
-        self.userID = Int(getuid())
-        self.authenticationLockDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-    }
-
-    /// Creates an option merger for a specific local uid.
-    ///
-    /// - Parameter userID: Local uid used in the cmux-owned socket template.
-    public init(userID: Int) {
+        let userID = Int(getuid())
         self.userID = userID
+        self.controlSocketDirectoryPath = SSHControlSocketDirectory.prepare(
+            home: NSHomeDirectory(),
+            userID: userID
+        )
         self.authenticationLockDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
     }
 
-    /// Creates an option merger with an injected authentication-lock directory.
+    /// Creates an option merger with injected paths, without touching the
+    /// file system.
     ///
     /// - Parameters:
-    ///   - userID: Local uid used in the cmux-owned socket template.
-    ///   - authenticationLockDirectoryPath: User-private directory for authentication locks.
-    public init(userID: Int, authenticationLockDirectoryPath: String) {
+    ///   - userID: Local uid used in lock file names.
+    ///   - controlSocketDirectoryPath: A directory only `userID` can write to,
+    ///     or `nil` to share no connections. A path OpenSSH would expand, or
+    ///     one too long to hold a socket, also shares no connections.
+    ///   - authenticationLockDirectoryPath: User-private directory for
+    ///     authentication locks, or `nil` for the per-user temporary directory.
+    public init(
+        userID: Int,
+        controlSocketDirectoryPath: String?,
+        authenticationLockDirectoryPath: String? = nil
+    ) {
         self.userID = userID
+        self.controlSocketDirectoryPath = controlSocketDirectoryPath.flatMap {
+            SSHControlSocketDirectory.isUsable($0) ? $0 : nil
+        }
         self.authenticationLockDirectory = URL(
-            fileURLWithPath: authenticationLockDirectoryPath,
+            fileURLWithPath: authenticationLockDirectoryPath ?? NSTemporaryDirectory(),
             isDirectory: true
         )
     }
 
-    /// The cmux-owned, host-stable OpenSSH control-socket template.
-    public var defaultControlPath: String {
-        "/tmp/cmux-ssh-\(userID)-%C"
+    /// The cmux-owned, host-stable OpenSSH control-socket template, or `nil`
+    /// when cmux shares no connections.
+    public var defaultControlPath: String? {
+        controlSocketDirectoryPath.map { "\($0)/%C" }
+    }
+
+    /// A shell `case` pattern matching only the sockets ``defaultControlPath``
+    /// expands to, or `nil` when cmux shares no connections.
+    public var resolvedControlPathShellPattern: String? {
+        controlSocketDirectoryPath.map {
+            "'\($0)'/" + String(repeating: "[0-9a-f]", count: SSHControlSocketDirectory.socketNameLength)
+        }
     }
 
     /// User-private directory used for cross-process ControlMaster locks.
@@ -54,12 +97,13 @@ public struct SSHConnectionSharingOptions: Sendable {
     ///
     /// A caller that disables `ControlMaster` keeps a standalone connection;
     /// cmux does not add `ControlPersist` or `ControlPath` in that case. A
-    /// custom `ControlPath` or `ControlPersist` remains authoritative.
+    /// custom `ControlPath` or `ControlPersist` remains authoritative, except
+    /// that an older cmux's socket in shared `/tmp` becomes cmux's private one.
     ///
     /// - Parameter options: OpenSSH `-o` values in caller precedence order.
     /// - Returns: Trimmed options plus only the missing cmux defaults.
     public func mergingDefaults(into options: [String]) -> [String] {
-        mergingDefaults(into: options, userConfiguredControlOptions: nil)
+        mergingDefaults(into: options, userConfiguredControlOptions: nil, routeSensitiveOptions: [])
     }
 
     /// Adds sharing defaults while honoring effective control settings from
@@ -76,12 +120,20 @@ public struct SSHConnectionSharingOptions: Sendable {
     /// - Returns: Effective explicit options for native SSH commands.
     public func mergingDefaults(
         into options: [String],
-        userConfiguredControlOptions: [String]?
+        userConfiguredControlOptions: [String]? = nil,
+        routeSensitiveOptions: [String] = []
     ) -> [String] {
         let resolver = SSHAgentSocketResolver()
+        let routeSensitive = !routeSensitiveOptions.isEmpty
+            || options.contains { option in
+                guard let key = resolver.optionKey(option) else { return false }
+                return Self.routeSensitiveKeys.contains(key)
+            }
+            || userConfiguredControlOptions?.contains(where: { SSHAgentSocketResolver().optionKey($0) == Self.routeSensitiveMarker.split(separator: "=").first.map(String.init) }) == true
         var merged = options.compactMap { option -> String? in
             let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
+            guard !trimmed.isEmpty, SSHAgentSocketResolver().optionKey(trimmed) != Self.routeSensitiveMarker.split(separator: "=").first.map(String.init) else { return nil }
+            return trimmed
         }
         let controlKeys = ["ControlMaster", "ControlPath", "ControlPersist"]
         if let userConfiguredControlOptions {
@@ -93,22 +145,41 @@ public struct SSHConnectionSharingOptions: Sendable {
                 }
             }
         }
+        // Another local user can plant a socket in /tmp, and OpenSSH connects
+        // to one at ControlPath even with ControlMaster=no.
+        if let controlPath = resolver.optionValue(named: "ControlPath", in: merged),
+           isSharedTemporaryControlPath(controlPath) {
+            let replacement = defaultControlPath ?? "none"
+            merged = merged.map { option in
+                guard resolver.optionKey(option) == "controlpath" else { return option }
+                return "ControlPath=\(replacement)"
+            }
+        }
+        guard let defaultControlPath else { return merged }
+        // `%C` distinguishes only user, host and port. A route with a custom
+        // proxy, identity, host-key alias/policy or remote command must not
+        // share cmux's default master with another route to the same endpoint.
+        let hasCustomControlPath = resolver.hasOptionKey(merged, key: "ControlPath")
+            || userConfiguredControlOptions?.contains(where: { resolver.optionKey($0) == "controlpath" }) == true
+        if routeSensitive && !hasCustomControlPath {
+            // Persist the route decision in the options that later SSH
+            // helpers carry forward. A private marker is intentionally not
+            // enough: callers serialize and re-merge these options after
+            // this function returns, so a marker-only result would be lost
+            // and the next merge would install the shared `%C` socket.
+            if !resolver.hasOptionKey(merged, key: "ControlMaster") {
+                merged.append("ControlMaster=no")
+            }
+            if !resolver.hasOptionKey(merged, key: "ControlPath") {
+                merged.append("ControlPath=none")
+            }
+            return merged
+        }
         let controlMaster = resolver.optionValue(
             named: "ControlMaster",
             in: merged
         )
         let controlMasterDisabled = isDisabled(controlMaster)
-        if !controlMasterDisabled,
-           let controlPath = resolver.optionValue(
-               named: "ControlPath",
-               in: merged
-           ),
-           isLegacyRelayScopedControlPath(controlPath) {
-            merged = merged.map { option in
-                guard resolver.optionKey(option) == "controlpath" else { return option }
-                return "ControlPath=\(defaultControlPath)"
-            }
-        }
         if controlMaster == nil {
             merged.append("ControlMaster=auto")
         }
@@ -192,12 +263,20 @@ public struct SSHConnectionSharingOptions: Sendable {
             guard !resolver.hasOptionKey(explicitOptions, key: key) else { return false }
             return values[key]?.lowercased() != baselineValues[key]?.lowercased()
         }
-        guard hasCustomValue else { return nil }
-        return [
-            "ControlMaster=\(values["controlmaster"] ?? "false")",
-            "ControlPath=\(values["controlpath"] ?? "none")",
-            "ControlPersist=\(values["controlpersist"] ?? "no")",
-        ]
+        let routeSensitive = Self.routeSensitiveKeys.contains { key in
+            values[key]?.lowercased() != baselineValues[key]?.lowercased()
+        }
+        guard hasCustomValue || routeSensitive else { return nil }
+        var result: [String] = []
+        if hasCustomValue {
+            result += [
+                "ControlMaster=\(values["controlmaster"] ?? "false")",
+                "ControlPath=\(values["controlpath"] ?? "none")",
+                "ControlPersist=\(values["controlpersist"] ?? "no")",
+            ]
+        }
+        if routeSensitive { result.append(Self.routeSensitiveMarker) }
+        return result
     }
 
     private func controlConfigurationValues(fromSSHConfigOutput output: String) -> [String: String] {
@@ -206,7 +285,8 @@ public struct SSHConnectionSharingOptions: Sendable {
             let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
             guard parts.count == 2 else { continue }
             let key = parts[0].lowercased()
-            guard ["controlmaster", "controlpath", "controlpersist"].contains(key) else {
+            guard ["controlmaster", "controlpath", "controlpersist"].contains(key)
+                || Self.routeSensitiveKeys.contains(key) else {
                 continue
             }
             values[key] = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -214,14 +294,17 @@ public struct SSHConnectionSharingOptions: Sendable {
         return values
     }
 
-    /// Returns the configured `ControlPath` when it is one of cmux's native
-    /// SSH templates, including the older relay-port-scoped template so an
-    /// upgraded app can still clean up a socket it created.
+    /// Returns the configured `ControlPath` when it is cmux's template or a
+    /// socket that template expands to.
+    ///
+    /// Sockets an older cmux left in shared `/tmp` are not cmux-owned: another
+    /// local user could have created them, so cmux never checks or removes them.
     ///
     /// - Parameter options: OpenSSH `-o` values to inspect.
     /// - Returns: The cmux-owned path, or `nil` for user-managed paths.
     public func cmuxOwnedControlPath(in options: [String]) -> String? {
         let resolver = SSHAgentSocketResolver()
+        guard let defaultControlPath, let controlSocketDirectoryPath else { return nil }
         guard !isDisabled(resolver.optionValue(
             named: "ControlMaster",
             in: options
@@ -236,8 +319,7 @@ public struct SSHConnectionSharingOptions: Sendable {
         }
         let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard path == defaultControlPath ||
-                isStableResolvedControlPath(path) ||
-                isLegacyRelayScopedControlPath(path) else {
+                isResolvedControlPath(path, in: controlSocketDirectoryPath) else {
             return nil
         }
         return path
@@ -350,6 +432,7 @@ public struct SSHConnectionSharingOptions: Sendable {
         functionName: String = "cmux_ssh_preflight_control_path"
     ) -> String? {
         guard cmuxOwnedControlPath(in: options) != nil,
+              let socketPattern = resolvedControlPathShellPattern,
               !sshArguments.isEmpty,
               !destination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
@@ -358,10 +441,10 @@ public struct SSHConnectionSharingOptions: Sendable {
         let quotedDestination = shellQuote(destination)
         return [
             "\(functionName)() {",
-            #"  cmux_ssh_control_path="$(command \#(sshPrefix) -G \#(quotedDestination) 2>/dev/null | awk 'tolower($1) == "controlpath" { $1 = ""; sub(/^[[:space:]]+/, ""); print; exit }')" "#,
+            #"  cmux_ssh_control_path="$(command \#(sshPrefix) -G -- \#(quotedDestination) 2>/dev/null | awk 'tolower($1) == "controlpath" { $1 = ""; sub(/^[[:space:]]+/, ""); print; exit }')" "#,
             "  case \"${cmux_ssh_control_path:-}\" in",
-            "    /tmp/cmux-ssh-\(userID)-*)",
-            "      if ! command \(sshPrefix) -S \"$cmux_ssh_control_path\" -O check \(quotedDestination) >/dev/null 2>&1; then",
+            "    \(socketPattern))",
+            "      if ! command \(sshPrefix) -S \"$cmux_ssh_control_path\" -O check -- \(quotedDestination) >/dev/null 2>&1; then",
             "        rm -f -- \"$cmux_ssh_control_path\" 2>/dev/null || true",
             "      fi",
             "      ;;",
@@ -371,26 +454,23 @@ public struct SSHConnectionSharingOptions: Sendable {
         ].joined(separator: "\n")
     }
 
-    private func isLegacyRelayScopedControlPath(_ path: String) -> Bool {
-        let prefix = "/tmp/cmux-ssh-\(userID)-"
-        guard path.hasPrefix(prefix) else { return false }
-        let remainder = path.dropFirst(prefix.count)
-        if remainder.hasSuffix("-%C") {
-            let relayPort = remainder.dropLast(3)
-            return !relayPort.isEmpty && relayPort.allSatisfy(\.isNumber)
-        }
-        guard let separator = remainder.firstIndex(of: "-") else { return false }
-        let relayPort = remainder[..<separator]
-        let hash = remainder[remainder.index(after: separator)...]
-        return !relayPort.isEmpty && relayPort.allSatisfy(\.isNumber)
-            && hash.count == 40 && hash.allSatisfy(\.isHexDigit)
+    /// Whether `path` is one of the flat `/tmp` sockets older cmux builds
+    /// used, as a template or expanded, for any uid and relay port.
+    private func isSharedTemporaryControlPath(_ path: String) -> Bool {
+        path.trimmingCharacters(in: .whitespacesAndNewlines).range(
+            of: #"\A(/private)?/tmp/cmux-ssh-[0-9]+-([0-9]+-)?(%C|[0-9a-f]{40})\z"#,
+            options: .regularExpression
+        ) != nil
     }
 
-    private func isStableResolvedControlPath(_ path: String) -> Bool {
-        let prefix = "/tmp/cmux-ssh-\(userID)-"
-        guard path.hasPrefix(prefix) else { return false }
-        let hash = path.dropFirst(prefix.count)
-        return hash.count == 40 && hash.allSatisfy(\.isHexDigit)
+    private func isResolvedControlPath(_ path: String, in directory: String) -> Bool {
+        let prefix = directory + "/"
+        guard path.utf8.starts(with: prefix.utf8) else { return false }
+        let name = path.utf8.dropFirst(prefix.utf8.count)
+        return name.count == SSHControlSocketDirectory.socketNameLength && name.allSatisfy { byte in
+            (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
+                || (UInt8(ascii: "a")...UInt8(ascii: "f")).contains(byte)
+        }
     }
 
     private func resolvedControlPathBasename(_ controlPath: String) -> String? {
@@ -420,10 +500,6 @@ public struct SSHConnectionSharingOptions: Sendable {
     }
 
     private func shellQuote(_ value: String) -> String {
-        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
-        if value.range(of: safePattern, options: .regularExpression) != nil {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        value.posixShellWord
     }
 }

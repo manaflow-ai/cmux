@@ -4,8 +4,6 @@ import SwiftUI
 
 /// Explains the Mac-side opt-in before onboarding starts discovery.
 struct OnboardingPairingView: View {
-    let isActive: Bool
-
     var body: some View {
         ZStack {
             Color.clear
@@ -35,7 +33,7 @@ struct OnboardingPairingView: View {
 
     private var pairingVisual: some View {
         VStack(spacing: 22) {
-            OnboardingPairingSettingsScreenshot(isActive: isActive)
+            OnboardingPairingSettingsScreenshot()
 
             Label {
                 Text(

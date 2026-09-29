@@ -1,7 +1,35 @@
+import CmuxCloud
+import CmuxCore
+import CmuxSurfaceCatalogModel
 import Foundation
 import WebKit
 
 extension BrowserPanel {
+    /// Keeps the browser-owned readiness callback installed while a committed
+    /// WebKit document is rebound to a new same-VM route.
+    func bindCloudBrowserNavigation() {
+        cloudAccess.automaticallyNavigate { [weak self] url in
+            guard let self, !self.isClosingWebViewLifecycle else { return }
+            _ = self.navigate(to: url)
+        }
+    }
+
+    /// Activates an admitted Cloud route independently of the SwiftUI host.
+    /// Callers validate resource ownership before reaching this boundary.
+    func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
+        guard !isClosingWebViewLifecycle else { return }
+        webView.stopLoading()
+        if let machineID = (resourceID ?? cloudAccess.resourceID)?.machine.rawValue ?? cloudBrowserMachineID {
+            prepareCloudBrowserStore(machineID: machineID)
+        }
+        showCloudAddress(url)
+        // A cached model can navigate synchronously. Its machine/profile store
+        // must be installed first, including on reconfiguration and duplication.
+        cloudAccess.configure(model: model, url: url, resourceID: resourceID)
+        bindCloudBrowserNavigation()
+        model.connect()
+    }
+
     /// Leaving a Cloud resource for a user-owned external page ends only this
     /// local projection. The `.replaced` reason keeps a navigation from
     /// editing the remote workspace layout while removing stale restore
@@ -91,12 +119,34 @@ extension BrowserPanel {
         )
     }
 
+    /// The provider whose machine serves `url` at its private address.
+    ///
+    /// SSH machines all use this Mac's loopback as their private address, so
+    /// a loopback URL routes only to the machine that owns this browser.
+    func privateAddressRouteProvider(for url: URL) -> CmuxTuiSurfaceProvider? {
+        let catalog = SurfaceCatalog.shared
+        let addresses = catalog.machines.compactMapValues(\.privateAddress)
+        let machine = PrivateAddressRouteSelector<SurfaceMachineID>().machine(
+            forHost: url.host,
+            owner: privateAddressRouteOwner,
+            addresses: addresses
+        )
+        return machine.flatMap { catalog.provider(for: $0) as? CmuxTuiSurfaceProvider }
+    }
+
+    /// The machine this browser belongs to: its current cloud route, or the
+    /// machine that owns its workspace.
+    private var privateAddressRouteOwner: SurfaceMachineID? {
+        if let machine = cloudResourceForDuplication?.machine { return machine }
+        if let machineID = cloudBrowserMachineID { return SurfaceMachineID(rawValue: machineID) }
+        return AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs
+            .first { $0.id == workspaceId }?
+            .surfaceOwnershipPolicy.cloudMachine
+    }
+
     @discardableResult
     func rebindCloudRouteIfNeeded(to url: URL) -> Bool {
-        guard let provider = SurfaceCatalog.shared.machines.values.first(where: {
-            $0.privateAddress?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-                == url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        }).flatMap({ SurfaceCatalog.shared.provider(for: $0.id) as? CmuxTuiSurfaceProvider }) else {
+        guard let provider = privateAddressRouteProvider(for: url) else {
             return false
         }
         return provider.configureBrowser(self, url: url, preserveCurrentNavigation: true)

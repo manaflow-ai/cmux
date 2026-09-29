@@ -36,7 +36,7 @@ private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mo
 public struct CMUXMobileRootScene: View {
     private let runtime: CMUXMobileRuntime
     private let macListAuthState: MobileMacListAuthState
-    private let auth: MobileAuthComposition
+    let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
     private let analyticsClientID: String?
@@ -534,7 +534,7 @@ public struct CMUXMobileRootScene: View {
             deviceRegistry: deviceRegistry,
             personalIrohDiscovery: personalIrohDiscovery,
             personalIrohForget: resolvedPersonalIrohForget,
-            presence: nil,
+            presence: nil, workspacePresenceAnnouncer: makeWorkspacePresenceAnnouncer(),
             identityProvider: identityProvider,
             phonePushKeyExchangeHooks: makePhonePushKeyExchangeHooks(),
             teamIDProvider: { await coordinator.resolvedTeamID },
@@ -554,8 +554,15 @@ public struct CMUXMobileRootScene: View {
                 diagnosticLog: diagnosticLog
             ),
             browserStreamEvents: browserStreamEvents,
-            simulatorStreamStore: simulatorStreamStore
+            simulatorStreamStore: simulatorStreamStore,
+            // SSH hosts and keys are device-local and account-independent
+            // (docs/prd/ios-direct-ssh.md D5): Application Support, never
+            // cleared by sign-out.
+            sshComputers: MobileSSHComputers(
+                directory: URL.applicationSupportDirectory.appending(path: "ssh", directoryHint: .isDirectory)
+            )
         )
+        Task { await store.startSSHComputers() }
         #if os(iOS)
         // Install the cached (or baked) Mac minimum-version list before the
         // store is handed to any view, so the first stored-Mac reconnect can

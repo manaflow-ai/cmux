@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
@@ -43,7 +44,7 @@ extension SurfaceCatalog {
                 self.notifyChange()
                 for terminal in doomed {
                     try self.checkDeletionProvider(provider, machine: machine)
-                    try await ledger.closeTerminal(terminal.id, provider: provider)
+                    try await ledger.closeTerminal(terminal.id, remoteWorkspaceID: workspaceID, provider: provider)
                 }
                 try self.checkDeletionProvider(provider, machine: machine)
                 try await provider.closeRemoteWorkspace(id: workspaceID)

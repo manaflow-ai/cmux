@@ -212,7 +212,7 @@ extension MobileShellComposite {
                 "sync.render_grid_advisory source=\(source) surface=\(renderGrid.surfaceID) screen=\(renderGrid.activeScreen.rawValue) seq=\(renderGrid.stateSeq) requestReplay=\(deliveryDecision.requestReplay) updateTrackedScreen=\(deliveryDecision.updateTrackedScreen) deliverViewportPolicy=\(deliveryDecision.deliverViewportPolicy)"
             )
             if deliveryDecision.requestReplay {
-                requestTerminalReplay(surfaceID: renderGrid.surfaceID)
+                requestTerminalReplay(surfaceID: renderGrid.surfaceID, trigger: .screenTransition)
             }
             #if DEBUG
             MobileLatencyTrace.stamp(
@@ -272,7 +272,10 @@ extension MobileShellComposite {
                         "base=\(deltaBase.map(String.init) ?? "nil") " +
                         "delivered=\(delivered.map(String.init) ?? "nil") seq=\(renderGrid.stateSeq)"
                 )
-                terminalOutputNeedsReplay(surfaceID: renderGrid.surfaceID)
+                terminalOutputNeedsReplay(
+                    surfaceID: renderGrid.surfaceID,
+                    trigger: .historyChainBreak
+                )
                 #if DEBUG
                 MobileLatencyTrace.stamp(
                     "gate",
@@ -299,7 +302,10 @@ extension MobileShellComposite {
             guard let deliveredRevisionContinuity,
                   let deliveredColumns = deliveredRevisionContinuity.columns,
                   let deliveredRows = deliveredRevisionContinuity.rows else {
-                terminalOutputNeedsReplay(surfaceID: renderGrid.surfaceID)
+                terminalOutputNeedsReplay(
+                    surfaceID: renderGrid.surfaceID,
+                    trigger: .applyFenceFailure
+                )
                 return
             }
             replaceablePatchShapeMatches = deliveredColumns == renderGrid.columns
@@ -327,7 +333,10 @@ extension MobileShellComposite {
                     "base=\(baseText) epoch=\(renderGrid.renderEpoch.prefix(8)) " +
                     "delivered=\(deliveredText) seq=\(renderGrid.stateSeq)"
             )
-            terminalOutputNeedsReplay(surfaceID: renderGrid.surfaceID)
+            terminalOutputNeedsReplay(
+                    surfaceID: renderGrid.surfaceID,
+                    trigger: .revisionChainBreak
+                )
             #if DEBUG
             MobileLatencyTrace.stamp(
                 "gate",
@@ -485,7 +494,7 @@ extension MobileShellComposite {
         )
     }
 
-    private func deliverTerminalOutput(
+    func deliverTerminalOutput(
         _ delivery: TerminalOutputDelivery,
         surfaceID: String,
         bypassReplayBarrier: Bool = false
@@ -523,6 +532,7 @@ extension MobileShellComposite {
                 MobileDebugLog.anchormux("terminal.output.replay_retry_after_drop surface=\(surfaceID)")
                 requestTerminalReplay(
                     surfaceID: surfaceID,
+                    trigger: .droppedFrame,
                     replayBarrierToken: replayBarrierToken,
                     coveredReplayBarrierDroppedOutputCount: droppedOutputCount
                 )
@@ -538,7 +548,7 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "terminal.output.pending_overflow surface=\(surfaceID) cap=\(TerminalOutputDeliveryQueue.maxPendingDeliveries)"
             )
-            terminalOutputNeedsReplay(surfaceID: surfaceID)
+            terminalOutputNeedsReplay(surfaceID: surfaceID, trigger: .droppedFrame)
             return false
         }
         if bypassReplayBarrier,
@@ -554,6 +564,14 @@ extension MobileShellComposite {
         if let immediate {
             let immediateBytes = immediate.bytes
             if immediate.latencyMetricsEligible {
+                if let frame = immediate.sourceRenderGridFrame, let timing = frame.hostTiming {
+                    terminalLatencyObserver.hostTimingReceived(
+                        surfaceID: surfaceID,
+                        appliedInputSequence: frame.appliedInputSequence,
+                        timing: timing,
+                        receivedAtNanos: immediate.receivedAtNanos
+                    )
+                }
                 terminalLatencyObserver.outputReceived(
                     surfaceID: surfaceID,
                     appliedInputSequence: immediate.sourceRenderGridFrame?.appliedInputSequence,
@@ -564,6 +582,7 @@ extension MobileShellComposite {
             }
             continuation.yield(
                 MobileTerminalOutputChunk(
+                    surfaceID: surfaceID,
                     data: immediateBytes,
                     streamToken: streamToken,
                     viewportPolicy: immediate.viewportPolicy,
@@ -665,7 +684,11 @@ extension MobileShellComposite {
                         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken
                     }
                     MobileDebugLog.anchormux("terminal.output.replay_followup surface=\(surfaceID)")
-                    requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+                    requestTerminalReplay(
+                        surfaceID: surfaceID,
+                        trigger: .coldAttach,
+                        replayBarrierToken: replayBarrierToken
+                    )
                     return
                 }
                 _ = failOpenTerminalReplayBarrier(
@@ -699,6 +722,14 @@ extension MobileShellComposite {
         }
         let nextBytes = next.bytes
         if next.latencyMetricsEligible {
+            if let frame = next.sourceRenderGridFrame, let timing = frame.hostTiming {
+                terminalLatencyObserver.hostTimingReceived(
+                    surfaceID: surfaceID,
+                    appliedInputSequence: frame.appliedInputSequence,
+                    timing: timing,
+                    receivedAtNanos: next.receivedAtNanos
+                )
+            }
             terminalLatencyObserver.outputReceived(
                 surfaceID: surfaceID,
                 appliedInputSequence: next.sourceRenderGridFrame?.appliedInputSequence,
@@ -708,6 +739,7 @@ extension MobileShellComposite {
             )
         }
         continuation.yield(MobileTerminalOutputChunk(
+            surfaceID: surfaceID,
             data: nextBytes,
             streamToken: streamToken,
             viewportPolicy: next.viewportPolicy,
@@ -754,7 +786,11 @@ extension MobileShellComposite {
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
         MobileDebugLog.anchormux("terminal.output.reset surface=\(surfaceID)")
-        requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+        requestTerminalReplay(
+            surfaceID: surfaceID,
+            trigger: .outputReset,
+            replayBarrierToken: replayBarrierToken
+        )
     }
 
     private func retryTerminalReplayAfterAckReset(
@@ -795,6 +831,7 @@ extension MobileShellComposite {
         MobileDebugLog.anchormux("terminal.output.reset_replay_ack surface=\(surfaceID)")
         requestTerminalReplay(
             surfaceID: surfaceID,
+            trigger: .outputReset,
             replayBarrierToken: retryToken,
             coveredReplayBarrierDroppedOutputCount:
                 terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
@@ -805,6 +842,19 @@ extension MobileShellComposite {
     /// Reached from the render-pipeline reset: the surface was rebuilt blank,
     /// so (like ``terminalOutputDidReset``) no pre-barrier baseline survives.
     public func terminalOutputNeedsReplay(surfaceID: String) {
+        terminalOutputNeedsReplay(surfaceID: surfaceID, trigger: .renderPipelineReset)
+    }
+
+    /// Same repair, naming the codepath that detected the divergence.
+    ///
+    /// The protocol entry point above cannot carry a reason, and every
+    /// detector funnels through here, so without this the whole class of
+    /// chain, shape, and overflow repairs is one undifferentiated bucket in
+    /// analytics.
+    func terminalOutputNeedsReplay(
+        surfaceID: String,
+        trigger: MobileTerminalReplayTrigger
+    ) {
         guard terminalByteContinuationsBySurfaceID[surfaceID] != nil else { return }
         if let pendingAckToken = terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID],
            terminalReplayBarrierTokensBySurfaceID[surfaceID] == pendingAckToken {
@@ -822,7 +872,11 @@ extension MobileShellComposite {
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_requested surface=\(surfaceID)")
-        requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+        requestTerminalReplay(
+            surfaceID: surfaceID,
+            trigger: trigger,
+            replayBarrierToken: replayBarrierToken
+        )
     }
 
 }

@@ -1,4 +1,7 @@
+import CmuxCloud
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
+import CmuxWorkspacePresence
 import SwiftUI
 enum CloudTreeIconPalette {
     static let workspace = Color.blue
@@ -9,7 +12,9 @@ enum CloudTreeIconPalette {
 }
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
+    var presenceHeads: [WorkspacePresenceParticipant] = []
     var style: CloudTreeStyle = CloudTreeStyleStore.current
+    var resources: CloudTreeMachineResourceSection? = nil
 
     private static func nonEmptyTrimmed(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -38,23 +43,23 @@ struct CloudTreeRowContentView: View {
     private var row: some View {
         switch kind {
         case .machine(let machine, _):
-            CloudTreeMachineRowContent(machine: machine, style: style)
+            CloudTreeMachineRowContent(machine: machine, style: style, resources: resources)
         case .pendingMachine(let operation):
             CloudTreePendingMachineRowContent(operation: operation, style: style)
         case .localMachine(let row):
             CloudTreeLocalMachineRowContent(row: row, style: style)
         case .device(let row):
             CloudTreeDeviceRowContent(row: row, style: style)
-        case .devicesSection(let section):
-            groupRow(title: String(localized: "cloudTree.group.devices", defaultValue: "My Devices"), count: section.count)
+        case .devicesSection:
+            groupRow(title: String(localized: "cloudTree.group.devices", defaultValue: "My Devices"))
         case .cloudMachinesSection:
             groupRow(title: String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))
         case .devicesEmpty:
             EmptyView()
-        case .terminalsPool(_, let count):
-            groupRow(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count)
-        case .displaysPool(_, let count, _):
-            groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
+        case .terminalsPool:
+            groupRow(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"))
+        case .displaysPool:
+            groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"))
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
         case .workspace(_, let workspace, _, _, _):
@@ -65,7 +70,12 @@ struct CloudTreeRowContentView: View {
                 icon: "folder.fill",
                 tint: CloudTreeIconPalette.workspace,
                 title: workspace.name,
-                titleWeight: workspace.focused ? .medium : .regular
+                titleWeight: workspace.focused ? .medium : .regular,
+                accessories: {
+                    if !presenceHeads.isEmpty {
+                        SidebarWorkspacePresenceHeadsView(participants: presenceHeads)
+                    }
+                }
             )
         case .localWorkspace(let row):
             CloudTreeLeafRow(
@@ -100,30 +110,40 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), count: nil, style: style)
+            groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"))
         case .resourcesPool:
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.resources", defaultValue: "Resources"), count: nil, style: style)
+            groupRow(title: String(localized: "cloudTree.group.resources", defaultValue: "Resources"))
         case .resource(_, let row):
             CloudTreeMachineResourceRowContent(row: row, style: style)
         case .port(let resource, let url, _):
+            let presentation = CloudTreePortPresentation(resource: resource, url: url)
             CloudTreeLeafRow(
                 style: style,
                 icon: "network",
                 tint: CloudTreeIconPalette.browser,
-                title: url.map(CloudTreePortLinkText.displayText)
-                    ?? (resource.id.forwardedPort ?? resource.port).map(String.init)
-                    ?? resource.title,
+                title: presentation.title,
                 titleIsLink: url != nil,
-                detail: url == nil ? (resource.detail?.isEmpty == false ? resource.detail : nil) : nil
+                detail: presentation.detail
             )
+            .help(presentation.toolTip ?? presentation.title)
         case .placeholder(_, let placeholder):
             CloudTreePlaceholderContent(placeholder: placeholder, style: style)
         }
     }
     /// One section label ("Workspaces", "My Devices") in the shared group row,
     /// so the row switch stays a list of one-line cases.
-    private func groupRow(title: String, count: Int? = nil) -> some View {
-        CloudTreeGroupRowContent(title: title, count: count, style: style)
+    private func groupRow(title: String) -> some View {
+        CloudTreeGroupRowContent(title: title, count: Self.groupCount(for: kind), style: style)
+    }
+
+    /// The count a group header shows after its title ("My Devices 2"); nil shows none.
+    static func groupCount(for kind: CloudTreeNode.Kind) -> CloudTreeGroupCount? {
+        switch kind {
+        case .devicesSection(let section): CloudTreeGroupCount(section.count)
+        case .cloudMachinesSection(_, let usage?): CloudTreeGroupCount(usage: usage)
+        case .terminalsPool(_, let count), .displaysPool(_, let count, _): CloudTreeGroupCount(count)
+        default: nil
+        }
     }
 
     /// Formats terminal totals for group and machine summaries.
@@ -158,26 +178,15 @@ struct CloudTreeRowContentView: View {
 
 /// The shared leaf-row chrome: icon slot, then title and detail arranged per
 /// the style's leaf layout and metadata placement, then trailing accessories.
-/// The scheme-free form of a port link for display (`host:port`, VS Code's
-/// forwarded-ports style) — never used for opening or copying, only for the
-/// row's title text.
-enum CloudTreePortLinkText {
-    static func displayText(forURL url: String) -> String {
-        guard let range = url.range(of: "://") else { return url }
-        return String(url[range.upperBound...])
-    }
-}
-
 struct CloudTreeLeafRow<Accessories: View>: View {
     let style: CloudTreeStyle
     let icon: String
     let tint: Color
+    var iconAsset: String? = nil
     let title: String
     var titleWeight: Font.Weight = .regular
     var titleDimmed: Bool = false
-    /// Underlined and tinted like a followable link (VS Code's forwarded-ports
-    /// panel): a port row's URL is the one title in this tree a click actually
-    /// navigates, so it reads as a link rather than a label.
+    /// Underlined and tinted when the title opens content in cmux.
     var titleIsLink: Bool = false
     var detail: String?
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
@@ -187,6 +196,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         style: CloudTreeStyle,
         icon: String,
         tint: Color,
+        iconAsset: String? = nil,
         title: String,
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
@@ -197,6 +207,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         self.style = style
         self.icon = icon
         self.tint = tint
+        self.iconAsset = iconAsset
         self.title = title
         self.titleWeight = titleWeight
         self.titleDimmed = titleDimmed
@@ -208,7 +219,13 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: GlobalFontMagnification.scaledSize(style.iconGap, percent: magnification)) {
             if style.iconSlot > 0 {
-                CloudTreeRowIcon(style: style, systemName: icon, tint: tint, dimmed: titleDimmed)
+                CloudTreeRowIcon(
+                    style: style,
+                    systemName: icon,
+                    tint: tint,
+                    assetName: iconAsset,
+                    dimmed: titleDimmed
+                )
             }
             switch style.leafLayout {
             case .twoLine:
@@ -274,6 +291,7 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
         style: CloudTreeStyle,
         icon: String,
         tint: Color,
+        iconAsset: String? = nil,
         title: String,
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
@@ -284,6 +302,7 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
             style: style,
             icon: icon,
             tint: tint,
+            iconAsset: iconAsset,
             title: title,
             titleWeight: titleWeight,
             titleDimmed: titleDimmed,
@@ -294,12 +313,17 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
     }
 }
 
-/// A cmux-tui terminal row: lifecycle glyph and title, with secondary details on hover.
+/// A cmux-tui terminal row with its provider mark, title, directory and optional view count.
 struct CloudTreeTerminalRowContent: View {
     let row: CloudTreeTerminalRow
     var style: CloudTreeStyle = CloudTreeStyleStore.current
 
     private var terminal: SurfaceResource { row.resource }
+    private var resolvedTitle: String {
+        row.displayTitle.isEmpty
+            ? String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal")
+            : row.displayTitle
+    }
 
     /// Detached styling is reserved for a live terminal whose resolved daemon
     /// view list is empty. A stale exited record can have the same empty list,
@@ -319,17 +343,22 @@ struct CloudTreeTerminalRowContent: View {
             style: style,
             icon: glyph,
             tint: CloudTreeIconPalette.terminal,
-            title: row.displayTitle.isEmpty ? String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal") : row.displayTitle,
+            iconAsset: terminal.terminalAgentIconAssetName,
+            title: resolvedTitle,
             titleDimmed: terminal.lifecycle == .exited || showsDetachedState
         )
         .help(toolTip)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(toolTip)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    var accessibilityLabel: String {
+        [resolvedTitle, toolTip].filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
     /// Keep secondary information on hover so the narrow row gives its width to the title.
     var toolTip: String {
-        var details = [row.displayTitle, row.directoryHelp, agentLabel].compactMap { $0 }
+        var details = [row.directoryHelp, agentLabel].compactMap { $0 }
         if showsDetachedState {
             details.append(String(localized: "cloudTree.terminal.detached.help", defaultValue: "Still running on the machine, but no tab shows it. Click to open it in a pane; right-click to kill it."))
         } else if let views = Self.multiplierBadge(row.viewBadge) {

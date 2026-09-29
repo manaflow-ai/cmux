@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxComputerUse
 import AppKit
 import CMUXMobileCore
@@ -5,6 +6,7 @@ import CmuxWorkspaces
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSwiftRenderUI
+import CmuxUpdater
 import CmuxFoundation
 import Foundation
 import OSLog
@@ -12,21 +14,18 @@ import SwiftUI
 
 nonisolated private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
-/// App-side implementation of the package's `SettingsHostActions`
-/// protocol. Routes UI-triggered actions to the existing host
-/// services (`BrowserHistoryStore`, `BrowserDataImportCoordinator`,
-/// `TerminalNotificationStore`, etc.) so the package doesn't need to
-/// depend on them directly.
+/// Routes Settings actions to app-owned services, keeping the package independent.
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
     let computersActions: ComputersSettingsActions
     private let configFileURL: URL
+    private let browserDataImportCoordinator: BrowserDataImportCoordinator
     private let automationConfigStore: AutomationConfigStore
     private let openAutomationRulesFile: @MainActor (URL) -> Void
     private let reportAutomationRulesError: @MainActor (Error) -> Void
-    private let computerUseRuntimeService: ComputerUseRuntimeService
-    private let runComputerUseOnboardingAction:
-        @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
+    let computerUseRuntimeService: ComputerUseRuntimeService
+    var runComputerUseOnboardingAction:
+        @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
 
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
@@ -60,6 +59,7 @@ final class HostSettingsActions: SettingsHostActions {
     init(
         configFileURL: URL,
         computerUseRuntimeService: ComputerUseRuntimeService,
+        browserDataImportCoordinator: BrowserDataImportCoordinator,
         automationConfigStore: AutomationConfigStore = AutomationConfigStore(),
         openAutomationRulesFile: @escaping @MainActor (URL) -> Void = {
             PreferredEditorService(defaults: .standard).open($0)
@@ -86,6 +86,7 @@ final class HostSettingsActions: SettingsHostActions {
         self.openAutomationRulesFile = openAutomationRulesFile
         self.reportAutomationRulesError = reportAutomationRulesError
         self.computerUseRuntimeService = computerUseRuntimeService
+        self.browserDataImportCoordinator = browserDataImportCoordinator
         self.runComputerUseOnboardingAction = runComputerUseOnboardingAction
         startObservingAppIconMode()
     }
@@ -141,10 +142,24 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openTerminalThemePicker() {
+        // The native Settings entry point keeps CLI diagnostics private. The
+        // interactive picker still owns stdout/the TTY, while raw helper and
+        // launch errors on stderr are suppressed on this user-facing path.
+        openBundledCLIInTerminalTab(arguments: "themes 2>/dev/null; exit", purpose: "theme picker")
+    }
+
+    func openTerminalImport() {
+        // No trailing `exit`: the tab stays open so the import report can be read.
+        openBundledCLIInTerminalTab(arguments: "import", purpose: "terminal import")
+    }
+
+    /// Opens a focused terminal tab in the selected workspace that runs the bundled
+    /// cmux CLI with `arguments`, the shared path for Settings rows backed by a CLI command.
+    private func openBundledCLIInTerminalTab(arguments: String, purpose: String) {
         let cliURL = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
         guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
-            hostSettingsLogger.error("Theme picker unavailable: bundled cmux CLI missing")
+            hostSettingsLogger.error("Settings \(purpose, privacy: .public) unavailable: bundled cmux CLI missing")
             return
         }
 
@@ -155,12 +170,9 @@ final class HostSettingsActions: SettingsHostActions {
             return
         }
 
-        // The native Settings entry point keeps CLI diagnostics private. The
-        // interactive picker still owns stdout/the TTY, while raw helper and
-        // launch errors on stderr are suppressed on this user-facing path.
-        let initialInput = "\(LocalSurfaceProvider.shellQuote(cliURL.path)) themes 2>/dev/null; exit\n"
+        let initialInput = "\(LocalSurfaceProvider.shellQuote(cliURL.path)) \(arguments)\n"
         do {
-            let picker = try SurfacePaneFactory.makeTerminalPane(
+            let pane = try SurfacePaneFactory.makeTerminalPane(
                 initialCommand: nil,
                 initialInput: initialInput,
                 workingDirectory: nil,
@@ -171,15 +183,54 @@ final class HostSettingsActions: SettingsHostActions {
                 _ = appDelegate.focusMainWindow(windowId: windowID)
             }
             SurfacePaneFactory.focus(
-                panelID: picker.panelID,
-                in: picker.workspaceID
+                panelID: pane.panelID,
+                in: pane.workspaceID
             )
         } catch {
-            hostSettingsLogger.error("Failed to open terminal theme picker")
+            hostSettingsLogger.error("Failed to open Settings \(purpose, privacy: .public) terminal")
         }
     }
 
+    func terminalThemeGalleryContext() -> TerminalThemeGalleryContext? {
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            return nil
+        }
+        let configURL = CmuxGhosttyConfigPathResolver().editableConfigURL(
+            currentBundleIdentifier: Bundle.main.bundleIdentifier,
+            appSupportDirectory: appSupport
+        )
+        let themeDirectories = GhosttyThemeDirectories(
+            environment: ProcessInfo.processInfo.environment,
+            bundledThemeDirectories: [Bundle.main.resourceURL?.appendingPathComponent("ghostty/themes", isDirectory: true)]
+                .compactMap { $0 }
+        ).urls
+        return TerminalThemeGalleryContext(
+            configFile: CmuxManagedThemeConfigFile(url: configURL),
+            themeDirectories: themeDirectories,
+            readCurrentThemeValue: { GhosttyApp.userAppearanceConfigSummary().lastThemeDirective },
+            prefersDarkAppearance: NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        )
+    }
+
+    func terminalThemeConfigDidChange(phase: TerminalThemeReloadPhase) {
+        let phaseName: String
+        switch phase {
+        case .preview: phaseName = "preview"
+        case .final: phaseName = "final"
+        }
+        AppDelegate.shared?.reloadGhosttyConfigurationForCmuxThemeSource(
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(phase: phaseName)
+        )
+    }
+
     func notifyShortcutSettingsDidChange() {
+        reloadSettingsFile()
+    }
+
+    func reloadSettingsFile() {
         // reload() already posts didChangeNotification when the file's
         // contents changed; posting again here double-notified every
         // listener. Only post when the reload saw no change, so callers
@@ -199,48 +250,6 @@ final class HostSettingsActions: SettingsHostActions {
 
     func applyLanguageOverride(_ language: AppLanguage) {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
-    }
-
-    func refreshComputerUsePermissions() async {
-        let status = await computerUseRuntimeService.refreshHelperStatus()
-        guard
-            CmuxFeatureFlags.shared.isComputerUseUXEnabled,
-            computerUseRuntimeService.permissionStatusIsKnown,
-            status.accessibility,
-            status.screenRecording,
-            computerUseRuntimeService.onboardingRequiresCompletion
-        else {
-            return
-        }
-        runComputerUseOnboardingAction(.screenRecording)
-    }
-
-    func computerUseAccessibilityGranted() -> Bool {
-        computerUseRuntimeService.status().accessibility
-    }
-
-    func computerUseScreenRecordingGranted() -> Bool {
-        computerUseRuntimeService.status().screenRecording
-    }
-
-    func computerUsePermissionStatusIsKnown() -> Bool {
-        computerUseRuntimeService.permissionStatusIsKnown
-    }
-
-    func requestComputerUseAccessibility() {
-        runComputerUseOnboardingAction(.accessibility)
-    }
-
-    func requestComputerUseScreenRecording() {
-        runComputerUseOnboardingAction(.screenRecording)
-    }
-
-    func openComputerUseAccessibilitySettings() {
-        runComputerUseOnboardingAction(.accessibility)
-    }
-
-    func openComputerUseScreenRecordingSettings() {
-        runComputerUseOnboardingAction(.screenRecording)
     }
 
     func openConfigInExternalEditor() {
@@ -433,6 +442,92 @@ final class HostSettingsActions: SettingsHostActions {
         TerminalNotificationStore.shared.refreshAuthorizationStatus()
     }
 
+    // MARK: - Local session persistence
+
+    func localTmuxSessions() async throws -> [LocalTmuxSessionSummary] {
+        let data = try await runLocalTmuxCLI(arguments: ["local-tmux", "list", "--json"])
+        do {
+            return try LocalTmuxSessionListDecoder().decode(data)
+        } catch {
+            hostSettingsLogger.error("Bundled local-tmux CLI returned invalid session data")
+            throw LocalTmuxSettingsActionError.invalidResponse
+        }
+    }
+
+    func startLocalTmuxSession(name: String) async throws {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let workspace = AppDelegate.shared?.activeTabManagerForCommands()?.selectedWorkspace else {
+            throw LocalTmuxSettingsActionError.unavailable
+        }
+        let workspaceID = workspace.id
+        let cwd = workspace.currentDirectory
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        _ = try await runLocalTmuxCLI(arguments: Self.localTmuxStartArguments(
+            name: trimmedName,
+            workspaceID: workspaceID,
+            cwd: cwd,
+            socketPath: socketPath
+        ))
+    }
+
+    nonisolated static func localTmuxStartArguments(
+        name: String,
+        workspaceID: UUID,
+        cwd: String,
+        socketPath: String
+    ) -> [String] {
+        ["--socket", socketPath, "local-tmux", "start", "--name", name,
+         "--workspace", workspaceID.uuidString, "--cwd", cwd, "--json"]
+    }
+
+    func attachLocalTmuxSession(_ session: LocalTmuxSessionSummary) async throws {
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        var arguments = ["--socket", socketPath, "local-tmux", "attach"]
+        switch session.selector {
+        case .managed(let id, _):
+            arguments.append(contentsOf: ["--id", id.uuidString])
+        case .unmanaged(let name):
+            // A tmux session name may start with "-", so pass it as a flag value.
+            arguments.append(contentsOf: ["--name", name])
+        }
+        arguments.append("--json")
+        _ = try await runLocalTmuxCLI(arguments: arguments)
+    }
+
+    private func runLocalTmuxCLI(arguments: [String]) async throws -> Data {
+        guard let cliURL = CLIForwardingLaunchRouter.bundledCLIURL() else {
+            throw LocalTmuxSettingsActionError.cliMissing
+        }
+
+        return try await Self.runLocalTmuxCLI(executableURL: cliURL, arguments: arguments)
+    }
+
+    nonisolated static func runLocalTmuxCLI(
+        executableURL cliURL: URL,
+        arguments: [String],
+        runner: any CommandRunning = CommandRunner()
+    ) async throws -> Data {
+        try Task.checkCancellation()
+        let result = await runner.run(
+            directory: cliURL.deletingLastPathComponent().path,
+            executable: cliURL.path,
+            arguments: arguments,
+            timeout: 30
+        )
+        try Task.checkCancellation()
+        guard result.executionError == nil, !result.timedOut, result.exitStatus == 0 else {
+            if let diagnostics = result.stderr, !diagnostics.isEmpty {
+                hostSettingsLogger.error("Bundled local-tmux CLI failed: \(diagnostics, privacy: .private)")
+            }
+            throw LocalTmuxSettingsActionError.commandFailed
+        }
+        return Data((result.stdout ?? "").utf8)
+    }
+
     // MARK: - Right sidebar tabs
 
     func rightSidebarTabs() -> [RightSidebarTabSettingsItem] {
@@ -522,7 +617,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openBrowserImportFlow() {
-        BrowserDataImportCoordinator.shared.presentImportDialog()
+        browserDataImportCoordinator.presentImportDialog()
     }
 
     func requestNotificationAuthorization() {
@@ -584,33 +679,16 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
-    var isCloudMachinesAvailable: Bool {
-        CloudMachinesFeature.isEnabled
-    }
-    func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? {
-        guard CloudMachinesFeature.isEnabled else { return nil }
-        guard let client = VMClient.shared else { return nil }
-        guard let page = try? await client.listPage(), let limits = page.limits else { return nil }
-        // Same classifier as the Machines panel so Settings and the panel never
-        // disagree about an unknown plan id (both fail closed to "not paid").
-        let isPaid = MachinePlanSnapshot.isPaidPlanID(limits.planId)
-        let planLabel = isPaid
-            ? limits.planId.capitalized
-            : String(localized: "settings.cloudMachines.plan.free", defaultValue: "Free")
-        return CloudMachinesPlanSummary(
-            planLabel: planLabel,
-            activeMachines: page.vms.count,
-            maxMachines: limits.maxActiveVms,
-            isPaidPlan: isPaid
-        )
+    func appChannelSwitchTarget() -> SettingsAppChannelSwitchTarget? {
+        switch AppDelegate.shared?.appChannelSwitchTarget {
+        case .nightly: .nightly
+        case .stable: .stable
+        case nil: nil
+        }
     }
 
-    func openCloudMachinesPanel() {
-        _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(mode: .machines)
-    }
-
-    func openCloudMachinesBilling() {
-        ProUpgradePresenter.present(source: .settingsCloudMachines)
+    func switchAppChannel() {
+        AppDelegate.shared?.switchAppChannel(nil)
     }
 
     func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot {
@@ -760,6 +838,32 @@ final class HostSettingsActions: SettingsHostActions {
 
     func formattedFontSize(_ points: Double) -> String {
         CmuxGhosttyConfigSettingEditor().formattedFontSize(points)
+    }
+
+    func terminalGhosttyOptions() async -> GhosttyTerminalOptionsSnapshot {
+        await Task.detached(priority: .userInitiated) {
+            let resolved = GhosttyConfig.resolvedDirectiveValues(forKeys: GhosttyTerminalOptions.configKeys)
+            let environment = ConfigSourceEnvironment.live()
+            var sourcePaths: [GhosttyTerminalOptionKey: String] = [:]
+            for (key, path) in resolved.lastSourcePaths {
+                guard let optionKey = GhosttyTerminalOptionKey(rawValue: key) else { continue }
+                sourcePaths[optionKey] = environment.abbreviatedPath(for: URL(fileURLWithPath: path))
+            }
+            return GhosttyTerminalOptionsSnapshot(
+                options: GhosttyTerminalOptions(directives: resolved.values),
+                sourcePaths: sourcePaths
+            )
+        }.value
+    }
+
+    func applyTerminalGhosttyOption(_ change: GhosttyTerminalOptionChange) async -> Bool {
+        let key = change.key.rawValue
+        guard await fontConfigWriter.write(key: key, values: change.configValues) else {
+            hostSettingsLogger.warning("failed to persist \(key, privacy: .public)")
+            return false
+        }
+        GhosttyApp.shared.reloadConfiguration(source: "settings.terminal.ghosttyOption")
+        return true
     }
 
     func mobilePairingStatus() -> MobilePairingStatusSnapshot? {
@@ -944,7 +1048,8 @@ final class MobileHostStatusObserverToken: @unchecked Sendable {
     }
 }
 
-/// Serializes cmux Ghostty config writes for the font-size settings so rapid
+/// Serializes cmux Ghostty config writes from Settings (font sizes and the
+/// Terminal section's Ghostty option rows) so rapid
 /// successive saves apply in submission order instead of racing.
 ///
 /// The Settings sliders fire a save on every release and Reset tap. Routed
@@ -961,6 +1066,17 @@ private actor FontConfigWriter {
     func write(key: String, value: String) -> Bool {
         do {
             try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, value: value)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Writes one `key = value` line per value, replacing every existing
+    /// assignment to `key` (for list keys such as `font-family`).
+    func write(key: String, values: [String]) -> Bool {
+        do {
+            try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, values: values)
             return true
         } catch {
             return false

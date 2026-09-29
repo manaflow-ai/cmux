@@ -250,8 +250,8 @@ export function resetCmuxTuiSourceCache(): void {
  * gets a binary its sessions can execute (/root is 0700) and a legacy machine
  * keeps the one it already has.
  *
- * The same command installs the coding-agent hooks (`cmuxTuiAgentHooksInstallCommand`),
- * so a machine from the bake and a machine healed on attach both ship them.
+ * The same command installs the coding-agent hooks, so every baked machine
+ * ships them.
  */
 export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
   const bin = '"$CMUX_TUI_BIN"';
@@ -330,20 +330,6 @@ function cmuxTuiHooksReadyCheck(): string {
     `cmp -s ${HOOK_BIN} ${INSTALLED_HOOK}`,
     cmuxTuiAsDaemonUser(`"$CMUX_TUI_BIN" --json agent hook status ${providers}`) +
       ` | python3 -c 'import json, sys; r = json.load(sys.stdin); s = {p["provider"]: p["state"] for p in r.get("providers", [])}; sys.exit(0 if all(s.get(i) == "installed" for i in ${installed}) else 1)'`,
-  ].join(" && ");
-}
-
-/**
- * Hooks alone, for a machine whose daemon is healthy and pinned but predates
- * hook installation: fetch the helper for the daemon's own commit and install
- * the provider entries. Never touches the daemon binary or its state.
- */
-export function cmuxTuiAgentHooksInstallCommand(source: CmuxTuiSource): string {
-  return [
-    cmuxTuiLayoutSelector(),
-    ...hookHelperInstallSteps(source),
-    `if [ "$CMUX_TUI_USER" != root ]; then chown "$CMUX_TUI_USER:$CMUX_TUI_USER" ${HOOK_BIN} 2>/dev/null || true; fi`,
-    ...agentHooksInstallSteps(),
   ].join(" && ");
 }
 

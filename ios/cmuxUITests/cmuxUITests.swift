@@ -12,6 +12,123 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testForegroundRemovesOnlyReadDeliveredNotifications() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+        let tag = mockHostInstanceTag()
+        let read1 = "11111111-1111-4111-8111-111111111111"
+        let read2 = "22222222-2222-4222-8222-222222222222"
+        let unread = "33333333-3333-4333-8333-333333333333"
+        let notifications: [[String: String]] = [
+            ["requestID": "cleanup-read-1", "title": "Read on Mac 1", "notificationId": read1],
+            ["requestID": "cleanup-read-2", "title": "Read on Mac 2", "notificationId": read2],
+            ["requestID": "cleanup-unread", "title": "Still unread", "notificationId": unread],
+            ["requestID": "cleanup-other", "title": "Other computer", "notificationId": read1, "macDeviceId": "other-mac"],
+            ["requestID": "cleanup-unrelated", "title": "Unrelated alert"],
+        ].map { $0.merging(["macInstanceTag": tag]) { _, tag in tag } }
+        let fixture = String(decoding: try JSONEncoder().encode(notifications), as: UTF8.self)
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": try attachURL(port: port).absoluteString,
+            "CMUX_UITEST_NOTIFICATION_CLEANUP": fixture,
+        ])
+        defer { app.terminate() }
+        grantNotificationAuthorizationIfRequested()
+        waitForWorkspaceShell(in: app)
+        func awaitReconcile(_ minimumCount: Int = 1) async {
+            let received = await server.waitForRequest(
+                method: "notification.reconcile", minimumCount: minimumCount
+            )
+            XCTAssertTrue(received, "Foreground must reconcile delivered notifications")
+        }
+        await awaitReconcile()
+
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        func openNotificationCenter() async {
+            XCUIDevice.shared.press(.home)
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            let top = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.01))
+            top.press(forDuration: 0.1, thenDragTo: springboard.coordinate(
+                withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)
+            ))
+        }
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: springboard.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        await openNotificationCenter()
+        capture("01-delivered-before-cleanup")
+
+        await server.setNotificationReadState(handledIDs: [read1, read2], available: false)
+        var nextReconcile = await server.notificationReconcileRequests().count + 1
+        app.activate()
+        await awaitReconcile(nextReconcile)
+        await openNotificationCenter()
+        capture("02-read-state-unavailable-keeps-notifications")
+
+        await server.setNotificationReadState(handledIDs: [read1, read2], available: true)
+        nextReconcile = await server.notificationReconcileRequests().count + 1
+        app.activate()
+        await awaitReconcile(nextReconcile)
+        await openNotificationCenter()
+        capture("03-read-notifications-cleared-unread-and-unrelated-retained")
+
+        // The next real system enumeration proves removal independently of
+        // Notification Center's grouping and accessibility presentation.
+        nextReconcile = await server.notificationReconcileRequests().count + 1
+        app.activate()
+        await awaitReconcile(nextReconcile)
+        let requests = await server.notificationReconcileRequests()
+        XCTAssertTrue(requests.contains { Set($0) == [read1, read2, unread] })
+        XCTAssertEqual(Set(requests.last ?? []), [unread])
+        let log = XCTAttachment(string: String(
+            decoding: try JSONEncoder().encode(requests), as: UTF8.self
+        ))
+        log.name = "notification-reconcile-delivered-ids"
+        log.lifetime = .keepAlways
+        add(log)
+    }
+
+    @MainActor
+    func testFilesChipsScrollThroughSheetEdge() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_MAC_SURFACE_GALLERY": "files",
+        ])
+        defer { app.terminate() }
+        let openFiles = app.buttons["FilesPreviewOpen"]
+        XCTAssertTrue(openFiles.waitForExistence(timeout: 10))
+        openFiles.tap()
+        let scroller = app.scrollViews["TerminalArtifactGalleryFilterScroller"]
+        XCTAssertTrue(scroller.waitForExistence(timeout: 10))
+        let all = app.buttons["All"]
+        XCTAssertTrue(all.exists)
+        let initialX = all.frame.minX
+        let scopePicker = app.segmentedControls.firstMatch
+        XCTAssertTrue(scopePicker.exists)
+        XCTAssertEqual(scroller.frame.minX, scopePicker.frame.minX - 16, accuracy: 1)
+        // A resting content inset is allowed; the viewport itself must reach
+        // the sheet edge rather than sharing that inset.
+        XCTAssertEqual(initialX - scroller.frame.minX, 16, accuracy: 1)
+        let before = XCTAttachment(screenshot: app.screenshot())
+        before.name = "Files chips before scrolling"
+        before.lifetime = .keepAlways
+        add(before)
+        scroller.swipeLeft(velocity: .slow)
+        XCTAssertLessThanOrEqual(all.frame.minX, scroller.frame.minX + 1)
+        let after = XCTAttachment(screenshot: app.screenshot())
+        after.name = "Files chips at sheet edge"
+        after.lifetime = .keepAlways
+        add(after)
+        scroller.swipeRight(velocity: .slow)
+        XCTAssertEqual(all.frame.minX, initialX, accuracy: 1)
+        scroller.swipeLeft(velocity: .slow)
+        scroller.swipeRight(velocity: .slow)
+    }
+
+    @MainActor
     func testDeveloperSettingsReplaysWhatsNewRange() throws {
         let app = launchApp(
             mockData: false,
@@ -62,6 +179,73 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Per-computer methods"].waitForExistence(timeout: 5))
         tap(continueButton, in: app)
         XCTAssertTrue(show.waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testIOS106WhatsNewReleaseNotice() throws {
+        // Snapshot of web/data/whats-new.ts used to drive the real sheet.
+        let payload = #"{"visibleEntryIds":["pairing.1.0.6","connections.v2","connections.v1"],"announcements":[{"id":"ios-1.0.6-connections","minVersion":"1.0.6","maxVersion":"1.0.6","channels":["beta","internal"],"title":"What's New in 1.0.6","releaseLabel":"1.0.6 · September 2026","features":[{"symbol":"network","title":"Updated Mac connections","detail":"This update uses the new connection service and Iroh transport. Older Mac builds need an update to connect."},{"symbol":"arrow.down.circle","title":"Update cmux on your Mac","detail":"Requires cmux 0.64.25 or later, or NIGHTLY 0.64.25-nightly.3522337919701 or later. Enable iOS pairing in Settings > Mobile on each Mac."},{"symbol":"clock.arrow.circlepath","title":"Need to keep an older Mac build?","detail":"Use cmux BETA 1.0.5 (20260914204800) from TestFlight > Previous Builds while it remains available. Choose that exact build, since later builds use a newer connection service."}]}]}"#
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        for (channel, version, appearance, expected) in [
+            ("beta", "1.0.6", "light", true),
+            ("internal", "1.0.6", "dark", true),
+            ("prod", "1.0.6", "light", false),
+            ("demo", "1.0.6", "light", false),
+            ("dev", "1.0.6", "light", false),
+            ("beta", "1.0.5", "light", false),
+            ("beta", "1.0.7", "light", false)
+        ] {
+            app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+            app.launchEnvironment = [
+                "CMUX_UITEST_WHATS_NEW_PREVIEW": "1",
+                "CMUX_UITEST_WHATS_NEW_PAYLOAD": payload,
+                "CMUX_UITEST_WHATS_NEW_CHANNEL": channel,
+                "CMUX_UITEST_WHATS_NEW_VERSION": version,
+                "CMUX_UITEST_WHATS_NEW_APPEARANCE": appearance,
+                "CMUX_UITEST_WHATS_NEW_ACKNOWLEDGED_ENTRY_ID": "connections.v2"
+            ]
+            app.launch()
+            let title = app.staticTexts["What's New in 1.0.6"].firstMatch
+            if expected {
+                XCTAssertTrue(title.waitForExistence(timeout: 15))
+                let requirement = app.staticTexts.matching(NSPredicate(
+                    format: "label CONTAINS %@", "0.64.25-nightly.3522337919701"
+                )).firstMatch
+                XCTAssertTrue(requirement.exists)
+                XCTAssertTrue(requirement.label.contains("cmux 0.64.25 or later"))
+                let rollback = app.staticTexts.matching(NSPredicate(
+                    format: "label CONTAINS %@", "20260914204800"
+                )).firstMatch
+                XCTAssertTrue(rollback.exists)
+                XCTAssertTrue(rollback.label.contains("BETA 1.0.5"))
+                let screenshot = XCTAttachment(screenshot: app.screenshot())
+                screenshot.name = "1.0.6 notice - \(channel) - \(appearance)"
+                screenshot.lifetime = .keepAlways
+                add(screenshot)
+                let continueButton = app.buttons["Continue"].firstMatch
+                XCTAssertTrue(continueButton.isHittable)
+                continueButton.tap()
+                let pairingSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
+                XCTAssertTrue(pairingSheet.waitForExistence(timeout: 5))
+                XCTAssertTrue(pairingSheet.staticTexts["Action Required: Enable iOS pairing on your Mac"].waitForExistence(timeout: 5))
+                XCTAssertTrue(app.images.matching(NSPredicate(format: "label == %@", "cmux Mac Settings, Mobile section, showing Enable iOS pairing.")).firstMatch.waitForExistence(timeout: 5))
+                XCTAssertTrue(app.staticTexts["cmux 0.64.25 or later"].exists)
+                XCTAssertTrue(app.staticTexts["cmux NIGHTLY 0.64.25-nightly.3522337919701 or later"].exists)
+                let pairingScreenshot = XCTAttachment(screenshot: app.screenshot())
+                pairingScreenshot.name = "1.0.6 pairing settings - \(channel) - \(appearance)"
+                pairingScreenshot.lifetime = .keepAlways
+                add(pairingScreenshot)
+                continueButton.tap()
+                XCTAssertTrue(continueButton.waitForNonExistence(timeout: 5))
+                XCTAssertTrue(app.staticTexts["MobileWhatsNewPreviewLoaded"].waitForExistence(timeout: 5))
+            } else {
+                XCTAssertTrue(app.staticTexts["MobileWhatsNewPreviewLoaded"].waitForExistence(timeout: 15))
+                XCTAssertFalse(title.exists, "Notice must not reach \(channel) \(version)")
+                XCTAssertFalse(app.buttons["Continue"].exists)
+            }
+            app.terminate()
+        }
     }
 
     @MainActor
@@ -1775,6 +1959,38 @@ final class cmuxUITests: XCTestCase {
         assertPairingError(contains: "Enter a port from 1 to 65535", in: invalidPortApp)
     }
 
+    /// The error row sits below the pinned Pair button. A failed attempt must
+    /// bring it into view on its own, or tapping Pair looks like it did nothing.
+    @MainActor
+    func testAddDevicePairingErrorIsVisibleWithoutScrolling() throws {
+        let app = launchAddDeviceApp(environment: [
+            "CMUX_UITEST_ADD_DEVICE_HOST": "dev/path.local"
+        ])
+        defer { app.terminate() }
+
+        let pairButton = app.buttons["MobilePairButton"]
+        XCTAssertTrue(pairButton.waitForExistence(timeout: 8))
+        tap(pairButton, in: app)
+
+        let error = app.staticTexts["MobilePairingError"]
+        XCTAssertTrue(error.waitForExistence(timeout: 4))
+        // Frames are in screen space, so also require both to sit inside the
+        // app window: an error scrolled off the top is not visible either.
+        let appFrame = app.windows.firstMatch.frame
+        let visible = expectation(
+            for: NSPredicate { _, _ in
+                error.exists
+                    && error.frame.intersects(appFrame)
+                    && pairButton.frame.intersects(appFrame)
+                    && error.frame.maxY <= pairButton.frame.minY
+            },
+            evaluatedWith: nil
+        )
+        wait(for: [visible], timeout: 4)
+        XCTAssertTrue(error.frame.intersects(appFrame))
+        XCTAssertLessThanOrEqual(error.frame.maxY, pairButton.frame.minY)
+    }
+
     @MainActor
     func testManualHostConnectsAndNavigatesToWorkspace() async throws {
         let server = try MobileSyncMockHostServer()
@@ -1907,6 +2123,53 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["refreshPreservedHalfList=true"].exists)
         XCTAssertTrue(app.staticTexts["allRemoved=true"].exists)
         XCTAssertTrue(app.staticTexts["refreshPreservedEmptyList=true"].exists)
+    }
+
+    @MainActor
+    func testComputerPickerKeepsPresentedRowsDuringRefresh() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE": "1",
+            "CMUX_UITEST_COMPUTER_PICKER_REFRESH": "1",
+            "CMUX_UITEST_SUPPRESS_WHATS_NEW": "1",
+        ])
+        defer { app.terminate() }
+        let picker = app.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(waitForHittable(picker, timeout: 10))
+        picker.tap()
+
+        func computer(_ index: Int) -> XCUIElement {
+            app.buttons.matching(NSPredicate(
+                format: "identifier BEGINSWITH %@",
+                "MobileWorkspaceMacPickerMachine-picker-refresh-\(index)"
+            )).firstMatch
+        }
+        let first = computer(0)
+        XCTAssertTrue(first.waitForExistence(timeout: 4))
+        let initialTitle = first.label
+        let last = computer(24)
+        for _ in 0..<8 {
+            if last.exists, last.isHittable { break }
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(last.isHittable)
+        let title = last.label
+        let frame = last.frame
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            XCTAssertTrue(last.exists && last.isHittable, "Refresh must not reset the open computer list.")
+            XCTAssertEqual(last.label, title, "Presented rows must keep their opening snapshot.")
+            XCTAssertEqual(last.frame.minY, frame.minY, accuracy: 1, "Refresh must not move the open menu.")
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "computer-picker-bottom-after-refreshes"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        tapMenuItem(last, in: app)
+        XCTAssertTrue(picker.label.hasPrefix("Computer 24"))
+        picker.press(forDuration: 0.6)
+        XCTAssertTrue(first.waitForExistence(timeout: 4))
+        XCTAssertNotEqual(first.label, initialTitle, "Reopening must pick up refreshed computer names.")
     }
 
     @MainActor
@@ -4557,6 +4820,90 @@ final class cmuxUITests: XCTestCase {
         }
         XCTAssertTrue(supportInformation.waitForExistence(timeout: 4))
         XCTAssertTrue(supportInformation.isHittable)
+    }
+
+    @MainActor
+    func testEraseAllLocalDataResetsPersistedSettingsAfterRelaunch() throws {
+        // The mock shell mounts the real root view, which owns the reset flow;
+        // layout previews bypass it.
+        var app = launchApp(mockData: true)
+
+        func openSettings(in app: XCUIApplication) {
+            grantNotificationAuthorizationIfRequested()
+            // Both launches start as fresh installs, so the launch sheet shows.
+            // Finish every page rather than tapping its obscured toolbar.
+            let whatsNewSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
+            if whatsNewSheet.waitForExistence(timeout: 4) {
+                // Every page carries a Continue button; tap only the one on
+                // screen, after the sheet finishes sizing itself.
+                let continueButtons = app.buttons.matching(
+                    NSPredicate(format: "label == %@", "Continue")
+                )
+                let deadline = Date().addingTimeInterval(30)
+                while whatsNewSheet.exists, Date() < deadline {
+                    if let visible = continueButtons.allElementsBoundByIndex.first(where: \.isHittable) {
+                        visible.tap()
+                    }
+                    Thread.sleep(forTimeInterval: 0.5)
+                }
+                XCTAssertTrue(whatsNewSheet.waitForNonExistence(timeout: 5))
+            }
+            let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+            XCTAssertTrue(settings.waitForExistence(timeout: 8))
+            tap(settings, in: app)
+        }
+
+        func revealed(_ element: XCUIElement, in app: XCUIApplication) -> XCUIElement {
+            for _ in 0..<14 where !element.exists || !element.isHittable {
+                app.swipeUp(velocity: .slow)
+            }
+            XCTAssertTrue(element.waitForExistence(timeout: 4))
+            XCTAssertTrue(element.isHittable)
+            return element
+        }
+
+        func waitForValue(_ value: String, on toggle: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", value),
+                object: toggle
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 2), .completed)
+        }
+
+        // Persist a non-default setting so the relaunch can prove the erase.
+        openSettings(in: app)
+        let haptics = revealed(app.switches["MobileSettingsHapticFeedbackToggle"], in: app)
+        if haptics.value as? String == "1" {
+            haptics.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        }
+        waitForValue("0", on: haptics)
+
+        let reset = revealed(app.buttons["MobileSettingsResetLocalData"], in: app)
+        XCTAssertTrue(
+            app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "are not deleted")).firstMatch.exists,
+            "The reset footer must say server-side data is not deleted."
+        )
+        reset.tap()
+
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            alert.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Nothing is deleted from your cmux account")).firstMatch.exists
+        )
+        alert.buttons["Erase"].tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileLocalDataResetFinished"].waitForExistence(timeout: 20),
+            "Erasing must end on the reset screen that asks for a relaunch."
+        )
+        XCTAssertFalse(app.buttons["MobileWorkspaceSettingsMenu"].exists)
+
+        app.terminate()
+        app = launchApp(mockData: true)
+        defer { app.terminate() }
+        openSettings(in: app)
+        let freshHaptics = revealed(app.switches["MobileSettingsHapticFeedbackToggle"], in: app)
+        XCTAssertEqual(freshHaptics.value as? String, "1", "The relaunch must start from default settings.")
     }
 
     @MainActor
@@ -7575,27 +7922,61 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testTerminalDropdownKeepsBottomScrollDuringWorkspaceRefresh() throws {
         let app = launchWorkspaceDetailRefreshingTerminalMenuPreviewApp()
+        assertTerminalDropdownKeepsBottomScrollDuringRefresh(in: app)
+    }
+
+    @MainActor
+    func testTerminalDropdownKeepsBottomScrollDuringBrowserRefresh() throws {
+        let app = launchWorkspaceDetailRefreshingTerminalMenuPreviewApp(environment: [
+            "CMUX_UITEST_TERMINAL_MENU_BROWSER_REFRESH": "1",
+        ])
+        assertTerminalDropdownKeepsBottomScrollDuringRefresh(in: app)
+    }
+
+    @MainActor
+    private func assertTerminalDropdownKeepsBottomScrollDuringRefresh(in app: XCUIApplication) {
+        defer { app.terminate() }
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         assertTerminalMenuItemExists("terminal-build", in: app)
+        let initialTitle = app.buttons["MobileTerminalMenuItem-terminal-build"].label
         let target = scrollTerminalMenuToItem("terminal-extra-24", in: app)
-        XCTAssertTrue(target.isHittable, "Bottom terminal must be visible before refresh pulses start.")
+        XCTAssertTrue(target.isHittable, "Bottom terminal must be visible before observing refreshes.")
+        capture("tabs-menu-scrolled-to-bottom")
 
         let refreshedTarget = app.buttons["MobileTerminalMenuItem-terminal-extra-24"]
         let deadline = Date().addingTimeInterval(3.0)
         while Date() < deadline {
             XCTAssertTrue(
                 refreshedTarget.exists && refreshedTarget.isHittable,
-                "Bottom terminal must stay visible and hittable while workspace refreshes update terminal titles."
+                "Bottom terminal must stay visible and hittable while workspace and browser titles refresh."
             )
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
+        capture("tabs-menu-bottom-after-background-refreshes")
         tapMenuItem(refreshedTarget, in: app)
         let selectedValue = app.buttons["MobileTerminalDropdown"].value as? String ?? ""
         XCTAssertTrue(
             selectedValue.contains("Terminal 24"),
             "Selecting the bottom terminal should update the picker value. value=\(selectedValue)"
         )
+        // A long press must take a fresh snapshot too; a tap-only refresh
+        // hook leaves stale titles on the native press-drag opening path.
+        app.buttons["MobileTerminalDropdown"].press(forDuration: 0.6)
+        assertTerminalMenuItemExists("terminal-build", in: app)
+        XCTAssertNotEqual(
+            app.buttons["MobileTerminalMenuItem-terminal-build"].label,
+            initialTitle,
+            "Reopening must show current names and proves refreshes occurred during the first opening."
+        )
+        capture("tabs-menu-reopened-with-current-titles")
     }
 
     @MainActor
@@ -8281,13 +8662,54 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     private func launchAddDeviceApp(environment: [String: String] = [:]) -> XCUIApplication {
+        // The Tailscale method below makes the Auto-Connect migration sheet
+        // eligible, and it would take the one root sheet slot before the Add
+        // Computer form. These tests are about the form, so opt out of it.
+        let migrationDefaults = [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+        ]
         let app = launchApp(
             mockData: true,
-            environment: environment,
+            environment: migrationDefaults.merging(environment) { _, caller in caller },
             launchArguments: ["-dev.cmux.mobile.connectionMethod.v1", "tailscale"]
         )
-        XCTAssertTrue(app.otherElements["MobileAddDeviceForm"].waitForExistence(timeout: 8))
+        let form = app.otherElements["MobileAddDeviceForm"]
+        if !form.waitForExistence(timeout: 4) {
+            // A launch-time What's New sheet can take the modal slot from the
+            // seeded form. Finish it, then open Add Computer the way a user would.
+            try? finishLaunchWhatsNewIfPresented(app)
+            let addDeviceButton = app.buttons["MobileShowAddDeviceButton"].firstMatch
+            let toolbarButton = app.buttons["MobileShowAddDeviceToolbarButton"]
+            if addDeviceButton.waitForExistence(timeout: 4) {
+                tap(addDeviceButton, in: app)
+            } else if toolbarButton.waitForExistence(timeout: 2) {
+                tap(toolbarButton, in: app)
+            }
+        }
+        XCTAssertTrue(form.waitForExistence(timeout: 8))
         return app
+    }
+
+    /// Advances through every unseen What's New page shown at launch.
+    @MainActor
+    private func finishLaunchWhatsNewIfPresented(_ app: XCUIApplication) throws {
+        let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
+        guard whatsNewContinue.waitForExistence(timeout: 4) else { return }
+        // Each tap either advances a page or dismisses the sheet. Let the
+        // transition settle before deciding whether another page remains, so
+        // a sheet that is animating away is never tapped again.
+        for _ in 0..<6 {
+            guard whatsNewContinue.waitForExistence(timeout: 1) else { break }
+            if whatsNewContinue.isHittable {
+                whatsNewContinue.tap()
+            }
+            _ = whatsNewContinue.waitForNonExistence(timeout: 2)
+        }
+        _ = try XCTUnwrap(
+            whatsNewContinue.waitForNonExistence(timeout: 4) ? true : nil,
+            "Finish every What's New page before continuing"
+        )
     }
 
     @MainActor
@@ -8305,13 +8727,16 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchWorkspaceDetailRefreshingTerminalMenuPreviewApp() -> XCUIApplication {
-        let app = launchApp(mockData: false, environment: [
+    private func launchWorkspaceDetailRefreshingTerminalMenuPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+        var launchEnvironment = [
             "CMUX_UITEST_WORKSPACE_DETAIL_REFRESHING_TERMINAL_MENU": "1",
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
-        ])
+            "CMUX_UITEST_SUPPRESS_WHATS_NEW": "1",
+        ]
+        launchEnvironment.merge(environment) { _, new in new }
+        let app = launchApp(mockData: false, environment: launchEnvironment)
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForHittable(app.buttons["MobileTerminalDropdown"], timeout: 8))
         return app
     }
 
@@ -8369,8 +8794,14 @@ final class cmuxUITests: XCTestCase {
         grantNotificationAuthorizationIfRequested()
         let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
         if whatsNewContinue.waitForExistence(timeout: 4) {
-            tap(whatsNewContinue, in: app)
-            XCTAssertTrue(whatsNewContinue.waitForNonExistence(timeout: 4))
+            // Continue advances through every unseen page before dismissing.
+            for _ in 0..<4 where whatsNewContinue.exists {
+                tap(whatsNewContinue, in: app)
+            }
+            _ = try XCTUnwrap(
+                whatsNewContinue.waitForNonExistence(timeout: 4) ? true : nil,
+                "Finish every What's New page before opening the workspace"
+            )
         }
         if app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) {
             return
@@ -10711,6 +11142,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var selectedTerminalID = "terminal-build"
     private var workspaceCreateRequests: [WorkspaceCreateRequest] = []
     private var requestCountsByMethod: [String: Int] = [:]
+    private var notificationReconcileDeliveries: [[String]] = []
+    private var handledNotificationIDs: Set<String> = []
+    private var notificationReadStateAvailable = true
     private var eventSubscriptionStreamIDsByConnection:
         [ObjectIdentifier: Set<String>] = [:]
     private var replayCounts: [String: Int] = [:]
@@ -10931,6 +11365,22 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                     .joined(separator: ", ")
                 continuation.resume(returning: description.isEmpty ? "none" : description)
             }
+        }
+    }
+
+    func setNotificationReadState(handledIDs: [String], available: Bool) async {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                self.handledNotificationIDs = Set(handledIDs)
+                self.notificationReadStateAvailable = available
+                continuation.resume()
+            }
+        }
+    }
+
+    func notificationReconcileRequests() async -> [[String]] {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume(returning: self.notificationReconcileDeliveries) }
         }
     }
 
@@ -11255,6 +11705,16 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         let id = request["id"] as? String ?? ""
         let params = request["params"] as? [String: Any] ?? [:]
         requestCountsByMethod[method, default: 0] += 1
+        if method == "notification.reconcile" {
+            notificationReconcileDeliveries.append(params["delivered_ids"] as? [String] ?? [])
+            if !notificationReadStateAvailable {
+                return Self.frame(try JSONSerialization.data(withJSONObject: [
+                    "id": id,
+                    "ok": false,
+                    "error": ["code": "unavailable", "message": "Read state unavailable"],
+                ]))
+            }
+        }
         if method == "mobile.attach_ticket.create", !supportsManualAttachTicket {
             let envelope: [String: Any] = [
                 "id": id,
@@ -11331,6 +11791,13 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             ]
         case "mobile.host.status":
             result = mobileHostStatusResult()
+        case "notification.reconcile":
+            result = [
+                "handled_ids": (params["delivered_ids"] as? [String] ?? []).filter {
+                    handledNotificationIDs.contains($0)
+                },
+                "unread_count": 1,
+            ]
         case "caffeine.status":
             result = ["enabled": caffeineEnabled]
         case "caffeine.set":
@@ -11432,7 +11899,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "mac_client_namespace": macInstanceTag == "dev"
                 ? "mac:com.cmuxterm.app.debug"
                 : "mac:com.cmuxterm.app.debug.\(macInstanceTag)",
-            "mac_app_version": "0.64.23",
+            "mac_app_version": "0.64.25",
             "routes": [],
             "terminal_fidelity": "render_grid",
             "capabilities": capabilities,
@@ -12023,11 +12490,9 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             retry.tap()
             let finish = app.buttons["MobileWorkspaceListPreviewFinishRefresh"]
             XCTAssertTrue(finish.waitForExistence(timeout: 5))
-            let statusLine = app.descendants(matching: .any)[
-                "MobileWorkspaceConnectionStatusLine"
-            ]
-            XCTAssertTrue(statusLine.waitForExistence(timeout: 5))
-            XCTAssertEqual(statusLine.label, "Reconnecting…")
+            let picker = app.buttons["MobileWorkspaceMacPicker"]
+            XCTAssertTrue(picker.waitForExistence(timeout: 5))
+            XCTAssertEqual(picker.value as? String, "Reconnecting…")
             XCTAssertFalse(emptyState.exists)
             XCTAssertFalse(retry.exists)
             XCTAssertFalse(app.buttons["MobileWorkspaceEmptyRetryCancel"].exists)
@@ -12086,11 +12551,11 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         guide.tap()
         let docs = app.descendants(matching: .any)["MobileDocsSafariView"]
         XCTAssertTrue(docs.waitForExistence(timeout: 10))
-        XCTAssertEqual(docs.value as? String, "https://cmux.com/docs/ios#setup")
+        XCTAssertEqual(docs.value as? String, "https://cmux.com/docs/ios#prerequisites")
         capture("setup-guide-opened-in-native-safari-sheet", in: app)
         record(
             "setup-guide-sheet-result",
-            "Tapped See Docs. cmux presented its native SFSafariViewController sheet for https://cmux.com/docs/ios#setup."
+            "Tapped See Docs. cmux presented its native SFSafariViewController sheet for https://cmux.com/docs/ios#prerequisites."
         )
     }
 }

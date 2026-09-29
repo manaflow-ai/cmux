@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
 
@@ -50,7 +51,7 @@ final class DevicesPanelViewModel {
         consumePendingReveal()
     }
 
-    /// Settings › Computers "Open": expand and select the device's row.
+    /// Settings › Devices "Open": expand and select the device's row.
     func consumePendingReveal() {
         guard let instance = registry?.takePendingReveal(windowID: windowID) else { return }
         revealRequest = .machine(.device(instance))

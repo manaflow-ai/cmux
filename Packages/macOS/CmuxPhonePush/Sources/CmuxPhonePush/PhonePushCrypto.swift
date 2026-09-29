@@ -314,24 +314,21 @@ public struct PhonePushPeerKeyStore {
     private static let registryKey = prefix + "registry"
     private static let maximumEntries = 128
     private static let lock = NSLock()
-    private let defaults: UserDefaults
+    private let storage: any PhonePushSharedStateStorage
 
-    public init(defaults: UserDefaults? = nil) {
-        #if os(iOS)
-        self.defaults = defaults ?? UserDefaults(suiteName: PhonePushActiveAccountStore.appGroupIdentifier) ?? .standard
-        #else
-        self.defaults = defaults ?? .standard
-        #endif
+    public init(storage: (any PhonePushSharedStateStorage)? = nil) {
+        self.storage = storage ?? Bundle.main.phonePushSharedStateStorage
     }
 
     public func pin(_ descriptor: PhonePushPeerDescriptor, for tuple: PhonePushDeviceTuple) {
         guard !descriptor.keyID.isEmpty else { return }
         Self.lock.withLock {
             let storageKey = key(for: tuple)
-            defaults.set(try? JSONEncoder().encode(descriptor), forKey: storageKey)
-            var orderedKeys = defaults.stringArray(forKey: Self.registryKey) ?? []
-            let discoveredKeys = defaults.dictionaryRepresentation().keys.filter {
-                $0.hasPrefix(Self.prefix) && $0 != Self.registryKey
+            storage.setData(try? JSONEncoder().encode(descriptor), forKey: storageKey)
+            var orderedKeys = storage.data(forKey: Self.registryKey)
+                .flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+            let discoveredKeys = storage.keys(withPrefix: Self.prefix).filter {
+                $0 != Self.registryKey
             }
             for discoveredKey in discoveredKeys where !orderedKeys.contains(discoveredKey) {
                 orderedKeys.append(discoveredKey)
@@ -340,9 +337,9 @@ public struct PhonePushPeerKeyStore {
             orderedKeys.append(storageKey)
             while orderedKeys.count > Self.maximumEntries {
                 let staleKey = orderedKeys.removeFirst()
-                defaults.removeObject(forKey: staleKey)
+                storage.setData(nil, forKey: staleKey)
             }
-            defaults.set(orderedKeys, forKey: Self.registryKey)
+            storage.setData(try? JSONEncoder().encode(orderedKeys), forKey: Self.registryKey)
         }
     }
 
@@ -352,7 +349,7 @@ public struct PhonePushPeerKeyStore {
 
     public func pinnedDescriptor(for tuple: PhonePushDeviceTuple) -> PhonePushPeerDescriptor? {
         Self.lock.withLock {
-            guard let data = defaults.data(forKey: key(for: tuple)) else { return nil }
+            guard let data = storage.data(forKey: key(for: tuple)) else { return nil }
             return try? JSONDecoder().decode(PhonePushPeerDescriptor.self, from: data)
         }
     }
@@ -396,19 +393,18 @@ public struct PhonePushPeerKeyStore {
 }
 
 public struct PhonePushActiveAccountStore {
-    public static let appGroupIdentifier = "group.dev.cmux.ios"
     private static let accountKeyPrefix = "cmux.activeAccountID."
     private static let lock = NSLock()
 
     private let bundle: Bundle
-    private let defaults: UserDefaults?
+    private let storage: any PhonePushSharedStateStorage
 
     public init(
         bundle: Bundle = .main,
-        defaults: UserDefaults? = UserDefaults(suiteName: PhonePushActiveAccountStore.appGroupIdentifier)
+        storage: (any PhonePushSharedStateStorage)? = nil
     ) {
         self.bundle = bundle
-        self.defaults = defaults
+        self.storage = storage ?? bundle.phonePushSharedStateStorage
     }
 
     private var hostBundleIdentifier: String? {
@@ -426,21 +422,21 @@ public struct PhonePushActiveAccountStore {
     public func current() -> String? {
         Self.lock.withLock {
             guard let key = accountKey(bundleID: hostBundleIdentifier) else { return nil }
-            return defaults?.string(forKey: key)
+            return storage.data(forKey: key).map { String(decoding: $0, as: UTF8.self) }
         }
     }
 
     public func set(_ accountID: String) {
         Self.lock.withLock {
             guard let key = accountKey(bundleID: hostBundleIdentifier) else { return }
-            defaults?.set(accountID, forKey: key)
+            storage.setData(Data(accountID.utf8), forKey: key)
         }
     }
 
     public func clear() {
         Self.lock.withLock {
             guard let key = accountKey(bundleID: hostBundleIdentifier) else { return }
-            defaults?.removeObject(forKey: key)
+            storage.setData(nil, forKey: key)
         }
     }
 }

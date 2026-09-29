@@ -1010,14 +1010,22 @@ func pollUntil(
     return await condition()
 }
 
+/// Waits until the router served `expectedCount` replay responses AND the
+/// store applied them. The router counts a response when it writes it, before
+/// the client handles it; live output delivered in that gap lands behind the
+/// still-armed replay barrier and is dropped, which made byte-gap and
+/// staleness tests fail intermittently on loaded runners.
 @MainActor
 func waitForReplayResponsesServed(
     _ expectedCount: Int,
+    store: MobileShellComposite,
     router: LivenessHostRouter,
     _ message: String
 ) async throws {
     let settled = try await pollUntil {
-        await router.replayResponsesServed() >= expectedCount
+        guard await router.replayResponsesServed() >= expectedCount else { return false }
+        return store.terminalReplaySurfaceIDsInFlight.isEmpty
+            && store.terminalReplayBarrierTokensBySurfaceID.isEmpty
     }
     #expect(settled, "\(message)")
 }

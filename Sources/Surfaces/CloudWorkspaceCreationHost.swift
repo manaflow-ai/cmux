@@ -1,5 +1,7 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import Foundation
 

@@ -61,6 +61,8 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: catalog)
         let keys = [
             catalog.app.warnBeforeClosingTab,
+            catalog.app.warnBeforeClosingWorkspace,
+            catalog.app.warnBeforeClosingWindow,
             catalog.app.hideTabCloseButton,
             catalog.app.renameSelectsExistingName,
         ]
@@ -89,6 +91,7 @@ struct SettingsSearchIndexTests {
             if case .section = $0.kind { return true } else { return false }
         }.count
         #expect(sectionCount == SettingsSectionID.allCases.count)
+        #expect(result.contains { $0.id == "section:computers" })
     }
 
     @Test func tokenizedQueryFiltersBothSectionsAndSettings() {
@@ -96,6 +99,31 @@ struct SettingsSearchIndexTests {
         let result = index.match("automation")
         // At minimum the Automation section itself should match.
         #expect(result.contains(where: { $0.title == "Automation" }))
+    }
+
+    /// Every name people use for the Cloud sidebar's My Devices feature ranks
+    /// a Devices result first, anchored on the Devices section (#14771).
+    @Test(arguments: ["computers", "Computers", "devices", "Devices", "my devices", "macs", "discovery", "discoverable"])
+    func devicesQueriesLandOnTheDevicesSection(query: String) throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let first = try #require(index.match(query).first)
+
+        switch first.kind {
+        case .section:
+            #expect(first.id == "section:computers")
+            #expect(first.anchorID == "section:computers")
+        case .setting(let parent):
+            #expect(parent == .computers, "\(query) ranked \(first.id) first")
+        }
+    }
+
+    @Test(arguments: ["mac", "tailscale", "remote"])
+    func devicesSectionAliasesPreserveSearchRanking(query: String) throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let result = try #require(index.match(query).first { $0.kind == .section })
+
+        #expect(result.id == "section:computers")
+        #expect(result.anchorID == "section:computers")
     }
 
     /// Typing an exact section name navigates to that section first.
@@ -113,6 +141,12 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let result = index.match("hotkey hint chips")
         #expect(result.contains { $0.id == "setting:keyboardShortcuts:modifier-hold-hints" })
+    }
+
+    @Test(arguments: ["local tmux", "session persistence", "keep local sessions alive", "reattach"])
+    func localTmuxQueriesFindSessionPersistenceRow(query: String) {
+        let result = SettingsSearchIndex(catalog: SettingCatalog()).match(query)
+        #expect(result.contains { $0.id == "setting:terminal:session-persistence" })
     }
 
     @Test(arguments: ["push", "notifications", "iphone"])
@@ -184,6 +218,27 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         #expect(try #require(index.match("Terminal Config").first).id == "setting:app:terminal-config")
         #expect(try #require(index.match("copy on select").first).id == "setting:terminal:copy-on-select")
+    }
+
+    /// The native Ghostty rows in Settings > Terminal are found by their
+    /// Ghostty config key as well as by plain words.
+    @Test(arguments: [
+        ("font-family", "setting:terminal:font-family"),
+        ("terminal font size", "setting:terminal:font-size"),
+        ("cursor-style", "setting:terminal:cursor-style"),
+        ("cursor blink", "setting:terminal:cursor-blink"),
+        ("window-padding-x", "setting:terminal:window-padding-x"),
+        ("window-padding-y", "setting:terminal:window-padding-y"),
+        ("background-opacity", "setting:terminal:background-opacity"),
+        ("transparency", "setting:terminal:background-opacity"),
+        ("background-blur", "setting:terminal:background-blur"),
+        ("macos-option-as-alt", "setting:terminal:option-as-alt"),
+        ("option as meta", "setting:terminal:option-as-alt"),
+        ("scrollback-limit", "setting:terminal:scrollback-limit"),
+    ])
+    func ghosttyOptionRowsAreSearchable(query: String, expectedID: String) {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        #expect(index.match(query).contains { $0.id == expectedID })
     }
 
     @Test func diacriticInsensitiveMatch() {

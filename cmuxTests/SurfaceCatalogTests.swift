@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import CmuxTerminal
 import Testing
@@ -310,7 +312,7 @@ struct SurfaceCatalogTests {
             SurfaceResourceGroup(title: "remote", placements: placements, remoteWorkspaceID: workspace.id),
             title: "remote", focus: false,
             host: .init(
-                create: { _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in },
+                create: { _, _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in },
                 optimistic: .init(
                     reserve: { _, _, _ in Issue.record("Device terminals cannot use Cloud VM reservations"); return nil },
                     attach: { _, _, _ in Issue.record("Device terminals must attach through their own provider") }
@@ -1082,6 +1084,39 @@ struct SurfaceCatalogTests {
         #expect(secondLaunch.projectionRecords(forWorkspace: workspace) == [record])
     }
 
+    @Test("A disconnected Mac keeps the left-sidebar computer provenance until the projection is removed")
+    func disconnectedMacKeepsSidebarComputerBadge() throws {
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "disconnect-badge"))
+        let provider = FakeProvider(machine: machine)
+        let workspace = live.add()
+        defer { live.tearDown() }
+        let workspaceID = workspace.id
+        let panelID = try #require(workspace.focusedPanelId)
+        let catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(
+            environment: CloudWorkspaceRenameEnvironment(
+                workspace: { $0 == workspace.id ? workspace : nil }, workspaces: { [workspace] }
+            )
+        ))
+        catalog.register(provider)
+        let resource = terminal(machine, "term-disconnect")
+        catalog.replaceResources([resource], on: machine, info: provider.info, from: provider)
+        catalog.record(SurfaceProjection(resource: resource.id, workspaceID: workspaceID, panelID: panelID,
+            remoteWorkspaceID: "remote", remoteTabID: "term-disconnect"))
+        catalog.updateCloudDirectoryMetadata(localWorkspaceID: workspaceID)
+
+        // A transport loss removes live resources but leaves the projection and
+        // registered provider in place, so the row remains identified as a Mac.
+        catalog.replaceResources([], on: machine, info: provider.info, from: provider)
+        catalog.updateCloudDirectoryMetadata(localWorkspaceID: workspaceID)
+        let disconnected = CloudWorkspaceSidebarPresentation.deviceLabel(workspace: workspace)
+        #expect(disconnected?.contains(provider.info.name) == true)
+
+        // Access removal is different from a disconnect: unregistering drops the
+        // projection and clears the computer badge.
+        catalog.unregister(machine: machine)
+        #expect(CloudWorkspaceSidebarPresentation.deviceLabel(workspace: workspace) == nil)
+    }
+
     @Test("A restored Mac terminal never becomes a local process while discovery reconnects")
     func restoredMacTerminalHasNoLocalProcess() throws {
         let original = Workspace()
@@ -1149,7 +1184,7 @@ struct SurfaceCatalogTests {
         var closedStarters: [(UUID, UUID)] = []
         var lookups = 0
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { title in created.append(title); return (newWorkspace, starter) },
+            create: { title, _ in created.append(title); return (newWorkspace, starter) },
             paneLookup: { _, _ in lookups += 1; return "pane-\(lookups)" },
             closeStarter: { panel, workspace in closedStarters.append((panel, workspace)) }
         )
@@ -1179,7 +1214,7 @@ struct SurfaceCatalogTests {
         let starter = UUID(), newWorkspace = live.id()
         var closedStarters = 0
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { _ in (newWorkspace, starter) },
+            create: { _, _ in (newWorkspace, starter) },
             paneLookup: { _, _ in nil },
             closeStarter: { _, _ in closedStarters += 1 }
         )
@@ -1211,7 +1246,7 @@ struct SurfaceCatalogTests {
         )
         let workspace = live.id()
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { _ in (workspace, nil) },
+            create: { _, _ in (workspace, nil) },
             paneLookup: { _, panel in panel.uuidString },
             closeStarter: { _, _ in }
         )
@@ -1403,7 +1438,7 @@ extension SurfaceCatalogTests {
         var attachedBeforeAllReserved = false
         var lookups = 0
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { _ in (newWorkspace, starter) },
+            create: { _, _ in (newWorkspace, starter) },
             paneLookup: { _, _ in lookups += 1; return "pane-\(lookups)" },
             closeStarter: { _, _ in closedStarters += 1 },
             optimistic: SurfaceCatalog.OptimisticPaneHost(
@@ -1463,7 +1498,7 @@ extension SurfaceCatalogTests {
         let newWorkspace = live.id()
         var reservations = 0
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { _ in (newWorkspace, nil) },
+            create: { _, _ in (newWorkspace, nil) },
             paneLookup: { _, _ in nil },
             closeStarter: { _, _ in },
             optimistic: SurfaceCatalog.OptimisticPaneHost(

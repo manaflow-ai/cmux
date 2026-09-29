@@ -42,6 +42,7 @@ class AgentReportSource(str, Enum):
     HOOK = 'hook'
 
 class AgentSource(str, Enum):
+    PLUGIN = 'plugin'
     DETECTED = 'detected'
     SOCKET = 'socket'
     HOOK = 'hook'
@@ -734,6 +735,7 @@ class ProcessInfoResult:
     cwd: Union[str, None]
     pid: Union[int, None]
     foreground_cwd: Union[str, None, MissingType] = field(default=MISSING)
+    foreground_executable: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1013,6 +1015,13 @@ class SetCellPixelsResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SetCellPixelsResult'
     failures: List[CellPixelFailure]
     resizes: List[CellPixelResize]
+
+
+@dataclass(frozen=True)
+class SetTerminalIdlePolicyResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetTerminalIdlePolicyResult'
+    terminal_id: str
+    idle_close_seconds: Union[int, None]
 
 
 @dataclass(frozen=True)
@@ -2063,6 +2072,14 @@ class SetSplitRatioRequest:
 
 
 @dataclass(frozen=True)
+class SetTerminalIdlePolicyRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-terminal-idle-policy/request'
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    idle_close_seconds: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetViewportPaneWidthRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-viewport-pane-width/request'
     pane: Id
@@ -2192,6 +2209,7 @@ class AgentChangedEvent(EventBase):
     source: AgentSource
     state: AgentState
     updated_at_ms: int
+    agent: Union[str, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -2846,6 +2864,7 @@ __all__ = [
     'ServerStatsRegistryLock',
     'ServerStatsResult',
     'SetCellPixelsResult',
+    'SetTerminalIdlePolicyResult',
     'ShutdownDaemonResult',
     'SidebarPluginResult',
     'Size',
@@ -2968,6 +2987,7 @@ __all__ = [
     'SetDefaultColorsRequest',
     'SetRatioRequest',
     'SetSplitRatioRequest',
+    'SetTerminalIdlePolicyRequest',
     'SetViewportPaneWidthRequest',
     'SetWindowTitleRequest',
     'ShutdownDaemonRequest',

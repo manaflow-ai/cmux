@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileShellModel
+import CmuxMobileToast
 import Foundation
 import SwiftUI
 
@@ -17,6 +18,9 @@ import SwiftUI
 /// `simctl ui appearance` exercises both palettes of the same views.
 public struct MacSurfaceGalleryPreviewView: View {
     private let page: String
+    @State private var filesPresented = false
+    @State private var displaySettings = MobileDisplaySettings()
+    @State private var toasts = ToastCenter()
 
     /// Creates the gallery for the page named in the launch environment.
     public init() {
@@ -25,6 +29,8 @@ public struct MacSurfaceGalleryPreviewView: View {
 
     public var body: some View {
         switch page {
+        case "files":
+            filesPage
         case "file":
             PanelFileSurfaceView(
                 surface: Self.fileSurface,
@@ -58,6 +64,23 @@ public struct MacSurfaceGalleryPreviewView: View {
         }
     }
 
+    private var filesPage: some View {
+        Button("Open Files") { filesPresented = true }
+            .accessibilityIdentifier("FilesPreviewOpen")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(.systemBackground))
+            .preferredColorScheme(.dark)
+            .popover(isPresented: $filesPresented, arrowEdge: .bottom) {
+                TerminalArtifactFilesPreview()
+                .environment(displaySettings)
+                .environment(toasts)
+                .preferredColorScheme(.dark)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCompactAdaptation(.sheet)
+            }
+    }
+
     /// Hosts the production picker in a plain chrome bar; the menu itself is
     /// opened by tapping, exactly like the workspace toolbar entry point.
     private var pickerPage: some View {
@@ -73,7 +96,6 @@ public struct MacSurfaceGalleryPreviewView: View {
                             Self.fileSurface,
                             Self.markdownSurface,
                         ],
-                        snapshotRows: [],
                         selectedID: nil,
                         selectedMacSurfaceID: Self.todoSurface.id,
                         canCreateWorkspace: true,

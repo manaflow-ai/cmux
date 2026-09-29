@@ -33,7 +33,7 @@ import {
 } from "../services/vms/images/sizes";
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
-import { argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
+import { argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -186,11 +186,17 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
         if (ready.code !== 0) throw new Error(`${name}: cmux-tui daemon never came back after the resize: ${ready.out.slice(-500)}`);
         const websocket = await sh(vm, cmuxTuiWebsocketSmokeCommand(), 300_000);
         if (websocket.code !== 0) throw new Error(`${name}: WebSocket smoke failed before snapshot: ${websocket.out.slice(-1000)}`);
-        // A resized clone runs a live daemon bound to its own instance id; park
-        // it so the derived snapshot, like the master, carries no identity.
+        // A resized clone runs a live daemon bound to its own instance id, and
+        // its first shell (if the resize kept it) is already bound. Recreate
+        // the warm template terminal, then park so the derived snapshot, like
+        // the master, carries no identity and one unbound template shell.
+        const template = await sh(vm, devboxPrepareTemplateTerminalCommand(), 120_000);
+        if (template.code !== 0) throw new Error(`${name}: could not prepare the template terminal: ${template.out.slice(-500)}`);
         const parked = await sh(vm, devboxParkDaemonCommand(), 120_000);
         if (parked.code !== 0) throw new Error(`${name}: could not park the cmux-tui daemon before the snapshot: ${parked.out.slice(-500)}`);
-        await sh(vm, "sync");
+        // Last guest step before the snapshot; see devboxSettleBeforeSnapshotCommand.
+        const settled = await sh(vm, devboxSettleBeforeSnapshotCommand(), 60_000);
+        if (settled.code !== 0) throw new Error(`${name}: pre-snapshot settle failed: ${settled.out.slice(-300)}`);
         const snap = await vm.snapshot({ displayName: `cmux devbox ${slug} (${size.cpu} vCPU · ${size.memoryMb} MiB · ${size.storageMb} MiB)` });
         if (!snap.snapshotId) throw new Error(`${name}: snapshot response carried no id`);
         imageId = snap.snapshotId;

@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Bonsplit
 import Testing
@@ -160,18 +162,18 @@ final class MachinesPanelModelTests: XCTestCase {
 
         // Availability follows the Cloud VM UI flag, independent of feed/dock.
         XCTAssertTrue(
-            RightSidebarMode.machines.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: true)
+            RightSidebarMode.machines.isAvailable(feedEnabled: false, machinesEnabled: true)
         )
         XCTAssertFalse(
-            RightSidebarMode.machines.isAvailable(feedEnabled: true, dockEnabled: true, machinesEnabled: false)
+            RightSidebarMode.machines.isAvailable(feedEnabled: true, machinesEnabled: false)
         )
         XCTAssertEqual(
-            RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: true),
-            [.files, .find, .sessions, .machines]
+            RightSidebarMode.availableModes(feedEnabled: false, machinesEnabled: true),
+            [.files, .find, .sessions, .dock, .machines]
         )
         XCTAssertEqual(
-            RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: false),
-            [.files, .find, .sessions]
+            RightSidebarMode.availableModes(feedEnabled: false, machinesEnabled: false),
+            [.files, .find, .sessions, .dock]
         )
     }
 
@@ -340,7 +342,7 @@ final class MachinesPanelModelTests: XCTestCase {
             now: now
         )
         XCTAssertEqual(single?.isSingleMachinePlan, true)
-        XCTAssertEqual(single?.countLabel, "1 of 1 machine")
+        XCTAssertEqual(single?.usage.countLabel, "1 of 1 machine")
         XCTAssertEqual(single?.freeAccessExpiresAt, serverExpiry)
         XCTAssertEqual(single?.freeAccessBanner, .expiresIn(countdown: "2d 1h"))
 
@@ -350,7 +352,7 @@ final class MachinesPanelModelTests: XCTestCase {
             now: now
         )
         XCTAssertEqual(plural?.isSingleMachinePlan, false)
-        XCTAssertEqual(plural?.countLabel, "2 of 5 machines")
+        XCTAssertEqual(plural?.usage.countLabel, "2 of 5 machines")
         XCTAssertEqual(plural?.freeAccessBanner, MachinePlanSnapshot.FreeAccessBanner.none)
     }
 

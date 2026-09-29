@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Shares device workspace creation between synchronous shortcut and menu actions.

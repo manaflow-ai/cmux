@@ -423,6 +423,7 @@ struct TerminalArtifactChipCountStateTests {
             failed,
             galleryRowTotal: nil,
             sessionTotal: nil,
+            scanSucceeded: false,
             currentSurfaceGeneration: 5,
             freshestLocalCount: 3
         ).outcome == .reported(.init(count: 3, surfaceGeneration: 5)))

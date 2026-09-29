@@ -133,8 +133,14 @@ Each client reports the cell grid available for every surface it displays with
 and terminal view receive explicit geometry authority through
 `set-client-sizing`. One terminal has at most one geometry owner. Other views
 crop, pan, or scale the canonical grid and never resize the PTY. Input does not
-claim geometry. Releasing or disconnecting the owner freezes the current grid;
-the server does not silently elect another owner.
+claim geometry. When the owner releases (`release-attached-view-size`,
+`set-client-sizing` disabled for itself, or detaching its report) or
+disconnects, geometry returns to the most recent owner that this owner
+displaced and that still reports a viewport for a view of the same terminal,
+and the grid resizes to that report. A client that disconnected or dropped its
+report is never re-elected. With no such owner the current grid freezes.
+`set-client-sizing` enabled without a client (use all sizes) always freezes the
+grid and forgets displaced owners.
 
 Browser surfaces retain the legacy smallest-reported-grid reducer because a
 browser surface still has one live tab. When a browser tab becomes hidden, the
@@ -221,7 +227,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view.
 
 Errors:
 
@@ -465,7 +471,7 @@ Example:
 | status | implemented |
 | since | protocol 12 additive extension; capability `machine-listening-tcp-v1` |
 
-Returns the host's listening TCP socket table. The daemon runs a fixed `ss -H -ltn` command, with fixed `netstat -ltn` compatibility when `ss` is absent. The request accepts no command text. A Cloud client uses this command through its authenticated private cmux-tui link. Routine port discovery does not call the web control plane or the VM provider.
+Returns the host's listening TCP socket table. The daemon runs a fixed `ss -H -ltnp` command, with fixed `netstat -ltnp` compatibility on Linux when `ss` is absent (`netstat -ltn` on other Unix platforms). On Linux it first attempts those fixed read-only commands with `sudo -n`, using existing guest permissions to identify root-owned services; it falls back to unprivileged commands when that permission is unavailable and never prompts. Process ownership, when visible to the daemon, lets clients distinguish application listeners from infrastructure services on dynamically assigned ports. Missing ownership does not imply that a listener is an infrastructure service. The request accepts no command text. A Cloud client uses this command through its authenticated private cmux-tui link. Routine port discovery does not call the web control plane or the VM provider.
 
 Params: none.
 
@@ -2703,6 +2709,46 @@ Result:
 object{outcome:"applied"|"superseded"}
 ```
 
+### set-terminal-idle-policy
+
+| Field | Value |
+| --- | --- |
+| name | `set-terminal-idle-policy` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `terminal-idle-close-v1` |
+
+Sets or clears the idle-close policy of one hosted terminal. The policy is
+stored durably with the terminal in the session registry, so it survives owner
+restarts. While a policy is set, the owner closes the terminal once it has had
+no attach stream (`attach-surface` or resource `terminal.attach`) on any of its
+views or its unplaced runtime for at least `idle_close_seconds`. The close uses
+the same path as `close-terminal`: the terminal is tombstoned, its host is
+terminated, and its placements are removed. The reaper evaluates policies every
+15 seconds, so a close can land up to that much later than the deadline.
+
+Unattached time is measured by the running owner. It restarts at every attach,
+including an attach and detach that both happen between two reaper ticks, and
+at owner start, so an owner restart can delay a close but never make it early.
+Terminals without a policy are never closed for idleness.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` or null | exactly one of `surface`/`terminal_id` | A PTY surface backed by a hosted terminal |
+| `terminal_id` | string or null | exactly one of `surface`/`terminal_id` | Host id (32 lowercase hex) or public `term_` id |
+| `idle_close_seconds` | integer or null | default null | 1 through 315360000 (ten years); null clears the policy (never close) |
+
+Errors: `terminal_not_found` for an unknown or closed terminal,
+`terminal_not_hosted` for a surface without a terminal host, and `bad request`
+for invalid bounds or when both or neither target is given.
+
+Result:
+
+```text
+object{terminal_id:string, idle_close_seconds:uint64|null}
+```
+
 ### focus-pane
 
 | Field | Value |
@@ -3739,7 +3785,7 @@ object{
   agents: array<object{
     surface: Id,
     state: "working"|"blocked"|"idle"|"done"|"unknown",
-    source: "detected"|"socket"|"hook",
+    source: "plugin"|"detected"|"socket"|"hook",
     session: string|null,
     updated_at_ms: uint64
   }>
@@ -3786,9 +3832,11 @@ to `session.events`. The server generates an internal mutation identity for
 this raw command.
 
 Each live terminal has at most one current agent projection. Hook reports have
-authority over socket reports. A socket report received after a hook retains
-the hook value while still advancing the resource revision and publishing that
-retained value. Restart restores the current projection. Closing the terminal
+authority over socket reports. A socket report that does not change the
+effective projection is a replay-equivalent no-op at the current revision and
+does not publish another event. A socket report received after an unchanged
+hook therefore retains the hook value without advancing the resource
+revision. Restart restores the current projection. Closing the terminal
 deletes it, so historical reports cannot recreate an agent. Browser surfaces,
 surfaces without durable terminal identity, and terminal-less default reports
 are rejected.
@@ -3799,7 +3847,7 @@ Params:
 | --- | --- | --- | --- |
 | `surface` | `IdRef` | required | Surface associated with the agent |
 | `state` | `string` | required | `"working"`, `"blocked"`, `"idle"`, `"done"`, or `"unknown"` |
-| `source` | `string` | required | `"socket"` or `"hook"` |
+| `source` | `string` | required | `"socket"` or `"hook"` for `report-agent`; list responses can also contain `"detected"` or `"plugin"` |
 | `session` | `string` | default null | Optional upstream agent session id |
 
 Result:

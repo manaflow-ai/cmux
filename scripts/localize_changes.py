@@ -28,8 +28,13 @@ SWIFT_CALL = re.compile(
     r'(?P<key>"(?:\\.|[^"\\])*")'
 
 )
-SWIFT_DEFAULT = re.compile(r'defaultValue\s*:\s*(?P<value>"(?:\\.|[^"\\])*")')
-SWIFT_COMMENT = re.compile(r'comment\s*:\s*(?P<comment>"(?:\\.|[^"\\])*")')
+MULTILINE = r'"""[\s\S]*?"""'
+SWIFT_DEFAULT = re.compile(
+    r'defaultValue\s*:\s*(?P<value>' + MULTILINE + r'|"(?:\\.|[^"\\])*")'
+)
+SWIFT_COMMENT = re.compile(
+    r'comment\s*:\s*(?P<comment>' + MULTILINE + r'|"(?:\\.|[^"\\])*")'
+)
 WEB_LOCALES = re.compile(r"export\s+const\s+locales\s*=\s*\[(?P<body>[\s\S]*?)\]\s*as\s+const")
 QUOTED = re.compile(r'"((?:\\.|[^"\\])*)"|\'((?:\\.|[^\'\\])*)\'')
 INTEGER_FORMAT = re.compile(r"%(?:\d+\$)?(?:hh|ll|[hlLqjzt])?[diouxX]")
@@ -107,14 +112,47 @@ def base_text(root: Path, base: str, path: str) -> str:
 
 
 def decode_swift_string(literal: str) -> str:
+    if literal.startswith('"""') and literal.endswith('"""') and len(literal) >= 6:
+        return decode_swift_multiline(literal)
     if not (literal.startswith('"') and literal.endswith('"')):
         raise ValueError("unsupported Swift string literal")
-    value = literal[1:-1]
+    return decode_swift_escapes(literal[1:-1])
+
+
+def decode_swift_multiline(literal: str) -> str:
+    """Decodes a Swift multi-line literal the way the compiler does.
+
+    Long help text is written as a `\"\"\"` literal, so the English source of a
+    CLI help key only reaches the catalog if this helper reads the same text the
+    binary prints: content starts after the opening line, ends before the
+    closing delimiter's line, and every line loses the closing delimiter's
+    indentation.
+    """
+    lines = literal[3:-3].split("\n")
+    if len(lines) < 2 or lines[0].strip() or lines[-1].strip():
+        raise ValueError("unsupported Swift string literal")
+    indent = lines[-1]
+    body: list[str] = []
+    for line in lines[1:-1]:
+        if line.startswith(indent):
+            body.append(line[len(indent):])
+        elif not line.strip():
+            body.append("")
+        else:
+            raise ValueError("unsupported Swift multi-line indentation in defaultValue")
+    return decode_swift_escapes("\n".join(body))
+
+
+def decode_swift_escapes(value: str) -> str:
     if "\\(" in value:
         raise ValueError("interpolated defaultValue requires manual catalog review")
     result: list[str] = []
     index = 0
-    escapes = {"n": "\n", "r": "\r", "t": "\t", '"': '"', "\\": "\\", "0": "\0"}
+    # A backslash before a newline is Swift's line continuation: prose wrapped
+    # to fit the source is one line in the binary, so it must be one line in the
+    # catalog too. Indentation is already stripped by the caller, which is the
+    # order the compiler uses. A single-line literal cannot reach this entry.
+    escapes = {"n": "\n", "r": "\r", "t": "\t", '"': '"', "\\": "\\", "0": "\0", "\n": ""}
     while index < len(value):
         if value[index] != "\\":
             result.append(value[index])
@@ -129,26 +167,37 @@ def decode_swift_string(literal: str) -> str:
 
 
 def swift_call_suffix(text: str, start: int) -> str:
-    """Read through the closing call parenthesis, respecting nested calls and strings."""
+    """Read through the closing call parenthesis, respecting nested calls and strings.
+
+    Multi-line literals are skipped whole: help text holds parentheses and
+    quotes of its own, and counting those as code would end the call early.
+    """
     depth = 1
-    quoted = escaped = False
-    for index in range(start, len(text)):
+    index = start
+    while index < len(text):
+        if text.startswith('"""', index):
+            closing = text.find('"""', index + 3)
+            index = len(text) if closing < 0 else closing + 3
+            continue
         char = text[index]
-        if quoted:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                quoted = False
-        elif char == '"':
-            quoted = True
-        elif char == "(":
+        if char == '"':
+            index += 1
+            while index < len(text):
+                if text[index] == "\\":
+                    index += 2
+                    continue
+                if text[index] == '"':
+                    index += 1
+                    break
+                index += 1
+            continue
+        if char == "(":
             depth += 1
         elif char == ")":
             depth -= 1
             if depth == 0:
                 return text[start:index]
+        index += 1
     return ""
 
 

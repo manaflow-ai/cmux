@@ -438,7 +438,7 @@ extension MobileShellComposite {
 
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
-        guard foregroundRefreshLifecycleState != .active else { return }
+        guard foregroundRefreshLifecycleState != .active else { return }; workspacePresenceAnnouncer?.setWorkspaceViewing(true)
         foregroundRefreshLifecycleState = .active
         foregroundRefreshIsActive = true
         foregroundResumeEpoch &+= 1
@@ -455,6 +455,11 @@ extension MobileShellComposite {
         // route to redial, so retain their same-client resubscribe fallback.
         if shouldResync, pairedMacStore == nil {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
+        } else if pairedMacStore == nil, let client = remoteClient,
+                  connectionState == .connected {
+            // A short background dwell preserves the event subscription, but
+            // may still miss a notification dismissal or a delayed push.
+            scheduleNotificationReconcile(client: client)
         }
         restartActiveMobileBrowserStreams()
         restartActiveMobileSimulatorStreams()
@@ -476,7 +481,7 @@ extension MobileShellComposite {
     /// must not call this: they do not suspend the process and canceling a
     /// useful recovery there makes wake latency depend on interruption churn.
     public func suspendForegroundRefresh() {
-        guard foregroundRefreshLifecycleState != .background else { return }
+        guard foregroundRefreshLifecycleState != .background else { return }; workspacePresenceAnnouncer?.setWorkspaceViewing(false)
         foregroundRefreshLifecycleState = .background
         foregroundRefreshIsActive = false
         if connectionRecoveryOwner.cancelProbing() {

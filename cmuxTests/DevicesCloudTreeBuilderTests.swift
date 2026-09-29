@@ -1,4 +1,6 @@
+import CmuxCloud
 import AppKit
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -326,6 +328,54 @@ struct DevicesCloudTreeBuilderTests {
             return
         }
         #expect(emptyState == state)
+    }
+
+    @Test("Discovering another Mac keeps this Mac's remaining opt-in control, and no empty controls row", arguments: [false, true])
+    func populatedDevicesRetainControls(incomingEnabled: Bool) throws {
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(studio, name: "Studio", online: true, linkState: .connected)],
+            resources: [], projections: []
+        )
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false,
+            source: .cloudWithDevicesSection,
+            devicesSection: .init(discoveryEnabled: true, incomingAccessEnabled: incomingEnabled)
+        )
+        let section = try #require(nodes.first { $0.id == CloudTreeNodeBuilder.devicesSectionNodeID })
+        #expect(section.children.contains { if case .device = $0.kind { true } else { false } })
+        let controls = section.children.first { if case .devicesEmpty = $0.kind { true } else { false } }
+        guard !incomingEnabled else {
+            // Both opt-ins are on and a Mac is listed: the row would be blank.
+            #expect(controls == nil)
+            return
+        }
+        guard case .devicesEmpty(let state) = try #require(controls).kind else { return }
+        #expect(state.count == 1)
+        #expect(!state.incomingAccessEnabled)
+    }
+
+    @MainActor
+    @Test("Device controls span the row", arguments: [220.0, 380.0])
+    func deviceControlsFillRow(width: Double) throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.window.setContentSize(NSSize(width: width, height: 620))
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: .empty, localWorkspaces: [], includeLocalMachine: false,
+            source: .cloudWithDevicesSection,
+            devicesSection: .init(discoveryEnabled: false, incomingAccessEnabled: false)
+        )
+        fixture.coordinator.apply(nodes: nodes)
+        let outline = try #require(fixture.coordinator.outlineView)
+        outline.expandItem(nil, expandChildren: true)
+        fixture.container.layoutSubtreeIfNeeded()
+        let section = try #require(nodes.first { $0.id == CloudTreeNodeBuilder.devicesSectionNodeID })
+        let controls = try #require(section.children.first)
+        let row = outline.row(forItem: controls)
+        let cellFrame = outline.frameOfCell(atColumn: 0, row: row)
+        #expect(cellFrame.width > 0)
+        #expect(cellFrame.minX == outline.rect(ofRow: row).minX)
+        #expect(cellFrame.maxX == outline.rect(ofRow: row).maxX)
     }
 
     @Test("An empty My Devices section remains visible beneath the Cloud Machines section")

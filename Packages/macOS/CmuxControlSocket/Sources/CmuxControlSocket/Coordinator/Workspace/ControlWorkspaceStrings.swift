@@ -17,10 +17,19 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
     public let reorderManyMissingOrder: String
     /// `socket.workspace.reorderMany.duplicateWorkspace`.
     public let reorderManyDuplicateWorkspace: String
-    /// `socket.workspace.reorderMany.workspaceNotFound`.
-    public let reorderManyWorkspaceNotFound: String
-    /// `socket.workspace.reorderMany.invalidWorkspace`.
-    public let reorderManyInvalidWorkspace: String
+    /// `socket.workspace.reorderMany.workspaceNotFound` — shared by
+    /// `workspace.reorder`, which reports the same failure for the same reason.
+    public let workspaceNotFound: String
+    /// `socket.workspace.reorderMany.invalidWorkspace` — shared by
+    /// `workspace.reorder`, so a value neither method can read reads the same
+    /// either way.
+    public let invalidWorkspaceRef: String
+    /// `socket.workspace.reorder.indexNotAnInteger`.
+    public let reorderIndexNotAnInteger: String
+    /// `socket.workspace.reorder.missingWorkspaceID`.
+    public let reorderMissingWorkspaceID: String
+    /// `socket.workspace.reorder.targetRequired`.
+    public let reorderTargetRequired: String
     /// `socket.workspace.reorderMany.tabManagerUnavailable`.
     public let reorderManyTabManagerUnavailable: String
     /// `socket.workspace.list.tabManagerUnavailable`.
@@ -35,8 +44,11 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
     ///   - closeFailed: The `workspace.close` local-teardown failure message.
     ///   - reorderManyMissingOrder: The missing-order message.
     ///   - reorderManyDuplicateWorkspace: The duplicate-workspace message.
-    ///   - reorderManyWorkspaceNotFound: The workspace-not-found message.
-    ///   - reorderManyInvalidWorkspace: The invalid-workspace message.
+    ///   - workspaceNotFound: The workspace-not-found message.
+    ///   - invalidWorkspaceRef: The invalid-workspace message.
+    ///   - reorderIndexNotAnInteger: The unreadable-`index` message.
+    ///   - reorderMissingWorkspaceID: The missing-subject message.
+    ///   - reorderTargetRequired: The wrong-target-count message.
     ///   - reorderManyTabManagerUnavailable: The TabManager-unavailable message.
     ///   - tabManagerUnavailable: The localized workspace-list unavailable message.
     ///   - relayOwnerUnavailable: The stale relay-owner message.
@@ -45,8 +57,11 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
         closeFailed: String,
         reorderManyMissingOrder: String,
         reorderManyDuplicateWorkspace: String,
-        reorderManyWorkspaceNotFound: String,
-        reorderManyInvalidWorkspace: String,
+        workspaceNotFound: String,
+        invalidWorkspaceRef: String,
+        reorderIndexNotAnInteger: String,
+        reorderMissingWorkspaceID: String,
+        reorderTargetRequired: String,
         reorderManyTabManagerUnavailable: String,
         tabManagerUnavailable: String = "TabManager not available",
         relayOwnerUnavailable: String
@@ -55,8 +70,11 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
         self.closeFailed = closeFailed
         self.reorderManyMissingOrder = reorderManyMissingOrder
         self.reorderManyDuplicateWorkspace = reorderManyDuplicateWorkspace
-        self.reorderManyWorkspaceNotFound = reorderManyWorkspaceNotFound
-        self.reorderManyInvalidWorkspace = reorderManyInvalidWorkspace
+        self.workspaceNotFound = workspaceNotFound
+        self.invalidWorkspaceRef = invalidWorkspaceRef
+        self.reorderIndexNotAnInteger = reorderIndexNotAnInteger
+        self.reorderMissingWorkspaceID = reorderMissingWorkspaceID
+        self.reorderTargetRequired = reorderTargetRequired
         self.reorderManyTabManagerUnavailable = reorderManyTabManagerUnavailable
         self.tabManagerUnavailable = tabManagerUnavailable
         self.relayOwnerUnavailable = relayOwnerUnavailable

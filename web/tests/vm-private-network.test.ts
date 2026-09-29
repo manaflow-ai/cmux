@@ -4,7 +4,9 @@ import * as Layer from "effect/Layer";
 import {
   enrollVmTunnel,
   isWireGuardPublicKey,
+  networkSlugForTeam,
   networkSlugForUser,
+  privateNetworkErrorDescription,
   readVmTunnel,
   resolveOwnerNetwork,
   revokeVmAccessGrant,
@@ -18,12 +20,15 @@ import {
   VmProviderOperationError,
   VmTunnelNotFoundError,
 } from "../services/vms/errors";
+import { ProviderError, ProviderTunnelNetworkOverlapError } from "../services/vms/drivers";
 import type {
   CreateProviderTunnelOptions,
   ProviderNetwork,
   ProviderTunnel,
+  ProviderTunnelAttachment,
 } from "../services/vms/drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
+import { listTeamMemberIdsWithTimeout, vmClientRoutesTeamNetworks } from "../services/vms/teamDirectory";
 import {
   VmRepository,
   type CloudVmAccessGrantRow,
@@ -73,6 +78,13 @@ function networkRow(overrides: Partial<CloudVmNetworkRow> = {}): CloudVmNetworkR
   };
 }
 
+const TEAM_NETWORK: ProviderNetwork = {
+  id: "vpc-team",
+  slug: networkSlugForTeam("team-1"),
+  cidr: "10.50.0.0/24",
+  cidrV6: "fd50::/64",
+};
+
 function tunnelRow(overrides: Partial<CloudVmTunnelRow> = {}): CloudVmTunnelRow {
   return {
     id: "00000000-0000-4000-8000-0000000000bb",
@@ -121,16 +133,23 @@ function accessGrantRow(overrides: Partial<CloudVmAccessGrantRow> = {}): CloudVm
 type GatewayCalls = {
   ensureNetwork: number;
   getNetwork: number;
+  getNetworkIds: string[];
   createTunnel: CreateProviderTunnelOptions[];
   rotateTunnelKey: string[];
   deleteTunnel: string[];
+  attachTunnelNetwork: string[];
+  detachTunnelNetwork: string[];
 };
 
 function testGateway(options: {
   calls?: GatewayCalls;
   getTunnel?: ProviderTunnel | null;
   network?: ProviderNetwork;
+  teamNetworks?: readonly ProviderNetwork[];
+  getNetworkFailure?: (networkIdOrSlug: string) => boolean;
   supports?: boolean;
+  attachTunnelNetwork?: (networkId: string) => Effect.Effect<ProviderTunnelAttachment, VmProviderOperationError>;
+  detachTunnelNetwork?: (networkId: string) => Effect.Effect<void, VmProviderOperationError>;
 } = {}): VmProviderGatewayShape {
   const calls = options.calls;
   const network = options.network ?? NETWORK;
@@ -147,11 +166,17 @@ function testGateway(options: {
         if (calls) calls.ensureNetwork += 1;
         return network;
       }),
-    getNetwork: (_provider, networkId) =>
-      Effect.sync(() => {
-        if (calls) calls.getNetwork += 1;
-        return network.id === networkId ? network : null;
-      }),
+    getNetwork: (_provider, networkIdOrSlug) => {
+      if (calls) {
+        calls.getNetwork += 1;
+        calls.getNetworkIds.push(networkIdOrSlug);
+      }
+      if (options.getNetworkFailure?.(networkIdOrSlug)) {
+        return Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "getNetwork", cause: new Error("unavailable") }));
+      }
+      if (network.id === networkIdOrSlug) return Effect.succeed(network);
+      return Effect.succeed(options.teamNetworks?.find((team) => team.id === networkIdOrSlug || team.slug === networkIdOrSlug) ?? null);
+    },
     deleteNetwork: () => Effect.void,
     createTunnel: (_provider, createOptions) =>
       Effect.sync(() => {
@@ -172,6 +197,14 @@ function testGateway(options: {
       Effect.sync(() => {
         calls?.deleteTunnel.push(tunnelId);
       }),
+    attachTunnelNetwork: (_provider, _tunnelId, networkId) => {
+      calls?.attachTunnelNetwork.push(networkId);
+      return options.attachTunnelNetwork?.(networkId) ?? Effect.succeed({ networkId, addressV4: "10.50.0.2", addressV6: "fd50::2" });
+    },
+    detachTunnelNetwork: (_provider, _tunnelId, networkId) => {
+      calls?.detachTunnelNetwork.push(networkId);
+      return options.detachTunnelNetwork?.(networkId) ?? Effect.void;
+    },
   };
 }
 
@@ -265,7 +298,7 @@ function layerFor(repo: VmRepositoryShape, gateway: VmProviderGatewayShape) {
 }
 
 function newGatewayCalls(): GatewayCalls {
-  return { ensureNetwork: 0, getNetwork: 0, createTunnel: [], rotateTunnelKey: [], deleteTunnel: [] };
+  return { ensureNetwork: 0, getNetwork: 0, getNetworkIds: [], createTunnel: [], rotateTunnelKey: [], deleteTunnel: [], attachTunnelNetwork: [], detachTunnelNetwork: [] };
 }
 
 function newRepoCalls(): RepoCalls {
@@ -308,10 +341,26 @@ describe("account slugs", () => {
     expect(device).toBe(tunnelSlugForDevice("user-abcdef", "device-1"));
     expect(device).not.toBe(tunnelSlugForDevice("user-abcdef", "device-2"));
     expect(device).not.toContain("user-abcdef");
+    expect(networkSlugForTeam("same-id")).not.toBe(networkSlugForUser("same-id"));
+    expect(vmClientRoutesTeamNetworks(new Request("https://cmux.test", {
+      headers: { "x-cmux-private-network-routing": "other, team-networks" },
+    }))).toBe(true);
   });
 });
 
 describe("resolveOwnerNetwork", () => {
+  test("directory timeout aborts the lookup signal", async () => {
+    let signal: AbortSignal | undefined;
+    const result = await Effect.runPromise(listTeamMemberIdsWithTimeout({
+      listMemberIds: async (_teamId, options) => {
+        signal = options?.signal;
+        return new Promise<readonly string[]>(() => {});
+      },
+    }, "team-1", 1));
+    expect(result).toEqual({ error: "timeout" });
+    expect(signal?.aborted).toBe(true);
+  });
+
   test("provisions on first use and records the provider network", async () => {
     const gatewayCalls = newGatewayCalls();
     const repoCalls = newRepoCalls();
@@ -358,6 +407,127 @@ describe("resolveOwnerNetwork", () => {
     expect(network?.providerNetworkId).toBe("vpc-deleted-1");
     expect(gatewayCalls.ensureNetwork).toBe(0);
     expect(repoCalls.upserts).toBe(0);
+  });
+
+  test("directory errors and timeouts fall back to the personal network", async () => {
+    const rejected = await Effect.runPromise(resolveOwnerNetwork({ userId: "user-1", provider: "freestyle", billingTeamId: "team-1", teamDirectory: { listMemberIds: async () => { throw new Error("directory"); } } }).pipe(Effect.provide(layerFor(testRepo(), testGateway()))));
+    expect(rejected.scope).toBe("user");
+    expect(rejected.memberIngress).toBe(false);
+    const timedOut = await Effect.runPromise(resolveOwnerNetwork({ userId: "user-1", provider: "freestyle", billingTeamId: "team-1", directoryTimeoutMs: 1, teamDirectory: { listMemberIds: async () => new Promise<readonly string[]>(() => {}) } }).pipe(Effect.provide(layerFor(testRepo(), testGateway()))));
+    expect(timedOut.scope).toBe("user");
+    expect(timedOut.memberIngress).toBe(false);
+  });
+
+  test("nested provider failures have readable private-network diagnostics", () => {
+    const upstream = Object.assign(new Error("upstream unavailable"), { status: 503, code: "UPSTREAM" });
+    const providerError = new ProviderError("freestyle", "attachTunnelNetwork", upstream);
+    const description = privateNetworkErrorDescription(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "attachTunnelNetwork",
+      cause: providerError,
+    }));
+    expect(description).toContain("[freestyle] attachTunnelNetwork");
+    expect(description).toContain("status=503 code=UPSTREAM upstream unavailable");
+  });
+
+  test("an existing team network is found by slug and reused by a current member of a one-member team", async () => {
+    let directoryCalls = 0;
+    const calls = newGatewayCalls();
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      teamDirectory: { listMemberIds: async () => { directoryCalls += 1; return ["user-1"]; } },
+    }).pipe(Effect.provide(layerFor(testRepo({ network: networkRow() }), testGateway({ calls, teamNetworks: [TEAM_NETWORK] })))));
+    expect(result).toMatchObject({ scope: "team", memberIngress: true, providerNetworkId: TEAM_NETWORK.id, cidr: TEAM_NETWORK.cidr, cidrV6: TEAM_NETWORK.cidrV6 });
+    expect(directoryCalls).toBe(1);
+    expect(calls.getNetworkIds).toEqual([networkSlugForTeam("team-1")]);
+    expect(calls.ensureNetwork).toBe(0);
+  });
+
+  test("a removed member does not reuse an existing team network and the provider is not asked", async () => {
+    const calls = newGatewayCalls();
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      teamDirectory: { listMemberIds: async () => ["user-2", "user-3"] },
+    }).pipe(Effect.provide(layerFor(testRepo({ network: networkRow() }), testGateway({ calls, teamNetworks: [TEAM_NETWORK] })))));
+    expect(result.scope).toBe("user");
+    expect(result.memberIngress).toBe(false);
+    expect(result.providerNetworkId).toBe(NETWORK.id);
+    expect(calls.getNetwork).toBe(0);
+  });
+
+  test("directory failure with an existing team network falls back to the personal network", async () => {
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      teamDirectory: { listMemberIds: async () => { throw new Error("directory"); } },
+    }).pipe(Effect.provide(layerFor(testRepo({ network: networkRow() }), testGateway({ teamNetworks: [TEAM_NETWORK] })))));
+    expect(result.scope).toBe("user");
+    expect(result.memberIngress).toBe(false);
+    expect(result.providerNetworkId).toBe(NETWORK.id);
+  });
+
+  test("a one-member team with no team network stays on the personal network", async () => {
+    const calls = newGatewayCalls();
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      teamDirectory: { listMemberIds: async () => ["user-1"] },
+    }).pipe(Effect.provide(layerFor(testRepo({ network: networkRow() }), testGateway({ calls })))));
+    expect(result).toMatchObject({ scope: "user", memberIngress: false, providerNetworkId: NETWORK.id });
+    expect(calls.ensureNetwork).toBe(0);
+  });
+
+  test("a provider lookup failure fails the placement instead of creating a second team network", async () => {
+    const calls = newGatewayCalls();
+    const error = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      teamDirectory: { listMemberIds: async () => ["user-1", "user-2"] },
+    }).pipe(
+      Effect.provide(layerFor(testRepo({ network: networkRow() }), testGateway({ calls, getNetworkFailure: (slug) => slug === networkSlugForTeam("team-1") }))),
+      Effect.flip,
+    ));
+    expect(error).toBeInstanceOf(VmProviderOperationError);
+    expect(calls.ensureNetwork).toBe(0);
+  });
+
+  test("creates a new isolated team network for a capable multi-member team", async () => {
+    let ensureOptions: { slug?: string; displayName?: string; membersRule?: boolean } | undefined;
+    let upserts = 0;
+    const repo = {
+      ...testRepo({ network: networkRow() }),
+      upsertNetwork: () => Effect.sync(() => {
+        upserts += 1;
+        return networkRow();
+      }),
+    } as VmRepositoryShape;
+    const gateway = {
+      ...testGateway(),
+      ensureNetwork: (_provider: string, options: { slug: string; displayName?: string; membersRule?: boolean }) => {
+        ensureOptions = options;
+        return Effect.succeed({ id: "vpc-created-team", slug: options.slug, cidr: TEAM_NETWORK.cidr, cidrV6: TEAM_NETWORK.cidrV6 });
+      },
+    } as VmProviderGatewayShape;
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      teamDirectory: { listMemberIds: async () => ["user-1", "user-2"] },
+    }).pipe(Effect.provide(layerFor(repo, gateway))));
+    expect(ensureOptions).toEqual({
+      slug: networkSlugForTeam("team-1"),
+      displayName: networkSlugForTeam("team-1"),
+      membersRule: false,
+    });
+    expect(upserts).toBe(0);
+    expect(result).toMatchObject({ scope: "team", memberIngress: true, providerNetworkId: "vpc-created-team", slug: networkSlugForTeam("team-1") });
   });
 
   test("fails closed when the provider has no private networking", async () => {
@@ -644,6 +814,128 @@ describe("enrollVmTunnel", () => {
       ),
     );
     expect(error).toBeInstanceOf(VmPrivateNetworkUnavailableError);
+  });
+});
+
+describe("team tunnel reconciliation", () => {
+  const TEAM_2: ProviderNetwork = { id: "vpc-team-2", slug: networkSlugForTeam("team-2"), cidr: "10.60.0.0/24", cidrV6: "fd60::/64" };
+
+  function enroll(teamIds: readonly string[] | undefined, repo: VmRepositoryShape, gateway: VmProviderGatewayShape) {
+    return Effect.runPromise(enrollVmTunnel({
+      userId: "user-1",
+      provider: "freestyle",
+      deviceId: "mac-stable-1",
+      deviceFingerprint: "device-1",
+      tunnelPurpose: "browser",
+      clientPublicKey: CLIENT_KEY,
+      ...(teamIds ? { teamIds } : {}),
+    }).pipe(Effect.provide(layerFor(repo, gateway))));
+  }
+
+  test("a new tunnel is attached to the caller's team network and lists it after the home network", async () => {
+    const calls = newGatewayCalls();
+    const result = await enroll(["team-1"], testRepo({ network: networkRow() }), testGateway({ calls, teamNetworks: [TEAM_NETWORK] }));
+    expect(calls.createTunnel).toHaveLength(1);
+    expect(calls.attachTunnelNetwork).toEqual([TEAM_NETWORK.id]);
+    expect(calls.detachTunnelNetwork).toEqual([]);
+    expect(result.network.id).toBe(NETWORK.id);
+    expect(result.networks).toEqual([
+      { id: NETWORK.id, cidr: NETWORK.cidr, cidrV6: NETWORK.cidrV6, scope: "user" },
+      { id: TEAM_NETWORK.id, cidr: TEAM_NETWORK.cidr, cidrV6: TEAM_NETWORK.cidrV6, scope: "team" },
+    ]);
+  });
+
+  test("re-enrollment reuses the tunnel and only attaches the missing team network", async () => {
+    const calls = newGatewayCalls();
+    const live = providerTunnel({ attachments: [{ networkId: TEAM_NETWORK.id, addressV4: "10.50.0.2", addressV6: "fd50::2" }] });
+    const result = await enroll(["team-1", "team-2"], testRepo({ network: networkRow(), tunnel: tunnelRow() }), testGateway({ calls, getTunnel: live, teamNetworks: [TEAM_NETWORK, TEAM_2] }));
+    expect(calls.createTunnel).toHaveLength(0);
+    expect(calls.rotateTunnelKey).toHaveLength(0);
+    expect(calls.attachTunnelNetwork).toEqual([TEAM_2.id]);
+    expect(result.networks.map((network) => network.id)).toEqual([NETWORK.id, TEAM_NETWORK.id, TEAM_2.id]);
+  });
+
+  test("the caller's personal team is not looked up as a team network", async () => {
+    const calls = newGatewayCalls();
+    await enroll(["user-1", "team-1"], testRepo({ network: networkRow(), tunnel: tunnelRow() }), testGateway({ calls, teamNetworks: [TEAM_NETWORK] }));
+    expect(calls.getNetworkIds).toEqual([networkSlugForTeam("team-1")]);
+  });
+
+  test("a team without a provider network is skipped", async () => {
+    const calls = newGatewayCalls();
+    const result = await enroll(["team-1"], testRepo({ network: networkRow(), tunnel: tunnelRow() }), testGateway({ calls }));
+    expect(calls.attachTunnelNetwork).toEqual([]);
+    expect(result.networks).toHaveLength(1);
+  });
+
+  test("attachments to networks of teams the caller left are detached and the home network is kept", async () => {
+    const calls = newGatewayCalls();
+    const live = providerTunnel({ attachments: [
+      { networkId: NETWORK.id, addressV4: "10.40.0.2", addressV6: "fd00:40::2" },
+      { networkId: TEAM_NETWORK.id, addressV4: "10.50.0.2", addressV6: "fd50::2" },
+      { networkId: TEAM_2.id, addressV4: "10.60.0.2", addressV6: "fd60::2" },
+    ] });
+    const result = await enroll(["team-1"], testRepo({ network: networkRow(), tunnel: tunnelRow() }), testGateway({ calls, getTunnel: live, teamNetworks: [TEAM_NETWORK, TEAM_2] }));
+    expect(calls.attachTunnelNetwork).toEqual([]);
+    expect(calls.detachTunnelNetwork).toEqual([TEAM_2.id]);
+    expect(result.networks.map((network) => network.id)).toEqual([NETWORK.id, TEAM_NETWORK.id]);
+  });
+
+  test("a team network lookup failure attaches the rest but keeps every existing attachment", async () => {
+    const calls = newGatewayCalls();
+    const live = providerTunnel({ attachments: [{ networkId: "vpc-team-gone", addressV4: "10.70.0.2", addressV6: null }] });
+    const result = await enroll(["team-1", "team-2"], testRepo({ network: networkRow(), tunnel: tunnelRow() }), testGateway({
+      calls,
+      getTunnel: live,
+      teamNetworks: [TEAM_NETWORK, TEAM_2],
+      getNetworkFailure: (slug) => slug === TEAM_NETWORK.slug,
+    }));
+    expect(calls.attachTunnelNetwork).toEqual([TEAM_2.id]);
+    expect(calls.detachTunnelNetwork).toEqual([]);
+    expect(result.networks.map((network) => network.id)).toEqual([NETWORK.id, TEAM_2.id]);
+  });
+
+  test("a failed stale detach does not fail enrollment", async () => {
+    const calls = newGatewayCalls();
+    const live = providerTunnel({ attachments: [{ networkId: TEAM_2.id, addressV4: "10.60.0.2", addressV6: null }] });
+    const result = await enroll([], testRepo({ network: networkRow(), tunnel: tunnelRow() }), testGateway({
+      calls,
+      getTunnel: live,
+      detachTunnelNetwork: () => Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "detachTunnelNetwork", cause: new Error("unavailable") })),
+    }));
+    expect(calls.detachTunnelNetwork).toEqual([TEAM_2.id]);
+    expect(result.networks).toHaveLength(1);
+  });
+
+  test("a request without team ids leaves attachments alone", async () => {
+    const calls = newGatewayCalls();
+    const live = providerTunnel({ attachments: [{ networkId: TEAM_NETWORK.id, addressV4: "10.50.0.2", addressV6: null }] });
+    const result = await enroll(undefined, testRepo({ network: networkRow(), tunnel: tunnelRow() }), testGateway({ calls, getTunnel: live, teamNetworks: [TEAM_NETWORK] }));
+    expect(calls.getNetwork).toBe(0);
+    expect(calls.detachTunnelNetwork).toEqual([]);
+    expect(result.networks).toHaveLength(1);
+  });
+
+  test("overlap and generic attach failures are skipped", async () => {
+    const overlap = new VmProviderOperationError({ provider: "freestyle", operation: "attachTunnelNetwork", cause: new ProviderTunnelNetworkOverlapError("overlap") });
+    const run = (error: VmProviderOperationError) => enroll(["team-1"], testRepo({ network: networkRow() }), testGateway({ teamNetworks: [TEAM_NETWORK], attachTunnelNetwork: () => Effect.fail(error) }));
+    const overlapResult = await run(overlap);
+    expect(overlapResult.networks).toHaveLength(1);
+    const genericResult = await run(new VmProviderOperationError({ provider: "freestyle", operation: "attachTunnelNetwork", cause: new Error("unavailable") }));
+    expect(genericResult.networks).toHaveLength(1);
+  });
+
+  test("read attaches the caller's team network", async () => {
+    const calls = newGatewayCalls();
+    const result = await Effect.runPromise(readVmTunnel({
+      userId: "user-1",
+      provider: "freestyle",
+      deviceFingerprint: "device-1",
+      tunnelPurpose: "browser",
+      teamIds: ["team-1"],
+    }).pipe(Effect.provide(layerFor(testRepo({ network: networkRow(), tunnel: tunnelRow() }), testGateway({ calls, teamNetworks: [TEAM_NETWORK] })))));
+    expect(calls.attachTunnelNetwork).toEqual([TEAM_NETWORK.id]);
+    expect(result.networks.map((network) => network.id)).toEqual([NETWORK.id, TEAM_NETWORK.id]);
   });
 });
 

@@ -1,8 +1,8 @@
 import CmuxCommandPalette
+import CmuxFoundation
 import Foundation
 import CmuxSettings
 import CmuxSettingsUI
-
 extension MenuBarOnlySettings {
     static let legacyCommandPaletteUsageKey = "commandPalette.commandUsage.v1"
     static let legacyCommandPaletteMenuBarOnlyCommandId = "palette.toggleSetting.menuBarOnly"
@@ -137,11 +137,11 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
 
 enum CommandPaletteSettingsToggleCommands {
     static let commandIdPrefix = "palette.toggleSetting."
-
+    /// Finds the setting-backed command registered under the supplied palette identifier.
     static func descriptor(commandId: String) -> CommandPaletteSettingToggleDescriptor? {
         descriptors.first { $0.commandId == commandId }
     }
-
+    /// Shared setting-backed palette commands, including the editor’s wrap preference.
     static let descriptors: [CommandPaletteSettingToggleDescriptor] = {
         let fileEditorSettings = FilePreviewEditorSettings(defaults: .standard)
         let app: @Sendable () -> String = { String(localized: "settings.section.app", defaultValue: "App") }
@@ -193,6 +193,22 @@ enum CommandPaletteSettingsToggleCommands {
                 keywords: ["app.workspaceInheritWorkingDirectory", "workspace", "working", "directory", "cwd", "inherit"],
                 defaultValue: SettingCatalog().app.workspaceInheritWorkingDirectory.defaultValue,
                 defaultsKey: SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "systemAccentColor",
+                settingsKey: "app.accentColor",
+                title: {
+                    String(localized: "settings.app.accentColor.systemToggle", defaultValue: "System Accent Color")
+                },
+                sectionTitle: app,
+                keywords: ["app.accentColor", "accent", "color", "system", "macOS", "highlight", "tint", "blue"],
+                isOn: { defaults in
+                    UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.accentColor) == .system
+                },
+                setOn: { newValue, defaults, _ in
+                    UserDefaultsSettingsClient(defaults: defaults)
+                        .set(newValue ? .system : .cmux, for: SettingCatalog().app.accentColor)
+                }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "keepWorkspaceOpenWhenClosingLastSurface",
@@ -290,8 +306,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["fileEditor.wordWrap", "file", "editor", "word", "wrap", "soft", "reflow", "lines", "preview"],
-                defaultValue: FilePreviewWordWrapSettings.defaultEnabled,
-                defaultsKey: FilePreviewWordWrapSettings.key
+                isOn: { FilePreviewWordWrapSettings(defaults: $0).isEnabled() },
+                setOn: { value, defaults, _ in FilePreviewWordWrapSettings(defaults: defaults).setEnabled(value) }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "fileEditorSyntaxHighlighting",
@@ -355,9 +371,18 @@ enum CommandPaletteSettingsToggleCommands {
                     String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification")
                 },
                 sectionTitle: app,
-                keywords: ["app.reorderOnNotification", "notification", "reorder", "workspace", "unread", "sort"],
-                defaultValue: SettingCatalog().app.reorderOnNotification.defaultValue,
-                defaultsKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey
+                keywords: ["app.reorderOnNotification", "notification", "reorder", "workspace", "unread", "sort", "agent", "activity"],
+                // A mode, not a Bool: on means any mode but off. Turning it on
+                // restores the notification mode; turning it off from either
+                // mode stores off.
+                isOn: { defaults in
+                    UserDefaultsSettingsClient(defaults: defaults)
+                        .value(for: SettingCatalog().app.reorderOnNotification).isEnabled
+                },
+                setOn: { isOn, defaults, _ in
+                    UserDefaultsSettingsClient(defaults: defaults)
+                        .set(isOn ? .notifications : .off, for: SettingCatalog().app.reorderOnNotification)
+                }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "dockBadge",
@@ -452,6 +477,12 @@ enum CommandPaletteSettingsToggleCommands {
                 ],
                 defaultValue: AppCatalogSection().warnBeforeClosingTabXButton.defaultValue,
                 defaultsKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                userFacing: SettingCatalog().app.warnBeforeClosingWorkspace
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                userFacing: SettingCatalog().app.warnBeforeClosingWindow
             ),
             CommandPaletteSettingToggleDescriptor(
                 userFacing: SettingCatalog().app.hideTabCloseButton
@@ -791,20 +822,6 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "rightSidebarDock",
-                settingsKey: "betaFeatures.dock",
-                title: {
-                    String(localized: "settings.betaFeatures.dock", defaultValue: "Dock")
-                },
-                sectionTitle: beta,
-                keywords: ["betaFeatures.dock", "dock", "right", "sidebar", "beta", "terminal", "controls"],
-                defaultValue: RightSidebarBetaFeatureSettings.defaultDockEnabled,
-                defaultsKey: RightSidebarBetaFeatureSettings.dockEnabledKey,
-                didSet: { _, _, notificationCenter in
-                    notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
-                }
-            ),
-            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "claudeCodeIntegration",
                 settingsKey: "automation.claudeCodeIntegration",
                 title: {
@@ -815,6 +832,7 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultValue: IntegrationsCatalogSection().claudeCodeHooksEnabled.defaultValue,
                 defaultsKey: IntegrationsCatalogSection().claudeCodeHooksEnabled.userDefaultsKey
             ),
+            CommandPaletteSettingToggleDescriptor(commandId: commandIdPrefix + "piIntegration", settingsKey: "automation.piIntegration", title: { String(localized: "settings.automation.pi", defaultValue: "Pi Integration") }, sectionTitle: automation, keywords: ["automation.piIntegration", "pi", "hooks", "agent", "integration"], defaultValue: IntegrationsCatalogSection().piHooksEnabled.defaultValue, defaultsKey: IntegrationsCatalogSection().piHooksEnabled.userDefaultsKey),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "suppressSubagentNotifications",
                 settingsKey: "automation.suppressSubagentNotifications",

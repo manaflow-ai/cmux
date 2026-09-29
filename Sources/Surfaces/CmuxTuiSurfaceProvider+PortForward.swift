@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
@@ -13,7 +15,7 @@ extension CmuxTuiSurfaceProvider {
                         if configured { browser.pendingCloudRestoreURL = nil }
                     }
                 case .unsupported(let message):
-                    browser.cloudAccess.showUnavailable(message)
+                    showPortUnavailable(message, resourceID: resource.id, browser: browser)
                 }
             }
         }
@@ -39,7 +41,7 @@ extension CmuxTuiSurfaceProvider {
             guard let url = URL(string: raw) else { throw ProviderError.localForwardURLUnavailable }
             configureBrowser(browser, url: url, resourceID: resource.id)
         case .unsupported(let message):
-            browser.cloudAccess.showUnavailable(message)
+            showPortUnavailable(message, resourceID: resource.id, browser: browser)
         }
         return pane
     }
@@ -93,7 +95,7 @@ extension CmuxTuiSurfaceProvider {
             return false
         }
         guard let address = info.privateAddress,
-              let privateURL = CloudPortRoutePlan.privateURL(url.absoluteString, address: address) else {
+              let privateURL = CloudPortRoutePolicy().privateURL(url.absoluteString, address: address, allowLoopback: machine.isSSH) else {
             browser.cloudAccess.showUnavailable(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
             return false
         }
@@ -111,15 +113,13 @@ extension CmuxTuiSurfaceProvider {
         let model = accessModel(port: port, address: address, scheme: privateURL.scheme ?? "http")
         browser.retainTransferredSurfaceMachine(machine)
         if preserveCurrentNavigation {
+            browser.prepareCloudBrowserStore(machineID: machineID)
+            browser.bindCloudBrowserNavigation()
             browser.cloudAccess.adoptCommittedRoute(model: model, url: privateURL, resourceID: resourceID)
+            model.connect()
         } else {
-            browser.webView.stopLoading()
-            browser.cloudAccess.configure(model: model, url: privateURL, resourceID: resourceID)
+            browser.configureCloudBrowser(model: model, url: privateURL, resourceID: resourceID)
         }
-        browser.prepareCloudBrowserStore(machineID: machineID)
-        if !preserveCurrentNavigation { browser.showCloudAddress(privateURL) }
-        model.connect()
-        if !preserveCurrentNavigation { browser.cloudAccess.routeDidConfigure() }
         materializedPanels.insert(browser.id)
         return true
     }
@@ -135,6 +135,36 @@ extension CmuxTuiSurfaceProvider {
             return port
         }
         return nil
+    }
+
+    /// Re-runs the authoritative machine refresh before retrying a route that
+    /// was unavailable at materialization time (most commonly a withdrawn
+    /// private address). The browser card therefore always has a real retry
+    /// action instead of leaving the user on a dead loading surface.
+    private func showPortUnavailable(_ message: String, resourceID: SurfaceResourceID, browser: BrowserPanel) {
+        browser.cloudAccess.showUnavailable(message) { [weak self, weak browser] request in
+            guard let self, let browser, self.isRegisteredInCatalog() else { return }
+            let lifecycle = self.currentLifecycleGeneration
+            do {
+                try await self.refreshPortMetadata()
+                guard self.isCurrentLifecycleGeneration(lifecycle), self.isRegisteredInCatalog(),
+                      browser.cloudAccess.isCurrentUnavailableRetry(request) else { return }
+                let resource = self.catalog.resources[resourceID]
+                    ?? resourceID.forwardedPort.map { CmuxTuiSnapshotParser.portBrowser(machine: self.machine, port: $0) }
+                guard let resource, resource.machine == self.machine else { throw SurfaceCatalogError.unknownResource(resourceID) }
+                switch CloudPortRoutePlan.plan(resource: resource, privateAddress: self.info.privateAddress) {
+                case .privateDirect(let raw):
+                    guard let url = URL(string: raw) else { throw ProviderError.invalidPreviewURL }
+                    self.configureBrowser(browser, url: url)
+                case .unsupported(let nextMessage):
+                    self.showPortUnavailable(nextMessage, resourceID: resourceID, browser: browser)
+                }
+            } catch {
+                guard self.isCurrentLifecycleGeneration(lifecycle), self.isRegisteredInCatalog(),
+                      browser.cloudAccess.isCurrentUnavailableRetry(request) else { return }
+                self.showPortUnavailable(CloudDiagnosticFailure.classify(error).label, resourceID: resourceID, browser: browser)
+            }
+        }
     }
 
     func accessModel(port: Int, address: String, scheme: String = "http") -> CloudPortAccessModel {
@@ -222,7 +252,10 @@ extension CmuxTuiSurfaceProvider {
                         browser.pendingCloudRestoreURL = nil
                         materializedPanels.insert(projection.panelID)
                     }
-                case .unsupported:
+                case .unsupported(let message):
+                    if resource.id.isForwardedPort {
+                        showPortUnavailable(message, resourceID: resource.id, browser: browser)
+                    }
                     // Keep the placeholder eligible for a later explicit display
                     // discovery; its target may be supplied by the guest catalog.
                     continue

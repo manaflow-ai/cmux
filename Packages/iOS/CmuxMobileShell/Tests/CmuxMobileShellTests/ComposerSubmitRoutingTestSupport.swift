@@ -63,6 +63,14 @@ actor RoutingHostRouter {
     let terminalInputRecorder = RoutingTerminalInputRecorder()
     private(set) var directorySearchQueries: [String] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
+    private(set) var notificationReconciles: [[String]] = []
+    private var handledNotificationIDs: [String] = []
+    private var rejectsNotificationReconcile = false
+
+    func setNotificationReconcile(handledIDs: [String], rejects: Bool = false) {
+        handledNotificationIDs = handledIDs
+        rejectsNotificationReconcile = rejects
+    }
     private var notificationFeedMarkAllReadCount = 0
     private var workspaceCreates: [WorkspaceCreateRecord] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
@@ -233,6 +241,7 @@ actor RoutingHostRouter {
         var imageFormat: String?
         var text: String?
         var notificationIDs: [String]?
+        var deliveredIDs: [String]?
         var clientID: String?
         var groupID: String?
         var title: String?
@@ -470,6 +479,16 @@ actor RoutingHostRouter {
                 clientID: info.clientID
             ))
             return try? Self.resultFrame(id: id, result: [:])
+        case "notification.reconcile":
+            let delivered = info.deliveredIDs ?? []
+            notificationReconciles.append(delivered)
+            if rejectsNotificationReconcile {
+                return try? Self.errorFrame(id: id, message: "Notification state unavailable")
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "handled_ids": delivered.filter { handledNotificationIDs.contains($0) },
+                "unread_count": 1,
+            ])
         case "notification.feed.mark_all_read":
             notificationFeedMarkAllReadCount += 1
             return try? Self.resultFrame(id: id, result: [
@@ -600,6 +619,7 @@ private actor RoutingTransport: CmxByteTransport {
                 imageFormat: params?["image_format"] as? String,
                 text: params?["text"] as? String,
                 notificationIDs: params?["notification_ids"] as? [String],
+                deliveredIDs: params?["delivered_ids"] as? [String],
                 clientID: params?["client_id"] as? String,
                 groupID: params?["group_id"] as? String,
                 title: params?["title"] as? String,

@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// One request owns its receipt and native reservation until the graph adopts them.
@@ -17,6 +19,8 @@ final class CloudWorkspaceCreationOperation {
     var isRunning = false
     var failure: Error?
     var retryTask: Task<Void, Never>?
+    /// The initiating window's tree reveal, when the create selected its pane.
+    var revealToken: UUID?
     /// Remote resources created by this operation are cleaned up on cancellation.
     /// Failed live panes retain them for their explicit retry action.
     var ownsRemoteWorkspace = false

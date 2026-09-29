@@ -282,6 +282,14 @@ bool ghostty_surface_read_selection_clipboard_text(
     return false;
 }
 
+// GhosttyRuntimeCInterop.initialize() in CmuxTerminalCore references
+// ghostty_init directly, so this test runner needs a definition to link.
+int ghostty_init(uintptr_t argc, char **argv) {
+    (void)argc;
+    (void)argv;
+    return 0;
+}
+
 void *ghostty_config_new(void) {
     return calloc(1, sizeof(GhosttyRuntimeTestConfig));
 }
@@ -501,6 +509,11 @@ bool ghostty_surface_font_size_adjusted(void *surface) {
 uint64_t ghostty_surface_foreground_pid(void *surface) {
     (void)surface;
     return cmux_test_foreground_pid;
+}
+bool ghostty_surface_grid_metrics(void *surface, void *metrics) {
+    (void)surface;
+    (void)metrics;
+    return false;
 }
 void ghostty_surface_has_selection(void) {}
 void ghostty_surface_key(void) {}

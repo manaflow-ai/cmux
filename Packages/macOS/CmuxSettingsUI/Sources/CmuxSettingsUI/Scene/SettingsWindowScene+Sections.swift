@@ -18,10 +18,11 @@ extension SettingsWindowRoot {
 
     @ViewBuilder
     func sectionStack(proxy: ScrollViewProxy) -> some View {
-        // Order matches the legacy in-app SettingsView scroll order:
-        // Account, App, Terminal, TextBox, Mobile, Sidebar, Beta Features,
-        // Automation, Browser (with embedded Import), Global Hotkey,
-        // Keyboard Shortcuts, Workspace Colors, cmux.json, Reset.
+        // Top to bottom in ``SettingsSectionMountModel/displayOrder``, the
+        // order sections mount in: Account through Sleepy Mode, then Mobile,
+        // Cloud, Devices, Networking, the sidebar sections, Beta Features,
+        // Automation, Computer Use, Browser (with embedded Import), Global
+        // Hotkey, Keyboard Shortcuts, Workspace Colors, cmux.json, Reset.
         slot(.account, proxy: proxy) {
             AccountSection(
                 defaultsStore: defaultsStore,
@@ -30,15 +31,14 @@ extension SettingsWindowRoot {
             )
         }
 
-        slot(.computers, proxy: proxy) {
-            ComputersSection(hostActions: hostActions, defaultsStore: defaultsStore, catalog: catalog)
-        }
-
         slot(.app, proxy: proxy) {
             AppSection(
                 defaultsStore: defaultsStore,
+                jsonStore: jsonStore,
                 catalog: catalog,
-                hostActions: hostActions
+                errorLog: runtime.errorLog,
+                hostActions: hostActions,
+                soundAgentCache: soundAgentCache
             )
         }
 
@@ -69,6 +69,10 @@ extension SettingsWindowRoot {
             if isCloudSectionAvailable {
                 CloudMachinesSection(hostActions: hostActions)
             }
+        }
+
+        slot(.computers, proxy: proxy) {
+            ComputersSection(hostActions: hostActions, defaultsStore: defaultsStore, catalog: catalog)
         }
 
         slot(.networking, proxy: proxy) {
@@ -138,7 +142,8 @@ extension SettingsWindowRoot {
                 catalog: catalog,
                 errorLog: runtime.errorLog,
                 hostActions: hostActions,
-                defaultShortcutResolver: runtime.shortcutDefaultResolver
+                defaultShortcutResolver: runtime.shortcutDefaultResolver,
+                keymapProposals: runtime.keymapProposals
             )
         }
 
@@ -172,6 +177,7 @@ extension SettingsWindowRoot {
     ) -> some View {
         SettingsSectionSlot(
             section: section,
+            isActive: section == SettingsSectionMountModel.hostSection(for: activeSection),
             isMounted: mountModel.isMounted(section),
             showsPlaceholder: section != .cloudMachines || isCloudSectionAvailable,
             onMountedAppear: { sectionContentDidAppear(section, proxy: proxy) },
@@ -183,18 +189,14 @@ extension SettingsWindowRoot {
     /// inside the update that laid it out, before that frame commits.
     /// `scrollTo` resolves against the layout that exists when it is called,
     /// so this is the moment to scroll: a navigation deferred to this
-    /// section can reach its rows now, and if the section sits above the
-    /// pinned navigation its growth just pushed the pinned anchor down, so
-    /// the pin is re-applied here and the committed frame never shows the
-    /// shift. The next section then mounts one main-actor hop later — a
-    /// later update pass — so every section is built in a pass of its own
-    /// and input queued meanwhile is serviced first.
+    /// section can reach its rows now, and the committed frame never shows
+    /// the pane at the previous pane's offset. The next section then mounts
+    /// one main-actor hop later, in a later update pass.
     func sectionContentDidAppear(_ section: SettingsSectionID, proxy: ScrollViewProxy) {
+        shownPaneSection = section
         if let deferred = mountModel.takeDeferredScroll(for: section),
            deferred.generation == settingsNavigationGeneration {
             proxy.scrollTo(deferred.anchorID, anchor: deferred.anchor)
-        } else if let pin = mountModel.pinnedScroll, mountModel.isAbove(section, pin.section) {
-            proxy.scrollTo(pin.anchorID, anchor: pin.anchor)
         }
         Task { @MainActor in
             _ = mountModel.sectionDidAppear(section)

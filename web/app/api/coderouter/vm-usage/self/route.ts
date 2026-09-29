@@ -52,7 +52,7 @@ async function handleGet(request: Request): Promise<Response> {
     );
   }
   const identity = auth.identity;
-  if (identity.vmId === null) {
+  if (identity.vmId === null || identity.machine === "chatmux") {
     return Response.json(
       {
         error: "vm_bound_token_required",

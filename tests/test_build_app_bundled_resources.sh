@@ -14,6 +14,7 @@ mkdir -p "$SRCROOT/ghostty/zig-out/share/ghostty/nested" \
   "$SRCROOT/ghostty/src/shell-integration/zsh" \
   "$SRCROOT/Resources/shell-integration" \
   "$SRCROOT/Resources/terminfo-overlay" \
+  "$BUILD_DIR/cmux.app/Contents/Resources/CmuxFoundation_CmuxFoundation.bundle/Contents" \
   "$SRCROOT/scripts" "$BUILD_DIR/Resources" "$BUILD_DIR/Products"
 
 printf 'resource-v1\n' > "$SRCROOT/ghostty/zig-out/share/ghostty/nested/file"
@@ -23,6 +24,7 @@ printf 'cmux\n' > "$SRCROOT/Resources/shell-integration/cmux.zsh"
 printf 'alternate\n' > "$SRCROOT/Resources/shell-integration/alternate.zsh"
 ln -s cmux.zsh "$SRCROOT/Resources/shell-integration/current.zsh"
 printf 'plist\n' > "$BUILD_DIR/Products/Info.plist"
+printf 'localized-v1\n' > "$BUILD_DIR/cmux.app/Contents/Resources/CmuxFoundation_CmuxFoundation.bundle/Contents/Localizable.strings"
 # A tracked source file outside every directory the phase copies, so only the
 # Ghostty worktree part of the stamp can notice it changing.
 printf 'helper-source-v1\n' > "$SRCROOT/ghostty/src/main.zig"
@@ -124,8 +126,20 @@ fi
 [[ -f "$BUILD_DIR/Resources/ghostty/nested/file" ]]
 
 run_app_phase > "$TMP_DIR/app-first.log"
+RESOURCE_BUNDLE="$BUILD_DIR/cmux.app/Contents/Resources/CmuxFoundation_CmuxFoundation.bundle"
+CLI_RESOURCE_BUNDLE="$BUILD_DIR/cmux.app/Contents/Resources/bin/CmuxFoundation_CmuxFoundation.bundle"
+[[ -d "$CLI_RESOURCE_BUNDLE" && ! -L "$CLI_RESOURCE_BUNDLE" ]]
+[[ "$(cat "$CLI_RESOURCE_BUNDLE/Contents/Localizable.strings")" == 'localized-v1' ]]
 run_app_phase > "$TMP_DIR/app-second.log"
 grep -q 'skipping helper rebuilds' "$TMP_DIR/app-second.log"
+
+printf 'localized-v2\n' > "$RESOURCE_BUNDLE/Contents/Localizable.strings"
+run_app_phase > "$TMP_DIR/app-bundle-changed.log"
+if grep -q 'skipping helper rebuilds' "$TMP_DIR/app-bundle-changed.log"; then
+  echo 'FAIL: changed SwiftPM resource bundle did not invalidate the manifest' >&2
+  exit 1
+fi
+[[ "$(cat "$CLI_RESOURCE_BUNDLE/Contents/Localizable.strings")" == 'localized-v2' ]]
 
 HELPER_APP="$BUILD_DIR/cmux.app/Contents/Library/cmux Computer Use.app"
 rm "$HELPER_APP/Contents/Info.plist"

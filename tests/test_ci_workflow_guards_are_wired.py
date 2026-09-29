@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -43,18 +44,7 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # Guards that are knowingly unwired. Each entry needs a reason and an exit:
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
-UNWIRED = {
-    # Splits .github/workflows/cli-pipe-regressions.yml on the step name
-    # "Exercise bounded read-only current-work consumers" and runs that step's
-    # script. The step is gone from the workflow -- the closest surviving one
-    # is "Exercise closed consumers and socket disconnects" -- so this errors
-    # in setUpClass before a single assertion runs. It orphaned
-    # tests/test_cli_current.py and tests/test_current_command_fixture.py with
-    # it, since the deleted step was their only caller. Wiring it means
-    # deciding whether bounded read-only current-work consumers should still
-    # be exercised at all, which is a question for whoever removed the step.
-    "tests/test_current_cli_workflow.py",
-}
+UNWIRED: set[str] = set()
 
 
 def tracked_tests() -> list[str]:
@@ -81,9 +71,16 @@ def workflow_guards() -> set[str]:
 
 
 def invoked_by_workflows() -> set[str]:
+    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+    import workload_entrypoints
+
     invoked = set()
     for workflow in sorted(WORKFLOW_DIR.glob("*.yml")):
-        invoked.update(INVOKED_PATH.findall(workflow.read_text(encoding="utf-8")))
+        text = workflow.read_text(encoding="utf-8")
+        invoked.update(INVOKED_PATH.findall(text))
+        # A workload profile step runs everything its entrypoint names.
+        for _, script in workload_entrypoints.entrypoints(text, ROOT):
+            invoked.update(INVOKED_PATH.findall(script))
     return invoked
 
 
@@ -93,8 +90,7 @@ def test_every_workflow_guard_is_run_by_a_workflow() -> None:
         "these tests read .github/workflows/ but no workflow runs them, so the "
         "invariants they assert are not enforced:\n  "
         + "\n  ".join(unwired)
-        + "\n\nAdd a step to .github/workflows/ci-guards.yml (and the expected "
-        "map in the matching tests/test_ci_*_guard_structure.py), or add an "
+        + "\n\nAdd a step to .github/workflows/ci-guards.yml, or add an "
         "entry to UNWIRED in this file explaining why not."
     )
 

@@ -280,12 +280,14 @@ struct SidebarWorkspaceRowSuspensionTests {
                 .first { !$0.isHidden }
         )
         await AppKitTestEventPump().drain()
-        let existingWindowIds = Set(application.windows.map(ObjectIdentifier.init))
+        // Strong references: a window released meanwhile cannot hand its
+        // address to the popover window and hide it from the lookup below.
+        let existingWindows = application.windows
 
         #expect(glyph.accessibilityPerformPress())
         let popoverWindow = try #require(
-            application.windows.first {
-                !existingWindowIds.contains(ObjectIdentifier($0)) && $0.isVisible
+            application.windows.first { candidate in
+                !existingWindows.contains { $0 === candidate } && candidate.isVisible
             }
         )
 
@@ -294,7 +296,7 @@ struct SidebarWorkspaceRowSuspensionTests {
     }
 
     @Test
-    func transientWindowReparentingPreservesChecklistPopover() throws {
+    func transientWindowReparentingPreservesChecklistPopover() async throws {
         let application = NSApplication.shared
         let model = Self.makeModel(
             checklistAddFieldActivationToken: 1,
@@ -316,7 +318,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         window.contentView = cell
         window.orderFront(nil)
         defer { window.close() }
-        let existingWindowIds = Set(application.windows.map(ObjectIdentifier.init))
+        let existingWindows = application.windows
         cell.configure(
             model: model,
             actions: Self.makeActions(
@@ -330,9 +332,9 @@ struct SidebarWorkspaceRowSuspensionTests {
         )
         _ = cell.layoutContent(model: model, width: cell.bounds.width, apply: true)
         cell.layoutSubtreeIfNeeded()
-        let popoverWindow = try #require(
-            application.windows.first {
-                !existingWindowIds.contains(ObjectIdentifier($0)) && $0.isVisible
+        _ = try #require(
+            application.windows.first { candidate in
+                !existingWindows.contains { $0 === candidate } && candidate.isVisible
             }
         )
 
@@ -340,7 +342,12 @@ struct SidebarWorkspaceRowSuspensionTests {
         window.contentView = replacementRoot
         replacementRoot.addSubview(cell)
 
-        #expect(popoverWindow.isVisible)
+        let rePresented = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            application.windows.contains { candidate in
+                !existingWindows.contains { $0 === candidate } && candidate.isVisible
+            }
+        }
+        #expect(rePresented, "Checklist popover should re-present after a transient anchor reparent")
         #expect(presentationChanges.isEmpty)
         #expect(tokenConsumptions == 0)
     }

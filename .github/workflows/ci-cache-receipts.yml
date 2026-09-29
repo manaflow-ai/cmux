@@ -8,6 +8,7 @@ on:
       - .github/workflows/ci.yml
       - .github/workflows/ci-macos.yml
       - .github/workflows/nightly.yml
+      - .github/workflows/seed-derived-data.yml
       - .github/workflows/ci-cache-receipts.yml
       - scripts/ci/cache_restore_receipt.py
       - scripts/check-test-determinism.py
@@ -21,6 +22,7 @@ on:
       - .github/workflows/ci.yml
       - .github/workflows/ci-macos.yml
       - .github/workflows/nightly.yml
+      - .github/workflows/seed-derived-data.yml
       - .github/workflows/ci-cache-receipts.yml
       - scripts/ci/cache_restore_receipt.py
       - scripts/check-test-determinism.py
@@ -36,7 +38,7 @@ concurrency:
 
 jobs:
   receipt-contract:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd

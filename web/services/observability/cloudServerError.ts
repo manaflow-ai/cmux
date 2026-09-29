@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { after } from "next/server";
 import type { VmRequestContext } from "../vms/requestContext";
 import type { VmErrorResponseInput } from "../vms/routeHelpers";
-import { cloudOperations, type CloudTelemetryClient, type CloudTelemetrySpan } from "./cloudTelemetryContract";
+import { cloudChannels, cloudOperations, type CloudTelemetryClient, type CloudTelemetrySpan } from "./cloudTelemetryContract";
 import { acceptCloudTelemetry } from "./cloudTelemetryRepository";
 import { drainCloudDiagnostics } from "./cloudTelemetryDelivery";
 
@@ -11,7 +11,7 @@ export function retainCloudServerError(input: VmErrorResponseInput, context: VmR
   if (!context?.userId || !context.traceId || !context.spanId) return;
   const now = Date.now();
   const rawChannel = context.client.channel;
-  const channel = rawChannel === "nightly" ? "nightly" : rawChannel === "stable" || rawChannel === "production" ? "production" : rawChannel === "dev" ? "dev" : "unknown";
+  const channel = rawChannel === "stable" ? "production" : cloudChannels.find((value) => value === rawChannel) ?? "unknown";
   const client: CloudTelemetryClient = {
     channel, version: safeVersion(context.client.version),
     build: context.client.build?.match(/^[0-9]{1,20}$/)?.[0] ?? "0",

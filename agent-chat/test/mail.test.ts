@@ -1,4 +1,4 @@
-import { InMemoryMailBroker, MailConflictError, MailFanoutError, createMail } from "../mail";
+import { InMemoryMailBroker, MailConflictError, MailFanoutError, MailUnknownParentError, createMail } from "../mail";
 import { test } from "bun:test";
 
 test("mail broker append, threading, delivery, and fan-out", () => {
@@ -108,6 +108,82 @@ try {
 }
 if (invalidBroker.get("invalid") || invalidBroker.list().length !== 0) throw new Error("invalid metadata must not partially commit");
 console.log("mail broker assertions passed");
+});
+
+test("append refuses a reply to a parent it has never seen", () => {
+  const broker = new InMemoryMailBroker();
+  // reply() already refuses this. append() is the primitive underneath it, so
+  // letting the same input through here roots a second thread at the reply's
+  // own id: the reply claims kind "reply" but thread(parentId) never returns it.
+  try {
+    broker.append({ id: "orphan", sender: "claude", recipients: ["codex"], body: "Looks good.", inReplyTo: "never-appended" });
+    throw new Error("append should refuse a reply whose parent this broker has never seen");
+  } catch (error) {
+    // Match the class, not the text: updateDelivery throws its own Error for an
+    // unknown message id, so a substring match could pass for the wrong reason.
+    if (!(error instanceof MailUnknownParentError) || error.parentMessageId !== "never-appended") throw error;
+  }
+  if (broker.get("orphan") || broker.list().length !== 0) throw new Error("a refused reply must not partially commit");
+
+  // createMail normalizes with no broker to look the parent up in, so it roots
+  // the orphan at its own id and hands append a threadId that looks explicit.
+  // That is the same broken envelope, so append has to refuse it too.
+  try {
+    broker.append(createMail({ id: "orphan-prebuilt", sender: "claude", recipients: ["codex"], body: "Looks good.", inReplyTo: "never-appended" }));
+    throw new Error("append should refuse a prebuilt reply whose thread is its own id");
+  } catch (error) {
+    if (!(error instanceof MailUnknownParentError) || error.parentMessageId !== "never-appended") throw error;
+  }
+  if (broker.get("orphan-prebuilt") || broker.list().length !== 0) throw new Error("a refused prebuilt reply must not partially commit");
+
+  // A blank threadId is not the context a federated reply needs either.
+  try {
+    broker.append({ id: "orphan-blank", threadId: "  ", sender: "claude", recipients: ["codex"], body: "Looks good.", inReplyTo: "never-appended" });
+    throw new Error("append should refuse a reply whose threadId is blank");
+  } catch (error) {
+    if (!(error instanceof MailUnknownParentError)) throw error;
+  }
+
+  // A caller that names the thread carries the context this broker lacks, so a
+  // reply forwarded from another broker still appends and stays in its thread.
+  const federated = broker.append({
+    id: "federated",
+    threadId: "thread-remote",
+    sender: "claude",
+    recipients: ["codex"],
+    body: "Looks good.",
+    inReplyTo: "never-appended",
+  });
+  if (federated.envelope.threadId !== "thread-remote" || federated.envelope.kind !== "reply") {
+    throw new Error(`an explicit threadId should carry a federated reply: ${JSON.stringify(federated.envelope)}`);
+  }
+  if (broker.list({ threadId: "thread-remote" }).length !== 1) throw new Error("the federated reply should be listed under its thread");
+  console.log("mail unknown-parent assertions passed");
+});
+
+test("append stays idempotent when a retry reorders the recipients", () => {
+  const broker = new InMemoryMailBroker();
+  const input = { id: "fanout", sender: "codex", subject: "Review", body: "Please review.", createdAt: 100 };
+  const first = broker.append({ ...input, recipients: ["claude", "codex"] });
+  // Recipients are a set: the broker dedupes them and keys deliveries by
+  // address. A retry that lists the same set in another order is the same
+  // message, so it must not look like someone tampered with the id.
+  const retry = broker.append({ ...input, recipients: ["codex", "claude"] });
+  if (retry.created || !retry.duplicate || retry.envelope !== first.envelope) {
+    throw new Error("a retry that reorders recipients should be an idempotent no-op");
+  }
+  if (first.envelope.recipients.join(",") !== "claude,codex") {
+    throw new Error(`the stored envelope should keep the first append's order: ${first.envelope.recipients}`);
+  }
+
+  // Changing the recipient set is still a conflict.
+  try {
+    broker.append({ ...input, recipients: ["claude"] });
+    throw new Error("dropping a recipient should still conflict");
+  } catch (error) {
+    if (!(error instanceof MailConflictError)) throw error;
+  }
+  console.log("mail recipient-order assertions passed");
 });
 
 export {};

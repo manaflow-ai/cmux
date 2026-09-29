@@ -50,7 +50,7 @@ const CREATE_TIMEOUT_MS = 630_000;
 const ATTACH_BUDGET_MS = 180_000;
 
 const requireFromWeb = createRequire(path.join(webDir, "package.json"));
-const { StackServerApp } = await import(pathToFileURL(requireFromWeb.resolve("@stackframe/js")).href);
+const { StackServerApp } = await import(pathToFileURL(requireFromWeb.resolve("@hexclave/js")).href);
 // ESM-only package (no require entry): resolved from this script's own tree.
 const { Freestyle, FreestyleApiError } = await import("freestyle");
 

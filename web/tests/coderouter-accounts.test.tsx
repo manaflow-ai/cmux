@@ -32,7 +32,7 @@ mock.module("@base-ui-components/react/dialog", () => ({
   },
 }));
 
-const { CoderouterAccountsSection } = await import(
+const { CoderouterAccountsSection, requestNativeAccountTransfer, transferErrorKey } = await import(
   "../app/[locale]/dashboard/components/coderouter-accounts"
 );
 
@@ -71,12 +71,113 @@ const nativeCodexAccount = {
   activeSessions: 3,
 };
 
+const otherTeams = [{ id: "team-2", name: "Team Two" }];
+
+function renderTransferCase(input: {
+  readonly canManage?: boolean;
+  readonly transferTeams?: readonly { id: string; name: string }[];
+  readonly claudeAccounts?: readonly (typeof claudeAccount)[];
+  readonly nativeAccounts?: readonly (typeof nativeCodexAccount)[];
+}) {
+  return renderToStaticMarkup(
+    <CoderouterAccountsSection
+      teamId="team-1"
+      teamName="Team One"
+      canManage={input.canManage ?? true}
+      canManageApiKeys={false}
+      transferTeams={input.transferTeams}
+      claude={{ kind: "ok", accounts: input.claudeAccounts ?? [] }}
+      native={{ kind: "ok", accounts: input.nativeAccounts ?? [nativeCodexAccount] }}
+      shared={{ kind: "ok", accounts: [] }}
+    />,
+  );
+}
+
+describe("coderouter account transfer", () => {
+  test("offers Transfer on a manageable native account when another team exists", () => {
+    const html = renderTransferCase({ transferTeams: otherTeams });
+    expect(html.match(/>Transfer</g)).toHaveLength(1);
+    // The dialog stays closed until the viewer asks for it.
+    expect(html).not.toContain("Transfer account");
+  });
+
+  test("hides Transfer when the viewer belongs to no other team", () => {
+    expect(renderTransferCase({ transferTeams: [] })).not.toContain(">Transfer<");
+    expect(renderTransferCase({})).not.toContain(">Transfer<");
+  });
+
+  test("hides Transfer for Claude accounts", () => {
+    const html = renderTransferCase({
+      transferTeams: otherTeams,
+      claudeAccounts: [claudeAccount],
+      nativeAccounts: [],
+    });
+    expect(html).toContain("Claude Code OAuth");
+    expect(html).toContain(">Remove<");
+    expect(html).not.toContain(">Transfer<");
+  });
+
+  test("hides Transfer when the viewer cannot manage accounts", () => {
+    const html = renderTransferCase({ canManage: false, transferTeams: otherTeams });
+    expect(html).toContain("lawrence@example.com");
+    expect(html).not.toContain(">Transfer<");
+  });
+
+  test("posts the chosen destination team from the selected source team", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const send = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ accountId: "native-1" }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const result = await requestNativeAccountTransfer(
+      { teamId: "team-1", accountId: "native-1", destinationTeamId: "team-2" },
+      send,
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("/api/coderouter/accounts/native-1/transfer");
+    expect(calls[0].init.method).toBe("POST");
+    expect(new Headers(calls[0].init.headers).get("x-cmux-team-id")).toBe("team-1");
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ destinationTeamId: "team-2" });
+  });
+
+  test("reports the failing status and error code so the dialog can explain it", async () => {
+    const input = { teamId: "team-1", accountId: "native-1", destinationTeamId: "team-2" };
+    const send = (async () => new Response("{}", { status: 409 })) as unknown as typeof fetch;
+    expect(await requestNativeAccountTransfer(input, send)).toEqual({ ok: false, status: 409, error: null });
+
+    const forbidden = (async () => Response.json({ error: "forbidden" }, { status: 403 })) as unknown as typeof fetch;
+    expect(await requestNativeAccountTransfer(input, forbidden)).toEqual({ ok: false, status: 403, error: "forbidden" });
+
+    const notJson = (async () => new Response("<html>", { status: 502 })) as unknown as typeof fetch;
+    expect(await requestNativeAccountTransfer(input, notJson)).toEqual({ ok: false, status: 502, error: null });
+
+    const offline = (async () => { throw new TypeError("offline"); }) as unknown as typeof fetch;
+    expect(await requestNativeAccountTransfer(input, offline)).toEqual({ ok: false, status: null, error: null });
+  });
+
+  test("blames the source team when the viewer lost access to it, and the destination otherwise", () => {
+    // The route answers 403 "forbidden" when the viewer can no longer manage
+    // the source team, and 403 "destination_forbidden" for the destination.
+    expect(transferErrorKey(403, "forbidden")).toBe("teamAccessError");
+    expect(transferErrorKey(403, "destination_forbidden")).toBe("transferForbiddenError");
+    expect(transferErrorKey(403, null)).toBe("transferForbiddenError");
+    expect(transferErrorKey(409, "conflict")).toBe("transferConflictError");
+    expect(transferErrorKey(500, null)).toBe("transferError");
+    expect(transferErrorKey(null, null)).toBe("transferError");
+    expect(enMessages.dashboard.coderouterAccounts.teamAccessError).toBe("You do not have access to this team.");
+  });
+});
+
 describe("coderouter accounts section", () => {
   test("lists Claude upstream and shared Codex accounts in one table", () => {
     const html = renderToStaticMarkup(
       <CoderouterAccountsSection
         teamId="team-1"
         canManage
+        canManageApiKeys
         claude={{ kind: "ok", accounts: [claudeAccount] }}
         native={{ kind: "ok", accounts: [nativeCodexAccount] }}
         shared={{ kind: "ok", accounts: [codexAccount] }}
@@ -102,6 +203,7 @@ describe("coderouter accounts section", () => {
       <CoderouterAccountsSection
         teamId="team-1"
         canManage
+        canManageApiKeys
         claude={{ kind: "ok", accounts: [] }}
         native={{ kind: "ok", accounts: [] }}
         shared={{ kind: "ok", accounts: [] }}
@@ -131,11 +233,33 @@ describe("coderouter accounts section", () => {
     expect(html).toContain('name="apiKeyLabel"');
   });
 
-  test("hides management controls for members without account rights", () => {
+  test("keeps account controls when only API-key management is denied", () => {
+    const html = renderToStaticMarkup(
+      <CoderouterAccountsSection
+        teamId="team-1"
+        canManage
+        canManageApiKeys={false}
+        claude={{ kind: "ok", accounts: [claudeAccount] }}
+        native={{ kind: "ok", accounts: [nativeCodexAccount] }}
+        shared={{ kind: "ok", accounts: [codexAccount] }}
+      />,
+    );
+
+    // Every team member manages provider accounts; API keys keep their own gate.
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('name="apiKey"');
+    expect(html).toContain(">Remove<");
+    expect(html).toContain("acct_9f3");
+    expect(html).not.toContain('name="apiKeyLabel"');
+    expect(html).not.toContain("Create API key");
+  });
+
+  test("hides management controls when the viewer cannot manage accounts or API keys", () => {
     const html = renderToStaticMarkup(
       <CoderouterAccountsSection
         teamId="team-1"
         canManage={false}
+        canManageApiKeys={false}
         claude={{ kind: "ok", accounts: [claudeAccount] }}
         native={{ kind: "ok", accounts: [nativeCodexAccount] }}
         shared={{ kind: "ok", accounts: [codexAccount] }}
@@ -152,11 +276,12 @@ describe("coderouter accounts section", () => {
     expect(html).toContain("Claude Code OAuth");
   });
 
-  test("hides the deployment notice from members who cannot manage accounts", () => {
+  test("hides the deployment notice from viewers who cannot manage accounts", () => {
     const render = (canManage: boolean) => renderToStaticMarkup(
       <CoderouterAccountsSection
         teamId="team-1"
         canManage={canManage}
+        canManageApiKeys={canManage}
         claude={{ kind: "ok", accounts: [claudeAccount] }}
         native={{ kind: "ok", accounts: [nativeCodexAccount] }}
         shared={{ kind: "notConfigured" }}
@@ -171,6 +296,7 @@ describe("coderouter accounts section", () => {
       <CoderouterAccountsSection
         teamId="team-1"
         canManage
+        canManageApiKeys
         claude={{ kind: "ok", accounts: [claudeAccount] }}
         native={{ kind: "ok", accounts: [] }}
         shared={{ kind: "error" }}
@@ -187,6 +313,7 @@ describe("coderouter accounts section", () => {
       <CoderouterAccountsSection
         teamId="team-1"
         canManage
+        canManageApiKeys
         claude={{ kind: "ok", accounts: [claudeAccount] }}
         native={{ kind: "ok", accounts: [] }}
         shared={{ kind: "migrationPending" }}

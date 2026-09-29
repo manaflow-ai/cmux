@@ -218,12 +218,58 @@ jobs:
           set -euo pipefail
           : > "$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml"
 
+      # A stale branch still carries old copies of trusted files that main has
+      # since updated, and those copies never land. Squash and merge-commit
+      # landings both produce the merge of the head into its base, so merge it
+      # the same way (git merge-tree follows renames and criss-cross history)
+      # and let the checker judge the trusted files in that merge. A rebase
+      # merge replays commits one by one instead, so while the repository
+      # allows it the check stays strict. The setting is read when the check
+      # runs, so re-enabling rebase merging leaves earlier passes standing: keep
+      # rebase off with a ruleset, or re-run this check on open pull requests
+      # after turning it on. The history is fetched without file contents; any
+      # failure or a conflicted merge also stays strict.
+      - name: Merge pull request into its base for the trusted-file check
+        id: merge
+        if: github.event_name == 'pull_request_target' && steps.scope.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The GraphQL variables are literal; gh substitutes them, not the shell.
+          # shellcheck disable=SC2016
+          rebase_allowed="$(gh api graphql -f owner="${GITHUB_REPOSITORY%%/*}" -f name="${GITHUB_REPOSITORY#*/}" \
+            -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { rebaseMergeAllowed } }' \
+            --jq '.data.repository.rebaseMergeAllowed' || true)"
+          if [[ "$rebase_allowed" != "false" ]]; then
+            echo "Rebase merging is allowed (or unknown); comparing trusted files strictly."
+            exit 0
+          fi
+          merge_repo="$RUNNER_TEMP/merge.git"
+          upstream="https://github.com/${GITHUB_REPOSITORY}.git"
+          if ! git clone -q --bare --filter=blob:none --no-tags --single-branch --branch main "$upstream" "$merge_repo" ||
+            ! git -C "$merge_repo" cat-file -e "${TRUSTED_SHA}^{commit}" ||
+            ! git -C "$merge_repo" -c protocol.version=2 fetch -q --no-tags --filter=blob:none "$upstream" "$CANDIDATE_SHA"; then
+            echo "Merge unavailable; comparing trusted files strictly."
+            exit 0
+          fi
+          if ! merge_output="$(git -C "$merge_repo" merge-tree --write-tree "$TRUSTED_SHA" "$CANDIDATE_SHA")"; then
+            echo "The pull request does not merge cleanly; comparing trusted files strictly."
+            exit 0
+          fi
+          tree="${merge_output%%$'\n'*}"
+          [[ "$tree" =~ ^[0-9a-f]{40}$ ]]
+          echo "repo=$merge_repo" >> "$GITHUB_OUTPUT"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+
       - name: Check pull-request or merge-group source with trusted policy
         if: github.event_name != 'push' && steps.scope.outputs.run == 'true'
         working-directory: trusted/web
         env:
           SCOPE_MODE: ${{ steps.selected_scope.outputs.mode || 'full' }}
           SELECTED_COUNT: ${{ steps.selected_scope.outputs.selected_count }}
+          MERGE_REPO: ${{ steps.merge.outputs.repo }}
+          MERGE_TREE: ${{ steps.merge.outputs.tree }}
         run: |
           set -euo pipefail
           checker=(
@@ -234,6 +280,9 @@ jobs:
             --base-baseline "$GITHUB_WORKSPACE/trusted/web/oxlint-complexity-baseline.txt"
             --head "$CANDIDATE_SHA"
           )
+          if [[ -n "$MERGE_REPO" && -n "$MERGE_TREE" ]]; then
+            checker+=(--merge-repo "$MERGE_REPO" --merge-tree "$MERGE_TREE")
+          fi
           case "$SCOPE_MODE" in
             full|skip)
               echo "Web complexity: selected $SELECTED_COUNT production file(s) for conservative full scan."

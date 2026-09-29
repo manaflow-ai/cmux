@@ -10,7 +10,7 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-STEPS = yaml.safe_load((ROOT / '.github/workflows/test-depot.yml').read_text())['jobs']['tests']['steps']
+STEPS = yaml.safe_load((ROOT / '.github/workflows/test-macos-suite.yml').read_text())['jobs']['tests']['steps']
 
 
 def step(name):
@@ -91,7 +91,7 @@ for path in paths:
 
     def test_restore_is_read_only_and_after_workspace_cleanup(self):
         restore = step('Restore Swift packages')
-        self.assertIn('actions/cache/restore@', restore['uses'])
+        self.assertEqual(restore['uses'], './.github/actions/cache-restore')
         self.assertTrue(restore['continue-on-error'])
         names = [s.get('name') for s in STEPS]
         self.assertLess(names.index('Prepare clean package cache directory'), names.index('Restore Swift packages'))

@@ -12,17 +12,20 @@ General app preferences from Settings > App.
 |---|---|---|---|
 | `app.language` | `"system"` or `"en"` or `"ar"` or `"bs"` or `"zh-Hans"` or `"zh-Hant"` or `"da"` or `"de"` or `"es"` or `"fr"` or `"it"` or `"ja"` or `"ko"` or `"nb"` or `"pl"` or `"pt-BR"` or `"ru"` or `"th"` or `"tr"` | `"system"` | Preferred app language. |
 | `app.appearance` | `"system"` or `"light"` or `"dark"` | `"system"` | App appearance mode. |
+| `app.accentColor` | `"cmux"` or `"system"` | `"cmux"` | Accent for cmux-drawn chrome: the selected workspace, attention ring and pane flash, agent status, pane swap, canvas focus, and scroll markers. "cmux" uses cmux blue; "system" follows the macOS accent color and updates when it changes. workspaceColors.selectionColor and notifications.paneFlashColor still override their parts. Native controls always use the macOS accent. |
 | `app.appIcon` | `"automatic"` or `"light"` or `"dark"` | `"automatic"` | Dock and app switcher icon style. |
 | `app.menuBarOnly` | boolean | `false` | Hide the Dock icon and app switcher entry while keeping cmux available from the menu bar. |
 | `app.newWorkspacePlacement` | `"top"` or `"afterCurrent"` or `"end"` | `"afterCurrent"` | Where new workspaces are inserted in the sidebar. |
 | `app.workspaceInheritWorkingDirectory` | boolean | `true` | When true, new workspaces inherit the current workspace working directory. When false, new workspaces use Ghostty's working-directory setting instead. |
 | `app.minimalMode` | boolean | `false` | Hide the workspace title bar and move controls into the sidebar. |
 | `app.keepWorkspaceOpenWhenClosingLastSurface` | boolean | `false` | When true, closing the last surface keeps the workspace open. |
-| `app.focusPaneOnFirstClick` | boolean | `true` | When cmux is inactive, the first click can activate and focus the clicked pane. |
+| `app.focusPaneOnFirstClick` | boolean | `false` | When cmux is inactive, the first click can activate and focus the clicked pane. |
 | `app.preferredEditor` | string | `""` | Custom editor command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty to use the default. |
+| `app.defaultWorkspacePath` | string | `""` | Folder the Open Folder panel starts in, for example ~/code. Supports a leading ~. Leave empty to start in the active workspace's directory. |
 | `app.openSupportedFilesInCmux` | boolean | `true` | When enabled, Cmd-clicking readable local files opens supported previews in cmux, including text, code, PDFs, images, audio, video, and Quick Look files. Preview headers include an Open With menu based on the user's default and compatible macOS apps for that file. |
 | `app.openMarkdownInCmuxViewer` | boolean | `true` | When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview. |
-| `app.reorderOnNotification` | boolean | `true` | Move workspaces with new notifications toward the top. |
+| `app.devWindowDisplay` | string | `""` | DEBUG-only display name used when opening new windows. An empty value uses the system default. |
+| `app.reorderOnNotification` | boolean or `off`, `notifications`, `agentActivity` | `true` | Move workspaces with new notifications toward the top. `agentActivity` also moves them when a prompt is sent or an agent finishes a turn, needs input, or fails, throttled and never while the pointer is over the sidebar. |
 | `app.iMessageMode` | boolean | `false` | Move a workspace to the top and show the submitted message when sending an agent prompt. |
 | `app.sendAnonymousTelemetry` | boolean | `true` | Allow anonymous telemetry. |
 | `app.warnBeforeQuit` | boolean | `true` | Show a confirmation before quitting cmux. |
@@ -33,10 +36,14 @@ General app preferences from Settings > App.
 | `app.forkConversationDefaultDestination` | `"right"` or `"left"` or `"top"` or `"bottom"` or `"newTab"` or `"newWorkspace"` | `"right"` | Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination. |
 | `app.paneResizeStepPixels` | integer | `20` | Pixels moved per keypress when using pane-resize shortcuts. |
 | `app.focusHistoryIncludesPanesAndTabs` | boolean | `false` | When true, Back and Forward include focus changes between panes and tabs. When false, they navigate between workspaces only. |
+| `app.equalizeSplitsOnCreate` | boolean | `false` | When true, creating a split resizes the panes in that split's row or column to equal sizes. When false, a new split halves the pane it was created from. |
 | `app.globalFontMagnification` | integer | `100` | Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded. |
 | `app.confirmQuit` | `"always"` or `"dirty-only"` or `"never"` | `"always"` | Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback. |
 | `app.warnBeforeClosingTabXButton` | boolean | `false` | Show a confirmation before closing a tab with the tab close button. |
+| `app.warnBeforeClosingWorkspace` | boolean | `true` | Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off. |
+| `app.warnBeforeClosingWindow` | boolean | `true` | Show a confirmation before closing a window with a running process, or all of a window's workspaces at once. |
 | `app.hideTabCloseButton` | boolean | `false` | Hide tab close buttons in the pane tab bar. |
+| `app.tabBarVisibility` | `"always"` or `"multiple-tabs"` | `"always"` | Control when each pane's surface tab bar is shown. `"always"` shows it even when the pane has a single tab; `"multiple-tabs"` hides the bar until the pane has two or more tabs. Minimal mode (app.minimalMode) always shows it, because there the top tab bar is the titlebar row. |
 
 ## terminal
 
@@ -51,9 +58,14 @@ Terminal presentation settings from Settings > Terminal.
 | `terminal.sessionContentMaxWidth` | boolean or number | `false` | Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width. |
 | `terminal.sessionContentAlignment` | `"left"` or `"center"` or `"right"` | `"center"` | Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled. |
 | `terminal.copyOnSelect` | boolean | `false` | When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior. |
+| `terminal.confirmUnsafePaste` | boolean | `false` | When true, a paste that Ghostty's clipboard-paste-protection flags as unsafe (for example, text with a line break going to a program that has not enabled bracketed paste) waits for confirmation in a sheet attached to the terminal's window. When false, cmux pastes it without asking. OSC 52 clipboard reads are not affected. |
+| `terminal.reflowHardWrapOnCopy` | boolean | `false` | When true, copying terminal text also joins a line that exactly fills the terminal width onto the next line, undoing hard wraps a program inserted at the grid edge. Soft-wrapped rows are always joined. |
+| `terminal.textEditingGestures` | boolean | `false` | Replay macOS text-editing gestures as line-editor keys: Command and Option arrow keys move by line and word, and Command and Option Delete kill by line and word. Applications receive these translated keys instead of the original chords, so leave this off for full-screen TUIs that bind those chords. |
+| `terminal.showPasswordInputIndicator` | boolean | `true` | Show a lock badge in the terminal corner while the foreground program has turned echo off for a password prompt (sudo, ssh, passwd, gpg). cmux draws the badge itself and never changes terminal text. Only prompts on the local terminal are detected: an ssh password prompt counts, but sudo run inside an ssh session does not. Changes apply to an open prompt at once. |
+| `terminal.showPasswordInputDots` | boolean | `false` | When the password input badge is shown, also draw one dot per typed character. cmux keeps only a count, never the typed characters. Backspace removes a dot; Enter or echo turning back on clears them. Pasted text is not counted. |
 | `terminal.showTextBoxOnNewTerminals` | boolean | `false` | Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. |
 | `terminal.focusTextBoxOnNewTerminals` | boolean | `false` | Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox. |
-| `terminal.agentHibernation` | object | — | Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, during critical memory pressure cmux may hibernate a bounded batch of safe idle background agents even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback. |
+| `terminal.agentHibernation` | object | — | Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, under memory pressure (critical pressure from macOS or from the cmux app's own footprint, or cmux's total memory use past its aggregate warning threshold) cmux may hibernate every safe idle background agent even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback. |
 | `terminal.rendererRealization` | object | — | Reclaim off-screen terminal GPU renderer memory. cmux releases the Metal renderer (IOSurface) of a terminal that has stayed off-screen and idle while keeping its process and terminal state alive, then rebuilds the renderer instantly when the tab is visited again. Non-destructive and on by default. |
 | `terminal.textBoxMaxLines` | integer | `10` | Maximum number of lines the rich terminal TextBox input can grow to before it scrolls. |
 | `terminal.textBoxDefaultSubmitAction` | string | `"text-entry"` | Default TextBox submit action ID for new terminal sessions. Use text-entry for plain input or one of the configured action IDs. |
@@ -72,12 +84,14 @@ Notification behavior from Settings > Notifications.
 | `notifications.unreadPaneRing` | boolean | `true` | Highlight panes with unread notifications. |
 | `notifications.paneFlash` | boolean | `true` | Flash the focused pane when requested. |
 | `notifications.sound` | `"default"` or `"Basso"` or `"Blow"` or `"Bottle"` or `"Frog"` or `"Funk"` or `"Glass"` or `"Hero"` or `"Morse"` or `"Ping"` or `"Pop"` or `"Purr"` or `"Sosumi"` or `"Submarine"` or `"Tink"` or `"custom_file"` or `"none"` | `"default"` | Notification sound preset. |
+| `notifications.soundWhenFocused` | boolean | `false` | Play the notification sound even when the pane that notified is already focused. Off by default, so a focused pane shows only its ring and flash. |
 | `notifications.customSoundFilePath` | string | `""` | Local path to the custom notification sound file. |
 | `notifications.command` | string | `""` | Optional shell command to run alongside notification delivery. |
 | `notifications.hooksMode` | `"append"` or `"replace"` | `"append"` | Controls whether project-local notification hooks append to inherited hooks or replace them. |
 | `notifications.hooks` | array<object> | `[]` | Composable shell hooks that receive notification policy JSON on stdin and return updated policy JSON on stdout. |
 | `notifications.paneFlashColor` | string or null | `null` | Override the pane flash and unread ring color. Null keeps the built-in blue. |
 | `notifications.suppressOnlyFocusedSurface` | boolean | `false` | When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw. |
+| `notifications.suppressWhenAppFocused` | boolean | `false` | When enabled, cmux skips the desktop banner for every notification while cmux is the active app, not only for the focused pane. Notifications still appear in the sidebar, the sound and custom command still run, and phone forwarding is unchanged. Off keeps showing banners for other workspaces and panes while cmux is focused. |
 | `notifications.agentPermissionPrompt` | boolean | `true` | Notify when an agent (e.g. Claude Code) is blocked waiting for your permission to run a tool. On by default, since this is the alert you must act on to unblock the agent. |
 | `notifications.agentTurnComplete` | `"whenIdle"` or `"always"` or `"never"` | `"whenIdle"` | When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it. |
 | `notifications.agentIdleReminder` | boolean | `true` | Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert. |
@@ -93,6 +107,8 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showWorkspaceDescription` | boolean | `true` | Show custom workspace descriptions in the sidebar. |
 | `sidebar.workspaceDescriptionColor` | colorHexOrNull | `null` | Override the workspace description text color in the sidebar. |
 | `sidebar.branchLayout` | `"vertical"` or `"inline"` | `"vertical"` | Show git branch details stacked vertically or inline. |
+| `sidebar.stackBranchDirectory` | boolean | `false` | Render the git branch and working directory on separate lines instead of sharing one line. |
+| `sidebar.pathLastSegmentOnly` | boolean | `false` | Truncate sidebar paths from the start, showing as much of the trailing path as fits with a leading …/. When false, full paths are abbreviated with ~/. |
 | `sidebar.showNotificationMessage` | boolean | `true` | Show the latest notification text in the sidebar. |
 | `sidebar.showBranchDirectory` | boolean | `true` | Show the workspace working directory. |
 | `sidebar.showPullRequests` | boolean | `true` | Show pull request metadata in the sidebar. |
@@ -104,6 +120,8 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showLog` | boolean | `true` | Show recent log snippets. |
 | `sidebar.showProgress` | boolean | `true` | Show progress indicators. |
 | `sidebar.showCustomMetadata` | boolean | `true` | Show custom metadata pills. |
+| `sidebar.compactAgentStatus` | boolean | `false` | Fold a workspace's agent status, branch, pull request and unread rows into one colored icon before the title, with the details in its tooltip. Rows you added yourself keep their lines. |
+| `sidebar.compactStatusIcons` | object | `{}` | SF Symbol names that replace the compactAgentStatus glyph for each state, for example {"terminal": "apple.terminal", "needsInput": "hand.raised.fill"}. Unset states keep the built-in symbol, and a name that does not render falls back to it. |
 | `sidebar.wrapWorkspaceTitles` | boolean | `false` | Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line. |
 | `sidebar.beta` | object | — | Experimental sidebar features. |
 | `sidebar.notificationMessageLineLimit` | integer | `12` | Maximum lines shown for the latest notification below each workspace title. |
@@ -121,6 +139,7 @@ Workspace tab and badge colors from Settings > Workspace Colors.
 |---|---|---|---|
 | `workspaceColors.indicatorStyle` | `"leftRail"` or `"solidFill"` or `"rail"` or `"border"` or `"wash"` or `"lift"` or `"typography"` or `"washRail"` or `"blueWashColorRail"` | `"leftRail"` | Active workspace indicator style. Legacy aliases are accepted and normalized. |
 | `workspaceColors.selectionColor` | colorHexOrNull | `null` | Override the selected workspace background color. |
+| `workspaceColors.subtleSelection` | boolean | `false` | Show the selected workspace as a faint accent tint with a thin edge instead of a solid fill. |
 | `workspaceColors.notificationBadgeColor` | colorHexOrNull | `null` | Override the unread notification badge color. |
 | `workspaceColors.colors` | object | `{"Red": "#C0392B", "Crimson": "#922B21", "Orange": "#A04000", "Amber": "#7D6608", "Olive": "#4A5C18", "Green": "#196F3D", "Teal": "#006B6B", "Aqua": "#0E6B8C", "Blue": "#1565C0", "Navy": "#1A5276", "Indigo": "#283593", "Purple": "#6A1B9A", "Magenta": "#AD1457", "Rose": "#880E4F", "Brown": "#7B3F00", "Charcoal": "#3E4B5E"}` | Full named workspace color palette. Include built-in entries you want to keep, remove keys to remove colors, and add more named entries to extend the picker. |
 | `workspaceColors.paletteOverrides` | object | `{}` | Legacy workspace color overrides for built-in palette names. Prefer workspaceColors.colors for new configs. |
@@ -136,7 +155,7 @@ Sidebar tint settings from Settings > Sidebar Appearance.
 | `sidebarAppearance.tintColor` | colorHex | `"#000000"` | Base sidebar tint color used when light/dark overrides are not set. |
 | `sidebarAppearance.lightModeTintColor` | colorHexOrNull | `null` | Sidebar tint override for light appearance. |
 | `sidebarAppearance.darkModeTintColor` | colorHexOrNull | `null` | Sidebar tint override for dark appearance. |
-| `sidebarAppearance.tintOpacity` | number | `0.03` | Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`. |
+| `sidebarAppearance.tintOpacity` | number | `0.18` | Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`. |
 
 ## automation
 
@@ -147,6 +166,8 @@ Socket control and automation settings from Settings > Automation.
 | `automation.socketControlMode` | `"off"` or `"cmuxOnly"` or `"automation"` or `"password"` or `"allowAll"` or `"openAccess"` or `"fullOpenAccess"` or `"notifications"` or `"full"` | `"cmuxOnly"` | Socket control mode. Legacy aliases are accepted and normalized. |
 | `automation.socketPassword` | string or null | `""` | Password for password-mode socket access. Use null or an empty string to clear it. |
 | `automation.claudeCodeIntegration` | boolean | `true` | Enable cmux integration hooks for Claude Code. |
+| `automation.codexIntegration` | boolean | `true` | Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe. |
+| `automation.piIntegration` | boolean | `true` | Enable cmux integration hooks for Pi. |
 | `automation.claudeBinaryPath` | string | `""` | Custom path to the claude binary. |
 | `automation.cursorIntegration` | boolean | `true` | Enable cmux integration hooks for Cursor. |
 | `automation.geminiIntegration` | boolean | `true` | Enable cmux integration hooks for Gemini. |
@@ -183,6 +204,45 @@ Embedded browser settings from Settings > Browser.
 | `browser.hiddenWebViewDiscardDelaySeconds` | number | `300` | Seconds a browser tab must stay hidden before cmux frees its page memory. |
 | `browser.askWhereToSaveDownloads` | boolean | `false` | Show a save panel for browser downloads instead of saving directly to Downloads. |
 | `browser.urlAllowlist` | array<string> | `["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]` | Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies. |
+
+## markdown
+
+Built-in Markdown viewer settings from Settings > App.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `markdown.fontSize` | integer (8–96) | `15` | Default body font size, in points, for newly opened Markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0. |
+| `markdown.fontFamily` | string | `""` | Default body font family for newly opened Markdown viewers. Leave empty for the system Markdown font stack. |
+| `markdown.maxWidth` | integer (320–2400) | `980` | Default maximum reading column width, in CSS pixels, for newly opened Markdown viewers. |
+
+## fileEditor
+
+Built-in text editor settings used by text file previews.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `fileEditor.wordWrap` | boolean | `false` | Wrap long lines at the editor's right edge instead of scrolling horizontally. |
+| `fileEditor.syntaxHighlighting` | boolean | `true` | Color source tokens in the built-in file editor. |
+| `fileEditor.lineNumbers` | boolean | `true` | Show a line-number gutter in the built-in file editor. |
+| `fileEditor.indentGuides` | boolean | `true` | Draw vertical indent guides in the built-in file editor. |
+| `fileEditor.currentLineHighlight` | boolean | `true` | Highlight the caret's line when the selection is empty. |
+| `fileEditor.tabWidth` | integer (1–8) | `4` | Columns per tab stop for indent guides. |
+
+## fileExplorer
+
+Right-sidebar file explorer routing for file previews.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `fileExplorer.doubleClickAction` | `"preview"` or `"defaultEditor"` or `"preferredEditor"` | `"preview"` | What double-clicking a file in the file explorer does. `preview` opens the built-in cmux file preview; the editor choices use the macOS default app or `app.preferredEditor`. |
+
+## diffViewer
+
+Built-in diff viewer settings. See [the detailed diff configuration](https://cmux.com/docs/configuration#schema-diffViewer) for invocation overrides.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `diffViewer.defaultLayout` | `"unified"` or `"split"` | `"unified"` | Default layout for newly opened diff viewers. The toolbar choice persists and `cmux diff --layout` overrides this value for one invocation. |
 
 ## shortcuts
 

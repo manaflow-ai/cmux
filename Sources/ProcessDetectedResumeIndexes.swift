@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 struct ProcessDetectedResumeIndexes: Sendable {
@@ -94,25 +95,30 @@ struct ProcessDetectedResumeIndexes: Sendable {
     static func loadFreshOnWorker(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
-        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:],
+        processSnapshotService: ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields>? = nil
     ) async -> ProcessDetectedResumeIndexes {
         await loadOnWorker(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
-            ttyDeviceBindings: ttyDeviceBindings
+            ttyDeviceBindings: ttyDeviceBindings,
+            processSnapshotService: processSnapshotService
         )
     }
 
     /// Returns the last published agent index without filesystem or process capture.
     ///
     /// This is the bounded fallback for a watchdog whose fresh capture already
-    /// exceeded its deadline. Process-backed surface bindings fail closed.
+    /// exceeded its deadline, and for the synchronous update-relaunch save.
+    /// No surface scan ran, so the binding index is unavailable rather than an
+    /// empty clean scan: a clean scan would retire every agent-hook binding the
+    /// cached agent index has not seen yet.
     static func cached(
         restorableAgentIndex: RestorableAgentSessionIndex
     ) -> ProcessDetectedResumeIndexes {
         ProcessDetectedResumeIndexes(
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: .empty
+            surfaceResumeBindingIndex: .unavailable
         )
     }
 
@@ -126,12 +132,20 @@ struct ProcessDetectedResumeIndexes: Sendable {
         fileManager: FileManager = .default,
         maximumSnapshotAge: TimeInterval? = nil,
         cachedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:],
+        processSnapshotService: ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields>? = nil
     ) async -> ProcessDetectedResumeIndexes {
+        // `nil` uses the app's shared census. Tests inject their own so a
+        // fixture never depends on the whole host's process table.
         let processSnapshot = if let maximumSnapshotAge {
-            await CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, includeResources: false, maximumAge: maximumSnapshotAge)
+            await CmuxTopProcessSnapshot.captureCached(
+                includeProcessDetails: true, includeResources: false,
+                maximumAge: maximumSnapshotAge, service: processSnapshotService
+            )
         } else {
-            await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeResources: false)
+            await CmuxTopProcessSnapshot.capture(
+                includeProcessDetails: true, includeResources: false, service: processSnapshotService
+            )
         }
         guard processSnapshot.captureIsAvailable, processSnapshot.enumerationIsComplete, !Task.isCancelled else {
             return ProcessDetectedResumeIndexes(restorableAgentIndex: .unavailable, surfaceResumeBindingIndex: .unavailable)

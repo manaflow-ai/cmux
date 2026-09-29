@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { FreestyleApiError } from "freestyle";
 import { ProviderError } from "../services/vms/drivers/types";
 import {
+  isProviderDeletionConfirmed,
   isProviderIdentityNotFoundError,
   isProviderNotFoundError,
 } from "../services/vms/providerErrors";
@@ -50,5 +51,11 @@ describe("provider error classification", () => {
 
     expect(isProviderIdentityNotFoundError(err)).toBe(true);
     expect(isProviderNotFoundError(err)).toBe(false);
+  });
+
+  test("background deletion confirmation requires the explicit NOT_FOUND code", () => {
+    expect(isProviderDeletionConfirmed({ cause: { status: 404, code: "NOT_FOUND" } })).toBe(true);
+    expect(isProviderDeletionConfirmed({ cause: { status: 404, code: "UNKNOWN" } })).toBe(false);
+    expect(isProviderDeletionConfirmed({ cause: { status: 503, code: "NOT_FOUND" } })).toBe(false);
   });
 });

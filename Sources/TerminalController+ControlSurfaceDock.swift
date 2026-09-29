@@ -14,7 +14,6 @@ extension TerminalController {
             tabManager: tabManager,
             panelType: panelType,
             unsupportedType: { .dockUnsupportedType(typeRawValue: $0, message: $1) },
-            dockUnavailable: { .dockUnavailable(message: $0) },
             workspaceNotFound: .workspaceNotFound,
             conflictingSelectors: { .dockConflictingRoutingSelectors(message: $0) }
         )
@@ -30,7 +29,6 @@ extension TerminalController {
             tabManager: tabManager,
             panelType: panelType,
             unsupportedType: { .dockUnsupportedType(typeRawValue: $0, message: $1) },
-            dockUnavailable: { .dockUnavailable(message: $0) },
             workspaceNotFound: .workspaceNotFound,
             conflictingSelectors: { .dockConflictingRoutingSelectors(message: $0) }
         )
@@ -41,15 +39,11 @@ extension TerminalController {
         tabManager: TabManager,
         panelType: PanelType,
         unsupportedType: (String, String) -> Resolution,
-        dockUnavailable: (String) -> Resolution,
         workspaceNotFound: Resolution,
         conflictingSelectors: (String) -> Resolution
     ) -> Resolution? {
         guard panelType == .terminal || panelType == .browser else {
             return unsupportedType(panelType.rawValue, dockUnsupportedSurfaceTypeMessage())
-        }
-        guard RightSidebarMode.dock.isAvailable() else {
-            return dockUnavailable(dockUnavailableMessage())
         }
         guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
             return workspaceNotFound
@@ -88,7 +82,7 @@ extension TerminalController {
     }
 
     func dockUnavailableMessage() -> String {
-        String(localized: "dock.error.unavailable", defaultValue: "Dock placement is disabled")
+        String(localized: "dock.error.unavailable", defaultValue: "Dock placement is unavailable")
     }
 
     func dockFocusUnavailableMessage() -> String {

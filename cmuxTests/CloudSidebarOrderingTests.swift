@@ -1,5 +1,7 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Testing
 
 #if canImport(cmux_DEV)
@@ -221,7 +223,8 @@ final class CloudSidebarOrderingFixture {
         defaults.removePersistentDomain(forName: defaultsName)
     }
 
-    func attachScreenshot(named name: String) throws {
+    func attachScreenshot(named name: String, of view: NSView? = nil) throws {
+        let container = view ?? self.container
         container.layoutSubtreeIfNeeded()
         let bitmap = try #require(container.bitmapImageRepForCachingDisplay(in: container.bounds))
         container.cacheDisplay(in: container.bounds, to: bitmap)

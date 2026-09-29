@@ -293,8 +293,11 @@ extension ControlWorkspaceContext {
             closeProtected: "", closeFailed: "",
             reorderManyMissingOrder: "",
             reorderManyDuplicateWorkspace: "",
-            reorderManyWorkspaceNotFound: "",
-            reorderManyInvalidWorkspace: "",
+            workspaceNotFound: "",
+            invalidWorkspaceRef: "",
+            reorderIndexNotAnInteger: "",
+            reorderMissingWorkspaceID: "",
+            reorderTargetRequired: "",
             reorderManyTabManagerUnavailable: "", relayOwnerUnavailable: ""
         )
     }

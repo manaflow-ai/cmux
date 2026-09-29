@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxFoundation
 import Testing
@@ -20,13 +21,25 @@ struct CloudSidebarAttentionLayoutTests {
         }
     }
 
-    private func attentionPlacement(width: Double, kind: String, percent: Int, pinned: Bool) throws {
+    /// Rows read the magnification from `UserDefaults.standard` when they render,
+    /// so geometry assertions pin it instead of inheriting app-host state.
+    private func withMagnification<T>(_ percent: Int, _ body: () throws -> T) rethrows -> T {
         let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
         UserDefaults.standard.set(percent, forKey: GlobalFontMagnification.percentKey)
         defer {
             if let oldPercent { UserDefaults.standard.set(oldPercent, forKey: GlobalFontMagnification.percentKey) }
             else { UserDefaults.standard.removeObject(forKey: GlobalFontMagnification.percentKey) }
         }
+        return try body()
+    }
+
+    private func attentionPlacement(width: Double, kind: String, percent: Int, pinned: Bool) throws {
+        try withMagnification(percent) {
+            try renderAttentionPlacement(width: width, kind: kind, percent: percent, pinned: pinned)
+        }
+    }
+
+    private func renderAttentionPlacement(width: Double, kind: String, percent: Int, pinned: Bool) throws {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         fixture.coordinator.apply(nodes: fixture.nodes())
@@ -116,6 +129,11 @@ struct CloudSidebarAttentionLayoutTests {
     @Test("The real outline repaints unread and cleared rows without changing disclosure geometry",
           arguments: [220.0, 380.0])
     func outlineAttentionTransitions(width: Double) throws {
+        // The expectations below measure the 100% leading slot.
+        try withMagnification(100) { try renderOutlineAttentionTransitions(width: width) }
+    }
+
+    private func renderOutlineAttentionTransitions(width: Double) throws {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         fixture.window.setContentSize(NSSize(width: width, height: 560))

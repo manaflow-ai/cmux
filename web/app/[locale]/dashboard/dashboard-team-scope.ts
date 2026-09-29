@@ -1,9 +1,14 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { usePathname, useRouter } from "@/i18n/navigation";
-import { persistCoderouterOrganizationScope } from "@/services/coderouter/organizationScope";
+import {
+  clearCoderouterOrganizationScope,
+  coderouterOrganizationFromCookieHeader,
+  persistCoderouterOrganizationScope,
+} from "@/services/coderouter/organizationScope";
 
 export type DashboardTeamCatalog = {
   readonly selectedTeamId: string | null;
@@ -32,6 +37,12 @@ export type DashboardTeamScope =
 
 const CATALOG_TIMEOUT_MS = 10_000;
 
+type ConfirmedTeamSwitchState = {
+  readonly catalog: DashboardTeamCatalog;
+  readonly cookieScope: string | null;
+  readonly search: string;
+};
+
 /**
  * The dashboard-wide team scope. Stack Auth owns the selected team on the
  * server, so switching here changes what every dashboard surface shows
@@ -42,6 +53,11 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const activeSwitchId = useRef(0);
+  const nextSwitchId = useRef(0);
+  const pendingSwitches = useRef(0);
+  const confirmedSwitchState = useRef<ConfirmedTeamSwitchState | null>(null);
+  const switchPersistenceTail = useRef<Promise<void>>(Promise.resolve());
   const queryKey = ["dashboard-team-catalog", userId] as const;
   const { data, isPending } = useQuery({
     queryKey,
@@ -60,39 +76,127 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
   const selected = selectedTeam(teams, data.selectedTeamId, searchParams.get("team"));
 
   const switchTeam = async (team: DashboardCatalogTeam) => {
-    if (team.id === selected.id) return;
-    const cancellation = new AbortController();
-    const timeout = setTimeout(() => cancellation.abort(new Error("Team switch timed out")), CATALOG_TIMEOUT_MS);
-    let response: Response;
-    try {
-      response = await fetch("/api/subrouter/teams", {
-        method: "PATCH",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ teamId: team.id }),
-        signal: cancellation.signal,
-      });
-    } finally {
-      clearTimeout(timeout);
+    const currentCatalog = queryClient.getQueryData<DashboardTeamCatalog>(queryKey) ?? data;
+    if (
+      (pendingSwitches.current === 0 && team.id === selected.id)
+      || (pendingSwitches.current > 0 && currentCatalog.selectedTeamId === team.id)
+    ) {
+      return;
     }
-    if (!response.ok) throw new Error("Could not switch dashboard team");
-    // Keep the legacy cookie in sync for older dashboard pages while the
-    // Stack Auth selected team remains the authority.
-    persistCoderouterOrganizationScope(userId, team.id);
+
+    nextSwitchId.current += 1;
+    const operationId = nextSwitchId.current;
+    activeSwitchId.current = operationId;
+
+    if (pendingSwitches.current === 0) {
+      confirmedSwitchState.current = {
+        catalog: currentCatalog,
+        cookieScope: coderouterOrganizationFromCookieHeader(
+          typeof document === "undefined" ? null : document.cookie,
+          userId,
+        ),
+        search: searchParams.toString(),
+      };
+    }
+    pendingSwitches.current += 1;
+
+    const optimisticSearch = new URLSearchParams(searchParams.toString());
     queryClient.setQueryData<DashboardTeamCatalog>(
       queryKey,
       (current) => current ? { ...current, selectedTeamId: team.id } : current,
     );
-    if (searchParams.has("team")) {
-      // A deep-linked team in the URL would keep overriding the new scope.
-      const next = new URLSearchParams(searchParams.toString());
-      next.delete("team");
-      const query = next.toString();
-      router.replace(query ? `${pathname}?${query}` : pathname);
+    persistCoderouterOrganizationScope(userId, team.id);
+    optimisticSearch.set("team", team.id);
+    router.replace(pathWithSearch(pathname, optimisticSearch));
+
+    const persistRequest = async () => {
+      const cancellation = new AbortController();
+      const timeout = setTimeout(
+        () => cancellation.abort(new Error("Team switch timed out")),
+        CATALOG_TIMEOUT_MS,
+      );
+      try {
+        const response = await fetch("/api/subrouter/teams", {
+          method: "PATCH",
+          headers: { "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify({ teamId: team.id }),
+          signal: cancellation.signal,
+        });
+        if (!response.ok) throw new Error("Could not switch dashboard team");
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      const confirmed = confirmedSwitchState.current;
+      if (confirmed === null) {
+        throw new Error("Dashboard team switch confirmation state was lost");
+      }
+      const confirmedSearch = new URLSearchParams(confirmed.search);
+      confirmedSearch.delete("team");
+      const nextConfirmed: ConfirmedTeamSwitchState = {
+        catalog: { ...confirmed.catalog, selectedTeamId: team.id },
+        cookieScope: team.id,
+        search: confirmedSearch.toString(),
+      };
+      confirmedSwitchState.current = nextConfirmed;
+      return nextConfirmed;
+    };
+    const persist = pendingSwitches.current === 1
+      ? persistRequest()
+      : switchPersistenceTail.current.then(persistRequest);
+    switchPersistenceTail.current = persist.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    const finish = () => {
+      pendingSwitches.current -= 1;
+      if (pendingSwitches.current === 0) {
+        confirmedSwitchState.current = null;
+      }
+    };
+
+    let confirmed: ConfirmedTeamSwitchState;
+    try {
+      confirmed = await persist;
+    } catch (error) {
+      if (activeSwitchId.current === operationId) {
+        const rollback = confirmedSwitchState.current;
+        if (rollback !== null) {
+          queryClient.setQueryData(queryKey, rollback.catalog);
+          if (rollback.cookieScope === null) {
+            clearCoderouterOrganizationScope();
+          } else {
+            persistCoderouterOrganizationScope(userId, rollback.cookieScope);
+          }
+          router.replace(
+            pathWithSearch(pathname, new URLSearchParams(rollback.search)),
+          );
+        }
+        activeSwitchId.current = 0;
+      }
+      finish();
+      throw error;
     }
-    router.refresh();
+
+    if (activeSwitchId.current === operationId) {
+      queryClient.setQueryData(queryKey, confirmed.catalog);
+      persistCoderouterOrganizationScope(userId, confirmed.cookieScope ?? team.id);
+      router.replace(
+        pathWithSearch(pathname, new URLSearchParams(confirmed.search)),
+      );
+      activeSwitchId.current = 0;
+      router.refresh();
+    }
+    finish();
   };
 
   return { status: "ready", teams, selected, switchTeam };
+}
+
+function pathWithSearch(pathname: string, searchParams: URLSearchParams): string {
+  const query = searchParams.toString();
+  return query ? `${pathname}?${query}` : pathname;
 }
 
 /** Teams the dashboard can show: route users and account-only managers. */

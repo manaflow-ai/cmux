@@ -1,11 +1,28 @@
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxIrxTransport
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Owns outgoing control sessions while borrowing the Mac's single registered endpoint.
 actor DeviceIrxClient {
     typealias ContextProvider = @Sendable () async throws -> DeviceIrxClientContext
+
+    /// Returns whether a waiting session has an authoritative local revocation.
+    nonisolated static func shouldReleaseWaitingSession(cache: V2CachedState?, releaseAll: Bool = false) -> Bool {
+        guard !releaseAll, let cache else { return releaseAll }
+        return cache.authorityRevoked || cache.device?.revoked == true
+    }
+
+    /// Returns whether an authoritative verified-session failure retires its endpoint slot.
+    nonisolated static func shouldReleaseVerifiedSession(after failure: IrxMacPeerAuthorization.Failure) -> Bool {
+        switch failure {
+        case .staleDirectory:
+            return false
+        case .unavailable, .revoked, .notDiscoverable, .identityMismatch:
+            return true
+        }
+    }
 
     private enum Authorization {
         case waiting
@@ -37,6 +54,7 @@ actor DeviceIrxClient {
         let permissionExpiresAt: Int
         let relayURLs: [String]
         let revoked: Bool
+        let rules: [String]
 
         init?(cache: V2CachedState?) {
             guard let cache, let directory = cache.directory else { return nil }
@@ -47,6 +65,7 @@ actor DeviceIrxClient {
             }.sorted { $0.deviceRecordID < $1.deviceRecordID }
             permissionExpiresAt = directory.permissionExpiresAt
             relayURLs = directory.relayURLs
+            rules = (directory.rules ?? []).sorted()
             revoked = cache.authorityRevoked
         }
     }
@@ -69,6 +88,14 @@ actor DeviceIrxClient {
         guard !stopped, await borrowed.isCurrent() else { throw DeviceLinkError.notConnected }
         let cache = await borrowed.control.snapshot().cache
         return Self.displayBindings(cache: cache, now: permissionNow())
+    }
+
+    /// The stamp of the complete directory that authorizes outgoing control,
+    /// or nil before one is loaded.
+    func directoryStamp() async -> DeviceDirectoryStamp? {
+        guard !stopped, let borrowed = try? await context(), await borrowed.isCurrent(),
+              let directory = await borrowed.control.snapshot().cache.directory else { return nil }
+        return DeviceDirectoryStamp(revision: directory.revision, issuedAt: directory.issuedAt)
     }
 
     /// A pushed account-directory revision triggers a discovery refresh without polling.
@@ -185,14 +212,29 @@ actor DeviceIrxClient {
         for session in previous { await session.engine.stop() }
     }
 
-    func enforce(_ cache: V2CachedState?) async {
+    /// Reconciles session authorization against an authoritative control snapshot.
+    func enforce(_ cache: V2CachedState?, releaseAll: Bool = false) async {
         let revoked = sessions.filter { endpoint, entry in
-            guard let cache, let peer = try? IrxMacPeerAuthorization(
-                deviceID: entry.instance.deviceID, tag: entry.instance.tag, endpointID: endpoint
-            ).resolve(cache: cache, localIdentity: cache.identity, now: permissionNow()) else { return true }
+            if releaseAll { return true }
+            guard let cache else { return false }
             switch entry.authorization {
-            case .waiting: return false
-            case .verified: return !isAuthorized(peer, endpoint: endpoint, owner: entry.owner)
+            case .waiting:
+                // A control snapshot can be ready before its complete directory
+                // has arrived. The dial validates the latest cache at every
+                // admission boundary; stopping it here turns that normal race
+                // into a user-requested cancellation with no retry signal.
+                return Self.shouldReleaseWaitingSession(cache: cache)
+            case .verified:
+                do {
+                    let peer = try IrxMacPeerAuthorization(
+                        deviceID: entry.instance.deviceID, tag: entry.instance.tag, endpointID: endpoint
+                    ).resolve(cache: cache, localIdentity: cache.identity, now: permissionNow())
+                    return !isAuthorized(peer, endpoint: endpoint, owner: entry.owner)
+                } catch let failure as IrxMacPeerAuthorization.Failure {
+                    return Self.shouldReleaseVerifiedSession(after: failure)
+                } catch {
+                    return false
+                }
             case .closing: return false
             }
         }
@@ -284,14 +326,24 @@ actor DeviceIrxClient {
         let connection = try await context.supervisor.dial(address: address, credentials: credentials)
         do {
             guard await context.isCurrent() else { throw DeviceLinkError.notConnected }
-            let (admit, control) = try await IrxAdmission().performClient(connection: connection, journal: journal)
-            let latest = try intent.resolve(cache: await context.control.snapshot().cache,
-                localIdentity: context.localDevice.descriptor.identity, now: now())
-            guard latest.deviceRecordID == target.deviceRecordID,
-                  latest.descriptor.identityGeneration == target.descriptor.identityGeneration,
-                  await context.isCurrent(), await recordBinding(target) else { throw DeviceLinkError.identityMismatch }
+            // Post-admit binding recheck. On the direct-path lane it runs
+            // inside performClient before NAT traversal is authorized, so a
+            // dial that went stale during admission never discloses direct
+            // candidates; on the relay-only lane it runs here, exactly once
+            // either way (recordBinding has a side effect).
+            let recheckBinding: @Sendable () async throws -> Void = {
+                let latest = try intent.resolve(cache: await context.control.snapshot().cache,
+                    localIdentity: context.localDevice.descriptor.identity, now: now())
+                guard latest.deviceRecordID == target.deviceRecordID,
+                      latest.descriptor.identityGeneration == target.descriptor.identityGeneration,
+                      await context.isCurrent(), await recordBinding(target) else { throw DeviceLinkError.identityMismatch }
+            }
+            let (admit, control) = try await IrxAdmission().performClient(
+                connection: connection, journal: journal,
+                authorizesDirectPaths: context.allowsDirectPaths,
+                preAuthorization: recheckBinding)
+            if !context.allowsDirectPaths { try await recheckBinding() }
             await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
-            if context.allowsDirectPaths { await connection.authorizeDirectPaths() }
             return IrxClientSession(connection: connection, admit: admit, control: control, establishedAt: now())
         } catch {
             await connection.close(code: .userRequested, origin: .local)

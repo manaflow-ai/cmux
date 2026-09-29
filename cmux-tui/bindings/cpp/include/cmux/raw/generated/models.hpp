@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0";
+inline constexpr std::string_view kProtocolIrSha256 = "e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -109,6 +109,7 @@ struct ServerStatsRegistryLock;
 struct ServerStatsResult;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
+struct SetTerminalIdlePolicyResult;
 struct ShutdownDaemonResult;
 struct SidebarPluginResult;
 struct Size;
@@ -235,6 +236,7 @@ struct SetClientSizingRequest;
 struct SetDefaultColorsRequest;
 struct SetRatioRequest;
 struct SetSplitRatioRequest;
+struct SetTerminalIdlePolicyRequest;
 struct SetViewportPaneWidthRequest;
 struct SetWindowTitleRequest;
 struct ShutdownDaemonRequest;
@@ -331,6 +333,7 @@ enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
 
 enum class AgentSource {
+    plugin,
     detected,
     socket,
     hook,
@@ -350,6 +353,7 @@ struct Id {
 };
 
 struct AgentChangedEvent {
+    Field<std::string> agent{};
     std::optional<std::string> session{};
     AgentSource source{};
     AgentState state{};
@@ -1851,6 +1855,7 @@ struct ProcessInfoResult {
     std::optional<std::string> command{};
     std::optional<std::string> cwd{};
     Field<std::string> foreground_cwd{};
+    Field<std::string> foreground_executable{};
     std::optional<std::uint32_t> pid{};
     friend bool operator==(const ProcessInfoResult&, const ProcessInfoResult&) = default;
 };
@@ -2406,6 +2411,19 @@ struct SetSplitRatioRequest {
     Id split{};
     Field<std::uint64_t> transaction{};
     friend bool operator==(const SetSplitRatioRequest&, const SetSplitRatioRequest&) = default;
+};
+
+struct SetTerminalIdlePolicyRequest {
+    Field<std::uint64_t> idle_close_seconds{};
+    Field<Id> surface{};
+    Field<std::string> terminal_id{};
+    friend bool operator==(const SetTerminalIdlePolicyRequest&, const SetTerminalIdlePolicyRequest&) = default;
+};
+
+struct SetTerminalIdlePolicyResult {
+    std::optional<std::uint64_t> idle_close_seconds{};
+    std::string terminal_id{};
+    friend bool operator==(const SetTerminalIdlePolicyResult&, const SetTerminalIdlePolicyResult&) = default;
 };
 
 struct SetViewportPaneWidthRequest {
@@ -3341,6 +3359,12 @@ struct Codec<SetCellPixelsResult> {
 };
 
 template <>
+struct Codec<SetTerminalIdlePolicyResult> {
+    static Result<Json> encode(const SetTerminalIdlePolicyResult& value);
+    static Result<SetTerminalIdlePolicyResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ShutdownDaemonResult> {
     static Result<Json> encode(const ShutdownDaemonResult& value);
     static Result<ShutdownDaemonResult> decode(const Json& value);
@@ -4094,6 +4118,12 @@ template <>
 struct Codec<SetSplitRatioRequest> {
     static Result<Json> encode(const SetSplitRatioRequest& value);
     static Result<SetSplitRatioRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetTerminalIdlePolicyRequest> {
+    static Result<Json> encode(const SetTerminalIdlePolicyRequest& value);
+    static Result<SetTerminalIdlePolicyRequest> decode(const Json& value);
 };
 
 template <>

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0. */
+/* cmux-tui mux protocol 12, IR e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0" as const;
+export const SDK_IR_SHA256 = "e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1109,6 +1109,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "set-terminal-idle-policy": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-idle-close-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The policy is stored durably with the terminal and survives owner restarts.",
+      "The owner closes the terminal, as close-terminal does, once it has had no attached view for idle_close_seconds; unattached time restarts at every attach and after an owner restart."
+    ]
+  },
   "set-viewport-pane-width": {
     "authority": "control",
     "since": 9,
@@ -1829,6 +1840,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "AgentSource": {
     "kind": "enum",
     "values": [
+      "plugin",
       "detected",
       "socket",
       "hook"
@@ -4111,6 +4123,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "foreground_executable": {
+        "description": "Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "pid": {
         "nullable": true,
         "presence": "required",
@@ -5617,6 +5639,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "CellPixelResize"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SetTerminalIdlePolicyResult": {
+    "additional_properties": false,
+    "fields": {
+      "idle_close_seconds": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -11086,6 +11130,61 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "set-terminal-idle-policy": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "Exactly one of surface or terminal_id is present.",
+        "A missing or null idle_close_seconds clears the policy, so the terminal is never closed for idleness."
+      ],
+      "fields": {
+        "idle_close_seconds": {
+          "constraints": [
+            {
+              "maximum": 315360000,
+              "minimum": 1
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "surface": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "terminal_id": {
+          "constraints": [
+            {
+              "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id",
+              "pattern": "^(term_)?[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "SetTerminalIdlePolicyResult"
+    }
+  },
   "set-viewport-pane-width": {
     "request": {
       "additional_properties": false,
@@ -11629,6 +11728,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "agent-changed": {
     "additional_properties": false,
     "fields": {
+      "agent": {
+        "description": "Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",

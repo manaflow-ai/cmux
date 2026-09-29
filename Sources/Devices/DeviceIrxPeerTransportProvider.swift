@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxSurfaceCatalogModel
 
 /// Carries the intended physical Mac and build through the deferred factory.
 struct DeviceIrxPeerTransportProvider: CmxIrohDeferredTransportProviding {

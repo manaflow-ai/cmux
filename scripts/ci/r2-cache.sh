@@ -136,9 +136,13 @@ publish_pointer() { # <prefix> <work dir> <archive generation>
       current="$(header x-amz-meta-generation "$work/headers")"
       current="${current:-0}"
       valid_generation "$current" || return 1
-      # Every writer uses nightly.yml's monotonic run number. Keep the
-      # archive's original number when retrying a previously uploaded key.
-      (( 10#$current >= 10#$generation )) && return 0
+      # Keep the archive's original generation when retrying a previously
+      # uploaded key, so a late retry cannot promote an old archive.
+      if (( 10#$current > 10#$generation )); then
+        echo "r2-cache: pointer $prefix names a newer save (generation $current > $generation); left as is"
+        return 0
+      fi
+      (( 10#$current == 10#$generation )) && return 0
       etag="$(header etag "$work/headers")"
       [[ -n "$etag" ]] || return 1
       condition="If-Match: $etag"
@@ -172,8 +176,11 @@ save() {
 
   local extension="tar.gz" work status generation url
   command -v zstd >/dev/null 2>&1 && extension="tar.zst"
-  generation="${GITHUB_RUN_NUMBER:-0}"
-  valid_generation "$generation" || { echo "::warning::r2-cache: invalid run number; nothing saved"; return 0; }
+  # GITHUB_RUN_ID increases across every workflow in the repository, in the
+  # order runs were created. Run numbers count per workflow, and nightly.yml
+  # and seed-derived-data.yml write the same prefixes.
+  generation="${GITHUB_RUN_ID:-0}"
+  valid_generation "$generation" || { echo "::warning::r2-cache: invalid run ID; nothing saved"; return 0; }
   work="$(mktemp -d)"
   url="${CI_CACHE_R2_ENDPOINT%/}/$CI_CACHE_R2_BUCKET/$namespace/objects/$key.$extension"
   status="$(request --head --dump-header "$work/headers" "$url")" || status=000

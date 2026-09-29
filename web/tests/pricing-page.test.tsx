@@ -140,6 +140,21 @@ describe("localized pricing page", () => {
     }
   });
 
+  test("renders generic pricing when the Hexclave session read fails", async () => {
+    stackConfigured = true;
+    getUser.mockImplementation(async () => {
+      throw new Error("Failed to fetch: api.hexclave.com unreachable");
+    });
+    try {
+      const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+      expect(html).toContain("Get Pro");
+      expect(html).toContain("Get Max");
+      expect(html).not.toContain("Current plan");
+    } finally {
+      getUser.mockImplementation(async () => proUser);
+    }
+  });
+
   test("shows monthly prices only even for old annual pricing links", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }), searchParams: Promise.resolve({ interval: "year" }) });
     const html = (await renderSettled(element));

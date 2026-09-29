@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { after } from "next/server";
+import { deferCoderouterTask } from "./deferredTask";
 
 import { POSTHOG_HOST, POSTHOG_PROJECT_KEY } from "../analytics/iosEventPolicy";
 import {
@@ -78,20 +78,7 @@ const MAX_COUNT = 1_000_000_000_000;
 const ANALYTICS_SCHEMA_VERSION = 3;
 const ANALYTICS_SERVICE_VERSION = "coderouter-web-v1";
 
-/**
- * Runs a best-effort telemetry task after the response is sent. Shared by the
- * PostHog capture and the ClickHouse usage ledger so both leave the request
- * path the same way.
- */
-export function deferCoderouterTask(task: Promise<unknown>): void {
-  try {
-    after(task);
-  } catch {
-    // Unit tests and non-request scripts do not have a Next request scope.
-    // The promise is already running; always absorb rejection.
-    void task.catch(() => undefined);
-  }
-}
+export { deferCoderouterTask };
 
 /**
  * A PostHog event whose properties are built by a trusted caller

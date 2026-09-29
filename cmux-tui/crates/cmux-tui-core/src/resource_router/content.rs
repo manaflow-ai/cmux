@@ -111,28 +111,16 @@ fn terminal_screen_read(
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (_, surface) = resolve_terminal_surface(mux, &request.selectors)?;
-    let (text, cols, rows, cursor_col, cursor_row, cursor_visible) = surface
-        .try_with_terminal(|terminal| {
-            let text = terminal.viewport_text()?;
-            let (cursor_col, cursor_row) = terminal.cursor_position().unwrap_or((0, 0));
-            Ok::<_, ghostty_vt::Error>((
-                text,
-                terminal.cols(),
-                terminal.rows(),
-                cursor_col,
-                cursor_row,
-                terminal.mode(25, false),
-            ))
-        })
-        .map_err(resource_operation_error)?
-        .map_err(|error| resource_operation_error(error.into()))?;
+    let snapshot = surface.terminal_screen_snapshot().map_err(resource_operation_error)?;
     Ok(json!({
-        "text":text,
-        "cols":cols,
-        "rows":rows,
-        "cursor_row":cursor_row,
-        "cursor_col":cursor_col,
-        "cursor_visible":cursor_visible,
+        "text":snapshot.text,
+        "cols":snapshot.cols,
+        "rows":snapshot.rows,
+        "cursor_row":snapshot.cursor_row,
+        "cursor_col":snapshot.cursor_col,
+        "cursor_visible":snapshot.cursor_visible,
+        "revision":snapshot.revision.to_string(),
+        "osc_progress":snapshot.osc_progress,
     }))
 }
 
@@ -331,6 +319,7 @@ fn terminal_process_get(
         "argv":argv,
         "children":children,
         "foreground_cwd":crate::platform::foreground_cwd(pid),
+        "foreground_executable":crate::platform::foreground_process_name(pid),
     });
     if let Some(executable) = executable {
         value["executable"] = json!(executable);

@@ -1,4 +1,6 @@
+import CmuxCloud
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -79,20 +81,20 @@ struct DevicesSidebarModeTests {
 
     @Test("Cloud availability gates both machine sources")
     func availability() {
-        #expect(RightSidebarMode.machines.isAvailable(feedEnabled: true, dockEnabled: true, machinesEnabled: true, devicesEnabled: false))
-        #expect(!RightSidebarMode.machines.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: false, devicesEnabled: true))
-        #expect(RightSidebarMode.machines.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: false) == false, "callers that predate Devices see it hidden")
+        #expect(RightSidebarMode.machines.isAvailable(feedEnabled: true, machinesEnabled: true, devicesEnabled: false))
+        #expect(!RightSidebarMode.machines.isAvailable(feedEnabled: false, machinesEnabled: false, devicesEnabled: true))
+        #expect(RightSidebarMode.machines.isAvailable(feedEnabled: false, machinesEnabled: false) == false, "callers that predate Devices see it hidden")
         #expect(
-            RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: true, devicesEnabled: true)
-                == [.files, .find, .sessions, .machines]
+            RightSidebarMode.availableModes(feedEnabled: false, machinesEnabled: true, devicesEnabled: true)
+                == [.files, .find, .sessions, .dock, .machines]
         )
         #expect(
-            RightSidebarMode.availableModes(feedEnabled: true, dockEnabled: true, machinesEnabled: false, devicesEnabled: true)
+            RightSidebarMode.availableModes(feedEnabled: true, machinesEnabled: false, devicesEnabled: true)
                 == [.files, .find, .sessions, .feed, .dock]
         )
         #expect(
-            RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: true)
-                == [.files, .find, .sessions, .machines]
+            RightSidebarMode.availableModes(feedEnabled: false, machinesEnabled: true)
+                == [.files, .find, .sessions, .dock, .machines]
         )
     }
 

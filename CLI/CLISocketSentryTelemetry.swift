@@ -134,7 +134,11 @@ final class CLISocketSentryTelemetry {
         self.surfaceId = processEnv["CMUX_SURFACE_ID"]
         self.disabledByEnv =
             processEnv["CMUX_CLI_SENTRY_DISABLED"] == "1" ||
-            processEnv["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] == "1"
+            processEnv["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] == "1" ||
+            Self.isFailOpenAgentHookAdmission(
+                command: command.lowercased(),
+                subcommand: commandArgs.first?.lowercased() ?? "help"
+            )
         self.noiseFilter = SentryNoiseFilter()
         self.sentryPolicy = CLISocketSentryPolicy(environment: processEnv)
         // The cmux repo is public; rebranded forks have shipped with this
@@ -144,6 +148,14 @@ final class CLISocketSentryTelemetry {
             bundleIdentifier: Self.currentSentryBundleIdentifier(environment: processEnv),
             trustedBaseBundleIdentifier: SocketPathMarkerFiles.stableBundleIdentifier
         )
+    }
+
+    /// `cmux hooks enqueue` fails open by design: every failure becomes the
+    /// agent's neutral response, and failures are expected while the app is
+    /// busy or quitting. Starting Sentry there is unbounded work inside the
+    /// agent's hook budget.
+    static func isFailOpenAgentHookAdmission(command: String, subcommand: String) -> Bool {
+        command == "hooks" && subcommand == "enqueue"
     }
 
     func breadcrumb(_ message: String, data: [String: Any] = [:]) {

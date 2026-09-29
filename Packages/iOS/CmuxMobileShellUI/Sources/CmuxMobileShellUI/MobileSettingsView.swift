@@ -232,6 +232,24 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
                 }
 
+                if let store {
+                    Section {
+                        NavigationLink {
+                            SSHKeysView(computers: store.sshComputers)
+                        } label: {
+                            Label(SSHCopy().keysTitle, systemImage: "key")
+                        }
+                        .accessibilityIdentifier("ssh.settings.keys")
+                    } header: {
+                        Text(SSHCopy().sectionTitle)
+                    } footer: {
+                        Text(L10n.string(
+                            "mobile.ssh.settings.keys.footer",
+                            defaultValue: "Keys this iPhone uses to log in to SSH computers."
+                        ))
+                    }
+                }
+
                 if let irohSettingsController {
                     Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
                         NavigationLink {
@@ -265,6 +283,22 @@ struct MobileSettingsView: View {
                         ))
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalFolderTapToggle")
+
+                    Toggle(isOn: $displaySettings.useLegacyTerminalSizing) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L10n.string(
+                                "mobile.settings.legacyTerminalSizing",
+                                defaultValue: "Use Full Terminal Height"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.legacyTerminalSizing.description",
+                                defaultValue: "Let apps like Vim extend beneath the keyboard and toolbars."
+                            ))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsLegacyTerminalSizingToggle")
 
                     Button {
                         showingShortcuts = true
@@ -554,6 +588,8 @@ struct MobileSettingsView: View {
                 MobileSettingsDiagnosticsSection()
 
                 MobileSettingsLegalSupportSection()
+
+                MobileSettingsResetSection()
 
                 Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
                     LabeledContent {

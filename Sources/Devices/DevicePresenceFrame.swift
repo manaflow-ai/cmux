@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// One running cmux app instance on a device, as the presence service reports

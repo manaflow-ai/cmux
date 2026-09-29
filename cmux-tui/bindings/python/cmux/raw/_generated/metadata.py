@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0'
+IR_SHA256 = 'e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45'
 
 
 @dataclass(frozen=True)
@@ -1279,6 +1279,19 @@ COMMANDS = {
             'ratio': CommandFieldMetadata(None, None),
             'split': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(9, 'layout-undo-v1'),
+        },
+    ),
+    'set-terminal-idle-policy': CommandMetadata(
+        'set-terminal-idle-policy',
+        'control',
+        12,
+        'terminal-idle-close-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'idle_close_seconds': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
         },
     ),
     'set-viewport-pane-width': CommandMetadata(

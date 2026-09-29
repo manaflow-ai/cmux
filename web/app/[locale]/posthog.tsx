@@ -2,17 +2,16 @@
 
 import { PostHogProvider as PHProvider } from "posthog-js/react";
 import type { CaptureResult } from "posthog-js";
-import { useUser } from "@hexclave/next";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useLayoutEffect, useRef, Suspense } from "react";
-import { posthog } from "../lib/posthog-client";
+import { markAnalyticsCaptureBuffered, posthog } from "../lib/posthog-client";
 import {
+  STACK_AUTH_CHANGED_EVENT,
   STACK_IDENTITY_STORAGE_KEY,
   syncStackAnalyticsIdentity,
   type StackAnalyticsIdentity,
 } from "../../services/analytics/stackIdentity";
 
-const STACK_AUTH_CHANGED_EVENT = "cmux:stack-auth-changed";
 
 function PageviewTracker() {
   const pathname = usePathname();
@@ -134,6 +133,7 @@ function PageviewTracker() {
       // after reset/identify prevents stale attribution without losing routine
       // focus and visibility captures.
       posthog.set_config({ before_send: bufferCapture });
+      markAnalyticsCaptureBuffered();
 
       try {
         const response = await fetch("/api/analytics/identity", {
@@ -219,44 +219,12 @@ function PageviewTracker() {
   return null;
 }
 
-function StackAuthObserver() {
-  const authenticatedUser = useUser({ or: "return-null" });
-  const previousUserId = useRef<string | undefined>(undefined);
-  const initialized = useRef(false);
-
-  useLayoutEffect(() => {
-    const userId = authenticatedUser?.id;
-    if (!initialized.current) {
-      initialized.current = true;
-      previousUserId.current = userId;
-      return;
-    }
-    if (previousUserId.current !== userId) {
-      previousUserId.current = userId;
-      window.dispatchEvent(new Event(STACK_AUTH_CHANGED_EVENT));
-    }
-  }, [authenticatedUser?.id]);
-
-  return null;
-}
-
-export function PostHogProvider({
-  children,
-  observesStackAuth = false,
-}: {
-  children: React.ReactNode;
-  observesStackAuth?: boolean;
-}) {
+export function PostHogProvider({ children }: { children: React.ReactNode }) {
   return (
     <PHProvider client={posthog}>
       <Suspense fallback={null}>
         <PageviewTracker />
       </Suspense>
-      {observesStackAuth ? (
-        <Suspense fallback={null}>
-          <StackAuthObserver />
-        </Suspense>
-      ) : null}
       {children}
     </PHProvider>
   );

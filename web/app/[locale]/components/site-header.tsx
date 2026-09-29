@@ -2,10 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "../../../i18n/navigation";
-import {
-  fallbackContentLocales,
-  jobsContentLocales,
-} from "../../../i18n/locale-availability";
+import { fallbackContentLocales } from "../../../i18n/locale-availability";
 import { NavLinks } from "./nav-links";
 import { DownloadButton } from "./download-button";
 import { ThemeToggle } from "../theme";
@@ -144,15 +141,6 @@ export function SiteHeader({
           >
             {t("community")}
           </Link>
-          <ContentLocaleLink
-            href="/jobs"
-            currentLocale={locale}
-            contentLocales={jobsContentLocales}
-            onClick={close}
-            className="hover:text-foreground transition-colors py-1"
-          >
-            {t("jobs")}
-          </ContentLocaleLink>
           <ProUpgradeVisibility>
             <ContentLocaleLink
               href="/pricing"

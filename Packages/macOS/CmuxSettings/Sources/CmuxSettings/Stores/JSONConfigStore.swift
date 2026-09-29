@@ -115,40 +115,78 @@ public actor JSONConfigStore {
 
     /// Writes a value for the key.
     ///
-    /// Creates the parent directory and the file if missing.
+    /// Creates the parent directory and the file if missing. Keeps the
+    /// syntax-only validation contract; use ``setWithReceipt(_:for:)`` for
+    /// canonical global-config validation and conditional undo.
     ///
     /// - Throws: Errors from `FileManager` or `JSONSerialization` writing the file.
     public func set<Value>(_ value: Value, for key: JSONKey<Value>) async throws {
-        let encodedValue = value.encodeForJSON()
-        let editorValue = JSONCPathEditor.EncodedValue(rawValue: encodedValue)
-        try await mutateRoot(
-            { root in
-                key.path.assign(encodedValue, in: &root)
-            },
-            editingSource: { source in
-                try sourceEditor.set(
-                    path: key.path.components,
-                    value: editorValue,
-                    in: source
-                )
-            }
-        )
+        _ = try await mutateRoot(path: key.path, value: value.encodeForJSON(), validateSemantics: false)
+    }
+
+    /// Persists a value and returns a local conditional-undo receipt.
+    ///
+    /// Validates the complete candidate against the canonical global config
+    /// schema before publication and refuses only issues this change
+    /// introduces. Issues the file already has, such as a key from a newer
+    /// build, don't block it.
+    ///
+    /// - Parameters:
+    ///   - value: The explicit value to install, including an explicit default.
+    ///   - key: The typed setting key.
+    /// - Returns: The persisted before/installed values. Runtime application is
+    ///   not observed.
+    /// - Throws: ``JSONConfigMutationError/invalidCandidate(_:)``, a write
+    ///   conflict, or a parse/filesystem error. Nothing is published on throw.
+    public func setWithReceipt<Value>(
+        _ value: Value,
+        for key: JSONKey<Value>
+    ) async throws -> JSONConfigMutationReceipt {
+        try await mutateRoot(path: key.path, value: value.encodeForJSON())
     }
 
     /// Removes the key's entry from the file. Plain parent objects that become
     /// empty are pruned. Comment-only parents stay in place so reset does not
     /// delete user-authored documentation. The file itself is not deleted even
-    /// when no entries remain.
+    /// when no entries remain. This is an unconditional reset, not undo.
     ///
     /// - Throws: Errors from `FileManager`, JSON parsing, or the source edit.
     public func reset<Value>(_ key: JSONKey<Value>) async throws {
-        try await mutateRoot(
-            { root in
-                key.path.remove(in: &root)
-            },
-            editingSource: { source in
-                try sourceEditor.remove(path: key.path.components, in: source)
-            }
+        _ = try await mutateRoot(path: key.path, value: nil, validateSemantics: false)
+    }
+
+    /// Resets a setting and returns a receipt that distinguishes absence from
+    /// an explicit pin.
+    ///
+    /// Validates the complete candidate against the canonical global config
+    /// schema before publication and refuses only issues this reset introduces.
+    ///
+    /// - Parameter key: The setting to reset.
+    /// - Returns: A local receipt; runtime application is not observed.
+    /// - Throws: Validation, conflict, parsing, or filesystem errors.
+    public func resetWithReceipt<Value>(_ key: JSONKey<Value>) async throws -> JSONConfigMutationReceipt {
+        try await mutateRoot(path: key.path, value: nil)
+    }
+
+    /// Restores the receipt's prior value only while the path still holds the
+    /// value the receipt installed.
+    ///
+    /// The comparison, canonical validation, and publication run inside
+    /// the same cooperative writer lock as every other mutation.
+    ///
+    /// - Parameter receipt: A receipt produced for this store's resolved target.
+    /// - Returns: The inverse receipt, usable for a conditional redo.
+    /// - Throws: ``JSONConfigMutationError/undoConflict(path:expected:current:restore:)``
+    ///   when a newer choice owns the path or the target was retargeted; the
+    ///   file is left untouched.
+    public func undo(_ receipt: JSONConfigMutationReceipt) async throws -> JSONConfigMutationReceipt {
+        let value = try receipt.before.map {
+            try JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed])
+        }
+        return try await mutateRoot(
+            path: JSONPath(dottedPath: receipt.path),
+            value: value,
+            undoing: receipt
         )
     }
 
@@ -372,9 +410,11 @@ public actor JSONConfigStore {
     /// snapshot, so a concurrent retarget serializes against the write instead
     /// of splitting the operation across two targets.
     private func mutateRoot(
-        _ mutate: (inout [String: Any]) -> Void,
-        editingSource: (String) throws -> String
-    ) async throws {
+        path: JSONPath,
+        value: Any?,
+        undoing: JSONConfigMutationReceipt? = nil,
+        validateSemantics: Bool = true
+    ) async throws -> JSONConfigMutationReceipt {
         // Resolve once so parsing, source editing, and the atomic replace all
         // target the same file when cmux.json is a symlink.
         let writeURL = Self.resolvedWriteURL(for: fileURL)
@@ -388,17 +428,41 @@ public actor JSONConfigStore {
         }
         let document = try readDocument(at: writeURL)
 
+        // Undo owns the path only while it still holds the installed value on
+        // the same resolved target. A newer choice, or a retargeted symlink,
+        // wins and the file stays byte-for-byte unchanged.
+        let before = try JSONConfigMutationReceipt.encode(path.lookup(in: document.root))
+        if let undoing, undoing.target != writeURL || before != undoing.installed {
+            throw JSONConfigMutationError.undoConflict(
+                path: undoing.path,
+                expected: undoing.installed,
+                current: before,
+                restore: undoing.before
+            )
+        }
+
         var candidateRoot = document.root
-        mutate(&candidateRoot)
+        if let value {
+            path.assign(value, in: &candidateRoot)
+        } else {
+            path.remove(in: &candidateRoot)
+        }
+        let receipt = JSONConfigMutationReceipt(
+            path: path.components.joined(separator: "."),
+            before: before,
+            installed: try JSONConfigMutationReceipt.encode(path.lookup(in: candidateRoot)),
+            target: writeURL
+        )
 
         // Semantic no-ops stay byte-stable and avoid an atomic replace. Reading
         // from disk here also refreshes the cache if an external edit landed
         // before this mutation.
         guard !Self.jsonObjectsEqual(document.root, candidateRoot) else {
+            // Nothing changes, so the mutation introduces no issue to refuse.
             cachedRoot = document.root
             cacheValid = true
             cachedRootResolvedPath = writeURL.path
-            return
+            return receipt
         }
 
         // Missing/zero-byte configs have no authoring text to preserve. Seed
@@ -410,7 +474,16 @@ public actor JSONConfigStore {
         } else {
             source = "{\n}\n"
         }
-        let updatedSource = try editingSource(source)
+        let updatedSource: String
+        if let value {
+            updatedSource = try sourceEditor.set(
+                path: path.components,
+                value: JSONCPathEditor.EncodedValue(rawValue: value),
+                in: source
+            )
+        } else {
+            updatedSource = try sourceEditor.remove(path: path.components, in: source)
+        }
         let data = try sanitizer.encodedSource(updatedSource, preserving: document.originalData)
 
         // Validate our edited document before touching disk. This also gives
@@ -420,6 +493,9 @@ public actor JSONConfigStore {
         let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
         guard let writtenRoot = object as? [String: Any] else {
             throw JSONConfigStoreReadError.notADictionary
+        }
+        if validateSemantics {
+            try Self.validateGlobalCandidate(writtenRoot, baseline: document.root)
         }
 
         let parent = writeURL.deletingLastPathComponent()
@@ -455,6 +531,20 @@ public actor JSONConfigStore {
         // the file watcher to observe an atomic rename.
         for continuation in subscribers.values {
             continuation.yield(())
+        }
+        return receipt
+    }
+
+    /// Rejects a complete candidate that has canonical global-schema issues
+    /// the on-disk `baseline` doesn't already have.
+    private static func validateGlobalCandidate(
+        _ root: [String: Any],
+        baseline: [String: Any]
+    ) throws {
+        let issues = CmuxConfigSemanticValidator(scope: .global)
+            .issuesIntroduced(by: root, over: baseline)
+        guard issues.isEmpty else {
+            throw JSONConfigMutationError.invalidCandidate(issues)
         }
     }
 

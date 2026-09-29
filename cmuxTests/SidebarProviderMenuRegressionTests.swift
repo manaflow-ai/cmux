@@ -130,6 +130,29 @@ struct SidebarProviderMenuRegressionTests {
         )
     }
 
+    /// Selections saved before #13930 used a dotted key. Launch moves them to the
+    /// flat key the sidebar's `@AppStorage` reads, and never lets a leftover legacy
+    /// value replace a selection made since.
+    @Test
+    func legacyDottedSelectionKeyMigratesToFlatKey() throws {
+        let suiteName = "SidebarProviderMenuRegressionTests.legacyKey.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        // The on-disk key builds before #13930 wrote.
+        let legacyKey = "cmuxExtensionSidebar.providerId"
+        let projectWorktrees = "com.example.cmux.sidebar.project-worktrees"
+
+        defaults.set(projectWorktrees, forKey: legacyKey)
+        CmuxExtensionSidebarSelection.migrateLegacyDefaultsKeyIfNeeded(defaults: defaults)
+        #expect(defaults.string(forKey: CmuxExtensionSidebarSelection.defaultsKey) == projectWorktrees)
+        #expect(defaults.object(forKey: legacyKey) == nil)
+
+        defaults.set("com.example.cmux.sidebar.attention-queue", forKey: legacyKey)
+        CmuxExtensionSidebarSelection.migrateLegacyDefaultsKeyIfNeeded(defaults: defaults)
+        #expect(defaults.string(forKey: CmuxExtensionSidebarSelection.defaultsKey) == projectWorktrees)
+        #expect(defaults.object(forKey: legacyKey) == nil)
+    }
+
     /// The host renders the selected view through an
     /// `any CmuxSidebarProvider` existential
     /// (`CmuxExtensionSidebarSelection.provider(for:)?.render(snapshot:)`).

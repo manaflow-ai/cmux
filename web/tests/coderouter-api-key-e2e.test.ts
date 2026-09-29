@@ -58,6 +58,7 @@ test("API key lifecycle authenticates, attributes usage, and revokes access", as
     list,
     create: async () => issued,
     usage: async () => ({ kind: "ready", byKey: {} }),
+    canManageApiKeys: async () => true,
   });
   const created = await control.POST(new Request("https://coderouter.test/api/coderouter/api-keys", {
     method: "POST",

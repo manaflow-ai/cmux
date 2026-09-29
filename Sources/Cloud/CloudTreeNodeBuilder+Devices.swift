@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Device rows for the Cloud-style outline: every `.device` machine the
@@ -39,13 +41,14 @@ extension CloudTreeNodeBuilder {
         guard grouped else { return rows }
         var header = section
         header.count = rows.count
+        // With a Mac listed and both opt-ins on, the controls row would be blank.
+        let controls = header.inlineRowCount > 0
+            ? [CloudTreeNode(id: "devices-section/empty", kind: .devicesEmpty(header))]
+            : []
         return [CloudTreeNode(
             id: devicesSectionNodeID,
             kind: .devicesSection(header),
-            children: rows.isEmpty ? [CloudTreeNode(
-                id: "devices-section/empty",
-                kind: .devicesEmpty(header)
-            )] : rows
+            children: rows + controls
         )]
     }
 
