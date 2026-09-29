@@ -97,6 +97,9 @@ public struct TerminalSizingEngine: Sendable {
         let p = entry.participant
         guard p.viewport != nil else { return false }
         if let explicit = p.countsOverride { return explicit }
+        // Fit-everyone modes promise to count every attached view; the handheld
+        // deferral only stops a phone from taking the grid by activity.
+        if policy.mode == .smallest || policy.mode == .largest { return true }
         guard p.deviceKind.isHandheld, let user = p.userID else { return true }
         return !entries.contains {
             $0.participant.userID == user && ($0.participant.deviceKind == .mac || $0.participant.deviceKind == .tui)
