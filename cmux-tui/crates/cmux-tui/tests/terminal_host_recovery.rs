@@ -3722,7 +3722,14 @@ fn close_tabs_ends_one_hundred_terminals_in_one_commit() {
         assert!(ended.iter().any(|ended| ended["terminal_id"] == terminal_id.as_str()));
     }
     assert!(tree_in < test_timeout(Duration::from_secs(1)), "tree took {tree_in:?}");
-    assert!(hosts_in < test_timeout(Duration::from_secs(3)), "hosts took {hosts_in:?}");
+    // Each host fsyncs its exit receipt and the owner fsyncs the record
+    // directory when it acknowledges it: about 400 fsyncs for 100 hosts.
+    // That takes about 1 s on a Mac and several seconds on a CI Linux VM.
+    let host_bound = if cfg!(target_os = "macos") { 3 } else { 10 };
+    assert!(
+        hosts_in < test_timeout(Duration::from_secs(host_bound)),
+        "hosts took {hosts_in:?}"
+    );
 }
 
 /// `close-workspace` with `end_terminals` ends the workspace's terminals in
