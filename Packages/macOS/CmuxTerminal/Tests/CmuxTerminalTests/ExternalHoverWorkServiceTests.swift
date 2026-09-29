@@ -110,10 +110,7 @@ import Testing
         // then discarded before logging".
         var metricsCalls = 0
         var lastMetrics: ExternalHoverReadMetrics?
-#if DEBUG
-        var windowPreparationCalls = 0
-        var evaluatorCalls = 0
-#endif
+        var probedPaths: [String] = []
     }
 
     private func makeRequest(
@@ -1078,9 +1075,8 @@ import Testing
 
     /// Review B1 — diagnostics-enabled and diagnostics-disabled resolution
     /// use the same injected resolver and preserve identical candidates and
-    /// cell ranges. The resolver's own counting seam verifies that both
-    /// paths prepare and evaluate exactly once without adding a service-level
-    /// test hook.
+    /// cell ranges. The observable setter, cache, and range results are the
+    /// contract; the resolver itself remains free of test-only hooks.
     @Test func diagnosticsGatePreservesResolverParityAcrossBothGateStates() async {
         let offTeardownCoordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let onTeardownCoordinator = TerminalSurfaceRuntimeTeardownCoordinator()
@@ -1104,16 +1100,10 @@ import Testing
         let onMailboxCoordinator = Self.makeCoordinator()
 
         func instrumentedResolver(for counts: CallCounts) -> TerminalPathResolver {
-            var resolver = TerminalPathResolver(fileExists: { $0 == Self.existingPath })
-            resolver.debugSetResolutionObserver { step in
-                switch step {
-                case .windowPrepared:
-                    counts.windowPreparationCalls += 1
-                case .evaluatorInvoked:
-                    counts.evaluatorCalls += 1
-                }
-            }
-            return resolver
+            TerminalPathResolver(fileExists: { path in
+                counts.probedPaths.append(path)
+                return path == Self.existingPath
+            })
         }
 
         let offService = makeService(
@@ -1134,11 +1124,12 @@ import Testing
             surface: onSurface, cell: ExternalHoverGridCell(row: 5, column: 0), requestGeneration: 1
         ))
 
-        #expect(offCounts.windowPreparationCalls == 1, "gate OFF must prepare one evaluation window")
-        #expect(offCounts.evaluatorCalls == 1, "gate OFF must evaluate once")
-        #expect(onCounts.windowPreparationCalls == 1, "structured outcome must prepare one evaluation window")
-        #expect(onCounts.evaluatorCalls == 1, "structured outcome must evaluate once")
-        #expect(offCounts.setterCalls == onCounts.setterCalls, "gate choice must preserve acceptance")
+        #expect(offCounts.reads == 1)
+        #expect(onCounts.reads == 1)
+        #expect(!offCounts.probedPaths.isEmpty)
+        #expect(offCounts.probedPaths == onCounts.probedPaths, "gate choice must preserve filesystem work")
+        #expect(offCounts.setterCalls == 1)
+        #expect(onCounts.setterCalls == 1)
         #expect(offCounts.lastSetterText != nil)
         #expect(onCounts.lastSetterText != nil)
         #expect(offCounts.lastSetterText == onCounts.lastSetterText, "gate choice must preserve physical snapshot text")

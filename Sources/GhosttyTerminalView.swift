@@ -3543,7 +3543,11 @@ class GhosttyApp {
                     surfaceID: lifetimeToken.surfaceID,
                     runtimeSurfaceGeneration: lifetimeToken.runtimeSurfaceGeneration
                 )
-                Task { await GhosttyApp.externalHoverWorkService.noteExternalInactive(lifetimeID: lifetimeID, token: token) }
+                surfaceView.externalHoverOperationOwner.start {
+                    await GhosttyApp.externalHoverWorkService.noteExternalInactive(
+                        lifetimeID: lifetimeID, token: token
+                    )
+                }
             }
             return committed
         case GHOSTTY_ACTION_SCROLLBAR:
@@ -3927,6 +3931,45 @@ private final class ExternalHoverOwnerCoordinatorStorage: @unchecked Sendable {
     }
 }
 
+/// Owns asynchronous ExternalHover operations for one AppKit surface view.
+/// Native surface retirement is synchronous from the view's point of view,
+/// while the work service is actor-isolated. Keeping every hop in this owner
+/// gives retirement one cancellation boundary; the coordinator and its lease
+/// checks remain the authoritative fence for operations already in the actor,
+/// so cancellation does not release a native surface until those leases drain.
+fileprivate final class ExternalHoverOperationOwner: @unchecked Sendable {
+    // Synchronous renderer callbacks and nonisolated AppKit teardown both
+    // cancel operations; an actor would add an async hop at the native
+    // lifetime boundary. This short lock only protects the task-handle map.
+    private let lock = NSLock()
+    private var operations: [UUID: Task<Void, Never>] = [:]
+
+    func start(_ operation: @escaping @Sendable () async -> Void) {
+        let id = UUID()
+        let task = Task { [weak self] in
+            await operation()
+            self?.finish(id)
+        }
+        lock.lock()
+        operations[id] = task
+        lock.unlock()
+    }
+
+    func cancelAll() {
+        lock.lock()
+        let tasks = Array(operations.values)
+        operations.removeAll(keepingCapacity: false)
+        lock.unlock()
+        tasks.forEach { $0.cancel() }
+    }
+
+    private func finish(_ id: UUID) {
+        lock.lock()
+        operations.removeValue(forKey: id)
+        lock.unlock()
+    }
+}
+
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private static let focusDebugEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_FOCUS_DEBUG"] == "1" {
@@ -4286,7 +4329,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // calls `manageDiagnosticsRenderDemand(false)` once every event
         // that armed it has been accounted for — this call site no
         // longer decides release itself.
-        Task {
+        externalHoverOperationOwner.start {
             _ = await GhosttyApp.externalHoverWorkService.drainForRenderTrigger(
                 lifetimeID: lifetimeID,
                 surface: ExternalHoverRenderTriggerSurface(surface),
@@ -4353,6 +4396,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // than a main-actor-confined var — see `RenderDemandActivationTracker`'s
     // doc (review round2 B1).
     private let externalHoverDiagnosticsRenderDemandTracker = RenderDemandActivationTracker()
+    fileprivate let externalHoverOperationOwner = ExternalHoverOperationOwner()
     private nonisolated let externalHoverOwnerCoordinatorStorage = ExternalHoverOwnerCoordinatorStorage()
     /// The coordinator is lock-protected and intentionally available from
     /// both the renderer callback and the synchronous surface-retirement hook.
@@ -4363,6 +4407,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func installExternalHoverOwnerCoordinator() {
         // (C) ExternalHover diagnostics — built via the render-demand
         // tracker factory so production and tests share the same wiring.
+        let operationOwner = externalHoverOperationOwner
         let coordinator = externalHoverDiagnosticsRenderDemandTracker.makeExternalHoverOwnerCoordinator(
             scheduler: { DispatchQueue.main.async(execute: $0) },
             project: { [weak self] entry in self?.applyExternalHoverProjection(entry) },
@@ -4384,7 +4429,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     surfaceID: token.surfaceID,
                     runtimeSurfaceGeneration: token.runtimeSurfaceGeneration
                 )
-                Task { await GhosttyApp.externalHoverWorkService.invalidateSurface(lifetimeID) }
+                operationOwner.start {
+                    await GhosttyApp.externalHoverWorkService.invalidateSurface(lifetimeID)
+                }
             }
         )
         externalHoverOwnerCoordinatorStorage.install(coordinator)
@@ -4528,6 +4575,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Seals the current ExternalHover generation before a native surface is
     /// closed, suspended, replaced, or this view is deallocated.
     nonisolated func retireExternalHoverLifetime() {
+        externalHoverOperationOwner.cancelAll()
         externalHoverOwnerCoordinator.retireLifetime()
     }
 
@@ -8829,7 +8877,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             coordinator: externalHoverOwnerCoordinator,
             surfaceSerial: externalHoverSurfaceSerial
         )
-        Task {
+        externalHoverOperationOwner.start {
             await GhosttyApp.externalHoverWorkService.submit(request)
             finish()
         }
@@ -8886,7 +8934,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             coordinator: externalHoverOwnerCoordinator,
             surfaceSerial: externalHoverSurfaceSerial
         )
-        Task { [weak self] in
+        externalHoverOperationOwner.start { [weak self] in
             await GhosttyApp.externalHoverWorkService.withdrawCurrentCandidate(request: request, reason: reason)
             _ = self
         }
@@ -10717,7 +10765,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         resetCommandClickGestureState()
         // The coordinator seals the generation and schedules actor-cache
         // invalidation as one ordered ownership operation.
-        externalHoverOwnerCoordinator.retireLifetime()
+        retireExternalHoverLifetime()
         terminalSurface = nil
     }
 

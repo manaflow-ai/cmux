@@ -519,15 +519,6 @@ public struct TerminalWrappedPathResolution: Sendable, Equatable {
 /// file system; tests inject a fake probe. This mirrors
 /// ``TerminalLinkRouter``'s injected `BrowserHostNormalizing` seam.
 public struct TerminalPathResolver: Sendable {
-#if DEBUG
-    /// Test-only events for proving that each resolver entry prepares one
-    /// physical window and invokes the geometry evaluator once.
-    enum DebugResolutionStep: Sendable {
-        case windowPrepared
-        case evaluatorInvoked
-    }
-#endif
-
     /// Maximum characters in a wrapped-path token or adjacent-row fragment.
     /// Mirrors POSIX `PATH_MAX` so a pathological row can't make
     /// tokenization unbounded.
@@ -537,9 +528,6 @@ public struct TerminalPathResolver: Sendable {
     private static let maxContinuationIndentation = 16
 
     private let fileExists: @Sendable (String) -> Bool
-#if DEBUG
-    private var debugResolutionObserver: (@Sendable (DebugResolutionStep) -> Void)?
-#endif
 
     /// Creates a resolver that probes candidate paths through `fileExists`.
     ///
@@ -549,19 +537,7 @@ public struct TerminalPathResolver: Sendable {
         fileExists: @escaping @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
     ) {
         self.fileExists = fileExists
-#if DEBUG
-        self.debugResolutionObserver = nil
-#endif
     }
-
-#if DEBUG
-    /// Test-only observer; compiled out of Release builds.
-    mutating func debugSetResolutionObserver(
-        _ observer: (@Sendable (DebugResolutionStep) -> Void)?
-    ) {
-        debugResolutionObserver = observer
-    }
-#endif
 
     /// Resolves raw terminal text to an existing file path for QuickLook.
     ///
@@ -1248,9 +1224,6 @@ public struct TerminalPathResolver: Sendable {
         else {
             return nil
         }
-#if DEBUG
-        debugResolutionObserver?(.windowPrepared)
-#endif
         return (window, geometry)
     }
 
@@ -1929,9 +1902,6 @@ public struct TerminalPathResolver: Sendable {
         geometry: TerminalWrapGeometry,
         probeBudget: TerminalWrapProbeBudget = TerminalWrapProbeBudget()
     ) -> TerminalWrappedResolutionOutcome {
-#if DEBUG
-        debugResolutionObserver?(.evaluatorInvoked)
-#endif
         let clickedIndex = window.clickedIndex
         let oracle: any WrapBoundaryOracle = TextHeuristicWrapBoundaryOracle(fullnessTolerance: geometry.fullnessTolerance)
         var probeBudget = probeBudget

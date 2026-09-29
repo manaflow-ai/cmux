@@ -394,6 +394,13 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
             windowID = appDelegate.createMainWindow()
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowID))
             workspace = try #require(manager.selectedWorkspace)
+            if let window = appDelegate.windowForMainWindowId(windowID) {
+                window.setContentSize(NSSize(width: 1_000, height: 700))
+                window.contentView?.layoutSubtreeIfNeeded()
+            }
+            workspace.bonsplitController.setContainerFrame(
+                CGRect(x: 0, y: 0, width: 1_000, height: 700)
+            )
             outerPanelID = try #require(workspace.focusedPanelId)
             if focusAwayFromMirror {
                 nonMirrorPanelID = try #require(workspace.newTerminalSplit(

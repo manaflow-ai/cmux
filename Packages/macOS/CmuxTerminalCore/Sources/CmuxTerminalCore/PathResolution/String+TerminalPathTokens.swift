@@ -169,12 +169,13 @@ extension String {
             candidates.append(trimmed)
         }
 
-        // Terminal logs commonly prefix a path with a list marker (`- `).
-        // Treat the marker as presentation, while keeping every space in the
-        // filename. This must run before the ordinary whitespace segment so a
-        // real file such as "Standard - Consultant Agreement.docx" wins over
-        // an existing suffix decoy such as "Agreement.docx".
-        for candidate in leadingListLabelPaths(containingColumn: column) {
+        // Terminal rows commonly put a path in the first column, optionally
+        // after a list marker (`- `). Treat the marker as presentation, while
+        // keeping every space in the filename. This must run before the
+        // ordinary whitespace segment so a real file such as "Standard -
+        // Consultant Agreement.docx" wins over an existing suffix decoy such
+        // as "Agreement.docx".
+        for candidate in columnDelimitedPathCandidates(containingColumn: column) {
             append(candidate)
         }
         append(rawPathSegment(containingColumn: column))
@@ -183,7 +184,7 @@ extension String {
         return candidates
     }
 
-    private func leadingListLabelPaths(containingColumn column: Int) -> [String] {
+    private func columnDelimitedPathCandidates(containingColumn column: Int) -> [String] {
         let characters = Array(self)
         guard !characters.isEmpty, column >= 0, column < characters.count else { return [] }
 
@@ -191,14 +192,15 @@ extension String {
         while marker < characters.count, characters[marker] == " " {
             marker += 1
         }
-        guard marker < characters.count, characters[marker] == "-",
-              marker + 1 < characters.count, characters[marker + 1].isWhitespace else {
-            return []
-        }
+        let hasListMarker = marker < characters.count && characters[marker] == "-"
+            && marker + 1 < characters.count && characters[marker + 1].isWhitespace
 
-        var bodyStart = marker + 1
-        while bodyStart < characters.count, characters[bodyStart].isWhitespace {
-            bodyStart += 1
+        var bodyStart = 0
+        if hasListMarker {
+            bodyStart = marker + 1
+            while bodyStart < characters.count, characters[bodyStart].isWhitespace {
+                bodyStart += 1
+            }
         }
         guard bodyStart < characters.count, column >= bodyStart else { return [] }
 
@@ -238,7 +240,7 @@ extension String {
                 return [suffix]
             }
         }
-        guard hasColumnDelimiter else { return [body] }
+        guard hasColumnDelimiter else { return hasListMarker ? [body] : [] }
 
         // A doubled-space run can be either an `ls`-style column delimiter or
         // part of a filename. Try the complete list body first so a clicked
