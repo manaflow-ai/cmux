@@ -630,6 +630,12 @@ public final class CloudSystemVPNController {
 
     private func revokePendingBrowserTunnel() async throws {
         for tunnel in pendingBrowserTunnelRevocations {
+            // Persisted entries have no tokens. Retry them only while their
+            // owner scope is active; account-switch entries with captured
+            // credentials remain safe to revoke immediately.
+            guard tunnel.credentials != nil || scope == tunnel.scope else {
+                continue
+            }
             var lastError: (any Error)?
             for _ in 0..<cleanupRetryCount {
                 do {
