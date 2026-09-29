@@ -618,6 +618,34 @@ import Testing
         #expect(rig.service.calls.revokeCredentials.first?.refreshToken == "old-refresh")
     }
 
+    @Test func switchingAccountsPersistsTheOldBrowserPeerBeforeRevocation() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        let rig = Rig(pendingRevocationStore: pendingStore)
+        await signedIn(rig, scope: "user-1/team-1")
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        rig.controller.setScope("user-2/team-9")
+        await rig.service.waitForRevocation()
+
+        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
+        await rig.controller.waitForPendingOperation()
+    }
+
+    @Test func switchingAccountsPersistsTheOldBrowserPeerWhenVPNIsUnavailable() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        let rig = Rig(pendingRevocationStore: pendingStore)
+        await signedIn(rig, scope: "user-1/team-1")
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        rig.manager.isAvailable = false
+        rig.controller.setScope("user-2/team-9")
+        await rig.controller.waitForPendingOperation()
+
+        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
+    }
+
     @Test func theFirstSignedInScopeDoesNotRemoveAnything() async {
         let rig = Rig()
         await signedIn(rig)
