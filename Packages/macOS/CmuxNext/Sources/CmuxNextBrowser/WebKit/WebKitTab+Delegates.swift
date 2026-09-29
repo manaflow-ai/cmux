@@ -1,0 +1,284 @@
+import AppKit
+public import Foundation
+public import WebKit
+
+// MARK: - Navigation
+
+extension WebKitTab: WKNavigationDelegate {
+    public func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        preferences: WKWebpagePreferences,
+        decisionHandler: @escaping @MainActor (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
+    ) {
+        if navigationAction.shouldPerformDownload {
+            decisionHandler(.download, preferences)
+            return
+        }
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.allow, preferences)
+            return
+        }
+
+        let isUserLinkClick = navigationAction.navigationType == .linkActivated
+        if isUserLinkClick, let disposition = Self.newTabDisposition(for: navigationAction), Self.isWebScheme(url) {
+            decisionHandler(.cancel, preferences)
+            emit(.openURL(url, disposition))
+            return
+        }
+
+        if !Self.isWebScheme(url) {
+            decisionHandler(.cancel, preferences)
+            // Other apps open only from a click in the main frame, never from
+            // a script or a redirect.
+            if isUserLinkClick, navigationAction.targetFrame?.isMainFrame ?? true {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
+        decisionHandler(.allow, preferences)
+    }
+
+    public func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void
+    ) {
+        let isAttachment = (navigationResponse.response as? HTTPURLResponse)
+            .flatMap { $0.value(forHTTPHeaderField: "Content-Disposition") }?
+            .lowercased()
+            .hasPrefix("attachment") ?? false
+        if navigationResponse.isForMainFrame, isAttachment || !navigationResponse.canShowMIMEType {
+            decisionHandler(.download)
+        } else {
+            decisionHandler(.allow)
+        }
+    }
+
+    public func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        register(download, source: navigationAction.request.url)
+    }
+
+    public func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        register(download, source: navigationResponse.response.url)
+    }
+
+    public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        guard let id = navigationID(for: navigation, creating: true) else { return }
+        apply(.started(id, url: webView.url))
+    }
+
+    public func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
+        guard let id = navigationID(for: navigation, creating: false) else { return }
+        apply(.redirected(id, url: webView.url))
+    }
+
+    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        guard let id = navigationID(for: navigation, creating: false) else { return }
+        apply(.committed(id, url: webView.url))
+        // The title can arrive before the commit (back/forward cache), and
+        // the commit clears it, so read the authoritative value again.
+        apply(.titleChanged(webView.title))
+        syncHistory()
+        syncSecurity()
+    }
+
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard let id = navigationID(for: navigation, creating: false) else { return }
+        forgetNavigation(navigation)
+        apply(.finished(id))
+        syncHistory()
+        refreshFavicon()
+    }
+
+    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        guard let id = navigationID(for: navigation, creating: false) else { return }
+        forgetNavigation(navigation)
+        apply(.failed(id, BrowserLoadError(error)))
+    }
+
+    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        guard let id = navigationID(for: navigation, creating: false) else { return }
+        forgetNavigation(navigation)
+        apply(.failed(id, BrowserLoadError(error)))
+    }
+
+    public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        let id = allocateNavigationID()
+        apply(.started(id, url: state.url))
+        apply(.failed(id, BrowserLoadError(
+            domain: "cmux.browser",
+            code: 1,
+            message: Strings.webContentProcessTerminated,
+            failingURL: state.url
+        )))
+    }
+
+    /// Cmd-click opens in the background, Cmd-Shift-click in the foreground,
+    /// middle click in the background. nil means "navigate in place".
+    static func newTabDisposition(for action: WKNavigationAction) -> BrowserNewTabDisposition? {
+        let flags = action.modifierFlags
+        let isMiddleClick = action.buttonNumber == 2
+        guard flags.contains(.command) || isMiddleClick else { return nil }
+        return flags.contains(.shift) ? .foregroundTab : .backgroundTab
+    }
+
+    static func isWebScheme(_ url: URL) -> Bool {
+        switch url.scheme?.lowercased() {
+        case "http", "https", "file", "about", "data", "blob": true
+        default: false
+        }
+    }
+}
+
+// MARK: - UI
+
+extension WebKitTab: WKUIDelegate {
+    public func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        // Without a host there is nowhere to show the page: block the popup.
+        guard hasDelegate, let child = makeChildTab(configuration: configuration) else { return nil }
+        let disposition: BrowserNewTabDisposition
+        if let explicit = Self.newTabDisposition(for: navigationAction) {
+            disposition = explicit
+        } else if windowFeatures.width != nil || windowFeatures.height != nil {
+            disposition = .popup
+        } else {
+            disposition = .foregroundTab
+        }
+        emit(.adoptTab(child, disposition))
+        return child.webView
+    }
+
+    public func webViewDidClose(_ webView: WKWebView) {
+        emit(.close)
+    }
+
+    public func webView(
+        _ webView: WKWebView,
+        requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+        initiatedByFrame frame: WKFrameInfo,
+        type: WKMediaCaptureType,
+        decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void
+    ) {
+        let kind: BrowserPermissionKind = switch type {
+        case .camera: .camera
+        case .microphone: .microphone
+        default: .cameraAndMicrophone
+        }
+        enqueuePrompt(.permission(kind), origin: Self.displayOrigin(origin)) { response in
+            decisionHandler(response == .allow ? .grant : .deny)
+        }
+    }
+
+    public func webView(
+        _ webView: WKWebView,
+        runJavaScriptAlertPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping @MainActor () -> Void
+    ) {
+        enqueuePrompt(.alert(message: message), origin: Self.displayOrigin(frame.securityOrigin)) { _ in
+            completionHandler()
+        }
+    }
+
+    public func webView(
+        _ webView: WKWebView,
+        runJavaScriptConfirmPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping @MainActor (Bool) -> Void
+    ) {
+        enqueuePrompt(.confirm(message: message), origin: Self.displayOrigin(frame.securityOrigin)) { response in
+            completionHandler(response == .accept)
+        }
+    }
+
+    public func webView(
+        _ webView: WKWebView,
+        runJavaScriptTextInputPanelWithPrompt prompt: String,
+        defaultText: String?,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping @MainActor (String?) -> Void
+    ) {
+        enqueuePrompt(
+            .textInput(message: prompt, defaultText: defaultText),
+            origin: Self.displayOrigin(frame.securityOrigin)
+        ) { response in
+            if case .text(let text) = response {
+                completionHandler(text)
+            } else {
+                completionHandler(nil)
+            }
+        }
+    }
+
+    public func webView(
+        _ webView: WKWebView,
+        runOpenPanelWith parameters: WKOpenPanelParameters,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping @MainActor ([URL]?) -> Void
+    ) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.canChooseDirectories = parameters.allowsDirectories
+        panel.canChooseFiles = true
+        panel.resolvesAliases = true
+        let finish: (NSApplication.ModalResponse) -> Void = { response in
+            completionHandler(response == .OK ? panel.urls : nil)
+        }
+        if let window = webView.window {
+            panel.beginSheetModal(for: window, completionHandler: finish)
+        } else {
+            panel.begin(completionHandler: finish)
+        }
+    }
+
+    static func displayOrigin(_ origin: WKSecurityOrigin) -> String {
+        guard !origin.host.isEmpty else { return "\(origin.protocol)://" }
+        let defaultPort = (origin.protocol == "https" && origin.port == 443) || (origin.protocol == "http" && origin.port == 80)
+        let port = origin.port == 0 || defaultPort ? "" : ":\(origin.port)"
+        return "\(origin.protocol)://\(origin.host)\(port)"
+    }
+}
+
+// MARK: - Downloads
+
+extension WebKitTab: WKDownloadDelegate {
+    public func download(
+        _ download: WKDownload,
+        decideDestinationUsing response: URLResponse,
+        suggestedFilename: String
+    ) async -> URL? {
+        let destination = DownloadDestination.uniqueURL(in: downloadsDirectory, suggestedFilename: suggestedFilename)
+        if let item = self.download(for: download) {
+            item.filename = destination.lastPathComponent
+            item.destination = destination
+        }
+        return destination
+    }
+
+    public func downloadDidFinish(_ download: WKDownload) {
+        finishDownload(download, status: .finished)
+    }
+
+    public func download(_ download: WKDownload, didFailWithError error: any Error, resumeData: Data?) {
+        let ns = error as NSError
+        let cancelled = ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
+        finishDownload(download, status: cancelled ? .cancelled : .failed(ns.localizedDescription))
+    }
+}
+
+// MARK: - Script messages
+
+extension WebKitTab: WKScriptMessageHandler {
+    public func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == PaneFullscreenScript.messageHandlerName,
+              message.frameInfo.isMainFrame,
+              let on = message.body as? Bool else { return }
+        apply(.contentFullscreenChanged(on))
+    }
+}

@@ -1,0 +1,401 @@
+public import AppKit
+public import Foundation
+public import Observation
+public import WebKit
+
+/// A browser tab backed by one `WKWebView`.
+@Observable
+public final class WebKitTab: NSObject, BrowserTab {
+    public let id: BrowserTabID
+    public let profileID: BrowserProfileID
+    public let engineKind: BrowserEngineKind = .webkit
+    public let presentation: BrowserPresentation = .inView
+
+    public var state: BrowserTabState { machine.state }
+    public private(set) var favicon: NSImage?
+    public private(set) var pendingPrompts: [BrowserPrompt] = []
+
+    @ObservationIgnored public weak var delegate: (any BrowserTabDelegate)?
+    @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
+
+    /// The underlying web view. Exposed for WebKit-only features (the
+    /// automation executor); engine-neutral callers use `contentView`.
+    @ObservationIgnored public let webView: WKWebView
+    public var contentView: NSView { webView }
+
+    private var machine = BrowserTabStateMachine()
+    @ObservationIgnored private weak var engine: WebKitEngine?
+    @ObservationIgnored private var observations: [NSKeyValueObservation] = []
+    @ObservationIgnored private var navigationIDs: [ObjectIdentifier: BrowserNavigationID] = [:]
+    @ObservationIgnored private var nextNavigation: UInt64 = 0
+    @ObservationIgnored private var downloads: [ObjectIdentifier: BrowserDownload] = [:]
+    @ObservationIgnored private var faviconTask: Task<Void, Never>?
+    @ObservationIgnored private var findState = FindState()
+    @ObservationIgnored private var isClosed = false
+
+    init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine) {
+        self.id = configuration.id
+        self.profileID = configuration.profile
+        self.engine = engine
+        let webView = WebKitWebView(frame: .zero, configuration: webViewConfiguration)
+        self.webView = webView
+        super.init()
+
+        webView.owner = self
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+        webView.allowsBackForwardNavigationGestures = true
+        webView.allowsMagnification = true
+        webView.isInspectable = true
+        webView.underPageBackgroundColor = .clear
+
+        let controller = webViewConfiguration.userContentController
+        controller.addUserScript(WKUserScript(
+            source: PaneFullscreenScript.source,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        ))
+        controller.add(WeakScriptMessageHandler(self), name: PaneFullscreenScript.messageHandlerName)
+
+        observeWebView()
+        if configuration.zoom != 1 {
+            setZoom(configuration.zoom)
+        }
+    }
+
+    isolated deinit {
+        faviconTask?.cancel()
+    }
+
+    // MARK: Navigation commands
+
+    public func load(_ url: URL) {
+        guard !isClosed else { return }
+        if url.isFileURL {
+            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        } else {
+            webView.load(URLRequest(url: url))
+        }
+    }
+
+    public func goBack() { webView.goBack() }
+    public func goForward() { webView.goForward() }
+
+    public func reload() {
+        if webView.url == nil, let url = state.url {
+            load(url)
+        } else {
+            webView.reload()
+        }
+    }
+
+    public func stop() {
+        webView.stopLoading()
+        apply(.stopped)
+    }
+
+    // MARK: Focus and occlusion
+
+    public func setFocused(_ focused: Bool) {
+        guard let window = webView.window else { return }
+        if focused {
+            window.makeFirstResponder(webView)
+        } else if (webView as? WebKitWebView)?.hasKeyboardFocus == true {
+            window.makeFirstResponder(nil)
+        }
+    }
+
+    /// WebKit draws in-view and throttles hidden views itself.
+    public func setOccluded(_ occluded: Bool) async {}
+
+    // MARK: Snapshot, script, find
+
+    public func snapshot() async throws -> CGImage {
+        guard !isClosed else { throw BrowserTabError.closed }
+        let image = try await webView.takeSnapshot(configuration: nil)
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            throw BrowserTabError.snapshotUnavailable
+        }
+        return cgImage
+    }
+
+    public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
+        guard !isClosed else { throw BrowserTabError.closed }
+        do {
+            let result = try await webView.evaluateJavaScript(script, in: nil, contentWorld: world.contentWorld)
+            return BrowserJSValue(foundation: result)
+        } catch let error as WKError where error.code == .javaScriptResultTypeIsUnsupported {
+            return .null
+        } catch let error as WKError where error.code == .javaScriptExceptionOccurred {
+            let message = error.userInfo["WKJavaScriptExceptionMessage"] as? String ?? error.localizedDescription
+            throw BrowserTabError.javaScript(message)
+        }
+    }
+
+    /// Runs `body` as an async function with named arguments. Safer than
+    /// string interpolation for automation input.
+    public func callFunction(
+        _ body: String,
+        arguments: [String: BrowserJSValue] = [:],
+        world: BrowserScriptWorld = .isolated
+    ) async throws -> BrowserJSValue {
+        guard !isClosed else { throw BrowserTabError.closed }
+        let result = try await webView.callAsyncJavaScript(
+            body,
+            arguments: arguments.mapValues(\.foundationValue),
+            in: nil,
+            contentWorld: world.contentWorld
+        )
+        return BrowserJSValue(foundation: result)
+    }
+
+    public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
+        guard !isClosed, !text.isEmpty else {
+            clearFind()
+            return .none
+        }
+        let configuration = WKFindConfiguration()
+        configuration.backwards = direction == .backward
+        configuration.caseSensitive = caseSensitive
+        configuration.wraps = true
+        let matchFound = (try? await webView.find(text, configuration: configuration))?.matchFound ?? false
+
+        let count = try? await callFunction(
+            FindScripts.countBody,
+            arguments: ["needle": .string(text), "caseSensitive": .bool(caseSensitive)]
+        ).numberValue.map { Int($0) }
+        return findState.step(query: text, direction: direction, matchFound: matchFound, count: count)
+    }
+
+    public func clearFind() {
+        findState = FindState()
+        webView.evaluateJavaScript(FindScripts.clearSelection, completionHandler: nil)
+    }
+
+    // MARK: Zoom, fullscreen, devtools
+
+    public func setZoom(_ zoom: Double) {
+        let clamped = BrowserZoom.clamp(zoom)
+        webView.pageZoom = clamped
+        apply(.zoomChanged(clamped))
+    }
+
+    public func exitContentFullscreen() {
+        webView.evaluateJavaScript(PaneFullscreenScript.exitScript, completionHandler: nil)
+    }
+
+    /// Opens Web Inspector through WebKit's private `_inspector` object.
+    /// There is no public API for this; if WebKit removes it, the user can
+    /// still use "Inspect Element" from the context menu.
+    public func showDevTools() {
+        let selector = NSSelectorFromString("_inspector")
+        guard webView.responds(to: selector),
+              let inspector = webView.perform(selector)?.takeUnretainedValue() as? NSObject else { return }
+        let show = NSSelectorFromString("show")
+        if inspector.responds(to: show) {
+            inspector.perform(show)
+        }
+    }
+
+    public func close() {
+        guard !isClosed else { return }
+        isClosed = true
+        faviconTask?.cancel()
+        for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
+        pendingPrompts.removeAll()
+        observations.removeAll()
+        webView.stopLoading()
+        webView.configuration.userContentController.removeAllScriptMessageHandlers()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        webView.removeFromSuperview()
+    }
+
+    // MARK: Internals shared with the delegate extension
+
+    func apply(_ event: BrowserNavigationEvent) {
+        let previousFavicon = machine.state.faviconURL
+        machine.apply(event)
+        if machine.state.faviconURL != previousFavicon {
+            faviconURLDidChange()
+        }
+    }
+
+    func routeKeyEquivalent(_ event: NSEvent) -> BrowserKeyDisposition {
+        keyRouter?.browserTab(self, keyEquivalent: event) ?? .passToPage
+    }
+
+    func navigationID(for navigation: WKNavigation?, creating: Bool) -> BrowserNavigationID? {
+        guard let navigation else {
+            return creating ? allocateNavigationID() : state.activeNavigation
+        }
+        let key = ObjectIdentifier(navigation)
+        if let id = navigationIDs[key] { return id }
+        guard creating else { return nil }
+        let id = allocateNavigationID()
+        navigationIDs[key] = id
+        return id
+    }
+
+    func forgetNavigation(_ navigation: WKNavigation?) {
+        guard let navigation else { return }
+        navigationIDs[ObjectIdentifier(navigation)] = nil
+    }
+
+    func allocateNavigationID() -> BrowserNavigationID {
+        nextNavigation += 1
+        return BrowserNavigationID(rawValue: nextNavigation)
+    }
+
+    func enqueuePrompt(_ kind: BrowserPromptKind, origin: String, completion: @escaping (BrowserPromptResponse) -> Void) {
+        guard !isClosed else {
+            completion(BrowserPrompt(kind: kind, origin: origin, completion: { _ in }).dismissalResponse)
+            return
+        }
+        var prompt: BrowserPrompt?
+        prompt = BrowserPrompt(kind: kind, origin: origin) { [weak self] response in
+            self?.pendingPrompts.removeAll { $0 === prompt }
+            completion(response)
+        }
+        if let prompt { pendingPrompts.append(prompt) }
+    }
+
+    func emit(_ intent: BrowserTabIntent) {
+        delegate?.browserTab(self, didRequest: intent)
+    }
+
+    var hasDelegate: Bool { delegate != nil }
+
+    func makeChildTab(configuration: WKWebViewConfiguration) -> WebKitTab? {
+        engine?.makeWebKitTab(BrowserTabConfiguration(profile: profileID), webViewConfiguration: configuration)
+    }
+
+    var downloadsDirectory: URL {
+        engine?.downloadsDirectory ?? DownloadDestination.defaultDirectory
+    }
+
+    func register(_ download: WKDownload, source: URL?) {
+        let item = BrowserDownload(sourceURL: source, filename: source?.lastPathComponent ?? "download")
+        item.cancelHandler = { [weak download] in download?.cancel(nil) }
+        downloads[ObjectIdentifier(download)] = item
+        download.delegate = self
+        let progress = download.progress
+        observations.append(progress.observe(\.fractionCompleted, options: [.new]) { [weak item] progress, _ in
+            let fraction = progress.totalUnitCount > 0 ? progress.fractionCompleted : nil
+            Task { @MainActor in item?.fraction = fraction }
+        })
+        emit(.download(item))
+    }
+
+    func download(for download: WKDownload) -> BrowserDownload? {
+        downloads[ObjectIdentifier(download)]
+    }
+
+    func finishDownload(_ download: WKDownload, status: BrowserDownload.Status) {
+        guard let item = downloads.removeValue(forKey: ObjectIdentifier(download)) else { return }
+        if status == .finished { item.fraction = 1 }
+        if item.status == .inProgress { item.status = status }
+    }
+
+    func refreshFavicon() {
+        faviconTask?.cancel()
+        faviconTask = Task { [weak self] in
+            guard let self,
+                  let value = try? await self.evaluate(FaviconScript.source, world: .isolated),
+                  let string = value.stringValue,
+                  let url = URL(string: string),
+                  !Task.isCancelled else { return }
+            self.apply(.faviconChanged(url))
+        }
+    }
+
+    // MARK: Private
+
+    private func faviconURLDidChange() {
+        guard let url = state.faviconURL else {
+            favicon = nil
+            return
+        }
+        guard let loader = engine?.faviconLoader else { return }
+        Task { [weak self] in
+            let image = await loader.favicon(at: url)
+            guard let self, self.state.faviconURL == url else { return }
+            self.favicon = image
+        }
+    }
+
+    private func observeWebView() {
+        observations = [
+            webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
+                MainActor.assumeIsolated { self?.apply(.urlChanged(webView.url)) }
+            },
+            webView.observe(\.title, options: [.new]) { [weak self] webView, _ in
+                MainActor.assumeIsolated { self?.apply(.titleChanged(webView.title)) }
+            },
+            webView.observe(\.estimatedProgress, options: [.new]) { [weak self] webView, _ in
+                MainActor.assumeIsolated { self?.apply(.progress(webView.estimatedProgress)) }
+            },
+            webView.observe(\.canGoBack, options: [.new]) { [weak self] webView, _ in
+                MainActor.assumeIsolated { self?.syncHistory() }
+            },
+            webView.observe(\.canGoForward, options: [.new]) { [weak self] webView, _ in
+                MainActor.assumeIsolated { self?.syncHistory() }
+            },
+            webView.observe(\.hasOnlySecureContent, options: [.new]) { [weak self] webView, _ in
+                MainActor.assumeIsolated { self?.syncSecurity() }
+            },
+        ]
+    }
+
+    func syncHistory() {
+        apply(.historyChanged(canGoBack: webView.canGoBack, canGoForward: webView.canGoForward))
+    }
+
+    func syncSecurity() {
+        guard !isClosed, state.phase == .committed || state.phase == .finished else { return }
+        var security = BrowserTabStateMachine.security(for: webView.url)
+        if security == .secure, !webView.hasOnlySecureContent {
+            security = .insecure
+        }
+        apply(.securityChanged(security))
+    }
+}
+
+extension BrowserScriptWorld {
+    var contentWorld: WKContentWorld {
+        switch self {
+        case .page: .page
+        case .isolated: .defaultClient
+        }
+    }
+}
+
+/// Tracks the "3 of 12" position, which WebKit's find API does not report.
+/// It assumes each step moves one match, which holds unless the page changes
+/// or the user clicks elsewhere between steps.
+nonisolated struct FindState: Sendable {
+    private var query: String?
+    private var index = 0
+
+    mutating func step(query newQuery: String, direction: BrowserFindDirection, matchFound: Bool, count: Int?) -> BrowserFindResult {
+        guard matchFound else {
+            query = newQuery
+            index = 0
+            return BrowserFindResult(matchFound: false, matchCount: count ?? 0, currentIndex: nil)
+        }
+        guard let count, count > 0 else {
+            query = newQuery
+            return BrowserFindResult(matchFound: true, matchCount: nil, currentIndex: nil)
+        }
+        if query != newQuery {
+            index = direction == .forward ? 1 : count
+        } else {
+            switch direction {
+            case .forward: index = index >= count ? 1 : index + 1
+            case .backward: index = index <= 1 ? count : index - 1
+            }
+        }
+        query = newQuery
+        return BrowserFindResult(matchFound: true, matchCount: count, currentIndex: index)
+    }
+}
