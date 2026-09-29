@@ -76,6 +76,14 @@ let package = Package(
             name: "CmuxNextDaemon",
             swiftSettings: daemonSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextDaemonTests",
+            dependencies: ["CmuxNextDaemon"],
+            resources: [
+                .copy("Fixtures"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
         // Links the real libghostty only inside the Xcode app target. SwiftPM
         // can compile against the GhosttyKit module but cannot link the macOS
         // archive (it lacks the lib prefix), so this target has no test target
@@ -84,6 +92,9 @@ let package = Package(
             name: "CmuxNextTerminal",
             dependencies: [
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
+            ],
+            resources: [
+                .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -100,6 +111,9 @@ let package = Package(
         .target(
             name: "CmuxNextSidebar",
             dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(

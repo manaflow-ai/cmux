@@ -12858,6 +12858,7 @@
 				CE7A0000000000000000000B /* Resources */,
 				CE7A0000000000000000000C /* Copy CLI */,
 				CE7A0000000000000000000D /* Reject Bundled Provider Binaries */,
+				CE7A00000000000000000016 /* Bundle cmux-tui */,
 			);
 			buildRules = (
 			);
@@ -13262,6 +13263,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\nBIN_DIR=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin\"\nPROVIDERS=\"codex claude opencode pi\"\nfor provider in $PROVIDERS; do\n  if [ -e \"${SRCROOT}/Resources/bin/${provider}\" ]; then\n    echo \"error: provider executable must not be checked in at Resources/bin/${provider}\" >&2\n    exit 1\n  fi\n  if [ -e \"${BIN_DIR}/${provider}\" ]; then\n    rm -rf \"${BIN_DIR:?}/${provider}\"\n  fi\n  if [ -e \"${BIN_DIR}/${provider}\" ]; then\n    echo \"error: provider executable must not be bundled at ${BIN_DIR}/${provider}\" >&2\n    exit 1\n  fi\ndone\n";
+		};
+		CE7A00000000000000000016 /* Bundle cmux-tui */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle cmux-tui";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-cmux-tui.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

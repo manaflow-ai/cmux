@@ -1,6 +1,6 @@
 # Brief for cmux-next feature agents
 
-- Read plans/cmux-next/REWRITE.md (goals, visual rules, decisions) and the design doc named in your task.
+- Read plans/cmux-next/REWRITE.md (goals, visual rules, decisions), plans/cmux-next/architecture.md (binding: state ownership, AppKit-first, RAM/CPU budgets), and the design doc named in your task.
 - Setup: `git -C /Users/lawrence/fun/cmuxterm-hq/worktrees/feat-cmux-next worktree add /Users/lawrence/fun/cmuxterm-hq/worktrees/feat-cmux-next-<slug> -b feat-cmux-next-<slug> origin/feat-cmux-next` (fetch first). Work only there. Never edit the feat-cmux-next worktree itself.
 - Own only your module under Packages/macOS/CmuxNext/Sources/<Module> and its Tests dir. Do not edit Package.swift unless you must add a dependency to your own target (say so in your reply). Do not edit other modules; if you need something from another module, define a small protocol in your own module.
 - Feature UI modules never import CmuxNextDaemon. Expose an @Observable @MainActor view-model / input protocol that the App layer will fill from daemon state. Include a mock data source so the module can be demoed alone.

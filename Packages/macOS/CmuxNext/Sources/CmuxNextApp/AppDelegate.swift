@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextTerminal
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -9,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = ShellModel()
     private var windowController: MainWindowController?
     private var daemonEventsTask: Task<Void, Never>?
+    private let daemonStore = DaemonStore()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -21,6 +23,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
 
         startDaemon()
+        showDebugTerminalIfRequested()
+    }
+
+    /// Temporary dev hook until the App maps daemon terminals into panes:
+    /// `CMUX_NEXT_DEBUG_TERMINAL=1` opens a Ghostty surface on a local shell.
+    private func showDebugTerminalIfRequested() {
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["CMUX_NEXT_DEBUG_TERMINAL"] == "1" else { return }
+        TerminalDebugWindow.showLocalShell(initialInput: environment["CMUX_NEXT_DEBUG_TERMINAL_INPUT"])
+        TerminalDebugWindow.showScriptedFollower()
+        #endif
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -31,15 +45,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
-    /// Consumes control events from the placeholder daemon connection. The
-    /// daemon agent replaces the transport; this loop becomes the place where
-    /// events are applied to stores.
+    /// Ensures the bundled cmux-tui daemon, connects, and mirrors its tree
+    /// into `daemonStore`. Mapping the store into the shell's view models is
+    /// the App layer's next step.
     private func startDaemon() {
-        let daemon = DaemonConnection(endpoint: DaemonEndpoint(socketPath: environment.socketPath ?? ""))
         let logger = logger
+        let store = daemonStore
         daemonEventsTask = Task {
-            for await event in await daemon.events() {
-                logger.info("daemon event: \(String(describing: event), privacy: .public)")
+            do {
+                let launcher = try DaemonLauncher.forApp()
+                let connection = DaemonConnection(endpointProvider: launcher.endpointProvider)
+                try await connection.start()
+                await store.run(connection: connection)
+            } catch {
+                logger.error("cmux-tui daemon unavailable: \(String(describing: error), privacy: .public)")
+                store.markFailed(String(describing: error))
             }
         }
     }

@@ -1,0 +1,91 @@
+import Foundation
+
+public struct DaemonIdentity: Sendable, Hashable, Decodable {
+    public var app: String
+    public var version: String
+    public var buildCommit: String?
+    public var ghosttyCommit: String?
+    public var protocolVersion: Int
+    public var capabilities: [String]
+    public var session: String
+    public var pid: Int32
+    public var registryID: String?
+    public var generation: DaemonGeneration
+    public var workspaceRevision: UInt64
+    public var lifecycleReady: Bool
+
+    public func supports(_ capability: String) -> Bool { capabilities.contains(capability) }
+
+    public init(
+        app: String = "cmux-tui",
+        version: String = "0",
+        buildCommit: String? = nil,
+        ghosttyCommit: String? = nil,
+        protocolVersion: Int = 12,
+        capabilities: [String] = [],
+        session: String = "test",
+        pid: Int32 = 0,
+        registryID: String? = nil,
+        generation: DaemonGeneration,
+        workspaceRevision: UInt64 = 0,
+        lifecycleReady: Bool = true
+    ) {
+        self.app = app
+        self.version = version
+        self.buildCommit = buildCommit
+        self.ghosttyCommit = ghosttyCommit
+        self.protocolVersion = protocolVersion
+        self.capabilities = capabilities
+        self.session = session
+        self.pid = pid
+        self.registryID = registryID
+        self.generation = generation
+        self.workspaceRevision = workspaceRevision
+        self.lifecycleReady = lifecycleReady
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case app, version, capabilities, session, pid, generation
+        case buildCommit = "build_commit"
+        case ghosttyCommit = "ghostty_commit"
+        case protocolVersion = "protocol"
+        case registryID = "registry_id"
+        case workspaceRevision = "workspace_revision"
+        case lifecycleReady = "lifecycle_ready"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        app = try c.decode(String.self, forKey: .app)
+        version = try c.decodeIfPresent(String.self, forKey: .version) ?? ""
+        buildCommit = try c.decodeIfPresent(String.self, forKey: .buildCommit)
+        ghosttyCommit = try c.decodeIfPresent(String.self, forKey: .ghosttyCommit)
+        protocolVersion = try c.decode(Int.self, forKey: .protocolVersion)
+        capabilities = try c.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+        session = try c.decodeIfPresent(String.self, forKey: .session) ?? ""
+        pid = try c.decodeIfPresent(Int32.self, forKey: .pid) ?? 0
+        registryID = try c.decodeIfPresent(String.self, forKey: .registryID)
+        generation = try c.decode(DaemonGeneration.self, forKey: .generation)
+        workspaceRevision = try c.decodeIfPresent(UInt64.self, forKey: .workspaceRevision) ?? 0
+        lifecycleReady = try c.decodeIfPresent(Bool.self, forKey: .lifecycleReady) ?? true
+    }
+}
+
+public struct IdentifyRequest: DaemonRequest {
+    public typealias Response = DaemonIdentity
+    public static let command = "identify"
+    public init() {}
+}
+
+public struct SetClientInfoRequest: DaemonRequest {
+    public typealias Response = EmptyResponse
+    public static let command = "set-client-info"
+    public var name: String?
+    public var kind: String?
+    public var capabilities: [String]?
+    public init(name: String? = nil, kind: String? = "frontend", capabilities: [String]? = nil) {
+        self.name = name
+        self.kind = kind
+        self.capabilities = capabilities
+    }
+}

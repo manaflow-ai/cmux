@@ -1,0 +1,154 @@
+import Foundation
+public import Observation
+import os
+
+public enum DaemonConnectionState: Sendable, Equatable {
+    case connecting
+    case connected(DaemonIdentity)
+    case disconnected(String)
+    case failed(String)
+}
+
+/// The app's read-only mirror of the daemon tree (plans/cmux-next/architecture.md
+/// sections 1-2). Records are fine-grained @Observable classes with stable
+/// identity, patched in place from deltas; views observe the smallest record
+/// they render. Events arrive decoded off the main actor and are applied in
+/// batches at most once per frame (`run(connection:scheduler:)`).
+@Observable @MainActor
+public final class DaemonStore {
+    public internal(set) var workspaces: [WorkspaceModel] = []
+    public internal(set) var groups: [WorkspaceGroupModel] = []
+    public internal(set) var savedTabGroups: [SavedTabGroupModel] = []
+    /// Sidebar flattening, recomputed only when order, membership, or groups change.
+    public internal(set) var sidebarSections: [SidebarSection] = []
+    public internal(set) var connectionState: DaemonConnectionState = .connecting
+    public internal(set) var generation: DaemonGeneration?
+    public internal(set) var registryID: String?
+    public internal(set) var workspaceRevision: UInt64 = 0
+    /// Recent notifications, newest last (bounded).
+    public internal(set) var notifications: [DaemonNotification] = []
+    /// True once the first snapshot is applied.
+    public internal(set) var isLoaded = false
+    /// Client transaction ids the daemon echoed, newest last (bounded).
+    public internal(set) var confirmedTransactions: [ClientTransactionID] = []
+    /// Called once per echoed transaction id, on the main actor.
+    @ObservationIgnored public var onTransactionConfirmed: ((ClientTransactionID) -> Void)?
+    @ObservationIgnored public var transactionLimit = 64
+    @ObservationIgnored public var notificationLimit = 200
+
+    @ObservationIgnored var tabsBySurface: [SurfaceID: TabModel] = [:]
+    @ObservationIgnored var panesByHandle: [PaneID: PaneModel] = [:]
+    @ObservationIgnored var screensByHandle: [ScreenID: ScreenModel] = [:]
+    @ObservationIgnored var workspacesByHandle: [WorkspaceHandle: WorkspaceModel] = [:]
+    @ObservationIgnored var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
+    @ObservationIgnored var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
+    @ObservationIgnored var agentsBySurface: [SurfaceID: AgentStatus] = [:]
+    /// Optimistic patches in application order, dropped on echo or rejection.
+    @ObservationIgnored var pendingPatches: [PendingPatch] = []
+    /// Events at or below this sequence are superseded by the last snapshot.
+    @ObservationIgnored var snapshotBarrier: UInt64 = 0
+    /// Set while `run(connection:scheduler:)` drives the store.
+    @ObservationIgnored var driver: StoreDriver?
+    @ObservationIgnored var isResyncing = false
+    @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.store")
+
+    public init() {}
+
+    // MARK: Lookup (O(1))
+
+    public func workspace(key: WorkspaceKey) -> WorkspaceModel? { workspacesByKey[key] }
+    public func workspace(handle: WorkspaceHandle) -> WorkspaceModel? { workspacesByHandle[handle] }
+    public func screen(_ handle: ScreenID) -> ScreenModel? { screensByHandle[handle] }
+    public func pane(_ handle: PaneID) -> PaneModel? { panesByHandle[handle] }
+    public func tab(surface: SurfaceID) -> TabModel? { tabsBySurface[surface] }
+    public func tab(terminal: TerminalID) -> TabModel? { tabsBySurface.values.first { $0.terminalID == terminal } }
+    public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { tabGroupsByID[id] }
+    public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
+
+    /// The pane currently holding `surface`.
+    public func pane(containing surface: SurfaceID) -> PaneModel? {
+        panesByHandle.values.first { pane in pane.tabs.contains { $0.surface == surface } }
+    }
+
+    // MARK: Snapshot
+
+    /// Replaces the tree, reusing records by durable identity, then reapplies
+    /// optimistic patches still waiting for their echo.
+    public func apply(snapshot tree: DaemonTree) {
+        if let value = tree.generation, generation != value { generation = value }
+        if let value = tree.registryID, registryID != value { registryID = value }
+        if workspaceRevision != tree.workspaceRevision { workspaceRevision = tree.workspaceRevision }
+        if let reordered = reconcile(groups, with: tree.groups, id: \.id, make: WorkspaceGroupModel.init, update: { $0.update($1) }) {
+            groups = reordered
+        }
+        if let reordered = reconcile(savedTabGroups, with: tree.savedTabGroups, id: \.id, make: SavedTabGroupModel.init,
+                                     update: { $0.update($1) }) {
+            savedTabGroups = reordered
+        }
+        if let reordered = reconcile(workspaces, with: tree.workspaces, id: WorkspaceModel.identity, make: WorkspaceModel.init,
+                                     update: { $0.update($1) }) {
+            workspaces = reordered
+        }
+        if !isLoaded { isLoaded = true }
+        structureChanged()
+        reapplyPendingPatches()
+    }
+
+    /// Seeds agent state (`list-agents`), e.g. after connect.
+    public func apply(agents: [AgentStatus]) {
+        agentsBySurface = Dictionary(agents.map { ($0.surface, $0) }, uniquingKeysWith: { $1 })
+        for (surface, tab) in tabsBySurface { tab.setAgent(agentsBySurface[surface]) }
+    }
+
+    /// Marks the connection permanently failed (incompatible daemon).
+    public func markFailed(_ message: String) {
+        connectionState = .failed(message)
+    }
+
+    // MARK: Derived state
+
+    /// Rebuilds lookup indexes and the sidebar flattening after a structural change.
+    func structureChanged() {
+        var tabs: [SurfaceID: TabModel] = [:]
+        var panes: [PaneID: PaneModel] = [:]
+        var screens: [ScreenID: ScreenModel] = [:]
+        var byHandle: [WorkspaceHandle: WorkspaceModel] = [:]
+        var byKey: [WorkspaceKey: WorkspaceModel] = [:]
+        var tabGroups: [TabGroupID: TabGroupModel] = [:]
+        for workspace in workspaces {
+            byHandle[workspace.handle] = workspace
+            if let key = workspace.key { byKey[key] = workspace }
+            for screen in workspace.screens {
+                screens[screen.handle] = screen
+                for pane in screen.panes {
+                    panes[pane.handle] = pane
+                    for group in pane.tabGroups { tabGroups[group.id] = group }
+                    for tab in pane.tabs {
+                        tabs[tab.surface] = tab
+                        if tab.agent == nil, let agent = agentsBySurface[tab.surface] { tab.setAgent(agent) }
+                    }
+                }
+            }
+        }
+        tabsBySurface = tabs
+        panesByHandle = panes
+        screensByHandle = screens
+        workspacesByHandle = byHandle
+        workspacesByKey = byKey
+        tabGroupsByID = tabGroups
+        recomputeSidebar()
+    }
+
+    func recomputeSidebar() {
+        let ungrouped = workspaces.filter { workspace in workspace.group.map { id in !groups.contains { $0.id == id } } ?? true }
+        var sections = [SidebarSection(group: nil, workspaces: ungrouped)]
+        for group in groups.sorted(by: { $0.index < $1.index }) {
+            sections.append(SidebarSection(group: group, workspaces: workspaces.filter { $0.group == group.id }))
+        }
+        let unchanged = sections.count == sidebarSections.count && zip(sections, sidebarSections).allSatisfy { new, old in
+            new.group === old.group && new.workspaces.count == old.workspaces.count
+                && zip(new.workspaces, old.workspaces).allSatisfy { $0 === $1 }
+        }
+        if !unchanged { sidebarSections = sections }
+    }
+}
