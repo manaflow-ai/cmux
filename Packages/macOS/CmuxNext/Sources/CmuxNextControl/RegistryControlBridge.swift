@@ -62,12 +62,11 @@ public final class RegistryControlBridge: ControlActionExecutor {
 
     // MARK: - Executor
 
-    public nonisolated func runAction(_ request: ControlActionRequest) async -> ControlActionOutcome {
-        await perform(request)
-    }
+    /// Same as ``performAction(_:)``.
+    public func perform(_ request: ControlActionRequest) -> ControlActionOutcome { performAction(request) }
 
     /// Runs `request` through the registry. Main actor only.
-    public func perform(_ request: ControlActionRequest) -> ControlActionOutcome {
+    public func performAction(_ request: ControlActionRequest) -> ControlActionOutcome {
         let id = registry.canonicalID(for: ActionID(rawValue: request.actionID))
         guard registry.descriptor(for: id) != nil || registry.isBound(id) else { return .unknownAction }
         guard let action = registry.action(for: id) else { return .notBound }

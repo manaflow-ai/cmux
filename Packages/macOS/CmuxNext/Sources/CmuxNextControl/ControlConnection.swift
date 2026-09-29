@@ -1,59 +1,116 @@
-import Foundation
 import CmuxNextSettings
 import Darwin
-import Synchronization
+import Foundation
 
-/// One accepted client. Reads with a dispatch source on a private serial
-/// queue, splits lines, and hands them to a single consumer task; writes are
-/// queued on the same queue so responses keep request order.
+/// One accepted client. All socket IO runs on a private serial queue:
+/// nonblocking reads split lines for a single consumer task, and responses
+/// go through a nonblocking, capped write buffer, so a slow or stuck client
+/// can only stall its own connection.
+///
+/// Bounds (architecture.md 5a, "no unbounded buffers"):
+/// - inbound: at most `maxQueuedLines` parsed lines wait for the consumer;
+///   beyond that the read source is suspended and the kernel socket buffer
+///   pushes back on the client.
+/// - outbound: at most `maxOutboxBytes` of unsent responses; a client that
+///   stops reading past that is disconnected.
+/// - close: queued responses get `drainTimeout` to flush after `close()`.
 final class ControlConnection: @unchecked Sendable {
+    struct Limits: Sendable {
+        var maxLineBytes: Int
+        var maxQueuedLines = 64
+        var maxOutboxBytes = 8 << 20
+        var drainTimeout: DispatchTimeInterval = .seconds(5)
+    }
+
+    let id: ControlConnectionID
     private let descriptor: Int32
-    private let maxLineBytes: Int
-    private let queue = DispatchQueue(label: "com.cmuxterm.next.control.connection")
+    private let limits: Limits
+    private let queue: DispatchQueue
     // Queue-confined.
-    private var source: (any DispatchSourceRead)?
-    private var buffer = Data()
+    private var readSource: (any DispatchSourceRead)?
+    private var writeSource: (any DispatchSourceWrite)?
+    private var drainTimer: (any DispatchSourceTimer)?
+    private var liveSources = 0
+    private var inbound = Data()
+    private var queuedLines = 0
+    private var isReadSuspended = false
+    private var isInputFinished = false
+    private var outbox = Data()
+    private var outboxOffset = 0
+    private var isWriteArmed = false
+    private var isCloseRequested = false
+    private var isClosed = false
     private var continuation: AsyncStream<String>.Continuation?
     private var consumer: Task<Void, Never>?
-    private var isClosed = false
-    private var isReadSuspended = false
+    /// Called once on the connection queue after the descriptor closed.
+    var onClosed: (@Sendable () -> Void)?
 
-    init(descriptor: Int32, maxLineBytes: Int) {
+    init(id: ControlConnectionID, descriptor: Int32, limits: Limits) {
+        self.id = id
         self.descriptor = descriptor
-        self.maxLineBytes = maxLineBytes
+        self.limits = limits
+        self.queue = DispatchQueue(label: "com.cmuxterm.next.control.\(id)")
     }
 
     func start(consume: @escaping @Sendable (AsyncStream<String>) async -> Void) {
+        // The stream never exceeds `maxQueuedLines`: reading pauses first.
         let (stream, continuation) = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
         queue.async { [self] in
             self.continuation = continuation
             let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
             source.setEventHandler { [weak self] in self?.readAvailable() }
-            source.setCancelHandler { [descriptor] in Darwin.close(descriptor) }
-            self.source = source
+            source.setCancelHandler { [weak self] in self?.sourceCancelled() }
+            readSource = source
+            liveSources += 1
             source.resume()
             consumer = Task { await consume(stream) }
         }
     }
 
+    /// Queues one response line. Never blocks the caller.
     func send(_ line: String) {
-        let data = Data((line + "\n").utf8)
+        var data = Data(line.utf8)
+        data.append(0x0A)
         queue.async { [self] in
             guard !isClosed else { return }
-            writeAll(data)
+            if outbox.count - outboxOffset + data.count > limits.maxOutboxBytes {
+                // The client stopped reading; drop it rather than buffer without limit.
+                closeNow()
+                return
+            }
+            outbox.append(data)
+            flush()
         }
     }
 
+    /// The consumer finished one line; reading may resume.
+    func lineConsumed() {
+        queue.async { [self] in
+            queuedLines = max(0, queuedLines - 1)
+            emitLines()
+            if isReadSuspended, !isInputFinished, queuedLines < limits.maxQueuedLines, !isClosed {
+                isReadSuspended = false
+                readSource?.resume()
+            }
+        }
+    }
+
+    /// Stops reading and closes once queued responses flushed (or after
+    /// `drainTimeout`).
     func close() {
         queue.async { [self] in
-            guard !isClosed else { return }
-            isClosed = true
-            continuation?.finish()
-            continuation = nil
-            // A suspended source must be resumed before it can be cancelled.
-            if isReadSuspended { source?.resume() }
-            source?.cancel()
-            source = nil
+            guard !isClosed, !isCloseRequested else { return }
+            isCloseRequested = true
+            finishInput()
+            if outboxOffset >= outbox.count {
+                closeNow()
+                return
+            }
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.schedule(deadline: .now() + limits.drainTimeout)
+            timer.setEventHandler { [weak self] in self?.closeNow() }
+            drainTimer = timer
+            timer.resume()
         }
     }
 
@@ -61,64 +118,134 @@ final class ControlConnection: @unchecked Sendable {
 
     private func readAvailable() {
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
-        while true {
+        while !isReadSuspended, !isInputFinished {
             let count = read(descriptor, &chunk, chunk.count)
             if count > 0 {
-                buffer.append(chunk, count: count)
+                inbound.append(chunk, count: count)
                 emitLines()
-                if buffer.count > maxLineBytes {
-                    writeAll(Data((ControlRouter.encode(id: nil, error: ControlError(code: "request_too_large", message: "Request line exceeds \(maxLineBytes) bytes")) + "\n").utf8))
+                if inbound.count > limits.maxLineBytes, inbound.firstIndex(of: 0x0A) == nil {
+                    let error = ControlError(code: "request_too_large", message: "Request line exceeds \(limits.maxLineBytes) bytes")
+                    outbox.append(Data((ControlWire.encode(id: nil, error: error) + "\n").utf8))
+                    flush()
                     finishInput()
-                    return
                 }
                 continue
             }
             if count < 0, errno == EINTR { continue }
             if count < 0, errno == EAGAIN || errno == EWOULDBLOCK { return }
-            // EOF or error: let the consumer drain what it has, then close.
+            // EOF or error: the consumer drains what it has, then closes.
             finishInput()
             return
         }
     }
 
+    /// Hands complete lines to the consumer until `maxQueuedLines` wait,
+    /// then suspends reading.
     private func emitLines() {
-        while let newline = buffer.firstIndex(of: 0x0A) {
-            let lineData = buffer[buffer.startIndex..<newline]
-            buffer.removeSubrange(buffer.startIndex...newline)
+        while queuedLines < limits.maxQueuedLines, let newline = inbound.firstIndex(of: 0x0A) {
+            let lineData = inbound[inbound.startIndex..<newline]
+            inbound.removeSubrange(inbound.startIndex...newline)
+            queuedLines += 1
             continuation?.yield(String(decoding: lineData, as: UTF8.self))
         }
-    }
-
-    /// Stops reading (EOF, error, or oversized line) but keeps the
-    /// descriptor open so queued responses still reach a half-closed client.
-    private func finishInput() {
-        continuation?.finish()
-        continuation = nil
-        if let source, !isReadSuspended {
-            source.suspend()
+        if isInputFinished, inbound.firstIndex(of: 0x0A) == nil {
+            continuation?.finish()
+            continuation = nil
+        }
+        if queuedLines >= limits.maxQueuedLines, !isReadSuspended, !isInputFinished, let readSource {
+            readSource.suspend()
             isReadSuspended = true
         }
     }
 
-    private func writeAll(_ data: Data) {
-        data.withUnsafeBytes { raw in
-            guard var pointer = raw.baseAddress else { return }
-            var remaining = raw.count
-            while remaining > 0 {
-                let written = write(descriptor, pointer, remaining)
-                if written > 0 {
-                    pointer += written
-                    remaining -= written
-                } else if written < 0, errno == EINTR {
-                    continue
-                } else if written < 0, errno == EAGAIN || errno == EWOULDBLOCK {
-                    var descriptorSet = pollfd(fd: descriptor, events: Int16(POLLOUT), revents: 0)
-                    // Bounded wait for a slow reader; a stuck client is dropped.
-                    guard poll(&descriptorSet, 1, 5_000) > 0 else { return }
-                } else {
-                    return
-                }
-            }
+    /// Stops reading (EOF, error, oversized line, close) but keeps the
+    /// descriptor open so queued responses still reach a half-closed client.
+    private func finishInput() {
+        guard !isInputFinished else { return }
+        isInputFinished = true
+        if let readSource, !isReadSuspended {
+            readSource.suspend()
+            isReadSuspended = true
         }
+        // Lines already buffered still reach the consumer (see emitLines).
+        emitLines()
+    }
+
+    private func flush() {
+        while outboxOffset < outbox.count {
+            let written = outbox.withUnsafeBytes { raw in
+                write(descriptor, raw.baseAddress! + outboxOffset, raw.count - outboxOffset)
+            }
+            if written > 0 {
+                outboxOffset += written
+                continue
+            }
+            if written < 0, errno == EINTR { continue }
+            if written < 0, errno == EAGAIN || errno == EWOULDBLOCK {
+                armWriteSource()
+                return
+            }
+            closeNow()
+            return
+        }
+        outbox.removeAll(keepingCapacity: outbox.count <= 64 * 1024)
+        outboxOffset = 0
+        if isWriteArmed {
+            writeSource?.suspend()
+            isWriteArmed = false
+        }
+        if isCloseRequested { closeNow() }
+    }
+
+    private func armWriteSource() {
+        if outboxOffset > 1 << 20, outboxOffset * 2 > outbox.count {
+            outbox.removeSubrange(0..<outboxOffset)
+            outboxOffset = 0
+        }
+        guard !isWriteArmed else { return }
+        if writeSource == nil {
+            let source = DispatchSource.makeWriteSource(fileDescriptor: descriptor, queue: queue)
+            source.setEventHandler { [weak self] in self?.flush() }
+            source.setCancelHandler { [weak self] in self?.sourceCancelled() }
+            writeSource = source
+            liveSources += 1
+        }
+        isWriteArmed = true
+        writeSource?.resume()
+    }
+
+    private func closeNow() {
+        guard !isClosed else { return }
+        isClosed = true
+        isInputFinished = true
+        continuation?.finish()
+        continuation = nil
+        drainTimer?.cancel()
+        drainTimer = nil
+        outbox = Data()
+        outboxOffset = 0
+        // A suspended source must be resumed before its cancel handler runs.
+        if let readSource {
+            if isReadSuspended { readSource.resume() }
+            readSource.cancel()
+        }
+        if let writeSource {
+            if !isWriteArmed { writeSource.resume() }
+            writeSource.cancel()
+        }
+        readSource = nil
+        writeSource = nil
+        if liveSources == 0 { closeDescriptor() }
+    }
+
+    private func sourceCancelled() {
+        liveSources -= 1
+        if liveSources == 0, isClosed { closeDescriptor() }
+    }
+
+    private func closeDescriptor() {
+        Darwin.close(descriptor)
+        onClosed?()
+        onClosed = nil
     }
 }

@@ -1,10 +1,12 @@
 public import CmuxNextSettings
 
-/// Runs actions for `action.run`. The App's implementation
-/// (`RegistryControlBridge`) hops to the main actor and calls
-/// `ActionRegistry.perform`; tests inject a fake.
+/// Runs actions for `action.run`. The router calls it on the main actor
+/// through ``MainActorWorkQueue`` after validating the request off-main, so
+/// an implementation must be synchronous and short: apply local state, send
+/// daemon commands without awaiting their replies, return. The App's
+/// implementation is `RegistryControlBridge`; tests inject a fake.
 public protocol ControlActionExecutor: Sendable {
-    func runAction(_ request: ControlActionRequest) async -> ControlActionOutcome
+    @MainActor func performAction(_ request: ControlActionRequest) -> ControlActionOutcome
 }
 
 /// `settings.get` / `settings.set` storage. `CmuxConfigFile` conforms, so

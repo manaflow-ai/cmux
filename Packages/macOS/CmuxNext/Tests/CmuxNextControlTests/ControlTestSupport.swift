@@ -13,7 +13,7 @@ final class RecordingExecutor: ControlActionExecutor {
         self.outcome = outcome
     }
 
-    func runAction(_ request: ControlActionRequest) async -> ControlActionOutcome {
+    @MainActor func performAction(_ request: ControlActionRequest) -> ControlActionOutcome {
         requests.withLock { $0.append(request) }
         return outcome
     }
@@ -42,6 +42,8 @@ final class LineClient {
             close(descriptor)
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
+        var noSigPipe: Int32 = 1
+        setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         var timeout = timeval(tv_sec: 5, tv_usec: 0)
         setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
     }
