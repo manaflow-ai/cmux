@@ -18,7 +18,7 @@ blocks until the iOS job signals completion.
 | `CMUX_E2E_TAG` | Shared dev tag for this run (`ci<PR#>` or `ci-main`). Names the app bundle (`com.cmuxterm.app.debug.<tag>`), the debug socket (`/tmp/cmux-debug-<tag>.sock`), and the backend stack. |
 | `CMUX_DEV_BACKEND_URL` | Web API origin of the ensured backend stack (private Tailscale Serve URL on the durable VM). |
 | `CMUX_E2E_DONE_FILE` | Absolute path of the teardown file. Poll for it locally (sleep loop); the iOS job touches it over Tailscale SSH. Never substitute GitHub API status polling — a ~25-minute per-PR poll loop draws down the repo-wide API rate limit, and the file needs no token. |
-| `CMUX_E2E_WAIT_TIMEOUT_SECONDS` | Optional bound on the done-file wait; default 1500 (~25m). Expiry exits 0 as an infrastructure timeout. |
+| `CMUX_E2E_WAIT_TIMEOUT_SECONDS` | Optional bound on the done-file wait; default 1500 (~25m). Expiry exits nonzero. |
 | `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD` | Dedicated CI Stack account (the pair ios-streamed-validate.yml uses; the app's dev-secrets resolution reads `CMUX_DOGFOOD_STACK_*` from the environment first). Never echo, never pass on argv, never write to disk. |
 
 Exit 0 means the app launched, signed in, advertised, and the done-file

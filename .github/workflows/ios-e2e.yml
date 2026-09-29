@@ -14,7 +14,10 @@ name: iOS E2E
 # still reports green.
 on:
   workflow_dispatch:
-  pull_request:
+  # The pull_request trigger stays off until the owner approves this check's
+  # promotion (see docs/ci/ios-e2e.md): tests enter a CI lane by proposal and
+  # approval, and the product-download stubs below would red every PR today.
+  # pull_request:
 
 permissions:
   contents: read
@@ -44,7 +47,7 @@ jobs:
   route:
     # Decides whether the lane runs and which backend stack tag it uses.
     # Cheap Linux layer so every PR gets a routed conclusion (see header).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       run_e2e: ${{ steps.decide.outputs.run_e2e }}
@@ -72,10 +75,7 @@ jobs:
           # macOS runners; until then every routed run says "run" and the
           # lane's cost is bounded by it not being required (shadow mode,
           # docs/ci/ios-e2e.md#promotion-plan).
-          run_e2e=false
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            run_e2e=true
-          fi
+          run_e2e=true
           # Backend stack selection: a PR that changes web/ (API routes,
           # services, drizzle schema — the code the stack actually runs) must
           # not land its schema or API changes on the shared long-lived
@@ -124,7 +124,7 @@ jobs:
       success()
       && needs.route.outputs.run_e2e == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     outputs:
       backend_url: ${{ steps.ensure.outputs.backend_url }}
@@ -132,7 +132,7 @@ jobs:
       - name: Join tailnet
         # TODO(ios-e2e): pin to a commit SHA like the other third-party
         # actions in this repo once the action version settles.
-        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
+        uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
@@ -183,7 +183,7 @@ jobs:
       success()
       && needs.route.outputs.run_e2e == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     outputs:
       # Debug/audit only. A job output is readable by dependents only after
@@ -198,9 +198,6 @@ jobs:
           persist-credentials: false
           # The app arrives prebuilt; the checkout is for the driver scripts.
           submodules: false
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
 
       - name: Download tagged Mac app product
         run: |
@@ -223,7 +220,7 @@ jobs:
       - name: Join tailnet
         # TODO(ios-e2e): pin to a commit SHA (see backend job); also confirm
         # the action's macOS-runner support on the Blacksmith image.
-        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
+        uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
@@ -280,7 +277,7 @@ jobs:
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     # Simulator-capable pool: MACOS_RUNNER_IOS is the variable the iOS
     # simulator lanes read (test-ios.yml, ios-streamed-validate.yml).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -320,7 +317,7 @@ jobs:
 
       - name: Join tailnet
         # TODO(ios-e2e): pin to a commit SHA (see backend job).
-        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
+        uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
@@ -397,7 +394,7 @@ jobs:
     # would block every outside contribution.
     needs: [route, backend, mac-host, ios-e2e]
     if: always()
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Aggregate
