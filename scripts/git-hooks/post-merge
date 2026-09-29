@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Migrate clone-local merge drivers after a trusted main fast-forward/pull.
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+HEAD_SHA="$(git rev-parse HEAD)"
+
+# This hook is tracked, so never run its installer merely because an arbitrary
+# checked-out branch asks. The current commit must exactly equal main fetched
+# from the canonical manaflow-ai/cmux remote already configured by the user.
+while IFS= read -r remote; do
+    url="$(git remote get-url "$remote" 2>/dev/null || true)"
+    case "$url" in
+        git@github.com:manaflow-ai/cmux.git|ssh://git@github.com/manaflow-ai/cmux.git|https://github.com/manaflow-ai/cmux.git|https://github.com/manaflow-ai/cmux)
+            trusted_ref="refs/remotes/$remote/main"
+            trusted_sha="$(git rev-parse --verify "$trusted_ref" 2>/dev/null || true)"
+            if [[ -n "$trusted_sha" && "$HEAD_SHA" == "$trusted_sha" ]]; then
+                trusted_inputs=(
+                    scripts/install-git-hooks.sh
+                    scripts/git-hooks/pre-commit
+                    scripts/git-hooks/post-merge
+                    scripts/merge-xcstrings.py
+                    scripts/merge-pbxproj.py
+                    scripts/ci/catch_up_pr.py
+                    scripts/ci/validate_test_execution_registry.py
+                    scripts/ci/test_execution_registry.py
+                    scripts/ci/workload_entrypoints.py
+                    scripts/normalize-pbxproj.py
+                )
+                if ! git diff --quiet "$trusted_sha" -- "${trusted_inputs[@]}"; then
+                    echo "warning: cmux merge-driver installer inputs differ from trusted main; rerun from a clean checkout." >&2
+                    exit 0
+                fi
+                exec /bin/bash "$REPO_ROOT/scripts/install-git-hooks.sh"
+            fi
+            ;;
+    esac
+done < <(git remote)
+
+exit 0

@@ -105,6 +105,9 @@
          location = "group:CmuxMobileSimulatorStream">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileSSH">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileSupport">
       </FileRef>
       <FileRef
@@ -118,6 +121,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxMobileTransport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileTunnel">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileWorkspace">

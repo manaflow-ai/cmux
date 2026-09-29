@@ -25,6 +25,11 @@
       "message": "Konfiguracja maszyny Cloud VM nie powiodła się, a usuwanie pozostałości nadal oczekuje.",
       "action": "Przed utworzeniem kolejnej maszyny skontaktuj się z pomocą techniczną, podając identyfikator śledzenia."
     },
+    "recreateRequired": {
+      "title": "Utwórz tę maszynę ponownie",
+      "message": "Ta maszyna została utworzona przed aktualizacją Cloud i nie można się z nią połączyć.",
+      "action": "Utwórz nową maszynę, skopiuj pliki za pomocą cmux vm pull i cmux vm push, a potem usuń tę."
+    },
     "unsupported": {
       "title": "Operacja Cloud VM jest niedostępna",
       "reason": "Ten typ maszyny nie udostępnia tej operacji.",
@@ -2076,7 +2081,7 @@
       "data3": "Metadane parowania i urządzenia, aby połączyć twój telefon z Makiem.",
       "dataNot": "Twoja interaktywna sesja terminala, jej zawartość i naciśnięcia klawiszy, płynie bezpośrednio między telefonem a Makiem przez twoją własną sieć i nie jest przekazywana przez serwery cmux ani na nich przechowywana. Jedynym wyjątkiem jest przekazywany tekst powiadomień, który przechodzi przez cmux i usługę push firmy Apple, aby dotrzeć do twojego telefonu, chyba że włączysz Hide content (zobacz Powiadomienia powyżej).",
       "enterpriseTitle": "Wdrożenia korporacyjne i własne",
-      "enterpriseDesc": "W przypadku wdrożenia własnego lub odizolowanego od sieci skontaktuj się z <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "W przypadku wdrożenia własnego lub odizolowanego od sieci skontaktuj się z <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4325,7 +4330,7 @@
         "description": "Zgłaszaj błędy i proponuj nowe funkcje publicznie."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "Wolisz e-mail? Napisz do nas bezpośrednio."
       }
     },
@@ -4347,8 +4352,8 @@
       "privacy": "Twojego adresu e-mail używamy wyłącznie po to, aby odpowiedzieć na Twoje zgłoszenie. Nie sprzedajemy danych kontaktowych.",
       "submit": "Wyślij wiadomość",
       "submitting": "Wysyłanie…",
-      "success": "Dziękujemy. Otrzymaliśmy Twoją wiadomość i odpowiemy na Twój e-mail z adresu founders@manaflow.com.",
-      "error": "Coś poszło nie tak. Spróbuj ponownie lub napisz na founders@manaflow.com."
+      "success": "Dziękujemy. Otrzymaliśmy Twoją wiadomość i odpowiemy na Twój e-mail z adresu founders@cmux.com.",
+      "error": "Coś poszło nie tak. Spróbuj ponownie lub napisz na founders@cmux.com."
     }
   },
   "emails": {
@@ -4387,7 +4392,10 @@
     "emailUnavailable": "adres e-mail niedostępny",
     "organization": "Organizacja",
     "personalAccount": "konto osobiste",
-    "switchAccountButton": "Użyj innego konta"
+    "switchAccountButton": "Użyj innego konta",
+    "signedOutTitle": "Zaloguj się, aby autoryzować coderouter",
+    "signedOutBody": "Aplikacja wiersza poleceń czeka, aż się zalogujesz. Zaloguj się kontem cmux, aby dokończyć łączenie tego terminala. Jeśli to nie Ty rozpocząłeś to żądanie, zamknij tę stronę.",
+    "signInButton": "Zaloguj się"
   },
   "MobileRelease106": {
     "title": "Co nowego w 1.0.6",

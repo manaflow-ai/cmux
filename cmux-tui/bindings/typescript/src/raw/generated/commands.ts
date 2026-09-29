@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619. */
+/* cmux-tui mux protocol 12, IR e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45. */
 
 
 import type * as T from "./types.js";
@@ -872,6 +872,14 @@ export interface SetSplitRatioRequest extends CmuxRequestBase {
 }
 export type SetSplitRatioResult = T.EmptyResult;
 
+/** Protocol v12; authority: control. */
+export interface SetTerminalIdlePolicyRequest extends CmuxRequestBase {
+  cmd: "set-terminal-idle-policy";
+  "idle_close_seconds"?: (bigint) | null;
+  "surface"?: (T.Id) | null;
+  "terminal_id"?: (string) | null;
+}
+
 /** Protocol v9; authority: control. */
 export interface SetViewportPaneWidthRequest extends CmuxRequestBase {
   cmd: "set-viewport-pane-width";
@@ -1101,6 +1109,7 @@ export type CmuxRequest =
   | SetDefaultColorsRequest
   | SetRatioRequest
   | SetSplitRatioRequest
+  | SetTerminalIdlePolicyRequest
   | SetViewportPaneWidthRequest
   | SetWindowTitleRequest
   | ShutdownDaemonRequest
@@ -1879,6 +1888,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 8;
     capability: null;
+    stream: null;
+  };
+  "set-terminal-idle-policy": {
+    request: SetTerminalIdlePolicyRequest;
+    result: T.SetTerminalIdlePolicyResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-idle-close-v1";
     stream: null;
   };
   "set-viewport-pane-width": {

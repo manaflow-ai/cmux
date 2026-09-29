@@ -1433,6 +1433,41 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertEqual(error.code, "surface_unavailable")
     }
 
+    func testMobileTerminalInputWithoutTerminalIDIsRefusedInsteadOfTypingIntoTheFocusedTerminal() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = makeTrackedManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        panel.surface.releaseHostedSurfaceForTesting()
+
+        // A phone request that names no terminal must never be written into
+        // whichever terminal happens to be focused on the Mac.
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "input",
+                method: "terminal.input",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "text": "rm -rf build\r",
+                ],
+                auth: nil
+            )
+        )
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertEqual(panel.surface.debugPendingSocketInputForTesting().inputTextItems, 0)
+        guard case let .failure(error) = response else {
+            XCTFail("Expected phone input without a terminal id to be refused")
+            return
+        }
+        XCTAssertEqual(error.code, "terminal_id_required")
+    }
+
     func testMobileHostNetworkStatusDoesNotExposePrivateMetadata() async throws {
         let response = await TerminalController.shared.mobileHostHandleRPC(
             MobileHostRPCRequest(
@@ -5041,7 +5076,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+        guard let scrollView = hostedView.subviews.first(where: { $0 is GhosttyScrollView }) as? GhosttyScrollView else {
             XCTFail("Expected hosted terminal scroll view")
             return
         }
@@ -5066,13 +5101,14 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             )
         }
 
-        // Start from the overlay style so the test is independent of the
-        // machine running it. The legacy transition below models the system
+        // Start from Automatic so the test is independent of the machine
+        // running it. The legacy transition below models the system
         // preference changing to "Always".
+        scrollView.showScrollBarsPreference = { "Automatic" }
         XCTAssertEqual(
             scrollView.scrollerStyle,
-            NSScroller.preferredScrollerStyle,
-            "The terminal scroll view should start with AppKit's preferred system style"
+            .overlay,
+            "The terminal scroll view should start with the overlay style for Automatic"
         )
         scrollView.scrollerStyle = .overlay
         scrollView.layoutSubtreeIfNeeded()
@@ -5084,6 +5120,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let initialContentWidth = scrollView.contentSize.width
         XCTAssertEqual(initialSurfaceSize.width, initialContentWidth, accuracy: 0.5)
 
+        scrollView.showScrollBarsPreference = { "Always" }
         scrollView.scrollerStyle = .legacy
         scrollView.layoutSubtreeIfNeeded()
         XCTAssertEqual(scrollView.scrollerStyle, .legacy)
@@ -5132,6 +5169,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             "Preferred scroller style changes should resize the terminal grid for a legacy scrollbar"
         )
 
+        scrollView.showScrollBarsPreference = { "Automatic" }
         scrollView.scrollerStyle = .overlay
         scrollView.layoutSubtreeIfNeeded()
         let overlayContentWidth = scrollView.contentSize.width

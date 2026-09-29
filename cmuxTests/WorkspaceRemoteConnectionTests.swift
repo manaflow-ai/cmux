@@ -4,6 +4,7 @@ import XCTest
 import os
 import CmuxControlSocket
 import CmuxCore
+import CmuxFoundation
 import CmuxRemoteDaemon
 import CmuxRemoteSession
 import CmuxSidebar
@@ -122,12 +123,14 @@ private final class NativeSSHCleanupRecorder {
 
 final class WorkspaceRemoteConnectionTests: XCTestCase {
     /// A control path in the resolved form the broker will claim lifecycle ownership of:
-    /// the cmux prefix followed by 40 hex digits, which is what `ssh -G` expands `%C` into
+    /// cmux's socket directory followed by 40 hex digits, which is what `ssh -G` expands `%C` into
     /// before a configuration reaches the app. `NativeSSHControlMasterKey` refuses to own a
     /// path still containing `%`, so a fixture carrying a raw `%C` template never gets a
     /// lease and can never produce a cleanup request.
+    private static let controlSocketDirectory =
+        SSHConnectionSharingOptions().controlSocketDirectoryPath ?? "/unavailable-cmux-ssh"
     private static let resolvedControlPath =
-        "/tmp/cmux-ssh-\(getuid())-0123456789abcdef0123456789abcdef01234567"
+        controlSocketDirectory + "/0123456789abcdef0123456789abcdef01234567"
 
     private struct ProcessRunResult {
         let status: Int32, stdout: String, stderr: String
@@ -688,16 +691,20 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let arguments = configuration.daemonSocketForwardArguments(
-            localPort: 64123,
+            localSocketPath: "/private/tmp/cmuxd.AbC123/d.sock",
             remoteSocketPath: "/run/cmuxd-remote.sock"
         )
 
-        XCTAssertEqual(Array(arguments.prefix(4)), ["-N", "-T", "-S", "none"])
+        XCTAssertEqual(Array(arguments.prefix(8)), [
+            "-N", "-T", "-S", "none",
+            "-o", "StreamLocalBindMask=0177",
+            "-o", "StreamLocalBindUnlink=yes",
+        ])
         XCTAssertTrue(arguments.contains("-p"))
         XCTAssertTrue(arguments.contains("2222"))
         XCTAssertTrue(arguments.contains("-i"))
         XCTAssertTrue(arguments.contains("/Users/test/.ssh/id_ed25519"))
-        XCTAssertTrue(arguments.contains("127.0.0.1:64123:/run/cmuxd-remote.sock"))
+        XCTAssertTrue(arguments.contains("/private/tmp/cmuxd.AbC123/d.sock:/run/cmuxd-remote.sock"))
         XCTAssertEqual(arguments.last, "cmux-macmini")
     }
 
@@ -1197,9 +1204,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             foregroundAuthToken: "token-a"
         )
-        let resolvedControlPath =
-            "/tmp/cmux-ssh-\(getuid())-" +
-            "0123456789abcdef0123456789abcdef01234567"
+        let resolvedControlPath = Self.resolvedControlPath
         XCTAssertTrue(workspace.notifyRemoteForegroundAuthenticationReady(
             token: "token-a",
             resolvedControlPath: resolvedControlPath
@@ -1368,7 +1373,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-o", "StrictHostKeyChecking=accept-new",
                 "-O", "exit",
-                "cmux-macmini",
+                "--", "cmux-macmini",
             ]
         )
     }
@@ -1413,7 +1418,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-i", "/Users/test/.ssh/id_ed25519",
                 "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-O", "exit",
-                "cmux-macmini",
+                "--", "cmux-macmini",
             ]
         )
     }
@@ -1512,7 +1517,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-o", "ControlMaster=no",
                 "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-O", "exit",
-                "cmux-macmini",
+                "--", "cmux-macmini",
             ]
         )
     }
@@ -1598,7 +1603,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-o", "StrictHostKeyChecking=accept-new",
                 "-O", "exit",
-                "cmux-macmini",
+                "--", "cmux-macmini",
             ]
         )
     }
@@ -1620,7 +1625,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-%C",
+                "ControlPath=\(Self.controlSocketDirectory)/%C",
                 "StrictHostKeyChecking=accept-new",
             ],
             localProxyPort: nil,
@@ -2022,7 +2027,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         wait(for: [cleanupRequested], timeout: 1.0)
 
         XCTAssertEqual(cleanup.arguments.count, 1)
-        XCTAssertEqual(cleanup.arguments.first?.suffix(2), ["exit", "cmux-macmini"])
+        XCTAssertEqual(cleanup.arguments.first?.suffix(3), ["exit", "--", "cmux-macmini"])
     }
 
     @MainActor

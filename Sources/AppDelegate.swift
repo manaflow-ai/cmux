@@ -1655,7 +1655,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             CloudWorkspaceRenameService(environment: cloudRenameEnvironment)
         )
         TerminalPredictionCenter.shared.bindEnabledSetting(
-            userDefaultsKey: SettingCatalog().betaFeatures.predictedEcho.userDefaultsKey
+            userDefaultsKey: SettingCatalog().betaFeatures.predictedEcho.userDefaultsKey,
+            defaultValue: SettingCatalog().betaFeatures.predictedEcho.defaultValue
         )
         SurfaceCatalog.shared.register(LocalSurfaceProvider.shared)
         SurfaceCatalog.shared.focusProjection = { projection in
@@ -9012,7 +9013,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 let page = await Self.cloudVMFleetPage()
-                if page?.vms.contains(where: { $0.base != nil }) != false {
+                // A Base whose delete is in flight is gone to the person: offer a new one.
+                let deleting = MachineDeleteCoordinator.shared.hiddenMachineIDs
+                if page?.vms.contains(where: { $0.base != nil && !deleting.contains($0.id) }) != false {
                     _ = self.launchCloudVMBaseOpen(
                         workspace: workspace,
                         socketPath: socketPath,
@@ -9287,30 +9290,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func closeWorkspaces(forManagedCloudVMID vmID: String) {
         let target = vmID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !target.isEmpty else { return }
-        var managers = mainWindowContexts.values.map(\.tabManager)
-        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
-            managers.append(tabManager)
-        }
-        for manager in managers {
-            let doomed = manager.tabs.filter { workspace in
-                workspace.cloudVMID?.lowercased() == target
-            }
-            for workspace in doomed {
-                if manager.tabs.count > 1 {
-                    manager.closeWorkspace(workspace, recordHistory: false)
-                } else {
-                    // TabManager intentionally keeps the final workspace as a
-                    // local anchor. Clear its cloud binding and panels instead
-                    // of leaving a deleted VM's loading/connected surface
-                    // behind when this is the only tab in the window.
-                    workspace.disconnectRemoteConnection(clearConfiguration: true)
-                    workspace.cloudVMBinding = nil
-                    workspace.withClosedPanelHistorySuppressed {
-                        workspace.teardownAllPanels()
-                    }
-                }
-            }
-        }
+        closeLocalWorkspaces(forCloudVMID: target)
         // The sidebar's headless link to that machine has nothing left to talk to.
         CmuxTuiSurfaceProviderRegistry.shared.machineWasDeleted(target)
     }

@@ -203,10 +203,9 @@ extension MobileHostAuthorizationTests {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
         defer { service.debugResetMobileLifecycleStateForTesting() }
-        let registry = MobileHostConnectionRegistry.shared
-        for connection in registry.removeAll() {
-            await connection.close(reason: "test setup")
-        }
+        // Keep scripted sessions out of the live host registry. Settings
+        // notifications may legitimately stop the app host while this test awaits.
+        let registry = MobileHostConnectionRegistry()
 
         let first = ScriptedMobileHostByteTransport()
         let second = ScriptedMobileHostByteTransport()
@@ -215,11 +214,12 @@ extension MobileHostAuthorizationTests {
             await MobileHostService.acceptTransport(
                 first,
                 authorization: authorization,
+                registry: registry,
                 isCurrent: { true }
             )
         }
         defer { firstTask.cancel() }
-        await waitForMobileHostConnectionCount(1)
+        await waitForMobileHostConnectionCount(1, in: registry)
         try await first.enqueue(Self.mobileHostStatusFrame(id: "first"))
         _ = await first.waitForSentBufferCount(1)
 
@@ -227,11 +227,12 @@ extension MobileHostAuthorizationTests {
             await MobileHostService.acceptTransport(
                 second,
                 authorization: authorization,
+                registry: registry,
                 isCurrent: { true }
             )
         }
         defer { secondTask.cancel() }
-        await waitForMobileHostConnectionCount(2)
+        await waitForMobileHostConnectionCount(2, in: registry)
         try await first.enqueue(Self.mobileHostStatusFrame(id: "first-delayed"))
         _ = await first.waitForSentBufferCount(2)
         #expect(registry.count == 2)
@@ -259,7 +260,7 @@ extension MobileHostAuthorizationTests {
 
         try await second.enqueue(Self.mobileHostTerminalSubscribeFrame(id: "second-events"))
         _ = await second.waitForSentBufferCount(3)
-        await waitForMobileHostConnectionCount(1)
+        await waitForMobileHostConnectionCount(1, in: registry)
         try #require(registry.count == 1)
         await first.waitForCloseCount(1)
 
@@ -279,10 +280,9 @@ extension MobileHostAuthorizationTests {
     @Test func testMobileHostTransportStaysOpenWhenIdleAfterAdmission() async throws {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
-        let registry = MobileHostConnectionRegistry.shared
-        for connection in registry.removeAll() {
-            await connection.close(reason: "test setup")
-        }
+        // Keep scripted sessions out of the live host registry. Settings
+        // notifications may legitimately stop the app host while this test awaits.
+        let registry = MobileHostConnectionRegistry()
         defer {
             service.debugResetMobileLifecycleStateForTesting()
         }
@@ -293,10 +293,11 @@ extension MobileHostAuthorizationTests {
             await MobileHostService.acceptTransport(
                 persistentTransport,
                 authorization: authorization,
+                registry: registry,
                 isCurrent: { true }
             )
         }
-        await waitForMobileHostConnectionCount(1)
+        await waitForMobileHostConnectionCount(1, in: registry)
         try await persistentTransport.enqueue(Self.mobileHostStatusFrame(id: "persistent"))
         let sentAfterFirstStatus = await persistentTransport.waitForSentBufferCount(1).count
         // Exercise a subsequent request without a wall-clock sleep. If the
@@ -317,10 +318,9 @@ extension MobileHostAuthorizationTests {
     @Test func testIrohAdmissionCanWaitForFirstRPCAfterTransportHandshake() async throws {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
-        let registry = MobileHostConnectionRegistry.shared
-        for connection in registry.removeAll() {
-            await connection.close(reason: "test setup")
-        }
+        // Keep scripted sessions out of the live host registry. Settings
+        // notifications may legitimately stop the app host while this test awaits.
+        let registry = MobileHostConnectionRegistry()
         defer {
             service.debugResetMobileLifecycleStateForTesting()
         }
@@ -331,11 +331,12 @@ extension MobileHostAuthorizationTests {
             await MobileHostService.acceptTransport(
                 transport,
                 authorization: authorization,
+                registry: registry,
                 firstFrameTimeoutNanoseconds: 0,
                 isCurrent: { true }
             )
         }
-        await waitForMobileHostConnectionCount(1)
+        await waitForMobileHostConnectionCount(1, in: registry)
 
         // An unadmitted legacy connection still expires while the admitted
         // Iroh peer waits for the client to create its first RPC owner.
@@ -344,6 +345,7 @@ extension MobileHostAuthorizationTests {
             await MobileHostService.acceptTransport(
                 expiringTransport,
                 authorization: .stackBearer,
+                registry: registry,
                 firstFrameTimeoutNanoseconds: 1_000_000,
                 isCurrent: { true }
             )
@@ -562,15 +564,15 @@ extension MobileHostAuthorizationTests {
         }
     }
 
-    private func waitForMobileHostConnectionCount(_ expected: Int) async {
+    private func waitForMobileHostConnectionCount(_ expected: Int, in registry: MobileHostConnectionRegistry) async {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(2))
         while clock.now < deadline {
-            if MobileHostConnectionRegistry.shared.count == expected { return }
+            if registry.count == expected { return }
             await Task.yield()
         }
         Issue.record(
-            "Timed out waiting for \(expected) mobile host connections; observed \(MobileHostConnectionRegistry.shared.count)"
+            "Timed out waiting for \(expected) mobile host connections; observed \(registry.count)"
         )
     }
 

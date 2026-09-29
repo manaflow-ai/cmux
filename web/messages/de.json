@@ -25,6 +25,11 @@
       "message": "Die Einrichtung der Cloud-VM ist fehlgeschlagen. Die Bereinigung steht noch aus.",
       "action": "Wenden Sie sich mit der Trace-ID an den Support, bevor Sie eine weitere Maschine erstellen."
     },
+    "recreateRequired": {
+      "title": "Diese Maschine neu erstellen",
+      "message": "Diese Maschine wurde vor einem Cloud-Update erstellt und kann nicht verbunden werden.",
+      "action": "Erstelle eine neue Maschine, kopiere deine Dateien mit cmux vm pull und cmux vm push hinüber und lösche dann diese."
+    },
     "unsupported": {
       "title": "Cloud-VM-Vorgang nicht verfügbar",
       "reason": "Dieser Maschinentyp stellt diesen Vorgang nicht bereit.",
@@ -2076,7 +2081,7 @@
       "data3": "Kopplungs- und Geräte-Metadaten, um dein Telefon mit deinem Mac zu verbinden.",
       "dataNot": "Deine interaktive Terminal-Sitzung, ihre Inhalte und Tastatureingaben fließen direkt zwischen deinem Telefon und deinem Mac über dein eigenes Netzwerk und werden nicht über cmux-Server weitergeleitet oder dort gespeichert. Die einzige Ausnahme ist der weitergeleitete Benachrichtigungstext, der über cmux und Apple's push service zu deinem Telefon gelangt, sofern du nicht Hide content aktivierst (siehe Benachrichtigungen oben).",
       "enterpriseTitle": "Enterprise und Self-Hosting",
-      "enterpriseDesc": "Für ein selbst gehostetes oder air-gapped Deployment wende dich an <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "Für ein selbst gehostetes oder air-gapped Deployment wende dich an <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4325,7 +4330,7 @@
         "description": "Melde Bugs und schlage neue Funktionen öffentlich vor."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "Lieber per E-Mail? Schreib uns direkt."
       }
     },
@@ -4347,8 +4352,8 @@
       "privacy": "Wir verwenden deine E-Mail-Adresse nur, um auf deine Support-Anfrage zu antworten. Wir verkaufen keine Kontaktdaten.",
       "submit": "Nachricht senden",
       "submitting": "Wird gesendet …",
-      "success": "Danke! Wir haben deine Nachricht erhalten und antworten dir per E-Mail von founders@manaflow.com.",
-      "error": "Etwas ist schiefgelaufen. Bitte versuche es erneut oder schreib an founders@manaflow.com."
+      "success": "Danke! Wir haben deine Nachricht erhalten und antworten dir per E-Mail von founders@cmux.com.",
+      "error": "Etwas ist schiefgelaufen. Bitte versuche es erneut oder schreib an founders@cmux.com."
     }
   },
   "emails": {
@@ -4387,7 +4392,10 @@
     "emailUnavailable": "E-Mail nicht verfügbar",
     "organization": "Organisation",
     "personalAccount": "persönliches Konto",
-    "switchAccountButton": "Anderes Konto verwenden"
+    "switchAccountButton": "Anderes Konto verwenden",
+    "signedOutTitle": "Anmelden, um coderouter zu autorisieren",
+    "signedOutBody": "Eine Kommandozeilenanwendung wartet auf deine Anmeldung. Melde dich mit deinem cmux-Konto an, um die Verbindung dieses Terminals abzuschließen. Wenn du diese Anfrage nicht gestartet hast, schließe diese Seite.",
+    "signInButton": "Anmelden"
   },
   "MobileRelease106": {
     "title": "Neu in 1.0.6",

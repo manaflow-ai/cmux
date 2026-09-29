@@ -25,6 +25,11 @@
       "message": "Postavljanje Cloud VM-a nije uspjelo i čišćenje je još na čekanju.",
       "action": "Obratite se podršci s ID-jem praćenja prije kreiranja druge mašine."
     },
+    "recreateRequired": {
+      "title": "Ponovo kreirajte ovu mašinu",
+      "message": "Ova mašina je kreirana prije ažuriranja Clouda i ne može se povezati.",
+      "action": "Kreirajte novu mašinu, kopirajte datoteke pomoću cmux vm pull i cmux vm push, a zatim obrišite ovu."
+    },
     "unsupported": {
       "title": "Operacija Cloud VM-a nije dostupna",
       "reason": "Ova vrsta mašine ne pruža ovu operaciju.",
@@ -2076,7 +2081,7 @@
       "data3": "Metapodaci o uparivanju i uređaju, za povezivanje vašeg telefona s vašim Mac-om.",
       "dataNot": "Vaša interaktivna terminalska sesija, njen sadržaj i pritisci tipki teku direktno između vašeg telefona i vašeg Mac-a putem vaše vlastite mreže i ne prenose se kroz cmux servere niti se na njima pohranjuju. Jedini izuzetak je proslijeđeni tekst notifikacije, koji prolazi kroz cmux i Appleov push servis da bi stigao do vašeg telefona, osim ako ne omogućite Hide content (pogledajte Notifikacije iznad).",
       "enterpriseTitle": "Enterprise i samostalno hostovanje",
-      "enterpriseDesc": "Za samostalno hostovanu ili air-gapped implementaciju, kontaktirajte <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "Za samostalno hostovanu ili air-gapped implementaciju, kontaktirajte <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4325,7 +4330,7 @@
         "description": "Prijavi greške i predloži nove funkcije javno."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "Više voliš email? Piši nam direktno."
       }
     },
@@ -4347,8 +4352,8 @@
       "privacy": "Tvoju email adresu koristimo samo za odgovor na tvoj zahtjev za podršku. Ne prodajemo kontakt podatke.",
       "submit": "Pošalji poruku",
       "submitting": "Slanje…",
-      "success": "Hvala. Primili smo tvoju poruku i odgovorit ćemo ti na email sa adrese founders@manaflow.com.",
-      "error": "Nešto je pošlo po zlu. Pokušaj ponovo ili nam piši na founders@manaflow.com."
+      "success": "Hvala. Primili smo tvoju poruku i odgovorit ćemo ti na email sa adrese founders@cmux.com.",
+      "error": "Nešto je pošlo po zlu. Pokušaj ponovo ili nam piši na founders@cmux.com."
     }
   },
   "emails": {
@@ -4387,7 +4392,10 @@
     "emailUnavailable": "e-mail nije dostupan",
     "organization": "Organizacija",
     "personalAccount": "lični račun",
-    "switchAccountButton": "Koristi drugi račun"
+    "switchAccountButton": "Koristi drugi račun",
+    "signedOutTitle": "Prijavite se da autorizujete coderouter",
+    "signedOutBody": "Aplikacija komandne linije čeka da se prijavite. Prijavite se svojim cmux računom da završite povezivanje ovog terminala. Ako niste pokrenuli ovaj zahtjev, zatvorite ovu stranicu.",
+    "signInButton": "Prijavi se"
   },
   "MobileRelease106": {
     "title": "Novosti u verziji 1.0.6",

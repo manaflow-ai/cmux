@@ -25,6 +25,11 @@
       "message": "Cloud VM 設定失敗，清理仍未完成。",
       "action": "建立另一台機器之前，請提供追蹤 ID 聯絡支援團隊。"
     },
+    "recreateRequired": {
+      "title": "重新建立這台機器",
+      "message": "這台機器建立於 Cloud 更新之前，無法連線。",
+      "action": "請建立一台新機器，用 cmux vm pull 和 cmux vm push 複製檔案，然後刪除這台機器。"
+    },
     "unsupported": {
       "title": "雲端虛擬機操作無法使用",
       "reason": "此機器類型不提供這項操作。",
@@ -2075,7 +2080,7 @@
       "data3": "配對和裝置中繼資料，用於將你的手機連線到你的 Mac。",
       "dataNot": "你的互動式終端工作階段、其內容和按鍵，透過你自己的網路在手機和 Mac 之間直接傳輸，不會經由 cmux 伺服器中繼或儲存在其上。唯一的例外是轉發的通知文字，它會經過 cmux 和 Apple 的推送服務到達你的手機，除非你啟用 Hide content（參見上方的通知）。",
       "enterpriseTitle": "企業與自架",
-      "enterpriseDesc": "如需自架或氣隙隔離部署，請聯絡 <link>founders@manaflow.com</link>。"
+      "enterpriseDesc": "如需自架或氣隙隔離部署，請聯絡 <link>founders@cmux.com</link>。"
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4324,7 +4329,7 @@
         "description": "公開回報 bug 和提出功能請求。"
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "偏好使用電子郵件？直接寫信給我們。"
       }
     },
@@ -4346,8 +4351,8 @@
       "privacy": "我們只會使用你的電子郵件地址回覆你的支援請求，不會出售聯絡資訊。",
       "submit": "傳送訊息",
       "submitting": "正在傳送…",
-      "success": "謝謝。我們已收到你的訊息，會從 founders@manaflow.com 回覆到你的電子郵件。",
-      "error": "發生錯誤。請再試一次，或寄電子郵件到 founders@manaflow.com。"
+      "success": "謝謝。我們已收到你的訊息，會從 founders@cmux.com 回覆到你的電子郵件。",
+      "error": "發生錯誤。請再試一次，或寄電子郵件到 founders@cmux.com。"
     }
   },
   "emails": {
@@ -4386,7 +4391,10 @@
     "emailUnavailable": "無法取得電子郵件地址",
     "organization": "組織",
     "personalAccount": "個人帳戶",
-    "switchAccountButton": "使用其他帳號"
+    "switchAccountButton": "使用其他帳號",
+    "signedOutTitle": "登入以授權 coderouter",
+    "signedOutBody": "一個命令列應用程式正在等待你登入。使用你的 cmux 帳號登入，即可完成此終端機的連線。如果這不是你發起的請求，請關閉此頁面。",
+    "signInButton": "登入"
   },
   "MobileRelease106": {
     "title": "1.0.6 更新內容",

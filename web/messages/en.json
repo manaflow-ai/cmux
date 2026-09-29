@@ -166,6 +166,11 @@
       "message": "Cloud VM setup is temporarily unavailable.",
       "action": "Try again later. If the problem continues, contact support."
     },
+    "recreateRequired": {
+      "title": "Recreate this machine",
+      "message": "This machine was created before a Cloud update and can't be attached.",
+      "action": "Create a new machine, copy your files over with cmux vm pull and cmux vm push, then delete this one."
+    },
     "unsupported": {
       "title": "Cloud VM operation unavailable",
       "reason": "This machine kind does not provide this operation.",
@@ -3560,7 +3565,7 @@
       "data3": "Pairing and device metadata, to connect your phone to your Mac.",
       "dataNot": "Your interactive terminal session, its contents and keystrokes, flows directly between your phone and your Mac over your own network, and is not relayed through or stored on cmux servers. The one exception is forwarded notification text, which transits cmux and Apple's push service to reach your phone, unless you enable Hide content (see Notifications above).",
       "enterpriseTitle": "Enterprise and self-hosted",
-      "enterpriseDesc": "For a self-hosted or air-gapped deployment, contact <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "For a self-hosted or air-gapped deployment, contact <link>founders@cmux.com</link>."
     },
     "vault": {
       "title": "Vault",
@@ -5897,8 +5902,8 @@
       "privacy": "We use this information to respond to your Enterprise request and route it to the right founder. We do not sell contact information.",
       "submit": "Submit",
       "submitting": "Submitting...",
-      "success": "Thanks. We received your request and will reply from founders@manaflow.com.",
-      "error": "Something went wrong. Please try again or email founders@manaflow.com."
+      "success": "Thanks. We received your request and will reply from founders@cmux.com.",
+      "error": "Something went wrong. Please try again or email founders@cmux.com."
     }
   },
   "support": {
@@ -5921,7 +5926,7 @@
         "description": "Report bugs and request features in the open."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "Prefer email? Write to us directly."
       }
     },
@@ -5943,8 +5948,8 @@
       "privacy": "We use your email address only to reply to your support request. We do not sell contact information.",
       "submit": "Send message",
       "submitting": "Sending...",
-      "success": "Thanks. We received your message and will reply to your email from founders@manaflow.com.",
-      "error": "Something went wrong. Please try again or email founders@manaflow.com."
+      "success": "Thanks. We received your message and will reply to your email from founders@cmux.com.",
+      "error": "Something went wrong. Please try again or email founders@cmux.com."
     }
   },
   "emails": {
@@ -6139,7 +6144,10 @@
     "emailUnavailable": "email unavailable",
     "organization": "Organization",
     "personalAccount": "personal account",
-    "switchAccountButton": "Use a different account"
+    "switchAccountButton": "Use a different account",
+    "signedOutTitle": "Sign in to authorize coderouter",
+    "signedOutBody": "A command line application is waiting for you to sign in. Sign in with your cmux account to finish connecting this terminal. If you did not start this request, close this page.",
+    "signInButton": "Sign in"
   },
   "MobileRelease106": {
     "title": "What's New in 1.0.6",

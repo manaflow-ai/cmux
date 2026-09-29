@@ -54,7 +54,7 @@ extension WorkspaceRemoteConfiguration {
         guard let slot = normalizedOptionalValue(value),
               slot != ".",
               slot != "..",
-              slot.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil else {
+              slot.range(of: "^[A-Za-z0-9._-]{1,128}\\z", options: .regularExpression) != nil else {
             return nil
         }
         return slot

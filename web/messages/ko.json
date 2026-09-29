@@ -25,6 +25,11 @@
       "message": "Cloud VM 설정에 실패했으며 정리가 아직 완료되지 않았습니다.",
       "action": "다른 머신을 만들기 전에 추적 ID와 함께 지원팀에 문의하세요."
     },
+    "recreateRequired": {
+      "title": "이 머신을 다시 만드세요",
+      "message": "이 머신은 Cloud 업데이트 이전에 만들어져 연결할 수 없습니다.",
+      "action": "새 머신을 만들고 cmux vm pull과 cmux vm push로 파일을 옮긴 다음 이 머신을 삭제하세요."
+    },
     "unsupported": {
       "title": "Cloud VM 작업을 사용할 수 없음",
       "reason": "이 머신 종류는 이 작업을 제공하지 않습니다.",
@@ -2073,7 +2078,7 @@
       "data3": "페어링 및 기기 메타데이터, 휴대폰을 Mac에 연결하기 위함.",
       "dataNot": "사용자의 대화형 터미널 세션과 그 내용 및 키 입력은 사용자 자신의 네트워크를 통해 휴대폰과 Mac 사이에서 직접 흐르며, cmux 서버를 거쳐 중계되거나 거기에 저장되지 않습니다. 유일한 예외는 전달된 알림 텍스트로, Hide content를 켜지 않는 한 휴대폰에 도달하기 위해 cmux와 Apple의 푸시 서비스를 거칩니다(위의 알림 참조).",
       "enterpriseTitle": "기업 및 자체 호스팅",
-      "enterpriseDesc": "자체 호스팅 또는 에어갭 배포는 <link>founders@manaflow.com</link>으로 문의하세요."
+      "enterpriseDesc": "자체 호스팅 또는 에어갭 배포는 <link>founders@cmux.com</link>으로 문의하세요."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4322,7 +4327,7 @@
         "description": "버그를 신고하고 기능을 공개적으로 요청해 보세요."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "이메일이 더 편하신가요? 직접 보내 주세요."
       }
     },
@@ -4344,8 +4349,8 @@
       "privacy": "이메일 주소는 지원 요청에 답변하는 용도로만 사용하며, 연락처 정보를 판매하지 않습니다.",
       "submit": "메시지 보내기",
       "submitting": "보내는 중...",
-      "success": "감사합니다. 메시지를 잘 받았으며 founders@manaflow.com에서 이메일로 답변해 드리겠습니다.",
-      "error": "문제가 발생했습니다. 다시 시도하시거나 founders@manaflow.com으로 이메일을 보내 주세요."
+      "success": "감사합니다. 메시지를 잘 받았으며 founders@cmux.com에서 이메일로 답변해 드리겠습니다.",
+      "error": "문제가 발생했습니다. 다시 시도하시거나 founders@cmux.com으로 이메일을 보내 주세요."
     }
   },
   "emails": {
@@ -4384,7 +4389,10 @@
     "emailUnavailable": "이메일을 확인할 수 없음",
     "organization": "조직",
     "personalAccount": "개인 계정",
-    "switchAccountButton": "다른 계정 사용"
+    "switchAccountButton": "다른 계정 사용",
+    "signedOutTitle": "coderouter를 승인하려면 로그인하세요",
+    "signedOutBody": "명령줄 애플리케이션이 로그인을 기다리고 있습니다. cmux 계정으로 로그인하면 이 터미널 연결이 완료됩니다. 이 요청을 시작하지 않았다면 이 페이지를 닫으세요.",
+    "signInButton": "로그인"
   },
   "MobileRelease106": {
     "title": "1.0.6의 새로운 기능",
