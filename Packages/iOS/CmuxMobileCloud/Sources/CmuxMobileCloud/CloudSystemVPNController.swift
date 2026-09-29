@@ -186,6 +186,11 @@ public final class CloudSystemVPNController {
         }
         enqueue { [self] generation in
             do {
+                if !pendingBrowserTunnelRevocations.isEmpty {
+                    try await revokePendingBrowserTunnel()
+                    guard self.isCurrent(generation) else { return }
+                    browserTunnel = nil
+                }
                 if cleanupPending {
                     try await removeConfigurationWithRetry()
                     guard self.isCurrent(generation) else { return }
@@ -422,7 +427,7 @@ public final class CloudSystemVPNController {
     /// Retries the action represented by the current failure row. Pending
     /// cleanup is completed before a new account is refreshed or enrolled.
     public func retry() {
-        if cleanupPending {
+        if cleanupPending || !pendingBrowserTunnelRevocations.isEmpty {
             retryPendingCleanup()
         } else {
             enable()
@@ -697,7 +702,9 @@ public final class CloudSystemVPNController {
     }
 
     private func retryPendingCleanup() {
-        guard manager.isAvailable, cleanupPending else { return }
+        guard manager.isAvailable,
+              cleanupPending || !pendingBrowserTunnelRevocations.isEmpty
+        else { return }
         publish(.disconnecting)
         guard !operationGate.hasPendingOperation else {
             scheduleCleanupRetry()
@@ -710,9 +717,11 @@ public final class CloudSystemVPNController {
                     guard self.isCurrent(generation) else { return }
                     browserTunnel = nil
                 }
-                try await removeConfigurationWithRetry()
-                guard self.isCurrent(generation) else { return }
-                cleanupPending = false
+                if cleanupPending {
+                    try await removeConfigurationWithRetry()
+                    guard self.isCurrent(generation) else { return }
+                    cleanupPending = false
+                }
                 if let scope {
                     try await performBounded(reconcilePlatformOnTimeout: true) {
                         try await self.manager.refresh(scope: scope)
@@ -734,7 +743,7 @@ public final class CloudSystemVPNController {
         cleanupRetryTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.operationGate.waitForIdle()
-            guard self.cleanupPending,
+            guard self.cleanupPending || !self.pendingBrowserTunnelRevocations.isEmpty,
                   self.cleanupRetryRequested else { return }
             self.cleanupRetryTask = nil
             self.cleanupRetryRequested = false

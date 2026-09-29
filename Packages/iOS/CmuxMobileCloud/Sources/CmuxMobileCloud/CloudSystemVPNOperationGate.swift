@@ -11,7 +11,6 @@ import Foundation
 final class CloudSystemVPNOperationGate {
     private var tail: Task<Void, Never>?
     private var pendingCount = 0
-    private var quarantined = false
 
     var hasPendingOperation: Bool { pendingCount > 0 }
 
@@ -26,9 +25,6 @@ final class CloudSystemVPNOperationGate {
         let predecessor = tail
         let state = State()
         let turn = Turn()
-        let abandon: @MainActor () -> Void = { [weak self] in
-            self?.abandon(state: state, turn: turn)
-        }
         let acquired = Task { @MainActor in
             if let predecessor {
                 await predecessor.value
@@ -40,7 +36,7 @@ final class CloudSystemVPNOperationGate {
             guard !state.cancelledBeforeAcquisition else {
                 throw CancellationError()
             }
-            guard let self, !self.quarantined else {
+            guard self != nil else {
                 throw CancellationError()
             }
             state.acquired = true
@@ -55,31 +51,14 @@ final class CloudSystemVPNOperationGate {
             result: result,
             current: current,
             state: state,
-            turn: turn,
-            abandon: abandon
+            turn: turn
         )
     }
 
-    private func abandon(state: State, turn: Turn) {
+    private func finish(state: State, turn: Turn) {
         guard !state.finished else { return }
         state.finished = true
-        pendingCount -= 1
-        quarantined = true
-        turn.release()
-    }
-
-    private func finish(state: State, turn: Turn) {
-        if state.finished {
-            if state.cancellationRequested {
-                quarantined = false
-            }
-            return
-        }
-        state.finished = true
         state.abandonmentTask?.cancel()
-        if state.cancellationRequested {
-            quarantined = false
-        }
         pendingCount -= 1
         turn.release()
     }

@@ -173,6 +173,32 @@ import Testing
         #expect(await pendingStore.load(scope: "user-1/team-1").isEmpty)
     }
 
+    @Test func failedPersistedRevocationCanBeRetriedFromTheRecoveryAction() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        let first = Rig(cleanupRetryCount: 1, pendingRevocationStore: pendingStore)
+        await signedIn(first)
+        first.controller.enable()
+        await first.controller.waitForPendingOperation()
+        first.service.revocationFailure = StubError(message: "offline")
+
+        let teardown = first.controller.serverTeardown()
+        first.controller.setScope(nil)
+        await first.controller.waitForPendingOperation()
+        await teardown("captured-access", "captured-refresh")
+
+        let second = Rig(cleanupRetryCount: 1, pendingRevocationStore: pendingStore)
+        second.service.revocationFailure = StubError(message: "offline")
+        await signedIn(second)
+        #expect(second.controller.phase == .failed(.configuration))
+
+        second.service.revocationFailure = nil
+        second.controller.retry()
+        await second.controller.waitForPendingOperation()
+
+        #expect(second.service.calls.revoke.count == 2)
+        #expect(await pendingStore.load(scope: "user-1/team-1").isEmpty)
+    }
+
     @Test func aTimedOutInstallCanBeReplacedAfterPlatformCancellation() async {
         let rig = Rig(operationTimeout: .milliseconds(100))
         rig.manager.installDelay = .milliseconds(500)
