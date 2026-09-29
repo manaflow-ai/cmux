@@ -10,16 +10,14 @@ extension ReconnectRouteSelectionTests {
     func queuedForcedRetrySurvivesBackgroundBeforeItStarts() async throws {
         let readiness = TestMobileConnectionReadiness(permitsConnection: true)
         let base = KindRecordingTransportFactory(router: LivenessHostRouter(), box: TransportBox())
-        let starts = AsyncStream<Int>.makeStream()
-        let factory = ObservedReconnectTransportFactory(base: base) {
-            starts.continuation.yield(base.attemptedKinds().count)
-        }
         let runtime = LivenessTestRuntime(connectionReadiness: readiness,
-            transportFactory: factory, now: Date.init, supportedRouteKinds: [.iroh])
+            transportFactory: base, now: Date.init, supportedRouteKinds: [.iroh])
         let shell = try await makeReconnectStore(routes: [try iroh()], runtime: runtime)
-        defer { shell.signOut(); starts.continuation.finish() }
-        #expect(await shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        defer { shell.signOut() }
+        try #require(await shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        let firstClient = try #require(shell.remoteClient)
         let initialDials = base.attemptedKinds().count
+        let initialGeneration = shell.storedMacReconnectGeneration
 
         shell.pendingForcedStoredMacReconnect = true
         shell.finishStoredMacReconnectAttempt(generation: shell.storedMacReconnectGeneration)
@@ -29,7 +27,7 @@ extension ReconnectRouteSelectionTests {
         shell.suspendForegroundRefresh()
         let stopped = Task<Bool, any Error> {
             while shell.isReconnectingStoredMac {
-                await withCheckedContinuation { continuation in
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                     withObservationTracking { _ = shell.isReconnectingStoredMac } onChange: {
                         continuation.resume()
                     }
@@ -46,11 +44,20 @@ extension ReconnectRouteSelectionTests {
         readiness.publish(true)
         shell.resumeForegroundRefresh()
         let replacement = Task<Bool, any Error> {
-            for await count in starts.stream where count > initialDials { return true }
-            return false
+            while shell.storedMacReconnectGeneration == initialGeneration || shell.isReconnectingStoredMac {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    withObservationTracking {
+                        _ = shell.storedMacReconnectGeneration
+                        _ = shell.isReconnectingStoredMac
+                    } onChange: { continuation.resume() }
+                }
+            }
+            return true
         }
         let retried = try? await RPCTaskTimeout().value(replacement, timeoutNanoseconds: 5_000_000_000)
-        #expect(retried == true, "foreground must perform the queued forced replacement of the healthy client")
+        #expect(retried == true, "foreground must run the queued forced retry even when the retained client is healthy")
+        #expect(base.attemptedKinds().count == initialDials)
+        #expect(shell.remoteClient === firstClient)
         replacement.cancel()
         stopped.cancel()
     }
