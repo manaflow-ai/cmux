@@ -45,9 +45,13 @@ final class CloudService {
         }
     }
 
-    /// `cmux-<host>`, as the old app named its link device.
+    /// `cmux-<host>`, as the old app named its link device. Reads the kernel
+    /// hostname (`gethostname`): `ProcessInfo.hostName` resolves through DNS
+    /// and blocked the main thread for 35 s on launch.
     static var deviceName: String {
-        let host = ProcessInfo.processInfo.hostName.split(separator: ".").first.map(String.init) ?? "mac"
+        var buffer = [CChar](repeating: 0, count: 256)
+        let raw = gethostname(&buffer, buffer.count) == 0 ? String(cString: buffer) : "mac"
+        let host = raw.split(separator: ".").first.map(String.init) ?? "mac"
         let cleaned = host.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }
         return "cmux-" + String(String(cleaned).prefix(40))
     }
@@ -125,6 +129,7 @@ final class CloudService {
         guard let hub, let binary else { return nil }
         let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName)
         let session = CloudMachineSession(machine: machine, link: link)
+        session.daemon.workTracker = machines.local.workTracker
         machines.add(session)
         session.connect()
         return session

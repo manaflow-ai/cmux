@@ -904,6 +904,9 @@ Options:
   --build-only           Build and validate a tagged app without replacing or
                          stopping the running tagged app, daemon, or tag state.
                          Cannot be combined with --launch.
+  --direct-backend       Use the tag's shared GCP dev web stack (scripts/dev-backend.sh,
+                         direct Tailscale transport). cmux-next builds default to local
+                         backend mode without it, and Cloud is then unavailable.
   --prod-auth            Point this tagged Debug build at production Stack auth,
                          cmux APIs, and the production Iroh broker.
                          Without it, tagged builds use the shared dev backend, which
@@ -1250,6 +1253,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --prod-auth)
       PROD_AUTH=1
+      shift
+      ;;
+    --direct-backend)
+      # Cloud dogfood: bake the tag's shared GCP dev web stack (direct
+      # Tailscale transport) into the app. cmux-next builds otherwise
+      # default to local backend mode, where Cloud actions report that the
+      # build has no Cloud backend.
+      if [[ "${CMUX_DEV_BACKEND_MODE:-remote}" == "local" ]]; then
+        echo "error: --direct-backend cannot be combined with CMUX_DEV_BACKEND_MODE=local" >&2
+        exit 1
+      fi
+      export CMUX_DEV_BACKEND_MODE=remote
       shift
       ;;
     --credentials-file)

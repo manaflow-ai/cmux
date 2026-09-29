@@ -172,7 +172,10 @@ final class DaemonService {
 
     /// Fire-and-forget variant for UI handlers.
     func send(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
-        workTracker?(Task { await failure(label, body) })
+        // Always start the task; `workTracker?(Task {...})` would skip
+        // creating it (and drop the command) when no tracker is set.
+        let task = Task { await failure(label, body) }
+        workTracker?(task)
     }
 
     /// Runs a command; returns nil on success, else the failure (logged).
