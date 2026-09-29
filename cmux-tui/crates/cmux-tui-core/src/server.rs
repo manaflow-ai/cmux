@@ -22354,6 +22354,75 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_close_tabs_and_end_terminals_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&BATCH_CLOSE_CAPABILITY));
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let second = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let third = mux.new_tab(Some(pane), None, None).unwrap().id;
+        assert!(run_json_command(&mux, json!({"cmd":"close-tabs","surfaces":[]})).is_err());
+        assert!(
+            run_json_command(&mux, json!({"cmd":"close-tabs","surfaces":[first, 999_999]}))
+                .is_err()
+        );
+        assert!(
+            run_json_command(
+                &mux,
+                json!({"cmd":"close-tabs","surfaces":[first],"expected_revision":1}),
+            )
+            .is_err()
+        );
+        assert_eq!(mux.with_state(|state| state.panes[&pane].tabs.len()), 3);
+        let closed = run_json_command(
+            &mux,
+            json!({
+                "cmd":"close-tabs",
+                "surfaces":[first, second],
+                "end_terminals":true,
+                "transaction":"tx-close",
+                "origin":"cmux-next",
+                "mutation_id":"close-two",
+            }),
+        )
+        .unwrap();
+        assert_eq!(closed["closed"], json!([first, second]));
+        assert_eq!(closed["transaction"], "tx-close");
+        assert_eq!(closed["replayed"], false);
+        assert_eq!(mux.with_state(|state| state.panes[&pane].tabs.clone()), vec![third]);
+        let replayed = run_json_command(
+            &mux,
+            json!({
+                "cmd":"close-tabs",
+                "surfaces":[first, second],
+                "end_terminals":true,
+                "origin":"cmux-next",
+                "mutation_id":"close-two",
+            }),
+        )
+        .unwrap();
+        assert_eq!(replayed["replayed"], true);
+        assert_eq!(replayed["closed"], json!([first, second]));
+        let group = run_json_command(
+            &mux,
+            json!({"cmd":"create-tab-group","surfaces":[third],"name":"Last"}),
+        )
+        .unwrap()["group"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let group_closed = run_json_command(
+            &mux,
+            json!({"cmd":"close-tab-group","group":group,"end_terminals":true}),
+        )
+        .unwrap();
+        assert_eq!(group_closed["closed"], json!([third]));
+        assert!(group_closed["terminals"].is_array());
+        let listed = run_json_command(&mux, json!({"cmd":"list-tab-groups"})).unwrap();
+        assert_eq!(listed["groups"], json!([]));
+    }
+
+    #[test]
     fn cmux_next_terminal_creation_accepts_a_per_terminal_env() {
         let mux = test_mux();
         assert!(advertised_capabilities(false).contains(&TERMINAL_ENV_CAPABILITY));
