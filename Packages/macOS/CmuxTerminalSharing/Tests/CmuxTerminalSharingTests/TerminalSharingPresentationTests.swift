@@ -29,11 +29,55 @@ import Testing
         let alone = presentation([Self.me], policy: TerminalSizingPolicy(mode: .fixed, fixed: TerminalGridSize(cols: 70, rows: 20)))
         #expect(alone.snapshot.showsSizingChrome)
         #expect(!alone.showsTabAccessory)
-        #expect(alone.tabAccessoryParticipants.isEmpty)
+        #expect(alone.tabAccessoryItems.isEmpty)
 
         let shared = presentation([Self.me, Self.maya], active: Self.maya.id)
         #expect(shared.showsTabAccessory)
-        #expect(shared.tabAccessoryParticipants.map(\.id) == [Self.maya.id, Self.me.id])
+        #expect(shared.tabAccessoryItems == [
+            TerminalSharingTabItem(id: "user:u_maya", content: .initials("MO"), isOwner: true, accessibilityName: "Maya Ortiz · Mac Studio"),
+        ])
+    }
+
+    @Test func tabAccessoryExcludesSelfEvenWhenSelfOwns() {
+        let mine = presentation([Self.me, Self.maya], active: Self.me.id)
+        #expect(mine.tabAccessoryItems.map(\.id) == ["user:u_maya"])
+        #expect(mine.tabAccessoryItems.allSatisfy { !$0.isOwner })
+    }
+
+    @Test func tabAccessoryDedupesPeopleAndShowsOwnDevicesAsGlyphs() {
+        let mayaPhone = TerminalSizingParticipant(
+            id: "mobile:maya", userID: "u_maya", displayName: "Maya Ortiz", deviceKind: .iphone,
+            viewport: TerminalGridSize(cols: 50, rows: 30)
+        )
+        let myPhone = TerminalSizingParticipant(
+            id: "mobile:me", userID: "u_me", displayName: "Lawrence Chen", deviceKind: .iphone,
+            viewport: TerminalGridSize(cols: 50, rows: 30)
+        )
+        let myTUI = TerminalSizingParticipant(
+            id: "tui:me", userID: "u_me", displayName: "Lawrence Chen", deviceKind: .tui,
+            viewport: TerminalGridSize(cols: 90, rows: 30)
+        )
+        let anon = TerminalSizingParticipant(id: "c9", deviceKind: .browser)
+        let shared = presentation([Self.me, Self.maya, myPhone, mayaPhone, myTUI, anon], active: myTUI.id)
+        #expect(shared.tabAccessoryItems.map(\.id) == ["device:tui", "user:u_maya", "device:iphone", "participant:c9"])
+        #expect(shared.tabAccessoryItems[0] == TerminalSharingTabItem(
+            id: "device:tui", content: .device(.tui), isOwner: true, accessibilityName: "Terminal client"
+        ))
+        #expect(shared.tabAccessoryItems[1].content == .initials("MO"))
+        #expect(shared.tabAccessoryItems[1].accessibilityName == "Maya Ortiz")
+        #expect(shared.tabAccessoryItems[2].content == .device(.iphone))
+    }
+
+    @Test func rowStatusMarksOwnerAndUncountedRows() {
+        let phone = TerminalSizingParticipant(
+            id: "mobile:me", userID: "u_me", deviceKind: .iphone,
+            viewport: TerminalGridSize(cols: 50, rows: 30), countsOverride: false
+        )
+        let shared = presentation([Self.me, Self.maya, phone], active: Self.maya.id)
+        let rows = Dictionary(uniqueKeysWithValues: shared.state.participants.map { ($0.id, $0) })
+        #expect(shared.rowStatus(for: rows[Self.maya.id]!) == .setsSize)
+        #expect(shared.rowStatus(for: rows[phone.id]!) == .notCounted)
+        #expect(shared.rowStatus(for: rows[Self.me.id]!) == .counted)
     }
 
     @Test func ownerLabelNamesThePersonsDevice() {

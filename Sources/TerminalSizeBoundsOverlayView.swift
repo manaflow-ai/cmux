@@ -7,7 +7,7 @@ import QuartzCore
 import SwiftUI
 
 /// Draws a shared terminal's grid bounds over a pane (local and Cloud alike)
-/// when this view's grid differs: a 1 pt owner-colored border, a faint hatch
+/// when this view's grid differs: a 1 pt neutral border, a faint hatch
 /// outside the grid, a 16 pt fade on a cut edge, and one small chip
 /// (`118×38 · Lawrence's Mac`) that opens the size panel at the tab. A
 /// `disconnected-by` detach of this Mac shows a card with Reattach.
@@ -16,8 +16,7 @@ import SwiftUI
 /// through to the terminal. A size change animates the border to the new grid.
 @MainActor
 final class TerminalSizeBoundsOverlayView: NSView {
-    private static let amber = NSColor(red: 0.914, green: 0.706, blue: 0.298, alpha: 1)
-    private static let borderAlpha: CGFloat = 0.7
+    private static let borderAlpha: CGFloat = 0.5
     private static let cropFadeDepth: CGFloat = 16
 
     private(set) var snapshot: TerminalSharingSnapshot?
@@ -119,7 +118,7 @@ final class TerminalSizeBoundsOverlayView: NSView {
             return
         }
         let display = TerminalSharingDisplay(snapshot: snapshot)
-        updateBorder(geometry: geometry, color: display.ownerNSColor)
+        updateBorder(geometry: geometry, color: .secondaryLabelColor)
         chip.text = display.presentation.chipText(hiddenColumns: geometry.hiddenColumns)
         chip.frame = chipFrame(size: chip.fittingSize, gridRect: geometry.gridRect)
         chip.isHidden = false
@@ -228,7 +227,8 @@ final class TerminalSizeBoundsOverlayView: NSView {
         let fadeRect = edge == .maxX
             ? NSRect(x: gridRect.maxX - depth, y: gridRect.minY, width: depth, height: gridRect.height)
             : NSRect(x: gridRect.minX, y: gridRect.maxY - depth, width: gridRect.width, height: depth)
-        let gradient = NSGradient(starting: Self.amber.withAlphaComponent(0), ending: Self.amber.withAlphaComponent(0.22))
+        let fade = NSColor.secondaryLabelColor
+        let gradient = NSGradient(starting: fade.withAlphaComponent(0), ending: fade.withAlphaComponent(0.18))
         // This view is flipped, so a 90° gradient runs top to bottom.
         gradient?.draw(in: fadeRect, angle: edge == .maxX ? 0 : 90)
     }

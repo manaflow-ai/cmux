@@ -116,27 +116,15 @@ struct TerminalSharedSizingOverlay: View {
     }
 }
 
-extension Color {
-    /// The SwiftUI color for a participant's owner color.
-    init(_ participantColor: MobileTerminalSizingParticipantColor) {
-        let rgb = participantColor.rgb
-        self.init(red: rgb.red, green: rgb.green, blue: rgb.blue)
-    }
-}
-
 extension MobileTerminalSizingPresentation {
     /// The surface decoration, or `nil` when the viewport matches the grid.
     var boundsDecoration: TerminalSizingBoundsDecoration? {
         guard viewportDiffers, let viewer else { return nil }
-        let rgb = ownerColor.rgb
         return TerminalSizingBoundsDecoration(
             gridColumns: grid.cols,
             gridRows: grid.rows,
             viewerColumns: viewer.cols,
-            viewerRows: viewer.rows,
-            ownerRed: rgb.red,
-            ownerGreen: rgb.green,
-            ownerBlue: rgb.blue
+            viewerRows: viewer.rows
         )
     }
 

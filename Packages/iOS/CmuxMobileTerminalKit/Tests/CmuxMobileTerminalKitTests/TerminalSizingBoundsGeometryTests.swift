@@ -64,8 +64,7 @@ import Testing
 
     @Test func decorationBuildsTheSameGeometry() {
         let decoration = TerminalSizingBoundsDecoration(
-            gridColumns: 30, gridRows: 20, viewerColumns: 40, viewerRows: 30,
-            ownerRed: 1, ownerGreen: 0, ownerBlue: 0
+            gridColumns: 30, gridRows: 20, viewerColumns: 40, viewerRows: 30
         )
         let grid = CGRect(x: 0, y: 200, width: 300, height: 400)
         #expect(decoration.geometry(viewportRect: viewport, renderRect: grid) == TerminalSizingBoundsGeometry(

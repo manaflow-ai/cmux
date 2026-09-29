@@ -188,16 +188,19 @@ struct TerminalSizeSheet: View {
         let isSelf = row.id == presentation.selfParticipant?.id
         let participant = row.participant
         let title = TerminalSizingText.participantTitle(participant, isSelf: isSelf)
-        let isOwner = presentation.isOwner(row.id)
+        let status = TerminalSizingText.rowStatus(presentation.rowStatus(for: row))
         return HStack(spacing: 12) {
-            TerminalSizingAvatar(participant: participant)
+            TerminalSizingAvatar(participant: participant, isOwner: presentation.ownerIDs == [row.id])
+                .opacity(row.counts ? 1 : 0.55)
             Text(title)
                 .lineLimit(1)
+                .foregroundStyle(row.counts ? .primary : .secondary)
             Spacer(minLength: 8)
-            if isOwner {
-                Text(TerminalSizingText.setsSize())
+            if let status {
+                Text(status)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
         }
         .accessibilityElement(children: .combine)
@@ -280,13 +283,14 @@ struct TerminalSizeSheet: View {
 }
 
 /// A participant's avatar: the initial of their name, or their device glyph,
-/// on their participant color.
+/// on a neutral grey fill. The owner gets a thin neutral ring.
 private struct TerminalSizingAvatar: View {
     let participant: TerminalSizingParticipant
+    let isOwner: Bool
 
     var body: some View {
         Circle()
-            .fill(Color(MobileTerminalSizingParticipantColor(participant: participant)))
+            .fill(Color(.tertiarySystemFill))
             .frame(width: 28, height: 28)
             .overlay {
                 if let initial = MobileTerminalSizingPresentation.givenName(participant.displayName)?.first {
@@ -297,7 +301,14 @@ private struct TerminalSizingAvatar: View {
                         .font(.caption.weight(.semibold))
                 }
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(.secondary)
+            .overlay {
+                if isOwner {
+                    Circle()
+                        .inset(by: -2)
+                        .stroke(Color(.label).opacity(0.5), lineWidth: 1)
+                }
+            }
             .accessibilityHidden(true)
     }
 

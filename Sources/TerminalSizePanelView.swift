@@ -137,7 +137,8 @@ struct TerminalSizePanelView: View {
                     row: row,
                     initials: presentation.initials(for: row.participant),
                     label: presentation.participantLabel(for: row.participant),
-                    setsSize: snapshot.state.owners.contains(row.id),
+                    isOwner: row.id == presentation.ownerID,
+                    statusLabel: TerminalSharingDisplay.rowStatusLabel(presentation.rowStatus(for: row)),
                     showsDragHandle: isPriority,
                     onCountsChange: { setCounts($0, participantID: row.id) },
                     onDisconnect: isSelf ? nil : {

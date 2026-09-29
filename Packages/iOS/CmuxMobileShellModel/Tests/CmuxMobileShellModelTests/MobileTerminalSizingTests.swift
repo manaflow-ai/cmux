@@ -135,7 +135,6 @@ private func sizeState(
         #expect(presentation.hiddenRows == 8)
         #expect(presentation.owner?.id == "c3")
         #expect(!presentation.ownerIsSelf)
-        #expect(presentation.ownerColor == MobileTerminalSizingParticipantColor(key: "u_maya"))
         #expect(presentation.showsChip)
         #expect(presentation.otherParticipants.map(\.id) == ["c3"])
         #expect(!presentation.selfCounts)
@@ -241,28 +240,20 @@ private func sizeState(
     }
 }
 
-@Suite struct MobileTerminalSizingParticipantColorTests {
-    /// Values computed independently with FNV-1a 64-bit; the Mac must match.
-    @Test func colorIndexMatchesTheSharedRule() {
-        #expect(MobileTerminalSizingParticipantColor(key: "u_maya").index == 1)
-        #expect(MobileTerminalSizingParticipantColor(key: "c3").index == 5)
-        #expect(MobileTerminalSizingParticipantColor(key: "").index == 7)
-        #expect(MobileTerminalSizingParticipantColor(key: "mobile:abc").index == 3)
-        #expect(MobileTerminalSizingParticipantColor(key: "u_maya").hex == "#EBA946")
-    }
-
-    @Test func userIDWinsOverParticipantID() {
-        let p = TerminalSizingParticipant(id: "c3", userID: "u_maya", deviceKind: .mac)
-        #expect(MobileTerminalSizingParticipantColor(participant: p).index == 1)
-        let anon = TerminalSizingParticipant(id: "c3", deviceKind: .mac)
-        #expect(MobileTerminalSizingParticipantColor(participant: anon).index == 5)
-    }
-
-    @Test func rgbDecodesHex() {
-        let rgb = MobileTerminalSizingParticipantColor(key: "u_maya").rgb
-        #expect(abs(rgb.red - 235.0 / 255) < 0.0001)
-        #expect(abs(rgb.green - 169.0 / 255) < 0.0001)
-        #expect(abs(rgb.blue - 70.0 / 255) < 0.0001)
+@Suite struct MobileTerminalSizingRowStatusTests {
+    @Test func ownerSetsSizeAndUncountedPhoneSaysNotCounted() throws {
+        let presentation = MobileTerminalSizingPresentation(
+            state: sizeState(generation: 1),
+            selfParticipantID: "mobile:phone",
+            localViewport: TerminalGridSize(cols: 50, rows: 30)
+        )
+        let owner = try #require(presentation.otherParticipants.first { $0.id == "c3" })
+        let phone = try #require(presentation.selfParticipant)
+        #expect(presentation.rowStatus(for: owner) == .setsSize)
+        #expect(presentation.rowStatus(for: phone) == .notCounted)
+        var counted = phone
+        counted.counts = true
+        #expect(presentation.rowStatus(for: counted) == .counted)
     }
 }
 

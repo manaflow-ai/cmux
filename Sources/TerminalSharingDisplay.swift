@@ -5,10 +5,10 @@ import CmuxTerminalSharing
 import CmuxTerminalSizing
 import SwiftUI
 
-/// Localized strings and owner colors for shared-terminal UI (tab accessory,
-/// pane chip, size panel). The label rules live in
-/// ``TerminalSharingPresentation``; this type supplies the app's catalog
-/// strings and AppKit/SwiftUI colors.
+/// Localized strings and glyphs for shared-terminal UI (tab accessory, pane
+/// chip, size panel). The label rules live in ``TerminalSharingPresentation``;
+/// this type supplies the app's catalog strings. The UI is neutral grey: no
+/// per-participant colors.
 struct TerminalSharingDisplay {
     let presentation: TerminalSharingPresentation
 
@@ -75,37 +75,45 @@ struct TerminalSharingDisplay {
         }
     }
 
-    static func colorHex(for participant: TerminalSizingParticipant) -> String {
-        TerminalSizingParticipantColor(participant: participant).hex
+    /// SF Symbol for the viewer's own other device in the tab accessory.
+    static func deviceSymbolName(_ kind: TerminalDeviceKind) -> String {
+        switch kind {
+        case .mac: return "laptopcomputer"
+        case .iphone: return "iphone"
+        case .ipad: return "ipad"
+        case .tui: return "terminal"
+        case .browser: return "globe"
+        case .unknown: return "questionmark"
+        }
     }
 
-    static func nsColor(for participant: TerminalSizingParticipant) -> NSColor {
-        NSColor(hex: colorHex(for: participant)) ?? .systemTeal
-    }
-
-    static func color(for participant: TerminalSizingParticipant) -> Color {
-        Color(nsColor: nsColor(for: participant))
-    }
-
-    /// The owner color, or a neutral color without a single owner.
-    var ownerNSColor: NSColor {
-        snapshot.owner.map { Self.nsColor(for: $0.participant) } ?? .secondaryLabelColor
+    /// Trailing text of a size panel row, e.g. `sets size` or `not counted`.
+    static func rowStatusLabel(_ status: TerminalSharingRowStatus) -> String? {
+        switch status {
+        case .setsSize: return String(localized: "terminalSharing.panel.setsSize", defaultValue: "sets size")
+        case .notCounted: return String(localized: "terminalSharing.panel.notCounted", defaultValue: "not counted")
+        case .counted: return nil
+        }
     }
 
     /// The bonsplit tab model: nil unless this terminal needs sizing chrome.
-    /// Participants are empty (no avatars) unless someone else is attached,
+    /// Items are empty (no avatars) unless someone else is attached,
     /// so the context menu keeps its size actions while the accessory hides.
     func tabPresence() -> TabPresence? {
         guard snapshot.showsSizingChrome else { return nil }
-        let ownerID = presentation.ownerID
-        let participants = presentation.tabAccessoryParticipants.map { row in
-            TabPresence.Participant(
-                id: row.id,
-                initials: presentation.initials(for: row.participant),
-                colorHex: Self.colorHex(for: row.participant),
-                isOwner: row.id == ownerID,
-                accessibilityName: presentation.participantLabel(for: row.participant)
-            )
+        let participants = presentation.tabAccessoryItems.map { item in
+            switch item.content {
+            case .initials(let initials):
+                return TabPresence.Participant(
+                    id: item.id, initials: initials,
+                    isOwner: item.isOwner, accessibilityName: item.accessibilityName
+                )
+            case .device(let kind):
+                return TabPresence.Participant(
+                    id: item.id, initials: "", symbolName: Self.deviceSymbolName(kind),
+                    isOwner: item.isOwner, accessibilityName: item.accessibilityName
+                )
+            }
         }
         return TabPresence(
             participants: participants,

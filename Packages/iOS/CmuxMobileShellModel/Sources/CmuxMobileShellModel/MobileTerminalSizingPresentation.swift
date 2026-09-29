@@ -15,8 +15,6 @@ public struct MobileTerminalSizingPresentation: Equatable, Sendable {
     public let ownerIDs: [String]
     /// Whether this phone sets the grid.
     public let ownerIsSelf: Bool
-    /// The color of the border, from the owner (or this phone when no one owns).
-    public let ownerColor: MobileTerminalSizingParticipantColor
     /// This phone's participant row, when the host listed it.
     public let selfParticipant: TerminalSizingParticipantState?
     /// Every other participant, in host order.
@@ -46,13 +44,6 @@ public struct MobileTerminalSizingPresentation: Equatable, Sendable {
         selfParticipant = selfRow
         otherParticipants = state.participants.filter { $0.id != selfParticipantID }
         viewer = localViewport ?? selfRow?.participant.viewport
-        if let owner {
-            ownerColor = MobileTerminalSizingParticipantColor(participant: owner.participant)
-        } else {
-            ownerColor = MobileTerminalSizingParticipantColor(
-                key: selfRow?.participant.userID ?? selfParticipantID ?? ""
-            )
-        }
     }
 
     /// Whether this phone's viewport differs from the grid.
@@ -92,6 +83,14 @@ public struct MobileTerminalSizingPresentation: Equatable, Sendable {
         return MobileTerminalSizingOwnerLabel(participant: owner.participant)
     }
 
+    /// What a sheet row says after the name: `sets size` for an owner,
+    /// `not counted` for a participant the grid ignores, else nothing.
+    /// - Parameter row: A participant row from this presentation.
+    public func rowStatus(for row: TerminalSizingParticipantState) -> MobileTerminalSizingRowStatus {
+        if isOwner(row.id) { return .setsSize }
+        return row.counts ? .counted : .notCounted
+    }
+
     /// Whether this phone's own row counts toward size.
     public var selfCounts: Bool {
         selfParticipant?.counts ?? false
@@ -107,6 +106,16 @@ public struct MobileTerminalSizingPresentation: Equatable, Sendable {
             .first
             .map(String.init)
     }
+}
+
+/// The trailing status of a size sheet row.
+public enum MobileTerminalSizingRowStatus: Equatable, Sendable {
+    /// The row sets the grid.
+    case setsSize
+    /// The row does not count toward the grid.
+    case notCounted
+    /// The row counts but does not set the grid alone.
+    case counted
 }
 
 /// The owner name the sizing UI shows, before localization.

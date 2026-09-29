@@ -86,9 +86,6 @@ public struct TerminalSharingStrings: Sendable {
 /// accessory, the pane chip and the size panel all read from here so every
 /// surface names people, devices and owners the same way.
 public struct TerminalSharingPresentation: Sendable {
-    /// Most avatars the tab accessory draws before `+N`.
-    public static let maxTabAvatars = 3
-
     public let snapshot: TerminalSharingSnapshot
     public let strings: TerminalSharingStrings
 
@@ -164,12 +161,53 @@ public struct TerminalSharingPresentation: Sendable {
     /// Whether the tab shows the avatar accessory: only while someone else is attached.
     public var showsTabAccessory: Bool { !snapshot.otherParticipantIDs.isEmpty }
 
-    /// Participants for the tab accessory, owner first. Empty when the accessory is hidden.
-    public var tabAccessoryParticipants: [TerminalSizingParticipantState] {
+    /// Items for the tab accessory, owner first: one per other person (by
+    /// user id) and one per device kind of the viewer's own other devices.
+    /// Never includes this view. Empty when the accessory is hidden.
+    public var tabAccessoryItems: [TerminalSharingTabItem] {
         guard showsTabAccessory else { return [] }
-        let rows = state.participants
-        guard let ownerID, let owner = rows.first(where: { $0.id == ownerID }) else { return rows }
-        return [owner] + rows.filter { $0.id != ownerID }
+        let selfUserID = snapshot.selfParticipant?.participant.userID
+        var groups: [(key: String, rows: [TerminalSizingParticipantState])] = []
+        for row in state.participants where row.id != snapshot.selfParticipantID {
+            let key: String
+            if let selfUserID, row.participant.userID == selfUserID {
+                key = "device:\(row.participant.deviceKind.rawValue)"
+            } else if let userID = row.participant.userID {
+                key = "user:\(userID)"
+            } else {
+                key = "participant:\(row.id)"
+            }
+            if let index = groups.firstIndex(where: { $0.key == key }) {
+                groups[index].rows.append(row)
+            } else {
+                groups.append((key, [row]))
+            }
+        }
+        let items = groups.map { group -> TerminalSharingTabItem in
+            let first = group.rows[0].participant
+            let isOwner = group.rows.contains { $0.id == ownerID }
+            if group.key.hasPrefix("device:") {
+                return TerminalSharingTabItem(
+                    id: group.key,
+                    content: .device(first.deviceKind),
+                    isOwner: isOwner,
+                    accessibilityName: strings.deviceKind(first.deviceKind)
+                )
+            }
+            let name = group.rows.count > 1
+                ? (Self.trimmed(first.displayName) ?? participantLabel(for: first))
+                : participantLabel(for: first)
+            return TerminalSharingTabItem(
+                id: group.key,
+                content: .initials(initials(for: first)),
+                isOwner: isOwner,
+                accessibilityName: name
+            )
+        }
+        guard let ownerIndex = items.firstIndex(where: \.isOwner), ownerIndex > 0 else { return items }
+        var ordered = items
+        ordered.insert(ordered.remove(at: ownerIndex), at: 0)
+        return ordered
     }
 
     /// `Size set by Maya's Mac · 118×38`, or `Fits everyone · 118×38`.
@@ -202,6 +240,13 @@ public struct TerminalSharingPresentation: Sendable {
         }.map(\.element)
     }
 
+    /// What a panel row says after the name: `sets size` for an owner,
+    /// `not counted` for a participant the grid ignores, else nothing.
+    public func rowStatus(for row: TerminalSizingParticipantState) -> TerminalSharingRowStatus {
+        if state.owners.contains(row.id) { return .setsSize }
+        return row.counts ? .counted : .notCounted
+    }
+
     /// Whether the panel shows `Disconnect Others`.
     public var canDisconnectOthers: Bool { !snapshot.otherParticipantIDs.isEmpty }
 
@@ -209,4 +254,42 @@ public struct TerminalSharingPresentation: Sendable {
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
         return text
     }
+}
+
+/// One item in the tab accessory: another person, or one kind of the viewer's
+/// own other devices.
+public struct TerminalSharingTabItem: Hashable, Sendable, Identifiable {
+    /// What the avatar draws.
+    public enum Content: Hashable, Sendable {
+        /// Another person's initials.
+        case initials(String)
+        /// A glyph for the viewer's own device of this kind.
+        case device(TerminalDeviceKind)
+    }
+
+    /// `user:<id>`, `device:<kind>` or `participant:<id>`.
+    public let id: String
+    public let content: Content
+    /// Whether this person or device sets the grid.
+    public let isOwner: Bool
+    /// Spoken name.
+    public let accessibilityName: String
+
+    /// Creates an item.
+    public init(id: String, content: Content, isOwner: Bool, accessibilityName: String) {
+        self.id = id
+        self.content = content
+        self.isOwner = isOwner
+        self.accessibilityName = accessibilityName
+    }
+}
+
+/// The trailing status of a size panel or sheet row.
+public enum TerminalSharingRowStatus: Hashable, Sendable {
+    /// The row sets the grid.
+    case setsSize
+    /// The row does not count toward the grid.
+    case notCounted
+    /// The row counts but does not set the grid alone.
+    case counted
 }

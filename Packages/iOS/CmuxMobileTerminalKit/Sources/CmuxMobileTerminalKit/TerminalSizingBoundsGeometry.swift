@@ -20,9 +20,9 @@ public struct TerminalSizingBoundsGeometry: Equatable, Sendable {
         public let rect: CGRect
     }
 
-    /// The width of the owner-color border, in points.
+    /// The width of the neutral border, in points.
     public static let borderWidth: CGFloat = 1
-    /// The depth of the amber fade on a cut edge, in points.
+    /// The depth of the neutral fade on a cut edge, in points.
     public static let cutFadeDepth: CGFloat = 16
 
     /// The rect the border strokes, or `nil` when the viewport matches.
@@ -104,35 +104,25 @@ public struct TerminalSizingBoundsGeometry: Equatable, Sendable {
     }
 }
 
-/// What the terminal surface draws for shared sizing: the shared grid, this
-/// phone's viewport, and the owner's color. `nil` on the surface draws the
-/// plain letterbox.
+/// What the terminal surface draws for shared sizing: the shared grid and
+/// this phone's viewport. The chrome is neutral grey. `nil` on the surface
+/// draws the plain letterbox.
 public struct TerminalSizingBoundsDecoration: Equatable, Sendable {
     public var gridColumns: Int
     public var gridRows: Int
     public var viewerColumns: Int
     public var viewerRows: Int
-    /// Owner color components in `0...1`.
-    public var ownerRed: Double
-    public var ownerGreen: Double
-    public var ownerBlue: Double
 
     public init(
         gridColumns: Int,
         gridRows: Int,
         viewerColumns: Int,
-        viewerRows: Int,
-        ownerRed: Double,
-        ownerGreen: Double,
-        ownerBlue: Double
+        viewerRows: Int
     ) {
         self.gridColumns = gridColumns
         self.gridRows = gridRows
         self.viewerColumns = viewerColumns
         self.viewerRows = viewerRows
-        self.ownerRed = ownerRed
-        self.ownerGreen = ownerGreen
-        self.ownerBlue = ownerBlue
     }
 
     /// The layout for this decoration in a viewport.

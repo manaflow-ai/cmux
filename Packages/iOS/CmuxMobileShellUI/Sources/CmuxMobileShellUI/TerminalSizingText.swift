@@ -184,6 +184,19 @@ struct TerminalSizingText {
         L10n.string("mobile.terminal.sizing.badge.setsSize", defaultValue: "Sets size")
     }
 
+    static func notCounted() -> String {
+        L10n.string("mobile.terminal.sizing.badge.notCounted", defaultValue: "Not counted")
+    }
+
+    /// Trailing text of a sheet row, or `nil` for a counted non-owner.
+    static func rowStatus(_ status: MobileTerminalSizingRowStatus) -> String? {
+        switch status {
+        case .setsSize: setsSize()
+        case .notCounted: notCounted()
+        case .counted: nil
+        }
+    }
+
     /// "Maya · Mac Studio", or "Maya · This iPhone" for this phone.
     static func participantTitle(_ participant: TerminalSizingParticipant, isSelf: Bool) -> String {
         let given = MobileTerminalSizingPresentation.givenName(participant.displayName)

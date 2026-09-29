@@ -120,7 +120,7 @@ Disconnecting is not unpairing. Pairing revoke stays in pairing settings.
 
 Every viewer whose viewport differs from the grid draws, from the size state:
 
-- a 1 pt border around the grid in the owner's color at 70% opacity;
+- a 1 pt neutral grey border around the grid (secondary label color at 50%);
 - a faint hatch outside the grid, so empty space never reads as blank output;
 - one small chip outside the grid's bottom-right corner,
   `118×38 · Maya's Mac` (plus `· 12 cols hidden` when the viewer is smaller),
@@ -128,27 +128,27 @@ Every viewer whose viewport differs from the grid draws, from the size state:
 - when the viewer is smaller, a short fade on the cut edge;
 - on each change, the border animates to the new grid. There is no HUD.
 
-Owner colors come from `TerminalSizingParticipantColor` (Swift, in
-`CmuxTerminalSizing`; the iOS twin uses the same rule). The key is the
-participant's `user_id`, else its `id`. The color is
-`palette[fnv1a64(utf8(key)) % 10]` with FNV-1a offset `0xcbf29ce484222325`,
-prime `0x100000001b3` and this palette, in order: `#3CC2B0`, `#EBA946`,
-`#A688F5`, `#5AA9F2`, `#F07A8A`, `#7BC96F`, `#E58F4B`, `#C77DDB`, `#4FC1D9`,
-`#D6C24A`.
+The sizing UI uses neutral greys only. There are no per-participant colors;
+the owner is marked by a thin neutral ring on its avatar.
 
-On the Mac, the tab shows up to three attached people (owner first, with a
-ring in the owner's color, `+N` for the rest) only while someone else is
-attached. Its tooltip is `Size set by Maya's Mac · 118×38`, and clicking it
+On the Mac, the tab shows only while someone else is attached, and never
+shows this view itself. It draws one grey initials circle per other person
+(grouped by `user_id`) and, for this user's own other devices, one grey device
+glyph per device kind (iPhone, iPad, laptop, terminal). Up to three items,
+owner first with the neutral ring, then `+N`. Its tooltip is `Size set by Maya's Mac · 118×38`, and clicking it
 toggles the size panel. The panel always hangs from the tab (the accessory, or
 the tab itself when the accessory is hidden), whichever entrypoint opened it:
 tab, pane chip, context menu, command palette or shortcut. It holds the grid
 and owner, a Size mode menu (with a cols × rows field pair in Fixed), one row
-per participant ("sets size" on the owner; a hover menu with Counts toward
+per participant ("sets size" on the owner, "not counted" on a participant the
+grid ignores; a hover menu with Counts toward
 size and Disconnect; drag handles in Priority), and "Disconnect Others" with an
 inline confirmation. "Size to My Window" lives in the tab context menu, the
 palette and the shortcut. The tab context menu adds Size to My Window, a
 Terminal Size submenu with the five modes, and Disconnect Others… while anyone
 else is attached.
+The iPhone size sheet uses the same grey avatars and marks rows "Sets size"
+or "Not counted" the same way.
 
 ## Mac ↔ iPhone payloads
 
