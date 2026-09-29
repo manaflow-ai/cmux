@@ -38,6 +38,6 @@ export type NavigationResult = { url: string, };
 
 export type OpenSessionRequest = { source: DiffSource, capabilityToken: string, sessionId?: string, };
 
-export type SessionOpened = { sessionId: string, patch: DiffResourceRef, source: DiffSource, };
+export type SessionOpened = { sessionId: string, patch: DiffResourceRef, source: DiffSource, generatedPaths: Array<string>, };
 
 export type SessionRequest = { sessionId: string, capabilityToken: string, };
