@@ -575,17 +575,7 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
 def test_base_debug_cli_discovers_cmux_tag(cli_path: str) -> bool:
     tag = f"cli-autodiscover-{os.getpid()}"
     socket_path = f"/tmp/cmux-debug-{tag}.sock"
-    server = PingServer(socket_path)
-    server.start()
-
-    if not server.wait_ready(2.0):
-        print("FAIL: socket server did not become ready")
-        return False
-
-    if server.error is not None:
-        print(f"FAIL: socket server failed to start: {server.error}")
-        return False
-
+    server: PingServer | None = None
     try:
         with temporary_socket_home("cmux-cli-autodiscover-home-") as home, \
                 tempfile.TemporaryDirectory(prefix="cmux-cli-base-debug-app-") as apps:
@@ -595,6 +585,18 @@ def test_base_debug_cli_discovers_cmux_tag(cli_path: str) -> bool:
                 "cmux DEV issue3542",
                 "com.cmuxterm.app.debug",
             )
+            # Framework copying can take longer than the socket's acceptance
+            # window on a busy runner. Start the server only once the fixture
+            # is ready to invoke the CLI.
+            server = PingServer(socket_path)
+            server.start()
+            if not server.wait_ready(2.0):
+                print("FAIL: socket server did not become ready")
+                return False
+            if server.error is not None:
+                print(f"FAIL: socket server failed to start: {server.error}")
+                return False
+
             env = os.environ.copy()
             for key in list(env):
                 if key.startswith("CMUX_"):
@@ -620,7 +622,8 @@ def test_base_debug_cli_discovers_cmux_tag(cli_path: str) -> bool:
         print(f"FAIL: invoking cmux ping failed: {exc}")
         return False
     finally:
-        server.join(timeout=2.0)
+        if server is not None:
+            server.join(timeout=2.0)
         try:
             os.remove(socket_path)
         except OSError:

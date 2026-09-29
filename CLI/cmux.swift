@@ -303,6 +303,11 @@ private struct CodexMonitorLeaseRecord: Codable {
     var retiredAt: TimeInterval?
 }
 
+private struct CodexTranscriptFileState: Equatable {
+    let fileSize: Int
+    let modificationDate: Date
+}
+
 final class ClaudeHookSessionStore {
     private typealias CursorPendingShellApproval = ClaudeHookSessionRecord.PendingCursorShellApproval
     typealias CursorShellApprovalResolution = (
@@ -31170,6 +31175,32 @@ struct CMUXCLI {
         return try? JSONDecoder().decode(CodexMonitorLeaseRecord.self, from: data)
     }
 
+    private func activeCodexMonitorLease(
+        sessionId: String,
+        turnId: String?,
+        env: [String: String]
+    ) -> CodexMonitorLeaseRecord? {
+        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedTurnId = turnId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty, let normalizedTurnId, !normalizedTurnId.isEmpty else {
+            return nil
+        }
+        let directory = codexMonitorLeaseDirectory(env: env)
+        let paths = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        return paths
+            .compactMap { readCodexMonitorLease(path: $0.path) }
+            .filter {
+                $0.sessionId == normalizedSessionId
+                    && $0.turnId == normalizedTurnId
+                    && $0.retiredAt == nil
+            }
+            .max { $0.createdAt < $1.createdAt }
+    }
+
     private func createCodexMonitorLease(
         sessionId: String,
         turnId: String?,
@@ -31413,7 +31444,14 @@ struct CMUXCLI {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
             }
 
+            var transcriptStateBeforeRead: CodexTranscriptFileState?
             if let currentTranscriptPath = transcriptPath {
+                // Capture the file state before parsing. The monitor publishes
+                // notifications before it arms the next file watcher; a
+                // transcript append during that delivery window can otherwise
+                // be missed and leave the monitor asleep until its long
+                // fallback timeout.
+                transcriptStateBeforeRead = codexTranscriptFileState(path: currentTranscriptPath)
                 let userInput = autoreleasepool(invoking: { readCodexTranscriptUserInput(path: currentTranscriptPath, turnId: turnId, excluding: publishedUserInputCallIds) })
                 if let userInput {
                     publishedUserInputCallIds.insert(userInput.callId)
@@ -31460,7 +31498,12 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return nil }
-            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
+            waitForCodexTranscriptChange(
+                path: transcriptPath,
+                leasePath: leasePath,
+                knownTranscriptState: transcriptStateBeforeRead,
+                timeout: min(30, remaining)
+            )
         }
         return nil
     }
@@ -31529,6 +31572,74 @@ struct CMUXCLI {
             "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
             client: client
         )
+    }
+
+    private func codexTranscriptFileState(path: String) -> CodexTranscriptFileState? {
+        let url = URL(fileURLWithPath: NSString(string: path).expandingTildeInPath)
+        guard let values = try? url.resourceValues(
+            forKeys: [.fileSizeKey, .contentModificationDateKey]
+        ),
+        let fileSize = values.fileSize,
+        let modificationDate = values.contentModificationDate else {
+            return nil
+        }
+        return CodexTranscriptFileState(
+            fileSize: fileSize,
+            modificationDate: modificationDate
+        )
+    }
+
+    private func waitForCodexTranscriptChange(
+        path: String?,
+        leasePath: String?,
+        knownTranscriptState: CodexTranscriptFileState?,
+        timeout: TimeInterval
+    ) {
+        guard timeout > 0 else { return }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var sources: [DispatchSourceFileSystemObject] = []
+
+        func addFileSource(path: String?, eventMask: DispatchSource.FileSystemEvent) {
+            guard let path, !path.isEmpty else { return }
+            let expandedPath = NSString(string: path).expandingTildeInPath
+            let fd = open(expandedPath, O_EVTONLY)
+            guard fd >= 0 else { return }
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: eventMask,
+                queue: DispatchQueue.global(qos: .utility)
+            )
+            source.setEventHandler {
+                semaphore.signal()
+            }
+            source.setCancelHandler {
+                close(fd)
+            }
+            source.resume()
+            sources.append(source)
+        }
+
+        addFileSource(path: path, eventMask: [.write, .extend, .delete, .rename])
+        addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
+
+        guard !sources.isEmpty else {
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
+            return
+        }
+
+        // Check after the source is armed. An append that happened while the
+        // previous notification was delivered is already present but may have
+        // preceded the source's event stream registration. Comparing the
+        // post-arm state closes that gap; later appends are delivered by the
+        // source itself.
+        if let path,
+           codexTranscriptFileState(path: path) != knownTranscriptState {
+            semaphore.signal()
+        }
+
+        _ = semaphore.wait(timeout: .now() + timeout)
+        sources.forEach { $0.cancel() }
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
@@ -36845,37 +36956,45 @@ export default CMUXSessionRestore;
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
                     return
                 }
-                let leasePath = createCodexMonitorLease(
+                if activeCodexMonitorLease(
                     sessionId: sessionId,
                     turnId: input.turnId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
                     env: env
-                )
-                if leasePath == nil {
-                    telemetry.breadcrumb(
-                        "codex-hook.monitor.lease-unavailable",
-                        data: ["has_turn_id": normalizedHookValue(input.turnId) != nil]
-                    )
+                ) != nil {
+                    telemetry.breadcrumb("codex-hook.monitor.reused-same-turn")
                 } else {
-                    retireCodexMonitorLeases(
+                    let leasePath = createCodexMonitorLease(
                         sessionId: sessionId,
-                        turnId: nil,
-                        preservingLeasePath: leasePath,
+                        turnId: input.turnId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
                         env: env
                     )
+                    if leasePath == nil {
+                        telemetry.breadcrumb(
+                            "codex-hook.monitor.lease-unavailable",
+                            data: ["has_turn_id": normalizedHookValue(input.turnId) != nil]
+                        )
+                    } else {
+                        retireCodexMonitorLeases(
+                            sessionId: sessionId,
+                            turnId: nil,
+                            preservingLeasePath: leasePath,
+                            env: env
+                        )
+                    }
+                    startCodexTranscriptMonitor(
+                        sessionId: sessionId,
+                        turnId: input.turnId,
+                        transcriptPath: normalizedHookValue(hookTranscriptPath),
+                        cwd: hookCwd ?? mapped?.cwd,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        leasePath: leasePath,
+                        env: env,
+                        telemetry: telemetry
+                    )
                 }
-                startCodexTranscriptMonitor(
-                    sessionId: sessionId,
-                    turnId: input.turnId,
-                    transcriptPath: normalizedHookValue(hookTranscriptPath),
-                    cwd: hookCwd ?? mapped?.cwd,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    leasePath: leasePath,
-                    env: env,
-                    telemetry: telemetry
-                )
             }
 
         case .stop:

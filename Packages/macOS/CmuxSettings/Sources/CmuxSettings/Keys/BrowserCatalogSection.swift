@@ -2,6 +2,13 @@ import Foundation
 
 /// Settings under the dotted-id prefix `browser.*`.
 public struct BrowserCatalogSection: SettingCatalogSection {
+    /// Application used for URLs that cmux opens outside its embedded browser.
+    public let externalApplication = DefaultsKey<String>(
+        id: BrowserExternalApplicationSettings.settingsPath,
+        defaultValue: BrowserExternalApplicationSettings.defaultValue,
+        userDefaultsKey: BrowserExternalApplicationSettings.userDefaultsKey
+    )
+
     public let defaultSearchEngine = DefaultsKey<BrowserSearchEngine>(
         id: "browser.defaultSearchEngine",
         defaultValue: BrowserSearchSettingsStore.defaultSearchEngine,

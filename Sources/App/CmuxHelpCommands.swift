@@ -1,3 +1,4 @@
+import CmuxBrowser
 import AppKit
 import CmuxFeedback
 import SwiftUI
@@ -97,7 +98,7 @@ extension cmuxApp {
 
     private func helpResourceButton(_ resource: CmuxHelpResource) -> some View {
         Button(resource.title) {
-            NSWorkspace.shared.open(resource.url)
+            BrowserExternalAppOpener().open(resource.url)
         }
     }
 

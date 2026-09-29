@@ -23,7 +23,7 @@ struct BrowserExternalNavigationHandler {
 
     init(
         defaults: UserDefaults = .standard,
-        openURL: @escaping @MainActor @Sendable (URL) -> Bool = { NSWorkspace.shared.open($0) }
+        openURL: @escaping @MainActor @Sendable (URL) -> Bool = { BrowserExternalAppOpener().open($0) }
     ) {
         self.defaults = defaults
         self.openURL = openURL

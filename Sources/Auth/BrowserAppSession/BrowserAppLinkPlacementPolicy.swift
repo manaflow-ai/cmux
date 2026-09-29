@@ -1,3 +1,4 @@
+import CmuxBrowser
 import AppKit
 import Foundation
 import WebKit
@@ -9,11 +10,11 @@ final class BrowserAppLinkPlacementPolicy {
     typealias RequestPlacement = (URLRequest, WKWebsiteDataStore) -> Bool
     typealias URLPlacement = (URL, WKWebsiteDataStore) -> Bool
 
-    private let openInSystemBrowser: (URL) -> Bool
+    private let openInSystemBrowser: @MainActor (URL) -> Bool
 
     init(
-        openInSystemBrowser: @escaping (URL) -> Bool = {
-            NSWorkspace.shared.open($0)
+        openInSystemBrowser: @escaping @MainActor (URL) -> Bool = {
+            BrowserExternalAppOpener().open($0)
         }
     ) {
         self.openInSystemBrowser = openInSystemBrowser

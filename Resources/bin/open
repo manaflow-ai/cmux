@@ -29,6 +29,7 @@ fi
 settings_domain="${CMUX_BUNDLE_ID:-}"
 whitelist_raw=""
 whitelist_patterns=()
+browser_external_application=""
 
 system_open() {
     if [[ -n "$ORIGINAL_LC_ALL_IS_SET" ]]; then
@@ -37,6 +38,68 @@ system_open() {
         unset LC_ALL
     fi
     exec "$SYSTEM_OPEN_BIN" "$@"
+}
+
+browser_system_open() {
+    local configured_targets=()
+    local system_targets=()
+    local target
+    for target in "$@"; do
+        if [[ -n "$browser_external_application" ]] && is_http_url "$target"; then
+            configured_targets+=("$target")
+        else
+            system_targets+=("$target")
+        fi
+    done
+
+    if [[ ${#configured_targets[@]} -eq 0 ]]; then
+        system_open "$@"
+    fi
+
+    if [[ -n "$browser_external_application" ]]; then
+        if [[ -n "$ORIGINAL_LC_ALL_IS_SET" ]]; then
+            export LC_ALL="$ORIGINAL_LC_ALL_VALUE"
+        else
+            unset LC_ALL
+        fi
+        local application_flag="-a"
+        case "$browser_external_application" in
+            */*|*.app|~*)
+                application_flag="-a"
+                ;;
+            *.*)
+                application_flag="-b"
+                ;;
+        esac
+        "$SYSTEM_OPEN_BIN" "$application_flag" "$browser_external_application" "${configured_targets[@]}"
+        if [[ $? -eq 0 ]]; then
+            if [[ ${#system_targets[@]} -gt 0 ]]; then
+                system_open "${system_targets[@]}"
+            fi
+            return 0
+        fi
+        if [[ "$application_flag" == "-b" ]]; then
+            "$SYSTEM_OPEN_BIN" -a "$browser_external_application" "${configured_targets[@]}"
+            if [[ $? -eq 0 ]]; then
+                if [[ ${#system_targets[@]} -gt 0 ]]; then
+                    system_open "${system_targets[@]}"
+                fi
+                return 0
+            fi
+        fi
+    fi
+    system_open "${configured_targets[@]}" "${system_targets[@]}"
+}
+
+browser_system_open_with_passthrough() {
+    if [[ ${#passthrough_args[@]} -gt 0 ]]; then
+        # browser_system_open may exec the default open command when the
+        # configured application is unavailable. Run it in a subshell so the
+        # non-browser arguments still reach the system open command below.
+        (browser_system_open "${cmux_targets[@]}") || true
+        system_open "${passthrough_args[@]}"
+    fi
+    browser_system_open "${cmux_targets[@]}"
 }
 
 trim() {
@@ -465,7 +528,8 @@ fi
 if [[ -n "$settings_domain" ]]; then
     browser_disabled="$("$DEFAULTS_BIN" read "$settings_domain" browserDisabledOverride 2>/dev/null || true)"
     if is_true_setting "$browser_disabled"; then
-        system_open "$@"
+        browser_external_application="$("$DEFAULTS_BIN" read "$settings_domain" browserExternalApplication 2>/dev/null || true)"
+        browser_system_open_with_passthrough
         exit $?
     fi
 
@@ -475,7 +539,8 @@ if [[ -n "$settings_domain" ]]; then
         open_in_cmux="$("$DEFAULTS_BIN" read "$settings_domain" browserOpenTerminalLinksInCmuxBrowser 2>/dev/null || true)"
     fi
     if is_false_setting "$open_in_cmux"; then
-        system_open "$@"
+        browser_external_application="$("$DEFAULTS_BIN" read "$settings_domain" browserExternalApplication 2>/dev/null || true)"
+        browser_system_open_with_passthrough
         exit $?
     fi
 
@@ -490,8 +555,12 @@ fi
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 CMUX_CLI="$SELF_DIR/cmux"
 
+if [[ -n "$settings_domain" ]]; then
+    browser_external_application="$("$DEFAULTS_BIN" read "$settings_domain" browserExternalApplication 2>/dev/null || true)"
+fi
+
 if [[ ! -x "$CMUX_CLI" ]]; then
-    system_open "$@"
+    browser_system_open_with_passthrough
     exit $?
 fi
 
@@ -517,6 +586,11 @@ done
 
 # Fall back to system open for unmatched args and URLs that failed.
 if [[ ${#passthrough_args[@]} -gt 0 ]] || [[ ${#failed_urls[@]} -gt 0 ]]; then
-    system_open "${passthrough_args[@]}" "${failed_urls[@]}"
+    if [[ ${#passthrough_args[@]} -gt 0 ]]; then
+        "$SYSTEM_OPEN_BIN" "${passthrough_args[@]}"
+    fi
+    if [[ ${#failed_urls[@]} -gt 0 ]]; then
+        browser_system_open "${failed_urls[@]}"
+    fi
     exit $?
 fi

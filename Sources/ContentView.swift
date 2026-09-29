@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxCloud
 import AppKit
 import CmuxAppKitSupportUI
@@ -10894,7 +10895,7 @@ struct ContentView: View {
             for pullRequest in pullRequests {
                 if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
                     openedCount += 1
-                } else if NSWorkspace.shared.open(pullRequest.url) {
+                } else if BrowserExternalAppOpener().open(pullRequest.url) {
                     openedCount += 1
                 }
             }
@@ -10902,7 +10903,7 @@ struct ContentView: View {
         }
 
         for pullRequest in pullRequests {
-            if NSWorkspace.shared.open(pullRequest.url) {
+            if BrowserExternalAppOpener().open(pullRequest.url) {
                 openedCount += 1
             }
         }
@@ -12850,15 +12851,15 @@ struct VerticalTabsSidebar: View, Equatable {
                ) != nil {
                 return
             }
-            NSWorkspace.shared.open(url)
+            BrowserExternalAppOpener().open(url)
         }
         let rowActions = SidebarAppKitRowActions(
             commands: commands,
             onOpenStatusURL: { url in
-                NSWorkspace.shared.open(url)
+                BrowserExternalAppOpener().open(url)
             },
             onOpenWorkspaceDescriptionURL: { url in
-                NSWorkspace.shared.open(url)
+                BrowserExternalAppOpener().open(url)
             },
             onOpenPullRequest: { [prefer = input.settings.openPullRequestLinksInCmuxBrowser] url in
                 openInBrowser(url, prefer)
@@ -13511,7 +13512,7 @@ struct VerticalTabsSidebar: View, Equatable {
 
         case .openURL(let urlString):
             guard let url = cmuxSidebarExtensionRequiredHTTPURL(from: urlString),
-                  NSWorkspace.shared.open(url) else {
+                  BrowserExternalAppOpener().open(url) else {
                 return CmuxSidebarActionResult(
                     accepted: false,
                     message: String(localized: "sidebar.extensions.action.urlRejected", defaultValue: "URL could not be opened")
@@ -15072,7 +15073,7 @@ struct VerticalTabsSidebar: View, Equatable {
            ) != nil {
             return
         }
-        NSWorkspace.shared.open(url)
+        BrowserExternalAppOpener().open(url)
     }
 
     private func openWorkspaceRowPort(
@@ -15893,19 +15894,19 @@ private struct SidebarHelpMenuButton: View {
             }
         case .docs:
             guard let docsURL else { return }
-            NSWorkspace.shared.open(docsURL)
+            BrowserExternalAppOpener().open(docsURL)
         case .changelog:
             guard let changelogURL else { return }
-            NSWorkspace.shared.open(changelogURL)
+            BrowserExternalAppOpener().open(changelogURL)
         case .github:
             guard let githubURL else { return }
-            NSWorkspace.shared.open(githubURL)
+            BrowserExternalAppOpener().open(githubURL)
         case .githubIssues:
             guard let githubIssuesURL else { return }
-            NSWorkspace.shared.open(githubIssuesURL)
+            BrowserExternalAppOpener().open(githubIssuesURL)
         case .discord:
             guard let discordURL else { return }
-            NSWorkspace.shared.open(discordURL)
+            BrowserExternalAppOpener().open(discordURL)
         case .checkForUpdates:
             Task { @MainActor in
                 AppDelegate.shared?.checkForUpdates(nil)
@@ -17158,7 +17159,7 @@ private struct SidebarMetadataEntryRow: View {
             if let url = entry.url {
                 Button {
                     onFocus()
-                    NSWorkspace.shared.open(url)
+                    BrowserExternalAppOpener().open(url)
                 } label: {
                     rowContent(underlined: true)
                 }

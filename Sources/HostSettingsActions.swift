@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxCloud
 import CmuxComputerUse
 import AppKit
@@ -385,7 +386,7 @@ final class HostSettingsActions: SettingsHostActions {
 
     func sendFeedback() {
         guard let url = URL(string: "https://github.com/manaflow-ai/cmux/issues/new") else { return }
-        NSWorkspace.shared.open(url)
+        BrowserExternalAppOpener().open(url)
     }
 
     func sendTestNotification() {
