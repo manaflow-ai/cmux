@@ -220,7 +220,7 @@ build() {
   fi
   # xcodebuild runs under the resolve's fixed environment (see resolve()), but
   # the app's script phases still need the caller's: PATH for cargo, rustup,
-  # go and zig (Nucleo FFI, the diff sidecar, wireguard-go, bundled
+  # go and zig (the diff sidecar, wireguard-go, bundled
   # resources), HOME for ~/.cargo, CI and CMUX_SKIP_ZIG_BUILD for what they
   # build. Command-line build settings reach every script phase's environment
   # without entering SwiftPM's key. Swift Build builds a script's PATH from its

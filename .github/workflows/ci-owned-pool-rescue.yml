@@ -32,7 +32,7 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 # - ios-screenshots.yml: release.yml calls it with only `contents: read`, so a
 #   job there asking for Actions write would fail the release at parse time
 #   (#12149). Its direct dispatches are rare (no run from 2026-09-23 to 09-25).
-# - The side lanes (auth-refresh-tests, cloud-machine-tests, cmux-tui, iroh-v2, relay-tls, reload-build, remote-daemon,
+# - The side lanes (auth-refresh-tests, cmux-tui, iroh-v2, relay-tls, reload-build, remote-daemon,
 #   terminal-hang-diagnostics)
 #   have no picker: while vars.CI_SIDE_LANE_RUNNER names a glaeda-side-*
 #   label, every trusted attempt-1 run of theirs (a same-repository pull
@@ -58,7 +58,6 @@ on:
       # Side lanes (owned_pool_rescue.SIDE_WORKFLOW_PATHS): watched only while
       # vars.CI_SIDE_LANE_RUNNER routes them to the fleet.
       - Auth and session lifecycle
-      - Cloud machine lifecycle
       - cmux-tui
       - IROH v2
       - Relay TLS system trust
@@ -96,7 +95,6 @@ env:
   SOURCE_WORKFLOW_PATHS: >-
     .github/workflows/ios-screenshots.yml
     .github/workflows/auth-refresh-tests.yml
-    .github/workflows/cloud-machine-tests.yml
     .github/workflows/cmux-tui.yml
     .github/workflows/iroh-v2.yml .github/workflows/relay-tls.yml
     .github/workflows/reload-build.yml .github/workflows/remote-daemon.yml

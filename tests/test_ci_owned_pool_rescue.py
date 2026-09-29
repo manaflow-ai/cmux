@@ -1045,7 +1045,7 @@ class SideLanes(unittest.TestCase):
     def test_a_gated_side_job_is_found_after_its_gate(self):
         clock = Clock()
         api = FakeAPI(clock, side_run(queued_at=90, started_at=100, gate_done_at=90))
-        code, summary = run_main(api, clock, payload=side_event(path=".github/workflows/cloud-machine-tests.yml"))
+        code, summary = run_main(api, clock, payload=side_event(path=".github/workflows/auth-refresh-tests.yml"))
         self.assertIn("a side-lane job asked for a persistent pool", summary)
         self.assertIn("the fleet accepted the side-lane jobs", summary)
 

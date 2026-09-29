@@ -183,14 +183,6 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
 
-      - name: Validate sidebar extension point generation
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_write_sidebar_extension_point.py
-
-      - name: Test btop agent sidebar example bounds
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_btop_agents_sidebar.py
-
       - name: Validate cmux.json schema covers supported settings and shortcut actions
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_cmux_schema_parity.py

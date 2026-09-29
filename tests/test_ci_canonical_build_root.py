@@ -519,7 +519,7 @@ class BuildPhaseCallerPathTests(unittest.TestCase):
         self.assertEqual(self.path_after(path, None), path)
 
     def test_every_tool_building_script_phase_sources_it(self):
-        for script in ("build-command-palette-nucleo-ffi.sh", "build-diff-sidecar.sh",
+        for script in ("build-diff-sidecar.sh",
                        "build-wireguard-go.sh", "build-app-bundled-resources.sh"):
             with self.subTest(script=script):
                 text = (ROOT / "scripts" / script).read_text()

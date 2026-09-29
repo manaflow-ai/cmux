@@ -371,14 +371,12 @@ def test_package_changes_route_the_package_test_lane() -> None:
     # compile admission, which builds package library targets and never their
     # test targets, so those assertions would land with zero CI execution.
     for path in (
-        "Packages/macOS/CmuxSettingsUI/Tests/CmuxSettingsUITests/SettingsSearchIndexTests.swift",
-        "Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Bindings/SettingReadDriver.swift",
+        "Packages/macOS/CmuxSettings/Tests/CmuxSettingsTests/SettingsCatalogTests.swift",
+        "Packages/macOS/CmuxSettings/Sources/CmuxSettings/Keys/Probe.swift",
         "Packages/macOS/CmuxSettings/Package.swift",
         # A dependency of packages the job runs, reached through Package.swift
         # path dependencies rather than by name.
         "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/Whatever.swift",
-        # CmuxCommandPalette's declared extra input.
-        "Native/CommandPaletteNucleoFFI/src/lib.rs",
     ):
         assert module.classify_files([path]).swift_packages is True, path
 
@@ -387,11 +385,11 @@ def test_routed_lane_names_the_packages_the_job_would_run() -> None:
     # The area is the job's own selection, so routing and the job's package
     # list cannot disagree about what a change affects.
     assert module.swift_package_test_selection(
-        ["Packages/macOS/CmuxSettingsUI/Tests/CmuxSettingsUITests/SettingsSearchIndexTests.swift"]
-    ) == ("CmuxSettingsUI",)
+        ["Packages/macOS/CmuxSidebarGit/Tests/CmuxSidebarGitTests/Probe.swift"]
+    ) == ("CmuxSidebarGit",)
     # A dependency pulls in its dependents, and nothing else.
     settings = module.swift_package_test_selection(["Packages/macOS/CmuxSettings/Package.swift"])
-    assert "CmuxSettings" in settings and "CmuxSettingsUI" in settings
+    assert "CmuxSettings" in settings
     # CmuxControlSocket depends on CmuxSettings, so it is a dependent; CmuxGit is not.
     assert "CmuxControlSocket" in settings
     assert "CmuxGit" not in settings
@@ -448,29 +446,17 @@ def test_package_lane_reads_the_job_package_list_from_the_workflow() -> None:
     lane = (ROOT / "scripts/ci/package-test-lane.sh").read_text(encoding="utf-8")
     body = lane.split("PACKAGES=(", 1)[1].split("\n  )", 1)[0]
     assert set(packages) == set(body.split()), set(packages) ^ set(body.split())
-    assert "CmuxSettingsUI" in packages
+    assert "CmuxSettings" in packages
     path = "Packages/macOS/CmuxSurfaceCatalogModel/Tests/CmuxSurfaceCatalogModelTests/Probe.swift"
     assert module.classify_files([path]).swift_packages is True
     assert "CmuxSurfaceCatalogModel" in module.swift_package_test_selection([path])
     # These macOS packages had test targets but were missing from the list once.
     for name in (
-        "CmuxCanvas",
-        "CmuxCloudBannerCore",
-        "CmuxCloudImagePaste",
         "CMUXDebugLog",
-        "CmuxExtensionKit",
         "CmuxFeedback",
-        "CmuxLiveEval",
         "CmuxPhonePush",
-        "CMUXProjectModel",
-        "CmuxSidebar",
-        "CmuxSidebarInterpreterService",
         "CmuxSimulator",
-        "CmuxSwiftRender",
-        "CmuxSwiftRenderUI",
-        "CmuxTestSupport",
         "CmuxUpdaterUI",
-        "CmuxWindowing",
     ):
         assert name in packages, name
     for name in packages:
@@ -482,7 +468,7 @@ def test_package_lane_does_not_widen_any_other_area() -> None:
     # package test source still skips the Release build, and nothing here
     # turns on web or CLI work.
     actual = module.classify_files([
-        "Packages/macOS/CmuxSettingsUI/Tests/CmuxSettingsUITests/SettingsSearchIndexTests.swift"
+        "Packages/macOS/CmuxSettings/Tests/CmuxSettingsTests/SettingsCatalogTests.swift"
     ])
     assert actual.swift_packages is True
     assert actual.release_build is False
@@ -5098,8 +5084,8 @@ def test_swift_package_selection_precedes_optional_tool_setup() -> None:
     lane = (ROOT / "scripts/ci/package-test-lane.sh").read_text(encoding="utf-8")
 
     # The select step's outputs gate the GhosttyKit cache restore, which comes
-    # before the lane runs; the lane itself sets up Rust and downloads
-    # GhosttyKit only when its own selection needs them.
+    # before the lane runs; the lane itself downloads GhosttyKit only when its
+    # own selection needs it.
     select_index = block.index("      - name: Select package tests")
     ghostty_index = block.index("      - name: Capture Ghostty revision")
     run_index = block.index("      - name: Run Swift package tests\n")
@@ -5108,12 +5094,10 @@ def test_swift_package_selection_precedes_optional_tool_setup() -> None:
     assert "./scripts/ci/package-test-lane.sh run" in block
     assert "if: ${{ steps.select.outputs.needs_ghosttykit == 'true' }}" in block
     assert 'output "needs_ghosttykit=$needs_ghosttykit"' in lane
-    assert 'output "needs_rust=$needs_rust"' in lane
     run_phase = lane.split("\n  run)\n", 1)[1]
     assert run_phase.index("select_packages") < run_phase.index("ensure_ghosttykit")
-    assert run_phase.index("select_packages") < run_phase.index("install_rust")
     assert 'if [ "$needs_ghosttykit" = true ]; then\n      ensure_ghosttykit' in run_phase
-    assert 'if [ "$needs_rust" = true ]; then\n      install_rust' in run_phase
+    assert "install_rust" not in lane
     assert 'done < "$selected"' in lane
     assert lane.count("python3 scripts/ci/select_package_tests.py") == 1
     assert "select_package_tests.py" not in block

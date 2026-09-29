@@ -2145,8 +2145,7 @@ jobs:
 
       # Selects again (the same files), then sets up what the selection needs:
       # DEVELOPER_DIR from "Select Xcode", a GhosttyKit.xcframework download
-      # when the cache above missed, Rust for CmuxCommandPalette. Then every
-      # selected package.
+      # when the cache above missed. Then every selected package.
       - name: Run Swift package tests
         if: env.PACKAGE_TESTS_VIA_STEP != '1'
         env:

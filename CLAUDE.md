@@ -94,7 +94,8 @@ Use these existing owners instead of duplicating their checklists here:
 ## Remote CLI relay
 
 For v2 socket methods and remote CLI changes, read [relay authorization](skills/cmux-socket-policy/references/remote-relay-authorization.md).
-`RemoteRelayCommandPolicy` defaults to deny. Allowlist only for a needed remote
+The legacy `RemoteRelayCommandPolicy` was deleted with `CmuxRemoteWorkspace`; any
+remote relay cmux-next adds must default to deny the same way. Allowlist only for a needed remote
 flow, scoped to the session's objects; command-bearing params stay denied except
 for the documented audited exception. The PR must analyze local command/content
 execution, access to unowned objects and local-state exposure, and include the

@@ -7,10 +7,10 @@
 #          [--event[=]NAME] [--full-suite[=]true|false]
 #
 #   run       (default) select, then set up what the selection needs (Xcode,
-#             GhosttyKit.xcframework, Rust) and run the package tests.
+#             GhosttyKit.xcframework) and run the package tests.
 #   select    choose the packages. Under Actions it writes the step outputs
 #             (selected_packages, selected_count, needs_ghosttykit,
-#             needs_rust, changed_files) to GITHUB_OUTPUT.
+#             changed_files) to GITHUB_OUTPUT.
 #   packages  run the packages listed in the file SELECTED_PACKAGES.
 #   prebuild-one PACKAGE LOG
 #             build PACKAGE and its tests into LOG; the packages phase runs
@@ -65,20 +65,13 @@ ensure_parent() {
 select_packages() {
   PACKAGES=(
     CMUXAuthCore
-    CmuxCanvasUI
-    CmuxCloudMachines
     CmuxComputerUse
     CmuxCore
-    CmuxRemoteDaemon
-    CmuxRemoteWorkspace
     CmuxAgentChat
-    CmuxAgentSessionStore
     CmuxAuthRuntime
     CmuxWorkspacePresence
     CmuxIrohTransport
     CmuxIrxTransport
-    CmuxHive
-    CmuxCommandPalette
     CmuxControlSocket
     CmuxFoundation
     CmuxGit
@@ -86,36 +79,19 @@ select_packages() {
     CmuxMobileWorkspace
     CmuxNotifications
     CmuxSettings
-    CmuxSettingsUI
     CmuxSidebarGit
     CmuxSurfaceCatalogModel
     CmuxSudoBroker
-    CmuxSudoBrokerUI
     CmuxTerminalCore
     CmuxTerminalImport
-    CmuxTerminalPrediction
     CmuxUpdater
     CMUXAgentLaunch
     CmuxAgentJournal
-    CmuxFilePreviewCore
-    CmuxSyntaxHighlighting
-    CmuxCanvas
-    CmuxCloudBannerCore
-    CmuxCloudImagePaste
     CMUXDebugLog
-    CmuxExtensionKit
     CmuxFeedback
-    CmuxLiveEval
     CmuxPhonePush
-    CMUXProjectModel
-    CmuxSidebar
-    CmuxSidebarInterpreterService
     CmuxSimulator
-    CmuxSwiftRender
-    CmuxSwiftRenderUI
-    CmuxTestSupport
     CmuxUpdaterUI
-    CmuxWindowing
   )
 
   changed="$work/changed-files.txt"
@@ -147,13 +123,7 @@ select_packages() {
   else
     needs_ghosttykit=false
   fi
-  if grep -qxF CmuxCommandPalette "$selected"; then
-    needs_rust=true
-  else
-    needs_rust=false
-  fi
   output "needs_ghosttykit=$needs_ghosttykit"
-  output "needs_rust=$needs_rust"
   echo "Selected $count of ${#PACKAGES[@]} Swift packages."
 }
 
@@ -195,12 +165,6 @@ ensure_ghosttykit() {
     export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
   fi
   ./scripts/download-prebuilt-ghosttykit.sh
-}
-
-install_rust() {
-  ./scripts/install-rust-ci.sh
-  # install-rust-ci.sh hands PATH to later workflow steps; this shell needs it now.
-  export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$HOME/.cargo/bin:$PATH"
 }
 
 # Sets pkgdir and swift_test_args for one package. The prebuild and the test
@@ -304,13 +268,6 @@ run_package_tests() {
       --sample-seconds 5 --label "$pkg" --log "$log" \
       -- swift test "${swift_test_args[@]}" < /dev/null || test_status=$?
   }
-  if grep -qxF CmuxCommandPalette "$selected"; then
-    # CmuxCommandPalette's nucleo FFI tests load the Rust dylib through
-    # CMUX_NUCLEO_FFI_LIB (they skip when it is absent, so build it here
-    # to keep the FFI parity suite a real gate).
-    cargo build --manifest-path Native/CommandPaletteNucleoFFI/Cargo.toml --release
-    export CMUX_NUCLEO_FFI_LIB="$PWD/Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib"
-  fi
   # Every selected package runs even after another one fails, so one
   # broken or hung package cannot hide the results of the packages
   # after it. test_package returns the package's status instead of
@@ -430,9 +387,6 @@ case "$phase" in
     select_xcode
     if [ "$needs_ghosttykit" = true ]; then
       ensure_ghosttykit
-    fi
-    if [ "$needs_rust" = true ]; then
-      install_rust
     fi
     SELECTED_PACKAGES="$selected" SELECTED_COUNT="$count" run_package_tests
     ;;

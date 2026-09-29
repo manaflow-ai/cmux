@@ -25,7 +25,7 @@ description: "Socket command threading and focus policy for cmux CLI/socket work
 
 ## Remote relay authorization
 
-Every v2 method is a potential `cmux ssh` relay payload. `RemoteRelayCommandPolicy` denies by default; allowlisting a method needs the security analysis and policy tests in [remote relay authorization](references/remote-relay-authorization.md).
+Every v2 method is a potential `cmux ssh` relay payload. The legacy `RemoteRelayCommandPolicy` was deleted with the legacy app and the app has no relay policy yet; any relay path must be default-deny with the security analysis and policy tests in [remote relay authorization](references/remote-relay-authorization.md).
 
 ## Detailed references
 

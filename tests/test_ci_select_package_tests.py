@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 from select_package_tests import GLOBAL_INPUTS, select  # noqa: E402
 
-PACKAGES = ["Base", "Middle", "Top", "Loner", "Palette", "Splitter"]
+PACKAGES = ["Base", "Middle", "Top", "Loner", "Splitter"]
 
 
 def manifest(*paths: str) -> str:
@@ -32,8 +32,6 @@ def fixture(root: Path) -> None:
         "Packages/macOS/Middle": manifest("../Base"),
         "Packages/Shared/Top": manifest("../../macOS/Middle"),
         "Packages/macOS/Loner": manifest(),
-        "Packages/macOS/CmuxCommandPalette": manifest(),
-        "Packages/macOS/Palette": manifest("../CmuxCommandPalette"),
         "Packages/macOS/Splitter": manifest("../../../vendor/splitter"),
     }
     for directory, text in layout.items():
@@ -142,8 +140,6 @@ def main() -> int:
         check(root, ["vendor/splitter/Sources/Splitter/A.swift"], ["Splitter"],
               "a path dependency outside Packages/ counts")
         check(root, ["vendor/splitter"], ["Splitter"], "a submodule revision bump is the bare directory path")
-        check(root, ["Native/CommandPaletteNucleoFFI/src/lib.rs"], ["Palette"],
-              "an extra input reaches the packages that depend on its owner")
         check(root, ["Packages/macOS/Unlisted/Sources/A.swift"], [], "a package outside the list selects nothing")
         check(root, [".github/workflows/ci.yml"], PACKAGES, "the job's own workflow runs everything")
         check(root, [".github/workflows/nightly.yml", "scripts/reload.sh"], [], "other workflows and scripts run nothing")

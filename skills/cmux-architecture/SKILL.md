@@ -30,7 +30,7 @@ Five layers, dependencies point only downward:
 1. **Core** (`CmuxCore`): pure `Sendable` values, IDs, DTOs, errors, shared protocol seams. No AppKit/SwiftUI/I/O. The lift target when two domains need the same type.
 2. **Services / infrastructure**: `actor`s implementing core protocols against the outside world (process/PTY, filesystem, sockets, web API, notifications, auth). One package per cohesive capability.
 3. **Domain / state**: `@MainActor @Observable` models plus Coordinators, one package per feature domain, owning that domain's mutable state. Exemplar `CmuxSettings`.
-4. **UI**: SwiftUI/AppKit views, one UI package per domain package, depending only on its domain package plus Core, never a Service directly. Exemplar `CmuxSettingsUI`.
+4. **UI**: SwiftUI/AppKit views, one UI package per domain package, depending only on its domain package plus Core, never a Service directly.
 5. **Executable** (`App/main.swift` plus the `CmuxNextApp` module): thin composition shim, no business logic.
 
 Classify every extracted entity by intent:
@@ -39,7 +39,7 @@ Classify every extracted entity by intent:
 - **Service**: `actor` (or `@MainActor` only when an AppKit main-thread API forces it) performing one outside-world capability; exposes `async`/`await` plus `AsyncStream`; holds only its own resource handles and no UI state.
 - **Repository**: `actor` mediating one persistence source of truth (file, defaults, web API) behind CRUD-shaped async methods returning value types. Precedents: `JSONConfigStore`, `UserDefaultsSettingsStore`.
 
-**Dependency inversion.** Lower packages publish protocols; concrete Services/Repositories conform; higher layers depend on `any Protocol`, never the concrete type, and never a stored property reaching across modules. Constructor (`init`) injection only: no global container, no singleton, no `static let shared`. The executable app target is the single composition root, the one place concretes are named and the object graph is assembled. SwiftUI `Environment` may carry already-constructed `@Observable` models down a view tree (as `SettingsRuntime` does), never service wiring.
+**Dependency inversion.** Lower packages publish protocols; concrete Services/Repositories conform; higher layers depend on `any Protocol`, never the concrete type, and never a stored property reaching across modules. Constructor (`init`) injection only: no global container, no singleton, no `static let shared`. The executable app target is the single composition root, the one place concretes are named and the object graph is assembled. SwiftUI `Environment` may carry already-constructed `@Observable` models down a view tree, never service wiring.
 
 **State and SwiftUI.** Domain state lives in `@MainActor @Observable` models, never `ObservableObject`/`@Published`. A god model decomposes into cohesive child `@Observable` sub-models owned by their domain packages and composed by held reference; cross-domain reads go behind read-only protocols. In views use `@State` (owned), `@Bindable` or plain `let` (passed in), or `@Environment(M.self)` plus `.environment(...)` (injected). Never `@StateObject` / `@ObservedObject` / `@EnvironmentObject` / `.environmentObject(_:)`.
 

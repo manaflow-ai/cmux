@@ -4,7 +4,7 @@ Expands the package extraction and layering rules in [../SKILL.md](../SKILL.md).
 
 ## Domain names vs slice names
 
-Good (a domain): `CmuxSettings`, `CmuxSettingsUI`, `CmuxAppearance`, `CmuxControlSocket`.
+Good (a domain): `CmuxSettings`, `CmuxControlSocket`, and CmuxNext modules such as `CmuxNextBrowser` and `CmuxNextSidebar`.
 
 Weak (a slice): `CmuxAppearanceMath`, `CmuxWorkspaceModel`, `CmuxFooFormatting`, `CmuxFooLogic`, `CmuxFooState`. Slices force callers to depend on several sibling packages any time they touch the real domain.
 

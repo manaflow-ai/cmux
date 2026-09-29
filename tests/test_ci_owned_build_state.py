@@ -986,7 +986,7 @@ class Prefer(Fixture):
         compare.assert_not_called()
 
     def test_package_tests_do_not_rebuild_the_app(self):
-        self.assertFalse(state.rebuilds_app({"Packages/macOS/CmuxSettingsUI/Tests/CmuxSettingsUITests/ATests.swift"}))
+        self.assertFalse(state.rebuilds_app({"Packages/macOS/CmuxSettings/Tests/CmuxSettingsTests/ATests.swift"}))
 
     def test_a_far_bucket_seed_never_replaces_a_kept_build_without_a_package_change(self):
         self.kept(changed=3)

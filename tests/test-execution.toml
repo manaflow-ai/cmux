@@ -742,10 +742,6 @@ path = "tests/test_web_complexity_trusted_workflow.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_write_sidebar_extension_point.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_amp_extension_install.py"
 lane = "legacy"
 
@@ -1341,10 +1337,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_merge_pbxproj.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_btop_agents_sidebar.py"
 lane = "linux-guard"
 
 [[test]]

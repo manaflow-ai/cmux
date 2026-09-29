@@ -91,22 +91,6 @@ class Allowance:
 # spelling.
 ALLOWANCES = (
     Allowance(
-        "Packages/macOS/CmuxRemoteDaemon/Sources/CmuxRemoteDaemon/Client/RemoteDaemonRPCClient.swift",
-        "webSocketKeepaliveTimeoutWorkItem",
-        "DispatchWorkItem?",
-        "member:RemoteDaemonRPCClient",
-        1,
-        "state-queue-owned watchdog whose queued closure weakly captures the client",
-    ),
-    Allowance(
-        "Packages/macOS/CmuxRemoteDaemon/Sources/CmuxRemoteDaemon/Client/RemoteDaemonRPCClient.swift",
-        "transportKeepaliveTimeoutWorkItem",
-        "DispatchWorkItem?",
-        "member:RemoteDaemonRPCClient",
-        1,
-        "state-queue-owned watchdog whose queued closure weakly captures the client",
-    ),
-    Allowance(
         "CLI/cmux.swift",
         "keepaliveTimeoutWorkItem",
         "DispatchWorkItem?",

@@ -252,7 +252,6 @@ NIGHTLY_EVENTS = frozenset({"push", "schedule"})
 TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/auth-refresh-tests.yml",
-    ".github/workflows/cloud-machine-tests.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
     ".github/workflows/relay-tls.yml",
@@ -287,8 +286,7 @@ IDLE_POLL_SECONDS = 120
 WATCH_LIMIT_SECONDS = 60 * 60
 # An E2E test job queues after a sibling wait (up to 35 min) and a build.
 E2E_WATCH_LIMIT_SECONDS = 150 * 60
-# A side lane's macOS job is created at once, or after a Linux gate
-# (cloud-machine-tests), which can wait in a busy Linux queue; a watch that
+# A side lane's macOS job is created at once, or after a Linux gate, which can wait in a busy Linux queue; a watch that
 # ended before the job existed would leave it on the fleet unwatched.
 SIDE_WATCH_LIMIT_SECONDS = WATCH_LIMIT_SECONDS
 READ_ATTEMPTS = 3
@@ -824,7 +822,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
         if not on_persistent and target.side:
             # No picker: a job that asks for an owned label is the choice. A
-            # gated job (cloud-machine-tests) appears once its Linux gate ends.
+            # gated job appears once its Linux gate ends.
             if any(job_pool(job) for job in jobs):
                 on_persistent = True
                 log("a side-lane job asked for a persistent pool")
