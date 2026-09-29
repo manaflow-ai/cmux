@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CmuxMobileTerminalKit
 import GhosttyKit
 import UIKit
 
@@ -9,10 +10,22 @@ extension GhosttySurfaceView {
         _ surface: ghostty_surface_t,
         cols: Int,
         rows: Int,
-        cellPixelSize: CGSize
+        natural: ghostty_surface_size_s
     ) -> (requestedW: UInt32, requestedH: UInt32, actual: ghostty_surface_size_s) {
-        var requestedW = UInt32(max(1, Int((CGFloat(cols) * cellPixelSize.width).rounded(.down))))
-        var requestedH = UInt32(max(1, Int((CGFloat(rows) * cellPixelSize.height).rounded(.down))))
+        let requested = TerminalGridFit.requestedPixelSize(
+            columns: cols,
+            rows: rows,
+            natural: TerminalNaturalGridMeasurement(
+                columns: Int(natural.columns),
+                rows: Int(natural.rows),
+                widthPx: Int(natural.width_px),
+                heightPx: Int(natural.height_px),
+                cellWidthPx: Int(natural.cell_width_px),
+                cellHeightPx: Int(natural.cell_height_px)
+            )
+        )
+        var requestedW = UInt32(requested.width)
+        var requestedH = UInt32(requested.height)
 
         ghostty_surface_set_size(surface, requestedW, requestedH)
         var actual = ghostty_surface_size(surface)

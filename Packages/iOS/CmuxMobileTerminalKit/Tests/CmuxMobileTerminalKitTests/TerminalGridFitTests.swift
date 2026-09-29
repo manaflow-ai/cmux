@@ -54,6 +54,43 @@ import Testing
     }
 }
 
+/// libghostty's layout: padding comes off first, then whole cells.
+@Suite struct TerminalGridFitRequestedPixelSizeTests {
+    private func ghosttyGrid(widthPx: Int, heightPx: Int, padding: Int, cell: (Int, Int)) -> (Int, Int) {
+        ((widthPx - padding) / cell.0, (heightPx - padding) / cell.1)
+    }
+
+    private func natural(widthPx: Int, heightPx: Int, padding: Int, cell: (Int, Int)) -> TerminalNaturalGridMeasurement {
+        let grid = ghosttyGrid(widthPx: widthPx, heightPx: heightPx, padding: padding, cell: cell)
+        return TerminalNaturalGridMeasurement(
+            columns: grid.0, rows: grid.1, widthPx: widthPx, heightPx: heightPx,
+            cellWidthPx: cell.0, cellHeightPx: cell.1
+        )
+    }
+
+    /// The iPhone 17 surface from the e2e run: 1206×1641 px, 18×35 px cells,
+    /// 66×46 natural. A 120×40 fixed grid laid out 121 columns, so the apply
+    /// fence rejected every render-grid replay and the phone froze.
+    @Test(arguments: [0, 4, 10, 14])
+    func oversizeGridLandsOnTheExactGrid(padding: Int) {
+        let measured = natural(widthPx: 1206, heightPx: 1641, padding: padding, cell: (18, 35))
+        for (cols, rows) in [(120, 40), (175, 78), (105, 45), (66, 46), (200, 60)] {
+            let size = TerminalGridFit.requestedPixelSize(columns: cols, rows: rows, natural: measured)
+            let laidOut = ghosttyGrid(widthPx: size.width, heightPx: size.height, padding: padding, cell: (18, 35))
+            #expect(laidOut.0 == cols, "\(cols)x\(rows) padding \(padding)")
+            #expect(laidOut.1 == rows, "\(cols)x\(rows) padding \(padding)")
+        }
+    }
+
+    @Test func smallerGridLandsOnTheExactGrid() {
+        let measured = natural(widthPx: 1206, heightPx: 1641, padding: 10, cell: (18, 35))
+        let size = TerminalGridFit.requestedPixelSize(columns: 40, rows: 20, natural: measured)
+        let laidOut = ghosttyGrid(widthPx: size.width, heightPx: size.height, padding: 10, cell: (18, 35))
+        #expect(laidOut.0 == 40)
+        #expect(laidOut.1 == 20)
+    }
+}
+
 @Suite struct TerminalScaledGridLayoutTests {
     private let viewport = CGRect(x: 0, y: 100, width: 390, height: 600)
 

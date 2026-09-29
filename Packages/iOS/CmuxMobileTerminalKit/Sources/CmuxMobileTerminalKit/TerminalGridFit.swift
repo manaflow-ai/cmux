@@ -63,6 +63,56 @@ public struct TerminalGridFit {
     }
 }
 
+/// The surface's natural measurement, as libghostty reports it.
+public struct TerminalNaturalGridMeasurement: Equatable, Sendable {
+    /// Natural columns at the container size.
+    public var columns: Int
+    /// Natural rows at the container size.
+    public var rows: Int
+    /// Surface width in pixels, padding included.
+    public var widthPx: Int
+    /// Surface height in pixels, padding included.
+    public var heightPx: Int
+    /// One cell's width in pixels.
+    public var cellWidthPx: Int
+    /// One cell's height in pixels.
+    public var cellHeightPx: Int
+
+    /// Creates a measurement.
+    public init(columns: Int, rows: Int, widthPx: Int, heightPx: Int, cellWidthPx: Int, cellHeightPx: Int) {
+        self.columns = columns
+        self.rows = rows
+        self.widthPx = widthPx
+        self.heightPx = heightPx
+        self.cellWidthPx = cellWidthPx
+        self.cellHeightPx = cellHeightPx
+    }
+}
+
+extension TerminalGridFit {
+    /// The surface pixel size to request so libghostty lays out exactly
+    /// `columns` × `rows`.
+    ///
+    /// - Parameters:
+    ///   - columns: The shared grid's columns.
+    ///   - rows: The shared grid's rows.
+    ///   - natural: The surface's natural measurement at the container size.
+    /// - Returns: The requested width and height in pixels.
+    public static func requestedPixelSize(
+        columns: Int,
+        rows: Int,
+        natural: TerminalNaturalGridMeasurement
+    ) -> (width: Int, height: Int) {
+        guard natural.columns > 0, natural.rows > 0 else { return (1, 1) }
+        let cellWidth = CGFloat(natural.widthPx) / CGFloat(natural.columns)
+        let cellHeight = CGFloat(natural.heightPx) / CGFloat(natural.rows)
+        return (
+            max(1, Int((CGFloat(columns) * cellWidth).rounded(.down))),
+            max(1, Int((CGFloat(rows) * cellHeight).rounded(.down)))
+        )
+    }
+}
+
 /// Where a grid larger than the phone is displayed.
 ///
 /// At magnification 1 the grid is scaled so its width matches the viewport

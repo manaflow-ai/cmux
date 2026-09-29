@@ -5695,7 +5695,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     container: CGSize(width: containerW, height: containerH)
                 )
                 if mode != .natural {
-                    let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
+                    let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, natural: measured)
                     let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
                     let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
                     if mode == .scaledToFit {
