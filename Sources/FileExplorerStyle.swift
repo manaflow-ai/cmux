@@ -102,16 +102,6 @@ enum FileExplorerStyle: Int, CaseIterable {
         }
     }
 
-    var selectionColor: NSColor {
-        switch self {
-        case .liquidGlass: return .controlAccentColor.withAlphaComponent(0.15)
-        case .highDensity: return .selectedContentBackgroundColor
-        case .terminalStealth: return .controlAccentColor
-        case .proStudio: return .controlAccentColor
-        case .finder: return .controlAccentColor.withAlphaComponent(0.15)
-        }
-    }
-
     var hoverColor: NSColor {
         switch self {
         case .liquidGlass: return .labelColor.withAlphaComponent(0.05)
