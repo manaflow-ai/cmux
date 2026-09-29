@@ -447,18 +447,32 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         result["title"] = webView.title ?? panel.pageTitle
         // Page script is blocked while a dialog is open; answer from native state.
         guard !attachment.hasPendingDialog else { return result }
-        let metrics = await withTimeout(milliseconds: 2_000) { () -> [NSNumber]? in
+        let metrics = await withTimeout(milliseconds: 2_000) { () -> [Any]? in
             let value = try? await webView.callAsyncJavaScript(
-                "return [document.readyState === 'complete' ? 2 : document.readyState === 'interactive' ? 1 : 0, innerWidth, innerHeight];",
+                "return [document.readyState === 'complete' ? 2 : document.readyState === 'interactive' ? 1 : 0, innerWidth, innerHeight, location.href, document.title];",
                 arguments: [:],
                 in: nil,
                 contentWorld: BrowserReplAgentWorld.world
             )
-            return value as? [NSNumber]
+            return value as? [Any]
         } ?? nil
-        guard let metrics, metrics.count == 3 else { return result }
-        result["loadState"] = ["commit", "domcontentloaded", "load"][max(0, min(2, metrics[0].intValue))]
-        result["viewport"] = ["width": metrics[1].intValue, "height": metrics[2].intValue]
+        guard let metrics, metrics.count == 5,
+              let ready = metrics[0] as? NSNumber,
+              let width = metrics[1] as? NSNumber,
+              let height = metrics[2] as? NSNumber,
+              let href = metrics[3] as? String else { return result }
+        // The live document answers url, title and readyState (pushState
+        // included). While a new main-frame navigation has not committed,
+        // WKWebView.url already names the next page but the document is the
+        // old one; report "commit" so load-state waits hold until it lands.
+        let pendingURL = webView.isLoading ? webView.url?.absoluteString : nil
+        let navigationPending = pendingURL.map { $0 != href } ?? false
+        result["url"] = href
+        result["title"] = metrics[4] as? String ?? result["title"]
+        result["loadState"] = navigationPending
+            ? "commit"
+            : ["commit", "domcontentloaded", "load"][max(0, min(2, ready.intValue))]
+        result["viewport"] = ["width": width.intValue, "height": height.intValue]
         attachment.lastInfo = result
         return result
     }
