@@ -4333,6 +4333,29 @@ import Testing
             [.posixPermissions: 0o755],
             ofItemAtPath: fakeCLIURL.path
         )
+        // The copy keeps the bundled CLI's rpaths. Its bundle-relative one,
+        // @executable_path/../../Frameworks, is where the app ships the package
+        // frameworks the CLI was linked against. Without that directory, a copy
+        // run with a scrubbed environment (`env -i`) loads them from the
+        // machine-wide fallback rpath instead, which CI refills with whatever
+        // commit last ran on that Mac, and dyld aborts on any symbol newer than
+        // that commit. Link the fake bundle's Frameworks to the source app's.
+        let sourceFrameworksURL = URL(fileURLWithPath: sourceCLIPath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Frameworks", isDirectory: true)
+        let fakeFrameworksURL = binURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Frameworks", isDirectory: true)
+        if FileManager.default.fileExists(atPath: sourceFrameworksURL.path),
+           !FileManager.default.fileExists(atPath: fakeFrameworksURL.path) {
+            try FileManager.default.createSymbolicLink(
+                at: fakeFrameworksURL,
+                withDestinationURL: sourceFrameworksURL
+            )
+        }
         return fakeCLIURL.path
     }
 
