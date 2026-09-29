@@ -589,6 +589,87 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
             raise AssertionError(f"monitor exited before publishing transcript failure: {fake.frames!r}")
 
 
+def test_codex_monitor_rehomes_replayed_stop_after_surface_move(cli_path: str, root: Path) -> None:
+    """A terminal transcript must settle the pane that owns the session now."""
+    socket_path = root / "cmux-monitor-moved-replay.sock"
+    state_dir = root / "hook-state-moved-replay"
+    state_dir.mkdir()
+    transcript_path = root / "codex-session-moved-replay.jsonl"
+    turn_id = f"codex-monitor-moved-replay-turn-{os.getpid()}"
+    transcript_path.write_text(
+        "\n".join(
+            json.dumps(line)
+            for line in [
+                {"type": "event_msg", "payload": {"type": "task_started", "turn_id": turn_id}},
+                {"type": "event_msg", "payload": {"type": "turn_complete", "turn_id": turn_id, "last_agent_message": "Done"}},
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    moved_workspace_id = "44444444-4444-4444-4444-444444444444"
+    moved_surface_id = "55555555-5555-5555-5555-555555555555"
+    session_id = f"codex-monitor-moved-replay-session-{os.getpid()}"
+    env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+    env["CMUX_CODEX_TURN_LEDGER_PATH"] = str(state_dir / "turn-ledger.json")
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surfaces_by_workspace={
+            FAKE_WORKSPACE_ID: [{"id": FAKE_SURFACE_ID}],
+            moved_workspace_id: [{"id": moved_surface_id}],
+        },
+        surface_delivery_target=(moved_workspace_id, moved_surface_id),
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "codex",
+                "monitor",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+                "--session",
+                session_id,
+                "--turn",
+                turn_id,
+                "--transcript",
+                str(transcript_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"hooks codex monitor failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        raw_commands = [frame.get("raw", "") for frame in fake.frames]
+        moved_status = [
+            command
+            for command in raw_commands
+            if command.startswith("set_status codex ") and f"--tab={moved_workspace_id}" in command
+            and f"--panel={moved_surface_id}" in command
+        ]
+        if not moved_status:
+            raise AssertionError(
+                "replayed Stop stayed pinned to the original pane; "
+                f"commands={raw_commands!r}"
+            )
+
+
 def run_feed_hook_optional_frame(
     cli_path: str,
     socket_path: Path,
@@ -4024,6 +4105,7 @@ def main() -> int:
             test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
+            test_codex_monitor_rehomes_replayed_stop_after_surface_move(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
             test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path, root)
