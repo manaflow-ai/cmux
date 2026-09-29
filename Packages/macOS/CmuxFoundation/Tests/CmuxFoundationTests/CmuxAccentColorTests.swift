@@ -77,6 +77,23 @@ import Testing
         #expect(observer.refresh() == false)
     }
 
+    @Test func settingsFileValueRoundTripsEveryMode() throws {
+        #expect(CmuxAccentColorMode.settingsFileValue(mode: .cmux, customHex: "#FF6A00") == "cmux")
+        #expect(CmuxAccentColorMode.settingsFileValue(mode: .system, customHex: nil) == "system")
+        #expect(CmuxAccentColorMode.settingsFileValue(mode: .custom, customHex: "ff6a00") == "#FF6A00")
+        #expect(CmuxAccentColorMode.settingsFileValue(mode: .custom, customHex: nil) == nil)
+
+        for (mode, hex) in [(CmuxAccentColorMode.cmux, nil), (.system, nil), (.custom, "#FF6A00")] as [(CmuxAccentColorMode, String?)] {
+            let value = try #require(CmuxAccentColorMode.settingsFileValue(mode: mode, customHex: hex))
+            let parsed = try #require(CmuxAccentColorMode.parseSettingsFileValue(value))
+            #expect(parsed.mode == mode)
+            #expect(parsed.customHex == hex)
+        }
+        for invalid in ["custom", "purple", "#FF6A", "#FF6A00AA", ""] {
+            #expect(CmuxAccentColorMode.parseSettingsFileValue(invalid) == nil)
+        }
+    }
+
     @Test func appearanceResolvesToMatchingScheme() throws {
         let dark = try #require(NSAppearance(named: .darkAqua))
         let aqua = try #require(NSAppearance(named: .aqua))
