@@ -225,7 +225,7 @@ names no owned pool.
 | `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |
 | `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 12, "glaeda-light-xcode-26.6": 2}`. A class (`{"std": 12, "light": 2}`) or a bare count (`12`, the std class) means that class at the lane's Xcode pin |
 | `CI_OWNED_MAIN_RESERVE` | `0` | machines, and root runners, main's full-suite dispatch leaves free for pull requests; above 0 it takes an owned pool only whole (below) |
-| `GLAEDA_ROUTE_APP_ID` + secret `GLAEDA_ROUTE_APP_KEY` | unset (snapshot only) | the org's `manaflow-glaeda-route` App. `ci.yml`'s `changes` job mints a token with `administration: read` for same-repository pull requests and main's full-suite dispatch only, on its ephemeral Linux runner, and the picker lists the repository's runners: the online runners carrying an owned label are that pool's capacity, and the idle ones its free runners, less what runs of the last `LIVE_WINDOW_MINUTES` took. That replaces the counts of `CI_OWNED_POOL_SLOTS` (which still turns a pool's root routing on) and the snapshot's owned counts and age. Any failure falls back to them |
+| `GLAEDA_ROUTE_APP_ID` + secret `GLAEDA_ROUTE_APP_KEY` | unset (snapshot only) | the org's `manaflow-glaeda-route` App. `ci.yml`'s `changes` job mints a token with `administration: read` for same-repository pull requests and main's full-suite dispatch only, on its ephemeral Linux runner, and the picker lists the repository's runners: the online runners carrying an owned label are that pool's capacity, and the idle ones its free runners, less what runs of the last `LIVE_WINDOW_MINUTES` took. That replaces `CI_OWNED_POOL_SLOTS` and the snapshot's owned counts and age: capacity, and which labels route (a pool's root, gui and side labels route while an online runner carries them, `routing_slots()`). Any failure falls back to them |
 | `CI_OWNED_LIGHT_RETRY` | unset (off) | `1` lets attempt 2, the full re-run the rescue starts for a job stuck on a full `std` pool, take the `light` pool when the run's whole owned peak is free there and `github-actions[bot]` started the re-run (a person's re-run of attempt 2 stays on Blacksmith). The rescue watches that attempt like attempt 1, and a job stuck or refused there goes to Blacksmith on attempt 3. Only while it is on do the janitor and the picker look up attempt 2's marker. Order: std, light, Blacksmith |
 
 Main's full suite: `ci-main-full-suite.yml` dispatches `ci.yml` on main about
@@ -259,8 +259,9 @@ A class has `canonicalRoots` roots per mini (two on a std mini, root-1 and
 root-2), and a compile takes any free one. The first `canonicalRoots`
 runners of each mini are its root runners and carry
 `glaeda-root-<class>-xcode-<version>`; the others are its side runners and
-carry `glaeda-side-<class>-xcode-<version>`. A root count in
-`CI_OWNED_POOL_SLOTS` (`"root-std": 10`, or the full root label) sends those
+carry `glaeda-side-<class>-xcode-<version>`. An online runner carrying the
+root label (or, when the runners cannot be read, a root count in
+`CI_OWNED_POOL_SLOTS`: `"root-std": 10`, or the full root label) sends those
 jobs to the root label, where they wait for a free root instead of being
 refused, and the picker places no more of them than the root runners free.
 The janitor counts a root job toward the root label and its pool. Without a
@@ -505,8 +506,9 @@ pick is an owned pool, one side lane per light side runner
 (`macos_pr_light_side_runner`, for the lanes in `macos_pr_light_side_jobs`),
 and the picked pool counts the rest beside admission and what follows it
 (`pr_runner_pool.light_side_lanes()`). The other lanes take the picked
-pool's side label as before. Giving the light pool no machines beyond its
-root runners in `CI_OWNED_POOL_SLOTS` turns this off.
+pool's side label as before. It reads the runners live, so a light pool
+with no side runner idle takes none; `CI_OWNED_POOL_SLOTS` no longer turns it
+off.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
