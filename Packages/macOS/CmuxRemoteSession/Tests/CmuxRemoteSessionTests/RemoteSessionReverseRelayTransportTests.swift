@@ -10,9 +10,12 @@ struct RemoteSessionReverseRelayTransportTests {
     func sharedControlMasterIsPreferred() async throws {
         let runner = RecordingProcessRunner()
         let launcher = RecordingReverseRelayLauncher()
+        let identity = ResolvedControlPathFixture.uniqueIdentity()
         let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
             runner: runner,
-            reverseRelayLauncher: launcher
+            reverseRelayLauncher: launcher,
+            identity: identity,
+            sshOptions: ["ControlPath=\(identity.controlPath)"]
         )
         let coordinator = fixture.coordinator
         defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
