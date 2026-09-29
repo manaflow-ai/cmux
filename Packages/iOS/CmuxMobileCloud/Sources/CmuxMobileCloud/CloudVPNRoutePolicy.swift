@@ -8,6 +8,7 @@ import Network
 /// edited preference can turn the VPN into a full tunnel. The extension
 /// compiles this file directly, so it depends on nothing else in the package.
 public struct CloudVPNRoutePolicy: Sendable {
+    /// Creates the stateless route validator.
     public init() {}
 
     /// Whether `cidr` lies entirely inside a private range: RFC 1918,

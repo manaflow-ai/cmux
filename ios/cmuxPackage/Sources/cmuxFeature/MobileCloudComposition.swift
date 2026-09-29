@@ -69,7 +69,10 @@ struct MobileCloudComposition {
             deviceName: UIDevice.current.name,
             credentials: {
                 try? await coordinator.coherentTokenPair()
-            }
+            },
+            pendingRevocationStore: UserDefaultsCloudSystemVPNPendingRevocationStore(
+                defaults: .standard
+            )
         )
     }
 

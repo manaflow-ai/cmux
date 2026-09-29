@@ -1,151 +1,8 @@
-import Foundation
 import Testing
 @testable import CmuxMobileCloud
 
-/// Scripted Network Extension boundary.
-@MainActor
-final class FakeSystemVPNManager: CloudSystemVPNManaging {
-    var isAvailable = true
-    var phase: CloudSystemVPNPhase = .off
-    var onPhaseChange: (@MainActor (CloudSystemVPNPhase) -> Void)?
-    var installed: [(configuration: String, scope: String)] = []
-    var stops: [Bool] = []
-    var refreshedScopes: [String] = []
-    var installFailure: CloudSystemVPNError?
-    var installDelay: Duration?
-    var stopFailuresRemaining = 0
-    var stopAttempts: [Bool] = []
-    private var installDelayTask: Task<Void, Never>?
-    private var installWasCancelled = false
-    private let installCompletion = TestSignal()
-    private let cancellation = TestSignal()
-    private let stopCompletion = TestSignal()
-    private(set) var cancelPendingOperationCount = 0
-    private(set) var activeOperations = 0
-    private(set) var maxConcurrentOperations = 0
-    /// The phase iOS reports once a start is requested.
-    var phaseAfterStart: CloudSystemVPNPhase = .connecting
-    /// The phase iOS reports after a stop request.
-    var phaseAfterStop: CloudSystemVPNPhase = .off
-
-    func refresh(scope: String) async throws {
-        beginOperation()
-        defer { endOperation() }
-        refreshedScopes.append(scope)
-    }
-
-    func installAndStart(configuration: String, scope: String) async throws {
-        beginOperation()
-        defer { endOperation() }
-        installWasCancelled = false
-        if let installFailure { throw installFailure }
-        if let installDelay {
-            let delayTask = Task<Void, Never> {
-                do {
-                    try await ContinuousClock().sleep(for: installDelay)
-                } catch {
-                }
-            }
-            installDelayTask = delayTask
-            defer { installDelayTask = nil }
-            await delayTask.value
-            guard !installWasCancelled else { throw CancellationError() }
-            try Task.checkCancellation()
-        }
-        installed.append((configuration, scope))
-        await installCompletion.signal()
-        phase = phaseAfterStart
-        onPhaseChange?(phase)
-    }
-
-    func cancelPendingOperation() {
-        cancelPendingOperationCount += 1
-        installWasCancelled = true
-        installDelayTask?.cancel()
-        installDelay = nil
-        phase = .off
-        Task { await cancellation.signal() }
-    }
-
-    func stop(removeConfiguration: Bool) async throws {
-        beginOperation()
-        defer { endOperation() }
-        stopAttempts.append(removeConfiguration)
-        if stopFailuresRemaining > 0 {
-            stopFailuresRemaining -= 1
-            throw CloudSystemVPNError.configuration
-        }
-        stops.append(removeConfiguration)
-        await stopCompletion.signal()
-        phase = phaseAfterStop
-    }
-
-    func waitForInstallCompletion() async {
-        await installCompletion.wait()
-    }
-
-    func waitForCancellation() async {
-        await cancellation.wait()
-    }
-
-    func waitForStopCompletion() async {
-        await stopCompletion.wait()
-    }
-
-    private func beginOperation() {
-        activeOperations += 1
-        maxConcurrentOperations = max(maxConcurrentOperations, activeOperations)
-    }
-
-    private func endOperation() {
-        activeOperations -= 1
-    }
-
-    /// Simulates iOS reporting a status change on its own.
-    func report(_ phase: CloudSystemVPNPhase) {
-        self.phase = phase
-        onPhaseChange?(phase)
-    }
-}
-
 @MainActor
 @Suite struct CloudSystemVPNTests {
-    private struct Rig {
-        let service = FakeCloudVMService()
-        let store = InMemoryCloudDeviceIdentityStore()
-        let manager = FakeSystemVPNManager()
-        let controller: CloudSystemVPNController
-
-        @MainActor init(
-            operationTimeout: Duration = .seconds(30),
-            cleanupRetryCount: Int = 3,
-            credentials: @escaping @Sendable () async -> CloudAPITokenSource.TokenPair? = { nil }
-        ) {
-            controller = CloudSystemVPNController(
-                service: service,
-                identityStore: store,
-                manager: manager,
-                deviceName: "Aziz's iPhone",
-                operationTimeout: operationTimeout,
-                cleanupRetryCount: cleanupRetryCount,
-                credentials: credentials
-            )
-        }
-
-        @MainActor
-        func waitForPhase(_ expected: CloudSystemVPNPhase) async {
-            while controller.phase != expected {
-                await withCheckedContinuation { continuation in
-                    withObservationTracking {
-                        _ = controller.phase
-                    } onChange: {
-                        continuation.resume()
-                    }
-                }
-            }
-        }
-    }
-
     private func signedIn(_ rig: Rig, scope: String = "user-1/team-1") async {
         rig.controller.setScope(scope)
         await rig.controller.waitForPendingOperation()
@@ -291,6 +148,29 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.service.calls.revoke.count == 1)
         #expect(rig.service.calls.revoke.first?.fingerprint == "ios-abc")
         #expect(rig.service.calls.revoke.first?.purpose == .browser)
+    }
+
+    @Test func failedSignOutRevocationIsRetriedAfterControllerRecreation() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        let first = Rig(cleanupRetryCount: 1, pendingRevocationStore: pendingStore)
+        await signedIn(first)
+        first.controller.enable()
+        await first.controller.waitForPendingOperation()
+        first.service.revocationFailure = StubError(message: "offline")
+
+        let teardown = first.controller.serverTeardown()
+        first.controller.setScope(nil)
+        await first.controller.waitForPendingOperation()
+        await teardown("captured-access", "captured-refresh")
+
+        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
+
+        let second = Rig(pendingRevocationStore: pendingStore)
+        await signedIn(second)
+
+        #expect(second.service.calls.revoke.count == 1)
+        #expect(second.service.calls.revoke.first?.fingerprint == "ios-abc")
+        #expect(await pendingStore.load(scope: "user-1/team-1").isEmpty)
     }
 
     @Test func aTimedOutInstallCanBeReplacedAfterPlatformCancellation() async {

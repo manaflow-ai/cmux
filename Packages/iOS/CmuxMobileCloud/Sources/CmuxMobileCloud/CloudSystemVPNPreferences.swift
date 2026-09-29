@@ -7,7 +7,9 @@ import OSLog
 /// live connection status are authoritative; this only mirrors them.
 @MainActor
 public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
+    /// The latest status reported by Network Extension.
     public private(set) var phase: CloudSystemVPNPhase = .off
+    /// Receives status changes reported outside an awaited controller operation.
     public var onPhaseChange: (@MainActor (CloudSystemVPNPhase) -> Void)?
 
     private let providerBundleIdentifier: String
@@ -36,6 +38,7 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
 
     isolated deinit { observation?.cancel() }
 
+    /// Whether this build can install a packet tunnel.
     public var isAvailable: Bool {
         #if targetEnvironment(simulator)
         false
@@ -44,6 +47,7 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
         #endif
     }
 
+    /// Loads the saved profile for `scope` and mirrors its live status.
     public func refresh(scope: String) async throws {
         let existing = try await load()
         manager = existing
@@ -54,6 +58,7 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
         publishStatus()
     }
 
+    /// Saves and starts a private Cloud VPN configuration.
     public func installAndStart(configuration: String, scope: String) async throws {
         guard isAvailable else { throw CloudSystemVPNError.unavailable }
         do {
@@ -102,6 +107,8 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
         manager?.connection.stopVPNTunnel()
     }
 
+    /// Stops the tunnel, optionally deleting its saved profile and Keychain
+    /// configuration.
     public func stop(removeConfiguration: Bool) async throws {
         if manager == nil {
             do {

@@ -3,10 +3,6 @@ import Foundation
 /// Bounds a single Cloud system VPN operation and cancels the underlying task
 /// when the caller or the deadline wins.
 struct CloudSystemVPNTaskTimeout: Sendable {
-    enum Failure: Error, Sendable, Equatable {
-        case timedOut
-    }
-
     let timeout: Duration
 
     func value<T: Sendable>(_ task: Task<T, any Error>) async throws -> T {
@@ -54,44 +50,4 @@ struct CloudSystemVPNTaskTimeout: Sendable {
         })
     }
 
-    private actor Race {
-        private var hasWinner = false
-
-        func win() -> Bool {
-            guard !hasWinner else { return false }
-            hasWinner = true
-            return true
-        }
-    }
-
-    private actor Cancellation<T: Sendable> {
-        private var continuation: AsyncThrowingStream<T, any Error>.Continuation?
-        private var isCancelled = false
-
-        func install(
-            _ continuation: AsyncThrowingStream<T, any Error>.Continuation,
-            race: Race
-        ) {
-            self.continuation = continuation
-            if isCancelled {
-                finishCancellation(continuation, race: race)
-            }
-        }
-
-        func cancel(race: Race) {
-            isCancelled = true
-            guard let continuation else { return }
-            finishCancellation(continuation, race: race)
-        }
-
-        private func finishCancellation(
-            _ continuation: AsyncThrowingStream<T, any Error>.Continuation,
-            race: Race
-        ) {
-            Task {
-                guard await race.win() else { return }
-                continuation.finish(throwing: CancellationError())
-            }
-        }
-    }
 }

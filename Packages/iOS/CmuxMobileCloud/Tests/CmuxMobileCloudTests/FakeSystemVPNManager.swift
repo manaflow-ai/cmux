@@ -1,0 +1,108 @@
+import Foundation
+@testable import CmuxMobileCloud
+
+/// Scripted Network Extension boundary.
+@MainActor
+final class FakeSystemVPNManager: CloudSystemVPNManaging {
+    var isAvailable = true
+    var phase: CloudSystemVPNPhase = .off
+    var onPhaseChange: (@MainActor (CloudSystemVPNPhase) -> Void)?
+    var installed: [(configuration: String, scope: String)] = []
+    var stops: [Bool] = []
+    var refreshedScopes: [String] = []
+    var installFailure: CloudSystemVPNError?
+    var installDelay: Duration?
+    var stopFailuresRemaining = 0
+    var stopAttempts: [Bool] = []
+    private var installDelayTask: Task<Void, Never>?
+    private var installWasCancelled = false
+    private let installCompletion = TestSignal()
+    private let cancellation = TestSignal()
+    private let stopCompletion = TestSignal()
+    private(set) var cancelPendingOperationCount = 0
+    private(set) var activeOperations = 0
+    private(set) var maxConcurrentOperations = 0
+    /// The phase iOS reports once a start is requested.
+    var phaseAfterStart: CloudSystemVPNPhase = .connecting
+    /// The phase iOS reports after a stop request.
+    var phaseAfterStop: CloudSystemVPNPhase = .off
+
+    func refresh(scope: String) async throws {
+        beginOperation()
+        defer { endOperation() }
+        refreshedScopes.append(scope)
+    }
+
+    func installAndStart(configuration: String, scope: String) async throws {
+        beginOperation()
+        defer { endOperation() }
+        installWasCancelled = false
+        if let installFailure { throw installFailure }
+        if let installDelay {
+            let delayTask = Task<Void, Never> {
+                do {
+                    try await ContinuousClock().sleep(for: installDelay)
+                } catch {
+                }
+            }
+            installDelayTask = delayTask
+            defer { installDelayTask = nil }
+            await delayTask.value
+            guard !installWasCancelled else { throw CancellationError() }
+            try Task.checkCancellation()
+        }
+        installed.append((configuration, scope))
+        await installCompletion.signal()
+        phase = phaseAfterStart
+        onPhaseChange?(phase)
+    }
+
+    func cancelPendingOperation() {
+        cancelPendingOperationCount += 1
+        installWasCancelled = true
+        installDelayTask?.cancel()
+        installDelay = nil
+        phase = .off
+        Task { await cancellation.signal() }
+    }
+
+    func stop(removeConfiguration: Bool) async throws {
+        beginOperation()
+        defer { endOperation() }
+        stopAttempts.append(removeConfiguration)
+        if stopFailuresRemaining > 0 {
+            stopFailuresRemaining -= 1
+            throw CloudSystemVPNError.configuration
+        }
+        stops.append(removeConfiguration)
+        await stopCompletion.signal()
+        phase = phaseAfterStop
+    }
+
+    func waitForInstallCompletion() async {
+        await installCompletion.wait()
+    }
+
+    func waitForCancellation() async {
+        await cancellation.wait()
+    }
+
+    func waitForStopCompletion() async {
+        await stopCompletion.wait()
+    }
+
+    private func beginOperation() {
+        activeOperations += 1
+        maxConcurrentOperations = max(maxConcurrentOperations, activeOperations)
+    }
+
+    private func endOperation() {
+        activeOperations -= 1
+    }
+
+    /// Simulates iOS reporting a status change on its own.
+    func report(_ phase: CloudSystemVPNPhase) {
+        self.phase = phase
+        onPhaseChange?(phase)
+    }
+}
