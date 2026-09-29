@@ -236,23 +236,38 @@ public final class AcpmuxChatSessionModel {
     // MARK: - Actions
 
     /// Sends a prompt. While a turn runs the prompt queues until the turn ends.
-    public func send(_ text: String) {
+    ///
+    /// - Returns: The transcript row id of the local echo when one was shown immediately,
+    ///   so a view can animate the composer text into it; `nil` when the prompt queued or
+    ///   a session must be created first.
+    @discardableResult
+    public func send(_ text: String) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        Task { [weak self] in await self?.sendPrompt(trimmed) }
+        guard !trimmed.isEmpty else { return nil }
+        let promptId = UUID().uuidString.lowercased()
+        let echoNow = sessionId != nil && api != nil && !isWorking
+        if echoNow { addLocalEcho(promptId: promptId, text: trimmed) }
+        Task { [weak self] in await self?.sendPrompt(trimmed, promptId: promptId, echoed: echoNow) }
+        return echoNow ? TranscriptReducer.userRowID(promptId: promptId, seq: 0) : nil
     }
 
-    private func sendPrompt(_ text: String) async {
+    /// The harness used when a prompt creates a new session.
+    public var newSessionHarness: String?
+
+    private func addLocalEcho(promptId: String, text: String) {
+        reducer.addPendingUserMessage(promptId: promptId, text: text, at: Int64(now().timeIntervalSince1970 * 1000))
+        transcriptDidChange()
+    }
+
+    private func sendPrompt(_ text: String, promptId: String, echoed: Bool) async {
+        var echoed = echoed
         if sessionId == nil {
-            guard await createSession(harness: catalog.defaultHarness) != nil else { return }
+            guard await createSession(harness: newSessionHarness ?? catalog.defaultHarness) != nil else { return }
+            addLocalEcho(promptId: promptId, text: text)
+            echoed = true
         }
         guard let api, let sessionId else { return }
-        let promptId = UUID().uuidString.lowercased()
-        let queueBehindTurn = isWorking
-        if !queueBehindTurn {
-            reducer.addPendingUserMessage(promptId: promptId, text: text, at: Int64(now().timeIntervalSince1970 * 1000))
-            transcriptDidChange()
-        }
+        let queueBehindTurn = !echoed
         do {
             _ = try await api.prompt(
                 sessionId: sessionId,

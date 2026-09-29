@@ -16,8 +16,8 @@ public struct AcpmuxDaemonLauncher: Sendable {
     /// - Parameters:
     ///   - userHome: The user's home directory, for the default daemon home.
     ///   - baseEnvironment: The environment the daemon inherits.
-    ///   - readinessTimeout: Wait bound; 10 s covers a cold start that imports the login shell environment.
-    public init(userHome: URL, baseEnvironment: [String: String], readinessTimeout: Duration = .seconds(10)) {
+    ///   - readinessTimeout: Wait bound. A cold daemon imports the login shell environment before it binds its socket, which took about a minute with a heavy zsh profile.
+    public init(userHome: URL, baseEnvironment: [String: String], readinessTimeout: Duration = .seconds(90)) {
         self.userHome = userHome
         self.baseEnvironment = baseEnvironment
         self.readinessTimeout = readinessTimeout
