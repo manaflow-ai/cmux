@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { assertTeamEntitlement, memberAllowedAtUse, TeamUpgradeRequiredError } from "../services/teams/entitlementPolicy";
+import { assertTeamEntitlement, memberAllowedAtUse, resolveTeamOwnerPlan, TeamUpgradeRequiredError } from "../services/teams/entitlementPolicy";
 
 describe("team entitlement policy", () => {
   test("uses owner's Pro plan and counts pending invites", () => {
+    expect(resolveTeamOwnerPlan({ ownerPlanId: "pro", inviterPlanId: "team" })).toBe("pro");
     expect(() => assertTeamEntitlement({ ownerPlanId: "pro", memberCount: 1, pendingInviteCount: 3, additionalInviteCount: 1 })).toThrow(TeamUpgradeRequiredError);
     expect(() => assertTeamEntitlement({ ownerPlanId: "free", memberCount: 1, pendingInviteCount: 99, additionalInviteCount: 1 })).not.toThrow();
   });
